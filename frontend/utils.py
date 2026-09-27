@@ -941,6 +941,73 @@ def _mlb_retention_window(days: int = 10) -> set[str]:
         return set()
 
 
+def _served_date_retention_window(board_dates, history_dates=(),
+                                  days: int = 10) -> set[str]:
+    """The ROLLING RETENTION WINDOW for the sports whose board is not
+    same-day (NBA, NHL): anchored on the newest date the board can SERVE
+    rather than on today.
+
+    The anchor is the one place these boards cannot copy MLB verbatim, and it is
+    not a preference - it is what the published data does. MLB's boards are
+    same-day slates, so "today" and "the newest board" are the same day and the
+    two conventions cannot disagree. The NBA and NHL runs publish the slate they
+    are ABOUT TO PLAY.
+
+    - NBA, measured on the deployed branch at 2026-09-26: the moneyline is
+      ``slate_date 2026-10-20`` (24 days ahead) while the newest played game in
+      the retained history is ``2026-06-13`` (105 days behind), because the
+      season does not exist between them.
+    - NHL, measured on the deployed branch at 2026-09-26: the moneyline slate is
+      ``2026-09-29`` (3 days ahead) while the newest decided game in the
+      retained history is ``2026-06-14`` (104 days behind) - the season is over
+      and the October slate has not opened.
+
+    A today-anchored window would hold neither, and the board would render empty
+    for the whole offseason and pre-season - a functional change to a page that
+    is supposed to keep working.
+
+    Anchoring on the newest served date is MLB's own rule read precisely: MLB
+    keeps "the run's anchor date and the 10 days before it", and for MLB the
+    run's anchor IS the newest slate, so newest-served == anchor. The identity
+    holds for the NBA too, and it buys a guarantee MLB's version does not spell
+    out: the newest date is inside its own window by construction, so the
+    truncation can never empty the board it is applied to.
+
+    The production slate wins the anchor over history on purpose. If a run ever
+    published history for a date past its own slate, anchoring on the raw
+    maximum would push the slate out of the window and land the board on an
+    archive card - the exact failure this exists to prevent.
+
+    Returns an empty set when there is nothing to anchor on; callers must
+    treat that as "no filter", the same contract as the MLB window.
+    """
+    def _parse(values) -> list[str]:
+        out = []
+        for value in values or ():
+            text = str(value)
+            if len(text) != 8 or not text.isdigit():
+                continue
+            try:
+                datetime.strptime(text, "%Y%m%d")
+            except ValueError:
+                continue
+            out.append(text)
+        return out
+
+    anchor_pool = _parse(board_dates) or _parse(history_dates)
+    if not anchor_pool:
+        return set()
+    base = datetime.strptime(max(anchor_pool), "%Y%m%d").date()
+    return {(base - timedelta(days=i)).strftime("%Y%m%d")
+            for i in range(days + 1)}
+
+
+# The NBA window was the first implementation and is still referenced by name
+# from the NBA test module; the sport-neutral name is the same function. Kept
+# as an explicit alias so nothing that pins the old name breaks.
+_nba_retention_window = _served_date_retention_window
+
+
 def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
                       nfl_frame: pd.DataFrame, history_dates=()) -> list[str]:
     """Pure per-sport valid-date derivation (testable without Streamlit/net).
@@ -952,12 +1019,31 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     WINDOW (today ET .. today−10; retention_policy.py rev 2 anchors the
     backend on the same ET day). Historical dates are never offered, so the
     calendar, date rail, prev/next stepping and the board render gate all
-    expose exactly the rolling window. NFL/NHL: distinct ``game_date`` from
-    the moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
+    expose exactly the rolling window. NFL: distinct ``game_date`` from
+    the moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful).
+
+    NBA/NHL: same two sources (the current moneyline slate + the retained
+    prediction history), bounded to their own rolling 10-day window — anchored
+    on the newest served date, not on today, because both publish a future
+    slate. That bound is the whole of it: the board's own render gate already
+    refuses a date outside ``valid``, so a date that is no longer served can
+    never reach a card by any path, and in particular can no longer be served
+    as an OOF-rebuilt archive card for a date whose published prediction has
+    aged out. For the NHL this is also the retention-policy parity ask: MLB
+    bounds its offered dates to the 10-day window, and the NHL's retained
+    ``nhl_predictions_history_*`` spans the whole decided population
+    (2024-11-05 .. 2026-06-14 as of 2026-09-26), so without the bound the date
+    rail offered 321 OOF dates and every one of them could be rendered as an
+    OOF-rebuilt card."""
     s = normalize_sport_key(sport_key)
     if s in ("nfl", "nhl", "nba"):
         dates = set(_distinct_game_dates(nfl_frame))
         dates.update(history_dates or ())
+        if s in ("nba", "nhl"):
+            window = _served_date_retention_window(
+                _distinct_game_dates(nfl_frame), dates)
+            if window:
+                dates &= window
         return sorted(dates, reverse=True)
     dates = set(contents_dates or ())
     dates.update(history_dates or ())
@@ -2887,6 +2973,8 @@ NFL_FEATURE_DESCRIPTIONS = {
     "ewm_net_pts_diff": "Home−away net points/game, exponentially weighted (recent form)",
     "ewm_ypp_diff": "Home−away yards/play, exponentially weighted (recent form)",
     "pace_plays_min_diff": "Home−away plays per minute (pace of play)",
+    "pace_plays_min_home": "Home team's trailing plays per minute (pace level)",
+    "pace_plays_min_away": "Away team's trailing plays per minute (pace level)",
     "rest_short_diff": "Short-rest edge: home on <7 days rest − away flag",
     "div_game": "1 for division matchups (familiarity/rivalry factor)",
     "travel_miles_diff": "Home−away stadium distance in miles (travel fatigue)",
@@ -3455,7 +3543,15 @@ def nba_moneyline_to_frame(data) -> pd.DataFrame:
             "home_win_prob_model": ph, "away_win_prob_model": None if ph is None else 1 - ph,
             "home_record": record.get("home_record"), "away_record": record.get("away_record"),
             "edge_home": _nl(record.get("edge_home")), "edge_away": _nl(record.get("edge_away")),
-            "start_time_utc": _repair_start_iso(record.get("start_time_utc")) or (f"{game_date}T00:00:00Z" if game_date else ""),
+            # Never fabricate a tipoff.  ``game_date`` is an Eastern *board*
+            # date, so a missing kickoff defaulted to midnight UTC rendered as
+            # 7:00 PM ET the previous evening - a plausible-looking time on
+            # every game that had none, which is how a board of unslotted
+            # games came to show a confident, wrong start.  The NHL adapter
+            # passes ``None`` for the same reason, and the MLB card already
+            # renders "PREGAME" when the start is unknown; both consumers here
+            # (``_is_evening_start``, the card) treat an absent time as absent.
+            "start_time_utc": _repair_start_iso(record.get("start_time_utc")) or None,
             "venue": record.get("venue") or record.get("arena") or "",
             "model_pick": pick or "", "home_score": hs, "away_score": as_,
             "game_status": status, "game_date": game_date,

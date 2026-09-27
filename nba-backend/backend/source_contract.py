@@ -55,6 +55,16 @@ GAMES_SCHEMA: dict[str, str] = {
     # nobody has played: no player lines, no play-by-play, and no reason for
     # the feature code to pretend otherwise.
     "nba_game_id": "str", "is_final": "bool",
+    # Presentation facts a card needs to be readable, and which the schedule
+    # source has always published. They are optional and never features: the
+    # moneyline feature set is named explicitly in ``config``, so declaring
+    # them here cannot widen the model. Declared rather than merely passed
+    # through because ``normalize`` projects to this schema, so an undeclared
+    # column is silently dropped - which is exactly how a delivered artifact
+    # ends up carrying an empty ``start_time_utc`` column and a card that
+    # shows no tipoff.
+    "start_time_utc": "str", "venue": "str",
+    "game_state": "str", "game_status_detail": "str",
 }
 # ``season`` is derivable from the tipoff, so a source is not required to
 # supply it. Everything here has to arrive from the source: a games frame

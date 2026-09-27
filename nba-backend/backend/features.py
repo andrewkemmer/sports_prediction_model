@@ -11,8 +11,10 @@ import pandas as pd
 
 try:
     from backend import config
+    from backend import nba_sources as sources
 except ImportError:
     import config
+    import nba_sources as sources
 
 REQUIRED_GAME_COLS = [
     "game_id", "season", "gameday", "home_team", "away_team",
@@ -472,6 +474,18 @@ def build_slate_features(schedule: pd.DataFrame,
         sched[col] = pd.to_numeric(sched[col], errors="coerce")
     decided = sched[sched.home_score.notna() & sched.away_score.notna()].copy()
     pending = sched[sched.home_score.isna() | sched.away_score.isna()].copy()
+    # A postponed game is neither decided nor upcoming, and MLB's decided-frame
+    # rule says so in one line: "postponements and pregame rows are excluded."
+    # Left in ``pending`` it is indistinguishable from a real upcoming game, so
+    # a slate fills with games nobody is going to play and the board stops
+    # showing tonight. When ESPN reschedules it the event keeps its id and
+    # moves to the new date, so it re-enters here on the day it is played.
+    if "game_status_detail" in pending.columns and len(pending):
+        detail = pending.game_status_detail.astype(str).str.lower()
+        postponed = detail.map(sources.is_postponed_detail)
+        if postponed.any():
+            sched = sched[~(sched.index.isin(pending.index[postponed]))].copy()
+            pending = pending[~postponed].copy()
     if pending.empty:
         return pd.DataFrame()
     decided_events = team_events(decided) if len(decided) else pd.DataFrame()

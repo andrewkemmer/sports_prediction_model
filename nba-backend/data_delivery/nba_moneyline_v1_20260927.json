@@ -1,0 +1,31 @@
+{
+ "created_utc": "2026-09-27T15:49:10.142334+00:00",
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.0-events",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 59310,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 300829,
+  "event_rows": 1202
+ },
+ "slate_date": null,
+ "n_games": 0,
+ "games": []
+}

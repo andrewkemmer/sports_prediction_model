@@ -25,7 +25,7 @@ companies: no single NBA vendor has both.
 | Frame | Upstream | Why that one |
 |---|---|---|
 | schedule, sides, results | **ESPN scoreboard** | the only one that can report a game nobody has played yet, which is what a pending slate *is*. stats.nba.com reports no future games. |
-| features (box score, player lines) | **stats.nba.com `LeagueGameLog`** | one request per season returns every player line of that season — 26,306 rows for 2024-25. No per-game API reaches the same data in fewer requests, because a per-game API is one request per game. |
+| features (box score, player lines) | **stats.nba.com `LeagueGameLog`** | one request per 60-day slice returns every player line in that slice. No per-game API reaches the same data in fewer requests, because a per-game API is one request per game. |
 | play-by-play | **stats.nba.com `playbyplayv3`** | one request per game, ~0.1s. Counted into a per-team event rollup that the feature ladder reads. |
 
 No key, quota, or paid tier is involved on any of them.
@@ -108,10 +108,17 @@ The normalized cache lives outside the repository (by default under
 `~/.cache/sports_prediction_model/nba`; set `NBA_CACHE_DIR` to override it, and
 Kaggle/CI can point it at a mounted volume). It is **per-source and per-key**
 rather than one file per run: `schedule/YYYYMMDD.parquet` per day,
-`season_logs/log_<season>_<type>.parquet` per season, and
+`season_logs/log_<season>_<type>_<from>_<to>.parquet` per 60-day slice, and
 `play_by_play/pbp_<nba_game_id>.parquet` per game. A partial or failed sweep
 therefore re-fetches only what it did not get, which is what makes a
 1,300-game play-by-play sweep affordable to run incrementally.
+
+The slice width is part of the key on purpose. A whole-season file and a
+60-day file are not interchangeable, and a key loose enough to let one stand in
+for the other would let a run assemble its window from whichever granularity
+happened to be on disk. One consequence to expect: the first run after this
+change re-pulls the season log into slices and leaves the old
+`log_<season>_<type>.parquet` files behind, unused.
 
 `--skip-pull` serves from the cache without touching the network, so a host that
 can reach neither upstream can still run the model against a window that was
@@ -119,10 +126,126 @@ fetched elsewhere.
 
 Window and sweep controls are environment variables: `NBA_START_DATE` /
 `NBA_END_DATE` bound the window; `NBA_FULL_REPULL=1` ignores every cache;
+`NBA_SLICE_DAYS` sets the season-log slice width (default 60) and the width of
+the windows the schedule sweep reports in;
 `NBA_FETCH_PLAY_BY_PLAY=0` skips the play-by-play sweep; `NBA_PBP_MAX_GAMES`,
 `NBA_PBP_BUDGET_SEC`, `NBA_PBP_PAUSE_SEC` and `NBA_PBP_LOOKBACK_DAYS` size it;
 `NBA_SCHEDULE_BUDGET_SEC` bounds the day-by-day schedule sweep; and
 `NBA_REQUEST_TIMEOUT_SEC` / `NBA_REQUEST_ATTEMPTS` bound a single request.
+`NBA_PROGRESS=0` silences the progress display without changing any result.
+
+### How the run reports itself
+
+A run prints a banner per phase and a `✅` line with the numbers each one
+produced, MLB's idiom, and every sweep carries a `tqdm` bar: the schedule
+days, the season-log slices, and the play-by-play games.
+
+**The bars draw in a captured log too**, and that is the whole point of the
+shape. MLB's are not MLB's code — `pybaseball.statcast` wraps its per-day
+sub-requests in `tqdm(total=len(date_range))`, and `tqdm` writes to a pipe, a
+file and a Kaggle cell exactly as it writes to a terminal. The MLB log this
+mirrors reads:
+
+```
+  Chunk: 2024-03-01 → 2024-04-29
+  0%|          | 0/46 [00:00<?, ?it/s]
+100%|██████████| 46/46 [00:52<00:00,  1.15s/it]
+    → 164216 pitches
+```
+
+Three things per window, in that order: the line naming it, a bar that walks
+`0/N` to `N/N` while the work happens, and the line reporting what it got. The
+schedule sweep does the same over `NBA_SLICE_DAYS`-day windows, one request per
+day, so every tick is a day actually walked:
+
+```
+  Chunk: 2024-01-01 -> 2024-02-29
+schedule:   0%|          | 0/60 [00:00<?, ?day/s]
+schedule: 100%|##########| 60/60 [00:31<00:00,  1.93s/day]
+    -> 407 game(s) over 60 day(s) (0 fetched, 60 from cache)
+```
+
+Two details make the capture readable, and both are about keeping the bar line
+short. The bar names no window and carries no running totals, because the
+`Chunk:` line above it names the window and the `-> N games` line below it
+reports the result; and every bar is pinned to `position=0`, because a bar that
+tqdm stacks above another rewinds the cursor on every redraw, which is invisible
+on a terminal and an `ESC[A` per refresh in a log. The season-log bar counts
+slices (one request each) rather than days for the same reason: 34 requests is
+the honest total, and a bar that counted 2,040 days would be measuring a
+different sweep than the one that runs.
+
+`NBA_PROGRESS=0` silences the display without changing any result, and a
+`requirements.txt` without `tqdm` falls back to a heartbeat log line every ten
+seconds carrying the count, rate and ETA. The bars are display only — with them
+on, off, or unavailable, the run returns byte-identical artifacts.
+
+That fallback exists, but it should not be what you see. The first version of
+this module refused to draw a bar unless `sys.stderr.isatty()`, on the theory
+that a redrawn bar in a log file is noise; on Kaggle, where stderr is captured
+and never a tty, that meant a run that spent ten minutes walking 1,024 schedule
+days printed nothing at all until it finished — indistinguishable from a hang,
+and a stricter rule than `tqdm` itself keeps. The gate is gone. `tqdm` can
+suppress itself on a non-terminal (`std.py`: `if disable is None and not
+file.isatty()`), but `disable` defaults to `False`, not `None`, so that branch
+is unreachable unless a caller asks for it.
+
+One rule matters if you add a sweep: **tick the counter on the way out of the
+unit, not on the way in.** `bar.item()` exists for this and is the thing to
+wrap a loop body in. Ticking at the top of the body — the obvious way to write
+it — makes the count lead the work, and the 2026-09-26 Kaggle run showed exactly
+what that costs: the schedule sweep closed on `1023 fetched` and then summarised
+`1024 fetched`, and the play-by-play sweep closed on `608 fetched` and then
+summarised `609 fetched`. Two numbers for one fact, a few lines apart, in the
+log an operator is relying on. A budget `break` taken before the block leaves
+the count short of the total, which is the honest reading: those units were
+never asked about.
+
+### How much play-by-play a run actually gets
+
+The event features — offensive and defensive rebounds, fouls, possessions — are
+counted from per-game play-by-play, and the sweep is deliberately partial. It
+takes the most recent `NBA_PBP_LOOKBACK_DAYS` (240) days of played games, capped
+at `NBA_PBP_MAX_GAMES` (1,500) and bounded by `NBA_PBP_BUDGET_SEC` (5,400).
+
+**The lookback is what binds, not the cap or the budget.** Measured on the
+2026-09-26 window: 2,768 games carry an NBA game id, of which 609 fall inside
+240 days, 1,315 inside 400, and all 2,768 inside 900 — while the 1,500 cap and
+the 5,400s budget are both slack (the whole 609-game sweep took 2.6s warm and
+283s cold). So `team_events` covers roughly 18% of settled games, and the
+event-derived features are forward-filled or absent for the rest.
+
+That is a policy choice rather than a defect, and it is the obvious lever if the
+event features are worth more than the fetch time: raising the lookback to cover
+the window would fill `team_events` for every training game, at roughly 2.2
+games/s. On a cold Kaggle run that is ~26 minutes added to a ~10 minute run, so
+it is a deliberate trade rather than something to change silently.
+
+### 60 days where the endpoint allows it, one day where it does not
+
+The season log is pulled in 60-day slices, which is MLB's number
+(`results.SCHEDULE_CHUNK_DAYS`, `statcast_chunk_days`) and is measured here
+too: a 60-day slice of 2023-24 returned 8,627 player rows across 405 games in
+1.98s against 26,401 rows in 2.84s for the whole season, and each slice's game
+set was a strict subset of the season's. A 1,024-day window over three seasons
+is 28 requests instead of 6, each a third of the size, each individually
+restartable, and the run's model output is unchanged.
+
+The schedule is **not** sliced, and that is not an oversight. MLB can chunk its
+schedule because StatsAPI's `schedule` endpoint takes `startDate`/`endDate`.
+ESPN's scoreboard has no equivalent: given a range it either refuses outright
+(HTTP 400) or ignores the date and answers with whatever slate it currently
+holds. Measured 2026-09-26, a request spanning January 2024 came back `200`
+with one game dated October 2026.
+
+The second behaviour is the dangerous one, because nothing complains. A 60-day
+schedule sweep would issue 18 requests, receive 18 copies of the same game, and
+report a plausible 18-game schedule with no error raised. So
+`_answered_a_different_day` treats a response whose every game falls outside the
+day requested as a refusal, which routes it into the same consecutive-failure
+breaker a 403 does. A single stray game does not trip it — ESPN's `date` is UTC
+and the frame is Eastern, so a late start legitimately lands a game on the next
+day — which is why the check asks whether *every* row is off-day.
 
 ### A host that refuses this client
 
@@ -213,3 +336,247 @@ directory is ephemeral, that meant every run wrote its artifacts and then lost
 them at session end, and `nba-backend/data_delivery` stayed empty on `main`
 permanently while the notebook went on reporting that artifacts had been
 pushed. NBA was the only sport not publishing.
+
+### Retention: what the dashboard will serve
+
+The board offers a **rolling 10-day window**, the same shape MLB's frontend
+enforces (the backend half of MLB's policy is `retention_policy.py`; the
+frontend half is the valid-date filter in `frontend/utils.py`). The NBA's is
+enforced in that same place, and it is the only thing bounding which dates a
+card can be rendered for.
+
+**The anchor is the newest date the board can serve, not today.** That is the
+one place the NBA cannot copy MLB verbatim, and it is a property of the data
+rather than a preference. MLB's boards are same-day slates, so "today" and "the
+newest board" are the same day. The NBA run publishes the slate it is *about to
+play*: measured on the deployed branch at 2026-09-26, the moneyline was
+`slate_date 2026-10-20` (24 days ahead) while the newest played game in the
+retained history was `2026-06-13` (105 days behind) — the season does not exist
+between them. A today-anchored window would hold neither and the board would
+render empty for the whole offseason and pre-season.
+
+So the window runs from the newest served date back ten days, which is MLB's
+own rule read precisely ("keeps the run's anchor date and the 10 days before
+it", where the anchor is the run's window end, which *is* the newest slate).
+It buys a guarantee the today-anchored version does not have: the newest date
+is inside its own window by construction, so the truncation can never empty the
+board it applies to. The production slate also wins the anchor over history on
+purpose — a history date past the slate must not push the slate out of the
+window and land the board back on an archive card.
+
+Measured before and after, against the deployed artifacts:
+
+| | dates offered | range |
+|---|---|---|
+| before | 284 | 2024-11-22 .. 2026-10-20 |
+| after | 1 | 2026-10-20 |
+
+Every dropped date predates the window (newest dropped: `2026-06-13`) and no
+in-window date was lost.
+
+This is what retires the archive card. The board's render gate already refused
+a date outside its valid set, so bounding the valid set means a date that is no
+longer served cannot reach a card by any path — including the history fallback
+that rebuilds a card from the OOF prediction-history CSV. An NBA dashboard
+therefore never shows a card for a date whose published prediction has aged out,
+which is the invariant the same rule buys MLB.
+
+Two things are deliberately **not** done here:
+
+- **No backend pruning.** MLB's policy has a second half that `git rm`s dated
+  artifacts outside the window in its delivery phase. The NBA has no equivalent,
+  so `nba-backend/data_delivery` keeps accumulating dated artifacts that the
+  dashboard will never serve. Adding it is a backend change and is out of scope
+  for this one; the frontend window already makes those files invisible, at the
+  cost of repository growth.
+- **No change to the board itself.** The card layout, the date rail, the
+  prev/next stepping, the calendar and the history fallback are all untouched.
+  The frozen-cards store is still consulted first for a served date, and the
+  OOF CSV is still the last resort — MLB keeps that same ladder, and MLB's
+  invariant rests on the window rather than on removing the fallback.
+
+### Player-level True Shooting, shrunk to a position-segmented prior
+
+`backend/player_ts.py` rates every player on true shooting, the way MLB rates a
+batter on wOBA and NHL rates a skater:
+
+```
+TS = points / (2 * (FGA + 0.44 * FTA))
+```
+
+The rate is arithmetic and uninteresting. What makes it a rating is that each
+player's accumulated scoring plays are pulled toward a league prior before use:
+
+```
+TS_shrunk = (prior_points + 2 * lg_ts[pos] * k[pos]) / (2 * (prior_plays + k[pos]))
+```
+
+**The prior is position-segmented.** One league mean would be wrong here for the
+same reason NHL segments by position: a centre and a guard do not share an
+opportunity. On the 2024-25 league the split is real and large — league TS is
+about .618 for centres, .588 for forwards and .574 for guards — so a single mean
+would rate every centre as a below-average guard.
+
+**Prior strength follows the MLB convention carried across by its fraction.**
+MLB's fixed prior is 120 plate appearances, which is 20% of a 600-PA season. The
+fraction is the portable part; the season length is sport-specific. So:
+
+```
+k[position] = 0.20 * mean plays per PLAYER-SEASON at that position
+```
+
+Measured on 2025-26 that gives roughly 213 plays for guards, 170 for forwards
+and 163 for centres — guards shoot more, so a guard's reference season is
+longer, so their prior is stronger. The unit is a **player-season**, not a
+player: averaging per player divides each career by its season count and weights
+a three-game cameo like a full season, which collapses the reference season and
+makes `k` several times too small. That is the correction NHL documents at
+length, and the test asserts the two units disagree rather than only that the
+chosen one runs.
+
+**The prior is strictly point-in-time.** The player's numerator and denominator,
+and the league mean, are summed over rows *strictly before* the target date and
+partitioned by season. Both properties are invisible in the output — a player
+with a full season of evidence looks equally well-rated whether or not the
+boundary holds — so both are pinned by tests.
+
+**Availability is a separate column, never folded into the rate.** An injured
+player still has a true shooting percentage; what changes is how much a lineup
+projection should lean on it. `out` carries a 0.0 multiplier, `day_to_day` 0.5,
+`healthy` 1.0. Note that this is a *current* input, like MLB's IL: it describes
+today's roster, so it is only meaningful for a live slate. A rating dated to a
+historical game takes its availability from the roster as it stands now.
+
+#### What the source can and cannot do
+
+Neither the season log nor play-by-play carries a position — `_LOG_RENAME` maps
+every counting column the log publishes and position is not one of them, and
+`playbyplayv3`'s 23 columns include no roster field. So position is fetched
+separately, from stats.nba.com, by asking the `PlayerPosition` filter for one
+position at a time and reading back who comes back.
+
+**The five-way split is not available from stats.nba.com.** Measured against the
+live endpoint, `PlayerPosition` accepts `G`, `F` and `C` and returns **HTTP 400**
+for `PG`, `SG`, `SF`, `PF` and for compound codes like `G-F`.
+`leaguedashplayerbio` — the endpoint that would carry a full position — is dead.
+So the prior is carried at **G/F/C** and the league averages are per G/F/C. This
+is a property of the source, not a shortcut, and it is pinned by a test.
+
+Guards-and-forwards are real and common — 52 of 569 players in 2024-25 are
+listed at both `G` and `F`, and 53 at both `F` and `C`. Because the position
+cells are the denominators of the league prior, a player counted in two cells is
+counted twice in the league mean, so every player is assigned exactly one
+position by a deterministic first-match over `G, F, C`. That branch runs on
+about a fifth of the league and is not a formality.
+
+Injuries come from ESPN's roster endpoint, the only source in this repo that
+publishes an NBA injury state. It populates the array sparsely by design — 8 of
+95 athletes across five rosters carried an entry — so an empty list is the
+normal case and means healthy, which is why a row is returned per athlete rather
+than only for the injured ones. ESPN sends `status` as a bare string
+(`{"status": "Out", "date": ...}`), and a parser written for a nested shape
+reads nothing off it and reports the whole league healthy while every check
+still passes; the real shape is pinned by a test.
+
+#### Published, not yet a model input
+
+The ratings are written to `nba_player_ts_{date}.csv` alongside the feature
+contract and are **deliberately not** added to `MONEYLINE_FEATURE_COLS`. Adding
+a column there changes the model and needs its own holdout validation, which is
+a separate decision from building the rating. This mirrors NHL, whose player
+ratings are published for the same reason. The rating is PIT and season-safe, so
+it is safe to publish now and to promote later behind a gate.
+
+If the ratings cannot be built the run continues without them and says so in
+the log. A silently absent ratings file is indistinguishable from a league where
+nobody played, so the failure is logged loudly even though it is not fatal.
+
+#### Injury: structure mirrors MLB's, and the ordering is the feature
+
+`backend/injury_stints.py` and `backend/lineup_projection.py` are the NBA
+counterparts of MLB's `build_il_stints.py` and `_LINEUP_AGG_ROSTER`. Four
+things are inherited deliberately, and each is a bug MLB already paid for:
+
+* **RATING FIRST, INJURY SECOND.** The shrunk TS is computed for every player
+  regardless of injury. The removal happens at pool construction, where a
+  replacement inherits the vacated slot. Multiplying a rating by zero instead —
+  the obvious shortcut — leaves the player *in* the pool dragging the mean
+  toward zero, which is the opposite of the intent.
+* **WIDEN, THEN FILTER.** The candidate pool is every team member with a
+  rating row in the last `PLAYER_TS_POOL_LOOKBACK_DAYS` (10), not only players
+  who appeared recently. MLB's comment is the whole argument: *"Without this
+  the IL filter cannot bind AT ALL: an injured player is absent from the
+  participant pool by construction, so subtracting him is a no-op."* Being
+  injured is precisely what removed a player from a participants-only pool.
+  On the 2025-26 close this widened the pool to ~18.5 per team-game and the
+  filter then removed ~1.5.
+* **RANK BY PARTICIPATION, NOT BY RATING.** MLB orders the pool by trailing PA
+  and averages the rating over the top nine. Ordering by the rating instead
+  would project the eight best-rated regulars and quietly redefine the
+  question from *who plays* to *who scores*.
+* **NO PADDING.** A short-handed team is averaged over the players it has.
+  Padding to eight would fabricate full strength from a depleted roster.
+
+`PLAYER_TS_MIN_PLAYS` (20) gates **pool membership**, not the rating.
+Shrinkage already handles a thin rating; the floor answers a different
+question — whether a player with three career games is a candidate for
+tonight's lineup at all.
+
+#### The point-in-time guardrail
+
+Availability for a game is decided using only records published **strictly
+before** that game's tipoff:
+
+```
+out as of tipoff  <=>  exists stint with
+                       il_start <  tipoff
+                       and (il_end is NA or il_end >= tipoff)
+```
+
+Both edges are strict, and getting either wrong admits the future by exactly
+one record per game. On the near edge, a status published *at* tipoff is not
+knowable to anyone betting at that instant, so it cannot gate that game. On
+the far edge, a recovery published *at* tipoff is equally unknowable, so the
+player is still out for it and available from the next one. This is asserted
+directly in `TestPointInTimeIsStrict`, including both equality cases.
+
+#### Why the snapshot is only a carrier
+
+The roster endpoint publishes **current state only** — there is no history to
+backfill, and none of the past is reconstructible from it. Daily snapshotting
+is therefore *not* the primary mechanism, for three reasons:
+
+1. **It yields no history, so the feature is untestable.** MLB could A/B its IL
+   filter because the transaction feed is historical. Snapshots-only can only
+   answer "who was out while I was watching."
+2. **Cadence is a PIT fiction.** A 09:00 snapshot says nothing about a 19:30
+   tipoff. Tightening the cron does not fix that; using the record's own
+   `published_at` does.
+3. **"No player-game row ⇒ out" is wrong.** A healthy benched player has no
+   row. That signal belongs to pool construction, not to injury, and MLB keeps
+   them separate.
+
+What makes a snapshot usable is that each record carries the moment ESPN
+published it (`{"status": "Out", "date": "2026-08-24T15:23Z"}`). The cadence
+decides how finely absences resolve; the record date decides what was knowable.
+**The PIT floor is the record date, never the snapshot's own.**
+
+Absences are collapsed by walking a state machine per player rather than
+pairing an opening against a closing. The feed republishes the same status on
+every snapshot, so a two-week absence emits a long run of identical records;
+pairing would leave every intermediate record as its own permanently-open stint
+and suppress the player for the rest of time.
+
+The result is reconciled against observed player-games, which is MLB's
+highest-value rule: a player with a player-game row was in the game, so no
+absence may span it. The rule can only *shorten* an interval, and only at a
+date where the player demonstrably played, so it can never release a genuine
+absence back into a projection. A same-day appearance is ignored rather than
+treated as a close — the feed publishes an injury the same day it is reported,
+so a same-day appearance is the announcement, not a return.
+
+The two availability sources are **ANDed, never replaced**: the roster's
+current flag and the interval history. Letting the table overwrite the flag
+would resurrect a player the roster marks unavailable but who has no interval
+yet, which is exactly the state a fresh absence is in before the next snapshot
+closes it.

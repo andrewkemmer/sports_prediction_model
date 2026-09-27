@@ -43,8 +43,10 @@ exists in this shape.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import urllib.parse
+from datetime import date
 from typing import Any
 
 import numpy as np
@@ -104,11 +106,33 @@ RIM_FEET = 5.0
 MID_FEET = 22.0
 
 
-def season_log_query(season: str, season_type: str) -> str:
-    """``LeagueGameLog``'s query string, shared by the pull and any probe."""
+#: The date format ``LeagueGameLog`` expects. Month-first, and the only one
+#: this module sends. Verified 2026-09-26 by reading the rows back: a
+#: ``DateFrom``/``DateTo`` pair in this format returns rows whose ``GAME_DATE``
+#: falls inside the window, and a window in this format is what the 60-day
+#: slices are built from.
+STATS_DATE_FMT = "%m/%d/%Y"
+
+
+def stats_date(when: date) -> str:
+    return when.strftime(STATS_DATE_FMT)
+
+
+def season_log_query(season: str, season_type: str,
+                     date_from: date | None = None,
+                     date_to: date | None = None) -> str:
+    """``LeagueGameLog``'s query string, shared by the pull and any probe.
+
+    ``date_from``/``date_to`` narrow the request to a window and default to
+    empty, which is the unfiltered season.  The empty default is load-bearing
+    rather than a convenience: the preflight probe builds on this call and
+    fills in a single day of its own, so a required argument here would have
+    forced the probe to restate the question the sweep asks.
+    """
     return urllib.parse.urlencode({
         **_STATS_QUERY, "Season": season, "SeasonType": season_type,
-        "DateFrom": "", "DateTo": "",
+        "DateFrom": stats_date(date_from) if date_from else "",
+        "DateTo": stats_date(date_to) if date_to else "",
     })
 
 
@@ -127,6 +151,284 @@ def play_by_play_query(game_id: str) -> str:
 
 def espn_scoreboard_url(when) -> str:
     return (f"{ESPN_SCOREBOARD_URL}?dates={when:%Y%m%d}&limit=400")
+
+
+# ---------------------------------------------------------------------------
+# Position and availability -> the player-level TS rating inputs
+# ---------------------------------------------------------------------------
+#
+# Neither the season log nor play-by-play carries a position: ``_LOG_RENAME``
+# maps every counting column the log publishes and position is simply not one of
+# them, and playbyplayv3's 23 columns include no roster field. So position has
+# to be asked for separately, and it is asked for from stats.nba.com rather
+# than a second vendor - one edge, one header set, one failure mode.
+
+PLAYER_POSITIONS_URL = "https://stats.nba.com/stats/leaguedashplayerstats"
+ESPN_TEAM_ROSTER_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
+                        "basketball/nba/teams/{team}/roster")
+
+#: ``leaguedashplayerstats`` requires the same full parameter set the season log
+#: does. Measured against the live endpoint, an incomplete set answers HTTP 500
+#: rather than a parameter complaint, so the enumeration below would look like
+#: an outage instead of a missing argument.
+_POSITION_QUERY: dict[str, str] = {
+    "LeagueID": "00", "PerMode": "PerGame", "College": "", "Conference": "",
+    "Country": "", "DateFrom": "", "DateTo": "", "Division": "",
+    "DraftPick": "", "DraftYear": "", "GameScope": "", "GameSegment": "",
+    "Height": "", "LastNGames": "0", "Location": "", "MeasureType": "Base",
+    "Month": "0", "OpponentTeamID": "0", "Outcome": "", "PORound": "0",
+    "PaceAdjust": "N", "Period": "0", "PlayerExperience": "",
+    "PlayerPosition": "", "PlusMinus": "N", "Rank": "N", "SeasonSegment": "",
+    "SeasonType": SEASON_TYPE_REGULAR, "ShotClockRange": "",
+    "StarterBench": "", "TeamID": "0", "VsConference": "", "VsDivision": "",
+}
+
+
+def position_query(season: str, position: str) -> str:
+    """``leaguedashplayerstats``'s query string for ONE position.
+
+    The endpoint publishes no ``POSITION`` column - verified: its 69 headers
+    contain none, and neither does ``leaguedashplayerstats`` with any filter
+    set. Position is therefore obtained the only way this source allows, by
+    asking the ``PlayerPosition`` filter for one position at a time and reading
+    the players who come back.
+
+    That filter accepts exactly G, F and C. ``PG``/``SG``/``SF``/``PF`` and
+    compound codes like ``G-F`` all answer HTTP 400, so the five-way split is
+    not available from stats.nba.com and the position prior is carried at
+    G/F/C. The error is a 400 and not a 500, which is what makes the limit
+    diagnosable rather than a mystery.
+    """
+    return urllib.parse.urlencode({
+        **_POSITION_QUERY, "Season": season, "PlayerPosition": position,
+    })
+
+
+def players_at_position(payload: Any) -> set:
+    """Player ids in a ``leaguedashplayerstats`` result.
+
+    Returns a set of ids rather than a frame because the endpoint answers the
+    position question as a FILTER: what comes back is a player list, and a
+    player listed at two positions legitimately appears in two of these calls.
+    Collapsing to a set here is what lets the caller see that overlap instead
+    of having it hidden by a de-duplicated frame.
+    """
+    if not isinstance(payload, dict):
+        return set()
+    result_sets = payload.get("resultSets") or []
+    if not result_sets:
+        return set()
+    block = result_sets[0] or {}
+    headers = block.get("headers") or []
+    rows = block.get("rowSet") or []
+    if "PLAYER_ID" not in headers:
+        return set()
+    at = headers.index("PLAYER_ID")
+    return {row[at] for row in rows if row and row[at] is not None}
+
+
+def assign_positions(by_position: dict) -> dict:
+    """Collapse per-position player id sets into one position per player.
+
+    A player the feed lists at more than one position belongs to EXACTLY ONE
+    prior cell. That is not tidiness: the position cells are the denominators of
+    the league prior, so a player counted in two cells is counted twice in the
+    league mean and the cells stop being comparable - the same silent
+    double-count the NHL ratings table avoids by keying on a single normalized
+    position.
+
+    The winner is the first entry of ``priority`` that lists the player, so the
+    assignment is deterministic: a guard-forward is a guard, a forward-centre is
+    a forward. The 2024-25 league has 52 players listed at both G and F and 53
+    at both F and C, so this branch runs on roughly a fifth of the league and
+    is not a formality.
+    """
+    priority = tuple(config.PLAYER_TS_POSITION_PRIORITY)
+    assigned: dict = {}
+    for position in priority:
+        for player_id in by_position.get(position) or ():
+            assigned.setdefault(player_id, position)
+    return assigned
+
+
+def positions_frame(by_position: dict) -> "pd.DataFrame":
+    """``player_id``/``position`` frame, or an empty one with the same columns.
+
+    An empty result is returned as a well-formed empty frame rather than None so
+    a caller can audit "no positions resolved" without a special case, and so
+    the rating build can tell an empty position table apart from a missing one.
+    """
+    assigned = assign_positions(by_position)
+    return pd.DataFrame(
+        {"player_id": list(assigned.keys()), "position": list(assigned.values())}
+    ) if assigned else pd.DataFrame({"player_id": [], "position": []})
+
+
+# ---------------------------------------------------------------------------
+# Availability
+# ---------------------------------------------------------------------------
+
+#: The NBA's own designation vocabulary, as filed in the official injury
+#: report. This is a closed set of six, measured across a full season, and it
+#: is the authoritative one - ESPN's two-status snapshot is the impoverished
+#: view, not this.
+#:
+#: The table rather than a chain of substring tests is the point, and it is
+#: also a BUG FIX. The previous implementation folded ``questionable`` and
+#: ``doubtful`` into ``out`` on a substring match, which is right for ESPN and
+#: badly wrong here: over the 2025-26 season a player filed ``Questionable``
+#: before tipoff played 34 times in 52. Mapping that to ``out`` deletes a
+#: third of a real player's appearances and then calls the result an absence.
+#: The old docstring claimed this function refused substring matching while
+#: the code below it did exactly that.
+_OFFICIAL_STATUSES = ("out", "doubtful", "recovery", "questionable",
+                      "available", "probable")
+
+#: ESPN's roster vocabulary, which is not the league's. Kept so an ESPN
+#: snapshot is still readable, and kept SEPARATE so the two vocabularies are
+#: never silently merged - ``day_to_day`` maps to nothing in
+#: ``config.PLAYER_TS_STATUS_TREATMENT`` and therefore to ``unknown``, which
+#: suppresses nobody and shows up in the vocabulary report.
+_ESPN_STATUSES = {"injur": "out", "injured": "out", "suspended": "out",
+                  "suspension": "out", "day-to-day": "day_to_day",
+                  "day to day": "day_to_day", "dtd": "day_to_day"}
+
+
+def availability_status(status: object) -> str:
+    """Normalize a raw availability string to the official NBA vocabulary.
+
+    Returns one of the six filed designations (lowercased), or ``healthy`` for
+    a word the sources do not publish. Idempotent, which matters because
+    callers re-normalize values that have already been through it - the injury
+    table stores a normalized status and the stint builder normalizes it again.
+
+    ``healthy`` is the fallback rather than ``out`` on purpose: an
+    unrecognised word should not delete a player, and the raw string is carried
+    alongside so the value stays auditable.
+    """
+    if status is None or (isinstance(status, float) and math.isnan(status)):
+        return "healthy"
+    text = str(status).strip().lower()
+    if not text or text in {"nan", "none", "healthy", "active", "ok"}:
+        return "healthy"
+    if text in _OFFICIAL_STATUSES:
+        return text
+    return _ESPN_STATUSES.get(text, "healthy")
+
+
+#: Availability multiplier per normalized status, MEASURED rather than
+#: inherited. The previous table was NHL's, which halved Day-To-Day on no
+#: evidence at all; these are the fractions of 2025-26 point-in-time
+#: designations that went on to play the game.
+#:
+#: The available-bucket designations share ONE pooled rate rather than their
+#: own: (2,006 + 34 + 23) / (2,448 + 52 + 24) = 0.817. Questionable alone
+#: played 34/52, but at n=52 that is a +/-13 point estimate and a third
+#: parameter fitted to 0.4% of a season. Pooling costs the distinction and
+#: buys an estimate that means something.
+#:
+#: Note ``healthy`` is 1.0 while the available bucket is 0.817. They are NOT
+#: the same statement: a designation is the league telling us a specific
+#: player is expected to dress, and it is still wrong one time in five.
+AVAILABILITY_MULTIPLIERS: dict = {
+    "out": 0.0,            # 0 / 10,639
+    "doubtful": 0.0,       # 0 / 5
+    "recovery": 0.0,       # no observations at tipoff
+    "questionable": 0.817, # pooled available bucket
+    "available": 0.817,    # 2,063 / 2,524 pooled
+    "probable": 0.817,     # 23 / 24 pooled
+    "day_to_day": 0.5,     # ESPN's word; unmeasured for this league
+    "healthy": 1.0,        # no report filed at all
+}
+
+
+def availability_multiplier(status: object) -> float:
+    """Availability multiplier in [0, 1] for one raw status string."""
+    return AVAILABILITY_MULTIPLIERS[availability_status(status)]
+
+
+#: stats.nba.com and ESPN do not abbreviate two franchises the same way, and
+#: ESPN's roster path is strict about it. Measured 2026-09-27 against the live
+#: endpoint: ``/teams/nop/roster`` and ``/teams/uta/roster`` both answer HTTP
+#: 400, while ``/teams/no/roster`` answers 200 with 19 athletes and
+#: ``/teams/utah/roster`` 200 with 18. The other 28 pipeline tokens are
+#: answered as-is - including the three more ESPN abbreviates differently
+#: (``gsw``/``gs``, ``nyk``/``ny``, ``sas``/``sa``, ``was``/``wsh``), all of
+#: which the legacy three-letter path still serves.
+#:
+#: This matters because a 400 is a MALFORMED request, not an outage: the run's
+#: own wording ("a request this pipeline sends will not change it") is correct,
+#: and the only thing that changes it is the right segment. Without the table
+#: two of thirty clubs are silently rated as fully healthy on the slate, which
+#: is the one state this source must never be mistaken for.
+ESPN_ROSTER_SLUG_ALIASES = {"NOP": "no", "UTA": "utah"}
+
+
+def espn_roster_url(team: str) -> str:
+    """The roster URL for a stats.nba.com team token.
+
+    Lower-cased and alias-resolved, because a token is not necessarily a path
+    segment ESPN serves (see ``ESPN_ROSTER_SLUG_ALIASES``).
+    """
+    token = str(team).strip()
+    return ESPN_TEAM_ROSTER_URL.format(
+        team=ESPN_ROSTER_SLUG_ALIASES.get(token.upper(), token.lower()))
+
+
+def roster_availability(payload: Any, team: str | None = None) -> list:
+    """``(player_id, team, status, raw_status, published_at)`` per athlete.
+
+    ESPN's roster endpoint is the only source in this repo that publishes an
+    injury state for NBA players, and it populates it sparsely by design: 8 of
+    95 athletes across five rosters carried an entry, the rest had an empty
+    list. An empty list is therefore the NORMAL case and means healthy, not
+    missing - which is why this returns a row per athlete rather than only the
+    injured ones, so a caller can tell "healthy" from "never looked up".
+
+    ``published_at`` is the record's OWN timestamp, and it is the whole reason
+    this is point-in-time. The endpoint publishes only current state, so there
+    is no history here to backfill; what makes a snapshot usable anyway is that
+    each record carries the moment it was published (``{"status": "Out",
+    "date": "2026-08-24T15:23Z"}``). The PIT floor is that date, never the
+    snapshot's own - a snapshot taken this morning says nothing about what was
+    knowable at last night's tipoff, and treating its date as the floor is the
+    leak this column exists to prevent.
+
+    The raw status is carried alongside the normalized one so an unrecognized
+    vocabulary entry is visible in the artifact instead of silently resolving
+    to healthy.
+    """
+    rows: list = []
+    if not isinstance(payload, dict):
+        return rows
+    for athlete in payload.get("athletes") or []:
+        if not isinstance(athlete, dict):
+            continue
+        player_id = athlete.get("id")
+        if player_id is None:
+            continue
+        raw = ""
+        published = None
+        for entry in athlete.get("injuries") or []:
+            if not isinstance(entry, dict):
+                continue
+            # Measured: the live feed sends ``status`` as a BARE STRING, not a
+            # nested object. A parser written for the nested shape reads
+            # nothing off it and reports the whole league healthy while every
+            # downstream check still passes, so both shapes are handled.
+            detail = entry.get("status") or {}
+            name = (detail.get("name") if isinstance(detail, dict)
+                    else detail) or entry.get("name") or ""
+            if name:
+                raw = str(name)
+                published = entry.get("date")
+                break
+        # The column is named ``status`` throughout, matching MLB's il_stints
+        # vocabulary, so the record builder and the roster frame cannot drift
+        # apart on what the field is called.
+        rows.append((str(player_id), str(team or ""),
+                     availability_status(raw), raw, published))
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +463,11 @@ def _parse_espn_event(event: dict, game_type: int | None) -> dict | None:
         return None
 
     status = (comp.get("status") or {}).get("type") or {}
-    is_final = bool(status.get("completed")) or str(status.get("state")) == "post"
-    if is_final:
-        detail = str(status.get("detail") or "").lower()
-        if any(word in detail for word in ("postpon", "cancel", "suspend",
-                                           "delay", "reschedul")):
-            is_final = False
+    status_state = str(status.get("state") or "")
+    status_detail = str(status.get("detail") or "")
+    is_final = bool(status.get("completed")) or status_state == "post"
+    if is_final and is_postponed_detail(status_detail):
+        is_final = False
 
     def _score(competitor: dict) -> float:
         if not is_final:
@@ -214,6 +515,15 @@ def _parse_espn_event(event: dict, game_type: int | None) -> dict | None:
         "game_type": game_type if game_type is not None else np.nan,
         "is_final": is_final,
         "espn_name": event.get("name") or "",
+        # Passthrough presentation facts, MLB's structure.  None of these are
+        # features and none reach a fold: the tipoff and the arena are what a
+        # card needs to be readable, and ESPN has been publishing both in the
+        # payload this function already parses.  Carrying them is a passthrough;
+        # the contract declares them, so nothing here can leak into the model.
+        "start_time_utc": _utc_iso(gameday),
+        "venue": str((comp.get("venue") or {}).get("fullName") or "").strip(),
+        "game_state": status_state,
+        "game_status_detail": status_detail,
     }
 
 
@@ -221,6 +531,40 @@ def _to_eastern(value):
     """Eastern time as a tz-aware ``Timestamp``; None if unparseable."""
     stamp = pd.to_datetime(value, errors="coerce", utc=True)
     return None if pd.isna(stamp) else stamp.tz_convert(_EASTERN)
+
+
+#: Words ESPN uses in ``status.type.detail`` for a game that will not be played
+#: as scheduled.  Defined once and shared: the parser decides what counts as
+#: final, the slate decides what counts as upcoming, and the card decides what
+#: to label.  Three separate lists would drift, and a drift between them shows
+#: up as a postponed game with a result on it.
+POSTPONED_WORDS = ("postpon", "cancel", "suspend", "reschedul")
+
+
+def is_postponed_detail(detail) -> bool:
+    """Whether an ESPN status detail describes a game that is not being played."""
+    text = str(detail or "").lower()
+    return any(word in text for word in POSTPONED_WORDS)
+
+
+def _utc_iso(stamp) -> str:
+    """A UTC instant as ``...Z``, or "" when there is no instant to report.
+
+    Deliberately never substitutes midnight.  ``gameday`` is an Eastern *board*
+    date, so a fabricated midnight UTC lands on the previous evening in New
+    York and renders as a plausible, wrong tipoff - which is the exact failure
+    the NHL backend refuses to risk in ``serving._start_time_utc``.  An absent
+    tipoff is reported as absent.
+    """
+    if stamp is None or pd.isna(stamp):
+        return ""
+    try:
+        moment = pd.Timestamp(stamp)
+        if moment.tzinfo is None:
+            moment = moment.tz_localize("UTC")
+        return moment.tz_convert("UTC").isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
+        return ""
 
 
 def _is_franchise_game(row: dict) -> bool:

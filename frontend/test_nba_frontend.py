@@ -209,15 +209,21 @@ def _markets_frame() -> pd.DataFrame:
         "derived_ml": 0.55,
         "p_over_fair": 0.52,
     }
-    for line, (home, push, away) in nba_sv.spread_columns().items():
-        common[f"p_home_cover_{nba_sv._label(line)}"] = home
-        common[f"p_push_{nba_sv._label(line)}"] = push
-        common[f"p_away_cover_{nba_sv._label(line)}"] = away
-    for line, (over, under, push) in nba_sv.total_columns().items():
+    # The markets page prices every line from these grid columns, so the
+    # fixture must carry numeric probabilities that sum to 1 per line -- not
+    # the column names themselves.
+    for line, _cols in nba_sv.spread_columns().items():
+        home_p = min(max(0.5 - (float(line) - 4.0) * 0.03, 0.05), 0.93)
+        common[f"p_home_cover_{nba_sv._label(line)}"] = round(home_p, 4)
+        common[f"p_push_{nba_sv._label(line)}"] = 0.02
+        common[f"p_away_cover_{nba_sv._label(line)}"] = round(0.98 - home_p, 4)
+    for line, _cols in nba_sv.total_columns().items():
         key = int(line) if float(line).is_integer() else line
-        common[f"p_over_{key}"] = over
-        common[f"p_under_{key}"] = under
-        common[f"p_push_total_{key}"] = push
+        over_p = min(max(0.5 - (float(line) - 220.0) * 0.03, 0.05), 0.94)
+        push_p = 0.02 if float(line).is_integer() else 0.0
+        common[f"p_over_{key}"] = round(over_p, 4)
+        common[f"p_under_{key}"] = round(1.0 - over_p - push_p, 4)
+        common[f"p_push_total_{key}"] = push_p
 
     oof = {
         **common,
@@ -440,10 +446,12 @@ def test_nba_monitor_tab_uses_nba_config_and_renders_sections(nba_artifacts) -> 
 def test_nba_markets_tab_dispatches_to_nba_page(nba_artifacts) -> None:
     app = _run_page("markets.py")
     text = _all_text(app)
-    assert "Point Spread" in text
+    assert "Totals & Run Lines" in text
     assert "Diagnostics" in text
     assert "Totals Monitor" in text
-    assert "NBA model diagnostics" in text
+    # sport identity: the subtitle names the NBA artifact file (MLB's page
+    # says run_engine_markets_*.csv without the nba_ prefix)
+    assert "nba_run_engine_markets_" in text
 
 
 def test_all_nba_tabs_have_honest_missing_artifact_states(monkeypatch) -> None:
@@ -466,3 +474,184 @@ def test_all_nba_tabs_have_honest_missing_artifact_states(monkeypatch) -> None:
         for filename, needle in expectations.items():
             app = _run_page(filename)
             assert needle in _all_text(app), (filename, _all_text(app))
+
+
+class TestCardStartTimeAndMatchup:
+    """The two fields a today's-games card cannot be read without.
+
+    Both were delivered as columns that were always null, and the adapter
+    covered the gap by fabricating midnight UTC - which, because ``game_date``
+    is an Eastern *board* date, rendered as 7:00 PM ET on the previous evening.
+    Every unslotted game therefore showed a confident, wrong start.
+    """
+
+    @staticmethod
+    def _frame(**overrides) -> pd.DataFrame:
+        game = {"game_id": GAME_ID, "game_date": DATE_ISO,
+                "home_team": "ATL", "away_team": "BOS",
+                "home_win_prob_model": 0.64, "game_status": "Scheduled"}
+        game.update(overrides)
+        return utils.nba_moneyline_to_frame(
+            {"created_utc": "2099-01-01T00:00:00Z", "slate_date": DATE_ISO,
+             "n_games": 1, "games": [game]})
+
+    def test_a_real_tipoff_is_carried_through(self):
+        frame = self._frame(start_time_utc="2099-01-01T23:30:00Z")
+        assert frame.start_time_utc.iloc[0] == "2099-01-01T23:30:00Z"
+
+    def test_a_missing_tipoff_is_not_invented(self):
+        """Midnight UTC on an Eastern board date is 7 PM the night before."""
+        assert self._frame().start_time_utc.iloc[0] is None
+
+    def test_a_missing_tipoff_renders_as_pregame_not_as_a_time(self):
+        assert nba_todays_page._start_time_et(None) == ""
+        assert nba_todays_page._start_time_et("") == ""
+
+    def test_a_real_tipoff_renders_in_eastern(self):
+        assert nba_todays_page._start_time_et(
+            "2099-01-01T23:30:00Z") == "6:30 PM ET"
+
+    def test_the_card_shows_pregame_when_the_start_is_unknown(self):
+        card = nba_todays_page._nba_mirror_card_html(
+            self._frame().iloc[0], None, "")
+        assert "PREGAME" in card
+
+    def test_an_unknown_start_is_not_counted_as_an_evening_game(self):
+        assert utils._is_evening_start(None) is False
+        assert utils._is_evening_start("") is False
+
+    def test_both_sides_player_matchup_reaches_the_card(self):
+        row = {"p_home_name": "Home Star", "p_home_ppg": 30.0, "p_home_apg": 8.0,
+               "p_away_name": "Away Star", "p_away_ppg": 22.0, "p_away_apg": 5.0}
+        html = nba_todays_page._player_matchup_html(row)
+        assert "Home Star" in html and "Away Star" in html
+        assert "30.0" in html and "22.0" in html
+        assert "8.0" in html and "5.0" in html
+
+    def test_the_matchup_keeps_mlb_two_stat_geometry(self):
+        html = nba_todays_page._player_matchup_html(
+            {"p_home_name": "A", "p_away_name": "B"})
+        assert html.count("fb-pitcher") == 3   # wrapper + one per side
+        assert html.count("pstats") == 2
+
+    def test_a_missing_player_renders_a_box_rather_than_crashing(self):
+        html = nba_todays_page._player_matchup_html({})
+        assert "fb-pitchers" in html
+
+    def test_the_venue_reaches_the_card(self):
+        card = nba_todays_page._nba_mirror_card_html(
+            self._frame(venue="Little Caesars Arena").iloc[0], None, "")
+        assert "Little Caesars Arena" in card
+
+
+class TestRetentionWindow:
+    """The NBA board's rolling 10-day truncation, matched to MLB's.
+
+    The board used to offer EVERY date in the retained history. On the
+    deployed branch that was 283 dates from 2024-11-22 to 2026-06-13, so a
+    dashboard opened on 2026-09-26 was one click from a June 13 card served
+    as an archive — a prediction card for a date whose published prediction
+    is long past retention, rebuilt from the OOF history CSV. That is the
+    thing this class exists to make impossible.
+    """
+
+    # The real shape of the failure, as measured on the deployed branch.
+    # Compact YYYYMMDD, the form a valid-date set actually carries.
+    OFFSEASON_SERVE_DATE = "20261020"    # the published slate, 24 days ahead
+    OFFSEASON_HISTORY_DATE = "20260613"  # the newest played game, 105 back
+
+    def _valid(self, board_dates, history_dates=()) -> list[str]:
+        frame = pd.DataFrame({"game_date": list(board_dates)})
+        return utils._valid_dates_impl("nba", (), ".", frame,
+                                       list(history_dates))
+
+    def test_a_date_outside_the_window_is_not_offered(self):
+        """The screenshot case, verbatim: the June card is gone."""
+        valid = self._valid([self.OFFSEASON_SERVE_DATE],
+                            [self.OFFSEASON_HISTORY_DATE])
+        assert self.OFFSEASON_HISTORY_DATE not in valid
+        assert valid == [self.OFFSEASON_SERVE_DATE]
+
+    def test_the_window_keeps_ten_days_back_from_the_newest_slate(self):
+        slate = "20260301"
+        history = ["20260115", "20260219", "20260220", "20260228"]
+        valid = self._valid([slate], history)
+        assert valid == ["20260301", "20260228", "20260220", "20260219"]
+        # 20260115 is 45 days back — outside, and offered by no path.
+        assert "20260115" not in valid
+
+    def test_iso_dates_from_the_artifacts_normalise_into_the_set(self):
+        """The moneyline ships ``2026-10-20`` and the rail carries
+        ``20261020``; the window has to meet them in the same format."""
+        valid = self._valid(["2026-10-20"], ["2026-06-13T00:00:00Z"])
+        assert valid == ["20261020"]
+
+    def test_the_newest_date_is_always_inside_its_own_window(self):
+        """The guarantee that keeps this from being a functional change: the
+        truncation cannot empty the board, because its anchor is retained."""
+        for slate in ("20260101", "20260630", "20261020", "20990101"):
+            assert slate in self._valid([slate], ["20200101"])
+
+    def test_history_anchors_the_window_when_there_is_no_published_slate(self):
+        """No moneyline rows is a real state (a slate with no games yet), and
+        then the newest served date is the newest played game."""
+        valid = self._valid([], ["20260613", "20260610", "20260409"])
+        assert valid == ["20260613", "20260610"]
+
+    def test_the_production_slate_outranks_history_for_the_anchor(self):
+        """A history date past the slate must not push the slate out of the
+        window and land the board on an archive card."""
+        valid = self._valid(["20261020"], ["20261225"])
+        assert valid == ["20261020"]
+
+    def test_the_board_renders_the_october_slate_not_the_june_card(
+            self, nba_artifacts) -> None:
+        """End to end through the page, with the real deployed date shape."""
+        slate = self.OFFSEASON_SERVE_DATE
+        history = self.OFFSEASON_HISTORY_DATE
+        moneyline = json.loads((NBA_DD / f"nba_moneyline_v1_{DATE}.json")
+                               .read_text(encoding="utf-8"))
+        moneyline["slate_date"] = f"{slate[:4]}-{slate[4:6]}-{slate[6:]}"
+        moneyline["games"] = [
+            {**moneyline["games"][0],
+             "game_date": moneyline["slate_date"], "game_status": "Scheduled"}]
+        (NBA_DD / f"nba_moneyline_v1_{DATE}.json").write_text(
+            json.dumps(moneyline), encoding="utf-8")
+        frame = _history_frame()
+        frame["game_date"] = f"{history[:4]}-{history[4:6]}-{history[6:]}"
+        frame.to_csv(NBA_DD / f"nba_predictions_history_{DATE}.csv", index=False)
+        st.cache_data.clear()
+        assert list(utils.valid_dates("nba")) == [slate]
+        app = _run_page("todays_games.py")
+        text = _all_text(app)
+        assert "Archive view" not in text
+        assert not [item for item in app.exception]
+
+    def test_mlbs_window_stays_today_anchored(self):
+        """The MLB rule must not inherit the NBA anchor: MLB's boards are
+        same-day, so its window is the ET today .. today-10."""
+        window = utils._mlb_retention_window()
+        today = pd.Timestamp.now(tz="America/New_York").strftime("%Y%m%d")
+        assert today in window
+        assert len(window) == 11
+
+    def test_nfl_keeps_its_own_date_navigation_rules(self):
+        """NFL keeps its own rules; only the NBA and NHL boards are bounded.
+
+        NHL moved on 2026-09-26 to this same window, for the same reason and
+        with the same invariants — it publishes a future slate and retains a
+        prediction history spanning the whole decided population, so an
+        unbounded rail offered 321 OOF dates that could each be rendered as an
+        OOF-rebuilt card. NFL's navigation is still its own business.
+        """
+        frame = pd.DataFrame({"game_date": ["20200101", "20260101"]})
+        assert utils._valid_dates_impl("nfl", (), ".", frame,
+                                       ["20180101"]) == ["20260101",
+                                                          "20200101",
+                                                          "20180101"]
+
+    def test_an_empty_window_means_no_filter_not_an_empty_board(self):
+        """A clock or parse failure degrades to the old behaviour rather than
+        hiding the board — the same contract the MLB window keeps."""
+        assert utils._nba_retention_window([], []) == set()
+        assert utils._nba_retention_window(["not-a-date"], ["nope"]) == set()

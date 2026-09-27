@@ -782,6 +782,44 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
+    # ── 12b. Per-game SHAP attribution cards ─────────────────────────────
+    # The explainer, the retention family (nfl_shap_game_) and the frontend's
+    # per-card SHAP expander all existed, but NOTHING called the producer: the
+    # module shipped with zero callers, so every slate game rendered the
+    # "no attributions" state while 257 committed cards went stale. Wire it
+    # here, from the SAME bundle just persisted (never a refit).
+    #
+    # compute_nfl_shap_per_game reads ``home_win_prob_model`` to decide the
+    # favored-team perspective, but the slate frame carries the calibrated
+    # probability as ``p_home_win``. Without the alias the column is absent,
+    # the negation never fires, and every card would claim the HOME team
+    # pushed the favorite — the most plausible-looking wrong answer there is.
+    # Supply it from the served value, exactly as serving.py publishes it.
+    _n_shap = 0
+    try:
+        from shap_explain import compute_nfl_shap_per_game
+        if len(slate):
+            _shap_in = slate.copy()
+            _shap_in["home_win_prob_model"] = _shap_in["p_home_win"]
+            _n_shap = compute_nfl_shap_per_game(bundle, _shap_in, out_dir)
+        else:
+            logger.info("SHAP: no slate games — no attribution cards written")
+    except Exception as exc:  # noqa: BLE001
+        # Display-only feature: a missing/failed explainer must never block
+        # artifact delivery, but it must never be silent either.
+        logger.warning("NFL SHAP skipped (non-fatal): %s", exc, exc_info=True)
+    # Name the cards in `artifacts` so retention sees them as staged by THIS
+    # run (classify_artifact checks `seen` first) instead of pruning the very
+    # files the phase just wrote. The glob deliberately reaches every card on
+    # disk, so its length is the retention set and NOT this run's output --
+    # counting it as "written" is what made a 14-game run report 257.
+    if _n_shap:
+        _shap_names = sorted(a.name for a in out_dir.glob(
+            f"{config.SHAP_GAME_PREFIX}_*.csv"))
+        artifacts.extend(_shap_names)
+        logger.info("SHAP attribution cards: %d written this run (%d on disk, "
+                    "all retained)", _n_shap, len(_shap_names))
+
     # ── 13. Monitoring ───────────────────────────────────────────────────
     _banner("PHASE 13", "monitoring")
     recent = game_df.tail(60)
@@ -804,21 +842,45 @@ def main(argv: list[str] | None = None) -> int:
     # reads this log for, and silence reads as "nothing to report". Reuse the
     # thresholds and the row keys monitoring itself computed, rather than
     # re-deciding them here.
-    _drifted = [d for d in drift if isinstance(d, dict) and d.get("status") != "OK"]
+    #
+    # The Brier result is NOT logged here. ``monitoring.rolling_brier`` returns
+    # a record and logs its own all-scalar summary (MLB parity); the previous
+    # line formatted that record's series list into a ``%.4f`` slot, raising
+    # "TypeError: must be real number, not list" and dumping 200 rows of arg
+    # dump instead of a summary line.
+    #
+    # Count the drift verdicts the label claims. "ALERT/WARN" is not "!= OK":
+    # INSUFFICIENT is a third status meaning "this window is too small to
+    # judge", and folding it into the headline number made the label lie.
+    _verdicts = [d for d in drift if isinstance(d, dict)
+                 and d.get("status") in ("ALERT", "WARN")]
+    _no_verdict = [d for d in drift if isinstance(d, dict)
+                   and d.get("status") == "INSUFFICIENT"]
     _starved = [c for c in cov_rows
                 if isinstance(c, dict) and c.get("status") in ("STARVED",
                                                                "LOW_COVERAGE")]
     logger.info("monitoring: %d features scored, %d drift (ALERT/WARN), "
-                "%d coverage (STARVED/LOW); rolling brier %.4f vs %.4f baseline",
-                len(drift), len(_drifted), len(_starved), rb, baseline)
-    for _d in _drifted[:5]:
-        logger.warning("  drift   %-34s %-5s psi=%.3f", _d.get("feature", "?"),
-                       _d.get("status", "?"), float(_d.get("psi", 0) or 0))
+                "%d insufficient-window, %d coverage (STARVED/LOW)",
+                len(drift), len(_verdicts), len(_no_verdict), len(_starved))
+    for _d in (_verdicts + _no_verdict)[:5]:
+        # Report the value the verdict was actually made on. status is gated on
+        # psi_adjusted (and a location gate), so pairing it with raw psi made
+        # lines like "wind_mph ALERT psi=1.470" impossible to interpret. The
+        # floor is the MEASURED sampling null for this feature at these two
+        # sizes, and the median is what half of same-distribution windows score
+        # -- the scale of noise the adjustment is removing.
+        logger.warning("  drift   %-34s %-12s psi_adj=%.3f (raw %.3f, "
+                       "null %.3f med %.3f)",
+                       _d.get("feature", "?"), _d.get("status", "?"),
+                       float(_d.get("psi_adjusted") or 0),
+                       float(_d.get("psi_raw") or 0),
+                       float(_d.get("noise_floor") or 0),
+                       float(_d.get("psi_null_median") or 0))
     for _c in _starved[:5]:
         logger.warning("  coverage %-32s %-13s %.1f%%", _c.get("feature", "?"),
                        _c.get("status", "?"),
                        float(_c.get("pct_nonnull", 0) or 0))
-    if _drifted or _starved:
+    if _verdicts or _no_verdict or _starved:
         logger.warning("  full tables: %s, %s", run_drift_name, run_cov_name)
 
     # ── 14. Schema validation (gates) ─────────────────────────────────────
@@ -837,10 +899,26 @@ def main(argv: list[str] | None = None) -> int:
     # Name what was written. A count alone cannot answer "did the slate JSON
     # land?", which is the question this phase exists to answer, and a writer
     # that silently skipped an artifact still produced the right count.
+    # Per-game SHAP cards are named as a family: there are hundreds of them and
+    # one line each buried the eleven artifacts an operator is actually looking
+    # for under a wall of identical filenames.
+    _cards = [a for a in artifacts
+              if a.startswith(config.SHAP_GAME_PREFIX)]
     logger.info("artifacts written: %d", len(artifacts))
     for _a in artifacts:
-        logger.info("  -> %s", _a)
-    _missing = [a for a in artifacts if not (out_dir / a).exists()]
+        if not _a.startswith(config.SHAP_GAME_PREFIX):
+            logger.info("  -> %s", _a)
+    if _cards:
+        logger.info("  -> %s_*.csv (%d per-game cards, e.g. %s .. %s)",
+                    config.SHAP_GAME_PREFIX, len(_cards),
+                    _cards[0], _cards[-1])
+    # Two roots, not one: the model bundle is written to
+    # data_delivery/models/ (config.MODEL_BUNDLE) while every other artifact
+    # lands directly in out_dir. Checking out_dir alone reported the bundle as
+    # "absent on disk" on a run that had written and committed it.
+    _missing = [a for a in artifacts
+                if not ((out_dir / a).exists()
+                        or (config.MODELS_DIR / a).exists())]
     if _missing:
         logger.error("artifacts listed but absent on disk: %s", _missing)
     _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
@@ -1018,27 +1096,22 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
 
 
 def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
-    """Elo-based power rankings from the feature engine's state."""
+    """Elo-based power rankings from the feature engine's state.
+
+    The row-building is ``serve_mod.write_power_rankings_csv``'s job: it was
+    duplicated here verbatim (same columns, same rounding) and this copy was
+    the only one ever called, leaving the shared writer dead. One
+    implementation, in the module that owns the other artifact writers.
+    """
     ev = feat_mod.team_events(game_df)
     _, ratings = feat_mod._elo_apply(ev)
     rec = ev.groupby("team").agg(
         wins=("team_win", lambda s: float((s == 1).sum())),
         losses=("team_win", lambda s: float((s == 0).sum())),
     )
-    names = _team_names()
-    rows = []
-    for team, elo in sorted(ratings.items(), key=lambda kv: -kv[1]):
-        w = int(rec.loc[team, "wins"]) if team in rec.index else 0
-        l = int(rec.loc[team, "losses"]) if team in rec.index else 0
-        rows.append({"rank": 0, "team": team, "team_name": names.get(team, team),
-                     "elo": round(float(elo), 1), "wins": w, "losses": l,
-                     "record": f"{w}-{l}",
-                     "pct": round(w / (w + l), 3) if (w + l) else np.nan,
-                     "run_diff": 0, "l10": "", "home_pct": np.nan,
-                     "away_pct": np.nan})
-    df = pd.DataFrame(rows)
-    df["rank"] = range(1, len(df) + 1)
-    df.to_csv(path, index=False)
+    records = {team: (int(row.wins), int(row.losses))
+               for team, row in rec.iterrows()}
+    serve_mod.write_power_rankings_csv(path, ratings, records, _team_names())
 
 
 def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,

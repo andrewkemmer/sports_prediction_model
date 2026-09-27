@@ -3005,7 +3005,7 @@ def add_diff_features(
     weather_data: dict | None = None,
     require_records: bool = False,
 ) -> pd.DataFrame:
-    """Compute all 35 model features from the raw home/away columns.
+    """Compute all 36 model features from the raw home/away columns.
 
     Exact feature layout (order matters — mirrors the spec sheet):
 
@@ -3032,6 +3032,9 @@ def add_diff_features(
         14. lineup_woba_mean_diff
         15. lineup_woba_top3_diff
         16. lineup_woba_std_diff
+        16b. lineup_il_flag_diff  home_lineup_il_flag − away_lineup_il_flag
+                               (OUT/IR availability signal, one side's
+                               projected nine missing a player)
         17. woba_30g_diff      home_woba_30g − away_woba_30g
         18. bullpen_whip_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
         19. bullpen_whip_3g_diff
@@ -3060,6 +3063,8 @@ def add_diff_features(
         34. lineup_depth_multiplier      lineup_woba_mean_diff × lineup_woba_top3_diff
         35. ace_efficiency_factor        sp_k9_5g_diff × sp_whiff_diff
 
+    36 columns in total: the numbered run 1-35 plus 16b above.
+
     All diff features follow the convention: home − away (positive = home
     advantage).  Interaction features (29–35) are built from the diff
     features, so the model sees relative strengths directly.
@@ -3074,7 +3079,13 @@ def add_diff_features(
     """
     df = game_df.copy()
     n = len(df)
-    logger.info("Computing %d diff features for %d games...", 35, n)
+    # Snapshot the input columns so both log lines report the MEASURED
+    # number of columns this function actually creates. These used to be
+    # hardcoded 35, which went stale the moment lineup_il_flag_diff was
+    # added: the function created 36 while every log line and the
+    # docstring below still claimed 35. A self-reported count cannot rot.
+    _cols_before = set(df.columns)
+    logger.info("Computing diff features for %d games...", n)
 
     def _resolve_col(col: str) -> str | None:
         """First present column for a canonical raw name (aliases included)."""
@@ -3267,7 +3278,8 @@ def add_diff_features(
     # the true-ace differentiator.
     df["ace_efficiency_factor"] = df["sp_k9_5g_diff"] * df["sp_whiff_diff"]
 
-    logger.info("Diff features complete: %d columns added", 35)
+    _added = len(set(df.columns) - _cols_before)
+    logger.info("Diff features complete: %d columns added", _added)
     return df
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -3302,6 +3314,12 @@ def build_features(
 
     Returns:
         (game_df, pbp_df) as pandas DataFrames.
+
+        ``game_df`` does NOT carry the ``*_diff`` columns. Callers MUST
+        call ``add_diff_features()`` on it themselves, after their own
+        inputs are final — master_pipeline attaches Elo/season records
+        first, so deriving diffs before that point would ship NaN
+        elo/win_pct/woba_30g diffs.
     """
     pitches_path = Path(pitches_path)
     out_dir = Path(output_dir)
@@ -3369,8 +3387,15 @@ def build_features(
 
     logger.info("[MEM] After pandas load: %.0f MB", _mem_mb())
 
-    # ── Diff features: 34 model inputs from home/away pairs ──────────
-    game_df = add_diff_features(game_df)
+    # Diff features are NOT computed here. They are derived from the raw
+    # home/away columns, and master_pipeline re-runs add_diff_features
+    # AFTER enrich_elo_and_records() attaches Elo/season records (spec
+    # features 2, 3, 17) — so computing them here too built all 35 columns
+    # twice per run, discarded them once, and logged "Computing 35 diff
+    # features" twice back to back with no way to tell which pass was
+    # authoritative. Each caller now derives diffs exactly once, after its
+    # own raw inputs are final. Callers MUST call add_diff_features()
+    # themselves on the returned game frame.
 
     logger.info("=== Complete: %d games, %d pitches ===", len(game_df), len(pbp_df))
 

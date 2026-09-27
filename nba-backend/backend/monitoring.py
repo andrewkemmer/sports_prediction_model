@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,70 +14,259 @@ try:
 except ImportError:
     import config
 
+logger = logging.getLogger(__name__)
+
 PSI_WARN, PSI_ALERT = 0.10, 0.25
+#: A window too small to judge drift must say so rather than page.  MLB's
+#: thresholds: a baseline under 100 rows or a current window under 30 rows
+#: makes PSI an exercise in reading tea leaves, so the status is INSUFFICIENT
+#: and the PSI is informational only.
+INSUFFICIENT_BASELINE, INSUFFICIENT_CURRENT = 100, 30
 
 
-def feature_status(psi: float | None) -> str:
+def psi_status(psi: float | None) -> str:
     if psi is None or not np.isfinite(psi):
         return "OK"
     return "ALERT" if psi >= PSI_ALERT else "WARN" if psi >= PSI_WARN else "OK"
 
 
+def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
+    """Expected PSI from sampling noise alone when both samples come from the
+    SAME distribution - ``(k-1)/2 * (1/n_base + 1/n_cur)``.
+
+    Two same-distribution samples of these window sizes already average a raw
+    PSI well into WARN territory, so statuses must be assigned on the
+    NOISE-ADJUSTED value or identical distributions page constantly.  MLB
+    gates its drift statuses on exactly this floor; the NBA monitor's absence
+    of it is why a 60-row tail against a full season paged eleven features
+    whose means had not moved at all.
+    """
+    if n_baseline <= 0 or n_current <= 0:
+        return 0.0
+    return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
+
+
 def _psi(current, baseline, bins: int = 10) -> float:
+    """PSI over quantile bins of the COMBINED sample, additively smoothed.
+
+    Three defects this replaces, two of them measured in a delivered drift
+    CSV and one inherited from the reference implementation itself:
+
+    * Binning on the baseline alone makes a baseline-constant feature
+      degenerate to one bin, and one bin answers "psi 0.000, OK" no matter
+      how far the current window has moved.  ``is_playoffs`` went from a
+      7% playoff share to a 100% playoff window and the table called it OK.
+      Binning the COMBINED sample keeps at least two bins whenever either
+      side varies - for continuous features.
+    * A two-valued feature defeats quantile binning entirely: the combined
+      quantiles of 93% zeros and 7% ones collapse to the edges [0, 1],
+      which is ONE bin, which absorbs 0 and 1 alike.  The delivered table's
+      "is_playoffs: 1.0 vs 0.0725, PSI 0.000, OK" survives a combined-sample
+      rewrite unchanged - MLB's ``compute_psi`` has the same blind spot,
+      because both of its samples land in the single collapsed bin.  Any
+      feature with few distinct observed values is measured here the way
+      categorical drift is measured everywhere else: per-VALUE frequency
+      PSI, which scores a 7% -> 100% regime flip as exactly what it is.
+    * Empty bins were floored at 1e-6, which multiplies any absent bin into
+      an enormous log term.  Add-one-half smoothing (MLB's ``compute_psi``)
+      keeps empty bins bounded and each term ``(c - b) * ln(c / b)`` >= 0.
+    """
     c, b = pd.Series(current).dropna(), pd.Series(baseline).dropna()
     if len(c) < 10 or len(b) < 10:
         return np.nan
-    q = np.unique(np.quantile(b, np.linspace(0, 1, bins + 1)))
-    if len(q) < 2:
-        return np.nan
-    bi = np.clip(np.searchsorted(q, b, side="right") - 1, 0, len(q) - 2)
-    ci = np.clip(np.searchsorted(q, c, side="right") - 1, 0, len(q) - 2)
-    pb = np.bincount(bi, minlength=len(q) - 1) / len(b)
-    pc = np.bincount(ci, minlength=len(q) - 1) / len(c)
-    pb, pc = np.clip(pb, 1e-6, None), np.clip(pc, 1e-6, None)
-    return float(np.sum((pc - pb) * np.log(pc / pb)))
+    combined = np.concatenate([b.to_numpy(float), c.to_numpy(float)])
+    levels = np.unique(combined)
+    if len(levels) <= 10:
+        # Discrete-frequency PSI over the observed value set.
+        bi = np.searchsorted(levels, b.to_numpy(float))
+        ci = np.searchsorted(levels, c.to_numpy(float))
+        k = len(levels)
+        pb = (np.bincount(bi, minlength=k) + 0.5) / (len(b) + 0.5 * k)
+        pc = (np.bincount(ci, minlength=k) + 0.5) / (len(c) + 0.5 * k)
+        return float(max(np.sum((pc - pb) * np.log(pc / pb)), 0.0))
+    edges = np.unique(np.quantile(combined, np.linspace(0, 1, bins + 1)))
+    if len(edges) < 2:
+        return 0.0
+    edges[-1] = max(edges[-1], combined.max() + 1e-10)
+    bc = np.histogram(b, bins=edges)[0].astype(float)
+    cc = np.histogram(c, bins=edges)[0].astype(float)
+    k = len(edges) - 1
+    pb = (bc + 0.5) / (bc.sum() + 0.5 * k)
+    pc = (cc + 0.5) / (cc.sum() + 0.5 * k)
+    return float(max(np.sum((pc - pb) * np.log(pc / pb)), 0.0))
 
 
-def coverage(df: pd.DataFrame) -> list[dict]:
-    rows = []
-    for feature in config.active_moneyline_feature_cols():
-        values = pd.to_numeric(df[feature], errors="coerce") if feature in df else pd.Series(dtype=float)
-        pct = round(100 * float(values.notna().mean()), 2) if len(values) else 0.0
-        rows.append({"feature": feature, "window": "decided pool", "n_games": int(len(df)),
-                     "pct_measured": pct, "pct_nonnull": pct,
-                     "n_default_zero": int((values == 0).sum()) if len(values) else 0,
-                     "status": "STARVED" if pct < 25 else "LOW_COVERAGE" if pct < 80 else "OK"})
-    return rows
+def drift_windows(decided: pd.DataFrame, days: int = 7,
+                  min_baseline: int = 250, min_current: int = 30,
+                  max_days: int = 45) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The two windows drift is measured on: a recent tail and its prior.
+
+    Mirrors MLB's slice: ``current`` is the last ``days`` days of decided
+    games, ``baseline`` the prior games, at least ``min_baseline`` rows or
+    three times the current window, whichever is larger - never the whole
+    history.  Comparing a playoff-heavy 60-row tail against a full season is
+    the comparison that paged ``elo_diff`` (PSI 0.545) and ``win_pct_diff``
+    (0.564) as ALERT while their means sat within noise; a like-for-like
+    prior window is the comparison that makes PSI a measurement instead of a
+    survivorship artefact.
+
+    One NBA-specific widening: MLB's 7-day window holds ~45 games whenever
+    baseball is being played, but an NBA season's last 7 days can be a
+    three-game Finals tail, and a 3-game current window would report
+    INSUFFICIENT for every feature - honest, and useless.  The window grows
+    back a day at a time (never past ``max_days``) until it holds
+    ``min_current`` decided games; if the calendar cannot supply that, the
+    window falls back to the last 60 decided games.  Both fallbacks are
+    logged, never silent.
+    """
+    frame = decided
+    gd = pd.to_datetime(frame.get("gameday"), errors="coerce")
+    if gd.notna().any() and len(frame):
+        cutoff = gd.max() - pd.Timedelta(days=days)
+        current = frame[gd >= cutoff]
+        prior = frame[gd < cutoff]
+        grown = 0
+        while len(current) < min_current and grown < max_days - days:
+            grown += 1
+            cutoff = gd.max() - pd.Timedelta(days=days + grown)
+            current = frame[gd >= cutoff]
+            prior = frame[gd < cutoff]
+        if grown:
+            logger.info("drift window: only %d decided game(s) in the last "
+                        "%d day(s); widened to %d day(s) for a current "
+                        "window of %d", len(frame[gd >= gd.max()
+                                                  - pd.Timedelta(days=days)]),
+                        days, days + grown, len(current))
+    else:  # no usable gameday: degrade to a positional tail, logged
+        current = frame.tail(min(60, len(frame)))
+        prior = frame.iloc[:max(len(frame) - len(current), 0)]
+    if not len(current) or len(current) < min_current:  # sparse tail
+        logger.warning("drift window: %d decided game(s) available against a "
+                       "target of %d; falling back to the last 60 decided "
+                       "games", len(current), min_current)
+        current = frame.tail(min(60, len(frame)))
+        prior = frame.iloc[:max(len(frame) - len(current), 0)]
+    baseline = prior.tail(max(3 * len(current), min_baseline)) \
+        if len(prior) else prior
+    return baseline, current
 
 
-def feature_drift(full: pd.DataFrame, recent: pd.DataFrame,
+def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
+    """Per-feature drift status, structured like MLB's ``compute_feature_drift``.
+
+    Statuses are assigned on the NOISE-ADJUSTED PSI and only escalate above OK
+    when the mean ALSO moved beyond its sampling error (the location gate):
+    PSI responds to any distributional change, including binning wiggle on
+    quantized features, and a status that fires without a location shift is
+    noise wearing a costume.  Windows too small to judge (see
+    ``INSUFFICIENT_BASELINE``) report INSUFFICIENT and never page.
+    """
     out = []
     for feature in config.active_moneyline_feature_cols():
-        if feature not in full:
+        if feature not in baseline_games.columns:
             continue
-        psi = _psi(recent[feature].to_numpy(float) if feature in recent else [],
-                   full[feature].to_numpy(float))
-        current = pd.to_numeric(recent[feature], errors="coerce") if feature in recent else pd.Series(dtype=float)
-        baseline = pd.to_numeric(full[feature], errors="coerce")
+        baseline = pd.to_numeric(baseline_games[feature], errors="coerce").dropna()
+        current = (pd.to_numeric(current_games[feature], errors="coerce").dropna()
+                   if feature in current_games.columns else pd.Series(dtype=float))
+        n_b, n_c = len(baseline), len(current)
+        if n_b == 0 or n_c == 0:
+            out.append({"feature": feature,
+                        "current_mean": round(float(current.mean()), 4) if n_c else 0.0,
+                        "baseline_mean": round(float(baseline.mean()), 4) if n_b else 0.0,
+                        "psi": 0.0, "psi_adjusted": 0.0, "noise_floor": 0.0,
+                        "mean_shift": 0.0, "shift_se": 0.0,
+                        "location_shift": False, "status": "INSUFFICIENT",
+                        "weight_pct": (weights or {}).get(feature) if weights else None,
+                        "n_baseline": int(n_b), "n_current": int(n_c)})
+            continue
+        psi = _psi(current, baseline)
+        noise = psi_noise_floor(n_b, n_c)
+        psi_adjusted = max(psi - noise, 0.0)
+        mean_shift = float(current.mean() - baseline.mean())
+        if n_b + n_c > 2:
+            pooled_sd = np.sqrt(((n_b - 1) * baseline.var(ddof=1)
+                                 + (n_c - 1) * current.var(ddof=1))
+                                / (n_b + n_c - 2))
+        else:
+            pooled_sd = 0.0
+        if pooled_sd > 0:
+            # Games in a short window share teams (~7 starts each in MLB's
+            # derivation), so the naive SE understates true variance; the
+            # same clustering inflation applies to a week of NBA games.
+            shift_se = float(pooled_sd * np.sqrt(1.0 / n_b + 1.0 / n_c) * 1.5)
+            location_shift = abs(mean_shift) > 2.0 * shift_se
+        else:
+            shift_se = 0.0
+            location_shift = psi_adjusted > 0
+        if n_b < INSUFFICIENT_BASELINE or n_c < INSUFFICIENT_CURRENT:
+            status = "INSUFFICIENT"
+        else:
+            status = psi_status(psi_adjusted) if location_shift else "OK"
         out.append({"feature": feature,
-                    "current_mean": float(current.mean()) if len(current) else np.nan,
-                    "baseline_mean": float(baseline.mean()) if len(baseline) else np.nan,
-                    "psi": psi, "psi_adjusted": psi,
-                    "status": feature_status(psi),
-                    "weight_pct": round(100 * float((weights or {}).get(feature, 0)), 2) if weights else None,
-                    "n_baseline": int(baseline.notna().sum()),
-                    "n_current": int(current.notna().sum())})
+                    "current_mean": round(float(current.mean()), 4),
+                    "baseline_mean": round(float(baseline.mean()), 4),
+                    "psi": round(psi, 6),
+                    "psi_adjusted": round(psi_adjusted, 6),
+                    "noise_floor": round(noise, 6),
+                    "mean_shift": round(mean_shift, 6),
+                    "shift_se": round(shift_se, 6),
+                    "location_shift": bool(location_shift),
+                    "status": status,
+                    # Weights arrive as blend-weighted percentages (0-100,
+                    # mirroring MLB's helper contract), so they pass through
+                    # as-is; the previous double-scaling published 4191.85
+                    # where 41.9 belonged.
+                    "weight_pct": (weights or {}).get(feature) if weights else None,
+                    "n_baseline": int(n_b), "n_current": int(n_c)})
+    n_warns = sum(r["status"] == "WARN" for r in out)
+    n_alerts = sum(r["status"] == "ALERT" for r in out)
+    logger.info("feature drift: %d features, %d warning(s), %d alert(s); "
+                "statuses on noise-adjusted PSI with a location gate",
+                len(out), n_warns, n_alerts)
     return out
 
 
-def write_run_engine_feature_artifacts(out_dir, date_c: str, full: pd.DataFrame,
-                                      recent: pd.DataFrame, weights=None) -> tuple[str, str]:
+def coverage(baseline_games: pd.DataFrame,
+             current_games: pd.DataFrame | None = None) -> list[dict]:
+    """Per-feature non-null share, per drift window - MLB's dual-window shape.
+
+    This is the visual backstop for the empty-pl_ts incident: a feature that
+    failed to build shows plausible means in no table at all, but its coverage
+    row says 0% measured in plain numbers.  Both windows are reported, so a
+    feature that starved only recently cannot hide behind a healthy baseline.
+    """
+    rows = []
+    windows = [("current", current_games) if current_games is not None
+               else ("decided pool", baseline_games)]
+    if current_games is not None:
+        windows.append(("baseline", baseline_games))
+    for window, frame in windows:
+        for feature in config.active_moneyline_feature_cols():
+            values = (pd.to_numeric(frame[feature], errors="coerce")
+                      if feature in frame else pd.Series(dtype=float))
+            pct = round(100 * float(values.notna().mean()), 2) if len(values) else 0.0
+            rows.append({"feature": feature, "window": window,
+                         "n_games": int(len(frame)),
+                         "n_nonnull": int(values.notna().sum()) if len(values) else 0,
+                         "pct_measured": pct, "pct_nonnull": pct,
+                         "n_default_zero": int((values == 0).sum()) if len(values) else 0,
+                         "status": "STARVED" if pct < 25
+                                   else "LOW_COVERAGE" if pct < 80 else "OK"})
+    return rows
+
+
+def write_run_engine_feature_artifacts(out_dir, date_c: str,
+                                       baseline_games: pd.DataFrame,
+                                       current_games: pd.DataFrame,
+                                       weights=None) -> tuple[str, str]:
     out_dir = Path(out_dir)
     drift_name = f"{config.RUN_ENGINE_FEATURE_DRIFT_PREFIX}{date_c}.csv"
     coverage_name = f"{config.RUN_ENGINE_FEATURE_COVERAGE_PREFIX}{date_c}.csv"
-    pd.DataFrame(feature_drift(full, recent, weights)).to_csv(out_dir / drift_name, index=False)
-    pd.DataFrame(coverage(full)).to_csv(out_dir / coverage_name, index=False)
+    pd.DataFrame(feature_drift(baseline_games, current_games, weights)).to_csv(
+        out_dir / drift_name, index=False)
+    pd.DataFrame(coverage(baseline_games, current_games)).to_csv(
+        out_dir / coverage_name, index=False)
     return drift_name, coverage_name
 
 
@@ -144,8 +334,10 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
                        metrics=None, platt=None) -> dict:
     drift = list(drift or [])
     cov = list(cov or [])
-    feature_alerts = [row for row in drift if row.get("status") != "OK"]
-    coverage_alerts = [row for row in cov if row.get("status") != "OK"]
+    # INSUFFICIENT is a window-size statement, not a problem statement - it
+    # must not page any more than OK does.
+    feature_alerts = [row for row in drift if row.get("status") in {"WARN", "ALERT"}]
+    coverage_alerts = [row for row in cov if row.get("status") in {"LOW_COVERAGE", "STARVED"}]
     # Shared frontend monitor cards use these explicit fields.
     retrain = str(date_c)
     next_retrain = (

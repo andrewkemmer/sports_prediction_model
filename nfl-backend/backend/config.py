@@ -24,7 +24,6 @@ REPO_SUBDIR = SPORT_DIR_NAME
 # Reproducibility — explicit seeds for every stochastic component
 # ---------------------------------------------------------------------------
 RANDOM_SEED = 42
-NUMPY_SEED = 42
 
 # ---------------------------------------------------------------------------
 # Historical eligibility policy
@@ -144,6 +143,26 @@ MONEYLINE_FEATURE_COLS = [
     # raw per-side levels route tree-only via RAW_PER_SIDE_COLS below.
     "pbp_air_yards_att_ewm_diff", "pbp_air_yards_att_ewm_home",
     "pbp_air_yards_att_ewm_away",
+    # Structural promotion (2026-09-27) over an RFE DECLINE: trailing defensive
+    # EPA allowed per play, halflife-2 EWM. The 2026-09-23 sweep trialled all
+    # six pbp_def_epa_play_* names and committed none — every one lost logloss
+    # (+0.00062 .. +0.00119 against a 0.00915 SE, i.e. 0.07-0.13 SE, so
+    # statistically indistinguishable from zero but consistently the wrong
+    # way). This promotion is a structural decision, not a measured win, and
+    # the comment is here so nobody later reads the gate's silence as
+    # approval. Two reasons it is worth the linear/MLP members' ~0.001
+    # logloss: (1) before it, the served contract carried NO defensive
+    # quantity at all — defensive quality reached the model only as a second-
+    # order consequence of the opponent's Elo/win%/net-points series; (2) the
+    # raw per-side levels are tree-only, so the only column the linear/MLP
+    # members see is the diff. Methodology is unchanged from the candidate
+    # family: the same _trailing_ewm halflife-2 primitive as ewm_net_pts, so
+    # the recency semantics match the rest of the contract. Sign is NOT
+    # negated (lower = stingier defense, the football convention), which
+    # makes the diff read opposite to the level: a POSITIVE diff means the
+    # AWAY defense is stingier.
+    "pbp_def_epa_play_ewm_diff", "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
     # raw per-side levels (the tree family's home/away representations).
     # Declared HERE, never synthesized by a view: the served list stays the
     # only place a feature can appear.
@@ -152,6 +171,11 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
+    # 2026-09-27: raw magnitude for pace. The diff only ever answers "who is
+    # faster"; the levels answer "how fast is this game likely to be" (both
+    # teams slow -> low-scoring total, regardless of the gap). Same trailing
+    # level the diff reads, tree-only routing like every other side level.
+    "pace_plays_min_home", "pace_plays_min_away",
     # MLB lineup-wOBA structural analogue: position quality for the projected
     # offensive lineup. Diffs route to every model family; home/away levels are
     # tree-only through RAW_PER_SIDE_COLS.
@@ -416,6 +440,7 @@ RAW_PER_SIDE_COLS = frozenset({
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
+    "pace_plays_min_home", "pace_plays_min_away",
 } | {f"{family}_{m}_{w}_{s}"
      for family, specs in CANDIDATE_FAMILIES.items()
      for spec in specs.values()
@@ -639,15 +664,8 @@ MLP_PARAMS = {
 }
 
 # Regression members (margin + total point regressions)
-XGBOOST_REG_PARAMS = {
-    "n_estimators": 300,
-    "max_depth": 3,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "random_state": RANDOM_SEED,
-    "verbosity": 0,
-}
+# The score regressors are LightGBM Poisson fits (distributions._build_member);
+# there is no xgboost regressor, so only one params dict belongs here.
 LIGHTGBM_REG_PARAMS = {
     "n_estimators": 200,
     "max_depth": 4,
@@ -672,24 +690,21 @@ RUN_ENGINE_FIXED_TOTALS = (38, 42, 46, 50, 54)
 RUN_ENGINE_CANONICAL_SPREADS = (3,)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
-# Margin/total PMF support (integer points; discrete-normal base)
-MARGIN_PMF_MAX = 30
-TOTAL_PMF_MAX = 70
 
 # Distribution model defaults
-MARGIN_SIGMA = 13.5       # initial NFL margin std (points)
-TOTAL_SIGMA = 10.0        # initial total std (points)
-SIGMA_FLOOR_MARGIN = 9.0
-SIGMA_CAP_MARGIN = 20.0
-SIGMA_FLOOR_TOTAL = 7.0
-SIGMA_CAP_TOTAL = 16.0
-P_TIE_MAX = 0.02          # cap on the tied-margin mass (push bands)
+# The margin/total distribution is FIT per run from OOF residuals as a
+# Negative Binomial alpha (distributions.calibrate_dispersion, bounded by its
+# own ALPHA_FLOOR/ALPHA_CAP), and every market grid is Monte-Carlo sampled
+# from that pair (distributions.simulate_distributions). There is no fixed
+# sigma and no analytic PMF support grid in the shipped model: the former
+# MARGIN_SIGMA/TOTAL_SIGMA/SIGMA_* bounds and MARGIN_PMF_MAX/TOTAL_PMF_MAX
+# grids described a discretized-Gaussian model that production never
+# published, and code that read them computed probabilities the artifacts
+# never carried.
 
 # ---------------------------------------------------------------------------
 # Artifact naming (frontend family contracts)
 # ---------------------------------------------------------------------------
-DATE_FMT = "%Y%m%d"
-
 MONEYLINE_JSON = "nfl_moneyline_v1_{date}.json"
 CALIBRATION_JSON = "nfl_calibration_{date}.json"
 PREDICTIONS_HISTORY_CSV = "nfl_predictions_history_{date}.csv"
@@ -702,7 +717,6 @@ FEATURE_JSON = "nfl_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nfl_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nfl_shap_game"
 MODEL_BUNDLE = MODELS_DIR / "nfl_ensemble_latest.joblib"
-OOF_STORE_CSV = DATA_DELIVERY_DIR / "nfl_oof_store.csv"
 
 # QB serving contract (enrichment only — never fabricated)
 QB_FIELDS = [
@@ -711,6 +725,3 @@ QB_FIELDS = [
     "qb_away_name", "qb_away_rating", "qb_away_td_per_game",
     "qb_away_cmp_pct", "qb_away_yards_per_attempt", "qb_away_ints",
 ]
-
-# Coin-flip threshold for model_pick display
-COIN_FLIP_THRESHOLD = 0.02

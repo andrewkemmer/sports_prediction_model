@@ -600,16 +600,6 @@ def moneyline_apply(p_home: np.ndarray, calibrator: dict | None) -> np.ndarray:
     return apply_favored_platt(p, calibrator)
 
 
-def fit_favored_platt(p_home: np.ndarray, home_win: np.ndarray) -> dict | None:
-    """Fit Platt in the same favored-team space shown to users.
-
-    Fitted on p_fav = max(p, 1-p) (the side with probability > 50%) with
-    labels converted to "did the favorite win". Returns None (identity)
-    under any guardrail instead of a risky fit.
-    """
-    return moneyline_fit(p_home, home_win)
-
-
 def apply_favored_platt(p_home: np.ndarray, cal: dict | None) -> np.ndarray:
     """Calibrate favored probability, floor it at 50%, convert home space back.
 

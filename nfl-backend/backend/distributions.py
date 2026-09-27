@@ -35,47 +35,6 @@ MC_SEED = 42
 ALPHA_FLOOR = 1e-8
 ALPHA_CAP = 2.0
 
-# Retained for backwards-compatible diagnostics/tests; production uses NB MC.
-MARGIN_SUPPORT = np.arange(-config.MARGIN_PMF_MAX, config.MARGIN_PMF_MAX + 1)
-TOTAL_SUPPORT = np.arange(0, config.TOTAL_PMF_MAX + 1)
-
-
-def discrete_normal_pmf(mu: float, sigma: float, support: np.ndarray) -> np.ndarray:
-    """Compatibility helper for old diagnostics; not the production sampler."""
-    if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0:
-        return np.full(len(support), np.nan)
-    z = (support - mu) / sigma
-    p = np.exp(-0.5 * z * z)
-    return p / p.sum()
-
-
-def _pmf_median(pmf: np.ndarray, support: np.ndarray) -> float:
-    """Compatibility median helper for legacy diagnostics."""
-    if not np.isfinite(pmf).all():
-        return np.nan
-    return float(support[min(int(np.searchsorted(np.cumsum(pmf), 0.5)),
-                           len(support) - 1)])
-
-
-def margin_cdf_above(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
-    threshold = int(np.floor(line)) + 1
-    return float(pmf[support >= threshold].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def margin_pmf_at(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
-    if line != int(line):
-        return 0.0
-    return float(pmf[support == int(line)].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def total_probabilities(pmf: np.ndarray, support: np.ndarray, line: float) -> tuple[float, float, float]:
-    if not np.isfinite(pmf).all():
-        return np.nan, np.nan, np.nan
-    push = float(pmf[support == int(line)].sum()) if line == int(line) else 0.0
-    over = float(pmf[support > line].sum())
-    under = float(pmf[support < line].sum())
-    return over, push, under
-
 
 def _make_reg():
     from lightgbm import LGBMRegressor
@@ -509,11 +468,3 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
         out["p_over_fair"] = [float(r[_grid_key("p_over", r["fair_total"])])
                               for _, r in out.iterrows()]
     return out
-
-
-def calibrate_sigma(resid_margin: np.ndarray, resid_total: np.ndarray) -> dict:
-    """Compatibility shim; callers should use calibrate_dispersion."""
-    return {"sigma_margin": float(np.nanstd(resid_margin)),
-            "sigma_total": float(np.nanstd(resid_total)),
-            "alpha_home": 0.0, "alpha_away": 0.0,
-            "distribution": "negative_binomial", "mc_draws": MC_DRAWS}

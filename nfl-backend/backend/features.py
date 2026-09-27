@@ -170,13 +170,6 @@ _FAMILY_OF: dict[str, str] = {
 }
 
 
-def pbp_ladder_columns() -> list[str]:
-    """Every ladder column the pbp candidate family produces
-    (``<metric>_<window>`` per the config specs), in declaration order."""
-    return [f"{metric}_{w}" for metric, windows in PBP_TRAILING_SPECS.items()
-            for w in windows]
-
-
 # ---------------------------------------------------------------------------
 # Venue facts (committed stadiums table)
 # ---------------------------------------------------------------------------
@@ -1327,8 +1320,8 @@ def _normalize_epa_lineup_positions(positions: pd.Series) -> pd.Series:
 # a scramble is a qb_dropback on a play_type of "run", and pass_attempt is 0
 # on a play a defensive penalty nullified.  Measured league-wide 2025, a
 # player-game with EPA but all three flags at zero does not exist (0 of
-# 5,598), so the denominator has no structural zero.
-EPA_FLAG_COLS = ("qb_dropback", "pass_attempt", "rush_attempt")
+# 5,598), so the denominator has no structural zero. The flag names live in
+# EPA_ROLE_COLS, which is the only thing that reads them.
 EPA_ROLE_COLS = (("passer_player_id", "qb_dropback"),
                  ("receiver_player_id", "pass_attempt"),
                  ("rusher_player_id", "rush_attempt"))
@@ -1769,7 +1762,9 @@ def build_game_features(games: pd.DataFrame,
                               ("ewm_net_pts_home", "ewm_net_pts"),
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
-                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days")):
+                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("pace_plays_min_home", "pace_plays_min"),
+                              ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
@@ -1856,7 +1851,9 @@ def build_slate_features(schedule: pd.DataFrame,
                               ("ewm_net_pts_home", "ewm_net_pts"),
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
-                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days")):
+                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("pace_plays_min_home", "pace_plays_min"),
+                              ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 

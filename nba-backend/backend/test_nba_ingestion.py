@@ -1030,6 +1030,32 @@ def _refuse_all(calls: list):
     return handler
 
 
+class _CapturedStream:
+    """A stderr that is not a terminal, which is what Kaggle hands the run.
+
+    ``tqdm`` resolves ``sys.stderr`` when a bar is constructed, so replacing it
+    with this is enough to see exactly what a captured cell would have been
+    sent - and ``isatty()`` answers False, which is the condition the removed
+    gate used to hide the bar behind.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+
+    def write(self, text: str) -> int:
+        self._chunks.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def text(self) -> str:
+        return "".join(self._chunks)
+
+
 class TestRefusedHost:
     """What happens when a host says no.
 
@@ -1327,3 +1353,667 @@ class TestTrainableGames:
 
     def test_an_empty_frame_is_handled(self):
         assert ing.trainable_games(pd.DataFrame()).empty
+
+
+class TestEspnRosterSlug:
+    """ESPN's roster path is strict, and two of our tokens are not its own.
+
+    Measured 2026-09-27 against the live endpoint: of the thirty abbreviations
+    stats.nba.com publishes, ``nop`` and ``uta`` answer HTTP 400 while ``no``
+    (19 athletes) and ``utah`` (18) answer 200. A 400 is a malformed request, so
+    the run's warning that "a request this pipeline sends will not change it" was
+    correct - and the consequence was that two clubs' injury state was read as
+    healthy, the one state this source must never be mistaken for.
+    """
+
+    def test_the_two_divergent_tokens_resolve_to_espn_segments(self):
+        assert src.espn_roster_url("NOP").endswith("/teams/no/roster")
+        assert src.espn_roster_url("UTA").endswith("/teams/utah/roster")
+
+    def test_resolution_is_case_and_whitespace_insensitive(self):
+        assert src.espn_roster_url(" nop ") == src.espn_roster_url("NOP")
+        assert src.espn_roster_url("uta") == src.espn_roster_url("UTA")
+
+    def test_every_other_token_is_passed_through_lowercased(self):
+        for token in ("MIL", "GSW", "NYK", "SAS", "WAS", "LAL"):
+            assert src.espn_roster_url(token).endswith(
+                f"/teams/{token.lower()}/roster"), token
+
+    def test_the_alias_table_covers_exactly_the_measured_divergences(self):
+        """A table that grows without evidence re-creates the problem it fixed:
+        a wrong entry turns a working request into a 400."""
+        assert src.ESPN_ROSTER_SLUG_ALIASES == {"NOP": "no", "UTA": "utah"}
+
+
+class TestCardPresentationFields:
+    """Tipoff, arena, and the postponed state a card has to be able to show.
+
+    The delivered moneyline JSON carried ``start_time_utc`` and ``venue`` as
+    columns that were always null, and every ``p_*`` player field was null too,
+    so the board showed no tipoff and no top player for either side. Three
+    separate causes, all upstream of the frontend: the parser dropped fields
+    ESPN had already sent, the contract discarded what survived, and the player
+    lookup asked for a column name the contract never produced.
+    """
+
+    @staticmethod
+    def _row(event) -> dict:
+        return src._parse_espn_event(event, config.GAME_TYPE_REG)
+
+    def test_the_tipoff_survives_as_a_utc_instant(self):
+        row = self._row(_espn_event(when="2026-10-20T23:00Z"))
+        assert row["start_time_utc"] == "2026-10-20T23:00:00Z"
+
+    def test_the_tipoff_is_normalized_rather_than_copied(self):
+        """A board date is an Eastern date; the instant is what converts back."""
+        row = self._row(_espn_event(when="2025-01-10T03:30Z"))
+        assert row["start_time_utc"].endswith("Z")
+        # 03:30Z on Jan 10 is 22:30 ET on Jan 9 - the rollover the guard in
+        # ``_answered_a_different_day`` already tolerates on the schedule side.
+        assert str(row["gameday"])[:10] == "2025-01-09"
+
+    def test_an_unparseable_tipoff_yields_nothing_rather_than_midnight(self):
+        """A fabricated midnight UTC lands on the prior Eastern evening and
+        renders as a plausible, wrong tipoff."""
+        assert src._utc_iso(None) == ""
+        assert src._utc_iso(pd.NaT) == ""
+        assert src._utc_iso("not a date") == ""
+
+    def test_the_contract_keeps_the_fields_rather_than_dropping_them(self):
+        """``normalize`` projects to the declared schema, so an undeclared
+        column is silently dropped - which is how a delivered artifact ends up
+        with an empty ``start_time_utc`` column."""
+        for column in ("start_time_utc", "venue", "game_state",
+                       "game_status_detail"):
+            assert column in contract.SCHEMAS["games"], column
+
+    def test_the_venue_is_carried_when_the_schedule_publishes_one(self):
+        event = _espn_event()
+        event["competitions"][0]["venue"] = {"fullName": "TD Garden"}
+        assert self._row(event)["venue"] == "TD Garden"
+
+    def test_a_game_with_no_venue_reports_none_rather_than_placeholder(self):
+        assert self._row(_espn_event())["venue"] == ""
+
+    def test_the_state_and_detail_are_carried_for_the_card_to_label(self):
+        row = self._row(_espn_event(state="pre", completed=False,
+                                    detail="Postponed"))
+        assert row["game_state"] == "pre"
+        assert row["game_status_detail"] == "Postponed"
+        assert not row["is_final"]
+
+    def test_a_postponed_game_is_recognised_by_detail_not_by_a_word_list(self):
+        assert src.is_postponed_detail("Postponed")
+        assert src.is_postponed_detail("Canceled")
+        assert src.is_postponed_detail("Suspended")
+        assert src.is_postponed_detail("Rescheduled to a later date")
+        assert not src.is_postponed_detail("Final")
+        assert not src.is_postponed_detail("7:30 PM ET")
+        assert not src.is_postponed_detail("")
+
+    def test_serving_refuses_to_invent_a_tipoff(self):
+        """Mirrors the NHL rule: a date with no time is not a tipoff."""
+        import serving
+        assert serving._start_time_utc({"start_time_utc": ""}) is None
+        assert serving._start_time_utc({"start_time_utc": "2026-10-20"}) is None
+        assert serving._start_time_utc(
+            {"start_time_utc": "2026-10-20T23:00:00Z"}) == "2026-10-20T23:00:00Z"
+
+    def test_a_postponed_game_is_labelled_postponed_on_the_card(self, tmp_path):
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2025-01-09"),
+            "home_team": "LAL", "away_team": "CHA",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_status_detail": "Postponed"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Postponed"
+
+    def test_an_unplayed_game_with_no_detail_is_still_scheduled(self, tmp_path):
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-20"),
+            "home_team": "BOS", "away_team": "DET",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Scheduled"
+
+    def test_a_qualifying_player_is_actually_found(self):
+        """End to end over the real column names, because a name-only test
+        cannot tell a fixed guard from a still-empty one."""
+        import player_enrichment
+        games = pd.DataFrame([
+            {"game_id": f"g{n}", "gameday": pd.Timestamp("2026-01-0%d" % (n + 1)),
+             "home_team": "BOS", "away_team": "DET",
+             "home_score": 110.0, "away_score": 100.0}
+            for n in range(config.PLAYER_WINDOW_GAMES)])
+        rows = []
+        for n in range(config.PLAYER_WINDOW_GAMES):
+            for minutes, points, ast in ((36, 30, 11), (12, 4, 1), (5, 2, 0)):
+                rows.append({
+                    "game_id": f"g{n}", "team": "BOS", "player_id": "p1",
+                    "player_name": "J. Player", "minutes": minutes,
+                    "points": points, "ast": ast})
+        record = player_enrichment._player_for_team(
+            pd.DataFrame(rows), "BOS", pd.Timestamp("2026-02-01"), games)
+        assert record.get("name") == "J. Player"
+        assert record["ppg"] > record.get("apg", 0)
+        assert record["games"] == config.PLAYER_WINDOW_GAMES
+
+    def test_a_cached_day_from_an_older_parser_is_refetched(self, tmp_path):
+        """A cache entry written before the frame gained a tipoff reads back as
+        a hit and silently yields empty values, so a whole window reports no
+        tipoff while a freshly fetched day reports one. A stale shape is a
+        miss, and the refetch overwrites it in place."""
+        path = tmp_path / "schedule" / "20250109.parquet"
+        ing._write_parquet(pd.DataFrame({
+            "game_id": ["1"], "gameday": [pd.Timestamp("2025-01-09")],
+            "home_team": ["LAL"], "away_team": ["CHA"],
+            "home_score": [np.nan], "away_score": [np.nan]}),
+            path)
+        stale = pd.DataFrame({"game_id": ["1"]})
+        assert not ing._schedule_hit(stale, path)
+        fresh = pd.DataFrame({"game_id": ["1"], "start_time_utc": ["x"],
+                              "venue": ["TD Garden"], "game_state": ["pre"],
+                              "game_status_detail": ["7:30 PM ET"]})
+        assert ing._schedule_hit(fresh, path)
+
+    def test_a_genuinely_empty_day_stays_a_hit(self, tmp_path):
+        """Most days in a window have no games, and that emptiness is the fact
+        worth keeping - refetching them would cost a request to learn nothing."""
+        path = tmp_path / "schedule" / "20250110.parquet"
+        ing._write_parquet(pd.DataFrame(), path)
+        assert ing._schedule_hit(pd.DataFrame(), path)
+
+    def test_a_postponed_game_is_not_offered_as_upcoming(self):
+        """MLB's decided-frame rule in one line: postponements are excluded.
+        Left in the slate it is indistinguishable from a real game, which is
+        how a January 2025 postponement reached a board dated October 2026."""
+        games = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2025-01-09"),
+            "home_team": "LAL", "away_team": "CHA", "season": 2025,
+            "home_score": np.nan, "away_score": np.nan,
+            "game_type": config.GAME_TYPE_REG,
+            "game_status_detail": "Postponed"}])
+        slate = feat.build_slate_features(games)
+        assert slate.empty
+
+    def test_a_real_upcoming_game_is_still_offered(self):
+        games = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-20"),
+            "home_team": "BOS", "away_team": "DET", "season": 2027,
+            "home_score": np.nan, "away_score": np.nan,
+            "game_type": config.GAME_TYPE_REG,
+            "game_status_detail": "7:30 PM ET"}])
+        assert len(feat.build_slate_features(games)) == 1
+
+
+class TestSixtyDaySlices:
+    """The 60-day pull, and the reason it is only applied where it works.
+
+    MLB chunks its schedule because StatsAPI's ``schedule`` takes
+    ``startDate``/``endDate``; ``results.SCHEDULE_CHUNK_DAYS`` is 60 for the
+    same reason ``statcast_chunk_days`` is. NBA's season log can be chunked the
+    same way because ``LeagueGameLog`` already accepts ``DateFrom``/``DateTo``.
+    ESPN's scoreboard cannot, which is measured rather than assumed and is what
+    ``TestSilentFallback`` exists to defend.
+    """
+
+    def test_a_window_is_cut_into_sixty_day_slices(self):
+        out = ing._slices(date(2024, 1, 1), date(2024, 6, 28), 60)
+        # 60 days inclusive at both ends: Jan 1 + 59 days is Feb 29 in a leap
+        # year, which is the sort of thing a "60" that is really 61 gets wrong.
+        assert out[0] == (date(2024, 1, 1), date(2024, 2, 29))
+        assert out[1] == (date(2024, 3, 1), date(2024, 4, 29))
+        assert all((hi - lo).days + 1 == 60 for lo, hi in out)
+        assert out[-1] == (date(2024, 4, 30), date(2024, 6, 28))
+
+    def test_slices_cover_every_day_exactly_once(self):
+        start, end = date(2023, 11, 3), date(2026, 10, 20)
+        seen = [lo + timedelta(days=n)
+                for lo, hi in ing._slices(start, end, 60)
+                for n in range((hi - lo).days + 1)]
+        assert seen == [start + timedelta(days=n)
+                        for n in range((end - start).days + 1)]
+
+    def test_the_last_slice_is_clipped_rather_than_padded(self):
+        out = ing._slices(date(2024, 1, 1), date(2024, 1, 10), 60)
+        assert out == [(date(2024, 1, 1), date(2024, 1, 10))]
+
+    @pytest.mark.parametrize("start,end", [
+        (date(2024, 5, 1), date(2024, 4, 30)),   # empty range
+        (date(2024, 5, 1), date(2024, 5, 1)),     # single day
+    ])
+    def test_degenerate_windows_are_handled(self, start, end):
+        out = ing._slices(start, end, 60)
+        assert all(lo <= hi for lo, hi in out)
+
+    def test_a_nonsense_width_yields_nothing_rather_than_looping_forever(self):
+        assert ing._slices(date(2024, 1, 1), date(2024, 12, 31), 0) == []
+        assert ing._slices(date(2024, 1, 1), date(2024, 12, 31), -5) == []
+
+    def test_the_default_is_sixty_and_it_is_the_mlb_number(self):
+        assert ing.DEFAULT_SLICE_DAYS == 60
+        assert ing.SLICE_DAYS_ENV == "NBA_SLICE_DAYS"
+
+    def test_the_width_is_overridable_for_a_host_that_needs_less(self, monkeypatch):
+        monkeypatch.setenv(ing.SLICE_DAYS_ENV, "7")
+        assert ing._int_env(ing.SLICE_DAYS_ENV, ing.DEFAULT_SLICE_DAYS) == 7
+
+    def test_every_request_is_one_window_no_wider_than_the_slice(self):
+        units = ing._season_log_units(date(2024, 1, 1), date(2024, 12, 31), 60)
+        assert units
+        for _label, _season_type, _game_type, lo, hi in units:
+            assert (hi - lo).days + 1 <= 60
+            assert lo <= hi
+
+    def test_both_season_types_are_pulled_for_every_window(self):
+        units = ing._season_log_units(date(2024, 1, 1), date(2024, 3, 31), 60)
+        assert {u[1] for u in units} == {src.SEASON_TYPE_REGULAR,
+                                        src.SEASON_TYPE_PLAYOFFS}
+        regular = [u for u in units if u[1] == src.SEASON_TYPE_REGULAR]
+        assert len(regular) == len({(u[3], u[4]) for u in regular})
+
+    def test_the_cache_key_carries_the_window(self, monkeypatch, tmp_path):
+        """A whole-season file and a slice are not interchangeable."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        one = ing._season_log_path("2024-25", src.SEASON_TYPE_REGULAR,
+                                   date(2024, 1, 1), date(2024, 3, 1))
+        two = ing._season_log_path("2024-25", src.SEASON_TYPE_REGULAR,
+                                   date(2024, 3, 2), date(2024, 5, 1))
+        assert one != two
+        assert "20240101_20240301" in one.name
+
+    def test_the_query_carries_the_window_in_the_format_the_endpoint_wants(self):
+        query = dict(urllib.parse.parse_qsl(
+            src.season_log_query("2024-25", src.SEASON_TYPE_REGULAR,
+                                 date(2024, 1, 15), date(2024, 3, 14))))
+        assert query["DateFrom"] == "01/15/2024"
+        assert query["DateTo"] == "03/14/2024"
+        assert query["Season"] == "2024-25"
+
+    def test_an_unsliced_query_is_still_the_whole_season(self):
+        """The preflight probe relies on the empty default."""
+        query = dict(urllib.parse.parse_qsl(
+            src.season_log_query("2024-25", src.SEASON_TYPE_REGULAR),
+            keep_blank_values=True))
+        assert query["DateFrom"] == "" and query["DateTo"] == ""
+
+    def test_the_cache_only_reader_reads_the_keys_the_pull_writes(
+            self, monkeypatch, tmp_path):
+        """A reader on different keys reports a warm cache as empty."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        start, end = date(2024, 1, 1), date(2024, 6, 30)
+        units = ing._season_log_units(start, end, 60)
+        for number, (label, season_type, game_type, lo, hi) in enumerate(units):
+            ing._write_parquet(
+                pd.DataFrame({"nba_game_id": [f"00{number:04d}"],
+                              "gameday": [pd.Timestamp(lo)],
+                              "team": ["BOS"],
+                              "game_type": [game_type]}),
+                ing._season_log_path(label, season_type, lo, hi))
+        assert len(ing._read_logs_only(start, end)) == len(units)
+
+    def test_a_cached_empty_window_is_not_asked_for_again(
+            self, monkeypatch, tmp_path):
+        """``not cached.empty`` would re-ask forever for a window nobody played."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        start, end = date(2024, 1, 1), date(2024, 6, 30)
+        for label, season_type, _gt, lo, hi in ing._season_log_units(start, end, 60):
+            ing._write_parquet(pd.DataFrame({"nba_game_id": []}),
+                               ing._season_log_path(label, season_type, lo, hi))
+
+        def explode(*_a, **_k):
+            raise AssertionError("a warm cache must not reach the network")
+
+        monkeypatch.setattr(ing, "http_json", explode)
+        # Nothing to return and nothing to fail: the point is that it returns.
+        assert ing._fetch_season_logs(start, end).empty
+
+
+class TestSilentFallback:
+    """ESPN answering a question nobody asked.
+
+    Asked for a date range, ESPN's scoreboard either returns HTTP 400 or
+    ignores the date and answers with the current slate - measured 2026-09-26,
+    where a request spanning January 2024 came back 200 with one game dated
+    October 2026. Swept across a window that is a schedule that looks complete
+    and is wrong, with no error raised anywhere. That is what a 60-day schedule
+    sweep would have produced, which is why it is caught and not merely avoided.
+    """
+
+    @staticmethod
+    def _frame(*days: str) -> pd.DataFrame:
+        return pd.DataFrame({"gameday": [pd.Timestamp(d) for d in days],
+                             "game_id": [f"g{i}" for i in range(len(days))]})
+
+    def test_a_response_from_another_year_is_caught(self):
+        assert ing._answered_a_different_day(
+            self._frame("2026-10-03"), date(2024, 1, 1)) == date(2026, 10, 3)
+
+    def test_the_eastern_rollover_is_not_caught(self):
+        """ESPN's date is UTC and the frame is Eastern, so a late game
+        legitimately lands on the next day. Catching that would condemn a
+        correct answer, which is the failure mode a stricter check creates."""
+        assert ing._answered_a_different_day(
+            self._frame("2024-01-15", "2024-01-16"), date(2024, 1, 15)) is None
+        assert ing._answered_a_different_day(
+            self._frame("2024-01-14"), date(2024, 1, 15)) is None
+
+    def test_one_stray_game_does_not_condemn_an_otherwise_right_answer(self):
+        assert ing._answered_a_different_day(
+            self._frame("2024-01-15", "2024-03-20"), date(2024, 1, 15)) is None
+
+    def test_a_genuinely_empty_day_is_still_empty(self):
+        assert ing._answered_a_different_day(
+            pd.DataFrame(), date(2024, 1, 15)) is None
+
+    def test_the_sweep_stops_instead_of_caching_someone_elses_answer(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.SCHEDULE_MAX_FAILURES_ENV, "2")
+        ing._PROBED.add("espn")
+        try:
+            frame = self._frame("2026-10-03")
+            monkeypatch.setattr(ing.sources, "espn_schedule_frame",
+                                lambda _events: frame)
+            monkeypatch.setattr(ing, "http_json",
+                                lambda *_a, **_k: {"events": [{}]})
+            with pytest.raises(ing.ScheduleUnavailable) as excinfo:
+                ing._fetch_schedule(date(2024, 1, 1), date(2024, 1, 5))
+        finally:
+            ing._PROBED.discard("espn")
+        assert "2026-10-03" in str(excinfo.value)
+        # And nothing was written to the cache, so the next run does not read
+        # the wrong answer back as if it were this window's schedule.
+        assert not list((tmp_path / "schedule").glob("*.parquet"))
+
+
+class TestProgressIsVisible:
+    """The run that produced no log at all.
+
+    A captured stream - a Kaggle cell, a pipe - drew no bar, and the code
+    suppressed the *count* along with it, so a run spent ten minutes walking
+    1,024 schedule days saying nothing, which is indistinguishable from a hang.
+    The bar now draws into a capture exactly as MLB's does, so what is left to
+    test is the state where ``tqdm`` genuinely is not installed: there the
+    heartbeat line is the whole report, and it has to carry the count, the
+    rate and the ETA on its own.
+    """
+
+    @pytest.fixture
+    def _captured(self, monkeypatch):
+        """Force the no-tqdm state, and speed the heartbeat up."""
+        monkeypatch.setattr(ing.progress, "_tqdm", lambda: None)
+        monkeypatch.setattr(ing.progress._Counter, "HEARTBEAT_SEC", 0.0)
+        yield
+
+    def test_work_in_progress_is_reported_without_a_terminal(
+            self, _captured, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(10, desc="things", unit="thing") as bar:
+                for _ in range(5):
+                    bar.update(1)
+        assert "things: 5/10 (50%)" in caplog.text
+
+    def test_the_heartbeat_carries_a_rate_and_an_eta(self, _captured, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(4, desc="games", unit="game") as bar:
+                bar.update(1)
+        assert "1/4 (25%)" in caplog.text
+        assert "game/s" in caplog.text
+        assert "eta" in caplog.text
+
+    def test_an_unknown_total_still_reports_its_count(self, _captured, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(None, desc="open") as bar:
+                bar.update(1)
+        assert "open: 1" in caplog.text
+
+    def test_the_bar_can_be_switched_off_outright(self, monkeypatch):
+        monkeypatch.setenv(ing.progress.ENV, "0")
+        assert not ing.progress.enabled()
+
+    def test_it_is_on_by_default(self, monkeypatch):
+        monkeypatch.delenv(ing.progress.ENV, raising=False)
+        assert ing.progress.enabled()
+
+    def test_bars_stay_on_where_the_output_is_not_a_terminal(self, monkeypatch):
+        """The Kaggle log that started this.
+
+        MLB's bars animate inside a captured cell because ``tqdm`` writes to a
+        non-terminal exactly as it writes to a terminal, and this backend had
+        added a rule of its own that suppressed them there. If that rule comes
+        back, the test that fails is this one and not a 70-minute run nobody
+        was watching.
+        """
+        monkeypatch.delenv(ing.progress.ENV, raising=False)
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        with ing.progress.track(3, desc="days", unit="day") as bar:
+            for _ in range(3):
+                bar.update(1)
+        drawn = stream.text()
+        assert "3/3" in drawn
+        assert "100%" in drawn
+        assert "days" in drawn
+
+    def test_every_phase_announces_itself(self, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            bar = ing.progress.phases(("one", "two"))
+            bar.advance("one")
+            bar.advance("two")
+            bar.close()
+        assert "phase 1/2  one" in caplog.text
+        assert "phase 2/2  two" in caplog.text
+
+    def test_a_phase_bar_claims_no_rate_or_eta(self, _captured, caplog):
+        """Ten uneven phases produce "0.0 phase/s, eta 6m03s" off one sample,
+        which reads as a measurement and is not one."""
+        with caplog.at_level("INFO", logger="nba_progress"):
+            bar = ing.progress.phases(("quick", "slow", "later"))
+            bar.advance("quick")
+            bar.close()
+        assert "quick: 1/3 (33%)" in caplog.text
+        assert "phase/s" not in caplog.text
+        assert "eta" not in caplog.text
+
+    def test_a_bar_never_changes_what_the_caller_gets(self):
+        """The guardrail: display only. Same items, same order, bar or no bar."""
+        items = [3, 1, 2]
+        assert list(ing.progress.wrap(iter(items), len(items), "x")) == items
+
+    def test_the_count_follows_the_work_and_never_leads_it(self, _captured, caplog):
+        """The 2026-09-26 Kaggle run closed a 1,024-day sweep on "1023 fetched"
+        and then summarised "1024 fetched", because the bar was ticked at the
+        top of the loop body. The count has to follow the work, and the closing
+        line is the one that has to agree with the summary after it."""
+        fetched = 0
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(4, desc="days", unit="day") as bar:
+                for _ in range(4):
+                    with bar.item(lambda: f"{fetched} fetched"):
+                        fetched += 1
+        assert "days: 4/4 (100%)" in caplog.text
+        assert "days: 4 of 4 days done (4 fetched)" in caplog.text
+
+    def test_a_unit_that_continues_still_ticks_exactly_once(self, _captured, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(3, desc="days", unit="day") as bar:
+                for _ in range(3):
+                    with bar.item():
+                        continue
+        assert "days: 3/3 (100%)" in caplog.text
+
+    def test_a_unit_that_fails_is_still_counted(self, _captured, caplog):
+        """A failure is a completed attempt; hiding it would make a broken
+        sweep look like a merely shorter one."""
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with pytest.raises(ing.HostUnavailable):
+                with ing.progress.track(2, desc="days", unit="day") as bar:
+                    with bar.item():
+                        raise ing.HostUnavailable("refused")
+        assert "days: 1/2 (50%)" in caplog.text
+
+    def test_a_unit_never_attempted_does_not_tick(self, _captured, caplog):
+        """A budget break taken before the block leaves the count short of the
+        total, which is the honest reading: those days were not asked about."""
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(5, desc="days", unit="day") as bar:
+                for index in range(5):
+                    if index == 3:
+                        break
+                    with bar.item():
+                        pass
+        assert "days: 3/5 (60%)" in caplog.text
+
+    def test_the_eta_reads_like_a_duration(self):
+        assert ing.progress._eta(9) == "9s"
+        assert ing.progress._eta(252) == "4m12s"
+        assert ing.progress._eta(7200 + 300) == "2h05m"
+
+
+class TestChunkedSweepBars:
+    """MLB's per-chunk progress, measured against MLB's log.
+
+    The reference is ``0%|  | 0/46 [00:00<?, ?it/s]`` becoming
+    ``100%|...| 46/46 [00:52<00:00, 1.15s/it]`` between a ``Chunk: a -> b``
+    line and an ``-> 164216 pitches`` line.  Three things have to be true for
+    that to be a report of this pipeline's work rather than a decoration: the
+    window has to be announced, the bar has to count the days in that window,
+    and every tick has to be a day the sweep really walked.
+    """
+
+    def test_each_window_is_announced_and_counted(self, monkeypatch):
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        start = date(2024, 1, 1)
+        with ing._DayWindows(start, start + timedelta(days=64), 60,
+                             desc="schedule", unit="day") as windows:
+            for offset in range(65):
+                with windows.day(start + timedelta(days=offset)).item():
+                    pass
+        drawn = stream.text()
+        # Sixty days, then the five that are left - one bar each, each
+        # finished, which is the shape MLB's log has for every one of its
+        # windows.
+        assert "60/60" in drawn
+        assert "5/5" in drawn
+        assert "100%" in drawn
+
+    def test_a_window_finishes_before_the_next_one_opens(self, monkeypatch):
+        """MLB's log reads 46/46, then ``Chunk:``, then 0/60. Bars left open
+        until the sweep ends put every window's 100% line in the wrong place
+        and stack them on top of each other, so the order is the feature as
+        much as the bar is."""
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        start = date(2024, 1, 1)
+        with ing._DayWindows(start, start + timedelta(days=9), 5,
+                             desc="schedule", unit="day") as windows:
+            for offset in range(10):
+                with windows.day(start + timedelta(days=offset)).item():
+                    pass
+        drawn = stream.text()
+        first_closed = drawn.find("5/5")
+        second_opened = drawn.find("0/5", first_closed)
+        assert first_closed != -1 and second_opened != -1
+        assert first_closed < second_opened
+        # And nothing was left holding the cursor: one window, one bar, no
+        # cursor-move escapes in a capture that a person has to read.
+        assert "\x1b" not in drawn
+
+    def test_a_closed_window_reports_what_it_walked(self, caplog):
+        start = date(2024, 1, 1)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            with ing._DayWindows(start, start + timedelta(days=1), 60,
+                                 desc="schedule", unit="day") as windows:
+                for offset in range(2):
+                    with windows.day(start + timedelta(days=offset)).item():
+                        windows.window_cached += 1
+                        windows.window_games += 5
+        assert "Chunk: 2024-01-01 -> 2024-01-02" in caplog.text
+        assert "-> 10 game(s) over 2 day(s) (0 fetched, 2 from cache)" \
+            in caplog.text
+
+    def test_the_window_is_a_report_and_not_a_request(self, monkeypatch,
+                                                      tmp_path):
+        """The guardrail. Chunking is display; the days asked for are identical
+        with it and without it, or the bar is measuring a different sweep than
+        the one that runs."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        ing._PROBED.add("espn")
+        asked: list[date] = []
+        monkeypatch.setattr(ing.sources, "espn_schedule_frame", lambda _e: pd.DataFrame())
+        monkeypatch.setattr(ing, "http_json", lambda *_a, **_k: {"events": []})
+        start = date(2024, 1, 1)
+        try:
+            for slice_days in ("7", "60", "10000"):
+                asked.clear()
+                for path in (tmp_path / "schedule").glob("*.parquet"):
+                    path.unlink()
+                monkeypatch.setenv(ing.SLICE_DAYS_ENV, slice_days)
+                ing._fetch_schedule(start, start + timedelta(days=9))
+                asked.extend(sorted(path.stem for path in
+                                    (tmp_path / "schedule").glob("*.parquet")))
+        finally:
+            ing._PROBED.discard("espn")
+        assert asked == [f"{start + timedelta(days=n):%Y%m%d}" for n in range(10)]
+
+    def test_a_budget_break_closes_the_open_window(self, caplog):
+        """A sweep that stops mid-window still reports the window it stopped
+        in, rather than leaving the last bar undrawn and the count unsaid."""
+        start = date(2024, 1, 1)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            with ing._DayWindows(start, start + timedelta(days=59), 60,
+                                 desc="schedule", unit="day") as windows:
+                for offset in range(3):
+                    with windows.day(start + timedelta(days=offset)).item():
+                        windows.window_cached += 1
+                    if offset == 2:
+                        break  # the sweep gave up here
+        assert "-> 0 game(s) over 60 day(s) (0 fetched, 3 from cache)" \
+            in caplog.text
+
+    def test_the_budget_still_stops_the_sweep_before_any_request(
+            self, monkeypatch, tmp_path, caplog):
+        """The windows are reporting, so they cannot be the reason a sweep runs
+        long: a budget already spent still means zero requests.  The clock is
+        moved rather than the budget set, because ``_float_env`` refuses a
+        non-positive value and answers the default instead - a sweep cannot be
+        made to overrun by typing a number, and this test leans on that rather
+        than fighting it."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        stamps = [1_000.0, 5_000.0]  # started, then the first budget check
+
+        def clock() -> float:
+            return stamps.pop(0) if len(stamps) > 1 else stamps[0]
+
+        monkeypatch.setattr(ing.time, "time", clock)
+
+        def explode(*_a, **_k):
+            raise AssertionError("a spent budget must not buy a request")
+
+        monkeypatch.setattr(ing, "http_json", explode)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            ing._fetch_schedule(date(2024, 1, 1), date(2024, 3, 1))
+        assert "hit its budget after 0 of 61 days" in caplog.text
+        assert not list((tmp_path / "schedule").glob("*.parquet"))
+
+    def test_a_zero_budget_is_the_default_and_not_an_off_switch(self, monkeypatch):
+        """Worth pinning because it reads the other way: someone limiting a run
+        to no time at all would type 0, and get the full 30 minutes instead of
+        a sweep that stops immediately. The hardening is right - a budget is
+        never accidentally unbounded - but it is silent, so it is a test."""
+        monkeypatch.delenv(ing.SCHEDULE_BUDGET_ENV, raising=False)
+        for value in ("0", "-5", "", "nonsense"):
+            monkeypatch.setenv(ing.SCHEDULE_BUDGET_ENV, value)
+            assert ing._float_env(ing.SCHEDULE_BUDGET_ENV,
+                                  ing.DEFAULT_SCHEDULE_BUDGET_SEC) \
+                == ing.DEFAULT_SCHEDULE_BUDGET_SEC
+
