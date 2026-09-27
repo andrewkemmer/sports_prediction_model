@@ -61,6 +61,133 @@ PA_END_EVENTS = (
     "'force_out', 'sacrifice_bunt_double_play'"
 )
 
+# ── Expected-lineup availability (OUT/IR injury flag) ─────────────────────
+# An OUT/IR designation removes a player from the game-eligible nine, but
+# his own trailing wOBA rating is untouched: it is built strictly from games
+# he actually played and stays available to any side he is eligible for.
+# The IL table is a CACHE (build_il_stints.py), so absence must degrade
+# loudly to the participant behavior, never silently look correct.
+IL_STINTS_FILE = "il_stints.parquet"
+# How far back a team member's rating row may sit and still make him a
+# candidate for the next game. Rating rows live on dates the team played,
+# so 10 days comfortably spans one skipped game plus a rainout.
+LINEUP_POOL_LOOKBACK_DAYS = 10
+
+# The OUT/IR predicate, kept as its own constant so the shipped SQL and the
+# tests pin the SAME text: a stint opened on or before the game date and not
+# closed by it (an open stint has a NULL end and is still injured).
+_IL_EXISTS_PREDICATE = """CASE WHEN EXISTS (
+                   SELECT 1 FROM il_stints i
+                   WHERE i.batter = p.batter
+                     AND i.il_start <= p.game_date
+                     AND (i.il_end IS NULL OR i.il_end > p.game_date))
+               THEN 1 ELSE 0 END"""
+
+# Candidate pool over ONE schema for both paths — same columns, same names,
+# so every downstream consumer is indifferent to which path ran.
+#   IL path   : widen to team members with a rating row in the last
+#               {lookback} days; flag OUT/IR per the predicate.
+#   Fallback  : restrict to that game's own rating rows (the participant
+#               pool) and hardwire the flag to 0 — byte-equivalent to the
+#               pre-IL feature.
+_LINEUP_POOL_SQL = """
+    CREATE TABLE lineup_pool AS
+    WITH pool AS (
+        SELECT g.game_date, g.game_pk, g.batting_team,
+               CAST(r.batter AS BIGINT) AS batter,
+               r.shrunk_woba, r._pa30
+        FROM (SELECT DISTINCT game_date, game_pk, batting_team
+              FROM batter_ratings WHERE shrunk_woba IS NOT NULL) g
+        JOIN batter_ratings r
+          ON r.batting_team = g.batting_team
+         AND r.shrunk_woba IS NOT NULL
+         AND r.game_date <= g.game_date
+         AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
+         {restrict}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY g.game_pk, g.batting_team, r.batter
+            ORDER BY r.game_date DESC) = 1
+    )
+    SELECT p.game_date, p.game_pk, p.batting_team,
+           p.batter, p.shrunk_woba, p._pa30,
+           {on_il} AS on_il
+    FROM pool p
+"""
+
+# Game-eligible aggregate: top-9 by trailing PA among on_il = 0 only. A
+# depleted side is NOT padded — the mean of its best healthy players is the
+# correct quantity for a depleted roster.
+_LINEUP_AGG_SQL = """
+    CREATE TABLE lineup_agg AS
+    WITH ranked AS (
+        SELECT game_date, game_pk, batting_team, shrunk_woba,
+               ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
+                                  ORDER BY _pa30 DESC) AS rn
+        FROM lineup_pool WHERE on_il = 0
+    ),
+    top9 AS (SELECT * FROM ranked WHERE rn <= 9)
+    SELECT game_date, game_pk, batting_team,
+           AVG(shrunk_woba) AS lineup_woba_mean,
+           AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS lineup_woba_top3,
+           STDDEV(shrunk_woba) AS lineup_woba_std
+    FROM top9
+    GROUP BY game_date, game_pk, batting_team
+"""
+
+# OUT/IR availability flag on the projected (game-eligible) nine: 1 when at
+# least one of the nine is on the IL as of the game date, else 0. An IL
+# player outside the top-9 by playing time does NOT trip the flag.
+_LINEUP_IL_FLAG_SQL = """
+    CREATE TABLE lineup_il_flag AS
+    WITH ranked AS (
+        SELECT game_date, game_pk, batting_team, on_il,
+               ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
+                                  ORDER BY _pa30 DESC) AS rn
+        FROM lineup_pool
+    )
+    SELECT game_date, game_pk, batting_team,
+           MAX(CASE WHEN rn <= 9 THEN on_il ELSE 0 END) AS lineup_il_flag
+    FROM ranked
+    GROUP BY game_date, game_pk, batting_team
+"""
+
+
+def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
+    """Load the IL cache into ``con``; False (loudly) when unavailable.
+
+    Returns False (never raises) so a missing/stale cache degrades the
+    feature to the participant pool instead of failing the whole build.
+    """
+    path = _lineup_base_dir() / IL_STINTS_FILE
+    if not path.exists():
+        logger.warning(
+            "%s not found in %s — expected lineups fall back to the participant "
+            "pool (no OUT/IR eligibility filter, lineup_il_flag_* forced 0). "
+            "Run build_il_stints.py to restore the filter.",
+            IL_STINTS_FILE, _lineup_base_dir())
+        return False
+    try:
+        lit = str(path).replace("\\", "/")
+        con.execute(f"""
+            CREATE OR REPLACE TEMP TABLE il_stints AS
+            SELECT CAST(batter AS BIGINT) AS batter,
+                   CAST(il_start AS DATE) AS il_start,
+                   CAST(il_end AS DATE) AS il_end
+            FROM read_parquet('{lit}')
+        """)
+        n, nb = con.execute(
+            "SELECT count(*), count(DISTINCT batter) FROM il_stints").fetchone()
+    except Exception as e:
+        logger.warning("il_stints.parquet present but unreadable (%s); "
+                       "expected lineups fall back to the participant pool", e)
+        return False
+    if not n:
+        logger.warning("il_stints.parquet is EMPTY; expected lineups fall "
+                       "back to the participant pool")
+        return False
+    logger.info("injured list: %d stints, %d batters", n, nb)
+    return True
+
 # Experiment-only superset (audit_pitcher_era_k9.py): keeps intent_walk /
 # truncated_pa PAs as pa_boundary rows so they stop vanishing from
 # pitcher_game_stats (their runs no longer leak into the NEXT PA's score
@@ -152,196 +279,6 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
 
 
 # ── Game-level features ─────────────────────────────────────────────────────
-
-# ── Injured-list awareness for the expected-lineup aggregate ────────────────
-# Regenerated only by build_il_stints.py (the same arrangement as
-# lineups.parquet / batter_woba.parquet). It is a CACHE, so it can go stale
-# or missing without anyone noticing -- an injured player silently projected
-# into the expected nine looks exactly like a healthy one, which is why the
-# miss is a WARNING and a fallback to the participant pool, never a crash and
-# never a silent identity swap.
-IL_STINTS_FILE = "il_stints.parquet"
-IL_STINTS_META_FILE = "il_stints.meta.json"
-# How far the IL table's build window may trail the decided frame before the
-# staleness tripwire fires. Offseason legitimately leaves a multi-month gap
-# (the last transaction of 2025 is in early November), so the bar is a month
-# and a half, not a day.
-IL_STINT_MAX_LAG_DAYS = 45
-# How far back a TEAM MEMBER's rating row may sit and still count as a
-# candidate for the next game. The rating rows and the team's games both live
-# on dates that team played, so 10 days comfortably spans one skipped game
-# plus a rainout; a longer window would start re-admitting players the club
-# has already released.
-LINEUP_POOL_LOOKBACK_DAYS = 10
-
-# The expected-lineup aggregate, two variants over ONE schema. `pool` differs
-# and nothing else does -- same columns, same width, same names, so the
-# serving contract (training.MONEYLINE_FEATURE_COLS, the 62-column width both
-# the moneyline and the run line resolve) is untouched by this change.
-#
-# PARTICIPANTS is the pre-IL pool: only batters who actually batted. It is
-# kept verbatim as the documented fallback when il_stints.parquet is missing.
-_LINEUP_AGG_PARTICIPANTS = """
-CREATE TABLE lineup_agg AS
-WITH ranked AS (
-    SELECT game_date, game_pk, batting_team, shrunk_woba,
-           ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
-                              ORDER BY _pa30 DESC) AS rn
-    FROM batter_ratings WHERE shrunk_woba IS NOT NULL
-),
-top9 AS (SELECT * FROM ranked WHERE rn <= 9)
-SELECT game_date, game_pk, batting_team,
-       AVG(shrunk_woba) AS lineup_woba_mean,
-       AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS lineup_woba_top3,
-       STDDEV(shrunk_woba) AS lineup_woba_std
-FROM top9
-GROUP BY game_date, game_pk, batting_team
-"""
-
-# ROSTER is the shipped pool. Two deliberate changes, in this order:
-#
-# 1. WIDEN the candidate pool from "batters who actually batted" to "team
-#    members with a rating row in the last 10 days". Without this the IL
-#    filter cannot bind AT ALL: an injured player is absent from the
-#    participant pool by construction, so subtracting him is a no-op. The
-#    widening is also the fix for a standing defect -- _pa30 freezes the day
-#    a player stops playing, so the participant pool keeps projecting an IL
-#    player into the expected nine for weeks after he stops playing. One
-#    rating row per (game, team, batter): the most recent one at or before the
-#    game date, and its _pa30/date carry the same LAG-shift discipline as
-#    every other window here (a batter's own current game can supply his
-#    prior-game rating, never his current one).
-#
-# 2. DROP the players on the IL as of the game date, so the best healthy
-#    replacement inherits the vacated slot. A game-side with fewer than 9
-#    healthy candidates is NOT padded: the mean of the best 5-8 healthy
-#    players is the correct quantity for a depleted roster, and padding would
-#    fabricate a full-strength nine.
-#
-# NOT EXISTS (rather than a LEFT JOIN ... IS NULL) is deliberate: an open
-# stint has a NULL il_end, and testing only the join's NULL-ness flagged
-# 59.6% of all participants as injured. Here the NULL is handled inside the
-# correlated predicate, where it can only mean "this stint has not closed".
-_LINEUP_AGG_ROSTER = """
-CREATE TABLE lineup_agg AS
-WITH pool AS (
-    SELECT g.game_date, g.game_pk, g.batting_team,
-           CAST(r.batter AS BIGINT) AS batter,
-           r.shrunk_woba, r._pa30
-    FROM (SELECT DISTINCT game_date, game_pk, batting_team
-          FROM batter_ratings WHERE shrunk_woba IS NOT NULL) g
-    JOIN batter_ratings r
-      ON r.batting_team = g.batting_team
-     AND r.shrunk_woba IS NOT NULL
-     AND r.game_date <= g.game_date
-     AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY g.game_pk, g.batting_team, r.batter
-        ORDER BY r.game_date DESC) = 1
-),
-healthy AS (
-    SELECT p.game_date, p.game_pk, p.batting_team, p.shrunk_woba, p._pa30
-    FROM pool p
-    WHERE NOT EXISTS (
-        SELECT 1 FROM il_stints i
-        WHERE i.batter = p.batter
-          AND i.il_start <= p.game_date
-          AND (i.il_end IS NULL OR i.il_end > p.game_date))
-),
-ranked AS (
-    SELECT game_date, game_pk, batting_team, shrunk_woba,
-           ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
-                              ORDER BY _pa30 DESC) AS rn
-    FROM healthy
-),
-top9 AS (SELECT * FROM ranked WHERE rn <= 9)
-SELECT game_date, game_pk, batting_team,
-       AVG(shrunk_woba) AS lineup_woba_mean,
-       AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS lineup_woba_top3,
-       STDDEV(shrunk_woba) AS lineup_woba_std
-FROM top9
-GROUP BY game_date, game_pk, batting_team
-"""
-
-
-def _il_stints_path() -> Path:
-    return _lineup_base_dir() / IL_STINTS_FILE
-
-
-def register_il_stints(con: duckdb.DuckDBPyConnection) -> bool:
-    """Load the IL stint table into ``con``; False when it is unavailable.
-
-    Returns False (never raises) so a missing cache degrades the feature to
-    the participant pool instead of failing the whole build. The caller is
-    responsible for having warned.
-    """
-    path = _il_stints_path()
-    if not path.exists():
-        return False
-    try:
-        lit = str(path).replace("\\", "/")
-        con.execute(f"""
-            CREATE OR REPLACE TEMP TABLE il_stints AS
-            SELECT CAST(batter AS BIGINT) AS batter,
-                   CAST(il_start AS DATE) AS il_start,
-                   CAST(il_end AS DATE) AS il_end
-            FROM read_parquet('{lit}')
-        """)
-        n, batters, lo, hi = con.execute(
-            "SELECT count(*), count(DISTINCT batter), min(il_start), "
-            "max(il_start) FROM il_stints").fetchone()
-    except Exception as e:
-        logger.warning("il_stints.parquet present but unreadable (%s); "
-                       "expected lineups fall back to the participant pool", e)
-        return False
-    if not n:
-        logger.warning("il_stints.parquet is EMPTY; expected lineups fall "
-                       "back to the participant pool")
-        return False
-    logger.info("injured list: %d stints, %d batters, placements %s..%s",
-                n, batters, lo, hi)
-    return True
-
-
-def il_stint_staleness(max_date: "pd.Timestamp | None" = None) -> dict:
-    """How far the IL stint table's build window trails the decided frame.
-
-    The table has no natural "last updated" column: a stint's ``il_start`` is
-    whenever the player was placed, and open stints legitimately have no end,
-    so max(il_start) says nothing about freshness. The builder's own meta
-    sidecar records the window it fetched through -- that is the real
-    freshness signal, and it is the same file the plausibility gate wrote.
-
-    Returns {} when the table is absent or the sidecar is missing (the
-    register_il_stints warning already covers a missing table; a missing
-    sidecar is not worth a second failure mode).
-    """
-    import json as _json
-    meta_path = _lineup_base_dir() / IL_STINTS_META_FILE
-    if not meta_path.exists():
-        return {}
-    try:
-        window_end = pd.Timestamp(
-            _json.loads(meta_path.read_text(encoding="utf-8"))["window_end"])
-    except Exception:
-        return {}
-    if max_date is None:
-        csv_path = _lineup_base_dir() / "game_level_features.csv"
-        if not csv_path.exists():
-            return {}
-        try:
-            max_date = pd.to_datetime(
-                pd.read_csv(csv_path, usecols=["game_date"])["game_date"],
-                errors="coerce").max()
-        except Exception:
-            return {}
-    if pd.isna(max_date):
-        return {}
-    lag = int((max_date - window_end).days)
-    return {"window_end": str(window_end.date()),
-            "decided_max_date": str(pd.Timestamp(max_date).date()),
-            "lag_days": lag}
-
 
 def _tz_case_lines(indent: str = "                ") -> str:
     return "\n".join(
@@ -1338,43 +1275,33 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         FROM batter_rolling r
         LEFT JOIN batter_league l USING (game_date)
     """)
-    # 7e-bis. Injured-list awareness for the expected lineup. The IL table is
-    # a standalone cache, so every way it can be absent has to be loud: a
-    # missing or unreadable table leaves injured players in the projected
-    # nine, which is indistinguishable from correct output. Check freshness
-    # first, then load, then confirm the two batter-id spaces still intersect
-    # (a silent id-space break would make the filter a no-op -- i.e. quietly
-    # revert to the old feature while every other check still passed).
-    _il_stale = il_stint_staleness()
-    if _il_stale and _il_stale.get("lag_days", 0) > IL_STINT_MAX_LAG_DAYS:
-        logger.warning(
-            "IL stint table was built only through %s but the decided frame "
-            "runs to %s (%d days) — stints placed in the gap are invisible, "
-            "so the expected lineups are quietly stale. Re-run "
-            "build_il_stints.py --start ... --end <today>.",
-            _il_stale["window_end"], _il_stale["decided_max_date"],
-            _il_stale["lag_days"])
-    if register_il_stints(con):
-        _overlap = con.execute(
-            "SELECT count(DISTINCT i.batter) FROM il_stints i "
-            "SEMI JOIN batter_ratings r ON r.batter = i.batter").fetchone()[0]
-        if not _overlap:
-            logger.error(
-                "IL stint table shares NO batter ids with the pitch data (%d "
-                "stints loaded, 0 matches) — the injured-list filter cannot "
-                "bind and lineup_woba_* are the unfiltered participant pool. "
-                "Rebuild data_delivery/il_stints.parquet before trusting "
-                "this build.", con.execute(
-                    "SELECT count(*) FROM il_stints").fetchone()[0])
-        con.execute(_LINEUP_AGG_ROSTER.format(
-            lookback=LINEUP_POOL_LOOKBACK_DAYS))
+    # 7e-bis. Game-eligible candidate pool: widen from "batted in this game"
+    # to "team member with a rating row in the last {lookback} days" (one row
+    # per batter: the most recent at or before the game date, LAG-shifted like
+    # every window here), then mark who is OUT/IR as of the game date. The
+    # rating itself is untouched by the flag — only game eligibility is.
+    # When the IL cache is absent the pool degrades to the participant pool
+    # (that game's own rating rows) with the flag hardwired to 0 — the exact
+    # pre-IL behavior — under a loud warning, never a silent identity change.
+    if _register_il_stints(con):
+        con.execute(_LINEUP_POOL_SQL.format(
+            lookback=LINEUP_POOL_LOOKBACK_DAYS, restrict="",
+            on_il=_IL_EXISTS_PREDICATE))
+        _ov = con.execute(
+            "SELECT count(DISTINCT i.batter) FROM il_stints i WHERE EXISTS "
+            "(SELECT 1 FROM batter_ratings r WHERE r.batter = i.batter)").fetchone()[0]
+        if not _ov:
+            logger.warning(
+                "il_stints loaded but 0 batters intersect batter_ratings — the "
+                "OUT/IR eligibility filter cannot bind (id-space break). "
+                "Rebuild data_delivery/il_stints.parquet before trusting the "
+                "expected-lineup features.")
     else:
-        logger.warning(
-            "%s not found in %s — expected lineups fall back to the "
-            "PRE-IL participant pool (an injured player stays in the "
-            "projected nine). Run build_il_stints.py to restore the filter.",
-            IL_STINTS_FILE, _lineup_base_dir())
-        con.execute(_LINEUP_AGG_PARTICIPANTS)
+        con.execute(_LINEUP_POOL_SQL.format(
+            lookback=LINEUP_POOL_LOOKBACK_DAYS,
+            restrict="AND r.game_pk = g.game_pk", on_il="0"))
+    con.execute(_LINEUP_AGG_SQL)
+    con.execute(_LINEUP_IL_FLAG_SQL)
 
     # Season-to-date lineup baselines (momentum companion for today's
     # projected-lineup wOBA) — expanding mean of the team's PRIOR games'
@@ -1868,6 +1795,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             la.lineup_woba_mean AS lineup_woba_mean_away,
             la.lineup_woba_top3 AS lineup_woba_top3_away,
             la.lineup_woba_std AS lineup_woba_std_away,
+            COALESCE(fh.lineup_il_flag, 0) AS lineup_il_flag_home,
+            COALESCE(fa.lineup_il_flag, 0) AS lineup_il_flag_away,
             -- Momentum form deltas: recent window − season-to-date baseline,
             -- per side. Continuous (no binary flags); the model learns its
             -- own thresholds. Computed here from the SAME shifted per-game
@@ -2004,6 +1933,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN closer_avail cl ON w.game_pk = cl.game_pk
         LEFT JOIN lineup_agg lh ON w.game_pk = lh.game_pk AND w.home_team = lh.batting_team
         LEFT JOIN lineup_agg la ON w.game_pk = la.game_pk AND w.away_team = la.batting_team
+        LEFT JOIN lineup_il_flag fh ON w.game_pk = fh.game_pk AND w.home_team = fh.batting_team
+        LEFT JOIN lineup_il_flag fa ON w.game_pk = fa.game_pk AND w.away_team = fa.batting_team
         LEFT JOIN lineup_season lsh ON w.game_pk = lsh.game_pk AND w.home_team = lsh.batting_team
         LEFT JOIN lineup_season lsa ON w.game_pk = lsa.game_pk AND w.away_team = lsa.batting_team
         LEFT JOIN lineup_ops_agg loh ON w.game_pk = loh.game_pk AND w.home_team = loh.batting_team
@@ -2073,10 +2004,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
         "team_contact_season",
-        "lineup_agg_shifted", "lineup_season",
+        "lineup_agg_shifted", "lineup_season", "lineup_pool", "lineup_il_flag",
         "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
         "batter_game_stats", "batter_shifted", "batter_rolling",
-        "batter_league", "batter_ratings", "lineup_agg", "il_stints",
+        "batter_league", "batter_ratings", "lineup_agg",
         "batter_hand_game", "batter_hand_shifted", "batter_hand_rolling", "lineup_ops_agg",
         "exp2_pa", "exp2_league_k", "exp2_league_cat", "exp2_sp_cat_game",
         "exp2_sp_fbhand_game", "exp2_sp_cat_daily", "exp2_sp_cat_cum",
@@ -3208,6 +3139,7 @@ def add_diff_features(
         ("lineup_woba_mean_diff", "lineup_woba_mean_home", "lineup_woba_mean_away"),  # 14
         ("lineup_woba_top3_diff", "lineup_woba_top3_home", "lineup_woba_top3_away"),  # 15
         ("lineup_woba_std_diff", "lineup_woba_std_home", "lineup_woba_std_away"),     # 16
+        ("lineup_il_flag_diff", "lineup_il_flag_home", "lineup_il_flag_away"),        # 16b availability
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
         ("bullpen_whip_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),      # 18
         ("bullpen_whip_3g_diff", "bullpen_whip_3g_home", "bullpen_whip_3g_away"),     # 19
