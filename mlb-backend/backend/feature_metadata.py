@@ -706,7 +706,12 @@ def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
     (adopted RFE subset, else the full universe) gets a row; unauthored
     features get a clearly-marked placeholder AND a warning string
     so absence is never silent."""
-    from training import MONEYLINE_FEATURE_COLS, _logistic_feature_cols, active_moneyline_feature_cols
+    from training import (
+        KNOWN_FEATURE_COLS,
+        MONEYLINE_FEATURE_COLS,
+        _logistic_feature_cols,
+        active_moneyline_feature_cols,
+    )
 
     serving_cols = active_moneyline_feature_cols()
     logistic_cols = set(_logistic_feature_cols())
@@ -735,10 +740,22 @@ def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
         row = {"name": name, **entry, "members": members}
         row["tooltip"] = format_tooltip(row)
         meta[name] = row
-    # Authored-but-not-serving entries would silently rot — warn.
-    stale = sorted(set(_RICH) - set(serving_cols))
-    if stale:
-        msg = f"Feature metadata: authored entries not in active serving width: {stale}"
+    # Authored-but-not-serving entries would silently rot — warn. Scope the
+    # check to entries that are ORPHANED: authored, not serving, AND not in
+    # the known pool (universe + every RFE candidate). A feature RFE
+    # considered and did not select is intentional, not rot; warning on it
+    # is a false positive that teaches reviewers to ignore the line. The
+    # 2026-09-26 run warned on lineup_il_flag_{home,away,diff} purely
+    # because they are candidates rather than selected — three warnings a
+    # day for a healthy state. Only a name the pool no longer knows at all
+    # (renamed or dropped) still warns.
+    orphaned = sorted(set(_RICH) - set(serving_cols) - set(KNOWN_FEATURE_COLS))
+    if orphaned:
+        msg = (
+            "Feature metadata: authored entries in neither the active "
+            "serving width nor the known feature pool (renamed or dropped?): "
+            f"{orphaned}"
+        )
         logger.warning(msg)
         warnings.append(msg)
     return meta, warnings

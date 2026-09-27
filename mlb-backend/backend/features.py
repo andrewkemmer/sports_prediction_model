@@ -3302,6 +3302,12 @@ def build_features(
 
     Returns:
         (game_df, pbp_df) as pandas DataFrames.
+
+        ``game_df`` does NOT carry the ``*_diff`` columns. Callers MUST
+        call ``add_diff_features()`` on it themselves, after their own
+        inputs are final — master_pipeline attaches Elo/season records
+        first, so deriving diffs before that point would ship NaN
+        elo/win_pct/woba_30g diffs.
     """
     pitches_path = Path(pitches_path)
     out_dir = Path(output_dir)
@@ -3369,8 +3375,15 @@ def build_features(
 
     logger.info("[MEM] After pandas load: %.0f MB", _mem_mb())
 
-    # ── Diff features: 34 model inputs from home/away pairs ──────────
-    game_df = add_diff_features(game_df)
+    # Diff features are NOT computed here. They are derived from the raw
+    # home/away columns, and master_pipeline re-runs add_diff_features
+    # AFTER enrich_elo_and_records() attaches Elo/season records (spec
+    # features 2, 3, 17) — so computing them here too built all 35 columns
+    # twice per run, discarded them once, and logged "Computing 35 diff
+    # features" twice back to back with no way to tell which pass was
+    # authoritative. Each caller now derives diffs exactly once, after its
+    # own raw inputs are final. Callers MUST call add_diff_features()
+    # themselves on the returned game frame.
 
     logger.info("=== Complete: %d games, %d pitches ===", len(game_df), len(pbp_df))
 

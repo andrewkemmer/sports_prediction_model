@@ -94,35 +94,64 @@ def _is_past_dated_core_season_chunk(chunk_start: date, chunk_end: date) -> bool
     return mid.month in _REGULAR_SEASON_CORE_MONTHS
 
 
-def _warn_if_core_season_chunk_empty(chunk_start: date, chunk_end: date,
-                                     reason: str) -> None:
-    """Loud gate for silent Statcast starvation.
+def _report_exhausted_chunk(chunk_start: date, chunk_end: date, reason: str) -> None:
+    """Emit EXACTLY ONE terminal line for a chunk that exhausted its retries.
 
-    Empty chunks at the season edges (late March, October+) are normal
-    offseason/posting-lag behavior. An empty chunk whose midpoint falls in
-    the April–September core means data silently went missing for real
-    games — exactly the failure mode that produced wrong frozen finals
-    before the StatsAPI overlay existed.
+    Every abandoned chunk must leave a trace. The 2026-09-26 production run
+    quietly dropped three chunks (2024-01-01→2024-02-29,
+    2024-12-26→2025-02-23, 2025-12-21→2026-02-18): three pairs of
+    "↻ retrying" lines appeared, then the next chunk started, with
+    nothing ever saying the give-up was terminal. The data loss itself was
+    benign (all three were offseason windows with zero games) but the log was
+    indistinguishable from a run that recovered — a reviewer cannot tell an
+    abandoned chunk from a recovered one, which is the one question this
+    guard exists to answer.
 
-    EXCEPTION — future-dated chunks: when the chunk lies entirely at or
-    beyond today, there are no completed games to post yet (upcoming-slate
-    runs include the run date in their range), so emptiness is EXPECTED.
-    Downgrade to DEBUG instead of blanket-suppressing; past-dated chunks
-    keep the full warning.
+    The old helper only warned for April–September midpoints, but that
+    branch was UNREACHABLE: _abort_on_exhausted_core_season_empty_chunk raises
+    on exactly the same predicate just before it ran. Every other
+    past-dated window therefore fell through both helpers and logged
+    nothing at all.
+
+    Level by risk, loudest to quietest:
+
+    * past-dated, April–September core season → unreachable; the abort
+      helper raises first.
+    * past-dated, any OTHER month → WARNING. This is the hole the 09-26 run
+      fell into. Those windows are usually genuine offseason and truly empty,
+      but they are NOT provably empty: October and early March carry
+      postseason games and the season opener respectively, so a persistent
+      empty there is possible real data loss. Warn, do not abort — aborting
+      an October chunk would halt the daily run over a window that
+      legitimately has no games in most years.
+    * entirely future-dated → DEBUG. No completed game can exist yet
+      (upcoming-slate runs include the run date in their range), so emptiness
+      is expected rather than a signal.
     """
     if chunk_start >= date.today():
         logger.debug(
-            "Statcast chunk %s → %s empty (%s) — entirely future-dated; "
-            "no completed games can exist yet",
-            chunk_start, chunk_end, reason)
+            "Statcast chunk %s → %s abandoned after %d attempts (%s) — "
+            "entirely future-dated; no completed games can exist yet",
+            chunk_start, chunk_end, CHUNK_RETRIES, reason)
         return
     mid = chunk_start + (chunk_end - chunk_start) / 2
     if mid.month in _REGULAR_SEASON_CORE_MONTHS:
+        # Defensive: _abort_on_exhausted_core_season_empty_chunk should have
+        # raised already. Keep the line so the gap is never silent even if
+        # that guard is ever weakened.
         logger.warning(
-            "Statcast chunk %s → %s came back EMPTY (%s) in core regular-"
-            "season months — games in this window will have missing pitch "
-            "data; investigate before training",
-            chunk_start, chunk_end, reason)
+            "Statcast chunk %s → %s abandoned after %d attempts (%s) in "
+            "core regular-season months — games in this window are missing "
+            "pitch data; investigate before trusting the decided frame",
+            chunk_start, chunk_end, CHUNK_RETRIES, reason)
+        return
+    logger.warning(
+        "Statcast chunk %s → %s abandoned after %d attempts (%s) — "
+        "outside the Apr–Sep core, so this is usually genuine offseason "
+        "(no games), but October and early-March windows DO carry "
+        "postseason/opener games: if this window should have had games, the "
+        "pull lost them",
+        chunk_start, chunk_end, CHUNK_RETRIES, reason)
 
 
 def _abort_on_exhausted_core_season_empty_chunk(
@@ -209,7 +238,7 @@ def _chunked_statcast(
         if outcome != "ok":
             reason = (f"error: {last_exc}" if outcome == "error" else "empty response")
             _abort_on_exhausted_core_season_empty_chunk(cursor, chunk_end, reason)
-            _warn_if_core_season_chunk_empty(cursor, chunk_end, reason)
+            _report_exhausted_chunk(cursor, chunk_end, reason)
         cursor = chunk_end + timedelta(days=1)
         if cursor <= end:
             time.sleep(pause_sec)

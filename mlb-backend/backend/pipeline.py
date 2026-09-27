@@ -2312,6 +2312,10 @@ def main():
         pitches_path = ckpt / "pitches.parquet"
         pull_statcast(start, end, out_path=pitches_path, resume=True)
         game_df, pbp_df = build_features(pitches_path, ckpt)
+        # build_features no longer derives diff features — master_pipeline
+        # re-derives them after Elo/record enrichment — so this caller derives
+        # them itself, exactly once, with its own raw inputs final.
+        game_df = add_diff_features(game_df)
 
         print(f"\nStatcast pipeline complete:")
         print(f"  Game-level: {game_df.shape}")
