@@ -656,9 +656,14 @@ PLAYER_POOL_POSITIONS = ("C", "L", "R", "D")
 #: Position prior for a side with no pool row. NEVER 0: "unknown" must not read
 #: as "no offence", which would tell the model the side is deliberately inert.
 _POSITION_PRIOR = {
-    "EVO": {"C": 0.052, "L": 0.049, "R": 0.049, "D": 0.033},
-    "PPO": {"C": 0.310, "L": 0.300, "R": 0.300, "D": 0.180},
+    "EVO": {"C": 0.660, "L": 0.721, "R": 0.698, "D": 0.169},
+    "PPO": {"C": 1.581, "L": 1.627, "R": 1.518, "D": 0.630},
 }
+# Re-measured 2026-09-27 from the v1.1 game-grain pool distribution (2,792
+# decided games, the run's own coverage table): the retired constants were on
+# the old season-grain scale (12x off for EVO centers) and ranked positions
+# wrongly. The prior is the all-teams position mean; per-game team spread is
+# the feature, the prior only seeds the season-opener fallback slate.
 
 #: The full produced set, in canonical order.
 PLAYER_POOL_COLS = [

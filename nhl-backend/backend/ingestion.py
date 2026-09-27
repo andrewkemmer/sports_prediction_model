@@ -98,10 +98,6 @@ SCORE_CACHE_VERSION = "v2"
 # resolved to the 00:00 scratch goalie), and ``powerPlayShotsAgainst="0/0"``
 # is now recorded as the measured 0 it is rather than a null.
 BOXSCORE_CACHE_VERSION = "v4"
-#: Per-game DRESSED-ROSTER cache, retained for legacy roster-availability
-#: diagnostics only. Production injury status is sourced from timestamped ESPN
-#: report snapshots; dressed/non-dressed status is not injury evidence.
-SKATERS_CACHE_VERSION = "v1"
 # Cache schema version for the player-game archive family (pl_* ratings).
 MP_PLAYER_GAME_VERSION = "v2"
 MP_PLAYER_GAME_CHUNK_SIZE = 100_000
@@ -781,60 +777,6 @@ BOXSCORE_COLS = [
 ]
 
 
-def load_game_skaters(game_ids: list[str], use_cache: bool = True,
-                      max_workers: int = 8,
-                      fetch_missing: bool = True) -> pd.DataFrame:
-    """Per-game DRESSED ROSTER for legacy availability diagnostics.
-
-    Emitted per row: the skaters listed in that side's ``forwards`` and
-    ``defense`` arrays. A skater absent from those arrays did not dress, but
-    nonparticipation does not distinguish injury from healthy scratch, roster
-    movement, or other causes. This is NOT consumed by the production injury
-    flag; that flag uses captured Out/IR report snapshots.
-
-    ``playerId`` is the NHL API id and the same space as MoneyPuck's, which is
-    useful for roster diagnostics without a name bridge.
-
-    ``fetch_missing=False`` reads the cache and NOTHING else. The pipeline
-    calls it that way, for two reasons that are both about not lying: a game
-    that has not been played has no boxscore, so a live slate would otherwise
-    issue one doomed request per game every run; and a backtest that silently
-    fetched what it was missing would hide a gap in the archive behind an HTTP
-    call, which is the one thing a PIT claim cannot afford. Backfilling the
-    history is a deliberate, separate step.
-    """
-    ids = [str(g) for g in game_ids]
-    out: list[pd.DataFrame] = []
-    todo: list[str] = []
-    for gid in ids:
-        path = _cache_path(f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
-        if use_cache and path.exists():
-            try:
-                out.append(pd.read_parquet(path))
-                continue
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("skaters cache %s unreadable (%s)", path.name, exc)
-        todo.append(gid)
-    if todo and not fetch_missing:
-        logger.info("skaters: %d cached, %d absent from the cache and not "
-                    "fetched (cache-only)", len(ids) - len(todo), len(todo))
-    elif todo:
-        logger.info("skaters: %d cached, %d to fetch", len(ids) - len(todo), len(todo))
-        _fetch_skaters(todo, use_cache, max_workers)
-        if use_cache:
-            for gid in todo:
-                path = _cache_path(
-                    f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
-                if path.exists():
-                    try:
-                        out.append(pd.read_parquet(path))
-                    except Exception:  # noqa: BLE001
-                        continue
-    if not out:
-        return pd.DataFrame(columns=SKATER_COLS)
-    return pd.concat(out, ignore_index=True)
-
-
 SKATER_COLS = ["game_id", "side", "team", "player_id", "player_name"]
 
 
@@ -857,37 +799,6 @@ def _skater_rows(bs: dict, game_id: str) -> list[dict]:
     return rows
 
 
-def _fetch_skaters(game_ids: list[str], use_cache: bool, max_workers: int
-                   ) -> None:
-    from concurrent.futures import ThreadPoolExecutor
-
-    def one(gid: str) -> bool:
-        path = _cache_path(f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
-        if use_cache and path.exists():
-            return True
-        try:
-            bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("skaters unavailable for %s: %s", gid, exc)
-            return False
-        rows = _skater_rows(bs, gid)
-        if not rows:
-            logger.warning("skaters: %s returned no skater rows", gid)
-            return False
-        try:
-            pd.DataFrame(rows, columns=SKATER_COLS).to_parquet(path)
-        except OSError as exc:
-            logger.warning("skaters cache write failed for %s: %s", gid, exc)
-            return False
-        return True
-
-    ok = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        for i, done in enumerate(pool.map(one, game_ids), 1):
-            ok += int(done)
-            if i % 200 == 0:
-                logger.info("skaters: %d/%d (%d ok)", i, len(game_ids), ok)
-    logger.info("skaters: fetched %d of %d", ok, len(game_ids))
 
 
 def load_boxscores(game_ids: list[str], use_cache: bool = True,
