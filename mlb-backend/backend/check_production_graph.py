@@ -36,11 +36,10 @@ PRODUCTION_ALLOWLIST: dict[str, str] = {
         "lineup-delta re-implementation; nothing on the daily run reads it"),
     "build_il_stints.py": (
         "documented regeneration path for data_delivery/il_stints.parquet — "
-        "features.register_il_stints names it in its fallback warning, and "
-        "il_stint_staleness names it in the staleness tripwire. Like the "
-        "lineup/wOBA caches it is a periodic cache, not a per-run step: the "
-        "feature degrades to the participant pool with a WARNING rather than "
-        "failing the daily build closed"),
+        "features._register_il_stints names it in its fallback warning. Like "
+        "the lineup/wOBA caches it is a periodic cache, not a per-run step: "
+        "the OUT/IR eligibility filter degrades to the participant pool with "
+        "a WARNING rather than failing the daily build closed"),
 }
 
 
