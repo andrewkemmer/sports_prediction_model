@@ -49,6 +49,35 @@ def feature_status(psi: float) -> str:
     return "OK"
 
 
+def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Slice the drift comparison's two windows from one canonical frame.
+
+    The structural twin of MLB's pipeline slice (mlb-backend pipeline.py:
+    ``baseline = prior.tail(max(3 * len(current), 250))``): "current" is the
+    trailing :attr:`config.DRIFT_CURRENT_GAMES` decided games and
+    "baseline" is the tail of the history that immediately precedes them —
+    ``max(3x the current window, :attr:`config.DRIFT_BASELINE_MIN_GAMES`)
+    games`` — never the full pool. A baseline drawn from the same recent era
+    as the current window makes a PSI row answer "did the recent game
+    change?"; a full-history baseline mixes whole seasons in, which is what
+    lit the monitor up with season-boundary effects every early-season run.
+
+    MONITORING ONLY: nothing in the fit or serve path reads these windows —
+    training is expanding walk-forward over the full pool regardless.
+
+    Returns ``(baseline, current)`` in the same order callers pass them to
+    :func:`feature_drift`. Falls back to the whole-pool tail when the frame
+    is too small to slice both windows disjointly.
+    """
+    n_cur = min(int(config.DRIFT_CURRENT_GAMES), max(len(df) // 2, 1))
+    current = df.tail(n_cur)
+    prior = df.head(len(df) - n_cur)
+    n_base = min(max(3 * n_cur, int(config.DRIFT_BASELINE_MIN_GAMES)),
+                 len(prior))
+    baseline = prior.tail(n_base)
+    return baseline, current
+
+
 def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
     """Expected PSI from sampling noise alone when both samples are drawn
     from the SAME distribution (MLB's psi_noise_floor).
@@ -131,7 +160,12 @@ def feature_importance_weights(models: dict,
 
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
-    """PSI per served feature: recent slate window vs full-history baseline.
+    """PSI per served feature: current window vs its preceding-era baseline.
+
+    The frames come from :func:`drift_windows` (MLB's trailing-tail geometry:
+    the baseline is the era immediately before the current window, not the
+    full pool — a full-history baseline mixes whole seasons in and flags
+    season-boundary effects every early-season run).
 
     MLB-shaped rows (mlb-backend/backend/explainability.py
     ``compute_feature_drift``): the status keys on the NOISE-ADJUSTED PSI and

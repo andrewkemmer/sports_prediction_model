@@ -431,10 +431,18 @@ SIGMA_FLOOR_TOTAL = 2.0
 SIGMA_CAP_TOTAL = 5.0
 P_TIE_MAX = 0.25            # cap on the tied-margin mass (hockey ties ~5-8%)
 
-# Drift windows: PSI compares the LAST N decided games ("current") against
-# the full history that precedes them ("baseline"). One knob so the drift
-# step, its coverage companion, and every test quote the same geometry.
-DRIFT_BASELINE_GAMES = 60
+# Drift windows (MONITORING ONLY — nothing in the fit or serve path reads
+# these): PSI compares the LAST N decided games ("current") against a
+# trailing tail of the history that immediately precedes them ("baseline").
+# The tail geometry is MLB's (mlb pipeline: prior.tail(max(3 * len(current),
+# 250))): a baseline drawn from the same recent era as the current window so
+# a PSI row answers "did the recent game change?" rather than mixing in
+# whole seasons ago — full-history baselines light the monitor up with
+# season-boundary effects every early-season run (goalie_starts resets,
+# playoff-window levels). One pair of knobs so the drift step, its coverage
+# companion, and every test quote the same geometry.
+DRIFT_CURRENT_GAMES = 60
+DRIFT_BASELINE_MIN_GAMES = 250
 
 # ---------------------------------------------------------------------------
 # Artifact naming (frontend family contracts)

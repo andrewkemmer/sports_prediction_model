@@ -677,10 +677,13 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
-    # The drift "current" window: the LAST N decided games, compared against
-    # the full pool behind them ("baseline"). One constant so the drift step,
-    # its coverage companion, and the tests quote the same geometry.
-    recent = game_df.tail(config.DRIFT_BASELINE_GAMES)
+    # The drift comparison's windows, sliced here ONCE (MLB trailing-tail
+    # geometry via monitoring.drift_windows): "current" is the last N decided
+    # games, "baseline" the tail of history immediately preceding them. One
+    # slice so the drift step, the coverage companion, and the CSV writer all
+    # describe identical populations. MONITORING ONLY — the training path is
+    # untouched (expanding walk-forward over the full pool).
+    drift_baseline, recent = monitoring.drift_windows(game_df)
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
 
@@ -704,15 +707,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 14. Monitoring ────────────────────────────────────────────────────
     _banner("PHASE 14", "monitoring")
-    drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
+    drift = monitoring.feature_drift(drift_baseline, recent,
+                                     weights=feature_weights)
     # The coverage windows are the drift windows, structurally (MLB parity):
-    # ``recent`` is sliced ONCE above from the same game_df the drift step
-    # compares against — the same guaranteed-shared-frames property MLB
-    # enforced after its 08-28 incident ("coverage CSV on post-slate windows
-    # the drift never saw must be structurally impossible"). The report's
-    # ``current`` window is exactly the population each PSI row describes,
-    # and ``baseline`` is the decided pool behind every n_baseline.
-    cov_rows = monitoring.coverage(game_df, slate_df=slate, current_df=recent)
+    # sliced ONCE above from the same game_df both steps read — the same
+    # guaranteed-shared-frames property MLB enforced after its 08-28 incident
+    # ("coverage CSV on post-slate windows the drift never saw must be
+    # structurally impossible"). The report's ``current`` window is exactly
+    # the population each PSI row describes, and ``baseline`` is the trailing
+    # tail behind it (same recent era — see monitoring.drift_windows).
+    cov_rows = monitoring.coverage(drift_baseline, slate_df=slate,
+                                   current_df=recent)
     # The Phase 3 table is a single coverage_pct per feature, which counts a
     # team's FIRST game (no prior history exists — cold nulls, by design) the
     # same as a genuine defect. A run logging 14 features at "99.28%" reads as

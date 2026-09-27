@@ -1861,6 +1861,50 @@ def test_feature_coverage_drift_windows_are_the_frames_drift_compares():
         f"warm nulls in the current window: {[r['feature'] for r in warm_cur]}"
 
 
+def test_drift_windows_follow_the_mlb_trailing_tail_geometry():
+    """The drift baseline must be the era IMMEDIATELY BEFORE the current
+    window — MLB's trailing-tail slice (prior.tail(max(3x current, 250))) —
+    not the full pool. A full-history baseline mixes whole seasons into the
+    comparison, which is what flagged season-boundary effects (goalie_starts
+    resets, playoff-window levels) every early-season run. The windows are
+    also disjoint and adjacent, or the PSI row describes a population its
+    coverage rows never measured. MONITORING ONLY: the training path is
+    expanding walk-forward over the full pool and must never read these
+    windows."""
+    games = _synth_games(n_days=120, games_per_day=4)
+    df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
+    n = len(df)
+    baseline, current = mon.drift_windows(df)
+    n_cur = len(current)
+    # Current window: the trailing DRIFT_CURRENT_GAMES decided games.
+    assert n_cur == config.DRIFT_CURRENT_GAMES
+    assert current["gameday"].iloc[-1] == df["gameday"].iloc[-1]
+    # Baseline: max(3x current, DRIFT_BASELINE_MIN_GAMES) games of the era
+    # immediately preceding the current window — never the full pool.
+    n_base_expected = min(max(3 * n_cur, config.DRIFT_BASELINE_MIN_GAMES),
+                          n - n_cur)
+    assert len(baseline) == n_base_expected
+    assert baseline["gameday"].iloc[-1] < current["gameday"].iloc[0]
+    # Disjoint AND adjacent: the baseline ends where the current begins
+    # (positional, so the pin holds for any index dtype).
+    assert len(pd.concat([baseline, current])) == n_base_expected + n_cur
+    pos_base_end = df.index.get_indexer([baseline.index[-1]])[0]
+    pos_cur_start = df.index.get_indexer([current.index[0]])[0]
+    assert pos_cur_start == pos_base_end + 1
+
+
+def test_drift_windows_small_pool_falls_back_whole_tail():
+    """A pool that cannot support both windows disjointly must degrade to
+    the whole-pool tail (a defensible baseline of whatever era exists), not
+    raise or hand back an empty frame."""
+    games = _synth_games(n_days=12, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
+    baseline, current = mon.drift_windows(df)
+    assert len(current) == max(len(df) // 2, 1)
+    assert len(baseline) == len(df) - len(current)
+    assert set(baseline.index) & set(current.index) == set()
+
+
 # ---------------------------------------------------------------------------
 # 9. Fold-id contiguity (regression: non-contiguous fold numbering)
 # ---------------------------------------------------------------------------
