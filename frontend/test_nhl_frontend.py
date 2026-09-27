@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
@@ -20,10 +21,42 @@ if str(FRONTEND_DIR) not in sys.path:
     sys.path.insert(0, str(FRONTEND_DIR))
 
 import utils  # noqa: E402
+import nhl_slate_view as nsv  # noqa: E402
 
 NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 DATE = "20990101"
 DATE_ISO = "2099-01-01"
+
+
+def test_price_total_and_spread_renormalize_integer_lines_to_a_coherent_quote():
+    """Raw integer-line artifact columns can carry pre-normalization mass
+    (documented at half_stop_pair); a quoted three-way must sum to 1."""
+    row = {"p_over_5": 0.40, "p_under_5": 0.52, "p_push_total_5": 0.08}
+    o, u, p = nsv.price_total(row, 5)
+    assert o + u + p == pytest.approx(1.0)
+    assert o == pytest.approx(0.40)      # already coherent: unchanged
+
+    row2 = {"p_over_5": 0.44, "p_under_5": 0.57, "p_push_total_5": 0.08}  # 1.09
+    o, u, p = nsv.price_total(row2, 5)
+    assert o + u + p == pytest.approx(1.0)
+
+    row3 = {"p_home_cover_2": 0.55, "p_push_2": 0.06}    # implied away 0.39
+    h, p, a = nsv.price_spread(row3, 2)
+    assert h + p + a == pytest.approx(1.0)
+
+    row4 = {"p_home_cover_2": 0.70, "p_push_2": 0.40}    # overlap: implied away < 0
+    h, p, a = nsv.price_spread(row4, 2)
+    assert h + p + a == pytest.approx(1.0)
+    assert a >= 0.0 and p >= 0.0 and h >= 0.0
+
+
+def test_price_total_half_point_is_coherent_by_construction():
+    row = {"p_over_5": 0.55}
+    o, u, p = nsv.price_total(row, 5.5)
+    assert o == pytest.approx(0.55)
+    assert u == pytest.approx(0.45)
+    assert p == 0.0
+    assert o + u + p == pytest.approx(1.0)
 
 
 def _game(game_id: str, home: str, away: str, kickoff: str | None, ph: float) -> dict:

@@ -169,7 +169,10 @@ def _nhl_run_engine_selectors(r, srow):
     fair_home = -float(round(fair_spread))
     spread_options = [float(v) / 2.0 for v in range(1, 17)]  # ±0.5 … ±8.0
     fair_magnitude = float(abs(fair_home))
-    if fair_magnitude not in spread_options:
+    if fair_magnitude >= 0.5 and fair_magnitude not in spread_options:
+        # No ±0.0 stop: the ladder starts at ±0.5 like MLB's (whose fair
+        # spread is continuous and never exactly 0), and 0 would price a
+        # degenerate -0/+0 pair. A pick'em fair spread selects ±0.5 below.
         spread_options.append(fair_magnitude)
         spread_options.sort()
     c_ou, c_rl = st.columns([1.35, 1], gap="small")
@@ -184,7 +187,8 @@ def _nhl_run_engine_selectors(r, srow):
     with c_rl:
         picked = st.selectbox(
             "Run line", spread_options,
-            index=spread_options.index(fair_magnitude),
+            index=(spread_options.index(fair_magnitude)
+                   if fair_magnitude in spread_options else 0),
             format_func=lambda v: f"±{v:.1f}",
             key=f"nhl_rl_{gid}", label_visibility="collapsed",
             help=("Run-line pair to price this game at — defaults to the "

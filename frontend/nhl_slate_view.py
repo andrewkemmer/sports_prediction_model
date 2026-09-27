@@ -161,7 +161,18 @@ def price_total(row, total: float) -> tuple[float | None, float | None, float | 
     o, u, p = total_columns().get(whole, (None, None, None))
     if o is None:
         return None, None, None
-    return _f(row, o), _f(row, u), _f(row, p)
+    po, pu, pp = _f(row, o), _f(row, u), _f(row, p)
+    if po is None or pu is None:
+        return None, None, None
+    pp = 0.0 if pp is None else max(pp, 0.0)
+    mass = po + pu + pp
+    if not math.isfinite(mass) or mass <= 0.0:
+        return None, None, None
+    # The artifact's integer-line columns can carry pre-normalization mass on
+    # some vintages (documented at half_stop_pair); a three-way quote must
+    # sum to 1. Renormalize instead of trusting the raw columns -- the same
+    # coherence guarantee the half-point branch has by construction.
+    return po / mass, pu / mass, pp / mass
 
 
 def price_spread(row, line: int) -> tuple[float | None, float | None, float | None]:
@@ -172,10 +183,21 @@ def price_spread(row, line: int) -> tuple[float | None, float | None, float | No
     home, push = cols
     ph = _f(row, home)
     pp = _f(row, push)
-    if ph is None:
+    if ph is None or pp is None:
         return None, None, None
-    pa = None if pp is None else 1.0 - ph - pp
-    return ph, pp, pa
+    ph, pp = max(ph, 0.0), max(pp, 0.0)
+    pa = 1.0 - ph - pp
+    if pa < 0.0:
+        # Overlapping cover/push columns on a stale vintage: the push band
+        # cannot exceed the complement of the cover. Clip, then renormalize.
+        pp = max(0.0, 1.0 - ph)
+        pa = 1.0 - ph - pp
+    # Renormalize to a coherent three-way quote (same rationale as
+    # price_total: raw integer-line columns are not guaranteed to sum to 1).
+    mass = ph + pp + pa
+    if not math.isfinite(mass) or mass <= 0.0:
+        return None, None, None
+    return ph / mass, pp / mass, pa / mass
 
 
 def price_spread_line(row, line: float) -> tuple[float | None, float | None, float | None]:
