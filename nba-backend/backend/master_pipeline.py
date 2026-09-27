@@ -349,6 +349,57 @@ def _write_player_ts(out: Path, date_c: str, facts, games: pd.DataFrame,
         return None
 
 
+def _concat_frames(frames, what: str) -> pd.DataFrame:
+    """``pd.concat`` that reads "no frames" as an empty frame, not a ValueError.
+
+    ``pd.concat([])`` raises ``ValueError: No objects to concatenate``. That is
+    a poor answer to the question being asked - "what is in the cache?" is a
+    question with an empty answer on a cold cache, and it is the ONLY answer on
+    a first run - and it arrives as an exception that unwinds a phase whose
+    caller then degrades a whole promoted feature family to NaN. So the empty
+    case is answered here, with the reason logged, and the caller gets a frame
+    it can test.
+    """
+    kept = [f for f in frames if f is not None and len(f)]
+    if not kept:
+        logger.warning("%s: nothing to read", what)
+        return pd.DataFrame()
+    return pd.concat(kept, ignore_index=True)
+
+
+def _cache_root(cache_dir: Path | None = None) -> Path:
+    """The one cache root, resolved through ``ingestion``.
+
+    This used to read ``ingestion.CACHE_DIR``, which ingestion does not
+    define - it defines ``CACHE_DIR_ENV`` and resolves the root in
+    ``_cache_dir()``. The attribute lookup raised, the except arm swallowed it
+    to ``None``, and every cache read below quietly became a read of nothing.
+    That is the shape of bug that hides: a misspelled accessor and a broad
+    ``except ImportError`` in the same function, so a genuine miss is
+    indistinguishable from a deliberately empty cache.
+    """
+    if cache_dir is not None:
+        return Path(cache_dir).expanduser()
+    return Path(ingestion._cache_dir())
+
+
+def _empty_contract_columns(frame: pd.DataFrame | None) -> list[str]:
+    """Contract columns that no row in ``frame`` carries.
+
+    ``n_features`` counts the CONTRACT, so a family that failed to build still
+    reports its full width: the run in which all nine ``pl_ts`` columns went
+    missing published "41 features" and a green tick, and the only trace of the
+    loss was one WARNING line among four hundred. This is the counter-weight -
+    a column that is in the contract and in no row is named in the summary the
+    run publishes, so the fact travels with the artifact instead of scrolling
+    past in a log.
+    """
+    if frame is None or not len(frame):
+        return []
+    return [col for col in config.active_moneyline_feature_cols()
+            if col in frame.columns and not frame[col].notna().any()]
+
+
 def _build_position_ts_features(facts, games: pd.DataFrame,
                                 cache_dir: Path | None = None
                                 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
@@ -380,18 +431,20 @@ def _build_position_ts_features(facts, games: pd.DataFrame,
     """
     import lineup_projection as proj_mod
     import player_ts as ts_mod
-    try:
-        from ingestion import CACHE_DIR as _ingest_cache
-    except ImportError:
-        _ingest_cache = None
 
     seasons = sorted({ts_mod._season_of(d) for d in games.gameday.dropna()})
     seasons = [s for s in seasons if s]
-    positions = pd.concat(
-        [pd.read_parquet(p) for p in
-         (cache_dir or _ingest_cache or Path("~/.cache/sports_prediction_model/nba")
-          ).expanduser().glob("positions/positions_*.parquet")],
-        ignore_index=True) if seasons else pd.DataFrame()
+    # Positions are FETCHED, not read out of the cache directory. The old glob
+    # made this phase depend on a later phase having already written the table
+    # (the ratings writer, which runs at serve time), so the first run after any
+    # cache wipe - a full repull, a fresh Kaggle kernel - found nothing and
+    # shipped all nine promoted features as NaN while reporting the contract's
+    # full 41 columns. ``_fetch_positions`` is cache-first, so a warm cache
+    # costs nothing, and it is the same accessor the ratings writer calls, so
+    # the two paths cannot disagree about what a position is.
+    positions = _concat_frames(
+        [ingestion._fetch_positions(season) for season in seasons],
+        f"positions for {', '.join(seasons) or 'the window'}")
     if not len(positions):
         logger.warning("pl_ts features skipped: no position table; every "
                        "rating would fall back to an unsegmented prior")
@@ -412,20 +465,17 @@ def _build_position_ts_features(facts, games: pd.DataFrame,
     # The PIT designations: the official report's last filing strictly before
     # each tipoff, as backfilled across the decided window. Read from cache;
     # fetching the whole archive inside a run is a backfill job, not a serve
-    # job. No artifact means no removals - logged, never fabricated.
-    designations = None
-    if cache_dir is not None or _ingest_cache is not None:
-        root = (cache_dir or _ingest_cache)
-        root = Path(root).expanduser()
-        candidates = sorted(root.glob("nba_designations_*.parquet"))
-        if candidates:
-            designations = pd.read_parquet(candidates[-1])
-            logger.info("PIT designations: %d record(s) from %s",
-                        len(designations), candidates[-1].name)
-        else:
-            logger.warning("no nba_designations_*.parquet in %s - the injury "
-                           "removal cannot bind; the pools are UNFILTERED and "
-                           "this is logged so the state is never silent", root)
+    # job. Every shard is read, never one of them - see
+    # ``lineup_projection.load_designations`` for what picking a single file
+    # did to the coverage. No artifact at all means no removals, and that is
+    # logged rather than left to look like a healthy league.
+    root = _cache_root(cache_dir)
+    designations = proj_mod.load_designations(root)
+    if designations is None:
+        logger.warning("no nba_designations_*.parquet in %s - the injury "
+                       "removal CANNOT bind and the pools are UNFILTERED for "
+                       "this run; run backfill_injury_designations.py to "
+                       "restore it", root)
 
     decided_mask = games.home_score.notna() & games.away_score.notna()
     decided = games[decided_mask]
@@ -945,10 +995,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     _step("monitor", f"rolling Brier {latest_brier} over {len(brier)} day(s), "
                      f"{len(members)} ensemble member(s)")
 
+    empty_frame = _empty_contract_columns(game_df)
+    empty_slate = _empty_contract_columns(slate)
+    if empty_frame or empty_slate:
+        logger.error(
+            "contract features carrying no value: frame %s | slate %s - "
+            "anything listed is in the published contract and in no row, so "
+            "the model was fitted (and the slate scored) without it",
+            ", ".join(empty_frame) or "none", ", ".join(empty_slate) or "none")
     summary = {"status": "ok", "run_date": run_day, "artifacts": artifacts,
                "weights": ml["member_weights"], "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
                "n_features": len(config.active_moneyline_feature_cols()),
+               "features_empty": {"frame": empty_frame, "slate": empty_slate},
                "play_by_play": {
                    "actions": int(len(facts.play_by_play)),
                    "event_rows": int(len(facts.team_events)),

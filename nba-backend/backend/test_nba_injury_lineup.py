@@ -578,3 +578,154 @@ class TestPlayerTsIsStrictlyPriorPerGame:
         assert row.prior_points == 20
         assert row.prior_plays == pytest.approx(12 + 0.44 * 4)
         assert row.prior_games == 1
+
+
+def _shard(path, rows):
+    frame = pd.DataFrame(rows)
+    frame.to_parquet(path, index=False)
+    return frame
+
+
+class TestDesignationShardUnion:
+    """Every backfilled window counts, not whichever file sorts last.
+
+    The production path read ``sorted(glob(...))[-1]``, so with shards for
+    2025-10-21..2026-04-12 (13,168 records) and 2026-01-08..2026-01-12 (400) the
+    run applied the 400-record shard: the injury removal bound on five days of a
+    six-month window and every other game looked healthy. A filename sort is not
+    a coverage policy.
+    """
+
+    def test_every_shard_is_read_not_just_the_last(self, tmp_path):
+        _shard(tmp_path / "nba_designations_20251021_20260412.parquet",
+               [{"gameday": "2025-11-01", "team": "BOS", "player_report": "A, B",
+                 "status": "Out", "published_at": "2025-11-01T18:00Z"}])
+        _shard(tmp_path / "nba_designations_20260108_20260112.parquet",
+               [{"gameday": "2026-01-08", "team": "LAL", "player_report": "C, D",
+                 "status": "Doubtful", "published_at": "2026-01-08T18:00Z"}])
+        out = proj.load_designations(tmp_path)
+        assert len(out) == 2
+        assert set(out.player_report) == {"A, B", "C, D"}
+
+    def test_an_overlapping_window_is_idempotent(self, tmp_path):
+        """A designation is a (date, team, player) removal read as a set, so a
+        record in two shards must remove once, not twice."""
+        row = {"gameday": "2026-01-08", "team": "LAL", "player_report": "C, D",
+               "status": "Out", "published_at": "2026-01-08T18:00Z"}
+        _shard(tmp_path / "nba_designations_20251021_20260412.parquet", [row])
+        _shard(tmp_path / "nba_designations_20260108_20260112.parquet", [row])
+        assert len(proj.load_designations(tmp_path)) == 1
+
+    def test_no_archive_is_none_not_an_empty_healthy_league(self, tmp_path):
+        assert proj.load_designations(tmp_path) is None
+        assert proj.load_designations(None) is None
+
+    def test_one_unreadable_shard_does_not_discard_the_rest(self, tmp_path,
+                                                            caplog):
+        _shard(tmp_path / "nba_designations_20251021_20260412.parquet",
+               [{"gameday": "2025-11-01", "team": "BOS", "player_report": "A, B",
+                 "status": "Out", "published_at": "2025-11-01T18:00Z"}])
+        (tmp_path / "nba_designations_20260108_20260112.parquet").write_text(
+            "not a parquet file")
+        with caplog.at_level("WARNING"):
+            out = proj.load_designations(tmp_path)
+        assert len(out) == 1
+        assert "unreadable" in caplog.text
+
+
+class TestPositionTsBuildSurvivesAColdCache:
+    """The production run's failure, reproduced and fixed.
+
+    A fresh cache - every full repull, every new Kaggle kernel - left this
+    phase reading an empty positions directory, and ``pd.concat([])`` answered
+    "no position table" with ``ValueError: No objects to concatenate``. The
+    caller caught it and degraded the nine promoted features to NaN, so the run
+    published a 41-feature contract in which nine were empty.
+    """
+
+    @staticmethod
+    def _facts():
+        """Two games of history before the targets, because the pool's
+        membership floor is 20 prior plays and a fixture with no history is
+        honestly unrateable rather than a failure of the build."""
+        import ingestion
+        days = ["2026-02-24", "2026-02-26", "2026-03-01", "2026-03-02"]
+        games = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(len(days) + 1)],
+            "gameday": pd.to_datetime(days + ["2026-03-08"]),
+            "home_team": ["BOS"] * (len(days) + 1),
+            "away_team": ["NYK"] * len(days) + ["LAL"],
+            "home_score": [110.0] * len(days) + [None],
+            "away_score": [100.0] * len(days) + [None],
+        })
+        rows = []
+        for day, (b_pts, n_pts) in zip(days, ((20, 10), (30, 12), (24, 11),
+                                              (30, 12))):
+            rows.append({"player_id": 1.0, "gameday": day, "points": b_pts,
+                         "fga": 12, "fta": 4, "player_name": "A", "team": "BOS"})
+            rows.append({"player_id": 2.0, "gameday": day, "points": n_pts,
+                         "fga": 9, "fta": 1, "player_name": "B", "team": "NYK"})
+        log = pd.DataFrame(rows)
+        return ingestion.NBAFacts(
+            games=games, team_stats=pd.DataFrame(), player_stats=log,
+            team_events=pd.DataFrame(), play_by_play=pd.DataFrame(),
+            team_names={}, manifest={}), games
+
+    @staticmethod
+    def _positions(monkeypatch):
+        """Patch the accessor on the module the build actually calls.
+
+        ``master_pipeline`` reaches ingestion as ``backend.ingestion`` when the
+        suite is collected as a package, so patching a bare ``import ingestion``
+        can land on a second copy of the module and change nothing - a test
+        that silently stops testing, and reads the developer's real cache
+        instead of the fixture. The module object under test is the one to
+        patch.
+        """
+        import master_pipeline as mp
+        frame = pd.DataFrame([
+            {"player_id": 1.0, "season": "2025-26", "position": "G"},
+            {"player_id": 2.0, "season": "2025-26", "position": "F"},
+        ])
+        monkeypatch.setattr(mp.ingestion, "_fetch_positions",
+                            lambda season, use_cache=True: frame)
+        return frame
+
+    def test_an_empty_positions_directory_builds_instead_of_raising(
+            self, monkeypatch, tmp_path):
+        import master_pipeline as mp
+        self._positions(monkeypatch)
+        facts, games = self._facts()
+        frame, slate = mp._build_position_ts_features(facts, games, cache_dir=tmp_path)
+        assert frame is not None and len(frame)
+        for col in config.PLAYER_TS_POSITION_FEATURE_COLS:
+            assert col in frame.columns
+        assert frame[config.PLAYER_TS_POSITION_FEATURE_COLS].notna().any().any()
+        assert slate is not None and len(slate) == 1   # the unplayed game
+        # The slate is the case the production run lost: the nine columns have
+        # to be present AND valued on the game being served, not merely there.
+        assert slate[config.PLAYER_TS_POSITION_FEATURE_COLS].notna().any().any()
+
+    def test_no_concat_of_nothing_is_a_frame_not_an_exception(self):
+        import master_pipeline as mp
+        assert mp._concat_frames([], "positions").empty
+        assert len(mp._concat_frames([pd.DataFrame(), pd.DataFrame({"a": [1]})],
+                                     "positions")) == 1
+
+    def test_a_missing_injury_archive_is_reported_not_assumed_healthy(
+            self, monkeypatch, tmp_path, caplog):
+        import master_pipeline as mp
+        self._positions(monkeypatch)
+        facts, games = self._facts()
+        with caplog.at_level("WARNING"):
+            mp._build_position_ts_features(facts, games, cache_dir=tmp_path)
+        assert "UNFILTERED" in caplog.text
+
+    def test_a_contract_column_no_row_carries_is_named(self):
+        import master_pipeline as mp
+        frame = pd.DataFrame({
+            "pl_ts_c_away": [0.5, None], "pl_ts_f_away": [None, None],
+            "rest": [1, 2]})
+        assert mp._empty_contract_columns(frame) == ["pl_ts_f_away"]
+        assert mp._empty_contract_columns(None) == []
+        assert mp._empty_contract_columns(pd.DataFrame()) == []

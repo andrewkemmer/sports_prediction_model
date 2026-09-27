@@ -274,7 +274,73 @@ def _season_of(when) -> str:
     return season_label(stamp.date())
 
 
-def _prior_for(games: pd.DataFrame, target) -> pd.DataFrame:
+def _season_evidence_index(games: pd.DataFrame) -> dict:
+    """``season -> sorted gamedays``, so "has this season any row yet?" is a
+    ``searchsorted`` rather than a scan of the whole frame.
+
+    Built once per call to ``build_player_ts`` because the answer is asked once
+    per target date per position, and the whole-frame build asks it thousands of
+    times. A filter per question turns a 40-second build into minutes.
+    """
+    index: dict = {}
+    if games is None or not len(games) or "season" not in games.columns:
+        return index
+    for season, part in games.groupby("season", sort=False):
+        labels = part.season.dropna()
+        if not len(labels):
+            continue
+        days = pd.to_datetime(part.gameday, errors="coerce").dropna()
+        if not len(days):
+            continue
+        index[str(labels.iloc[0])] = np.sort(days.to_numpy())
+    return index
+
+
+def _evidence_season(games: pd.DataFrame, target,
+                     index: dict | None = None) -> str:
+    """The season a target's rating is allowed to draw evidence from.
+
+    A target rates against its OWN season, and only its own season: that
+    partition is what stops a rating dated 2024-11-02 from being shrunk toward
+    a league mean the player contributed to in a different role, and
+    ``test_a_rating_does_not_carry_the_previous_season`` holds that line.
+
+    But the own season is not always the season that HAS the evidence. On the
+    first day of a season the target's season has no rows before it, and the
+    strict partition then returns nothing at all - not a thin rating, no
+    rating. That is the worst possible time for it: the games with no result,
+    which are the only ones this file ever rates for, ARE the first games of a
+    season, so the partition blanked the ratings artifact and the slate's
+    lineup features on exactly the days they are needed and carried them
+    silently for the other 200.
+
+    So the own-season rule stays primary and applies the moment the season has
+    ANY row at or before the target; only when it has none does the rating fall
+    back to the most recent season that does. Every row in that fallback is
+    still strictly before the target, so the point-in-time floor is untouched:
+    this widens WHICH SEASON the evidence comes from, never WHEN it may come
+    from. A player who never appears in the last completed season has no row
+    either way, which is the honest answer rather than a borrowed one.
+    """
+    own = _season_of(target)
+    if index is None:
+        index = _season_evidence_index(games)
+    days = index.get(own)
+    if days is not None and len(days) and bool((days <= target).any()):
+        return own
+    best_label, best_day = None, None
+    for season, season_days in index.items():
+        prior = season_days[season_days <= target]
+        if not len(prior):
+            continue
+        latest = prior.max()
+        if best_day is None or latest > best_day:
+            best_label, best_day = season, latest
+    return best_label if best_label is not None else own
+
+
+def _prior_for(games: pd.DataFrame, target, season: str | None = None
+               ) -> pd.DataFrame:
     """Per-player totals over rows STRICTLY BEFORE ``target``.
 
     The prior is a plain filtered sum rather than a running total read at the
@@ -290,11 +356,12 @@ def _prior_for(games: pd.DataFrame, target) -> pd.DataFrame:
     that is what happens here. The target row itself is excluded by the strict
     ``<``, which is the entire leakage guarantee.
     """
-    earlier = games[games.gameday < target]
-    if "season" in earlier.columns:
-        season = _season_of(target)
+    if "season" in games.columns:
+        if season is None:
+            season = _evidence_season(games, target)
         if season:
-            earlier = earlier[earlier.season == season]
+            games = games[games.season == season]
+    earlier = games[games.gameday < target]
     if earlier.empty:
         return pd.DataFrame(columns=["player_id", "position", "season",
                                      "prior_points", "prior_plays",
@@ -343,6 +410,7 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
 
     rows = []
+    season_index = _season_evidence_index(work)
     for position, group in work.groupby("position", sort=False):
         # The league mean is also season-partitioned, for the same reason the
         # player's own prior is: a rating dated into the current season is
@@ -362,7 +430,8 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
             cum_points = daily_points.cumsum()
             cum_plays = daily_plays.cumsum()
             for target in dates:
-                if season is not None and _season_of(target) != season:
+                if season is not None and _evidence_season(
+                        work, target, season_index) != season:
                     continue
                 earlier = cum_points.index < target
                 rows.append((target, position,
@@ -448,24 +517,28 @@ def build_player_ts(games: pd.DataFrame,
         return empty
 
     league = league_prior_table(games, dates)
+    season_index = _season_evidence_index(work)
     rows = []
     for target in dates:
-        # The target date's own season is the only season a rating may draw
-        # from. A player who appears on both sides of a season boundary is
-        # rated against the season they are actually in, not a blend of two.
-        snapshot = _prior_for(work, target)
+        # The target rates against its own season, and only its own season, so
+        # a player who appears on both sides of a boundary is rated against the
+        # season they are actually in rather than a blend of two. The one
+        # exception is a target whose own season has no evidence before it -
+        # the first day of a season - which falls back to the last completed
+        # one, still strictly before the target. See _evidence_season.
+        season = _evidence_season(work, target, season_index)
+        known = work[work.gameday <= target]
+        if "season" in known.columns and season:
+            known = known[known.season == season]
+        if known.empty:
+            continue
+        snapshot = _prior_for(work, target, season=season)
         # A player who has already appeared on or before the target date is
         # rated even with no prior evidence, so the row exists with a zero
         # prior. The distinction matters to a caller: "this player has no
         # rating yet" and "this player was never in the data" are different
         # facts, and a projection that cannot tell them apart will happily
         # project a player who does not exist.
-        season = _season_of(target)
-        known = work[work.gameday <= target]
-        if "season" in known.columns and season:
-            known = known[known.season == season]
-        if known.empty:
-            continue
         roster = known[["player_id", "position"]].drop_duplicates(
             subset=["player_id", "position"])
         if "team" in known.columns:

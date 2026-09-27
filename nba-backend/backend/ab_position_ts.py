@@ -158,9 +158,12 @@ def main() -> None:
     game_df = folds_mod.canonical_sort(game_df, "gameday")
     base = game_df.copy()
 
-    designations_path = (CACHE / "nba_designations_20251021_20260412.parquet")
-    designations = (pd.read_parquet(designations_path)
-                    if designations_path.exists() else None)
+    # Every backfilled shard, through the loader the production path uses, so
+    # the arm measured here is the arm that ships. This file used to name one
+    # window's file outright, which meant a re-run backfill extending the
+    # archive was invisible to the experiment that justifies the features.
+    import lineup_projection as proj_mod
+    designations = proj_mod.load_designations(CACHE)
     logger.info("designations: %s",
                 "none - full pool retained" if designations is None
                 else f"{len(designations)} rows")

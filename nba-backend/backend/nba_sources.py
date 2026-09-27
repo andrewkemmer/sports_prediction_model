@@ -347,8 +347,32 @@ def availability_multiplier(status: object) -> float:
     return AVAILABILITY_MULTIPLIERS[availability_status(status)]
 
 
+#: stats.nba.com and ESPN do not abbreviate two franchises the same way, and
+#: ESPN's roster path is strict about it. Measured 2026-09-27 against the live
+#: endpoint: ``/teams/nop/roster`` and ``/teams/uta/roster`` both answer HTTP
+#: 400, while ``/teams/no/roster`` answers 200 with 19 athletes and
+#: ``/teams/utah/roster`` 200 with 18. The other 28 pipeline tokens are
+#: answered as-is - including the three more ESPN abbreviates differently
+#: (``gsw``/``gs``, ``nyk``/``ny``, ``sas``/``sa``, ``was``/``wsh``), all of
+#: which the legacy three-letter path still serves.
+#:
+#: This matters because a 400 is a MALFORMED request, not an outage: the run's
+#: own wording ("a request this pipeline sends will not change it") is correct,
+#: and the only thing that changes it is the right segment. Without the table
+#: two of thirty clubs are silently rated as fully healthy on the slate, which
+#: is the one state this source must never be mistaken for.
+ESPN_ROSTER_SLUG_ALIASES = {"NOP": "no", "UTA": "utah"}
+
+
 def espn_roster_url(team: str) -> str:
-    return ESPN_TEAM_ROSTER_URL.format(team=str(team).strip().lower())
+    """The roster URL for a stats.nba.com team token.
+
+    Lower-cased and alias-resolved, because a token is not necessarily a path
+    segment ESPN serves (see ``ESPN_ROSTER_SLUG_ALIASES``).
+    """
+    token = str(team).strip()
+    return ESPN_TEAM_ROSTER_URL.format(
+        team=ESPN_ROSTER_SLUG_ALIASES.get(token.upper(), token.lower()))
 
 
 def roster_availability(payload: Any, team: str | None = None) -> list:

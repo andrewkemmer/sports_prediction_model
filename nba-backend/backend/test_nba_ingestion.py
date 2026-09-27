@@ -1355,6 +1355,36 @@ class TestTrainableGames:
         assert ing.trainable_games(pd.DataFrame()).empty
 
 
+class TestEspnRosterSlug:
+    """ESPN's roster path is strict, and two of our tokens are not its own.
+
+    Measured 2026-09-27 against the live endpoint: of the thirty abbreviations
+    stats.nba.com publishes, ``nop`` and ``uta`` answer HTTP 400 while ``no``
+    (19 athletes) and ``utah`` (18) answer 200. A 400 is a malformed request, so
+    the run's warning that "a request this pipeline sends will not change it" was
+    correct - and the consequence was that two clubs' injury state was read as
+    healthy, the one state this source must never be mistaken for.
+    """
+
+    def test_the_two_divergent_tokens_resolve_to_espn_segments(self):
+        assert src.espn_roster_url("NOP").endswith("/teams/no/roster")
+        assert src.espn_roster_url("UTA").endswith("/teams/utah/roster")
+
+    def test_resolution_is_case_and_whitespace_insensitive(self):
+        assert src.espn_roster_url(" nop ") == src.espn_roster_url("NOP")
+        assert src.espn_roster_url("uta") == src.espn_roster_url("UTA")
+
+    def test_every_other_token_is_passed_through_lowercased(self):
+        for token in ("MIL", "GSW", "NYK", "SAS", "WAS", "LAL"):
+            assert src.espn_roster_url(token).endswith(
+                f"/teams/{token.lower()}/roster"), token
+
+    def test_the_alias_table_covers_exactly_the_measured_divergences(self):
+        """A table that grows without evidence re-creates the problem it fixed:
+        a wrong entry turns a working request into a 400."""
+        assert src.ESPN_ROSTER_SLUG_ALIASES == {"NOP": "no", "UTA": "utah"}
+
+
 class TestCardPresentationFields:
     """Tipoff, arena, and the postponed state a card has to be able to show.
 

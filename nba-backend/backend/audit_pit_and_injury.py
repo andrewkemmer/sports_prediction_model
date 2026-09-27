@@ -127,8 +127,11 @@ def main() -> None:
     print("\n" + "=" * 78)
     print("2. INJURY COVERAGE")
     print("=" * 78)
-    path = CACHE / "nba_designations_20251021_20260412.parquet"
-    designations = pd.read_parquet(path)
+    designations = proj.load_designations(CACHE)
+    if designations is None:
+        raise SystemExit(
+            "no nba_designations_*.parquet under the cache: the injury "
+            "archive this audit measures is absent, not empty")
     designations["gameday"] = pd.to_datetime(designations["gameday"])
     designations["published_at"] = pd.to_datetime(designations["published_at"])
 

@@ -691,3 +691,76 @@ class TestPlayerTsWithoutInputs:
         games = ts.prepare_player_games(_frame([_row("a", "2024-11-01", 10, 5, 0)]))
         assert ts.build_player_ts(
             games, target_dates=pd.Series(["2024-10-01"])).empty
+
+
+class TestEvidenceSeasonFallback:
+    """A target whose OWN season has no games yet rates from the last one.
+
+    This is the defect the production run reported as "player TS skipped: no
+    player had strictly-prior evidence as of 2026-10-20": the games with no
+    result are always the first games of a season, and the season partition
+    refused to look across the boundary, so the artifact and the slate's
+    lineup features were empty on exactly the days they exist to serve.
+    """
+
+    @staticmethod
+    def _two_seasons():
+        return ts.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
+            _row("a", "2024-11-05", 10, 5, 0, season="2024-25"),
+        ]))
+
+    def test_the_first_game_of_a_season_is_rated_from_the_completed_one(self):
+        ratings = ts.build_player_ts(
+            self._two_seasons(), target_dates=pd.Series(["2025-10-22"]))
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        assert row.prior_points == 30          # both completed-season games
+        assert row.prior_games == 2
+        # The shrink target has to exist too, or the fallback returns a row
+        # whose rating is NaN - a rating, in form only.
+        assert pd.notna(row.ts_shrunk)
+
+    def test_the_fallback_stops_once_the_own_season_has_evidence(self):
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
+            _row("a", "2025-10-01", 4, 2, 0, season="2025-26"),
+        ]))
+        ratings = ts.build_player_ts(
+            games, target_dates=pd.Series(["2025-10-22"]))
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        # The partition still holds: one in-season game, and only that one.
+        assert row.prior_points == 4
+        assert row.prior_games == 1
+
+    def test_the_fallback_never_reads_a_game_on_or_after_the_target(self):
+        """Point-in-time is about WHEN, not about which season."""
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
+            _row("a", "2025-10-01", 999, 10, 0, season="2025-26"),
+        ]))
+        ratings = ts.build_player_ts(
+            games, target_dates=pd.Series(["2025-10-22"]))
+        # The 10-01 game is in the target's OWN season, so it is the evidence
+        # season and it is strictly before the target: the fallback must not
+        # prefer last season just because it is further away.
+        assert ratings[ratings.player_id == "a"].iloc[0].prior_points == 999
+        # ...and a target BEFORE that game falls back to the completed season,
+        # still strictly earlier.
+        early = ts.build_player_ts(
+            games, target_dates=pd.Series(["2025-09-30"]))
+        assert early[early.player_id == "a"].iloc[0].prior_points == 20
+
+    def test_a_target_before_every_game_still_rates_nothing(self):
+        """No season has evidence before the league's first game, so the
+        fallback has nothing to offer and must not invent a prior."""
+        assert ts.build_player_ts(
+            self._two_seasons(), target_dates=pd.Series(["2024-10-01"])).empty
+
+    def test_the_league_prior_follows_the_same_season(self):
+        """The shrink target and the prior must agree on the season, or a
+        fallback row is rated against a league mean from the wrong year."""
+        games = self._two_seasons()
+        league = ts.league_prior_table(
+            games, pd.Series(["2025-10-22"]))
+        assert len(league)
+        assert league.lg_plays.iloc[0] > 0

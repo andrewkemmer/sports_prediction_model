@@ -27,10 +27,14 @@ Three further properties are inherited deliberately:
 """
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 try:
     from backend import config
@@ -141,6 +145,51 @@ def designation_out_keys(designations) -> set:
         if str(status).strip().lower() in REMOVING_DESIGNATIONS:
             keys.add((gameday, str(team).strip(), str(player).strip()))
     return keys
+
+
+def load_designations(root) -> "pd.DataFrame | None":
+    """Every backfilled PIT designation shard under ``root``, as one frame.
+
+    The backfill writes one shard per window it is run over, so the directory
+    holds a UNION of windows, not a sequence of replacements. Reading one file
+    - and the production path read ``sorted(...)[-1]``, the lexically LAST -
+    makes the archive's coverage a function of filename sort order. That is
+    exactly the bug this fixes: with shards for 2025-10-21..2026-04-12 (13,168
+    records) and 2026-01-08..2026-01-12 (400), the run used the 400-row shard,
+    so the injury removal bound on five days of a six-month training window and
+    looked perfectly healthy on the other ~180. ``20260108_20260112`` sorts
+    after ``20251021_20260412`` and ``2025...`` sorts after ``2026...`` at the
+    second character, so neither "first" nor "last" is ever the right answer.
+
+    A designation is a (gameday, team, player) removal and
+    :func:`designation_out_keys` reads them into a set, so a record present in
+    two shards is idempotent: the union is taken and exact duplicates dropped.
+    Overlapping windows therefore cost nothing and cannot double-remove.
+
+    Returns ``None`` when there is no shard at all, which callers must report
+    rather than treat as "nobody was injured" - an unfiltred pool and a league
+    with no injuries are different facts.
+    """
+    if root is None:
+        return None
+    shards = sorted(Path(root).expanduser().glob("nba_designations_*.parquet"))
+    if not shards:
+        return None
+    frames = []
+    for path in shards:
+        try:
+            frames.append(pd.read_parquet(path))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("designation shard %s unreadable (%s); its window "
+                           "is not applied", path.name, exc)
+    frames = [f for f in frames if f is not None and len(f)]
+    if not frames:
+        return None
+    designations = pd.concat(frames, ignore_index=True).drop_duplicates()
+    logger.info("PIT designations: %d record(s) from %d shard(s) [%s]",
+                len(designations), len(frames),
+                ", ".join(p.name for p in shards))
+    return designations
 
 
 def apply_pit_designations(ratings: pd.DataFrame, designations,
