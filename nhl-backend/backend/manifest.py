@@ -557,6 +557,68 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
             }
 
 
+# The shared monitor page builds its hover text as
+# ``<span title='{html.escape(tooltip, quote=False)}'>``. With quote=False the
+# escaper leaves quote characters alone, so a single apostrophe in the
+# tooltip terminates that attribute and the rest of the tooltip is parsed as
+# markup. The manifest text is full of them ("the player's rating", "a team's
+# first-ever game"), so this is not hypothetical. The page is
+# presentation-only and must stay that way, so the escaping happens HERE, at
+# the one place the string is produced (NFL manifest parity).
+_ATTR_UNSAFE = {"'": "’"}
+
+
+def _attr_safe(text: str) -> str:
+    """Make a string safe inside a single-quoted HTML attribute."""
+    for bad, good in _ATTR_UNSAFE.items():
+        text = text.replace(bad, good)
+    return text
+
+
+def format_tooltip(entry: dict) -> str:
+    """Plain-text tooltip body for one FEATURE_MANIFEST entry.
+
+    MLB/NFL parity: the shared monitor page renders a drift/coverage row's
+    hover text from a PRE-FORMATTED ``tooltip`` string, because the frontend
+    is presentation-only and must not own feature semantics. The manifest is
+    already the one place those semantics live, so the tooltip is formatted
+    here rather than re-derived downstream.
+    """
+    def _get(key: str) -> str:
+        val = str(entry.get(key, "") or "").strip()
+        return val or "—"
+
+    return _attr_safe(
+        f"What: {_get('description')}\n"
+        f"Definition: {_get('definition')}\n"
+        f"Source: {_get('source')}\n"
+        f"Window: {_get('lookback')} · Built as: {_get('aggregation')}\n"
+        f"Point-in-time rule: {_get('point_in_time_rule')}\n"
+        f"Missing values: {_get('missing_value_policy')}\n"
+        f"Available to: {_get('model_family_availability')}"
+    )
+
+
+def feature_tooltips(names: list[str] | None = None) -> dict:
+    """``{feature: {tooltip, ...}}`` for the monitor artifact.
+
+    Only features with a real manifest entry get an entry; an undocumented
+    feature is simply absent, which is what the page needs to tell apart
+    "no metadata" from "metadata exists".
+    """
+    out: dict = {}
+    for name in (names if names is not None else FEATURE_MANIFEST):
+        entry = FEATURE_MANIFEST.get(name)
+        if not entry:
+            continue
+        out[name] = {"tooltip": format_tooltip(entry),
+                     "description": entry.get("description"),
+                     "definition": entry.get("definition"),
+                     "source": entry.get("source"),
+                     "lookback": entry.get("lookback")}
+    return out
+
+
 def validate() -> list[str]:
     """Name-for-name parity: FEATURE_MANIFEST <-> the served contract.
 

@@ -25,6 +25,11 @@ except ImportError:
     import config
     import features as feat_mod
 
+try:
+    from backend import manifest as manifest_mod
+except ImportError:
+    import manifest as manifest_mod
+
 logger = logging.getLogger(__name__)
 
 PSI_WARN = 0.10
@@ -773,6 +778,17 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     }
     if cal:
         version_row["calibration"] = {"a": cal["a"], "b": cal["b"]}
+    # The monitor's feature tooltips come from the manifest, which documents
+    # every served feature (definition / source / lookback / PIT rule). This
+    # block used to emit "see backend/manifest.py" for all of them -- a
+    # placeholder pointing at the data that was already in this repo and one
+    # import away (NFL monitoring parity).
+    try:
+        _tool_names = [r["feature"] for r in cov
+                       if isinstance(r, dict) and r.get("feature")]
+        features_meta = manifest_mod.feature_tooltips(_tool_names)
+    except Exception:  # pragma: no cover - metadata only
+        features_meta = {}
     record = {
         "last_retrained": iso_date,
         "last_retrained_note": None,
@@ -780,9 +796,7 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         "next_retrain_note": None,
         "upset_note": None,
         "feature_drift": drift,
-        "features_metadata": {r["feature"]: {"definition": "see backend/manifest.py",
-                                             "source": "official NHL API"}
-                              for r in cov},
+        "features_metadata": features_meta,
         "feature_coverage": cov,
         "ensemble": ensemble,
         "rolling_brier": rb,

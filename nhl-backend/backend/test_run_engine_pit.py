@@ -2767,6 +2767,52 @@ def test_done_banner_counts_written_artifacts_not_delivered_ones():
         f"the DONE banner implies delivery it did not perform: {banners[0]}"
 
 
+def test_monitor_feature_metadata_is_real_documentation_not_a_placeholder():
+    """The drift table's hover text used to be the literal string
+    "see backend/manifest.py" -- a pointer at data already one import away.
+
+    The shared monitor page renders each row's hover from the artifact's
+    ``features_metadata`` (a PRE-FORMATTED ``tooltip`` string per feature)
+    and falls back to "(no detailed metadata)" when a feature is absent, so
+    a placeholder block is worse than an empty one: it ships as if
+    documented. The manifest already documents every served feature, so the
+    emitter must read it. The tooltips are embedded in a single-quoted HTML
+    attribute with quote=False, so one surviving apostrophe would terminate
+    the attribute and parse the rest of every tooltip as markup -- the
+    escaping lives at the producer, and this test proves it happened.
+    """
+    import manifest as manifest_mod
+
+    served = list(config.MONEYLINE_FEATURE_COLS)
+    meta = manifest_mod.feature_tooltips(served)
+    assert set(meta) == set(served), (
+        "feature_tooltips must cover exactly the served pool: "
+        f"missing={sorted(set(served) - set(meta))}, "
+        f"extra={sorted(set(meta) - set(served))}")
+    for name, m in meta.items():
+        tip = m.get("tooltip", "")
+        assert tip and "manifest.py" not in tip, name
+        assert all(k in tip for k in ("What:", "Definition:", "Source:",
+                                      "Window:", "Point-in-time rule:",
+                                      "Missing values:", "Available to:")), name
+        assert "'" not in tip, (
+            f"{name}: an apostrophe survives in the tooltip and would "
+            "terminate the monitor page's single-quoted title attribute")
+    # The artifact carries real definitions, not the placeholder.
+    cov = [{"feature": f, "window": "decided pool"} for f in served]
+    with _mock_patch.object(mon, "_dump_json"):
+        rec = mon.write_monitor_json(
+            Path("probe.json"), "20260927", [], cov, [], [], 0.5, {}, {})
+    emitted = rec["features_metadata"]
+    assert set(emitted) == set(served), \
+        "the monitor artifact must document every coverage row"
+    for name, m in emitted.items():
+        definition = str(m.get("definition", ""))
+        assert definition.strip() and "manifest.py" not in definition, name
+    # Undocumented names are absent, never given an empty blurb.
+    assert manifest_mod.feature_tooltips(["not_a_real_feature"]) == {}
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]
