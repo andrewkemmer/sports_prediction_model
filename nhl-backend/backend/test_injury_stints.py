@@ -1304,7 +1304,7 @@ class TestStrictSourceDatePool:
 
     def test_candidates_older_than_the_lookback_default_expire(self):
         ratings = make_pool_ratings(
-            [("1", "BOS", "C", 0.060, "2026-01-01")])   # 282 days stale
+            [("1", "BOS", "C", 0.060, "2026-08-01")])   # 70 days stale
         pool, _ = ist.team_game_rates(
             ratings, stints=None, games=self._grid())
         assert len(pool) == 0

@@ -530,9 +530,11 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
                           "injury status snapshots",
                 "lookback": "trailing 30 played games per player and situation "
                             "(game grain); source games within "
-                            "injury_stints.POOL_LOOKBACK_DAYS = 200 of the "
-                            "target date (covers the offseason gap to the "
-                            "first slate of a season)",
+                            "injury_stints.POOL_LOOKBACK_DAYS = 45 of the "
+                            "target date -- a slate whose team ratings all "
+                            "trail that gate (the season opener after the "
+                            "offseason) serves the position prior, matching "
+                            "MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
                 "aggregation": "mean of surviving player-level shrunk rates",
                 "point_in_time_rule":
                     "a candidate rating enters a target game's pool only when "
