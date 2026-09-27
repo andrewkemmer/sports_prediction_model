@@ -822,6 +822,11 @@ _RFE_PROMOTED = [
     "pbp_air_yards_att_ewm_diff",
     "pbp_air_yards_att_ewm_home",
     "pbp_air_yards_att_ewm_away",
+    # Promoted structurally over an RFE decline — see the config comment on the
+    # same names for the full rationale and the measured deltas.
+    "pbp_def_epa_play_ewm_diff",
+    "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
 ]
 for _name in _RFE_PROMOTED:
     _entry = CANDIDATE_MANIFEST.pop(_name, None)
@@ -830,6 +835,73 @@ for _name in _RFE_PROMOTED:
     _entry["candidate"] = False
     _entry["feature_version"] = 4
     FEATURE_MANIFEST[_name] = _entry
+
+
+# The shared monitor page builds its hover text as
+# ``<span title='{html.escape(tooltip, quote=False)}'>``. With quote=False the
+# escaper leaves BOTH quote characters alone, so a single apostrophe in the
+# tooltip terminates that attribute and the rest of the tooltip is parsed as
+# markup. Every one of the 46 manifest definitions contains at least one
+# ("a team's first-ever game"), so this is not hypothetical. The page is
+# presentation-only and must stay that way, so the escaping happens HERE, at
+# the one place the string is produced.
+_ATTR_UNSAFE = {"'": "’"}
+
+
+def _attr_safe(text: str) -> str:
+    """Make a string safe inside a single-quoted HTML attribute."""
+    for bad, good in _ATTR_UNSAFE.items():
+        text = text.replace(bad, good)
+    return text
+
+
+def format_tooltip(entry: dict) -> str:
+    """Plain-text tooltip body for one FEATURE_MANIFEST entry.
+
+    MLB parity (``feature_metadata.format_tooltip``): the shared monitor page
+    renders a drift/coverage row's hover text from a PRE-FORMATTED ``tooltip``
+    string, because the frontend is presentation-only and must not own feature
+    semantics. The manifest is already the one place those semantics live, so
+    the tooltip is formatted here rather than re-derived downstream.
+
+    Field names follow the manifest's own vocabulary (``lookback`` /
+    ``aggregation`` / ``point_in_time_rule``), NOT MLB's ``window`` / ``units``
+    / ``direction``: those describe MLB columns the NFL manifest has no
+    equivalent of, and emitting them as "—" would be noise.
+    """
+    def _get(key: str) -> str:
+        val = str(entry.get(key, "") or "").strip()
+        return val or "—"
+
+    return _attr_safe(
+        f"What: {_get('description')}\n"
+        f"Definition: {_get('definition')}\n"
+        f"Source: {_get('source')}\n"
+        f"Window: {_get('lookback')} · Built as: {_get('aggregation')}\n"
+        f"Point-in-time rule: {_get('point_in_time_rule')}\n"
+        f"Missing values: {_get('missing_value_policy')}\n"
+        f"Available to: {_get('model_family_availability')}"
+    )
+
+
+def feature_tooltips(names: list[str] | None = None) -> dict:
+    """``{feature: {tooltip, ...}}`` for the monitor artifact.
+
+    Only features with a real manifest entry get an entry; an undocumented
+    feature is simply absent, which is what the page needs to tell apart
+    "no metadata" from "metadata exists".
+    """
+    out: dict = {}
+    for name in (names if names is not None else FEATURE_MANIFEST):
+        entry = FEATURE_MANIFEST.get(name)
+        if not entry:
+            continue
+        out[name] = {"tooltip": format_tooltip(entry),
+                     "description": entry.get("description"),
+                     "definition": entry.get("definition"),
+                     "source": entry.get("source"),
+                     "lookback": entry.get("lookback")}
+    return out
 
 
 def validate() -> list[str]:

@@ -40,6 +40,18 @@ PSI_MIN_BASELINE = 100
 # same reason; the NFL recent window is the same shape of data.
 PSI_LOCATION_CLUSTER_FACTOR = 1.5
 
+# Rolling-Brier series shape (parity with MLB's explainability module, which
+# owns the shared monitor page's caption). The caption states a TRAILING-WINDOW
+# mean over ``window_days`` with a ``min_games_per_day`` floor, so both numbers
+# must be real module constants the series and the artifact meta both read --
+# not literals retyped at the call site.
+ROLLING_BRIER_WINDOW_DAYS = 30
+# MLB uses 5. An NFL OOF timeline routinely carries ONE decided game on a date
+# (Tuesday specials, early-season slates), so a 5-game floor would exclude most
+# of the series and leave the page nearly empty. 1 keeps every date while the
+# windowing -- not the floor -- is what makes the caption true.
+ROLLING_BRIER_MIN_GAMES_PER_DAY = 1
+
 
 def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
     """Expected PSI from sampling noise alone, at these two sample sizes.
@@ -308,23 +320,114 @@ def ensemble_table(oof: pd.DataFrame, weights: dict[str, float],
 
 
 def rolling_brier(oof: pd.DataFrame, p_col: str = "p_ensemble_calibrated",
-                  window_days: int = 30) -> list[dict]:
-    """Per-game rolling Brier over the OOF timeline (MLB-shaped rows).
+                  window_days: int = ROLLING_BRIER_WINDOW_DAYS,
+                  min_games_per_day: int = ROLLING_BRIER_MIN_GAMES_PER_DAY
+                  ) -> dict:
+    """Rolling trailing-window Brier series from walk-forward OOF history.
 
-    Each day carries its decided-game count in ``games`` (the field the
-    shared Rolling Brier section's sparse-day caption reads).
+    MLB-shaped (parity with ``explainability.compute_rolling_brier``): a dict
+    carrying the ``series`` plus the scalars a caller would otherwise have to
+    dig out of the list itself -- ``history_mean_brier``, ``n_games_total``,
+    ``n_points``, ``excluded_sparse_days``, ``calibrator_is_identity``,
+    ``map_scope_note``. Returning the record instead of a bare list is the
+    point: the shared monitor page's caption promises a *trailing-window*
+    mean ("mean Brier over the trailing 30 days"), and the previous
+    per-day-only list could not supply one, so the pipeline reached into the
+    rows to invent a headline and formatted a list into a ``%.4f`` slot.
+
+    Each point is the mean per-game Brier over ALL games in the trailing
+    ``window_days`` calendar days ending at that date -- a game-count-free
+    calendar window, so off-days between game dates contribute nothing rather
+    than breaking or NaN-ing the series. Days with fewer than
+    ``min_games_per_day`` decided games are excluded and COUNTED in
+    ``excluded_sparse_days``, never silently averaged in.
+
+    NFL keeps ``min_games_per_day = 1`` where MLB uses 5: an NFL OOF timeline
+    routinely carries a single decided game on a date (Tuesday specials,
+    early-season slates), and a 5-game floor would exclude most of the
+    series. The windowing, not the floor, is what makes the caption true.
+
+    This function logs its own summary -- all scalars, no series -- so no
+    caller ever has to format one.
     """
+    result: dict = {
+        "window_days": int(window_days),
+        "min_games_per_day": int(min_games_per_day),
+        "source_column": p_col,
+        "calibrator_is_identity": False,
+        "map_scope_note": ("Points use the deployed Platt map (fit on all "
+                           "OOF games) and are not directly comparable to "
+                           "prequential-calibrated metrics."),
+        "n_points": 0,
+        "n_games_total": 0,
+        "excluded_sparse_days": 0,
+        "history_mean_brier": None,
+        "series": [],
+    }
     if p_col not in oof.columns:
-        return []
+        logger.warning("Rolling Brier: OOF store has no %s column — series "
+                       "empty (dashboard shows the empty state)", p_col)
+        return result
     df = oof.dropna(subset=[p_col]).copy()
-    df["gameday"] = pd.to_datetime(df["gameday"])
-    df = df.sort_values("gameday")
+    # Naive midnight dates: the window below is a CALENDAR window, so any
+    # tz-awareness or clock time on the store must not enter the comparison.
+    _gd = pd.to_datetime(df["gameday"], errors="coerce")
+    if getattr(_gd.dt, "tz", None) is not None:
+        _gd = _gd.dt.tz_convert(None)
+    df["gameday"] = _gd.dt.normalize()
+    df = df.dropna(subset=["gameday"]).sort_values("gameday")
     df["brier"] = (df[p_col] - df["home_win"]) ** 2
-    out = []
-    for day, grp in df.groupby(df["gameday"].dt.date):
-        out.append({"date": str(day), "brier": float(grp["brier"].mean()),
-                    "games": int(len(grp))})
-    return out
+    if df.empty:
+        logger.warning("Rolling Brier: no decided games with finite %s — "
+                       "series empty", p_col)
+        return result
+
+    daily = df.groupby(df["gameday"].dt.date)["brier"].agg(["mean", "size"])
+    qualifying = daily[daily["size"] >= min_games_per_day]
+    result["excluded_sparse_days"] = int((daily["size"] < min_games_per_day).sum())
+    # Exclusion is consistent everywhere: a sparse day's games never reach a
+    # series point's trailing-window mean either.
+    df_q = df[df["gameday"].dt.date.isin(qualifying.index)]
+    result["n_games_total"] = int(len(df))
+    # Game-weighted over EVERY OOF game, so it is comparable to the constant
+    # baseline the monitor page draws as a dashed rule.
+    result["history_mean_brier"] = round(float(df["brier"].mean()), 6)
+
+    span = pd.Timedelta(days=window_days - 1)
+    series: list[dict] = []
+    for day in qualifying.sort_index().index:
+        day_ts = pd.Timestamp(day)
+        window_games = df_q[(df_q["gameday"] >= day_ts - span)
+                            & (df_q["gameday"] <= day_ts)]
+        if window_games.empty:  # defensive; qualifying is a subset of df
+            continue
+        series.append({
+            "date": str(day),
+            "brier": round(float(window_games["brier"].mean()), 6),
+            "games": int(len(window_games)),
+        })
+    result["n_points"] = len(series)
+    result["series"] = series
+
+    if series:
+        # ASCII only: this line goes through logging, and a non-UTF-8 stream
+        # (a Windows console codepage) turns a typographic arrow into a
+        # UnicodeEncodeError and the "--- Logging error ---" traceback this
+        # whole line exists to prevent.
+        logger.info(
+            "Rolling Brier: %d points (%s -> %s), %d games, %d sparse days "
+            "excluded (<%d games/day), mean %.4f",
+            len(series), series[0]["date"], series[-1]["date"],
+            result["n_games_total"], result["excluded_sparse_days"],
+            min_games_per_day, result["history_mean_brier"],
+        )
+    else:
+        logger.warning(
+            "Rolling Brier: %d decided-game days but none reached the "
+            "%d-game minimum — series empty",
+            len(daily), min_games_per_day,
+        )
+    return result
 
 
 def _dump_json(path, record: dict) -> None:
@@ -765,7 +868,7 @@ def write_markets_monitor_json(path, run_date: str,
 
 def write_monitor_json(path, run_date: str, drift: list[dict],
                        cov: list[dict], ensemble: list[dict],
-                       rb: list[dict], baseline: float,
+                       rb: dict, baseline: float,
                        config_meta: dict, fold_info: dict,
                        metrics: dict | None = None,
                        platt: dict | None = None) -> dict:
@@ -779,7 +882,20 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     values are the NFL pipeline's own outputs. The *_note fields are None
     (MLB's emitter ships no notes) so the shared page renders the identical
     fallback presentation for both sports.
+
+    ``rb`` is the ``rolling_brier`` RECORD, and ``rolling_brier_meta`` is
+    populated from it. The meta block used to be hardcoded 30/1/0 -- numbers
+    for machinery that did not exist -- so the page captioned the series with
+    a trailing-window rule the NFL series never applied. A record-shaped
+    input makes the caption and the data the same fact.
     """
+    # Tolerate a bare list from an older caller rather than crashing the
+    # artifact: an empty record is the honest rendering for "no series".
+    if not isinstance(rb, dict):
+        rb = {"series": list(rb or []), "window_days": ROLLING_BRIER_WINDOW_DAYS,
+              "min_games_per_day": ROLLING_BRIER_MIN_GAMES_PER_DAY,
+              "excluded_sparse_days": 0, "calibrator_is_identity": False,
+              "map_scope_note": None}
     iso_date = f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}" \
         if len(str(run_date)) == 8 and str(run_date).isdigit() else str(run_date)
     next_date = iso_date  # retrains every run — next run is tonight's run
@@ -787,6 +903,30 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     m = metrics or {}
     cal = (platt if isinstance(platt, dict) and platt.get("a") is not None
            and platt.get("b") is not None else None)
+    # Is the DEPLOYED map actually a no-op? The page captions the Brier series
+    # from this flag ("calibrated probabilities" vs "no calibration map
+    # deployed"), so it must be measured from the map that actually ships --
+    # not asserted. Under CALIBRATION_MODE=identity the fit returns None and
+    # the hardcoded "not identity" this replaced stated the opposite of the
+    # truth. moneyline.is_identity is the MLB-parity predicate for exactly
+    # this; local import to keep the module graph acyclic.
+    try:
+        from moneyline import is_identity as _is_identity
+        calibrator_is_identity = bool(_is_identity(cal))
+    except Exception:  # pragma: no cover - metadata only
+        calibrator_is_identity = cal is None
+    # The monitor's feature tooltips come from the manifest, which documents
+    # every served feature (definition / source / lookback / PIT rule). This
+    # block used to emit "see backend/manifest.py" for all of them -- a
+    # placeholder pointing at the data that was already in this repo and one
+    # import away.
+    try:
+        from manifest import feature_tooltips
+        _tool_names = [r["feature"] for r in cov
+                       if isinstance(r, dict) and r.get("feature")]
+        features_meta = feature_tooltips(_tool_names)
+    except Exception:  # pragma: no cover - metadata only
+        features_meta = {}
     version_row: dict = {
         "version": run_date, "date": iso_date,
         "weights": {r["name"]: r["weight"] for r in ensemble},
@@ -811,21 +951,21 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         # context lives in the artifact's fold/metrics blocks, not here).
         "upset_note": None,
         "feature_drift": drift,
-        "features_metadata": {r["feature"]: {"definition": "see backend/manifest.py",
-                                             "source": "nflverse / stadiums table"}
-                              for r in cov},
+        "features_metadata": features_meta,
         "feature_coverage": cov,
         "ensemble": ensemble,
-        "rolling_brier": rb,
+        "rolling_brier": rb.get("series", []),
         "brier_baseline": baseline,
         "brier_baseline_label": baseline_label,
         "rolling_brier_meta": {
-            "window_days": 30,
-            "min_games_per_day": 1,
-            "excluded_sparse_days": 0,
-            "calibrator_is_identity": False,
-            "map_scope_note": ("Points use the deployed Platt map (fit on all "
-                               "OOF games)."),
+            "window_days": rb.get("window_days", ROLLING_BRIER_WINDOW_DAYS),
+            "min_games_per_day": rb.get("min_games_per_day",
+                                        ROLLING_BRIER_MIN_GAMES_PER_DAY),
+            "excluded_sparse_days": int(rb.get("excluded_sparse_days", 0) or 0),
+            "calibrator_is_identity": calibrator_is_identity,
+            "map_scope_note": (rb.get("map_scope_note")
+                               or "Points use the deployed Platt map (fit on "
+                                  "all OOF games)."),
         },
         "version_history": [version_row],
         "fold_geometry": fold_info,

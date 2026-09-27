@@ -352,7 +352,7 @@ check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
 check("active moneyline contract includes the 12 EPA lineup features",
       set(config.EPA_QUALITY_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 43)
+      and len(config.MONEYLINE_FEATURE_COLS) == 46)
 
 _weather_games = _pit_games.copy()
 _weather_games["temp"] = 111.0
@@ -848,44 +848,30 @@ check("preprocessor no NaN after impute", np.isfinite(Xt).all())
 
 # ---------------------------------------------------------------------------
 print("\n== 6. Run-line / totals distribution tests ==")
-sup_m, sup_t = dist_mod.MARGIN_SUPPORT, dist_mod.TOTAL_SUPPORT
-pmf = dist_mod.discrete_normal_pmf(3.0, 13.5, sup_m)
-check("margin PMF sums to 1", abs(pmf.sum() - 1.0) < 1e-9)
-check("margin PMF mode near mu", sup_m[np.argmax(pmf)] in (2, 3, 4))
-# coherence: cover + push + away = 1 for every integer L
-ok = True
-for L in config.SPREAD_GRID:
-    pc_ = dist_mod.margin_cdf_above(pmf, sup_m, float(L))
-    pp_ = dist_mod.margin_pmf_at(pmf, sup_m, float(L))
-    if abs(pc_ + pp_ + (1 - pc_ - pp_) - 1.0) > 1e-12:
-        ok = False
-    if pc_ + pp_ > 1.0 + 1e-12:
-        ok = False
-check("spread grid coherent (cover+push<=1, sums 1)", ok)
-# derived ML identity: P(margin>0) + P(margin=0) + P(margin<0) = 1
-ph = dist_mod.margin_cdf_above(pmf, sup_m, 0.0)
-pt = dist_mod.margin_pmf_at(pmf, sup_m, 0.0)
-check("derived ML coherent", abs(ph + pt + (1 - ph - pt) - 1.0) < 1e-12)
-# totals PMF
-pmf_t = dist_mod.discrete_normal_pmf(45.0, 10.0, sup_t)
-ok = True
-for U in config.TOTAL_GRID:
-    o, e, u = dist_mod.total_probabilities(pmf_t, sup_t, float(U))
-    if abs(o + e + u - 1.0) > 1e-12:
-        ok = False
-check("totals grid coherent (over+push+under=1)", ok)
-# threshold semantics: P(margin > 2.5) == P(margin >= 3); P(margin > 2) == P(margin >= 3)
-p_half = dist_mod.margin_cdf_above(pmf, sup_m, 2.5)
-p_int = dist_mod.margin_cdf_above(pmf, sup_m, 2.0)
-check("half-stop == integer+1 semantics", abs(p_half - p_int) < 1e-12)
+# The shipped distribution model is Negative-Binomial Monte Carlo
+# (simulate_distributions -> apply_distribution). The former analytic layer
+# (discrete_normal_pmf / margin_cdf_above / margin_pmf_at /
+# total_probabilities over MARGIN_SUPPORT/TOTAL_SUPPORT grids) computed
+# probabilities from a discretized GAUSSIAN the pipeline never published;
+# every production consumer (evaluation.nb_distribution_metrics,
+# dist_mod.calibrate_market_frame, serving grids) reads the MC output.
+# Those helpers are removed, and the coherence checks below now exercise the
+# engine that actually ships.
+check("the superseded analytic Gaussian PMF layer is gone, not merely unused",
+      not any(hasattr(dist_mod, n) for n in (
+          "discrete_normal_pmf", "margin_cdf_above", "margin_pmf_at",
+          "total_probabilities", "MARGIN_SUPPORT", "TOTAL_SUPPORT",
+          "_pmf_median")),
+      "production grids come from simulate_distributions only")
 
-# full game_distribution outputs
-gd_ = dist_mod.game_distribution(27.0, 20.0, 13.5, 10.0)
+gd_ = dist_mod.game_distribution(27.0, 20.0, seed=7)
 check("mu quartet present", all(k in gd_ for k in ("mu_h", "mu_a", "mu_margin", "mu_total")))
 check("mu_margin = mu_h - mu_a", abs(gd_["mu_margin"] - 7.0) < 1e-12)
 check("mu_total = mu_h + mu_a", abs(gd_["mu_total"] - 47.0) < 1e-12)
-check("fair_spread/fair_total present",
-      np.isfinite(gd_["fair_spread"]) and np.isfinite(gd_["fair_total"]))
+check("fair_spread/fair_total present and on-grid",
+      gd_["fair_spread"] in [float(x) for x in config.SPREAD_GRID]
+      and gd_["fair_total"] in [float(x) for x in config.TOTAL_GRID],
+      f"fair_spread={gd_['fair_spread']} fair_total={gd_['fair_total']}")
 grid_cols = [f"p_home_cover_{L}" for L in config.SPREAD_GRID] + \
             [f"p_push_{L}" for L in config.SPREAD_GRID] + \
             [f"p_over_{U}" for U in config.TOTAL_GRID] + \
@@ -894,12 +880,70 @@ grid_cols = [f"p_home_cover_{L}" for L in config.SPREAD_GRID] + \
             ["p_home_win_derived", "p_away_win_derived"]
 check("all grid columns emitted", all(c in gd_ for c in grid_cols))
 
-# sigma calibration
-sig = dist_mod.calibrate_sigma(rng.normal(0, 13.0, 5000), rng.normal(0, 9.0, 5000))
-check("sigma within NFL bounds",
-      config.SIGMA_FLOOR_MARGIN <= sig["sigma_margin"] <= config.SIGMA_CAP_MARGIN
-      and config.SIGMA_FLOOR_TOTAL <= sig["sigma_total"] <= config.SIGMA_CAP_TOTAL,
-      json.dumps(sig) if False else str(sig))
+# Monte-Carlo coherence on the SHIPPED engine: the same three properties the
+# old PMF block asserted, now against the engine production reads. Keys go
+# through _grid_key (negative lines are stored as mN) — the raw negative
+# labels game_distribution re-adds exist only for the historical unit-test
+# contract, and serving.py converts them to the mN artifact labels.
+_int_m = [L for L in config.SPREAD_GRID if float(L) == int(L)]
+_int_t = [U for U in config.TOTAL_GRID if float(U) == int(U)]
+_ok = True
+for L in _int_m:
+    pc_ = gd_[dist_mod._grid_key("p_home_cover", L)]
+    pp_ = gd_[dist_mod._grid_key("p_push", L)]
+    if not (-1e-9 <= pc_ <= 1 + 1e-9 and -1e-9 <= pp_ <= 1 + 1e-9
+            and pc_ + pp_ <= 1.0 + 1e-6):
+        _ok = False
+for U in _int_t:
+    o = gd_[dist_mod._grid_key("p_over", U)]
+    e = gd_[dist_mod._grid_key("p_push", U)]
+    u = gd_[dist_mod._grid_key("p_under", U)]
+    if abs(o + e + u - 1.0) > 1e-6:
+        _ok = False
+check("MC spread/totals grids are coherent (cover+push<=1, over+push+under=1)", _ok,
+      f"checked {len(_int_m)} spread / {len(_int_t)} totals lines")
+_mc_ml = (gd_["p_home_win_derived"] + gd_["p_tie"]
+          + gd_["p_away_win_derived"])
+check("MC derived-ML identity (win+tie+lose=1)", abs(_mc_ml - 1.0) < 1e-6,
+      f"sum={_mc_ml:.6f}")
+check("MC respects the favored direction",
+      gd_["p_home_win_derived"] > 0.5,
+      f"home mu-7 favored but p_home_win_derived={gd_['p_home_win_derived']:.3f}")
+
+# Distribution dispersion — the LIVE model is a Negative Binomial alpha fit
+# from OOF residuals (calibrate_dispersion), bounded by its own
+# ALPHA_FLOOR/ALPHA_CAP. This check USED to assert a fixed-sigma value from
+# calibrate_sigma, a shim that declared itself superseded and had no caller
+# outside this test, against SIGMA_* bounds no production code ever applied.
+# Same coverage, on the model that actually ships.
+_sig_rng = np.random.default_rng(4242)
+_mu = np.full(4000, 230.0)
+_y = _sig_rng.poisson(_mu).astype(float)
+_poisson_alpha = dist_mod.estimate_alpha(_y, _mu)
+_over = _sig_rng.poisson(_mu * 1.6).astype(float) * 0 + (
+    _mu + _sig_rng.normal(0, 26.0, 4000))   # overdispersed scores
+_disp_alpha = dist_mod.estimate_alpha(_over, _mu)
+check("the Poisson limit is detected (alpha ~ 0) on NB-consistent residuals",
+      _poisson_alpha <= dist_mod.ALPHA_FLOOR * 10,
+      f"alpha={_poisson_alpha:.3e} floor={dist_mod.ALPHA_FLOOR:g}")
+check("overdispersed residuals get a strictly larger alpha than the Poisson limit",
+      _disp_alpha > max(_poisson_alpha, dist_mod.ALPHA_FLOOR),
+      f"overdispersed alpha={_disp_alpha:.4f} vs poisson {_poisson_alpha:.3e}")
+check("estimated alpha never exceeds the production cap",
+      0.0 <= _disp_alpha <= dist_mod.ALPHA_CAP,
+      f"alpha={_disp_alpha:.4f} cap={dist_mod.ALPHA_CAP:g}")
+_disp = dist_mod.calibrate_dispersion(pd.DataFrame(
+    {"home_score": _over, "away_score": _over,
+     "mu_h": _mu, "mu_a": _mu}))
+check("calibrate_dispersion reports the negative_binomial family, not a sigma",
+      _disp["distribution"] == "negative_binomial"
+      and "sigma_margin" not in _disp and "sigma_total" not in _disp,
+      str({k: _disp[k] for k in ("distribution", "alpha_home", "alpha_away")}))
+check("the superseded fixed-sigma API is gone, not merely unused",
+      not hasattr(dist_mod, "calibrate_sigma")
+      and not hasattr(config, "MARGIN_SIGMA")
+      and not hasattr(config, "SIGMA_FLOOR_MARGIN"),
+      "calibrate_sigma / MARGIN_SIGMA / SIGMA_* were shims with no caller")
 
 # ---------------------------------------------------------------------------
 print("\n== 7. Serving contract tests ==")
@@ -2013,7 +2057,7 @@ check("the 12 EPA lineup columns are in the served production contract",
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
               for c in _expected_epa_features)
-      and len(config.MONEYLINE_FEATURE_COLS) == 43)
+      and len(config.MONEYLINE_FEATURE_COLS) == 46)
 check("EPA lineup routing matches MLB: sides tree-only, diff shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
@@ -2025,6 +2069,57 @@ check("EPA lineup routing matches MLB: sides tree-only, diff shared",
       and all(manifest.FEATURE_MANIFEST[f"{base}_diff"]["model_family_availability"]
               == ["linear", "tree", "mlp"]
               for base in config.EPA_QUALITY_BASES))
+
+# ---------------------------------------------------------------------------
+# Structurally promoted trailing defensive EPA (2026-09-27). Promoted over an
+# RFE DECLINE, so these checks pin the STRUCTURE, not a measured win: the
+# names are served, documented as served, correctly routed, and the sibling
+# roll-window variants are deliberately left triable rather than promoted.
+# ---------------------------------------------------------------------------
+_promoted_def_eff = ["pbp_def_epa_play_ewm_diff", "pbp_def_epa_play_ewm_home",
+                     "pbp_def_epa_play_ewm_away"]
+check("promoted defensive-EPA columns are in the served contract and out of the RFE pool",
+      all(c in config.MONEYLINE_FEATURE_COLS
+          and c not in config.RFE_CANDIDATE_COLS
+          and c in manifest.FEATURE_MANIFEST
+          and c not in manifest.CANDIDATE_MANIFEST
+          and manifest.FEATURE_MANIFEST[c]["candidate"] is False
+          for c in _promoted_def_eff)
+      and all(c in manifest._RFE_PROMOTED for c in _promoted_def_eff))
+check("promoted defensive-EPA routing matches the contract's rule: sides tree-only, diff shared",
+      # Membership IN RAW_PER_SIDE_COLS is what routes a raw level to the tree
+      # family only; the diff must NOT be in it (mirrors the EPA check above).
+      all(f"{c}_{side}" in config.RAW_PER_SIDE_COLS
+          and manifest.FEATURE_MANIFEST[f"{c}_{side}"]["model_family_availability"]
+          == ["tree"]
+          for c in ["pbp_def_epa_play_ewm"] for side in ("home", "away"))
+      and "pbp_def_epa_play_ewm_diff" not in config.RAW_PER_SIDE_COLS
+      and manifest.FEATURE_MANIFEST["pbp_def_epa_play_ewm_diff"][
+          "model_family_availability"] == ["linear", "tree", "mlp"])
+check("the promoted defensive-EPA level rides the contract's own halflife-2 EWM primitive",
+      # The candidate spec declares the ewm window, and _trailing_ewm is the
+      # SAME primitive ewm_net_pts uses — so the promoted level's recency
+      # semantics match the rest of the contract by construction. The worked
+      # value pins the shift(1): game 1 has no prior, game 2 sees only game 1.
+      feat_mod.PBP_TRAILING_SPECS.get("def_epa_play") == ("ewm", "roll")
+      and config.EWM_HALFLIFE == 2
+      and np.isnan(feat_mod._trailing_ewm(
+          srt=pd.DataFrame({"team": ["A", "A"], "def_epa_play": [1.0, 3.0]}),
+          value_col="def_epa_play",
+          halflife=config.EWM_HALFLIFE)[0])
+      and np.isclose(feat_mod._trailing_ewm(
+          srt=pd.DataFrame({"team": ["A", "A"], "def_epa_play": [1.0, 3.0]}),
+          value_col="def_epa_play",
+          halflife=config.EWM_HALFLIFE)[1], 1.0))
+check("the roll-window siblings were not promoted and remain triable",
+      all(f"pbp_def_epa_play_roll_{s}" not in config.MONEYLINE_FEATURE_COLS
+          and f"pbp_def_epa_play_roll_{s}" in config.RFE_CANDIDATE_COLS
+          for s in ("diff", "home", "away")))
+check("the served contract now carries an explicit defensive quantity",
+      # Before this promotion the contract held NO defensive column at all:
+      # defensive quality arrived only via the opponent's Elo/win%/net-points.
+      any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
+      and len(config.MONEYLINE_FEATURE_COLS) == 46)
 
 _injury_status_cases = [
     ("Out", 0.0), ("IR", 0.0), ("Doubtful", 0.0),
@@ -2323,6 +2418,274 @@ print("  EPA worked example (synthetic, production functions): "
       f"mu={_epa_mu:.9f}, k={_epa_k:.3f}, "
       f"P1={_epa_p1_q:.9f}, P2={_epa_p2_q:.9f}, "
       f"epa_qb_home={_epa_expected_home:.9f}")
+
+
+# ---- The run log must not crash, and must describe what it shipped. ------
+# 2026-09-27: Phase 13 logged "monitoring: ... rolling brier %.4f vs %.4f
+# baseline" with monitoring.rolling_brier's return value in the %.4f slot.
+# That value is a LIST of per-date dicts, so logging raised
+# "TypeError: must be real number, not list" and dumped 200 rows of argument
+# traceback instead of the summary line. The root cause was structural: MLB's
+# compute_rolling_brier returns a RECORD (series + history_mean_brier + counts)
+# and logs its own all-scalar summary, while NFL's returned a bare list and
+# left the caller to invent a headline. These pin the MLB structure.
+try:
+    _rb_rng = np.random.default_rng(11)
+    _rb_rows = []
+    _day = pd.Timestamp("2026-08-01")
+    while _day < pd.Timestamp("2026-09-10"):
+        # Interleave 1-game days with 14-game days: the single-game day is
+        # exactly the case that made the old "last row" headline meaningless.
+        _n = 1 if _day.weekday() in (1, 2) else 14
+        for _ in range(_n):
+            _rb_rows.append({
+                "gameday": _day,
+                "p_ensemble_calibrated": float(_rb_rng.uniform(0.2, 0.8)),
+                "home_win": float(_rb_rng.integers(0, 2))})
+        _day += pd.Timedelta(days=1)
+    _oof_rb = pd.DataFrame(_rb_rows)
+
+    class _CapHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.msgs = []
+
+        def emit(self, record):
+            # getMessage() is where the %.4f-on-a-list TypeError surfaced.
+            self.msgs.append(record.getMessage())
+
+    _cap = _CapHandler()
+    _mlog = monitoring_mod.logger
+    _mlog.addHandler(_cap)
+    _prev_lvl = _mlog.level
+    _mlog.setLevel(logging.INFO)
+    try:
+        _rb = monitoring_mod.rolling_brier(_oof_rb)
+        _rb_err = ""
+    except Exception as exc:  # noqa: BLE001
+        _rb, _rb_err = None, f"{type(exc).__name__}: {exc}"
+    finally:
+        _mlog.removeHandler(_cap)
+        _mlog.setLevel(_prev_lvl)
+
+    check("computing the rolling Brier does not raise on its own log line",
+          _rb is not None, _rb_err or "ok")
+    check("rolling_brier returns the MLB record, not a bare series list",
+          isinstance(_rb, dict)
+          and {"series", "history_mean_brier", "n_games_total", "n_points",
+               "excluded_sparse_days", "window_days",
+               "min_games_per_day"} <= set(_rb),
+          f"type={type(_rb).__name__} keys="
+          f"{sorted(_rb) if isinstance(_rb, dict) else 'n/a'}")
+
+    _rsum = [m for m in _cap.msgs if m.startswith("Rolling Brier:")]
+    check("rolling_brier logs its own all-scalar summary (no series in it)",
+          bool(_rsum) and "[" not in _rsum[0] and "{" not in _rsum[0],
+          _rsum[0][:110] if _rsum else f"no summary line; saw {_cap.msgs}")
+    # A log line that cannot ENCODE is the same failure as one that cannot
+    # format: logging swallows the UnicodeEncodeError and prints a
+    # "--- Logging error ---" traceback in place of the summary.
+    check("the rolling-Brier summary line is ASCII (encodable on any console)",
+          bool(_rsum) and _rsum[0].isascii(),
+          "non-ascii: " + repr([c for c in _rsum[0] if not c.isascii()])
+          if _rsum else "no summary line")
+
+    if isinstance(_rb, dict) and _rb.get("series"):
+        _ser = _rb["series"]
+        _last_day_n = int((_oof_rb["gameday"] == pd.Timestamp(_ser[-1]["date"])).sum())
+        _all_brier = float(
+            ((_oof_rb["p_ensemble_calibrated"] - _oof_rb["home_win"]) ** 2).mean())
+        # A trailing-window point must cover more games than its own date, or
+        # the shared page's "mean Brier over the trailing 30 days" caption is
+        # a lie -- which is the property the per-day list could not provide.
+        check("each series point is a TRAILING-window mean, not a single day",
+              _ser[-1]["games"] > _last_day_n,
+              f"last point games={_ser[-1]['games']} vs that date's "
+              f"{_last_day_n} games; first point games={_ser[0]['games']}")
+        check("history_mean_brier is the game-weighted mean over all OOF games",
+              abs(float(_rb["history_mean_brier"]) - _all_brier) < 1e-6,
+              f"record={_rb['history_mean_brier']} all-games={_all_brier:.6f}")
+
+        with mock.patch.object(monitoring_mod, "_dump_json") as _dj:
+            _rec = monitoring_mod.write_monitor_json(
+                Path("nfl_model_monitor_probe.json"), "20260927", [], [], [],
+                _rb, 0.4547, {}, {})
+        _meta = _rec["rolling_brier_meta"]
+        check("rolling_brier_meta is populated from the record, not hardcoded 30/1/0",
+              _meta["window_days"] == _rb["window_days"]
+              and _meta["min_games_per_day"] == _rb["min_games_per_day"]
+              and _meta["excluded_sparse_days"] == _rb["excluded_sparse_days"],
+              f"meta={_meta}")
+        check("the monitor artifact still ships a plain series list to the page",
+              isinstance(_rec["rolling_brier"], list)
+              and _rec["rolling_brier"] == _rb["series"],
+              f"type={type(_rec['rolling_brier']).__name__} "
+              f"n={len(_rec['rolling_brier'])}")
+
+    # An empty/absent store must produce the record with an empty series, never
+    # a crash and never a fabricated point.
+    _empty_rb = monitoring_mod.rolling_brier(
+        pd.DataFrame({"gameday": [], "home_win": []}))
+    check("an OOF store without the probability column yields an empty record",
+          isinstance(_empty_rb, dict) and _empty_rb["series"] == []
+          and _empty_rb["history_mean_brier"] is None,
+          f"n_points={_empty_rb.get('n_points')}")
+
+    # The pipeline must no longer hand a series to a %.4f slot.
+    check("Phase 13 no longer formats the rolling-Brier series into the log",
+          "rolling brier %.4f" not in mp_src
+          and "monitoring.rolling_brier(oof_ml)" in mp_src,
+          "the summary is the helper's own line now")
+    check("the Phase 13 drift headline counts ALERT/WARN, not every non-OK row",
+          '_verdicts = [d for d in drift if isinstance(d, dict)' in mp_src
+          and 'd.get("status") in ("ALERT", "WARN")' in mp_src
+          and '%d insufficient-window' in mp_src,
+          "INSUFFICIENT is counted separately so the label matches the number")
+    check("the per-feature drift line reports the value the verdict was made on",
+          'psi_adjusted' in mp_src and 'noise_floor' in mp_src
+          and "psi_adj=%.3f" in mp_src,
+          "psi_adj with raw and floor, matching feature_drift's gate")
+    check("the artifact existence check also resolves the models directory",
+          "(config.MODELS_DIR / a).exists()" in mp_src,
+          "the bundle is written to data_delivery/models/, not out_dir")
+
+    # The PIT injury concat: pandas warns that empty/all-NA entries will stop
+    # being ignored, and 2025/2026 sources carry no date_modified at all.
+    _inj_src = inspect.getsource(ingest_mod)
+    check("the PIT injury concat drops all-NA frame columns before concatenating",
+          "f.dropna(axis=1, how=\"all\")" in _inj_src,
+          "filtering empty frames alone does not satisfy the deprecation")
+    check("the PIT injury concat restores the INJ_PIT_NEEDS schema afterwards",
+          "if _c not in inj.columns" in _inj_src
+          and "inj = inj[list(INJ_PIT_NEEDS)]" in _inj_src,
+          "date_modified is read unconditionally below and guards fail-closed")
+except Exception as exc:  # noqa: BLE001
+    import traceback
+    check("rolling-Brier / concat remediation section runs", False,
+          f"{type(exc).__name__}: {exc}")
+    traceback.print_exc()
+
+
+# ---- Structural parity with MLB: the gaps this repo had half-built. -------
+# 1. SHAP had a module, a retention family and a frontend expander, but no
+#    producer: compute_nfl_shap_per_game had zero callers, so every slate
+#    game rendered the "no attributions" state.
+# 2. features_metadata was the literal string "see backend/manifest.py" for
+#    all 46 features while the manifest documented every one of them.
+# 3. calibrator_is_identity was hardcoded False next to a dead is_identity.
+try:
+    import shap_explain as shap_mod
+    import manifest as manifest_mod
+    _shap_src = inspect.getsource(mp_mod)
+
+    check("the pipeline actually calls the SHAP producer (it had 0 callers)",
+          "compute_nfl_shap_per_game(" in _shap_src
+          and "shap_explain" in _shap_src,
+          "Phase 12 now writes one attribution card per slate game")
+    check("SHAP is fed the served probability under the name the explainer reads",
+          '_shap_in["home_win_prob_model"] = _shap_in["p_home_win"]' in _shap_src,
+          "without it the favored-team negation silently never fires")
+    check("the SHAP producer is passed the persisted bundle, never a refit",
+          "compute_nfl_shap_per_game(bundle," in _shap_src)
+    check("SHAP cards are named in artifacts so retention treats them as staged",
+          "SHAP_GAME_PREFIX}_*.csv" in _shap_src,
+          "otherwise Phase 12 prunes the files the same phase just wrote")
+    check("a failing explainer can never block artifact delivery",
+          "NFL SHAP skipped (non-fatal)" in _shap_src,
+          "display-only feature, but never silent either")
+
+    # One emitted monitor artifact serves both checks below: the feature
+    # tooltips it carries, and the calibrator flag it reports.
+    _cov = [{"feature": f} for f in config.active_moneyline_feature_cols()]
+    with mock.patch.object(monitoring_mod, "_dump_json"):
+        _ident = monitoring_mod.write_monitor_json(
+            Path("probe.json"), "20260927", [], _cov, [], _rb, 0.4547, {}, {},
+            platt={"method": "favored_platt_floor", "a": 1.0, "b": 0.0})
+        _platted = monitoring_mod.write_monitor_json(
+            Path("probe.json"), "20260927", [], _cov, [], _rb, 0.4547, {}, {},
+            platt={"method": "favored_platt_floor", "a": 1.1026, "b": -0.0401})
+        _nomap = monitoring_mod.write_monitor_json(
+            Path("probe.json"), "20260927", [], _cov, [], _rb, 0.4547, {}, {},
+            platt=None)
+
+    # The monitor's feature tooltips must be real documentation.
+    _cov_names = list(config.active_moneyline_feature_cols())
+    _meta = manifest_mod.feature_tooltips(_cov_names)
+    check("every served feature gets a real tooltip from the manifest",
+          len(_meta) == len(_cov_names)
+          and all(m.get("tooltip") and "manifest.py" not in m["tooltip"]
+                  for m in _meta.values()),
+          f"{len(_meta)}/{len(_cov_names)} tooltips")
+    _elo_tip = _meta.get("elo_diff", {}).get("tooltip", "")
+    check("a tooltip states definition, source, window and the PIT rule",
+          all(k in _elo_tip for k in ("Definition:", "Source:", "Window:",
+                                      "Point-in-time rule:")),
+          _elo_tip.replace("\n", " | ")[:120])
+    _emitted_meta = _ident["features_metadata"]
+    check("the monitor artifact reads the manifest instead of a placeholder",
+          "feature_tooltips" in inspect.getsource(monitoring_mod)
+          and len(_emitted_meta) == len(_cov_names)
+          and all("manifest.py" not in str(m.get("definition", ""))
+                  and str(m.get("definition", "")).strip()
+                  for m in _emitted_meta.values()),
+          f"emitted {len(_emitted_meta)} real definitions, "
+          f"e.g. {str(_emitted_meta['elo_diff']['definition'])[:60]!r}")
+    check("a feature with no manifest entry is absent, not given an empty blurb",
+          manifest_mod.feature_tooltips(["not_a_real_feature"]) == {})
+    # The page embeds the tooltip in <span title='...'> WITHOUT escaping
+    # quotes, so an apostrophe would close the attribute and the remainder of
+    # every tooltip would be parsed as markup. All 46 manifest definitions
+    # contain one, so this is the difference between working tooltips and none.
+    import html as _html
+    _unsafe = [k for k, m in _meta.items()
+               if "'" in m["tooltip"] or '"' in m["tooltip"]]
+    check("no tooltip can break out of the page's single-quoted title attribute",
+          not _unsafe,
+          f"unsafe: {_unsafe[:4]}" if _unsafe
+          else f"all {len(_meta)} tooltips are quote-safe")
+    # Same property as the page sees it: html.escape(quote=False) leaves quotes
+    # alone, so the attribute is only intact if the raw tooltip had none.
+    _esc = _html.escape(_meta["elo_diff"]["tooltip"], quote=False)
+    check("an escaped tooltip leaves the title attribute unterminated",
+          "'" not in _esc and '"' not in _esc,
+          "escape(quote=False) cannot introduce a quote, so none may pre-exist")
+
+    check("calibrator_is_identity is measured, not asserted False",
+          _ident["rolling_brier_meta"]["calibrator_is_identity"] is True
+          and _platted["rolling_brier_meta"]["calibrator_is_identity"] is False
+          and _nomap["rolling_brier_meta"]["calibrator_is_identity"] is True,
+          f"identity-map={_ident['rolling_brier_meta']['calibrator_is_identity']} "
+          f"real-map={_platted['rolling_brier_meta']['calibrator_is_identity']} "
+          f"no-map={_nomap['rolling_brier_meta']['calibrator_is_identity']}")
+
+    # The removals. Each is asserted GONE so a future edit cannot quietly
+    # resurrect a plausible-looking duplicate of live logic.
+    check("the superseded Gaussian metrics API is gone from evaluation",
+          not hasattr(eval_mod, "distribution_metrics")
+          and not hasattr(eval_mod, "margin_calibration_table")
+          and not hasattr(eval_mod, "total_calibration_table"),
+          "nb_distribution_metrics is the only distribution scorer")
+    check("the duplicate power-rankings writer is consolidated, not forked",
+          "serve_mod.write_power_rankings_csv(" in _shap_src
+          and "def write_power_rankings_csv" in inspect.getsource(serve_mod),
+          "one implementation, in the module that owns artifact writers")
+    check("the dead fit_favored_platt alias is gone (moneyline_fit is the fitter)",
+          not hasattr(ml_mod, "fit_favored_platt")
+          and hasattr(ml_mod, "moneyline_fit"))
+    check("vestigial config constants are gone", not any(
+        hasattr(config, n) for n in (
+            "NUMPY_SEED", "MARGIN_SIGMA", "TOTAL_SIGMA", "P_TIE_MAX",
+            "DATE_FMT", "OOF_STORE_CSV", "COIN_FLIP_THRESHOLD",
+            "XGBOOST_REG_PARAMS")),
+        "each was referenced by nothing in this backend")
+    check("NFL's own dead helpers are gone", not any(
+        hasattr(feat_mod, n) for n in ("pbp_ladder_columns", "EPA_FLAG_COLS")),
+        "the flag names live in EPA_ROLE_COLS, the only reader")
+except Exception as exc:  # noqa: BLE001
+    import traceback
+    check("structural-parity remediation section runs", False,
+          f"{type(exc).__name__}: {exc}")
+    traceback.print_exc()
 
 
 # ---------------------------------------------------------------------------

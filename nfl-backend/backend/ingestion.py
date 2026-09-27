@@ -363,14 +363,24 @@ def load_injuries_pit(games: pd.DataFrame,
     if not frames:
         return pd.DataFrame(columns=cols)
 
-    # A season whose source omits a field contributes an all-NA column, and
-    # pandas now warns that concat will stop ignoring those when inferring
-    # dtypes.  Keep the legacy behaviour explicitly: these frames are all
-    # built to the same narrow schema, so the all-NA entries are noise, and
-    # every field is re-parsed below anyway.
-    inj = pd.concat([f for f in frames if not f.empty],
-                    ignore_index=True) if any(not f.empty for f in frames) \
-        else pd.DataFrame(columns=frames[0].columns)
+    # A season whose source omits a field contributes an all-NA COLUMN, and
+    # pandas now warns that concat will stop ignoring all-NA entries when
+    # inferring result dtypes. Filtering empty frames is not enough -- the
+    # deprecation is about columns, and 2025/2026 injury sources carry no
+    # ``date_modified`` at all, so those frames are all-NA in that column.
+    # Drop each frame's all-NA columns before concatenating, exactly as the
+    # notice prescribes, then restore the narrow schema below so a field that
+    # is all-NA in EVERY season still exists for the fail-closed checks.
+    _nonempty = [f for f in frames if not f.empty]
+    if _nonempty:
+        inj = pd.concat([f.dropna(axis=1, how="all") for f in _nonempty],
+                        ignore_index=True)
+        for _c in INJ_PIT_NEEDS:
+            if _c not in inj.columns:
+                inj[_c] = pd.NA
+        inj = inj[list(INJ_PIT_NEEDS)]
+    else:
+        inj = pd.DataFrame(columns=list(INJ_PIT_NEEDS))
     # Also tolerate an older v2 cache written by a source exposing only
     # season_type (the v3 cache path ensures normal pulls are rebuilt).
     if "game_type" not in inj.columns and "season_type" in inj.columns:

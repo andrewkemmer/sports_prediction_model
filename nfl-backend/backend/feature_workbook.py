@@ -459,13 +459,6 @@ NFL_LOW_VALUE_FIELDS = [
      "Construction artifact, no independent edge."),
 ]
 
-NFL_CATEGORY_ORDER = [
-    "Team State", "Team Offense", "Team Defense", "Quarterback",
-    "Skill Positions", "Injuries & Availability", "Playcalling & Situation",
-    "Weather", "Stadium & Venue", "Market Lines", "Officiating",
-    "Schedule & Travel", "League Context",
-]
-
 
 def _sheet_coverage(wb: Workbook, trace: dict) -> None:
     """Coverage Gaps — MLB-parity 5-section API-gap catalog + per-feature table.
