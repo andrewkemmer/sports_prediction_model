@@ -209,15 +209,21 @@ def _markets_frame() -> pd.DataFrame:
         "derived_ml": 0.55,
         "p_over_fair": 0.52,
     }
-    for line, (home, push, away) in nba_sv.spread_columns().items():
-        common[f"p_home_cover_{nba_sv._label(line)}"] = home
-        common[f"p_push_{nba_sv._label(line)}"] = push
-        common[f"p_away_cover_{nba_sv._label(line)}"] = away
-    for line, (over, under, push) in nba_sv.total_columns().items():
+    # The markets page prices every line from these grid columns, so the
+    # fixture must carry numeric probabilities that sum to 1 per line -- not
+    # the column names themselves.
+    for line, _cols in nba_sv.spread_columns().items():
+        home_p = min(max(0.5 - (float(line) - 4.0) * 0.03, 0.05), 0.93)
+        common[f"p_home_cover_{nba_sv._label(line)}"] = round(home_p, 4)
+        common[f"p_push_{nba_sv._label(line)}"] = 0.02
+        common[f"p_away_cover_{nba_sv._label(line)}"] = round(0.98 - home_p, 4)
+    for line, _cols in nba_sv.total_columns().items():
         key = int(line) if float(line).is_integer() else line
-        common[f"p_over_{key}"] = over
-        common[f"p_under_{key}"] = under
-        common[f"p_push_total_{key}"] = push
+        over_p = min(max(0.5 - (float(line) - 220.0) * 0.03, 0.05), 0.94)
+        push_p = 0.02 if float(line).is_integer() else 0.0
+        common[f"p_over_{key}"] = round(over_p, 4)
+        common[f"p_under_{key}"] = round(1.0 - over_p - push_p, 4)
+        common[f"p_push_total_{key}"] = push_p
 
     oof = {
         **common,
@@ -440,10 +446,12 @@ def test_nba_monitor_tab_uses_nba_config_and_renders_sections(nba_artifacts) -> 
 def test_nba_markets_tab_dispatches_to_nba_page(nba_artifacts) -> None:
     app = _run_page("markets.py")
     text = _all_text(app)
-    assert "Point Spread" in text
+    assert "Totals & Run Lines" in text
     assert "Diagnostics" in text
     assert "Totals Monitor" in text
-    assert "NBA model diagnostics" in text
+    # sport identity: the subtitle names the NBA artifact file (MLB's page
+    # says run_engine_markets_*.csv without the nba_ prefix)
+    assert "nba_run_engine_markets_" in text
 
 
 def test_all_nba_tabs_have_honest_missing_artifact_states(monkeypatch) -> None:
