@@ -394,3 +394,189 @@ Two things are deliberately **not** done here:
   The frozen-cards store is still consulted first for a served date, and the
   OOF CSV is still the last resort — MLB keeps that same ladder, and MLB's
   invariant rests on the window rather than on removing the fallback.
+
+### Player-level True Shooting, shrunk to a position-segmented prior
+
+`backend/player_ts.py` rates every player on true shooting, the way MLB rates a
+batter on wOBA and NHL rates a skater:
+
+```
+TS = points / (2 * (FGA + 0.44 * FTA))
+```
+
+The rate is arithmetic and uninteresting. What makes it a rating is that each
+player's accumulated scoring plays are pulled toward a league prior before use:
+
+```
+TS_shrunk = (prior_points + 2 * lg_ts[pos] * k[pos]) / (2 * (prior_plays + k[pos]))
+```
+
+**The prior is position-segmented.** One league mean would be wrong here for the
+same reason NHL segments by position: a centre and a guard do not share an
+opportunity. On the 2024-25 league the split is real and large — league TS is
+about .618 for centres, .588 for forwards and .574 for guards — so a single mean
+would rate every centre as a below-average guard.
+
+**Prior strength follows the MLB convention carried across by its fraction.**
+MLB's fixed prior is 120 plate appearances, which is 20% of a 600-PA season. The
+fraction is the portable part; the season length is sport-specific. So:
+
+```
+k[position] = 0.20 * mean plays per PLAYER-SEASON at that position
+```
+
+Measured on 2025-26 that gives roughly 213 plays for guards, 170 for forwards
+and 163 for centres — guards shoot more, so a guard's reference season is
+longer, so their prior is stronger. The unit is a **player-season**, not a
+player: averaging per player divides each career by its season count and weights
+a three-game cameo like a full season, which collapses the reference season and
+makes `k` several times too small. That is the correction NHL documents at
+length, and the test asserts the two units disagree rather than only that the
+chosen one runs.
+
+**The prior is strictly point-in-time.** The player's numerator and denominator,
+and the league mean, are summed over rows *strictly before* the target date and
+partitioned by season. Both properties are invisible in the output — a player
+with a full season of evidence looks equally well-rated whether or not the
+boundary holds — so both are pinned by tests.
+
+**Availability is a separate column, never folded into the rate.** An injured
+player still has a true shooting percentage; what changes is how much a lineup
+projection should lean on it. `out` carries a 0.0 multiplier, `day_to_day` 0.5,
+`healthy` 1.0. Note that this is a *current* input, like MLB's IL: it describes
+today's roster, so it is only meaningful for a live slate. A rating dated to a
+historical game takes its availability from the roster as it stands now.
+
+#### What the source can and cannot do
+
+Neither the season log nor play-by-play carries a position — `_LOG_RENAME` maps
+every counting column the log publishes and position is not one of them, and
+`playbyplayv3`'s 23 columns include no roster field. So position is fetched
+separately, from stats.nba.com, by asking the `PlayerPosition` filter for one
+position at a time and reading back who comes back.
+
+**The five-way split is not available from stats.nba.com.** Measured against the
+live endpoint, `PlayerPosition` accepts `G`, `F` and `C` and returns **HTTP 400**
+for `PG`, `SG`, `SF`, `PF` and for compound codes like `G-F`.
+`leaguedashplayerbio` — the endpoint that would carry a full position — is dead.
+So the prior is carried at **G/F/C** and the league averages are per G/F/C. This
+is a property of the source, not a shortcut, and it is pinned by a test.
+
+Guards-and-forwards are real and common — 52 of 569 players in 2024-25 are
+listed at both `G` and `F`, and 53 at both `F` and `C`. Because the position
+cells are the denominators of the league prior, a player counted in two cells is
+counted twice in the league mean, so every player is assigned exactly one
+position by a deterministic first-match over `G, F, C`. That branch runs on
+about a fifth of the league and is not a formality.
+
+Injuries come from ESPN's roster endpoint, the only source in this repo that
+publishes an NBA injury state. It populates the array sparsely by design — 8 of
+95 athletes across five rosters carried an entry — so an empty list is the
+normal case and means healthy, which is why a row is returned per athlete rather
+than only for the injured ones. ESPN sends `status` as a bare string
+(`{"status": "Out", "date": ...}`), and a parser written for a nested shape
+reads nothing off it and reports the whole league healthy while every check
+still passes; the real shape is pinned by a test.
+
+#### Published, not yet a model input
+
+The ratings are written to `nba_player_ts_{date}.csv` alongside the feature
+contract and are **deliberately not** added to `MONEYLINE_FEATURE_COLS`. Adding
+a column there changes the model and needs its own holdout validation, which is
+a separate decision from building the rating. This mirrors NHL, whose player
+ratings are published for the same reason. The rating is PIT and season-safe, so
+it is safe to publish now and to promote later behind a gate.
+
+If the ratings cannot be built the run continues without them and says so in
+the log. A silently absent ratings file is indistinguishable from a league where
+nobody played, so the failure is logged loudly even though it is not fatal.
+
+#### Injury: structure mirrors MLB's, and the ordering is the feature
+
+`backend/injury_stints.py` and `backend/lineup_projection.py` are the NBA
+counterparts of MLB's `build_il_stints.py` and `_LINEUP_AGG_ROSTER`. Four
+things are inherited deliberately, and each is a bug MLB already paid for:
+
+* **RATING FIRST, INJURY SECOND.** The shrunk TS is computed for every player
+  regardless of injury. The removal happens at pool construction, where a
+  replacement inherits the vacated slot. Multiplying a rating by zero instead —
+  the obvious shortcut — leaves the player *in* the pool dragging the mean
+  toward zero, which is the opposite of the intent.
+* **WIDEN, THEN FILTER.** The candidate pool is every team member with a
+  rating row in the last `PLAYER_TS_POOL_LOOKBACK_DAYS` (10), not only players
+  who appeared recently. MLB's comment is the whole argument: *"Without this
+  the IL filter cannot bind AT ALL: an injured player is absent from the
+  participant pool by construction, so subtracting him is a no-op."* Being
+  injured is precisely what removed a player from a participants-only pool.
+  On the 2025-26 close this widened the pool to ~18.5 per team-game and the
+  filter then removed ~1.5.
+* **RANK BY PARTICIPATION, NOT BY RATING.** MLB orders the pool by trailing PA
+  and averages the rating over the top nine. Ordering by the rating instead
+  would project the eight best-rated regulars and quietly redefine the
+  question from *who plays* to *who scores*.
+* **NO PADDING.** A short-handed team is averaged over the players it has.
+  Padding to eight would fabricate full strength from a depleted roster.
+
+`PLAYER_TS_MIN_PLAYS` (20) gates **pool membership**, not the rating.
+Shrinkage already handles a thin rating; the floor answers a different
+question — whether a player with three career games is a candidate for
+tonight's lineup at all.
+
+#### The point-in-time guardrail
+
+Availability for a game is decided using only records published **strictly
+before** that game's tipoff:
+
+```
+out as of tipoff  <=>  exists stint with
+                       il_start <  tipoff
+                       and (il_end is NA or il_end >= tipoff)
+```
+
+Both edges are strict, and getting either wrong admits the future by exactly
+one record per game. On the near edge, a status published *at* tipoff is not
+knowable to anyone betting at that instant, so it cannot gate that game. On
+the far edge, a recovery published *at* tipoff is equally unknowable, so the
+player is still out for it and available from the next one. This is asserted
+directly in `TestPointInTimeIsStrict`, including both equality cases.
+
+#### Why the snapshot is only a carrier
+
+The roster endpoint publishes **current state only** — there is no history to
+backfill, and none of the past is reconstructible from it. Daily snapshotting
+is therefore *not* the primary mechanism, for three reasons:
+
+1. **It yields no history, so the feature is untestable.** MLB could A/B its IL
+   filter because the transaction feed is historical. Snapshots-only can only
+   answer "who was out while I was watching."
+2. **Cadence is a PIT fiction.** A 09:00 snapshot says nothing about a 19:30
+   tipoff. Tightening the cron does not fix that; using the record's own
+   `published_at` does.
+3. **"No player-game row ⇒ out" is wrong.** A healthy benched player has no
+   row. That signal belongs to pool construction, not to injury, and MLB keeps
+   them separate.
+
+What makes a snapshot usable is that each record carries the moment ESPN
+published it (`{"status": "Out", "date": "2026-08-24T15:23Z"}`). The cadence
+decides how finely absences resolve; the record date decides what was knowable.
+**The PIT floor is the record date, never the snapshot's own.**
+
+Absences are collapsed by walking a state machine per player rather than
+pairing an opening against a closing. The feed republishes the same status on
+every snapshot, so a two-week absence emits a long run of identical records;
+pairing would leave every intermediate record as its own permanently-open stint
+and suppress the player for the rest of time.
+
+The result is reconciled against observed player-games, which is MLB's
+highest-value rule: a player with a player-game row was in the game, so no
+absence may span it. The rule can only *shorten* an interval, and only at a
+date where the player demonstrably played, so it can never release a genuine
+absence back into a projection. A same-day appearance is ignored rather than
+treated as a close — the feed publishes an injury the same day it is reported,
+so a same-day appearance is the announcement, not a return.
+
+The two availability sources are **ANDed, never replaced**: the roster's
+current flag and the interval history. Letting the table overwrite the flag
+would resurrect a player the roster marks unavailable but who has no interval
+yet, which is exactly the state a fresh absence is in before the next snapshot
+closes it.

@@ -59,6 +59,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -543,6 +544,214 @@ def _read_parquet(path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ---------------------------------------------------------------------------
+# Position and availability
+# ---------------------------------------------------------------------------
+#
+# Neither is in the season log or play-by-play, and both are needed to rate a
+# player rather than a team. They are cached because the position pull is three
+# requests per season and the availability pull is one per team, and neither
+# changes within a day.
+
+def _positions_path(season: str):
+    return _cache_dir() / "positions" / f"positions_{season}.parquet"
+
+
+def _roster_path(team: str):
+    """Cache key for one roster.
+
+    Versioned in the filename rather than keyed on the shape. A roster cached
+    under the old column name reads back as a frame the record builder cannot
+    use - every ``status`` lookup misses, every player looks healthy, and the
+    injury filter quietly stops binding while every other check still passes.
+    That is a cache-invalidation bug that no type or shape check catches,
+    because the stale frame is perfectly well-formed.
+    """
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", str(team).strip().lower())
+    return _cache_dir() / "rosters" / f"roster_v2_{slug}.parquet"
+
+
+def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
+    """``player_id``/``position`` for one season, one request per position.
+
+    stats.nba.com publishes no POSITION column, so position is obtained by
+    asking the ``PlayerPosition`` filter for G, F and C in turn. That is three
+    requests, and each answers 500 intermittently under load - measured against
+    the live endpoint, where four of five position codes came back 400 on the
+    first try and then succeeded unchanged on a retry. So a single failure is
+    retried, and a position that never resolves is LOGGED and skipped rather
+    than aborting the pull: the consequence of a missing position cell is that
+    its players carry no prior, which is a thinner rating rather than a wrong
+    one, and losing two of three positions would at least still leave the
+    ratings for the third.
+    """
+    path = _positions_path(season)
+    if use_cache:
+        cached = _read_parquet(path)
+        if len(cached):
+            return cached
+    by_position: dict = {}
+    for position in config.PLAYER_TS_POSITIONS:
+        url = (f"{sources.PLAYER_POSITIONS_URL}?"
+               f"{sources.position_query(season, position)}")
+        for attempt in range(3):
+            try:
+                payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=1)
+                by_position[position] = sources.players_at_position(payload)
+                break
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2:
+                    logger.warning("position %s for %s unresolved after 3 "
+                                   "attempts (%s); its players carry no prior",
+                                   position, season, _short(exc))
+                else:
+                    time.sleep(2.0)
+    frame = sources.positions_frame(by_position)
+    if len(frame):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_parquet(path, index=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not cache %s (%s)", path.name, exc)
+    return frame
+
+
+def _fetch_roster(team: str, use_cache: bool = True) -> pd.DataFrame:
+    """One team's rostered athletes with a normalized availability status.
+
+    ESPN's roster is the only source in this repo that publishes an NBA injury
+    state, and it populates it sparsely by design - 7 of 76 rostered players in
+    a four-team sample carried an entry, the rest were empty lists. An empty
+    list is therefore the NORMAL case and means healthy, which is why a row is
+    returned per athlete rather than only for the injured ones.
+    """
+    path = _roster_path(team)
+    if use_cache:
+        cached = _read_parquet(path)
+        if len(cached):
+            return cached
+    url = sources.espn_roster_url(team)
+    try:
+        payload = http_json(url, ESPN_HEADERS, timeout=45.0, attempts=2)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("roster unavailable for %s (%s); its players are rated "
+                       "as healthy", team, _short(exc))
+        return pd.DataFrame(columns=["player_id", "team", "status",
+                                     "raw_status", "published_at"])
+    rows = sources.roster_availability(payload, team=team)
+    if not rows:
+        return pd.DataFrame(columns=["player_id", "team", "status",
+                                     "raw_status", "published_at"])
+    frame = pd.DataFrame(rows, columns=["player_id", "team", "status",
+                                        "raw_status", "published_at"])
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache %s (%s)", path.name, exc)
+    return frame
+
+
+def injury_history_path():
+    """Append-only store of every dated injury record ever observed."""
+    return _cache_dir() / "injury_history.jsonl"
+
+
+def record_injury_snapshot(roster: pd.DataFrame | None,
+                           snapshot_date=None) -> int:
+    """Append one dated snapshot to the permanent injury history.
+
+    This is the instrument, not a cache. The roster endpoint publishes CURRENT
+    state only, so nothing about the past can be reconstructed - which means
+    every question about how a status behaved ("what fraction of day-to-day
+    players actually played?") is unanswerable until records have been kept.
+    Keeping them is cheap and the alternative is permanently unknowable.
+
+    Written as JSONL and APPENDED, never rewritten: a store that is
+    regenerated from today's endpoint contains exactly one day and answers
+    nothing. A run that cannot append warns rather than raising, because a
+    missing history row must not take down a run whose other work is valid.
+    """
+    if roster is None or not len(roster):
+        return 0
+    if "status" not in roster.columns:
+        logger.warning("injury history not recorded: the roster frame has no "
+                       "'status' column (columns=%s)",
+                       list(roster.columns))
+        return 0
+    stamp = snapshot_date or date.today()
+    path = injury_history_path()
+    lines = []
+    for record in roster.to_dict("records"):
+        lines.append(json.dumps({
+            "snapshot_date": str(stamp),
+            "player_id": str(record.get("player_id")),
+            "team": str(record.get("team") or ""),
+            "status": record.get("status"),
+            "raw_status": record.get("raw_status"),
+            "published_at": (None if record.get("published_at") is None
+                             or (isinstance(record.get("published_at"), float)
+                                 and math.isnan(record.get("published_at")))
+                             else str(record.get("published_at"))),
+        }))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    except OSError as exc:
+        logger.warning("could not append to %s (%s); injury history has a gap",
+                       path.name, exc)
+        return 0
+    return len(lines)
+
+
+def load_injury_history() -> pd.DataFrame:
+    """Read the accumulated injury history, oldest first.
+
+    An absent or unreadable file yields an empty frame, never a raise: the
+    history is an input to a filter, and a filter with no history degrades to
+    the unfiltered pool rather than failing the run.
+    """
+    columns = ["snapshot_date", "player_id", "team", "status", "raw_status",
+               "published_at"]
+    path = injury_history_path()
+    if not path.exists():
+        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
+    rows = []
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    # One corrupt line must not discard the rest of the
+                    # history; a truncated final append is the common cause.
+                    continue
+    except OSError as exc:
+        logger.warning("could not read %s (%s)", path.name, exc)
+        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
+    if not rows:
+        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def fetch_availability(teams, use_cache: bool = True) -> pd.DataFrame:
+    """Availability for every team on the slate, one roster request each."""
+    frames = []
+    for team in dict.fromkeys(str(t).strip() for t in teams or [] if str(t).strip()):
+        frame = _fetch_roster(team, use_cache=use_cache)
+        if len(frame):
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame(columns=["player_id", "team", "status",
+                                     "raw_status", "published_at"])
+    out = pd.concat(frames, ignore_index=True)
+    return out.drop_duplicates(subset=["player_id"]).reset_index(drop=True)
+
+
 def _write_parquet(frame: pd.DataFrame, path) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1025,7 +1234,46 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
             "where stats.nba.com is reachable, or warm the cache.")
     if not frames:
         return pd.DataFrame()
-    return pd.concat([f for f in frames if not f.empty], ignore_index=True)
+    return _dedupe_player_games(
+        pd.concat([f for f in frames if not f.empty], ignore_index=True))
+
+
+#: The identity of a player line: one row per player per game per season.
+#: ``SEASON_ID`` is in the key because a player can appear in the same
+#: ``nba_game_id`` under two season codes only if the upstream re-issued a
+#: game, and the day is excluded because a game id already fixes the day.
+PLAYER_GAME_KEY = ["nba_game_id", "player_id", "SEASON_ID"]
+
+
+def _dedupe_player_games(log: pd.DataFrame) -> pd.DataFrame:
+    """One row per player per game, asserted rather than assumed.
+
+    The slices enumerated by :func:`_season_log_units` partition the window
+    with no shared day and the seasons do not overlap, so a duplicate can only
+    come from upstream returning a player twice inside one window. That has not
+    happened, and the invariant is cheap to keep true: a doubled row silently
+    doubles ``prior_plays`` and ``prior_points`` in the player rating, which
+    overstates a player's sample without any error anywhere.
+
+    Note the cache directory deliberately holds several granularities at once -
+    a whole-season file beside the 60-day slices - so anything that reads that
+    directory by glob rather than by the enumerated windows will double count
+    every game. This function is the seat of that invariant for the pipeline;
+    it cannot police an external reader.
+    """
+    missing = [c for c in PLAYER_GAME_KEY if c not in log.columns]
+    if missing:
+        # Nothing to key on yet (an empty or unexpectedly-shaped frame). The
+        # caller validates emptiness, so returning is not hiding a failure.
+        return log
+    before = len(log)
+    out = log.drop_duplicates(subset=PLAYER_GAME_KEY, keep="first")
+    dropped = before - len(out)
+    if dropped:
+        logger.warning("season log: dropped %d duplicate player-game row(s) "
+                       "on %s; upstream returned the same player twice in one "
+                       "window", dropped, PLAYER_GAME_KEY)
+    return out.reset_index(drop=True)
 
 
 def _result_set_to_frame(payload: Any) -> pd.DataFrame:

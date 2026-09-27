@@ -89,6 +89,19 @@ MONEYLINE_FEATURE_COLS = [
     "event_live_tov_rate_diff", "event_and_in_rate_diff",
     "event_shot_distance_diff", "event_possessions_diff",
     "event_shooting_fouls_diff", "event_q4_points_diff",
+    # Position-segmented projected-lineup shooting - the NBA mirror of MLB's
+    # lineup_woba_* trio, one per position, with sides retained:
+    #   pl_ts_{pos}_home / _away : the projected lineup's shrunk TS at that
+    #                              position, home side / away side
+    #   pl_ts_{pos}_diff         : home minus away
+    # Built over the WHOLE decided frame (MLB's lineup_agg construction),
+    # strictly point-in-time on both axes: ratings sum only games STRICTLY
+    # BEFORE each target, and a player designated Out/Doubtful/Recovery in
+    # the last pre-tipoff report is removed from THAT game's pool only - his
+    # rating survives on every prior game he actually played.
+    "pl_ts_c_away", "pl_ts_c_home", "pl_ts_c_diff",
+    "pl_ts_f_away", "pl_ts_f_home", "pl_ts_f_diff",
+    "pl_ts_g_away", "pl_ts_g_home", "pl_ts_g_diff",
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -180,7 +193,6 @@ RAW_PER_SIDE_COLS = frozenset({
      for w in ws for s in ("home", "away")})
 RFE_CANDIDATE_COLS = [c for c in NBA_CANDIDATE_COLS
                       if c not in set(MONEYLINE_FEATURE_COLS)]
-KNOWN_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS))
 _FEATURE_SUBSET: list[str] | None = None
 
 
@@ -264,6 +276,8 @@ MARKETS_CSV = "nba_run_engine_markets_{date}.csv"
 MARKETS_META_JSON = "nba_run_engine_markets_{date}.meta.json"
 MARKETS_MONITOR_JSON = "nba_run_engine_monitor_{date}.json"
 PLAYER_MATCHUP_JSON = "nba_player_leader_matchup_{date}.json"
+PLAYER_TS_CSV = "nba_player_ts_{date}.csv"
+PLAYER_TS_AGG_CSV = "nba_player_ts_lineups_{date}.csv"
 FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nba_shap_game"
@@ -273,6 +287,190 @@ FEATURE_SELECTION_JSON = "nba_feature_selection_{date}.json"
 FEATURE_WORKBOOK_XLSX = "nba_feature_workbook_{date}.xlsx"
 RUN_ENGINE_FEATURE_DRIFT_PREFIX = "nba_run_engine_feature_drift_"
 RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
+
+# ---------------------------------------------------------------------------
+# Player-level True Shooting (TS) ratings
+# ---------------------------------------------------------------------------
+# The NBA analogue of MLB's shrunk wOBA and NHL's shrunk player ratings. The
+# rate is exact; what makes it a *rating* is that each player's raw TS is
+# pulled toward a POSITION-SEGMENTED league prior before it is used.
+#
+# A single league mean would be wrong here for the same reason NHL documents
+# (nhl-backend/backend/config.py, PLAYER_RATING_SHRINK_FRACTION): a centre's
+# scoring volume and a guard's do not share an opportunity, so one prior would
+# over-rate every big exactly as it over-rates every defenceman in hockey.
+#
+# Prior strength follows the SAME convention NHL carries over from MLB's fixed
+# 120-PA prior. MLB's 120 is 20% of a 600-PA season, so the fraction is the
+# portable part and the season length is sport-specific. The NBA reference
+# season is one full player-SEASON of scoring plays, and the prior is 20% of
+# the mean player-season of plays at that position:
+#     k[position] = PLAYER_TS_SHRINK_FRACTION * mean season plays at position
+# Averaging per PLAYER-SEASON rather than per player is deliberate and is the
+# same correction NHL documents: dividing by seasons first weights a 3-game
+# cameo like an 82-game regular and collapses the reference season, which would
+# silently make k several times too small and under-shrink every rating.
+PLAYER_TS_SHRINK_FRACTION = 0.20
+#: Free-throw weight in the scoring-play denominator. 0.44 is the standard
+#: NBA value (an open mid-range shot is worth ~1.16x a rim attempt, and a made
+#: free throw ~0.44 of a possession), so TSA = 2 * (FGA + 0.44 * FTA).
+PLAYER_TS_FTA_WEIGHT = 0.44
+#: The three positions stats.nba.com will actually answer for. Measured against
+#: the live endpoint: the ``PlayerPosition`` filter accepts G, F and C, and
+#: returns HTTP 400 for PG/SG/SF/PF and for compound codes like ``G-F``. The
+#: five-way split is NOT available from this source, so the position prior is
+#: carried at this granularity and the league averages are per G/F/C.
+PLAYER_TS_POSITIONS = ("G", "F", "C")
+#: A player the feed lists at more than one position is assigned exactly one,
+#: so every player belongs to exactly one prior cell and no rating is counted
+#: twice in the league mean. Guards-and-forwards are real and common (52 of 569
+#: players in 2024-25), so this tie-break is load-bearing rather than
+#: theoretical. Most-specific-first, then narrowest-position-first, is the
+#: order the enumeration is walked in.
+PLAYER_TS_POSITION_PRIORITY = ("G", "F", "C")
+#: Fallback prior strength (plays) for a position cell with no evidence at all.
+#: A cell with no data must still yield a complete prior table rather than
+#: raising at lookup time, so an empty frame degrades to the league-wide
+#: reference instead of crashing the build.
+PLAYER_TS_FALLBACK_K_PLAYS = 200.0
+#: Prior rows summed per player. 1 == "all strictly prior rows", the correct
+#: setting at the game grain the season log provides. Mirrors NHL's
+#: PLAYER_RATING_PRIOR_ROWS.
+PLAYER_TS_PRIOR_ROWS = 1
+#: Minimum accumulated scoring plays before a player may be PROJECTED into a
+#: lineup, mirroring MLB's LINEUP_MIN_PA = 20. MLB's comment is "never a 3-PA
+#: wOBA swing"; the number is the same because the reasoning is the same, and
+#: because the shrinkage already handles the RATING - a 20-play player is still
+#: pulled most of the way to the prior. This floor is about POOL MEMBERSHIP,
+#: which shrinkage does not touch: a player with three career games is not a
+#: candidate for tonight's starting five no matter how well his rate is
+#: estimated.
+PLAYER_TS_MIN_PLAYS = 20
+#: How far back a TEAM MEMBER's rating row may sit and still count as a
+#: candidate for the next game, mirroring MLB's LINEUP_POOL_LOOKBACK_DAYS.
+#: This is the WIDENING that makes the injury filter bind at all: a player who
+#: is injured today has no row for today, so a pool drawn only from players who
+#: appeared recently cannot subtract him. MLB states the consequence plainly -
+#: "the IL filter cannot bind AT ALL". Both the rating rows and the games live
+#: on dates the team played, so ten days spans one skipped game plus a
+#: postponement.
+PLAYER_TS_POOL_LOOKBACK_DAYS = 10
+#: Size of the projected lineup, mirroring MLB's top-9. A depleted roster is
+#: NOT padded: the mean of the best 5-7 healthy players is the correct quantity
+#: for a short-handed team, and padding would fabricate full strength.
+PLAYER_TS_TOP_K = 8
+#: The "regular" floor for a top-5 rest count, mirroring MLB's
+#: LINEUP_REST_PA. A player below it is not a rotation regular, so his absence
+#: is not news.
+PLAYER_TS_REST_PLAYS = 50
+PLAYER_TS_TOP5_K = 5
+#: Raw status vocabulary -> treatment, and nothing else. A status the feed
+#: invents that is not listed here is reported as UNKNOWN rather than guessed,
+#: because guessing silently decides whether a player dresses.
+#:
+#: MEASURED 2026-09-26 across all 30 teams and 545 athletes: ESPN's NBA roster
+#: publishes exactly TWO statuses, "Day-To-Day" (52) and "Out" (7). There is no
+#: "Doubtful", "Questionable" or "Probable" - those are NFL injury-report
+#: words, and importing them into the NBA mapper is how a vocabulary we do not
+#: have ends up encoded as if we did. They are listed below only so that IF one
+#: ever appears it is handled deliberately rather than falling through to
+#: healthy, and so the play-rate reporter can measure it once it does.
+PLAYER_TS_STATUS_TREATMENT: dict = {
+    # Measured against the 2025-26 box scores, 13,168 designations taken from
+    # the last filing before each tipoff. The grouping is the play rate, not
+    # the word: Doubtful went 0-for-5 and belongs with Out.
+    #
+    # "Out" also carries the injured reserve. The league does not name the IR
+    # in the report at all - "Injured Reserve" appears in zero reason strings -
+    # because a player on the IR is filed as Out like anyone else. Adding it to
+    # the out set is therefore free, and enumerating it separately would invent
+    # a category the source does not publish.
+    #
+    # NOTE what is NOT here: ``day_to_day``. That is ESPN's word for this
+    # league, not the NBA's, and carrying it invites a mapper to quietly treat
+    # an ESPN snapshot and an official filing as the same vocabulary. They are
+    # not, and the official one is strictly richer.
+    "out": "absent",
+    "doubtful": "absent",        # 0 for 5
+    "recovery": "absent",        # UNMEASURED - 0 observations at tipoff
+    "questionable": "available",  # 34 for 52 - thin, pooled, see below
+    "available": "available",    # 2,006 for 2,448
+    "probable": "available",     # 23 for 24
+}
+
+#: MEASURED play rate per designation, from the official 2025-26 filings
+#: aligned to tipoff. This replaces NHL's unsourced ``INJURY_MULTIPLIERS``,
+#: whose day-to-day value of 0.5 was an upstream assumption wearing a number.
+#: Reproduce with ``backfill_injury_designations.py 2025-10-21 2026-04-12``.
+#:
+#: Each figure is the rate for the BUCKET the designation now belongs to, not
+#: for the designation alone. The available bucket reads 0.817, which is
+#: (2,006 + 34 + 23) / (2,448 + 52 + 24) - Available, Questionable and Probable
+#: pooled. Weighting a designation by a rate drawn from 52 observations would be
+#: fitting a parameter to 0.4% of a season; pooling gives up that resolution
+#: and buys an estimate that means something.
+#:
+#: The sample sizes matter more than the values. Doubtful rests on five
+#: observations and Recovery on none, so neither is a rate so much as an
+#: assumption that happens to be written as a float. Out and Available, which
+#: carry 98% of the mass, are solid.
+PLAYER_TS_DESIGNATION_PLAY_RATE: dict = {
+    "out": 0.000,            # 0 / 10,639
+    "doubtful": 0.000,       # 0 / 5
+    "recovery": 0.000,       # no observations at tipoff
+    "questionable": 0.817,   # pooled available bucket
+    "available": 0.817,      # 2,063 / 2,524 pooled with the above
+    "probable": 0.817,       # 23 / 24 pooled with the above
+}
+#: The point-in-time cutoff for injury state. "tipoff" uses each record's own
+#: publication time and is the finest granularity the feed supports for free.
+#: "prior_end_of_day" is the coarser, more conservative reading: for a game on
+#: date D, the state is whatever was published by 23:59 on D-1, so nothing
+#: published on game day can gate that game at all.
+#:
+#: "tipoff" is the default because it is strictly more informative and costs
+#: nothing extra - the timestamp is already on every record, and using it is
+#: the SAME comparison with a tighter bound rather than a different mechanism.
+#: The coarser mode is one constant away for anyone who would rather not have
+#: a same-day 18:00 report gate a 19:30 game.
+PLAYER_TS_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
+
+#: The nine position-segmented projected-lineup features - per position, the
+#: away side, the home side and the difference. Registered as CANDIDATES, not
+#: as contract columns: they are gated behind their own holdout A/B, which is
+#: ``ab_position_ts.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
+#: decision about the model, and the candidate list is where a feature waits
+#: until that decision has evidence behind it.
+#:
+#: Defined HERE rather than beside RFE_CANDIDATE_COLS because it is derived
+#: from PLAYER_TS_POSITIONS, which is declared further down. Building the list
+#: at the top of the module raised NameError on import.
+#: Published contract order is per-POSITION grouped - ``c_away, c_home,
+#: c_diff``, then ``f_*``, then ``g_*`` - C first, matching the user-facing
+#: feature list. ``PLAYER_TS_POSITIONS`` stays G/F/C for the prior tables;
+#: the published column order deliberately does not inherit that internal
+#: ordering.
+PLAYER_TS_POSITION_FEATURE_COLS: list[str] = [
+    f"pl_ts_{position}_{side}"
+    for position in ("c", "f", "g")
+    for side in ("away", "home", "diff")]
+
+KNOWN_FEATURE_COLS = list(dict.fromkeys(
+    MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
+    + PLAYER_TS_POSITION_FEATURE_COLS))
+#: How far the injury-stint table may trail the decided frame before the
+#: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
+#: legitimately leaves a long gap with no absences recorded, so the bar is
+#: generous rather than a day.
+PLAYER_TS_MAX_LAG_DAYS = 45
+#: Team-level projected-lineup aggregates, mirroring MLB's lineup_woba_* trio
+#: plus its rest count.
+PLAYER_TS_FEATURE_COLS: list[str] = [
+    "lineup_ts_mean_home", "lineup_ts_mean_away",
+    "lineup_ts_top3_home", "lineup_ts_top3_away",
+    "lineup_ts_std_home", "lineup_ts_std_away",
+    "lineup_ts_rest_count_home", "lineup_ts_rest_count_away",
+]
 
 PLAYER_FIELDS = [
     "p_home_name", "p_home_ppg", "p_home_apg", "p_home_games",

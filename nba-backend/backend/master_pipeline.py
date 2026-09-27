@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -176,6 +176,281 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
         out["y_under_fair"] = 1 - out.y_over_fair - out.y_push_fair
         out["y_home_win"] = out.get("home_win", np.nan)
     return out
+
+
+def _build_injury_stints(facts, games: pd.DataFrame) -> pd.DataFrame | None:
+    """Build the injury-stint table for the run, or None when it cannot bind.
+
+    Mirrors MLB's arrangement: a dated record table collapsed into intervals,
+    then reconciled against observed player-games. The reconciliation is the
+    part that makes the rest safe - a player with a player-game row was in the
+    game, so no absence may span it - and it can only SHORTEN an interval, so it
+    can never release a real absence back into a projection.
+
+    Returns None rather than an empty frame when the table cannot be built, and
+    the caller degrades to the unfiltered pool. An injury filter that silently
+    does not bind is indistinguishable from a league where nobody is hurt, so
+    the two states must not be represented the same way.
+    """
+    import injury_stints as stints_mod
+    teams = sorted(set(games.home_team.astype(str)) |
+                   set(games.away_team.astype(str)))
+    availability = ingestion.fetch_availability(teams)
+    if availability is None or not len(availability):
+        logger.warning("no availability records resolved; the projected "
+                       "lineups fall back to the UNFILTERED player pool")
+        return None
+    rosters = [(date.today(), availability)]
+    # Record BEFORE deriving stints. The history is the instrument: the roster
+    # endpoint publishes current state only, so without an append-only store
+    # every question about how a status behaved is permanently unanswerable.
+    ingestion.record_injury_snapshot(availability, snapshot_date=date.today())
+    records = stints_mod.records_from_rosters(rosters)
+    if not len(records):
+        # Everyone is healthy. That is a real state, not a missing one, and it
+        # is reported as such rather than as a failure to fetch.
+        logger.info("no active injury records for %d team(s); the projected "
+                    "lineups are unfiltered by injury", len(teams))
+        return None
+    stints = stints_mod.build_stints(records)
+    if not len(stints):
+        return None
+
+    # Reconcile against the observed player log. Without this a status that is
+    # never cleared suppresses a player indefinitely, and the symptom is a
+    # projection that is quietly missing a starter.
+    appearances = facts.player_stats[["player_id", "gameday"]].copy() \
+        if facts.player_stats is not None and len(facts.player_stats) \
+        and {"player_id", "gameday"} <= set(facts.player_stats.columns) \
+        else pd.DataFrame()
+    if len(appearances):
+        appearances["player_id"] = appearances.player_id.astype(str)
+        appearances["gameday"] = pd.to_datetime(appearances.gameday,
+                                                errors="coerce")
+        before = len(stints)
+        stints = stints_mod.reconcile_with_appearances(
+            stints, appearances.dropna(subset=["gameday"]))
+        if len(stints) != before:
+            logger.info("appearance reconciliation closed %d stint(s) the "
+                        "feed left open", before - len(stints))
+    return stints
+
+
+def _write_player_ts(out: Path, date_c: str, facts, games: pd.DataFrame,
+                     stints=None) -> str | None:
+    """Build and write the player-level TS ratings, or report why not.
+
+    Returns the artifact name, or None when the ratings could not be built at
+    all. This never raises into the run: the ratings are published alongside
+    the contract and feed nothing, so a failure to produce them is a missing
+    artifact rather than a failed run. The failure is logged loudly anyway,
+    because a silently-absent ratings file is indistinguishable from a league
+    where nobody played.
+    """
+    import player_ts as ts_mod
+    try:
+        slate_dates = pd.to_datetime(games.gameday, errors="coerce").dropna()
+        target = slate_dates.max() if len(slate_dates) else None
+        if target is None:
+            logger.warning("player TS skipped: the schedule has no usable date")
+            return None
+        seasons = sorted({ingestion.season_label(d.date())
+                          for d in slate_dates})
+        positions = pd.concat(
+            [ingestion._fetch_positions(season) for season in seasons],
+            ignore_index=True) if seasons else pd.DataFrame()
+        if not len(positions):
+            logger.warning("player TS skipped: no positions resolved for %s; "
+                           "every rating would fall back to an unsegmented "
+                           "prior", ", ".join(seasons) or "the window")
+            return None
+        teams = sorted(set(games.home_team.astype(str)) |
+                       set(games.away_team.astype(str)))
+        games_frame = ts_mod.prepare_player_games(facts.player_stats, positions)
+        if not len(games_frame):
+            logger.warning("player TS skipped: the player log has no "
+                           "points/fga/fta rows to rate")
+            return None
+        # Availability is ANNOTATED, not applied. The rating is computed for
+        # every player regardless of injury, and the removal happens at pool
+        # construction, where a replacement inherits the vacated slot.
+        # Multiplying the rating here instead would leave the player in the
+        # pool dragging the mean toward zero.
+        if stints is not None:
+            import injury_stints as stints_mod
+            ratings = ts_mod.build_player_ts(
+                games_frame, target_dates=pd.Series([target]))
+            ratings = stints_mod.annotate_availability(ratings, stints)
+        else:
+            ratings = ts_mod.build_player_ts(
+                games_frame, target_dates=pd.Series([target]))
+            ratings["is_available"] = True
+        if not len(ratings):
+            logger.warning("player TS skipped: no player had strictly-prior "
+                           "evidence as of %s", target.date())
+            return None
+        # The rating row's own date doubles as the pool's gameday, so the
+        # projected-lineup join and the artifact agree on one column. The
+        # rename happens AFTER the artifact is written, because the CSV keeps
+        # ``target_date`` as its label.
+        path = out / config.PLAYER_TS_CSV.format(date=date_c)
+        ratings.assign(target_date=pd.to_datetime(ratings.target_date)
+                       .dt.strftime("%Y-%m-%d")).to_csv(path, index=False)
+
+        ratings = ratings.rename(columns={"target_date": "gameday"})
+        ratings["gameday"] = pd.to_datetime(ratings.gameday)
+        if "team" not in ratings.columns:
+            ratings["team"] = ""
+
+        # The team-level aggregate: widen the pool, then filter, then rank.
+        import lineup_projection as proj_mod
+        aggregates = proj_mod.projected_lineup(
+            ratings, games=games, stints=stints)
+        if len(aggregates):
+            agg_path = out / config.PLAYER_TS_AGG_CSV.format(date=date_c)
+            aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)
+                              .dt.strftime("%Y-%m-%d")).to_csv(agg_path,
+                                                              index=False)
+            logger.info("projected lineups: %d team-game(s), mean pool %.1f, "
+                        "mean healthy %.1f", len(aggregates),
+                        aggregates.pool_size.mean(), aggregates.healthy_size.mean())
+            # The seven diff features are attached to a COPY of the slate for
+            # reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
+            # that changes the model and needs its own holdout gate. The
+            # coverage report is what makes that decision safe to take later -
+            # a feature that is constant or unpopulated is visible NOW rather
+            # than after it has been trained on for a month.
+            import lineup_projection as slate_proj
+            coverage = slate_proj.feature_coverage(
+                slate_proj.attach_to_slate(games, aggregates))
+            for _, row in coverage.iterrows():
+                logger.info("  %-32s %d/%d rows  distinct %d%s",
+                            row["feature"], int(row["populated"]),
+                            int(row["rows"]), int(row["distinct_values"]),
+                            "  CONSTANT" if row["constant"] else "")
+            # Stated plainly because it is the thing standing between these
+            # features and promotion: the pool is built for ONE target date, so
+            # only that game's row carries them. MLB builds lineup_agg across
+            # the whole decided frame; until this does the same, a column
+            # populated on 1 row in 2,779 is a column the model cannot use.
+            populated = int(coverage.populated.max()) if len(coverage) else 0
+            rows = int(coverage.rows.max()) if len(coverage) else 0
+            if rows and populated < rows:
+                logger.warning(
+                    "lineup_ts features cover %d of %d game rows - the pool is "
+                    "built for a single target date. Promoting these to "
+                    "MONEYLINE_FEATURE_COLS requires building the ratings "
+                    "across the whole decided frame first, the way MLB's "
+                    "lineup_agg is.", populated, rows)
+        return path.name
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("player TS ratings not written (%s); the run continues "
+                       "without them", exc)
+        return None
+
+
+def _build_position_ts_features(facts, games: pd.DataFrame,
+                                cache_dir: Path | None = None
+                                ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """The nine ``pl_ts_*`` features over the WHOLE decided frame, plus slate.
+
+    This is MLB's ``lineup_agg`` construction, translated: ratings are built
+    for EVERY decided game date (not one target date - the "1 of 2,779 rows"
+    blocker), the position pools are projected per (game, team), and the nine
+    position-segmented columns are attached with sides retained -
+    ``pl_ts_{c,f,g}_{away,home,diff}`` - the same shape as MLB's
+    ``lineup_woba_mean_{home,away}`` family, segmented by position instead of
+    averaged over one pool.
+
+    POINT-IN-TIME, in both directions the contract requires:
+
+    * every rating row is summed over games STRICTLY BEFORE its target date
+      (the guarantee ``player_ts._prior_for`` implements and the audit
+      recomputes), so a player's rating for game G never includes game G;
+    * a player designated Out/Doubtful/Recovery in the last pre-tipoff report
+      is removed from THAT game's pool only. Every other game he appears in
+      keeps his rating, so his absence does not erase the rolling lagged
+      rating his prior games earned him - the removal is a fact about one
+      game, the rating is a fact about the games he played.
+
+    Returns ``(frame_features, slate_features)``: the nine columns attached
+    to the decided frame and to the pending slate, or ``(None, None)`` when
+    the inputs cannot support the build - a missing artifact family is a
+    degraded run, not a failed one.
+    """
+    import lineup_projection as proj_mod
+    import player_ts as ts_mod
+    try:
+        from ingestion import CACHE_DIR as _ingest_cache
+    except ImportError:
+        _ingest_cache = None
+
+    seasons = sorted({ts_mod._season_of(d) for d in games.gameday.dropna()})
+    seasons = [s for s in seasons if s]
+    positions = pd.concat(
+        [pd.read_parquet(p) for p in
+         (cache_dir or _ingest_cache or Path("~/.cache/sports_prediction_model/nba")
+          ).expanduser().glob("positions/positions_*.parquet")],
+        ignore_index=True) if seasons else pd.DataFrame()
+    if not len(positions):
+        logger.warning("pl_ts features skipped: no position table; every "
+                       "rating would fall back to an unsegmented prior")
+        return None, None
+    games_frame = ts_mod.prepare_player_games(facts.player_stats, positions)
+    if not len(games_frame):
+        logger.warning("pl_ts features skipped: the player log has no "
+                       "rateable rows")
+        return None, None
+
+    # id -> "First Last", the form the injury report files players under.
+    name_by_id: dict = {}
+    log = facts.player_stats
+    for pid, pname in zip(ts_mod._player_id_str(log.player_id),
+                          log.player_name.astype(str)):
+        name_by_id.setdefault(str(pid), str(pname))
+
+    # The PIT designations: the official report's last filing strictly before
+    # each tipoff, as backfilled across the decided window. Read from cache;
+    # fetching the whole archive inside a run is a backfill job, not a serve
+    # job. No artifact means no removals - logged, never fabricated.
+    designations = None
+    if cache_dir is not None or _ingest_cache is not None:
+        root = (cache_dir or _ingest_cache)
+        root = Path(root).expanduser()
+        candidates = sorted(root.glob("nba_designations_*.parquet"))
+        if candidates:
+            designations = pd.read_parquet(candidates[-1])
+            logger.info("PIT designations: %d record(s) from %s",
+                        len(designations), candidates[-1].name)
+        else:
+            logger.warning("no nba_designations_*.parquet in %s - the injury "
+                           "removal cannot bind; the pools are UNFILTERED and "
+                           "this is logged so the state is never silent", root)
+
+    decided_mask = games.home_score.notna() & games.away_score.notna()
+    decided = games[decided_mask]
+    pending = games[~decided_mask]
+
+    dates = pd.Series(sorted(pd.to_datetime(decided.gameday).dropna().unique())
+                      + sorted(pd.to_datetime(pending.gameday).dropna().unique()))
+    ratings = ts_mod.build_player_ts(games_frame, target_dates=pd.Series(dates))
+    ratings = ratings.rename(columns={"target_date": "gameday"})
+    ratings["gameday"] = pd.to_datetime(ratings.gameday)
+    if "is_available" not in ratings.columns:
+        ratings["is_available"] = True
+    ratings = proj_mod.apply_pit_designations(ratings, designations, name_by_id)
+
+    aggregates = proj_mod.projected_lineup(ratings, games=games)
+    if not len(aggregates):
+        logger.warning("pl_ts features skipped: no team-game aggregates")
+        return None, None
+
+    def _attach(frame: pd.DataFrame) -> pd.DataFrame | None:
+        if frame is None or not len(frame):
+            return None
+        return proj_mod.attach_position_ts(frame, aggregates)
+
+    return _attach(decided), _attach(pending)
 
 
 def _power_state(game_df: pd.DataFrame):
@@ -451,6 +726,36 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     game_df = feat_mod.build_game_features(settled, facts.team_stats,
                                            facts.team_events)
+    # The nine position-segmented lineup features, built across the WHOLE
+    # decided frame the way MLB's lineup_agg is, and attached to the slate for
+    # scoring. Before the walk-forward: the features are part of the contract
+    # now, so the OOF metrics the run publishes are the metrics OF the
+    # contract, not of a contract missing its newest columns. A build failure
+    # degrades to NaN columns (imputed downstream) under a loud warning; it
+    # never aborts the run, because a missing feature family is a worse
+    # artifact, not a broken one.
+    try:
+        _pl_frame, _pl_slate = _build_position_ts_features(facts, games)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pl_ts feature build failed (%s); the nine columns "
+                       "will be NaN on this run", exc)
+        _pl_frame = _pl_slate = None
+    if _pl_frame is not None and len(_pl_frame):
+        # ``build_game_features`` pre-creates the nine columns (all-NaN, the
+        # always-create rule in _attach_contract). Drop them first: merged on
+        # top of them the bare names would keep the NaN versions and the real
+        # values would land in suffixed copies nobody reads - the contract
+        # carrying empty features with no error, which is the exact failure
+        # the first A/B run exhibited.
+        game_df = game_df.drop(columns=[
+            c for c in config.PLAYER_TS_POSITION_FEATURE_COLS
+            if c in game_df.columns])
+        game_df = game_df.merge(
+            _pl_frame[["game_id"] + config.PLAYER_TS_POSITION_FEATURE_COLS],
+            on="game_id", how="left")
+        logger.info("pl_ts features attached: %d/%d decided rows carry them",
+                    int(game_df[config.PLAYER_TS_POSITION_FEATURE_COLS[0]]
+                        .notna().sum()), len(game_df))
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional, and the tree members are
@@ -489,6 +794,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     slate = (feat_mod.build_slate_features(games, facts.team_stats,
                                            facts.team_events)
              if len(pending) else pd.DataFrame())
+    if len(slate) and _pl_slate is not None and len(_pl_slate):
+        # The upcoming games get their own projections - including the PIT
+        # injury removal, which binds hardest here: the slate is exactly the
+        # "upcoming game" the designation names. Same pre-drop as game_df:
+        # the slate's own NaN placeholders must not win the name collision.
+        slate = slate.drop(columns=[
+            c for c in config.PLAYER_TS_POSITION_FEATURE_COLS
+            if c in slate.columns])
+        slate = slate.merge(
+            _pl_slate[["game_id"] + config.PLAYER_TS_POSITION_FEATURE_COLS],
+            on="game_id", how="left")
     if len(slate):
         slate["home_win_prob_model"] = ml_mod.predict_slate(
             final_models, slate, ml["member_weights"])
@@ -553,6 +869,18 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     p_rank = out / config.POWER_RANKINGS_CSV.format(date=date_c)
     serving.write_power_rankings_csv(p_rank, ratings, records, facts.team_names, point_diff)
     artifacts.append(p_rank.name)
+
+    # Player-level True Shooting, shrunk to a position-segmented league prior.
+    # Published ALONGSIDE the feature contract and deliberately not fed to the
+    # ensemble, for the same reason NHL's player ratings are not: adding a
+    # column to MONEYLINE_FEATURE_COLS changes the model and needs its own
+    # holdout validation, which is a separate decision from building the
+    # rating. The rating is PIT (strictly prior rows, season-partitioned), so
+    # it is safe to publish now and to promote later behind a gate.
+    ts_name = _write_player_ts(out, date_c, facts, games,
+                               stints=_build_injury_stints(facts, games))
+    if ts_name:
+        artifacts.append(ts_name)
     coverage = feat_mod.feature_coverage_report(game_df)
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
     serving.write_feature_json(p_feat, coverage, _config_meta(facts), fold_info)
