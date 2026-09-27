@@ -760,6 +760,33 @@ def team_stats_from_log(log: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
                 out[name] = np.where(out[att] > 0, out[made] / out[att], np.nan)
     if "net_points" not in out:
         out["net_points"] = out.points_for - out.points_against
+    # Team margins are derived here, at the one place both sides of the
+    # arithmetic exist per row. ``turnover_margin``/``rebound_margin`` used to
+    # be absent from this frame, defaulted to constant 0.0 downstream, and
+    # rode in the served contract as pure noise - the drift table showed
+    # them as 0.0 vs 0.0 and the coverage table certified them 100% measured.
+    # A margin is this team's count minus the opponent's count in the SAME
+    # game; where the opponent's count is missing the derivation stays NaN
+    # rather than wearing a 0.
+    if "tov" in out or "reb" in out:
+        # The opponent's counts, re-keyed back onto the team rows: within one
+        # game, the team named in the opponent column IS the other side, so
+        # grouping by (game, opponent) and reading the result as (game, team)
+        # puts each side's counts in front of its rival.
+        opp = (out.groupby(["nba_game_id", "opponent"], as_index=False)
+                  [[c for c in ("tov", "reb") if c in out]].sum(min_count=1)
+                  .rename(columns={"opponent": "team",
+                                   "tov": "opp_tov", "reb": "opp_reb"}))
+        out = out.merge(opp, on=["nba_game_id", "team"], how="left",
+                        validate="many_to_one")
+    if "turnover_margin" not in out:
+        out["turnover_margin"] = (out.tov - out.opp_tov
+                                  if {"tov", "opp_tov"}.issubset(out.columns)
+                                  else np.nan)
+    if "rebound_margin" not in out:
+        out["rebound_margin"] = (out.reb - out.opp_reb
+                                 if {"reb", "opp_reb"}.issubset(out.columns)
+                                 else np.nan)
     if "efg_pct" not in out and {"fgm", "fg3m", "fga"}.issubset(out.columns):
         with np.errstate(divide="ignore", invalid="ignore"):
             out["efg_pct"] = np.where(

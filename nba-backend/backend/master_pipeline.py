@@ -315,11 +315,14 @@ def _write_player_ts(out: Path, date_c: str, facts, games: pd.DataFrame,
                         "mean healthy %.1f", len(aggregates),
                         aggregates.pool_size.mean(), aggregates.healthy_size.mean())
             # The seven diff features are attached to a COPY of the slate for
-            # reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
+            # Reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
             # that changes the model and needs its own holdout gate. The
-            # coverage report is what makes that decision safe to take later -
-            # a feature that is constant or unpopulated is visible NOW rather
-            # than after it has been trained on for a month.
+            # family is SUPERSEDED by the nine pl_ts_* features, which are the
+            # same idea built across the whole decided frame the way MLB's
+            # lineup_agg is - and this per-target-date version covers one row
+            # per run, which is why it was never promoted. The verdict ships
+            # INSIDE the monitor artifact so the decision is visible without
+            # the run log, not scrawled on a console nobody archives.
             import lineup_projection as slate_proj
             coverage = slate_proj.feature_coverage(
                 slate_proj.attach_to_slate(games, aggregates))
@@ -328,20 +331,24 @@ def _write_player_ts(out: Path, date_c: str, facts, games: pd.DataFrame,
                             row["feature"], int(row["populated"]),
                             int(row["rows"]), int(row["distinct_values"]),
                             "  CONSTANT" if row["constant"] else "")
-            # Stated plainly because it is the thing standing between these
-            # features and promotion: the pool is built for ONE target date, so
-            # only that game's row carries them. MLB builds lineup_agg across
-            # the whole decided frame; until this does the same, a column
-            # populated on 1 row in 2,779 is a column the model cannot use.
             populated = int(coverage.populated.max()) if len(coverage) else 0
             rows = int(coverage.rows.max()) if len(coverage) else 0
-            if rows and populated < rows:
-                logger.warning(
-                    "lineup_ts features cover %d of %d game rows - the pool is "
-                    "built for a single target date. Promoting these to "
-                    "MONEYLINE_FEATURE_COLS requires building the ratings "
-                    "across the whole decided frame first, the way MLB's "
-                    "lineup_agg is.", populated, rows)
+            _superseded_lineup_family = {
+                "status": "SUPERSEDED",
+                "note": ("per-target-date projected-lineup diffs; superseded "
+                         "by the nine pl_ts_* features built across the whole "
+                         "decided frame. Never promoted to the serving "
+                         "contract, so no model depends on it."),
+                "populated_rows": populated,
+                "frame_rows": rows,
+                "features": [str(f) for f in coverage.feature]
+                            if len(coverage) else [],
+            }
+            try:
+                (out / "nba_projected_lineup_status.json").write_text(
+                    json.dumps(_superseded_lineup_family, indent=1))
+            except OSError as exc:
+                logger.warning("projected-lineup status not written (%s)", exc)
         return path.name
     except Exception as exc:  # noqa: BLE001
         logger.warning("player TS ratings not written (%s); the run continues "
@@ -471,6 +478,17 @@ def _build_position_ts_features(facts, games: pd.DataFrame,
     # logged rather than left to look like a healthy league.
     root = _cache_root(cache_dir)
     designations = proj_mod.load_designations(root)
+    if designations is None:
+        # The archive also ships IN the delivery directory (committed to the
+        # repo, the way MLB ships il_stints.parquet), so a cloud run whose
+        # machine cache is empty still binds the PIT removal. Delivery and
+        # cache are different trees on Kaggle; checking both is what makes
+        # the shipping archive more than a local convenience.
+        delivery_root = Path(config.DATA_DELIVERY_DIR)
+        designations = proj_mod.load_designations(delivery_root)
+        if designations is not None:
+            logger.info("PIT designations loaded from the delivery archive "
+                        "at %s (machine cache had none)", delivery_root)
     if designations is None:
         logger.warning("no nba_designations_*.parquet in %s - the injury "
                        "removal CANNOT bind and the pools are UNFILTERED for "
@@ -1165,6 +1183,32 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                },
                "elapsed_seconds": round(time.time() - started, 2),
                "source_manifest": facts.manifest}
+    # The PIT designation archive travels with the repo, the way MLB ships
+    # ``il_stints.parquet``: a fresh Kaggle clone starts from an EMPTY machine
+    # cache, and a designation archive that exists only there means every
+    # cloud run projects UNFILTERED lineups - the injury removal silently off
+    # for the run that most needs it. The delivery directory is the one
+    # artifact sink the sync phase already publishes, so the consolidated
+    # table lives here too, rewritten each run and never pruned.
+    try:
+        import lineup_projection as designation_mod
+        archive_root = _cache_root()
+        designations = designation_mod.load_designations(archive_root)
+        if designations is None:
+            # This run itself may have loaded from the delivery copy; the
+            # archive to publish is whatever the shards or that copy hold.
+            designations = designation_mod.load_designations(
+                Path(config.DATA_DELIVERY_DIR))
+        if designations is not None and len(designations):
+            designations.drop_duplicates(
+                subset=[c for c in ("gameday", "team", "player")
+                        if c in designations.columns]).to_parquet(
+                out / "nba_designations.parquet", index=False)
+            logger.info("designation archive published: %d record(s)",
+                       len(designations))
+    except Exception as exc:  # noqa: BLE001 - publication is best-effort
+        logger.warning("designation archive not published (%s); the PIT "
+                       "removal falls back to the machine cache only", exc)
     _prune(out, date_c, set(artifacts))
     sync = _sync_data_delivery(config.ROOT_DIR.parent)
     summary["sync"] = sync

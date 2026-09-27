@@ -211,11 +211,14 @@ def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataF
         else:
             out[col] = pd.to_numeric(out[col], errors="coerce")
             out[col] = out[col].fillna(pd.Series(default, index=out.index))
-    for col, default in (("turnover_margin", 0.0), ("rebound_margin", 0.0)):
-        if col not in out:
-            out[col] = default
-        else:
-            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+    # turnover_margin / rebound_margin arrive derived in the team frame
+    # (``nba_sources.team_stats_from_log``) - a real count minus the
+    # opponent's count in the same game. Where the source lacks the count
+    # they stay NaN, which the EWM rolls over: ``min_periods=1`` yields NaN
+    # until the first observation, then real values. They were once created
+    # here as constant 0.0 defaults, and the drift table certified the result
+    # as "0.0 vs 0.0, OK" - a feature carrying zero information, reading as
+    # measured. A constant is not a default state; it is a missing one.
     # Normalize candidate metric aliases to one canonical per-team field.
     aliases = {
         "points_for_pg": "points_for", "points_against_pg": "points_against",

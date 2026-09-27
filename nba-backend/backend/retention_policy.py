@@ -9,7 +9,8 @@ EXACT_MASTER_NAMES = frozenset({
     "nba_production_cards_history.csv", "nba_production_cards_history.meta.json",
     "nba_fold_table.csv", "nba_pipeline_summary.json", "nba_oof_moneyline.csv",
     "nba_oof_distribution.csv", "nba_feature_selection_state.json",
-    "nba_oof_store.csv",
+    "nba_oof_store.csv", "nba_designations.parquet",
+    "nba_projected_lineup_status.json",
 })
 SERIES_PREFIXES = ("models/", "nba_run_engine_monitor_")
 

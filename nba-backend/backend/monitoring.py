@@ -227,6 +227,13 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
     return out
 
 
+#: Features whose builder writes 0.0 where it has no observation, so an
+#: exact zero in these columns is AMBIGUOUS between "measured 0" and "no
+#: data, defaulted". The coverage table's n_default_zero uses this set to
+#: keep its count honest instead of flagging every tie game's net_points.
+DEFAULT_ZERO_FEATURES = frozenset({"back_to_back_diff", "back_to_back"})
+
+
 def coverage(baseline_games: pd.DataFrame,
              current_games: pd.DataFrame | None = None) -> list[dict]:
     """Per-feature non-null share, per drift window - MLB's dual-window shape.
@@ -246,11 +253,23 @@ def coverage(baseline_games: pd.DataFrame,
             values = (pd.to_numeric(frame[feature], errors="coerce")
                       if feature in frame else pd.Series(dtype=float))
             pct = round(100 * float(values.notna().mean()), 2) if len(values) else 0.0
+            # n_default_zero counts values that arrive DEFAULT-FILLED rather
+            # than observed - the back_to_back case, where a team with no
+            # prior game in the window has no rest days to compare and the
+            # builder writes 0. A real zero observation (a tie game's
+            # net_points) is a measurement, not a default, and the old
+            # (values == 0) count conflated the two. The frame does not carry
+            # a per-value provenance flag, so the count is the defensible
+            # proxy: features whose builder NEVER default-fills report 0 and
+            # the column stays informative for the ones that do.
+            n_default = 0
+            if feature in DEFAULT_ZERO_FEATURES and len(values):
+                n_default = int((values == 0).sum())
             rows.append({"feature": feature, "window": window,
                          "n_games": int(len(frame)),
                          "n_nonnull": int(values.notna().sum()) if len(values) else 0,
                          "pct_measured": pct, "pct_nonnull": pct,
-                         "n_default_zero": int((values == 0).sum()) if len(values) else 0,
+                         "n_default_zero": n_default,
                          "status": "STARVED" if pct < 25
                                    else "LOW_COVERAGE" if pct < 80 else "OK"})
     return rows
