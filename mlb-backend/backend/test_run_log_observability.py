@@ -28,6 +28,7 @@ import re
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 BACKEND = Path(__file__).resolve().parent
@@ -35,6 +36,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import feature_metadata  # noqa: E402
+import features  # noqa: E402
 import ingestion  # noqa: E402
 import training  # noqa: E402
 
@@ -241,3 +243,85 @@ def test_metadata_still_covers_the_full_serving_width():
     meta, _ = feature_metadata.build_features_metadata()
     assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 62
     assert all(row.get("tooltip") for row in meta.values())
+
+
+# ── D. the diff pass must report its MEASURED column count ───────────────────
+
+def _diff_output() -> tuple[set, set, pd.DataFrame]:
+    """Run add_diff_features on an identity-only frame and return
+    (input_cols, created_cols, out_frame). Every diff column is emitted even
+    when its raw inputs are absent (they land as NaN), so this is the full
+    produced set without needing a real decided frame."""
+    frame = pd.DataFrame({
+        "game_pk": [1, 2],
+        "game_date": ["2026-01-01", "2026-01-02"],
+        "home_team": ["A", "A"],
+        "away_team": ["B", "B"],
+    })
+    before = set(frame.columns)
+    out = features.add_diff_features(frame)
+    return before, set(out.columns) - before, out
+
+
+def test_diff_pass_creates_thirty_six_columns():
+    """36, not the 35 every log line used to claim. The 36th is
+    lineup_il_flag_diff, added with the OUT/IR lineup filter."""
+    _, created, _ = _diff_output()
+    assert len(created) == 36, sorted(created)
+
+
+def test_created_set_carries_the_il_flag_diff():
+    """The column that caused the drift must be in the produced set."""
+    _, created, _ = _diff_output()
+    assert "lineup_il_flag_diff" in created
+    # the eight non-`*_diff` interaction features are easy to forget
+    extras = {
+        "lineup_handedness_matchup_advantage", "dome_is_neutral",
+        "wind_advantage_flyball_factor", "air_density_velocity_boost",
+        "bullpen_meltdown_risk", "pitcher_regression_indicator",
+        "lineup_depth_multiplier", "ace_efficiency_factor",
+    }
+    assert extras <= created, sorted(extras - created)
+
+
+def test_reported_count_matches_the_actual_count(caplog):
+    """The regression itself: the log hardcoded 35 while creating 36, so
+    every run under-reported its own work and nobody noticed for a week.
+    Assert the emitted number EQUALS the real delta, so re-hardcoding fails.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="features"):
+        before, created, _ = _diff_output()
+    assert before is not None
+    msgs = [r.getMessage() for r in caplog.records
+            if "columns added" in r.getMessage()]
+    assert len(msgs) == 1, msgs
+    reported = int(msgs[0].rsplit(":", 1)[1].strip().split()[0])
+    assert reported == len(created), (
+        f"log claims {reported} but {len(created)} columns were created"
+    )
+
+
+def test_no_hardcoded_column_count_remains():
+    """Neither diff log line may carry a literal count again."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "add_diff_features"
+    )
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "info"):
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant):
+            continue
+        text = str(node.args[0].value)
+        if "columns added" in text:
+            # every %d must be fed a Name, never a numeric literal
+            for arg in node.args[1:]:
+                assert not isinstance(arg, ast.Constant), (
+                    f"hardcoded count in: {text!r}"
+                )
