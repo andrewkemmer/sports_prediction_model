@@ -527,10 +527,6 @@ def team_category_ids(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def tree_numeric_columns() -> list[str]:
-    return list(config.active_moneyline_feature_cols())
-
-
 def tree_view(df: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in config.active_moneyline_feature_cols()]
     out = df.reindex(columns=cols).astype(float)

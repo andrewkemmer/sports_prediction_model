@@ -327,24 +327,21 @@ def availability_status(status: object) -> str:
 #: parameter fitted to 0.4% of a season. Pooling costs the distinction and
 #: buys an estimate that means something.
 #:
+#: ``availability_multiplier`` was removed, not retired: the injury path
+#: decided to treat unavailability as a binary REMOVAL (``lineup_projection``
+#: projects from the surviving pool, so a replacement inherits the slot) and
+#: the weighted form stopped having a caller. The measured rates themselves
+#: live on in ``config.PLAYER_TS_DESIGNATION_PLAY_RATE`` - the audit program
+#: prints them - and this comment keeps the numbers where the next reader
+#: can find them without resurrecting a function whose only remaining work
+#: was to be a documented trap.
+#:   out 0.0 (0/10,639) | doubtful 0.0 (0/5) | recovery 0.0 (no tipoff obs)
+#:   questionable 0.817, available 0.817, probable 0.817 (pooled bucket:
+#:   (2,006+34+23)/(2,448+52+24)) | day_to_day 0.5 (ESPN's word, unmeasured)
+#:   healthy 1.0 (no report filed at all)
 #: Note ``healthy`` is 1.0 while the available bucket is 0.817. They are NOT
 #: the same statement: a designation is the league telling us a specific
 #: player is expected to dress, and it is still wrong one time in five.
-AVAILABILITY_MULTIPLIERS: dict = {
-    "out": 0.0,            # 0 / 10,639
-    "doubtful": 0.0,       # 0 / 5
-    "recovery": 0.0,       # no observations at tipoff
-    "questionable": 0.817, # pooled available bucket
-    "available": 0.817,    # 2,063 / 2,524 pooled
-    "probable": 0.817,     # 23 / 24 pooled
-    "day_to_day": 0.5,     # ESPN's word; unmeasured for this league
-    "healthy": 1.0,        # no report filed at all
-}
-
-
-def availability_multiplier(status: object) -> float:
-    """Availability multiplier in [0, 1] for one raw status string."""
-    return AVAILABILITY_MULTIPLIERS[availability_status(status)]
 
 
 #: stats.nba.com and ESPN do not abbreviate two franchises the same way, and

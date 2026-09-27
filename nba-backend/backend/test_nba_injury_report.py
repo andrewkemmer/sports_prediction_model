@@ -238,12 +238,13 @@ def test_the_partial_placeholder_constant_is_gone():
 
 
 def test_every_table_agrees_about_every_designation():
-    """Four places now describe the same vocabulary: the module's state map,
-    ``config.PLAYER_TS_STATUS_TREATMENT``, the multiplier table, and the
-    measured play rates. Nothing forces them to agree, so nothing would notice
-    when they stop - which is how a rating ends up halving a player the config
-    calls absent and the source calls available.
-    """
+    """Three places describe the same vocabulary: the module's state map,
+    ``config.PLAYER_TS_STATUS_TREATMENT``, and the measured play rates.
+    Nothing forces them to agree, so nothing would notice when they stop -
+    which is how a rating ends up halving a player the config calls absent
+    and the source calls available. (The source's old weighted multiplier
+    was removed once the pipeline decided unavailability is a REMOVAL, not a
+    weight; the rates themselves live only in the config table now.)"""
     import config
     import nba_sources as sources
     for designation in ir.DESIGNATIONS:
@@ -252,8 +253,8 @@ def test_every_table_agrees_about_every_designation():
         assert normalized == key
         assert ir.availability_state(designation) == \
             config.PLAYER_TS_STATUS_TREATMENT[key]
-        assert sources.availability_multiplier(designation) == \
-            config.PLAYER_TS_DESIGNATION_PLAY_RATE[key]
+        assert sources.availability_status(designation) in \
+            config.PLAYER_TS_DESIGNATION_PLAY_RATE
 
 
 def test_a_state_implies_the_right_weight_ordering():

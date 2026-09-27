@@ -422,22 +422,6 @@ def _build(row: dict, published_at: datetime) -> Designation:
     )
 
 
-def filings_on(day: date, cache_dir: Path) -> list[tuple[datetime, Path]]:
-    """Every filing the league published for a calendar day, in time order."""
-    found: list[tuple[datetime, Path]] = []
-    quarter = day >= QUARTER_HOUR_FROM.date()
-    hours = range(6, 24)
-    minutes = (0, 15, 30, 45) if quarter else (0,)
-    for hour in hours:
-        for minute in minutes:
-            when = datetime(day.year, day.month, day.day, hour, minute)
-            path = fetch_report(when, cache_dir)
-            if path is not None:
-                found.append((when, path))
-    found.sort(key=lambda pair: pair[0])
-    return found
-
-
 def pre_game_designations(day: date, cache_dir: Path,
                           how_far_back: int = 24
                           ) -> dict[str, list[Designation]]:

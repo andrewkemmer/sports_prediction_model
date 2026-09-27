@@ -91,7 +91,7 @@ def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
 def member_fit_input(
     name: str,
     X: pd.DataFrame,
-    pre: TrainFoldPreprocessor | None,
+    pre: TrainFoldPreprocessor | None = None,
 ):
     """Apply the one authoritative preprocessing path for a member."""
     if name in LINEAR_MEMBERS:
@@ -106,8 +106,30 @@ def member_matrix_ndarray(
     df: pd.DataFrame,
     pre: TrainFoldPreprocessor | None = None,
 ) -> np.ndarray:
-    """Return a plain matrix for explainers/tests without bypassing ``pre``."""
+    """Return a plain matrix for explainers/tests without bypassing ``pre``.
+
+    ``shap_explain`` builds each member's input through this one path, so the
+    attribution matrix can never drift from the matrix the predict path
+    builds. It is deliberately NOT inlined there: the whole point of the
+    helper is that there is exactly one construction of a member's matrix.
+    """
     return np.asarray(member_fit_input(name, member_matrix(name, df), pre))
+
+
+
+
+
+def member_fit_input(
+    name: str,
+    X: pd.DataFrame,
+    pre: TrainFoldPreprocessor | None,
+):
+    """Apply the one authoritative preprocessing path for a member."""
+    if name in LINEAR_MEMBERS:
+        if pre is None:
+            raise ValueError("linear member requires a fitted train-fold preprocessor")
+        return pre.transform(X)
+    return X
 
 
 def _predict(model, name: str, X: pd.DataFrame,
@@ -488,15 +510,6 @@ def set_calibration_mode(mode: str) -> None:
     if value not in VALID_CALIBRATION_MODES:
         raise ValueError(f"unknown calibration mode {value!r}")
     config.CALIBRATION_MODE = value
-
-
-def is_identity(cal: dict | None) -> bool:
-    if not cal or str(cal.get("method")) != FAVORED_CALIBRATOR_METHOD:
-        return True
-    try:
-        return abs(float(cal.get("a", 1.0)) - 1.0) < 1e-9 and abs(float(cal.get("b", 0.0))) < 1e-9
-    except (TypeError, ValueError):
-        return True
 
 
 def fit_platt(p_fav, y_fav):

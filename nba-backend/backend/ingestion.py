@@ -705,39 +705,6 @@ def record_injury_snapshot(roster: pd.DataFrame | None,
     return len(lines)
 
 
-def load_injury_history() -> pd.DataFrame:
-    """Read the accumulated injury history, oldest first.
-
-    An absent or unreadable file yields an empty frame, never a raise: the
-    history is an input to a filter, and a filter with no history degrades to
-    the unfiltered pool rather than failing the run.
-    """
-    columns = ["snapshot_date", "player_id", "team", "status", "raw_status",
-               "published_at"]
-    path = injury_history_path()
-    if not path.exists():
-        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
-    rows = []
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    # One corrupt line must not discard the rest of the
-                    # history; a truncated final append is the common cause.
-                    continue
-    except OSError as exc:
-        logger.warning("could not read %s (%s)", path.name, exc)
-        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
-    if not rows:
-        return pd.DataFrame({c: pd.Series(dtype="object") for c in columns})
-    return pd.DataFrame(rows, columns=columns)
-
-
 def fetch_availability(teams, use_cache: bool = True) -> pd.DataFrame:
     """Availability for every team on the slate, one roster request each."""
     frames = []
@@ -1814,19 +1781,3 @@ def _read_pbp_only() -> pd.DataFrame:
         if not frame.empty:
             frames.append(frame)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-
-def load_games(**kwargs) -> pd.DataFrame:
-    return load_ingested(**kwargs).games
-
-
-def load_team_stats(**kwargs) -> pd.DataFrame:
-    return load_ingested(**kwargs).team_stats
-
-
-def load_player_stats(**kwargs) -> pd.DataFrame:
-    return load_ingested(**kwargs).player_stats
-
-
-def load_play_by_play(**kwargs) -> pd.DataFrame:
-    return load_ingested(**kwargs).play_by_play

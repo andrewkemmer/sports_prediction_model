@@ -889,28 +889,16 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                       f"{len(config.active_moneyline_feature_cols())} features, "
                       f"{len(fold_list)} folds")
 
-    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
-    ml_oof = _merge_oof_metadata(ml["oof"], game_df)
-    if not len(ml_oof):
-        raise RuntimeError("NBA moneyline walk-forward produced no OOF rows")
-    platt = ml_mod.moneyline_fit(ml_oof.p_ensemble.to_numpy(float),
-                                 ml_oof.home_win.to_numpy(float))
-    if "p_ensemble_calibrated" not in ml_oof:
-        ml_oof["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
-            ml_oof.p_ensemble.to_numpy(float), platt)
-    ml_oof["p_ensemble_calibrated"] = ml_oof.p_ensemble_calibrated.fillna(
-        ml_oof.p_ensemble)
-
-    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
-    dist_oof = _merge_oof_metadata(dist["oof"], game_df)
-    dispersion = dist_mod.calibrate_dispersion(dist_oof)
-    oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion)
-    oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
-    _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
-                          f"{len(fold_list)} folds")
-
-    final_models, _ = ml_mod.fit_final_models(game_df)
-    final_reg = dist_mod.fit_final(game_df)
+    # The slate frame is DATA, not model output - it needs only the schedule
+    # and the stat ladders, so it is built before training and survives a
+    # training failure. MLB's phase-4 shape: the model block is contained, a
+    # failure inside it is recorded and the run still ships every artifact
+    # the surviving phases can produce (power rankings, ratings, player TS,
+    # the feature contract, drift/coverage) and exits with status "failed"
+    # so the scheduler files it red. A crash here used to abort ``run``
+    # outright, and a run that trains on Monday publishes nothing on Monday -
+    # the board went stale even though the data side of the pipeline was
+    # perfectly healthy.
     slate = (feat_mod.build_slate_features(games, facts.team_stats,
                                            facts.team_events)
              if len(pending) else pd.DataFrame())
@@ -925,65 +913,108 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         slate = slate.merge(
             _pl_slate[["game_id"] + config.PLAYER_TS_POSITION_FEATURE_COLS],
             on="game_id", how="left")
-    if len(slate):
-        slate["home_win_prob_model"] = ml_mod.predict_slate(
-            final_models, slate, ml["member_weights"])
-        slate["p_ensemble"] = slate.home_win_prob_model
-        slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
-            slate.home_win_prob_model.to_numpy(float), platt)
-        slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-        slate_markets = _marketize(slate, slate, "slate", dispersion)
-        slate_markets = dist_mod.apply_market_calibration(slate_markets,
-                                                           market_calibration)
-        leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
-        slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
-                            on="game_id", how="left", suffixes=("", "_leader"))
-    else:
-        slate_markets = pd.DataFrame()
-        leaders = pd.DataFrame()
-    _step("final fit", f"{len(final_models)} ensemble member(s), "
-                       f"{len(slate)} upcoming game(s) scored")
+
+    phase_error: Exception | None = None
+    ml: dict | None = None
+    ml_oof = platt = dist_oof = dispersion = None
+    oof_markets = market_calibration = None
+    final_models: dict = {}
+    final_reg = None
+    slate_markets = pd.DataFrame()
+    leaders = pd.DataFrame()
+    try:
+        ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
+        ml_oof = _merge_oof_metadata(ml["oof"], game_df)
+        if not len(ml_oof):
+            raise RuntimeError("NBA moneyline walk-forward produced no OOF rows")
+        platt = ml_mod.moneyline_fit(ml_oof.p_ensemble.to_numpy(float),
+                                     ml_oof.home_win.to_numpy(float))
+        if "p_ensemble_calibrated" not in ml_oof:
+            ml_oof["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
+                ml_oof.p_ensemble.to_numpy(float), platt)
+        ml_oof["p_ensemble_calibrated"] = ml_oof.p_ensemble_calibrated.fillna(
+            ml_oof.p_ensemble)
+
+        dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
+        dist_oof = _merge_oof_metadata(dist["oof"], game_df)
+        dispersion = dist_mod.calibrate_dispersion(dist_oof)
+        oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion)
+        oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
+                              f"{len(fold_list)} folds")
+
+        final_models, _ = ml_mod.fit_final_models(game_df)
+        final_reg = dist_mod.fit_final(game_df)
+        if len(slate):
+            slate["home_win_prob_model"] = ml_mod.predict_slate(
+                final_models, slate, ml["member_weights"])
+            slate["p_ensemble"] = slate.home_win_prob_model
+            slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
+                slate.home_win_prob_model.to_numpy(float), platt)
+            slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
+            slate_markets = _marketize(slate, slate, "slate", dispersion)
+            slate_markets = dist_mod.apply_market_calibration(slate_markets,
+                                                               market_calibration)
+            leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
+            slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
+                                on="game_id", how="left", suffixes=("", "_leader"))
+        _step("final fit", f"{len(final_models)} ensemble member(s), "
+                           f"{len(slate)} upcoming game(s) scored")
+    except Exception as exc:  # noqa: BLE001 - recorded, the run still ships
+        phase_error = exc
+        logger.error("phase 4 (training + prediction) failed: %s - the run "
+                     "ships its remaining artifacts and exits failed", exc)
+    if phase_error is None and not len(final_models):
+        phase_error = RuntimeError("final fit produced no ensemble members")
 
     artifacts: list[str] = []
-    p_ml = out / config.MONEYLINE_JSON.format(date=date_c)
-    serving.write_moneyline_json(
-        p_ml, slate,
-        slate.get("home_win_prob_model", pd.Series(dtype=float)),
-        slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),         facts.team_names, _config_meta(facts), leaders)
-    artifacts.append(p_ml.name)
-    p_player = out / config.PLAYER_MATCHUP_JSON.format(date=date_c)
-    serving.write_player_matchup_json(p_player, leaders)
-    artifacts.append(p_player.name)
+    cal_metrics: dict = {}
+    if phase_error is None:
+        # Everything from here to the monitor needs a trained model. On a
+        # training failure these families are skipped under one loud line -
+        # the same trade MLB's phase-4 containment makes - while the data
+        # families below still ship.
+        p_ml = out / config.MONEYLINE_JSON.format(date=date_c)
+        serving.write_moneyline_json(
+            p_ml, slate,
+            slate.get("home_win_prob_model", pd.Series(dtype=float)),
+            slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),
+            facts.team_names, _config_meta(facts), leaders)
+        artifacts.append(p_ml.name)
+        p_player = out / config.PLAYER_MATCHUP_JSON.format(date=date_c)
+        serving.write_player_matchup_json(p_player, leaders)
+        artifacts.append(p_player.name)
 
-    raw_metrics = evaluation.binary_metrics(ml_oof.p_ensemble.to_numpy(float),
-                                            ml_oof.home_win.to_numpy(float))
-    cal_metrics = evaluation.binary_metrics(ml_oof.p_ensemble_calibrated.to_numpy(float),
-                                            ml_oof.home_win.to_numpy(float))
-    buckets = evaluation.calibration_buckets(ml_oof.p_ensemble.to_numpy(float),
-                                              ml_oof.home_win.to_numpy(float))
-    p_cal = out / config.CALIBRATION_JSON.format(date=date_c)
-    serving.write_calibration_json(p_cal, raw_metrics, cal_metrics, buckets, [],
-                                   _config_meta(facts), platt, run_day, len(ml_oof),
-                                   market_calibration)
-    artifacts.append(p_cal.name)
-    p_hist = out / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
-    serving.write_predictions_history_csv(p_hist, ml_oof,
-                                          ml_oof.p_ensemble_calibrated.to_numpy(float))
-    artifacts.append(p_hist.name)
-    # Stable OOF stores support audits without making the frontend depend on
-    # an unfiltered in-memory frame.
-    ml_oof.to_csv(out / "nba_oof_moneyline.csv", index=False)
-    dist_oof.to_csv(out / "nba_oof_distribution.csv", index=False)
-    artifacts += ["nba_oof_moneyline.csv", "nba_oof_distribution.csv"]
+        raw_metrics = evaluation.binary_metrics(ml_oof.p_ensemble.to_numpy(float),
+                                                ml_oof.home_win.to_numpy(float))
+        cal_metrics = evaluation.binary_metrics(ml_oof.p_ensemble_calibrated.to_numpy(float),
+                                                ml_oof.home_win.to_numpy(float))
+        buckets = evaluation.calibration_buckets(ml_oof.p_ensemble.to_numpy(float),
+                                                  ml_oof.home_win.to_numpy(float))
+        p_cal = out / config.CALIBRATION_JSON.format(date=date_c)
+        serving.write_calibration_json(p_cal, raw_metrics, cal_metrics, buckets, [],
+                                       _config_meta(facts), platt, run_day, len(ml_oof),
+                                       market_calibration)
+        artifacts.append(p_cal.name)
+        p_hist = out / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
+        serving.write_predictions_history_csv(p_hist, ml_oof,
+                                              ml_oof.p_ensemble_calibrated.to_numpy(float))
+        artifacts.append(p_hist.name)
+        # Stable OOF stores support audits without making the frontend depend on
+        # an unfiltered in-memory frame.
+        ml_oof.to_csv(out / "nba_oof_moneyline.csv", index=False)
+        dist_oof.to_csv(out / "nba_oof_distribution.csv", index=False)
+        artifacts += ["nba_oof_moneyline.csv", "nba_oof_distribution.csv"]
     folds_mod.fold_table(game_df, fold_list).to_csv(out / "nba_fold_table.csv", index=False)
     artifacts.append("nba_fold_table.csv")
 
-    p_markets = out / config.MARKETS_CSV.format(date=date_c)
-    serving.write_markets_csv(p_markets,
-                              out / config.MARKETS_META_JSON.format(date=date_c),
-                              oof_markets, slate_markets, _config_meta(facts))
-    artifacts += [p_markets.name,
-                  (out / config.MARKETS_META_JSON.format(date=date_c)).name]
+    if phase_error is None:
+        p_markets = out / config.MARKETS_CSV.format(date=date_c)
+        serving.write_markets_csv(p_markets,
+                                  out / config.MARKETS_META_JSON.format(date=date_c),
+                                  oof_markets, slate_markets, _config_meta(facts))
+        artifacts += [p_markets.name,
+                      (out / config.MARKETS_META_JSON.format(date=date_c)).name]
 
     ratings, records, point_diff = _power_state(settled)
     p_rank = out / config.POWER_RANKINGS_CSV.format(date=date_c)
@@ -1005,6 +1036,32 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
     serving.write_feature_json(p_feat, coverage, _config_meta(facts), fold_info)
     artifacts.append(p_feat.name)
+
+    # Per-game SHAP attributions for the current slate (display only).  NHL
+    # ships these and its game cards render them; NBA's cards have an
+    # expander wired to a file family this pipeline never produced.  Built
+    # from the same fitted members the bundle persists, so a card's chart
+    # explains the model that actually serves it.  Display-only and wrapped:
+    # a SHAP failure degrades to cards without expanders, never a red run.
+    try:
+        from shap_explain import compute_nba_shap_per_game
+        bundle_view = {
+            "moneyline_models": {name: entry["model"] for name, entry in final_models.items()},
+            "moneyline_preprocessors": {name: entry["pre"] for name, entry in final_models.items()},
+            "ensemble_weights": ml["member_weights"] if ml else {},
+        }
+        if phase_error is None and len(slate):
+            slate_serving = slate.copy()
+            slate_serving["home_win_prob_model"] = slate.get("p_ensemble_calibrated")
+            n_shap = compute_nba_shap_per_game(bundle_view, slate_serving, out)
+            if n_shap:
+                artifacts.extend(
+                    f"{config.SHAP_GAME_PREFIX}_{gid}.csv"
+                    for gid in slate["game_id"].astype(str))
+            logger.info("SHAP attributions written: %d", n_shap)
+    except Exception as exc:  # noqa: BLE001 - display-only, never fatal
+        logger.warning("SHAP attribution pass skipped (non-fatal): %s", exc)
+
     _step("serve", f"{len(artifacts)} artifact(s) written to {out}")
 
     selection = feature_selection.run_rfe(game_df, out, date_c)
@@ -1018,7 +1075,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # playoff-heavy 60-row tail to a full season paged eleven features whose
     # means had not moved.  Weights are the members' real blend-weighted
     # importances, not a table of zeros.
-    imp_weights = feature_importance_weights(final_models, ml["member_weights"])
+    imp_weights = (feature_importance_weights(final_models, ml["member_weights"])
+                   if ml else None)
     drift_baseline, drift_current = monitoring.drift_windows(game_df)
     drift_names = monitoring.write_run_engine_feature_artifacts(
         out, date_c, drift_baseline, drift_current, imp_weights)
@@ -1027,34 +1085,46 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                             f"{len(drift_names)} drift/coverage file(s)")
 
     import joblib
-    bundle = {
-        "moneyline_models": {name: entry["model"] for name, entry in final_models.items()},
-        "moneyline_preprocessors": {name: entry["pre"] for name, entry in final_models.items()},
-        "ensemble_weights": ml["member_weights"], "platt": platt,
-        "score_regressor": final_reg, "distribution": dispersion,
-        "market_calibration": market_calibration,
-        "feature_set_version": config.FEATURE_SET_VERSION,
-        "feature_columns": config.active_moneyline_feature_cols(),
-        "trained_utc": _now(), "config": _config_meta(facts),
-    }
-    model_path = model_dir / "nba_ensemble_latest.joblib"
-    joblib.dump(bundle, model_path)
-    artifacts.append(str(model_path.relative_to(out)))
+    if phase_error is None:
+        # The persisted bundle IS the serving model. A failed fit must never
+        # overwrite yesterday's good bundle with an empty-member dict - the
+        # board would keep "working" against a model that predicts nothing.
+        bundle = {
+            "moneyline_models": {name: entry["model"] for name, entry in final_models.items()},
+            "moneyline_preprocessors": {name: entry["pre"] for name, entry in final_models.items()},
+            "ensemble_weights": ml["member_weights"], "platt": platt,
+            "score_regressor": final_reg, "distribution": dispersion,
+            "market_calibration": market_calibration,
+            "feature_set_version": config.FEATURE_SET_VERSION,
+            "feature_columns": config.active_moneyline_feature_cols(),
+            "trained_utc": _now(), "config": _config_meta(facts),
+        }
+        model_path = model_dir / "nba_ensemble_latest.joblib"
+        joblib.dump(bundle, model_path)
+        artifacts.append(str(model_path.relative_to(out)))
+    else:
+        logger.warning("model bundle NOT rewritten: the previously served "
+                       "ensemble stays in place for serving")
 
-    members = monitoring.ensemble_table(ml_oof, ml["member_weights"])
+    members = (monitoring.ensemble_table(ml_oof, ml["member_weights"])
+               if ml_oof is not None and ml else [])
     drift = monitoring.feature_drift(drift_baseline, drift_current, imp_weights)
     cov = monitoring.coverage(drift_baseline, drift_current)
-    brier = monitoring.rolling_brier(ml_oof)
+    brier = monitoring.rolling_brier(ml_oof) if ml_oof is not None else []
     latest_brier = f"{brier[-1]['brier']:.4f}" if brier else "n/a"
+    baseline_brier = (float(1 - ml_oof.home_win.mean())
+                      if ml_oof is not None and len(ml_oof) else None)
     monitoring.write_monitor_json(
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
         members, brier,
-        float(1 - ml_oof.home_win.mean()), _config_meta(facts), fold_info,
+        baseline_brier, _config_meta(facts), fold_info,
         cal_metrics, platt)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,
-        evaluation.nb_distribution_metrics(dist_oof, dispersion), oof_markets,
+        (evaluation.nb_distribution_metrics(dist_oof, dispersion)
+         if dist_oof is not None and dispersion is not None else {}),
+        oof_markets if oof_markets is not None else {},
         market_calibration, _config_meta(facts))
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
@@ -1066,7 +1136,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             out / "nba_production_cards_history.csv", cards)
         artifacts.append("nba_production_cards_history.csv")
 
-    if len(slate):
+    if len(slate) and len(slate_markets):
         _validate_slate_contract(slate, slate_markets)
     _step("monitor", f"rolling Brier {latest_brier} over {len(brier)} day(s), "
                      f"{len(members)} ensemble member(s)")
@@ -1079,7 +1149,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             "anything listed is in the published contract and in no row, so "
             "the model was fitted (and the slate scored) without it",
             ", ".join(empty_frame) or "none", ", ".join(empty_slate) or "none")
-    summary = {"status": "ok", "run_date": run_day, "artifacts": artifacts,
+    summary = {"status": "failed" if phase_error else "ok",
+               "errors": [str(phase_error)] if phase_error else [],
+               "run_date": run_day, "artifacts": artifacts,
                "weights": ml["member_weights"], "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
                "n_features": len(config.active_moneyline_feature_cols()),
@@ -1106,14 +1178,20 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
 
 def main(argv=None):
+    """CLI entry: run, print the summary, and exit non-zero on failure.
+
+    The summary JSON carries ``status: "failed"`` for a machine reader; the
+    non-zero exit is for the scheduler wrapper, which must not file a red run
+    as a green one.
+    """
     parser = argparse.ArgumentParser(description="NBA production pipeline")
     parser.add_argument("--run-date", default=None)
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--skip-pull", action="store_true")
     args = parser.parse_args(argv)
-    print(json.dumps(run(args.run_date, args.out_dir, args.skip_pull),
-                     indent=1, default=str))
-    return 0
+    summary = run(args.run_date, args.out_dir, args.skip_pull)
+    print(json.dumps(summary, indent=1, default=str))
+    return 0 if summary.get("status") == "ok" else 1
 
 
 if __name__ == "__main__":

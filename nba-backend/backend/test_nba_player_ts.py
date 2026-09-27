@@ -357,35 +357,18 @@ class TestAvailability:
         assert src.availability_status("Felt a little under the weather") \
             == "healthy"
 
-    def test_an_out_player_carries_zero_weight(self):
-        assert src.availability_multiplier("Out") == 0.0
-        assert src.availability_multiplier("Active") == 1.0
-
-    def test_multipliers_are_the_measured_rates(self):
-        """Not NHL's inherited table, and not three separate thin estimates.
-
-        The available bucket carries ONE pooled rate - (2,006 + 34 + 23) /
-        (2,448 + 52 + 24) = 0.817 - rather than a per-designation figure for
-        each. Questionable's own 0.654 rests on 52 observations, which is
-        0.4% of a season and not a basis for a parameter.
-        """
-        assert src.availability_multiplier("Available") == 0.817
-        assert src.availability_multiplier("Questionable") == 0.817
-        assert src.availability_multiplier("Probable") == 0.817
-        assert src.availability_multiplier("Out") == 0.0
-
-    def test_available_is_not_the_same_claim_as_healthy(self):
-        """``available`` is the league naming a player; ``healthy`` is the
-        league saying nothing. Even so the first is wrong one time in five."""
-        assert src.availability_multiplier("Available") < 1.0
-        assert src.availability_multiplier("Active") == 1.0
-
-    def test_questionable_is_not_an_absence(self):
-        """The collapse this policy made. Questionable played 34 of 52, so
-        treating it as an absence deleted a third of a real player's
-        appearances; treating it as its own state meant a parameter from 52
-        observations. It is pooled with Available instead."""
-        assert src.availability_multiplier("Questionable") > 0.0
+    def test_the_weighted_table_has_no_caller_left(self):
+        """The injury path decided for binary REMOVAL (a false flag drops the
+        player from the pool and a replacement inherits the slot), so the
+        weighted form of the same vocabulary was a second answer to a
+        question the pipeline no longer asks - kept alive only by its own
+        tests. The measured rates remain in
+        ``config.PLAYER_TS_DESIGNATION_PLAY_RATE``; the multiplier is gone
+        rather than kept as an audited corpse."""
+        assert not hasattr(src, "availability_multiplier")
+        import config
+        assert config.PLAYER_TS_DESIGNATION_PLAY_RATE["out"] == 0.0
+        assert config.PLAYER_TS_DESIGNATION_PLAY_RATE["available"] == 0.817
 
     def test_an_empty_injuries_list_is_healthy_not_missing(self):
         """The common case, and the one that must not read as no data.

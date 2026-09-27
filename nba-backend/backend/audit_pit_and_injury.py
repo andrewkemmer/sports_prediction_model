@@ -183,16 +183,14 @@ def main() -> None:
     print("  mapping (nba_injury_report.availability_state):")
     for designation in ir.DESIGNATIONS:
         print(f"    {designation:<14} -> {ir.availability_state(designation):<10}"
-              f" multiplier {config.PLAYER_TS_DESIGNATION_PLAY_RATE[designation.lower()]:.3f}")
-    print("\n  is availability_multiplier used anywhere in the feature path?")
-    import subprocess
-    out = subprocess.run(
-        ["grep", "-rn", "availability_multiplier",
-         str(Path(__file__).parent)], capture_output=True, text=True).stdout
-    consumers = [ln for ln in out.splitlines()
-                 if "test_" not in ln and "def availability_multiplier" not in ln
-                 and "AVAILABILITY_MULTIPLIERS" not in ln]
-    print(f"    non-test consumers: {consumers if consumers else 'NONE'}")
+              f" play rate {config.PLAYER_TS_DESIGNATION_PLAY_RATE[designation.lower()]:.3f}")
+    print("\n  the source's old weighted multiplier (availability_multiplier) was")
+    print("  REMOVED: unavailability is binary removal (the projected lineup is")
+    print("  the top_k of the SURVIVORS, so a replacement inherits the slot); the")
+    print("  measured rates live on in config.PLAYER_TS_DESIGNATION_PLAY_RATE.")
+    import nba_sources as sources
+    print(f"    availability_multiplier present: "
+          f"{hasattr(sources, 'availability_multiplier')}")
     print("\n  actual mechanism in lineup_projection._project_team:")
     print("    healthy = latest[latest.is_available]   <- REMOVAL, not weighting")
     print("    a false flag removes the player from the pool; the projected")
