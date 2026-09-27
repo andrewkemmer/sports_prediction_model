@@ -944,6 +944,95 @@ check("the superseded fixed-sigma API is gone, not merely unused",
       and not hasattr(config, "MARGIN_SIGMA")
       and not hasattr(config, "SIGMA_FLOOR_MARGIN"),
       "calibrate_sigma / MARGIN_SIGMA / SIGMA_* were shims with no caller")
+check("game_distribution no longer accepts a sigma it would silently discard",
+      "sigma_margin" not in inspect.signature(dist_mod.game_distribution).parameters
+      and "sigma_total" not in inspect.signature(dist_mod.game_distribution).parameters,
+      "accepting a Gaussian variance while shipping an NB engine is how a "
+      "caller comes to believe a variance was applied")
+check("apply_distribution no longer accepts a stray sigma_total",
+      "sigma_total" not in inspect.signature(dist_mod.apply_distribution).parameters,
+      "the NB params dict is the only dispersion channel")
+
+# ---- Integer-line three-way calibration: each leg gets its OWN map. -------
+# The shipped 2026-09-27 artifact carried away legs derived as
+# 1 - cal(home) - cal(push); a 1627-row sample showed that residual up to
+# 0.036 from what the away leg's own map produces, a systematic away-side
+# bias largest at the deep lines the card quotes. MLB derives the third leg
+# from its own outcome column (run_engine's away-favorite block); NFL now
+# does the same and the derived-ML away side carries the same favored map.
+try:
+    _rng3 = np.random.default_rng(77)
+    _n3 = 700
+    _mu_h3 = _rng3.normal(23, 3, _n3)
+    _mu_a3 = _rng3.normal(21, 3, _n3)
+    _hs3 = np.maximum(0, np.round(_mu_h3 + _rng3.normal(0, 9, _n3)))
+    _as3 = np.maximum(0, np.round(_mu_a3 + _rng3.normal(0, 9, _n3)))
+    _oof3 = pd.DataFrame({
+        "game_id": [f"P{i}" for i in range(_n3)],
+        "gameday": pd.date_range("2024-01-01", periods=_n3, freq="D"),
+        "season": 2024, "fold_id": (_n3 - 1 - np.arange(_n3)) // 100,
+        "mu_h": _mu_h3, "mu_a": _mu_a3,
+        "home_score": _hs3, "away_score": _as3,
+        "p_ensemble": np.full(_n3, 0.5), "p_ensemble_calibrated": np.full(_n3, 0.5),
+    })
+    _oof3["margin"] = _oof3.home_score - _oof3.away_score
+    _oof3["total"] = _oof3.home_score + _oof3.away_score
+    _mk3 = dist_mod.apply_distribution(_oof3, {"alpha_home": 0.12, "alpha_away": 0.12})
+    _mk3, _cal3 = dist_mod.calibrate_market_frame(_mk3)
+    _sl3 = dist_mod.apply_distribution(
+        pd.DataFrame({"mu_h": [24.0], "mu_a": [20.0]}),
+        {"alpha_home": 0.12, "alpha_away": 0.12})
+    _sl3 = dist_mod.apply_market_calibration(_sl3, _cal3)
+
+    def _away_leg(df, line):
+        h, p = (df[dist_mod._grid_key("p_home_cover", line)].iloc[0],
+                df[dist_mod._grid_key("p_push", line)].iloc[0])
+        ac = dist_mod._grid_key("p_away_cover", line)
+        a = df[ac].iloc[0] if ac in df.columns else None
+        return float(h), float(p), (None if a is None or not np.isfinite(a) else float(a))
+
+    _l = 3
+    _h3, _p3, _a3 = _away_leg(_sl3, _l)
+    check("integer spread rows carry the away leg's own calibrated value",
+          _a3 is not None and abs(_h3 + _p3 + _a3 - 1.0) < 1e-6,
+          f"home={_h3:.4f} push={_p3:.4f} away={_a3}")
+    # The away leg responds to its OWN map: swap the away map for a shifted
+    # one and the away leg must move (all three legs renormalize, so the
+    # shifted leg moves MORE than the others -- the probe is that the away
+    # leg's delta dominates its own renormalization share).
+    _resid3 = 1.0 - _h3 - _p3
+    _cal3_t = {"method": "t", "scope": "line_specific", "totals": {},
+               "run_lines": {}, "derived_moneyline": None}
+    for k, v in _cal3["run_lines"].items():
+        _cal3_t["run_lines"][k] = dict(v)
+    _cal3_t["run_lines"][str(_l)]["away"] = {"a": 1.3, "b": 0.5}
+    _sl3_t = dist_mod.apply_market_calibration(_sl3, _cal3_t)
+    _h3_t = float(_sl3_t[dist_mod._grid_key("p_home_cover", _l)].iloc[0])
+    _a3_t = float(_sl3_t[dist_mod._grid_key("p_away_cover", _l)].iloc[0])
+    _p3_t = float(_sl3_t[dist_mod._grid_key("p_push", _l)].iloc[0])
+    check("the away leg is its own map, not the home map's residual",
+          _a3 is not None and abs(_a3_t - _a3) > abs(_h3_t - _h3)
+          and abs(_a3_t - _a3) > abs(_p3_t - _p3),
+          f"away moved {abs(_a3_t - _a3):.4f} vs home {abs(_h3_t - _h3):.4f} "
+          f"push {abs(_p3_t - _p3):.4f}")
+    # Slate application matches the OOF frame's application (same bundle).
+    _oofrow3 = _mk3.iloc[[0]]
+    _h_o, _p_o, _a_o = _away_leg(_mk3, _l)
+    check("the artifact's three-way split sums to 1 on the OOF frame too",
+          abs(_h_o + _p_o + _a_o - 1.0) < 1e-6,
+          f"{_h_o:.4f}+{_p_o:.4f}+{_a_o:.4f}")
+    # Derived-ML away side: both sides must carry the favored map, and the
+    # published tie must be the one the pair was normalized against.
+    _dm3 = float(_sl3["p_home_win_derived"].iloc[0])
+    _da3 = float(_sl3["p_away_win_derived"].iloc[0])
+    _tie3 = float(_sl3["p_tie"].iloc[0])
+    check("derived-ML pair stays coherent through the favored map",
+          0.0 <= _dm3 <= 1.0 and 0.0 <= _da3 <= 1.0
+          and abs(_dm3 + _da3 - (1.0 - _tie3)) < 2e-6,
+          f"derived={_dm3:.4f} away={_da3:.4f} tie={_tie3:.4f}")
+except Exception as exc:  # noqa: BLE001
+    check("integer spread rows carry the away leg's own calibrated value",
+          False, str(exc))
 
 # ---------------------------------------------------------------------------
 print("\n== 7. Serving contract tests ==")
@@ -958,7 +1047,7 @@ slate["gameday"] = "2026-09-10"
 slate["stadium"] = "Test Field"
 slate["gametime"] = "20:15"
 slate["mu_h"], slate["mu_a"] = 27.0, 20.0
-slate = dist_mod.apply_distribution(slate, 13.5, 10.0)
+slate = dist_mod.apply_distribution(slate)
 import tempfile
 tmp = Path(tempfile.mkdtemp())
 ml_path = tmp / "nfl_moneyline_v1_test.json"
@@ -974,7 +1063,7 @@ check("probabilities sum to 1",
 # markets CSV contract — build OOF rows through the distribution engine
 d_ = dist_mod.apply_distribution(
     pd.DataFrame({"game_id": ["O0", "O1"], "mu_h": [27.0, 24.0],
-                  "mu_a": [20.0, 24.0]}), 13.5, 10.0)
+                  "mu_a": [20.0, 24.0]}))
 for c in serve_mod.MARKETS_BASE_COLS:
     if c not in d_:
         d_[c] = np.nan

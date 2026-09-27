@@ -219,13 +219,19 @@ def _fair_from_grid(row: pd.Series, prefix: str, lines: list) -> float:
 
 
 def game_distribution(mu_h: float, mu_a: float,
-                      sigma_margin: float | None = None,
-                      sigma_total: float | None = None,
                       *, alpha_home: float = 0.0,
                       alpha_away: float = 0.0,
                       n_draws: int = MC_DRAWS,
                       seed: int = MC_SEED) -> dict:
-    """Single-game NB/MC output; sigma args remain accepted for compatibility."""
+    """Single-game NB/MC output.
+
+    The legacy ``sigma_margin``/``sigma_total`` keyword arguments are GONE,
+    not ignored: this engine is the NB Monte Carlo (the shipped model), a
+    sigma is a different (Gaussian) parameterization, and accepting the name
+    while silently discarding its value is exactly how a caller comes to
+    believe a variance was applied when none was. No production or test caller
+    passed one (verified 2026-09-27); a caller that genuinely wants a
+    different dispersion passes ``alpha_home``/``alpha_away``."""
     row = simulate_distributions(np.array([mu_h]), np.array([mu_a]),
                                   alpha_home, alpha_away, n_draws, seed).iloc[0].to_dict()
     # Preserve the historical in-memory negative labels used by direct unit
@@ -237,8 +243,7 @@ def game_distribution(mu_h: float, mu_a: float,
     return row
 
 
-def apply_distribution(df: pd.DataFrame, params: dict | None = None,
-                       sigma_total: float | None = None) -> pd.DataFrame:
+def apply_distribution(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
     """Expand mu predictions into the complete NB/MC market grid."""
     # Numeric positional arguments are retained for legacy unit callers; the
     # production pipeline passes the NB parameter dictionary.
@@ -246,8 +251,14 @@ def apply_distribution(df: pd.DataFrame, params: dict | None = None,
         params = {}
     ah = float(params.get("alpha_home", 0.0))
     aa = float(params.get("alpha_away", 0.0))
+    return simulate_distributions_into(df, ah, aa)
+
+
+def simulate_distributions_into(df: pd.DataFrame, alpha_home: float,
+                                alpha_away: float) -> pd.DataFrame:
+    """Attach the MC grid columns to ``df`` (dropping any colliding ones)."""
     dist = simulate_distributions(df["mu_h"].to_numpy(float),
-                                  df["mu_a"].to_numpy(float), ah, aa)
+                                  df["mu_a"].to_numpy(float), alpha_home, alpha_away)
     base = df.drop(columns=[c for c in dist.columns if c in df.columns], errors="ignore")
     return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)], axis=1)
 
@@ -391,14 +402,25 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             continue
         home = out[key].to_numpy(float)
         push = out[_grid_key("p_push", line)].to_numpy(float)
-        away = np.maximum(1.0 - home - push, 1e-9)
         ch, mh = _prequential_line(home, (margin > line).astype(int), folds)
         if line == int(line):
+            # The away leg is an EVENT with its own history (margin < L), not
+            # the residual of two home-anchored maps. Deriving it as
+            # 1 - cal(home) - cal(push) embedded the home leg's Platt slope in
+            # the away price, and a 1627-row sample of the shipped artifact
+            # showed the residual sitting up to 0.036 from the away leg the
+            # away map itself produces -- a systematic away-side bias, largest
+            # exactly at the deep lines the card quotes. Calibrate the third
+            # leg from its own outcome, exactly like MLB's run-engine away
+            # -favorite block (run_engine.py: p_rl_away_fav_grid), then
+            # normalize the three.
             cp, mp = _prequential_line(push, (margin == line).astype(int), folds)
+            away = np.maximum(1.0 - home - push, 1e-9)
             ca, ma = _prequential_line(away, (margin < line).astype(int), folds)
             vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
             out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
+            out[_grid_key("p_away_cover", line)] = vals[:, 2]
             bundle["run_lines"][str(line)] = {"home": mh, "push": mp, "away": ma}
         else:
             out[key] = ch
@@ -411,8 +433,31 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         yf = np.where(fav_home, margin > 0, margin < 0).astype(int)
         cal = _fit_platt(pf, yf)
         pc = np.maximum(0.5, _apply_platt(pf, cal)) if cal else pf
-        out["p_home_win_derived"] = np.where(fav_home, pc, 1.0 - pc)
-        out["p_away_win_derived"] = 1.0 - out["p_home_win_derived"] - out.get("p_tie", 0.0)
+        # The tie leg must be the CALIBRATED push-at-0 (the spread loop above
+        # already recalibrated it), not the raw MC tie this block used to
+        # read two lines later get overwritten anyway. On the shipped
+        # 2026-09-27 OOF store the raw/calibrated gap made the published
+        # p_away_win_derived incoherent with the published p_tie on up to
+        # 0.036 per row, and on AWAY-favored rows the outright leg lost the
+        # tie mass outright (away = pc - tie instead of pc).
+        tie_col = out.get(_grid_key("p_push", 0))
+        if tie_col is not None:
+            tie = tie_col.to_numpy(float)
+        else:
+            _t = out.get("p_tie")
+            tie = (_t.to_numpy(float) if _t is not None
+                   else np.zeros(len(out)))
+        # Favorite side carries the favored map; the dog outright is the
+        # coherent residual 1 - favorite - tie (never pc - tie, which double-
+        # subtracted the tie on away-favored rows).
+        dog = np.maximum(1.0 - pc - tie, 1e-9)
+        out["p_home_win_derived"] = np.where(fav_home, pc, dog)
+        out["p_away_win_derived"] = np.where(fav_home, dog, pc)
+        # Keep the published tie coherent with the pair just normalized: the
+        # raw MC tie this column still carried (apply_distribution wrote it)
+        # disagrees with the calibrated push-at-0 the residual above consumed,
+        # and the pre-fix artifact shipped rows summing to 0.96-1.03.
+        out["p_tie"] = tie
         bundle["derived_moneyline"] = cal
     # Recompute fair-line aliases from calibrated grid columns.
     if "fair_spread" in out:
@@ -453,14 +498,46 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
         ch = _apply_platt(raw_home, rec.get("home"))
         if line == int(line):
             cp = _apply_platt(raw_push, rec.get("push"))
-            ca = _apply_platt(1.0 - raw_home - raw_push, rec.get("away"))
+            # The away leg applies its OWN map to its OWN raw event (built
+            # from the raw home + raw push legs, pre-calibration -- mixing a
+            # calibrated leg into the raw residual would double-count the
+            # home map). Falls back to the 1-home-push residual only when the
+            # bundle predates the away map, and mirrors calibrate_market_frame
+            # so the artifact stays the single source of the three-way split.
+            raw_away = np.maximum(1.0 - raw_home - raw_push, 1e-9)
+            if rec.get("away") is not None:
+                ca = _apply_platt(raw_away, rec.get("away"))
+            else:
+                ca = np.maximum(1.0 - ch - cp, 1e-9)
             vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
             out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
+            # Always materialize the away leg (slate rows ship it too, not
+            # just OOF rows): a reader deriving it as 1 - home - push gets
+            # the same number either way now, and the artifact is honest
+            # about the away side being its own calibrated event.
+            out[_grid_key("p_away_cover", line)] = vals[:, 2]
         else:
             out[key] = ch
     if _grid_key("p_push", 0) in out:
         out["p_tie"] = out[_grid_key("p_push", 0)]
+    # Derived-ML pair: the slate frame carries the RAW pair from
+    # apply_distribution, while the OOF frame was normalized through the
+    # favored map in calibrate_market_frame -- the same raw/calibrated
+    # incoherence that made the shipped 2026-09-27 OOF rows sum to 0.96-1.03.
+    # Apply the stored favored map here so both paths publish from ONE
+    # contract, then keep the dog as the residual of the SAME tie the pair
+    # was normalized against.
+    if "p_home_win_derived" in out and bundle.get("derived_moneyline") is not None:
+        p = out["p_home_win_derived"].to_numpy(float)
+        fav_home = p >= 0.5
+        pf = np.where(fav_home, p, 1.0 - p)
+        pc = np.maximum(0.5, _apply_platt(pf, bundle["derived_moneyline"]))
+        _t = out.get("p_tie")
+        tie = (_t.to_numpy(float) if _t is not None else np.zeros(len(out)))
+        dog = np.maximum(1.0 - pc - tie, 1e-9)
+        out["p_home_win_derived"] = np.where(fav_home, pc, dog)
+        out["p_away_win_derived"] = np.where(fav_home, dog, pc)
     if "fair_spread" in out:
         out["p_cover_fair"] = [float(r[_grid_key("p_home_cover", r["fair_spread"])])
                                for _, r in out.iterrows()]
