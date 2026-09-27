@@ -223,6 +223,31 @@ with warnings_as_errors():
         check("ScoreRegressor carries the team-ID pair (run-line parity)",
               list(reg.feature_columns) == feat_mod.tree_numeric_columns()
               + config.TREE_CATEGORICAL_COLS)
+        # Guardrail: the run line and the binary moneyline must consume the
+        # SAME feature set (MLB strict-parity structure). The run line owns no
+        # list of its own, so this is checked, not assumed.
+        _act = list(config.active_moneyline_feature_cols())
+        check("run line consumes the binary moneyline contract, in order",
+              list(reg.feature_columns[:len(_act)]) == _act,
+              f"run-line={len(reg.feature_columns)} contract={len(_act)}")
+        check("run line appends exactly the team-ID pair, nothing else",
+              list(reg.feature_columns[len(_act):]) == list(config.TREE_CATEGORICAL_COLS))
+        check("run-line and moneyline contracts are the same length set",
+              set(reg.feature_columns) == set(_act) | set(config.TREE_CATEGORICAL_COLS))
+        # A divergent run-line list must be rejected, not silently accepted.
+        _diverged = list(_act)[:-1] + ["not_a_moneyline_feature"]
+        try:
+            dist_mod._assert_run_line_contract(_diverged)
+            check("a diverged run-line feature set is rejected at build time", False,
+                  "guard did not raise")
+        except RuntimeError:
+            check("a diverged run-line feature set is rejected at build time", True)
+        try:
+            dist_mod._assert_run_line_contract(_act + ["home_team_id"])
+            check("a run-line set missing the away ID is rejected", False,
+                  "guard did not raise")
+        except RuntimeError:
+            check("a run-line set missing the away ID is rejected", True)
     except Warning as exc:
         check("ScoreRegressor fit+predict with zero feature-name warnings",
               False, f"warning escalated: {exc}")

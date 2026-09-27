@@ -84,6 +84,33 @@ def _make_reg():
     return LGBMRegressor(**params)
 
 
+def _assert_run_line_contract(columns: list[str]) -> None:
+    """The run line must consume EXACTLY the binary moneyline contract.
+
+    MLB parity (run_engine.build_side_frame, strict parity mode): the run-line
+    regressors receive the full active moneyline feature list, in order, with
+    the team-ID pair appended and nothing else. This module owns no run-line
+    list of its own, so the guarantee is checked rather than assumed — a
+    divergence here means the run line silently priced a different feature set
+    than the moneyline it is supposed to extend.
+    """
+    expected = list(config.active_moneyline_feature_cols())
+    if list(columns[:len(expected)]) != expected:
+        missing = [c for c in expected if c not in columns]
+        extra = [c for c in columns[:len(expected)] if c not in expected]
+        raise RuntimeError(
+            "run-line feature set diverges from the binary moneyline contract "
+            f"(expected {len(expected)} columns; missing={missing[:4]} "
+            f"unexpected={extra[:4]}) — the run line and the moneyline must "
+            "share one feature set")
+    tail = list(columns[len(expected):])
+    if tail != list(config.TREE_CATEGORICAL_COLS):
+        raise RuntimeError(
+            "run-line feature set must append exactly the team-ID pair "
+            f"{list(config.TREE_CATEGORICAL_COLS)} after the moneyline "
+            f"contract; found {tail}")
+
+
 class ScoreRegressor:
     """Two same-contract LightGBM Poisson regressors, one per score side."""
 
@@ -95,15 +122,16 @@ class ScoreRegressor:
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # The binary moneyline tree view WITH the categorical team-ID context
         # (config.TREE_CATEGORICAL_COLS): the same structural treatment the
-        # binary tree members get (MLB parity — the run-engine regressors
-        # there also see the team-ID pair). This module never owns a run-line
-        # feature list, so the run line PULLS the moneyline contract by
-        # construction; the pair rides features.tree_view after the served
-        # columns. Do not fill NaN: LightGBM handles missing values natively,
-        # like MLB's run engine.
+        # binary tree members get (MLB parity — the run engine appends the same
+        # RUN_TREE_CATEGORICAL_COLS pair after the active moneyline list). This
+        # module never owns a run-line feature list, so the run line PULLS the
+        # moneyline contract by construction; the pair rides features.tree_view
+        # after the served columns. Do not fill NaN: LightGBM handles missing
+        # values natively, like MLB's run engine.
         X = feat_mod.tree_view(df)
         if not self.feature_columns:
             self.feature_columns = list(X.columns)
+            _assert_run_line_contract(self.feature_columns)
         return X.reindex(columns=self.feature_columns)
 
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
