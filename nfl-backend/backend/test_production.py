@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 import warnings
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
@@ -981,6 +982,7 @@ print("\n== 7b. Run-engine per-line metrics: (y, p) pair order + binary range ==
 # stayed sane while per-line logloss exploded to ~5-7 and ECE sat near 0.5.
 # This pins the pair contract and the binary metric range on a synthetic line.
 import monitoring  # noqa: E402
+import monitoring as monitoring_mod  # noqa: E402  (drift-verdict regressions)
 _rng = np.random.default_rng(11)
 _n = 400
 _mu_h = pd.Series(_rng.normal(24, 4, _n)).clip(3, 45)
@@ -1733,6 +1735,69 @@ try:
           _with_bar_disabled._inner is None and _with_bar_disabled.n == 3)
 except Exception as exc:  # noqa: BLE001
     check("the pipeline still runs and still counts without tqdm installed",
+          False, str(exc))
+
+# ---- Drift verdicts must survive the sample size they are judged on. -------
+# The 2026-09-27 report raised ALERT on 15 of 43 features against a 39-60 row
+# recent window. Measured against a NULL (current drawn from the SAME
+# distribution as baseline) that window raised a false ALERT on ~52% of
+# features, so the report was measuring sampling noise, not drift.
+try:
+    _dcols = config.active_moneyline_feature_cols()
+
+    def _drift_frame(seed: int, n_recent: int, shift: float = 0.0):
+        _rng = np.random.default_rng(seed)
+        _full = pd.DataFrame({c: _rng.normal(0, 1, 2672) for c in _dcols})
+        _recent = pd.DataFrame({c: _rng.normal(shift, 1, n_recent)
+                                for c in _dcols})
+        return _full, _recent
+
+    def _drift_status(seed: int, n_recent: int, shift: float = 0.0,
+                      feature: str = "elo_diff"):
+        _f, _r = _drift_frame(seed, n_recent, shift)
+        return [row for row in monitoring_mod.feature_drift(_f, _r)
+                if row["feature"] == feature][0]
+
+    check("the drift noise floor is the sampling-noise expectation for the sizes",
+          abs(monitoring_mod.psi_noise_floor(2672, 60) - 0.0767) < 0.001
+          and abs(monitoring_mod.psi_noise_floor(2672, 39) - 0.1171) < 0.001,
+          f"floor(60)={monitoring_mod.psi_noise_floor(2672, 60):.4f} "
+          f"floor(39)={monitoring_mod.psi_noise_floor(2672, 39):.4f}")
+    check("a noise floor below the WARN threshold cannot be ignored by the caller",
+          monitoring_mod.psi_noise_floor(2672, 39) >= monitoring_mod.PSI_WARN)
+
+    # NULL case: identical distributions must not page. This is the regression
+    # that the raw-PSI rule failed.
+    _null_statuses = [_drift_status(s, 60)["status"] for s in range(40)]
+    _null_statuses += [_drift_status(s, 44)["status"] for s in range(40)]
+    check("no false ALERT/WARN when the two windows are the same distribution",
+          not any(s in ("ALERT", "WARN") for s in _null_statuses),
+          f"{dict(Counter(_null_statuses))}")
+    _adj = _drift_status(3, 60)
+    check("psi_adjusted is the noise-corrected value, not raw PSI repeated",
+          _adj["psi_adjusted"] < _adj["psi"]
+          and abs(_adj["psi"] - _adj["noise_floor"] - _adj["psi_adjusted"]) < 1e-9,
+          f"psi={_adj['psi']:.4f} floor={_adj['noise_floor']:.4f} "
+          f"adjusted={_adj['psi_adjusted']:.4f}")
+    check("the artifact carries the noise floor and location verdict",
+          all(k in _drift_status(3, 60)
+              for k in ("psi", "psi_adjusted", "noise_floor", "mean_shift",
+                        "location_shift", "status")))
+
+    # REAL drift must still be caught at the same window sizes.
+    _real = [_drift_status(s, 60, shift=1.0)["status"] for s in range(15)]
+    _real += [_drift_status(s, 44, shift=1.0)["status"] for s in range(15)]
+    check("a real distribution shift is still flagged at the same windows",
+          all(s in ("ALERT", "WARN") for s in _real), f"{dict(Counter(_real))}")
+
+    # A window too small to judge is INSUFFICIENT, never a verdict.
+    check("a too-small current window reports INSUFFICIENT, not OK/ALERT",
+          _drift_status(1, 20, shift=5.0)["status"] == "INSUFFICIENT"
+          and _drift_status(1, 20)["status"] == "INSUFFICIENT")
+    check("a big enough window is judged, not permanently INSUFFICIENT",
+          _drift_status(1, 300, shift=0.0)["status"] == "OK")
+except Exception as exc:  # noqa: BLE001
+    check("the drift noise floor is the sampling-noise expectation for the sizes",
           False, str(exc))
 
 # 10f. Chart reproduction from the persisted history columns.

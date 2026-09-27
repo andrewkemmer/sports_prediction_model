@@ -26,6 +26,37 @@ logger = logging.getLogger(__name__)
 
 PSI_WARN = 0.10
 PSI_ALERT = 0.25
+# A window too small to judge drift at all (MLB parity, explainability.py).
+# Every served feature currently drifts on a 60-game recent window against a
+# full-history baseline, and 10 quantile bins cannot be estimated from 39-60
+# rows: measured against a NULL (current drawn from the SAME distribution as
+# baseline), that window raises a false ALERT on 52% of features and a false
+# WARN on 95%. Those rows are reported INSUFFICIENT rather than as a verdict,
+# so a real distribution change still pages and a sampling artefact never does.
+PSI_MIN_CURRENT = 30
+PSI_MIN_BASELINE = 100
+# Games inside one window share teams, so the naive standard error of a mean
+# understates the true spread. MLB inflates by this clustering factor for the
+# same reason; the NFL recent window is the same shape of data.
+PSI_LOCATION_CLUSTER_FACTOR = 1.5
+
+
+def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
+    """Expected PSI from sampling noise alone, at these two sample sizes.
+
+    Ported from MLB's ``explainability.psi_noise_floor`` so both backends
+    judge drift by the same rule. For two independent samples the per-bin
+    proportion error is O(1/sqrt(n)), giving
+    ``E[PSI] ~= (k-1)/2 * (1/n_base + 1/n_cur)``. At NFL's window sizes that
+    is 0.077 at n=60 and 0.117 at n=39 -- already at or past the WARN
+    threshold, which is why raw PSI between two identical distributions
+    flagged 15 of 43 features in the 2026-09-27 report. Status must be
+    assigned on the NOISE-ADJUSTED value; raw PSI is kept in the artifact
+    for transparency.
+    """
+    if n_baseline <= 0 or n_current <= 0:
+        return 0.0
+    return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
 
 
 def feature_status(psi: float) -> str:
@@ -148,15 +179,56 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         se_base = _se(_base_vals)
         shift_se = float(np.hypot(se_cur, se_base)) if np.isfinite(se_cur) \
             and np.isfinite(se_base) else np.nan
+
+        n_base_n, n_cur_n = int(_base_vals.size), int(_cur_vals.size)
+        # Noise floor for THESE two sample sizes, then the location gate.
+        # PSI responds to any distributional change, including pure binning
+        # wiggle on a quantized feature (win_pct, temp_f, is_turf_home have
+        # many repeated values, so a quantile edge landing inside a tie cluster
+        # moves whole games between bins while nothing changed). Requiring the
+        # MEAN to move too is what separates a real shift from that.
+        noise = psi_noise_floor(n_base_n, n_cur_n)
+        psi_adjusted = max(psi - noise, 0.0) if np.isfinite(psi) else np.nan
+        if n_base_n + n_cur_n > 2:
+            pooled_sd = float(np.sqrt(
+                ((n_base_n - 1) * _base_vals.var(ddof=1)
+                 + (n_cur_n - 1) * _cur_vals.var(ddof=1))
+                / (n_base_n + n_cur_n - 2)))
+        else:
+            pooled_sd = 0.0
+        mean_shift = (mean_cur - mean_base
+                      if np.isfinite(mean_cur) and np.isfinite(mean_base)
+                      else np.nan)
+        if pooled_sd > 0 and np.isfinite(mean_shift):
+            loc_se = float(pooled_sd * np.sqrt(1.0 / n_base_n + 1.0 / n_cur_n)
+                           * PSI_LOCATION_CLUSTER_FACTOR)
+            location_shift = bool(abs(mean_shift) > 2.0 * loc_se)
+        else:
+            loc_se = 0.0
+            location_shift = bool(np.isfinite(psi_adjusted)
+                                  and psi_adjusted > 0)
+
+        # Status in precedence order: too small to judge, then the location
+        # gate, then the noise-adjusted PSI. Raw PSI is reported but never
+        # gates, because between two same-distribution samples of this size it
+        # sits near the WARN threshold all by itself.
+        if n_base_n < PSI_MIN_BASELINE or n_cur_n < PSI_MIN_CURRENT:
+            status = "INSUFFICIENT"
+        elif not location_shift:
+            status = "OK"
+        else:
+            status = feature_status(psi_adjusted)
         rows.append({
             "feature": f,
             "current_mean": mean_cur,
             "baseline_mean": mean_base,
             "psi": psi,
-            "psi_adjusted": psi,
-            "status": ("ALERT" if (np.isfinite(psi) and psi >= PSI_ALERT)
-                       else "WARN" if (np.isfinite(psi) and psi >= PSI_WARN)
-                       else "OK"),
+            "psi_adjusted": psi_adjusted,
+            "noise_floor": noise,
+            "mean_shift": mean_shift,
+            "shift_se": shift_se,
+            "location_shift": location_shift,
+            "status": status,
             "weight_pct": (round(100.0 * float(wmap.get(f, 0.0)), 2)
                            if has_weight_map else None),
             "n_baseline": int(full_df[f].notna().sum()),

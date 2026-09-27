@@ -2957,9 +2957,14 @@ FEATURE_DESCRIPTIONS = {
 
 
 NFL_FEATURE_DESCRIPTIONS = {
-    # The served market-free 12-pool (+ the is_home report anchor) — plain-
-    # language twins of nfl_features.CANONICAL_SOURCE, kept on the frontend
-    # so the shared Feature Drift table renders descriptions for both sports.
+    # Plain-language twins of the NFL served contract, kept on the frontend so
+    # the shared Feature Drift table renders a description for every feature.
+    # Every served name must appear here: describe_feature falls back to the
+    # raw column name, and the 2026-09-27 drift report rendered 30 of 43
+    # features as a bare ``epa_qb_home`` / ``temp_f`` for exactly that reason.
+    # Per-side raw levels are described by the diff twin plus a "— home team"
+    # suffix, which describe_feature appends itself, so only the base diff
+    # names need an entry.
     "is_home": "Constant 1 — anchors the home-field edge",
     "elo_diff": "Home Elo − away Elo (point-in-time rating gap, updated each game)",
     "win_pct_diff": "Home trailing win% (last 12 games) − away",
@@ -2973,6 +2978,35 @@ NFL_FEATURE_DESCRIPTIONS = {
     "travel_miles_diff": "Home−away stadium distance in miles (travel fatigue)",
     "altitude_home": "Home venue elevation in meters (thin-air effects)",
     "prime_time": "1 for evening kickoffs (ET hour ≥ 17)",
+    # Playing surface + hourly Open-Meteo conditions at the venue.
+    "is_turf_home": "1 if the home venue surface is artificial turf, 0 if natural grass",
+    "temp_f": "Hourly venue temperature at the latest reading before kickoff (F)",
+    "wind_mph": "Hourly venue wind speed at the latest reading before kickoff (mph)",
+    "is_precip": "1 if precipitation was falling in the hour before kickoff",
+    "is_snow": "1 if snow was falling in the hour before kickoff",
+    # RFE-promoted passing depth.
+    "pbp_air_yards_att_ewm_diff": "Home−away average depth of target (air yards per attempt, exponentially weighted)",
+    "pbp_air_yards_att_ewm_home": "Home average depth of target (air yards per attempt, exponentially weighted)",
+    "pbp_air_yards_att_ewm_away": "Away average depth of target (air yards per attempt, exponentially weighted)",
+    # Projected-lineup EPA quality, one base per position. The raw home/away
+    # levels reuse these via describe_feature's side-suffix path.
+    # Projected-lineup EPA quality, one entry per SERVED name. The raw levels
+    # get their own wording rather than inheriting the diff's "Home minus away",
+    # which read as "Home minus away ... -- home team" for a single team's
+    # value. describe_feature prefers an exact match, so these win over the
+    # side-suffix fallback.
+    "epa_qb_diff": "Home minus away projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
+    "epa_qb_home": "Home projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
+    "epa_qb_away": "Away projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
+    "epa_wr_diff": "Home minus away projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
+    "epa_wr_home": "Home projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
+    "epa_wr_away": "Away projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
+    "epa_te_diff": "Home minus away projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
+    "epa_te_home": "Home projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
+    "epa_te_away": "Away projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
+    "epa_rb_diff": "Home minus away projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
+    "epa_rb_home": "Home projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
+    "epa_rb_away": "Away projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
 }
 
 
