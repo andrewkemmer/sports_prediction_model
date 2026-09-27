@@ -391,9 +391,9 @@ def test_coverage_verdict_separates_cold_nulls_from_real_defects():
                 "status": "OK" if not warm else "ATTENTION", "cause": cause}
 
     rows = [
-        # decided pool: perfect except team debuts (cold)
-        _row("elo_home", "decided pool", 100, 96, 4, 0),
-        _row("win_pct_home", "decided pool", 100, 95, 5, 0),
+        # baseline (the decided pool): perfect except team debuts (cold)
+        _row("elo_home", "baseline", 100, 96, 4, 0),
+        _row("win_pct_home", "baseline", 100, 95, 5, 0),
         # serving slate: one genuine defect
         _row("goalie_sv_pct_home", "serving slate", 5, 4, 0, 1, "warm_null"),
     ]
@@ -411,8 +411,8 @@ def test_coverage_verdict_separates_cold_nulls_from_real_defects():
     warns = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
     text = " ".join(infos)
     # Both windows get a verdict line...
-    assert "decided pool" in text and "serving slate" in text, text[:200]
-    # ...the decided pool is reported as clean, with its cold nulls named as
+    assert "baseline" in text and "serving slate" in text, text[:200]
+    # ...the baseline window is reported as clean, with its cold nulls named as
     # by-design rather than as missing data.
     assert "no warm nulls" in text, text[:200]
     assert "9 cold null(s) by design" in text, \
@@ -1737,11 +1737,11 @@ def test_feature_coverage_tells_cold_start_apart_from_a_defect():
     cry wolf; reporting a WARM null as healthy is what would hide one."""
     games = _synth_games(n_days=20, games_per_day=2)
     df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
-    rows = mon.coverage(df)
+    rows = mon.coverage(df, current_df=df)
     for r in rows:
         for k in COVERAGE_KEYS:
             assert k in r, f"coverage row dropped the front-end key {k!r}"
-    by_f = _coverage_by_feature(rows, "decided pool")
+    by_f = _coverage_by_feature(rows, "baseline")
     warm_nulls = [r for r in by_f.values() if r["n_warm_null"] > 0]
     assert not warm_nulls, \
         f"warm (defect) nulls present: {[r['feature'] for r in warm_nulls]}"
@@ -1757,7 +1757,8 @@ def test_feature_coverage_tells_cold_start_apart_from_a_defect():
     broken = df.copy()
     warm_rows = broken["gameday"] > broken["gameday"].min()
     broken.loc[warm_rows, "pp_success_diff"] = np.nan
-    by_f2 = _coverage_by_feature(mon.coverage(broken), "decided pool")
+    by_f2 = _coverage_by_feature(mon.coverage(broken, current_df=broken),
+                                 "baseline")
     hit = by_f2["pp_success_diff"]
     assert hit["n_warm_null"] > 0, "a null on a warm game was not counted"
     assert hit["cause"] == "defect"
@@ -1780,7 +1781,7 @@ def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
         pd.concat([hist, pending], ignore_index=True),
         bs[bs["game_id"].isin(set(hist["game_id"]))])
 
-    rows = mon.coverage(df, slate_df=slate)
+    rows = mon.coverage(df, slate_df=slate, current_df=df)
     slate_rows = _coverage_by_feature(rows, "serving slate")
     assert len(slate_rows) == len(config.active_moneyline_feature_cols())
     assert slate_rows["goalie_sv_pct_home"]["n_games"] == len(slate)
@@ -1797,8 +1798,8 @@ def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
     assert dead_rows["goalie_sv_pct_home"]["pct_measured"] == 0.0
     assert dead_rows["goalie_sv_pct_home"]["cause"] == "defect"
     # ...while the decided pool still looks healthy, which is the whole trap.
-    assert _coverage_by_feature(mon.coverage(df, slate_df=dead),
-                                "decided pool")["goalie_sv_pct_home"]["status"] != "STARVED"
+    assert _coverage_by_feature(mon.coverage(df, slate_df=dead, current_df=df),
+                                "baseline")["goalie_sv_pct_home"]["status"] != "STARVED"
 
 
 def test_feature_coverage_artifacts_carry_both_windows():
@@ -1818,9 +1819,33 @@ def test_feature_coverage_artifacts_carry_both_windows():
         _, cov_name = mon.write_run_engine_feature_artifacts(
             Path(tmp), "20260923", df, df.tail(10), slate_df=slate)
         cov = pd.read_csv(Path(tmp) / cov_name)
-    assert set(cov["window"]) == {"decided pool", "serving slate"}
+    assert set(cov["window"]) == {"current", "baseline", "serving slate"}
     assert set(cov["feature"]) == set(config.active_moneyline_feature_cols())
     assert set(COVERAGE_KEYS) <= set(cov.columns)
+
+
+def test_feature_coverage_drift_windows_are_the_frames_drift_compares():
+    """The coverage report's current/baseline windows must be the SAME frames
+    the drift table compares — the structural alignment MLB enforces after
+    its 08-28 incident (the coverage CSV measured a window the drift CSV
+    never saw, so two tables beside each other answered different
+    questions). coverage_for_drift_windows pins the labels and the frame
+    identity; the current window's cold-start classification follows the
+    current window's own timeline."""
+    games = _synth_games(n_days=30, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
+    current = df.tail(10)
+    rows = mon.coverage_for_drift_windows(df, current)
+    assert {r["window"] for r in rows} == {"baseline", "current"}
+    base = _coverage_by_feature(rows, "baseline")
+    cur = _coverage_by_feature(rows, "current")
+    assert base["elo_home"]["n_games"] == len(df)
+    assert cur["elo_home"]["n_games"] == len(current)
+    # Every warm game in the current window is measured — the trailing
+    # window is warm by construction, so any warm null would be a defect.
+    warm_cur = [r for r in cur.values() if r["n_warm_null"] > 0]
+    assert not warm_cur, \
+        f"warm nulls in the current window: {[r['feature'] for r in warm_cur]}"
 
 
 # ---------------------------------------------------------------------------
@@ -2919,7 +2944,7 @@ def test_monitor_feature_metadata_is_real_documentation_not_a_placeholder():
             f"{name}: an apostrophe survives in the tooltip and would "
             "terminate the monitor page's single-quoted title attribute")
     # The artifact carries real definitions, not the placeholder.
-    cov = [{"feature": f, "window": "decided pool"} for f in served]
+    cov = [{"feature": f, "window": "baseline"} for f in served]
     with _mock_patch.object(mon, "_dump_json"):
         rec = mon.write_monitor_json(
             Path("probe.json"), "20260927", [], cov, [], [], 0.5, {}, {})

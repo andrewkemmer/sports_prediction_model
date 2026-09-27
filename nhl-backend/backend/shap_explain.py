@@ -18,6 +18,7 @@ Output: data_delivery/nhl_shap_game_<game_id>.csv (one file per slate game).
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -69,7 +70,14 @@ def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
         if model is None:
             continue
         try:
-            ex = shap.TreeExplainer(model)
+            # shap >=0.47 moved the LightGBM binary output to a list of
+            # arrays and announces it inside ``TreeExplainer.__init__`` —
+            # harmless here (``shap_values`` results are normalized to the
+            # log-odds view below), but the announcement repeated per game
+            # and buried the run log's real warnings.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                ex = shap.TreeExplainer(model)
             explainers[name] = ex
         except Exception as exc:  # noqa: BLE001
             logger.warning("TreeExplainer init failed for %s: %s", name, exc)

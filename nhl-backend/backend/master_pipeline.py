@@ -677,7 +677,10 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
-    recent = game_df.tail(60)
+    # The drift "current" window: the LAST N decided games, compared against
+    # the full pool behind them ("baseline"). One constant so the drift step,
+    # its coverage companion, and the tests quote the same geometry.
+    recent = game_df.tail(config.DRIFT_BASELINE_GAMES)
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
 
@@ -702,7 +705,14 @@ def main(argv: list[str] | None = None) -> int:
     # ── 14. Monitoring ────────────────────────────────────────────────────
     _banner("PHASE 14", "monitoring")
     drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
-    cov_rows = monitoring.coverage(game_df, slate_df=slate)
+    # The coverage windows are the drift windows, structurally (MLB parity):
+    # ``recent`` is sliced ONCE above from the same game_df the drift step
+    # compares against — the same guaranteed-shared-frames property MLB
+    # enforced after its 08-28 incident ("coverage CSV on post-slate windows
+    # the drift never saw must be structurally impossible"). The report's
+    # ``current`` window is exactly the population each PSI row describes,
+    # and ``baseline`` is the decided pool behind every n_baseline.
+    cov_rows = monitoring.coverage(game_df, slate_df=slate, current_df=recent)
     # The Phase 3 table is a single coverage_pct per feature, which counts a
     # team's FIRST game (no prior history exists — cold nulls, by design) the
     # same as a genuine defect. A run logging 14 features at "99.28%" reads as

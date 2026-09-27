@@ -204,9 +204,15 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        weights: dict[str, float] | None = None,
                                        slate_df: pd.DataFrame | None = None
                                        ) -> tuple[str, str]:
-    """Emit MLB-shaped run-engine drift/coverage CSVs for the NHL page."""
+    """Emit MLB-shaped run-engine drift/coverage CSVs for the NHL page.
+
+    The drift CSV and the coverage CSV describe the SAME two frames — one
+    call receives them once, so the tables beside each other on the monitor
+    page cannot answer different windows (MLB's 08-28 incident guard).
+    Coverage also carries the serving slate as a third window, which MLB
+    does not measure but the NHL must (the goalie-family outage)."""
     drift = feature_drift(full_df, recent_df, weights=weights)
-    cov = coverage(full_df, slate_df=slate_df)
+    cov = coverage(full_df, slate_df=slate_df, current_df=recent_df)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
     pd.DataFrame(drift).to_csv(drift_path, index=False)
@@ -289,13 +295,20 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
 
 
 def coverage(full_df: pd.DataFrame,
-             slate_df: pd.DataFrame | None = None) -> list[dict]:
-    """Per-feature coverage over the decided pool AND the serving slate.
+             slate_df: pd.DataFrame | None = None,
+             current_df: pd.DataFrame | None = None) -> list[dict]:
+    """Per-feature coverage over the drift windows: ``baseline`` (+ ``current``).
 
-    Two windows, one row each, because they answer different questions and
-    only measuring one of them hid a total outage: the goalie family read
-    96-98% on the decided pool while EVERY published prediction carried a
-    null, since the decided builder can resolve an expected starter from the
+    MLB-aligned structurally (mlb explainability.compute_feature_coverage):
+    the windows are the SAME two frames the drift table compares, carrying
+    the SAME labels, so a drift row and its coverage rows describe identical
+    populations and the coverage CSV can never silently answer a different
+    question than the drift CSV next to it. Pass ``current_df`` (the drift
+    step's trailing window) to emit both drift windows — ``full_df`` is then
+    labeled ``baseline``. ``slate_df`` adds the serving slate as a third
+    window — a decisive addition over MLB, because the goalie family once
+    read 96-98% on the decided pool while EVERY published prediction carried
+    a null: the decided builder can resolve an expected starter from the
     game's own boxscore and the slate builder cannot. A report that only
     looks at the decided pool is structurally blind to the worst case, so
     the slate the pipeline actually ships is measured too.
@@ -306,13 +319,34 @@ def coverage(full_df: pd.DataFrame,
     "something is broken" rather than "the season started".
     """
     warmup = _warmup_mask(full_df)
-    rows = [_coverage_row(f, full_df, "decided pool", warmup)
+    rows = [_coverage_row(f, full_df, "baseline", warmup)
             for f in config.active_moneyline_feature_cols()]
+    if current_df is not None and len(current_df):
+        cur_warmup = _warmup_mask(current_df)
+        rows.extend(_coverage_row(f, current_df, "current", cur_warmup)
+                    for f in config.active_moneyline_feature_cols())
     if slate_df is not None and len(slate_df):
         slate_warmup = pd.Series(False, index=slate_df.index)
         rows.extend(_coverage_row(f, slate_df, "serving slate", slate_warmup)
                     for f in config.active_moneyline_feature_cols())
     return rows
+
+
+def coverage_for_drift_windows(baseline_df: pd.DataFrame,
+                               current_df: pd.DataFrame) -> list[dict]:
+    """Coverage over the drift comparison's OWN two frames, MLB-shaped.
+
+    Thin shape-shifter over :func:`coverage`: same two frames in, ``current``
+    and ``baseline`` labels out — baseline first. The pipeline hands BOTH
+    the drift step and the coverage step the same frames (the guaranteed
+    shared-frames property MLB enforced after its 08-28 incident, when the
+    coverage CSV answered a different window than the drift CSV beside it).
+    Cold-start classification uses each window's own timeline (a team's
+    debut inside the current window is genuinely unmeasurable history-wise,
+    not a defect). The serving slate keeps its own dedicated window via
+    ``coverage(slate_df=...)`` — a population MLB does not measure but the
+    NHL must (the goalie-family outage)."""
+    return coverage(baseline_df, current_df=current_df)
 
 
 def ensemble_table(oof: pd.DataFrame, weights: dict[str, float],

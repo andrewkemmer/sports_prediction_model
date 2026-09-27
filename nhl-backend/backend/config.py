@@ -417,6 +417,11 @@ SIGMA_FLOOR_TOTAL = 2.0
 SIGMA_CAP_TOTAL = 5.0
 P_TIE_MAX = 0.25            # cap on the tied-margin mass (hockey ties ~5-8%)
 
+# Drift windows: PSI compares the LAST N decided games ("current") against
+# the full history that precedes them ("baseline"). One knob so the drift
+# step, its coverage companion, and every test quote the same geometry.
+DRIFT_BASELINE_GAMES = 60
+
 # ---------------------------------------------------------------------------
 # Artifact naming (frontend family contracts)
 # ---------------------------------------------------------------------------
