@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-27T06:44:12.395396+00:00",
+ "created_utc": "2026-09-27T16:22:21.306680+00:00",
  "feature_set_version": "nfl-prod-v8.0-epa-lineup-pit",
  "manifest": {
   "elo_diff": {
@@ -111,6 +111,34 @@
     "linear",
     "tree",
     "mlp"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_home": {
+   "description": "Home team's trailing plays per minute",
+   "definition": "team pace entering kickoff (home side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when prior games lack clock data (early-season openers)",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_away": {
+   "description": "Away team's trailing plays per minute",
+   "definition": "team pace entering kickoff (away side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when prior games lack clock data (early-season openers)",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
    ],
    "feature_version": 1
   },
@@ -653,6 +681,53 @@
    ],
    "feature_version": 4,
    "candidate": false
+  },
+  "pbp_def_epa_play_ewm_diff": {
+   "description": "Home minus away trailing epa allowed per play",
+   "definition": "pbp_def_epa_play_ewm_home - pbp_def_epa_play_ewm_away \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_def_epa_play_ewm_home": {
+   "description": "Home team's trailing epa allowed per play",
+   "definition": "The home team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_def_epa_play_ewm_away": {
+   "description": "Away team's trailing epa allowed per play",
+   "definition": "The away team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
   }
  },
  "served_columns": [
@@ -676,6 +751,9 @@
   "pbp_air_yards_att_ewm_diff",
   "pbp_air_yards_att_ewm_home",
   "pbp_air_yards_att_ewm_away",
+  "pbp_def_epa_play_ewm_diff",
+  "pbp_def_epa_play_ewm_home",
+  "pbp_def_epa_play_ewm_away",
   "elo_home",
   "elo_away",
   "win_pct_home",
@@ -686,6 +764,8 @@
   "ewm_ypp_away",
   "rest_days_home",
   "rest_days_away",
+  "pace_plays_min_home",
+  "pace_plays_min_away",
   "epa_qb_home",
   "epa_qb_away",
   "epa_qb_diff",
@@ -842,6 +922,27 @@
    "std": 1.1081336894905516
   },
   {
+   "feature": "pbp_def_epa_play_ewm_diff",
+   "n_games": 2672,
+   "coverage_pct": 96.48,
+   "mean": 0.00027946178678588026,
+   "std": 0.10871964389062554
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_home",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": -0.011757424027148904,
+   "std": 0.07600022269997073
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_away",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": -0.012067290319506867,
+   "std": 0.0796721597791423
+  },
+  {
    "feature": "elo_home",
    "n_games": 2672,
    "coverage_pct": 100.0,
@@ -910,6 +1011,20 @@
    "coverage_pct": 93.41,
    "mean": 7.471153846153846,
    "std": 2.082653144190686
+  },
+  {
+   "feature": "pace_plays_min_home",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 1.3553152538208102,
+   "std": 0.0886415857980736
+  },
+  {
+   "feature": "pace_plays_min_away",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 1.3575939277501552,
+   "std": 0.08871444635044018
   },
   {
    "feature": "epa_qb_home",
@@ -1071,6 +1186,9 @@
     "pbp_air_yards_att_ewm_diff",
     "pbp_air_yards_att_ewm_home",
     "pbp_air_yards_att_ewm_away",
+    "pbp_def_epa_play_ewm_diff",
+    "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
     "elo_home",
     "elo_away",
     "win_pct_home",
@@ -1081,6 +1199,8 @@
     "ewm_ypp_away",
     "rest_days_home",
     "rest_days_away",
+    "pace_plays_min_home",
+    "pace_plays_min_away",
     "epa_qb_home",
     "epa_qb_away",
     "epa_qb_diff",
