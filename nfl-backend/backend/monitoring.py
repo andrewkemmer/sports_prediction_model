@@ -39,6 +39,18 @@ PSI_MIN_BASELINE = 100
 # understates the true spread. MLB inflates by this clustering factor for the
 # same reason; the NFL recent window is the same shape of data.
 PSI_LOCATION_CLUSTER_FACTOR = 1.5
+# Quantile bins per PSI comparison. Named once so the null is measured on the
+# SAME binning the observation is scored on -- a null measured at a different
+# k would not be the null the reported number is drawn from.
+PSI_BINS = 10
+# How many pseudo-windows the sampling null is measured from. 200 puts the
+# standard error of the null's mean near 7% of its own size -- comfortably
+# inside the 0.10/0.25 status grid -- for 48 x 200 bin counts per run, about
+# 0.2s in total.
+PSI_NULL_DRAWS = 200
+# Seeded from a constant, not the clock: the artifact is a production record,
+# so the same baseline must regenerate the same verdicts on every run.
+PSI_NULL_SEED = 20260927
 
 # Rolling-Brier series shape (parity with MLB's explainability module, which
 # owns the shared monitor page's caption). The caption states a TRAILING-WINDOW
@@ -53,22 +65,118 @@ ROLLING_BRIER_WINDOW_DAYS = 30
 ROLLING_BRIER_MIN_GAMES_PER_DAY = 1
 
 
-def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
-    """Expected PSI from sampling noise alone, at these two sample sizes.
+def psi_noise_floor(n_baseline: int, n_current: int,
+                    n_bins: int = PSI_BINS) -> float:
+    """Analytic PSI that two SAME-distribution samples produce at these sizes.
 
-    Ported from MLB's ``explainability.psi_noise_floor`` so both backends
-    judge drift by the same rule. For two independent samples the per-bin
-    proportion error is O(1/sqrt(n)), giving
-    ``E[PSI] ~= (k-1)/2 * (1/n_base + 1/n_cur)``. At NFL's window sizes that
-    is 0.077 at n=60 and 0.117 at n=39 -- already at or past the WARN
-    threshold, which is why raw PSI between two identical distributions
-    flagged 15 of 43 features in the 2026-09-27 report. Status must be
-    assigned on the NOISE-ADJUSTED value; raw PSI is kept in the artifact
-    for transparency.
+    Retained as the documented FALLBACK for a baseline too small to measure a
+    null from, and as the record of what the closed form claims. It is a lower
+    bound, not an estimate. Scored against two independent samples of the same
+    law with this module's own quantile binning, the real null reads 2.0x the
+    formula at n=2000, 2.4x at n=60, 5.0x at n=30 and 7.5x at n=20 -- so the
+    closer a window gets to unjudgeable, the more it understates. The reason
+    is the same at every size: a bin proportion estimated from n rows carries
+    a relative error of about sqrt((1-p)/n), which at n=60 is 39%, far outside
+    the range where the log term is linear, and the neglected remainder is
+    what dominates. MLB's ``explainability.psi_noise_floor`` carries the same
+    closed form; it is left alone there and not copied forward as truth here.
+    ``psi_sampling_null`` below measures the quantity instead of guessing it.
     """
     if n_baseline <= 0 or n_current <= 0:
         return 0.0
     return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
+
+
+def _bin_edges(baseline: np.ndarray, n_bins: int) -> np.ndarray | None:
+    """The quantile bin edges ``_psi`` bins on, or None when they degenerate
+    (fewer than two distinct edges means the feature is constant here and
+    every sample scores identity)."""
+    try:
+        qs = np.unique(np.quantile(baseline, np.linspace(0, 1, n_bins + 1)))
+    except Exception:
+        return None
+    return qs if len(qs) >= 2 else None
+
+
+def _binned_baseline(baseline: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Share of the baseline falling in each bin defined by ``edges``."""
+    n_bins = len(edges) - 1
+    qb = np.clip(np.searchsorted(edges, baseline, side="right") - 1, 0, n_bins - 1)
+    return np.bincount(qb, minlength=n_bins) / baseline.size
+
+
+def _psi_from_binned(current: np.ndarray, pb: np.ndarray,
+                     edges: np.ndarray) -> float:
+    """PSI of ``current`` against fixed baseline bin shares ``pb``.
+
+    Split out of ``_psi`` so the sampling null can score hundreds of
+    pseudo-windows against ONE precomputed binning instead of re-deriving the
+    quantiles for every draw. NumPy rather than pandas on this path: the null
+    calls it tens of thousands of times per run and a Series per draw cost
+    more than the whole rest of the drift phase.
+    """
+    c = np.asarray(current, dtype=float)
+    c = c[np.isfinite(c)]
+    n_bins = len(pb)
+    if c.size < 10:
+        return np.nan
+    qc = np.clip(np.searchsorted(edges, c, side="right") - 1, 0, n_bins - 1)
+    pc = np.bincount(qc, minlength=n_bins) / c.size
+    pb, pc = np.clip(pb, 1e-6, None), np.clip(pc, 1e-6, None)
+    return float(np.sum((pc - pb) * np.log(pc / pb)))
+
+
+def psi_sampling_null(baseline: np.ndarray, n_current: int,
+                      n_bins: int = PSI_BINS,
+                      draws: int = PSI_NULL_DRAWS,
+                      seed: int = PSI_NULL_SEED) -> dict:
+    """MEASURED PSI that sampling noise alone produces at these two sizes.
+
+    Draws ``draws`` pseudo-windows of ``n_current`` rows from the baseline's
+    own distribution and scores each against the baseline with the same
+    binning ``_psi`` uses. The recent window is never consulted, so the result
+    is the null distribution every real change has to clear: a feature whose
+    observed PSI sits inside it has not moved, whatever the raw number says.
+
+    Reports the mean and the MEDIAN and deliberately not an upper quantile. At
+    n_current=60 a ten-bin PSI leaves ~6 rows per bin, so roughly one draw in
+    forty lands a bin at zero and contributes a log term near 11 -- the null
+    has skew above 5, and its 95th percentile sits exactly on that mass. Two
+    baselines of the same law and the same size therefore published a p95 of
+    0.33 and of 1.22 from identical code, which is a property of which side of
+    the cliff the baseline falls on, not of the feature. The mean and median
+    both hold a coefficient of variation near 0.03-0.06 across baselines, so
+    those are what the artifact carries.
+
+    Seeded from a module constant, not the clock, because the emitted artifact
+    is a production record: the same baseline must regenerate the same null and
+    therefore the same verdicts. ``measured=False`` marks the fallback path, so
+    a reader can tell a measured floor from the analytic one.
+    """
+    b = np.asarray(pd.Series(baseline).dropna(), dtype=float)
+    b = b[np.isfinite(b)]
+    n_current = int(n_current)
+    fallback = {"mean": psi_noise_floor(b.size, n_current, n_bins),
+                "median": float("nan"), "draws": 0, "measured": False}
+    if b.size < 10 or n_current < 10 or n_current > b.size:
+        return fallback
+    edges = _bin_edges(b, n_bins)
+    if edges is None:
+        return fallback
+    pb = _binned_baseline(b, edges)
+    rng = np.random.default_rng(seed)
+    values = []
+    for _ in range(int(draws)):
+        value = _psi_from_binned(b[rng.integers(0, b.size, n_current)],
+                                 pb, edges)
+        if np.isfinite(value):
+            values.append(value)
+    if not values:
+        return fallback
+    arr = np.asarray(values, dtype=float)
+    return {"mean": float(arr.mean()),
+            "median": float(np.median(arr)),
+            "draws": int(arr.size), "measured": True}
 
 
 def feature_status(psi: float) -> str:
@@ -84,25 +192,18 @@ def feature_status(psi: float) -> str:
     return "OK"
 
 
-def _psi(current: np.ndarray, baseline: np.ndarray, n_bins: int = 10) -> float:
+def _psi(current: np.ndarray, baseline: np.ndarray,
+         n_bins: int = PSI_BINS) -> float:
     """Population stability index between the current-window and baseline
     distributions of a feature (quantile-binned on the baseline)."""
-    c = pd.Series(current).dropna()
-    b = pd.Series(baseline).dropna()
-    if len(c) < 10 or len(b) < 10:
+    b = np.asarray(pd.Series(baseline).dropna(), dtype=float)
+    b = b[np.isfinite(b)]
+    if b.size < 10 or np.isfinite(np.asarray(current, dtype=float)).sum() < 10:
         return np.nan
-    try:
-        qs = np.unique(np.quantile(b, np.linspace(0, 1, n_bins + 1)))
-    except Exception:
+    edges = _bin_edges(b, n_bins)
+    if edges is None:
         return np.nan
-    if len(qs) < 2:
-        return np.nan
-    qb = np.clip(np.searchsorted(qs, b, side="right") - 1, 0, len(qs) - 2)
-    qc = np.clip(np.searchsorted(qs, c, side="right") - 1, 0, len(qs) - 2)
-    pb = np.bincount(qb, minlength=len(qs) - 1) / len(b)
-    pc = np.bincount(qc, minlength=len(qs) - 1) / len(c)
-    pb, pc = np.clip(pb, 1e-6, None), np.clip(pc, 1e-6, None)
-    return float(np.sum((pc - pb) * np.log(pc / pb)))
+    return _psi_from_binned(current, _binned_baseline(b, edges), edges)
 
 
 def feature_importance_weights(models: dict,
@@ -160,6 +261,14 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     member importances are available), and ``n_baseline`` / ``n_current``
     sample sizes behind each comparison. NFL's own PSI values and windows —
     nothing copied from MLB.
+
+    A 60-game window cannot be scored on raw PSI: the null distribution the
+    report divides by is measured per feature by ``psi_sampling_null`` and
+    subtracted, so ``psi``/``psi_adjusted`` is the excess over what identical
+    populations produce, and ``psi_raw`` is the unadjusted figure kept for
+    transparency. Status is then gated on a location shift before that excess
+    is even read. ``psi_null_median`` is carried alongside so a reader can see
+    the scale of the noise being removed rather than trusting a bare verdict.
     """
     wmap = weights or {}
     has_weight_map = weights is not None
@@ -177,7 +286,6 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         _base_vals = full_df[f].dropna().to_numpy(float)
         mean_cur = float(_cur_vals.mean()) if _cur_vals.size else np.nan
         mean_base = float(_base_vals.mean()) if _base_vals.size else np.nan
-        mean_shift = mean_cur - mean_base
         # Same rule for the standard error: a window holding a single
         # observation has no sample variance, and np.nanstd of one value emits
         # "Degrees of freedom <= 0 for slice". A NaN SE is the honest answer and
@@ -193,13 +301,18 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             and np.isfinite(se_base) else np.nan
 
         n_base_n, n_cur_n = int(_base_vals.size), int(_cur_vals.size)
-        # Noise floor for THESE two sample sizes, then the location gate.
-        # PSI responds to any distributional change, including pure binning
-        # wiggle on a quantized feature (win_pct, temp_f, is_turf_home have
-        # many repeated values, so a quantile edge landing inside a tie cluster
-        # moves whole games between bins while nothing changed). Requiring the
-        # MEAN to move too is what separates a real shift from that.
-        noise = psi_noise_floor(n_base_n, n_cur_n)
+        # The null, MEASURED on this feature's own distribution at these exact
+        # two sizes. The closed form this replaces understates it by 2.4x at
+        # n=60, so it credited the 2026-09-27 report with less noise than the
+        # window actually carries and paged on the difference. The location
+        # gate below is a second, independent guard: PSI responds to any
+        # distributional change, including pure binning wiggle on a quantized
+        # feature (win_pct, temp_f, is_turf_home have many repeated values, so
+        # a quantile edge landing inside a tie cluster moves whole games
+        # between bins while nothing changed). Requiring the MEAN to move too
+        # is what separates a real shift from that.
+        null = psi_sampling_null(_base_vals, n_cur_n)
+        noise = float(null["mean"])
         psi_adjusted = max(psi - noise, 0.0) if np.isfinite(psi) else np.nan
         if n_base_n + n_cur_n > 2:
             pooled_sd = float(np.sqrt(
@@ -234,9 +347,19 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             "feature": f,
             "current_mean": mean_cur,
             "baseline_mean": mean_base,
-            "psi": psi,
+            # `psi` is the value the STATUS was assigned from, because that is
+            # the column the shared monitor page renders beside the status
+            # pill. Shipping the raw figure there printed 1.363 next to OK
+            # while a 0.386 sat next to ALERT, so the reader could not tell
+            # which number decided anything. `psi_raw` keeps the unadjusted
+            # figure and `psi_adjusted` keeps the name the NFL diagnostics page
+            # prefers, so both consumers read the judged value.
+            "psi": psi_adjusted,
+            "psi_raw": psi,
             "psi_adjusted": psi_adjusted,
             "noise_floor": noise,
+            "psi_null_median": null["median"],
+            "psi_null_draws": null["draws"],
             "mean_shift": mean_shift,
             "shift_se": shift_se,
             "location_shift": location_shift,

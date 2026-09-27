@@ -810,12 +810,15 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("NFL SHAP skipped (non-fatal): %s", exc, exc_info=True)
     # Name the cards in `artifacts` so retention sees them as staged by THIS
     # run (classify_artifact checks `seen` first) instead of pruning the very
-    # files the phase just wrote.
+    # files the phase just wrote. The glob deliberately reaches every card on
+    # disk, so its length is the retention set and NOT this run's output --
+    # counting it as "written" is what made a 14-game run report 257.
     if _n_shap:
         _shap_names = sorted(a.name for a in out_dir.glob(
             f"{config.SHAP_GAME_PREFIX}_*.csv"))
         artifacts.extend(_shap_names)
-        logger.info("SHAP attribution cards: %d written", len(_shap_names))
+        logger.info("SHAP attribution cards: %d written this run (%d on disk, "
+                    "all retained)", _n_shap, len(_shap_names))
 
     # ── 13. Monitoring ───────────────────────────────────────────────────
     _banner("PHASE 13", "monitoring")
@@ -862,12 +865,17 @@ def main(argv: list[str] | None = None) -> int:
     for _d in (_verdicts + _no_verdict)[:5]:
         # Report the value the verdict was actually made on. status is gated on
         # psi_adjusted (and a location gate), so pairing it with raw psi made
-        # lines like "wind_mph ALERT psi=1.470" impossible to interpret.
-        logger.warning("  drift   %-34s %-12s psi_adj=%.3f (raw %.3f, floor %.3f)",
+        # lines like "wind_mph ALERT psi=1.470" impossible to interpret. The
+        # floor is the MEASURED sampling null for this feature at these two
+        # sizes, and the median is what half of same-distribution windows score
+        # -- the scale of noise the adjustment is removing.
+        logger.warning("  drift   %-34s %-12s psi_adj=%.3f (raw %.3f, "
+                       "null %.3f med %.3f)",
                        _d.get("feature", "?"), _d.get("status", "?"),
                        float(_d.get("psi_adjusted") or 0),
-                       float(_d.get("psi") or 0),
-                       float(_d.get("noise_floor") or 0))
+                       float(_d.get("psi_raw") or 0),
+                       float(_d.get("noise_floor") or 0),
+                       float(_d.get("psi_null_median") or 0))
     for _c in _starved[:5]:
         logger.warning("  coverage %-32s %-13s %.1f%%", _c.get("feature", "?"),
                        _c.get("status", "?"),
@@ -891,9 +899,19 @@ def main(argv: list[str] | None = None) -> int:
     # Name what was written. A count alone cannot answer "did the slate JSON
     # land?", which is the question this phase exists to answer, and a writer
     # that silently skipped an artifact still produced the right count.
+    # Per-game SHAP cards are named as a family: there are hundreds of them and
+    # one line each buried the eleven artifacts an operator is actually looking
+    # for under a wall of identical filenames.
+    _cards = [a for a in artifacts
+              if a.startswith(config.SHAP_GAME_PREFIX)]
     logger.info("artifacts written: %d", len(artifacts))
     for _a in artifacts:
-        logger.info("  -> %s", _a)
+        if not _a.startswith(config.SHAP_GAME_PREFIX):
+            logger.info("  -> %s", _a)
+    if _cards:
+        logger.info("  -> %s_*.csv (%d per-game cards, e.g. %s .. %s)",
+                    config.SHAP_GAME_PREFIX, len(_cards),
+                    _cards[0], _cards[-1])
     # Two roots, not one: the model bundle is written to
     # data_delivery/models/ (config.MODEL_BUNDLE) while every other artifact
     # lands directly in out_dir. Checking out_dir alone reported the bundle as

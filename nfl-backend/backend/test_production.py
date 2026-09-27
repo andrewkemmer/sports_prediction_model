@@ -1802,13 +1802,46 @@ try:
         return [row for row in monitoring_mod.feature_drift(_f, _r)
                 if row["feature"] == feature][0]
 
-    check("the drift noise floor is the sampling-noise expectation for the sizes",
+    check("the analytic floor is retained only as a documented lower bound",
           abs(monitoring_mod.psi_noise_floor(2672, 60) - 0.0767) < 0.001
           and abs(monitoring_mod.psi_noise_floor(2672, 39) - 0.1171) < 0.001,
           f"floor(60)={monitoring_mod.psi_noise_floor(2672, 60):.4f} "
           f"floor(39)={monitoring_mod.psi_noise_floor(2672, 39):.4f}")
-    check("a noise floor below the WARN threshold cannot be ignored by the caller",
-          monitoring_mod.psi_noise_floor(2672, 39) >= monitoring_mod.PSI_WARN)
+
+    # The closed form this replaced is not an estimate -- it is a LOWER
+    # bound, and at the window size the pipeline actually uses it credits the
+    # report with 2.4x less noise than the window carries. Pinned here so the
+    # gap cannot silently reopen: the null is measured, and it is measured per
+    # feature rather than from the sample sizes alone.
+    _n60 = monitoring_mod.psi_sampling_null(np.random.default_rng(1).normal(
+        0, 1, 2672), 60)
+    _analytic60 = monitoring_mod.psi_noise_floor(2672, 60)
+    check("the measured sampling null is well above the analytic floor it replaces",
+          _n60["measured"] and _n60["mean"] > 2.0 * _analytic60,
+          f"measured={_n60['mean']:.4f} analytic={_analytic60:.4f} "
+          f"ratio={_n60['mean'] / _analytic60:.2f}x")
+    _n20 = monitoring_mod.psi_sampling_null(np.random.default_rng(1).normal(
+        0, 1, 2672), 20)
+    check("the measured null responds to the window size, which a formula cannot",
+          _n20["mean"] > 3.0 * _n60["mean"],
+          f"null(20)={_n20['mean']:.4f} null(60)={_n60['mean']:.4f}")
+    check("the measured null is reproducible, because the artifact is a record",
+          monitoring_mod.psi_sampling_null(np.random.default_rng(1).normal(
+              0, 1, 2672), 60)["mean"] == _n60["mean"],
+          "seeded from a module constant, not the clock")
+    _tiny = monitoring_mod.psi_sampling_null(np.arange(5.0), 60)
+    check("a baseline too small to measure a null falls back to the closed form",
+          not _tiny["measured"] and _tiny["draws"] == 0
+          and _tiny["mean"] == monitoring_mod.psi_noise_floor(5, 60),
+          f"measured={_tiny['measured']} mean={_tiny['mean']:.4f}")
+    # The null's UPPER TAIL is bistable at these sizes: ~6 rows per bin means
+    # ~1 draw in 40 lands a bin at zero, so a 95th percentile flips between
+    # 0.33 and 1.22 on two baselines of the same law. The mean and the median
+    # are what the artifact may carry.
+    check("the null reports a stable centre, never a bistable upper quantile",
+          "p95" not in _n60 and "median" in _n60
+          and _n60["median"] < _n60["mean"],
+          f"keys={sorted(_n60)}")
 
     # NULL case: identical distributions must not page. This is the regression
     # that the raw-PSI rule failed.
@@ -1818,21 +1851,48 @@ try:
           not any(s in ("ALERT", "WARN") for s in _null_statuses),
           f"{dict(Counter(_null_statuses))}")
     _adj = _drift_status(3, 60)
-    check("psi_adjusted is the noise-corrected value, not raw PSI repeated",
-          _adj["psi_adjusted"] < _adj["psi"]
-          and abs(_adj["psi"] - _adj["noise_floor"] - _adj["psi_adjusted"]) < 1e-9,
-          f"psi={_adj['psi']:.4f} floor={_adj['noise_floor']:.4f} "
-          f"adjusted={_adj['psi_adjusted']:.4f}")
-    check("the artifact carries the noise floor and location verdict",
-          all(k in _drift_status(3, 60)
-              for k in ("psi", "psi_adjusted", "noise_floor", "mean_shift",
-                        "location_shift", "status")))
+    # The subtraction is clamped at zero, and with a measured floor of ~0.18
+    # the clamp BITES on a null comparison -- which is the point: a window that
+    # is indistinguishable from the baseline must not carry a negative PSI.
+    _expected = max(_adj["psi_raw"] - _adj["noise_floor"], 0.0)
+    check("psi is the noise-corrected value, not raw PSI repeated",
+          _adj["psi"] == _adj["psi_adjusted"] and _adj["psi_raw"] >= _adj["psi"]
+          and abs(_expected - _adj["psi"]) < 1e-9 and _adj["psi"] >= 0.0,
+          f"psi={_adj['psi']:.4f} raw={_adj['psi_raw']:.4f} "
+          f"floor={_adj['noise_floor']:.4f}")
+    _shifted = _drift_status(3, 60, shift=1.0)
+    check("a null window floors the adjusted PSI at zero rather than going negative",
+          _drift_status(3, 60)["psi"] == 0.0
+          and _drift_status(3, 60)["psi_raw"] < _drift_status(3, 60)["noise_floor"]
+          and _shifted["psi"] > 0.0,
+          f"null raw={_adj['psi_raw']:.4f} < floor={_adj['noise_floor']:.4f}; "
+          f"shifted psi={_shifted['psi']:.4f}")
+    # The shared monitor page renders `psi` beside the status pill, so the
+    # column it reads has to be the one the verdict was made on. It shipped the
+    # raw figure, which printed 1.363 next to OK while a 0.386 sat next to
+    # ALERT -- the reader could not tell which number decided anything.
+    check("the column the shared page renders is the judged value, not the raw one",
+          _adj["psi"] == _adj["psi_adjusted"],
+          "model_monitor.py and markets.py both read `psi`")
+    check("the artifact carries the null, the raw figure and the location verdict",
+          all(k in _adj for k in ("psi", "psi_raw", "psi_adjusted",
+                                  "noise_floor", "psi_null_median",
+                                  "psi_null_draws", "mean_shift",
+                                  "location_shift", "status")),
+          f"keys={sorted(_adj)}")
 
     # REAL drift must still be caught at the same window sizes.
     _real = [_drift_status(s, 60, shift=1.0)["status"] for s in range(15)]
     _real += [_drift_status(s, 44, shift=1.0)["status"] for s in range(15)]
     check("a real distribution shift is still flagged at the same windows",
           all(s in ("ALERT", "WARN") for s in _real), f"{dict(Counter(_real))}")
+    # ...and not only a catastrophic one. 0.8 sd is the smallest shift a
+    # 60-row window can resolve; below that the location gate is right to call
+    # it unjudgeable, and above it the report must not have gone quiet.
+    _moderate = [_drift_status(s, 60, shift=0.8)["status"] for s in range(12)]
+    check("a moderate real shift (0.8 sd) is still caught, not just a huge one",
+          all(s in ("ALERT", "WARN") for s in _moderate),
+          f"{dict(Counter(_moderate))}")
 
     # A window too small to judge is INSUFFICIENT, never a verdict.
     check("a too-small current window reports INSUFFICIENT, not OK/ALERT",
@@ -2577,8 +2637,21 @@ try:
           "INSUFFICIENT is counted separately so the label matches the number")
     check("the per-feature drift line reports the value the verdict was made on",
           'psi_adjusted' in mp_src and 'noise_floor' in mp_src
-          and "psi_adj=%.3f" in mp_src,
-          "psi_adj with raw and floor, matching feature_drift's gate")
+          and 'psi_raw' in mp_src and "psi_adj=%.3f" in mp_src,
+          "psi_adj with the raw figure and the measured null, matching "
+          "feature_drift's gate")
+    # 257 of the 272 artifact lines were per-game SHAP cards, which buried the
+    # eleven files an operator is looking for. The count also claimed all
+    # cards on disk were "written" by a 14-game run.
+    check("the artifact listing does not print one line per SHAP card",
+          'startswith(config.SHAP_GAME_PREFIX)' in mp_src
+          and "per-game cards" in mp_src,
+          "named as a family with a count instead")
+    check("the SHAP line counts what this run wrote, not what is on disk",
+          "_n_shap, len(_shap_names)" in mp_src
+          and 'logger.info("SHAP attribution cards: %d written", '
+          "len(_shap_names))" not in mp_src,
+          "the glob is the retention set, not this run's output")
     check("the artifact existence check also resolves the models directory",
           "(config.MODELS_DIR / a).exists()" in mp_src,
           "the bundle is written to data_delivery/models/, not out_dir")
