@@ -83,7 +83,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v9.0-injury-share"
+FEATURE_SET_VERSION = "nfl-prod-v9.1-injury-share-side-twins"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -124,7 +124,8 @@ MONEYLINE_FEATURE_COLS = [
     # served diffs (home − away; positive = home advantage)
     "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
     "ewm_net_pts_diff", "ewm_ypp_diff",
-    "pace_plays_min_diff", "rest_short_diff", "div_game",
+    "pace_plays_min_diff", "rest_short_diff", "rest_short_home",
+    "rest_short_away", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
     # Playing surface plus hourly Open-Meteo environment at the venue. Weather
     # uses the latest forecast/observation timestamp STRICTLY before kickoff;
@@ -173,6 +174,11 @@ MONEYLINE_FEATURE_COLS = [
     # raw per-side levels (the tree family's home/away representations).
     # Declared HERE, never synthesized by a view: the served list stays the
     # only place a feature can appear.
+    # 2026-09-27: travel_miles_diff's own halves promoted for the same
+    # structural reason as the NHL level twins — the diff alone cannot answer
+    # how far each team actually traveled. Served from the same
+    # strictly-prior home-venue computation as the diff, tree-only routing.
+    "travel_miles_home", "travel_miles_away",
     "elo_home", "elo_away",
     "win_pct_home", "win_pct_away",
     "ewm_net_pts_home", "ewm_net_pts_away",
@@ -426,6 +432,9 @@ STATIC_DIFF_CANDIDATES: list[str] = []
 # Promoted projected-lineup EPA quality families. The position-specific
 # builders live in features.py; these base names define their symmetric served
 # columns and tree-only raw-side routing.
+# The rest_short_diff halves ride the same RAW_PER_SIDE_COLS routing rule
+# (structural promotion 2026-09-27); they are listed literally above because
+# the flag is a ladder flag column, not a STATIC_SIDE_CANDIDATES base.
 EPA_QUALITY_BASES: tuple[str, ...] = ("epa_qb", "epa_wr", "epa_te", "epa_rb")
 EPA_QUALITY_FEATURE_COLS: list[str] = [
     f"{base}_{rep}" for base in EPA_QUALITY_BASES
@@ -475,6 +484,7 @@ RAW_PER_SIDE_COLS = frozenset({
      for family, specs in CANDIDATE_FAMILIES.items()
      for spec in specs.values()
      for m, ws in spec.items() for w in ws for s in ("home", "away")}
+    | {"rest_short_home", "rest_short_away"}
     | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")}
     | {f"{m}_{s}" for m in EPA_QUALITY_BASES for s in ("home", "away")}
     | {f"{m}_{s}" for m in INJURY_SHARE_BASES for s in ("home", "away")})
@@ -487,7 +497,11 @@ RAW_PER_SIDE_COLS = frozenset({
 # adoption record, so the universe stays the single source of truth).
 RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
     [c for c in PBP_CANDIDATE_COLS if c not in set(MONEYLINE_FEATURE_COLS)]
-    + [f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")]
+    + [f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")
+       # A structurally promoted static side (travel_miles, 2026-09-27) is a
+       # served member now, never a trial candidate — the same exclusion the
+       # PBP candidate list applies above.
+       if f"{m}_{s}" not in set(MONEYLINE_FEATURE_COLS)]
     + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]))
 
 # Trial / validation pool: universe first (canonical), then candidates.

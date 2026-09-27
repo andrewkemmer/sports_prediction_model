@@ -380,6 +380,11 @@ def _build_static_side_manifest() -> None:
             desc, definition, source, pit, mvp = _STATIC_SIDE_DOC[_base]
             lookback, aggregation = _STATIC_SIDE_AGGREGATION[_base]
         for side, rep_name in (("home", "raw home level"), ("away", "raw away level")):
+            if f"{_base}_{side}" in _c.MONEYLINE_FEATURE_COLS:
+                # Structurally promoted into the served contract (the
+                # travel_miles twins, 2026-09-27): documented directly in
+                # FEATURE_MANIFEST below, never as a trial candidate.
+                continue
             CANDIDATE_MANIFEST[f"{_base}_{side}"] = {
                 "description": f"{side.capitalize()} team's {desc.lower()}",
                 "definition": f"The {side} team's {definition}",
@@ -542,15 +547,15 @@ FEATURE_MANIFEST = {
     },
     "rest_short_diff": {
         "description": "Home minus away short-rest flag (rest < 7 days)",
-        "definition": "1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag",
+        "definition": "1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag; a season opener prices 0.0 on each side (no in-season predecessor is never short rest), so the diff equals 0 at opener-vs-opener",
         "source": "nflverse schedules",
         "lookback": 1,
         "aggregation": "thresholded date difference",
         "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
-        "missing_value_policy": "NaN when either team has no prior game in its season",
+        "missing_value_policy": "0.0 at a season opener (was NaN before the side-twin promotion; the opener flag is definitionally 0)",
         "representation": "difference flag (all model families)",
         "model_family_availability": ["linear", "tree", "mlp"],
-        "feature_version": 1,
+        "feature_version": 10,
     },
     "div_game": {
         "description": "Division matchup flag",
@@ -798,6 +803,62 @@ FEATURE_MANIFEST = {
         "feature_version": 1,
     },
 }
+
+# Side-twin promotion (2026-09-27, structure parity with the NHL level
+# twins): the served contract carries every diff WITH its raw home/away
+# halves. rest_short_home/away are read from the same ladder flag as the
+# diff (opener prices 0.0, never NaN, so the twin coherence holds), and
+# travel_miles_home/away are the existing per-side outputs of the same
+# strictly-prior home-venue computation the diff uses.
+FEATURE_MANIFEST["rest_short_home"] = {
+    "description": "Home team's short-rest flag (rest < 7 days)",
+    "definition": "1.0 when the home team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+    "source": "nflverse schedules",
+    "lookback": 1,
+    "aggregation": "thresholded date difference",
+    "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+    "missing_value_policy": "0.0 at a season opener; in-model handling",
+    "representation": "raw home level (tree members)",
+    "model_family_availability": ["tree"],
+    "feature_version": 10,
+}
+FEATURE_MANIFEST["rest_short_away"] = {
+    "description": "Away team's short-rest flag (rest < 7 days)",
+    "definition": "1.0 when the away team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+    "source": "nflverse schedules",
+    "lookback": 1,
+    "aggregation": "thresholded date difference",
+    "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+    "missing_value_policy": "0.0 at a season opener; in-model handling",
+    "representation": "raw away level (tree members)",
+    "model_family_availability": ["tree"],
+    "feature_version": 10,
+}
+FEATURE_MANIFEST["travel_miles_home"] = {
+    "description": "Home team's travel distance to the game venue (miles)",
+    "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
+    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+    "lookback": "prior home games",
+    "aggregation": "point-in-time static venue fact",
+    "point_in_time_rule": "the home team's most recent home venue strictly before kickoff; no current/future venue association",
+    "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling",
+    "representation": "raw home level (tree members)",
+    "model_family_availability": ["tree"],
+    "feature_version": 10,
+}
+FEATURE_MANIFEST["travel_miles_away"] = {
+    "description": "Away team's travel distance to the game venue (miles)",
+    "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
+    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+    "lookback": "prior home games",
+    "aggregation": "point-in-time static venue fact",
+    "point_in_time_rule": "the away team's most recent home venue strictly before kickoff; no current/future venue association",
+    "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling",
+    "representation": "raw away level (tree members)",
+    "model_family_availability": ["tree"],
+    "feature_version": 10,
+}
+
 
 # Weekly-report injury-share family (2026-09-27 Tier B promotion): served
 # entries generated from one doc table, name-for-name with

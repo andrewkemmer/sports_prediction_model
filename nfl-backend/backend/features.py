@@ -848,13 +848,19 @@ def team_stats_ladder(events: pd.DataFrame,
     # Rest is a within-season property.  A season opener has no in-season
     # predecessor; differencing the whole team history would turn the offseason
     # into a fake 150-260 day "rest" interval.
+    # The short-rest FLAG prices an opener as 0.0, not NaN: an opener is
+    # definitionally not short rest, and a NaN level would break the served
+    # twin coherence home - away == diff (structural promotion of the
+    # rest_short_diff halves). rest_days itself keeps its honest opener NaN.
     rest_groups = ["team", "season"] if "season" in srt.columns else ["team"]
     srt["rest_days"] = (
         srt.groupby(rest_groups, sort=False, dropna=False)["gameday"]
            .diff().dt.days
     )
     srt["short_rest"] = np.where(
-        srt["rest_days"].notna(), (srt["rest_days"] < 7).astype(float), np.nan)
+        srt["rest_days"].isna(),
+        0.0,  # season opener: no in-season predecessor is never short rest
+        (srt["rest_days"] < 7).astype(float))
     srt["ypp"] = (_trailing_per_team(srt, "ypp_game", config.YPP_WINDOW)
                   if "ypp_game" in srt.columns else np.nan)
     srt["ewm_net_pts"] = _trailing_ewm(srt, "net_from_team", config.EWM_HALFLIFE)
@@ -1079,8 +1085,9 @@ def _attach_static_team_facts(df: pd.DataFrame,
     ], dtype=float)
     df["travel_miles_diff"] = (_haversine_miles(home_lat, home_lon, game_lat, game_lon)
                                - _haversine_miles(away_lat, away_lon, game_lat, game_lon))
-    # Per-side candidate levels (config.STATIC_SIDE_CANDIDATES): each team's
-    # own PIT distance to the game venue.
+    # Per-side levels (the raw halves of travel_miles_diff, served tree-only):
+    # each team's own PIT distance to the game venue, from the same
+    # strictly-prior home-venue computation as the diff.
     df["travel_miles_home"] = _haversine_miles(home_lat, home_lon, game_lat, game_lon)
     df["travel_miles_away"] = _haversine_miles(away_lat, away_lon, game_lat, game_lon)
     df["altitude_home"] = _game_fact("altitude_ft")
@@ -2027,6 +2034,8 @@ def build_game_features(games: pd.DataFrame,
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
                               ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("rest_short_home", "short_rest"),
+                              ("rest_short_away", "short_rest"),
                               ("pace_plays_min_home", "pace_plays_min"),
                               ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
@@ -2120,6 +2129,8 @@ def build_slate_features(schedule: pd.DataFrame,
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
                               ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("rest_short_home", "short_rest"),
+                              ("rest_short_away", "short_rest"),
                               ("pace_plays_min_home", "pace_plays_min"),
                               ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
