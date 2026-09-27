@@ -383,6 +383,59 @@ except Exception as exc:  # noqa: BLE001
     check("frozen card store probe", False, str(exc))
 
 # ---------------------------------------------------------------------------
+print("\n== 7b. Publish-then-grade store semantics (started-game remediation) ==")
+try:
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        # Yesterday's game was priced by an earlier run's serving horizon and
+        # is decided today (played, gameday < run date). The store must
+        # freeze the PUBLISHED slate price, never an OOF re-price.
+        slate_played = pd.DataFrame({
+            "game_id": ["2026_03_KC_LV"], "gameday": ["2026-09-26"],
+            "home_team": ["LV"], "away_team": ["KC"],
+            "p_home_win": [0.41],
+            "home_score": [20.0], "away_score": [23.0],
+        })
+        name = mp_mod._update_cards_history_store(out, pd.DataFrame(),
+                                                  slate_played, "20260927")
+        s = pd.read_csv(out / name, dtype={"game_id": str})
+        row = s[s.game_id == "2026_03_KC_LV"].iloc[0]
+        check("played game frozen at the published pre-game price",
+              abs(float(row["p_home_win"]) - 0.41) < 1e-9
+              and row["game_status"] == "Final"
+              and row["actual_winner"] == "KC"
+              and bool(row["correct"]))
+        # A later run must never re-open the frozen row (no OOF substitution).
+        oof_late = pd.DataFrame({
+            "game_id": ["2026_03_KC_LV"], "gameday": ["2026-09-26"],
+            "home_team": ["LV"], "away_team": ["KC"],
+            "p_ensemble": [0.55], "p_ensemble_calibrated": [0.60],
+            "home_win": [1.0], "home_score": [20.0], "away_score": [23.0],
+        })
+        mp_mod._update_cards_history_store(out, oof_late, pd.DataFrame(),
+                                           "20260928")
+        s2 = pd.read_csv(out / name, dtype={"game_id": str})
+        check("later OOF rows never re-price a frozen publication",
+              len(s2) == 1
+              and abs(float(s2.iloc[0]["p_home_win"]) - 0.41) < 1e-9)
+        # Same-run settle: today's horizon row finishing inside the run.
+        slate_today = pd.DataFrame({
+            "game_id": ["2026_03_DET_BUF"], "gameday": ["2026-09-27"],
+            "home_team": ["BUF"], "away_team": ["DET"],
+            "p_home_win": [0.6347],
+            "home_score": [41.0], "away_score": [31.0],
+        })
+        mp_mod._update_cards_history_store(out, pd.DataFrame(), slate_today,
+                                           "20260927")
+        s3 = pd.read_csv(out / name, dtype={"game_id": str})
+        check("same-run settle appends today's decided horizon row once",
+              int((s3.game_id == "2026_03_DET_BUF").sum()) == 1
+              and abs(float(s3[s3.game_id == "2026_03_DET_BUF"].iloc[0]
+                            ["p_home_win"]) - 0.6347) < 1e-9)
+except Exception as exc:  # noqa: BLE001
+    check("publish-then-grade store probe", False, str(exc))
+
+# ---------------------------------------------------------------------------
 print("\n== 8. Persistence failure semantics ==")
 mon_src = (BACKEND_DIR / "master_pipeline.py").read_text(encoding="utf-8")
 check("pipeline gates completion on schema validation (no silent success)",

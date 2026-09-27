@@ -378,6 +378,13 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     folds = out["fold_id"].to_numpy()
     total = out["total"].to_numpy(float)
     margin = out["margin"].to_numpy(float)
+    # Calibrated grid columns are BATCHED here and materialized in ONE wide
+    # pd.concat after the loops. Assigning ~70 grid columns one-by-one into
+    # the frame fragmented it so badly pandas printed PerformanceWarning
+    # ("DataFrame is highly fragmented ... consider pd.concat(axis=1)") per
+    # slate row on every run. Reads stay inside the loops (each line reads
+    # only its own RAW columns), so batching cannot change a value.
+    grid_updates: dict[str, np.ndarray] = {}
     for line in config.TOTAL_GRID:
         key = _grid_key("p_over", line)
         if key not in out:
@@ -391,10 +398,12 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             cu, mu = _prequential_line(under, (total < line).astype(int), folds)
             vals = np.maximum(np.column_stack([co, cp, cu]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
-            out[key], out[_grid_key("p_push", line)], out[_grid_key("p_under", line)] = vals.T
+            grid_updates[key] = vals[:, 0]
+            grid_updates[_grid_key("p_push", line)] = vals[:, 1]
+            grid_updates[_grid_key("p_under", line)] = vals[:, 2]
             bundle["totals"][str(line)] = {"over": mo, "push": mp, "under": mu}
         else:
-            out[key] = co
+            grid_updates[key] = co
             bundle["totals"][str(line)] = {"over": mo, "push": None, "under": None}
     for line in config.SPREAD_GRID:
         key = _grid_key("p_home_cover", line)
@@ -419,12 +428,18 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             ca, ma = _prequential_line(away, (margin < line).astype(int), folds)
             vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
-            out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
-            out[_grid_key("p_away_cover", line)] = vals[:, 2]
+            grid_updates[key] = vals[:, 0]
+            grid_updates[_grid_key("p_push", line)] = vals[:, 1]
+            grid_updates[_grid_key("p_away_cover", line)] = vals[:, 2]
             bundle["run_lines"][str(line)] = {"home": mh, "push": mp, "away": ma}
         else:
-            out[key] = ch
+            grid_updates[key] = ch
             bundle["run_lines"][str(line)] = {"home": mh, "push": None, "away": None}
+    if grid_updates:
+        out = pd.concat(
+            [out.drop(columns=[c for c in grid_updates if c in out.columns],
+                      errors="ignore"),
+             pd.DataFrame(grid_updates, index=out.index)], axis=1)
     # Derived model moneyline uses the same favored-team calibration contract.
     if "p_home_win_derived" in out:
         p = out["p_home_win_derived"].to_numpy(float)

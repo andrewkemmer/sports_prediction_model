@@ -1009,7 +1009,8 @@ _nba_retention_window = _served_date_retention_window
 
 
 def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
-                      nfl_frame: pd.DataFrame, history_dates=()) -> list[str]:
+                      nfl_frame: pd.DataFrame, history_dates=(),
+                      board_dates=()) -> list[str]:
     """Pure per-sport valid-date derivation (testable without Streamlit/net).
 
     MLB: a date is valid when a ``todays_games_<YYYYMMDD>.csv`` board exists
@@ -1038,6 +1039,11 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     s = normalize_sport_key(sport_key)
     if s in ("nfl", "nhl", "nba"):
         dates = set(_distinct_game_dates(nfl_frame))
+        if s == "nfl":
+            # The dated board family IS a date source for NFL (MLB parity:
+            # the board snapshot defines the navigable window; NFL's
+            # board_supported families already hold its dates in retention).
+            dates.update(board_dates or ())
         dates.update(history_dates or ())
         if s in ("nba", "nhl"):
             window = _served_date_retention_window(
@@ -1105,9 +1111,24 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     max_snap = max(snap) if snap else None
     history = (_mlb_history_dates(cfg["owner"], cfg["repo"], cfg["branch"],
                                   max_snap) if s == "mlb" else ())
+    board_family_dates: set[str] = set()
+    if s == "nfl":
+        # Dated ``nfl_board_<date>.csv`` snapshots are a date source (MLB
+        # parity: the board family defines the navigable window; the
+        # backend's board-supported retention families hold these dates).
+        bpath = resolve_sport_artifact("nfl", "nfl_board_csv")
+        if bpath is not None:
+            try:
+                _b = pd.read_csv(bpath, usecols=["game_date"])
+                board_family_dates = {
+                    str(v).replace("-", "")[:8]
+                    for v in _b["game_date"].dropna().astype(str)}
+            except Exception:
+                board_family_dates = set()
     return tuple(_valid_dates_impl(
         s, contents, LOCAL_DATA_DIR, board_frame,
-        list(history or ()) + list(history_dates)))
+        list(history or ()) + list(history_dates),
+        board_dates=board_family_dates))
 
 
 def nearest_valid_date(valid: list[str] | tuple[str, ...],
@@ -1260,6 +1281,66 @@ def nfl_moneyline_to_frame(data) -> pd.DataFrame:
     return pd.DataFrame(out, columns=NFL_CARD_COLUMNS)
 
 
+def load_nfl_board_games(date_str: str) -> pd.DataFrame:
+    """NFL game board for a date — the MLB ``todays_games_<date>.csv``
+    structural twin resolution (dated snapshot FIRST, then archive stores).
+
+    Resolution order (mirrors the MLB loader exactly):
+      1. DATED BOARD SNAPSHOT: ``nfl_board_<date>.csv`` — the pipeline's
+         per-date serving snapshot with the frozen pre-game price and a
+         truthful status/score (a started game is IN the snapshot, priced
+         before kickoff — never removed). Returned through the moneyline
+         adapter; game_status 'pre'/'Live'/'Final' maps exactly like MLB's
+         game_state.
+      2. CURRENT SLATE: the newest moneyline v1 games[] (today's snapshot
+         survives even while today's dated file is missing).
+      3. FROZEN STORE ARCHIVE: production-as-published first-publication
+         prices for a past date — never an OOF re-price.
+      4. OOF history fallback for the pre-store seeding window ONLY. This
+         is the structural alignment the task required: NFL is now
+         store-first exactly like MLB, and an OOF walk-forward re-price is
+         never surfaced as a production prediction for any date the serving
+         horizon already covered (2026-09-27 forward).
+    Missing everything → empty frame (the page renders its honest state).
+    """
+    requested = str(date_str or "").replace("-", "")
+    if requested:
+        # One dated file per game date (MLB parity): resolve the requested
+        # date's OWN snapshot directly — the newest member is only a 
+        # candidate for that date, never a proxy for other dates.
+        cfg = get_source_config()
+        raw, _src = _fetch_bytes(f"nfl_board_{requested}.csv",
+                                 sport="nfl", **cfg)
+        if raw is not None:
+            try:
+                df = pd.read_csv(io.BytesIO(raw), dtype={"game_id": str})
+            except Exception:
+                df = pd.DataFrame()
+            if not df.empty and "game_date" in df.columns:
+                gd = df["game_date"].dropna().astype(str).str.replace("-", "")
+                day = df[gd == requested]
+                if not day.empty:
+                    return nfl_moneyline_to_frame(
+                        {"games": day.to_dict("records")})
+    current = load_nfl_moneyline("nfl")
+    if not current.empty:
+        dates = set(_distinct_game_dates(current))
+        if not requested or requested in dates:
+            return current
+        if requested not in dates:
+            current = current[current.game_date.astype(str).str.replace("-", "")
+                              == requested]
+            if not current.empty:
+                return current
+    try:
+        frozen = _cards_store_to_board_frame(_load_cards_store("nfl"), requested)
+    except Exception:
+        frozen = pd.DataFrame()
+    if not frozen.empty:
+        return frozen
+    return _history_to_board_frame(load_nfl_prediction_history("nfl"), requested)
+
+
 def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
     """Load the latest NFL moneyline v1 artifact through the adapter.
 
@@ -1406,8 +1487,7 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     path (safe fallback)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     if s == "nfl":
-        current = load_nfl_moneyline("nfl")
-        return current
+        return load_nfl_board_games(date_str)
     if s == "nhl":
         return load_history_games_v1(date_str, "nhl")
     if s == "nba":

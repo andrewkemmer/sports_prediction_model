@@ -604,7 +604,8 @@ def main(argv: list[str] | None = None) -> int:
     slate = feat_mod.build_slate_features(
         schedule, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather, injuries=injuries,
-        weekly_injuries=weekly_injuries, crosswalk=crosswalk)
+        weekly_injuries=weekly_injuries, crosswalk=crosswalk,
+        serve_from=run_date)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
@@ -721,6 +722,27 @@ def main(argv: list[str] | None = None) -> int:
     _card_store = _update_cards_history_store(out_dir, oof_ml, slate, date_c)
     if _card_store:
         artifacts.append(_card_store)
+
+    # Dated per-date board snapshots — the MLB ``todays_games_<date>.csv``
+    # structural twin. Every game date the serving horizon covers gets its
+    # own dated CSV carrying the frozen pre-game price with truthful
+    # status/score, so (a) today's board includes games that already started
+    # and (b) the rolling-10-day window serves REAL dated snapshots instead
+    # of OOF-rebuilt rows. Beyond-window dates age out through the dated
+    # retention family exactly like MLB's board family.
+    if len(slate):
+        try:
+            _board_files = serve_mod.write_board_csv(
+                out_dir, slate, p_home, p_home_cal, _team_names())
+            artifacts.extend(sorted(_board_files))
+            if _board_files:
+                logger.info("dated board snapshots: %d date(s) -> %s",
+                            len(_board_files),
+                            ", ".join(sorted(_board_files)[:3])
+                            + (" ..." if len(_board_files) > 3 else ""))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("dated board snapshot write FAILED (run continues): %s",
+                         exc, exc_info=True)
 
     p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
     _write_power_rankings(p, game_df)
@@ -1207,7 +1229,7 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
 
 def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                                 slate: pd.DataFrame, date_c: str) -> str | None:
-    """Append newly-decided games to the frozen card store (once).
+    """Append newly-published games to the frozen card store (once).
 
     MLB parity (run_engine.update_totals_history_store): rows are priced at
     FIRST PUBLICATION and never mutated afterward. Seeding rebuilds from the
@@ -1216,6 +1238,16 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
     append only game_ids the store has never seen. Returns the filename
     appended to the artifact manifest, or None on any failure (the store
     must never fail the run).
+
+    PUBLISH-then-GRADE (the OOF-row substitution defect, fixed): since
+    2026-09-27 the serving horizon prices today's slate BEFORE kickoff and
+    the dated board snapshots carry those production prices, so a game is
+    appended the day it is PLAYED from the slate row the horizon already
+    published (``source_artifact_date`` = its publication run) — never
+    retro-seeded from a decided OOF walk-forward row. The OOF branch below
+    exists only as the pre-2026-09-27 seeding path (rows the store never
+    saw published while the game was in the horizon); it keeps the frozen
+    OOF price exactly as it graded, and newer runs can never re-open it.
     """
     store_path = out_dir / "nfl_production_cards_history.csv"
     meta_path = out_dir / "nfl_production_cards_history.meta.json"
@@ -1248,6 +1280,41 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
             store = (pd.concat(frames, ignore_index=True) if frames
                      else pd.DataFrame())
         added = 0
+        run_day = pd.to_datetime(date_c, format="%Y%m%d")
+        # (1) First-publication append: slate rows for games PLAYED by this
+        # run's date — priced by an earlier serving horizon, never re-priced.
+        # gameday is datetime-normalized first: the production slate carries
+        # Timestamps, but the writer must also tolerate string-typed callers.
+        if slate is not None and len(slate):
+            _gd = pd.to_datetime(slate["gameday"], errors="coerce") \
+                if "gameday" in slate.columns else pd.Series(dtype="datetime64[ns]")
+            played = slate[_gd < run_day] if len(_gd) else pd.DataFrame()
+            played = played[~played["game_id"].astype(str).isin(known)] \
+                if len(played) else pd.DataFrame()
+            if len(played):
+                ph = pd.to_numeric(played["p_home_win"], errors="coerce")
+                hs = pd.to_numeric(played["home_score"], errors="coerce")
+                asx = pd.to_numeric(played["away_score"], errors="coerce")
+                winner = np.where(hs > asx, played["home_team"],
+                                  np.where(asx > hs, played["away_team"], "TIE"))
+                out = pd.DataFrame({
+                    "game_id": played["game_id"].astype(str),
+                    "game_date": pd.to_datetime(played["gameday"]).dt.strftime("%Y-%m-%d"),
+                    "home_team": played["home_team"], "away_team": played["away_team"],
+                    "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                    "model_pick": np.where(ph >= 0.5, played["home_team"],
+                                           played["away_team"]),
+                    "correct": np.where(ph >= 0.5, played["home_team"],
+                                        played["away_team"]) == winner,
+                    "home_score": hs, "away_score": asx,
+                    "actual_winner": winner,
+                    "game_status": "Final",
+                    "source_artifact_date": date_c,
+                })
+                added += len(out)
+                store = pd.concat([store, out], ignore_index=True)
+        # (2) Legacy seeding append: decided OOF rows the store has never
+        # seen (pre-horizon-serving games; publication-grade prices frozen).
         if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
             dec = oof_ml[oof_ml["game_id"].astype(str).isin(known) == False].copy()
             dec = dec[dec[["home_score", "away_score"]].notna().all(axis=1)] \
@@ -1277,39 +1344,44 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                     if len(store) else out
                 added += len(out)
                 store = pd.concat([store, out], ignore_index=True)
+        # (3) Same-run settle: today's horizon rows that FINISHED inside this
+        # run (same-run final). The store row carries the FROZEN pre-game
+        # price the horizon published — never a mid-game/OOF re-price.
         if slate is not None and len(slate):
-            dec_s = slate[slate[["home_score", "away_score"]].notna().all(axis=1)] \
-                if {"home_score", "away_score"}.issubset(slate.columns) \
+            _gd = pd.to_datetime(slate["gameday"], errors="coerce") \
+                if "gameday" in slate.columns else pd.Series(dtype="datetime64[ns]")
+            dec_s = slate[_gd == run_day] if len(_gd) else pd.DataFrame()
+            dec_s = dec_s[dec_s[["home_score", "away_score"]].notna().all(axis=1)] \
+                if {"home_score", "away_score"}.issubset(dec_s.columns) \
                 else pd.DataFrame()
+            dec_s = dec_s[~dec_s["game_id"].astype(str)
+                          .isin(set(store["game_id"].astype(str)))] \
+                if len(dec_s) and len(store) else dec_s
             if len(dec_s):
-                dec_s = dec_s[~dec_s["game_id"].astype(str)
-                              .isin(set(store["game_id"].astype(str)))] \
-                    if len(store) else dec_s
-                if len(dec_s):
-                    ph = pd.to_numeric(dec_s["p_home_win"], errors="coerce")
-                    hw = (pd.to_numeric(dec_s["home_score"], errors="coerce")
-                          > pd.to_numeric(dec_s["away_score"], errors="coerce"))
-                    winner = np.where(hw, dec_s["home_team"],
-                                      np.where(~hw & (pd.to_numeric(dec_s["away_score"], errors="coerce")
-                                                      > pd.to_numeric(dec_s["home_score"], errors="coerce")),
-                                               dec_s["away_team"], "TIE"))
-                    out = pd.DataFrame({
-                        "game_id": dec_s["game_id"].astype(str),
-                        "game_date": pd.to_datetime(dec_s["gameday"]).dt.strftime("%Y-%m-%d"),
-                        "home_team": dec_s["home_team"], "away_team": dec_s["away_team"],
-                        "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
-                        "model_pick": np.where(ph >= 0.5, dec_s["home_team"],
-                                               dec_s["away_team"]),
-                        "correct": np.where(ph >= 0.5, dec_s["home_team"],
-                                            dec_s["away_team"]) == winner,
-                        "home_score": dec_s["home_score"],
-                        "away_score": dec_s["away_score"],
-                        "actual_winner": winner,
-                        "game_status": "Final",
-                        "source_artifact_date": date_c,
-                    })
-                    added += len(out)
-                    store = pd.concat([store, out], ignore_index=True)
+                ph = pd.to_numeric(dec_s["p_home_win"], errors="coerce")
+                hw = (pd.to_numeric(dec_s["home_score"], errors="coerce")
+                      > pd.to_numeric(dec_s["away_score"], errors="coerce"))
+                winner = np.where(hw, dec_s["home_team"],
+                                  np.where(~hw & (pd.to_numeric(dec_s["away_score"], errors="coerce")
+                                                  > pd.to_numeric(dec_s["home_score"], errors="coerce")),
+                                           dec_s["away_team"], "TIE"))
+                out = pd.DataFrame({
+                    "game_id": dec_s["game_id"].astype(str),
+                    "game_date": pd.to_datetime(dec_s["gameday"]).dt.strftime("%Y-%m-%d"),
+                    "home_team": dec_s["home_team"], "away_team": dec_s["away_team"],
+                    "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                    "model_pick": np.where(ph >= 0.5, dec_s["home_team"],
+                                           dec_s["away_team"]),
+                    "correct": np.where(ph >= 0.5, dec_s["home_team"],
+                                        dec_s["away_team"]) == winner,
+                    "home_score": dec_s["home_score"],
+                    "away_score": dec_s["away_score"],
+                    "actual_winner": winner,
+                    "game_status": "Final",
+                    "source_artifact_date": date_c,
+                })
+                added += len(out)
+                store = pd.concat([store, out], ignore_index=True)
         if not len(store):
             return None
         store = store.sort_values(["game_date", "game_id"]).reset_index(drop=True)

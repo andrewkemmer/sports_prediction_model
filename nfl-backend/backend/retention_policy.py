@@ -101,6 +101,11 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  allowlisted=True,
                  notes="newest-only (Calibration page _pick_artifact_date); "
                        "10-day blanket window"),
+    FamilyPolicy("board", "nfl_board_", retention_days=10, allowlisted=True,
+                 notes="DATED PER-DATE BOARD SNAPSHOTS (the MLB "
+                       "todays_games_<date>.csv structural twin: the "
+                       "rolling-10-day dashboard window + today's started "
+                       "games); 10-day blanket window"),
     FamilyPolicy("predictions_history", "nfl_predictions_history_",
                  retention_days=10, allowlisted=True, board_supported=True,
                  notes="newest-only consumers (calibration curve/table, "

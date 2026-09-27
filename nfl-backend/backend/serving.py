@@ -5,6 +5,9 @@ internals; every field it reads is emitted here.
 
 Families (per run date):
   nfl_moneyline_v1_<date>.json        games[] card contract
+  nfl_board_<game_date>.csv           per-date board snapshot (MLB
+                                      todays_games_<date>.csv twin; one
+                                      dated file per game date, NOT per run)
   nfl_calibration_<date>.json         metrics/daily/today_record contract
   nfl_predictions_history_<date>.csv  decided-game prediction history
   nfl_power_rankings_<date>.csv       rank/team/elo/record board
@@ -15,7 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -92,36 +96,118 @@ def _date_compact(run_date: str) -> str:
 # ---------------------------------------------------------------------------
 # Moneyline JSON — the games[] card contract
 # ---------------------------------------------------------------------------
+def _kickoff_utc(g) -> pd.Timestamp | None:
+    """Real kickoff as UTC from (gameday, gametime) — gametime is ET.
+
+    Distinct from ``_start_time_utc`` (which emits the display string with
+    the documented no-offset convention): status derivation needs the true
+    instant, so the ET wall time is localized properly. NaT when the row
+    carries no parseable kickoff — callers degrade, never guess.
+    """
+    gd = _date_str(g.get("gameday", ""))
+    gt = str(g.get("gametime", "") or "").strip()
+    if not gd or not gt or ":" not in gt:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        local = datetime.strptime(f"{gd} {gt[:5]}", "%Y-%m-%d %H:%M")
+        return (local.replace(tzinfo=ZoneInfo("America/New_York"))
+                .astimezone(timezone.utc).replace(tzinfo=None))
+    except (ValueError, TypeError):
+        return None
+
+
+def _board_game_row(g, ph, phc, team_names: dict[str, str],
+                    board_date: bool) -> dict:
+    """One game row of the serving contract (moneyline JSON games[] and the
+    dated board CSV share the same field shape).
+
+    ``board_date`` (gameday inside the run's serving horizon, i.e. the ET
+    run date): the horizon INCLUDES games that already started. A game
+    keeps its FROZEN PRE-GAME probability (the horizon priced it before
+    kickoff and never re-prices) and the status/score contract is TRUTHFUL:
+    a final score present -> 'Final' with the graded pick (the nflverse
+    schedule only fields scores once the game is final); kickoff passed,
+    no final yet -> 'Live' (in progress / awaiting the final — never
+    'pre' for a game that already started); kickoff still ahead -> 'pre'.
+    Away-from-run-date rows (future slate) stay the pure pre-game contract.
+    """
+    decided = bool(pd.notna(g.get("home_score")) and pd.notna(g.get("away_score")))
+    hs = float(g["home_score"]) if decided else None
+    as_ = float(g["away_score"]) if decided else None
+    if decided:
+        status = "Final"
+    elif board_date:
+        kickoff = _kickoff_utc(g)
+        status = "pre"
+        if kickoff is not None and datetime.now(timezone.utc).replace(tzinfo=None) >= kickoff:
+            # Started (possibly finished with the score not yet published).
+            # The FROZEN PRE-GAME price stands beside this status — the card
+            # never shows a mid-game re-estimation.
+            status = "Live"
+    else:
+        status = "pre"
+    # THE FROZEN PRE-GAME PRICE: ph is the blend the serving horizon priced
+    # from the point-in-time ladder — never an OOF walk-forward re-price and
+    # never a mid-game re-estimation. A started-but-unfinished game shows
+    # that kickoff price beside its live status.
+    pick = None
+    if ph is not None:
+        pick = g["home_team"] if ph >= 0.5 else g["away_team"]
+    correct = None
+    if decided and pick is not None:
+        winner = (g["home_team"] if hs > as_
+                  else g["away_team"] if as_ > hs else None)
+        correct = bool(pick == winner)
+    return _row_clean({
+        "game_id": g["game_id"],
+        "game_date": _date_str(g["gameday"]),
+        "start_time_utc": _start_time_utc(g),
+        "home_team": g["home_team"],
+        "away_team": g["away_team"],
+        "home_team_name": team_names.get(g["home_team"], g["home_team"]),
+        "away_team_name": team_names.get(g["away_team"], g["away_team"]),
+        "home_record": g.get("home_record") or None,
+        "away_record": g.get("away_record") or None,
+        "venue": g.get("stadium") or None,
+        "game_status": status,
+        "home_score": hs,
+        "away_score": as_,
+        "home_win_prob_model": phc if phc is not None else ph,
+        "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
+        "model_pick": pick,
+        "model_correct": correct,
+    })
+
+
 def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                          p_home_cal: np.ndarray, team_names: dict[str, str],
                          config_meta: dict) -> dict:
+    # The serving horizon's run-date rows (gameday == today ET) get the
+    # truthful status contract too: the frontend's current-slate fallback
+    # renders today's board from this record when the dated file is briefly
+    # absent, and a game that already started must not degrade back to
+    # 'pre' on that path (the dated snapshot carries the same truth).
+    try:
+        from zoneinfo import ZoneInfo
+        _run_day = datetime.now(ZoneInfo("America/New_York")).date()
+    except Exception:
+        _run_day = None
     games = []
     for i, row in enumerate(slate_df.reset_index(drop=True).iterrows()):
         _, g = row
         ph = _clean(p_home[i]) if i < len(p_home) else None
         phc = _clean(p_home_cal[i]) if i < len(p_home_cal) else None
-        pick = None
-        if ph is not None:
-            pick = g["home_team"] if ph >= 0.5 else g["away_team"]
-        games.append(_row_clean({
-            "game_id": g["game_id"],
-            "game_date": _date_str(g["gameday"]),
-            "start_time_utc": _start_time_utc(g),
-            "home_team": g["home_team"],
-            "away_team": g["away_team"],
-            "home_team_name": team_names.get(g["home_team"], g["home_team"]),
-            "away_team_name": team_names.get(g["away_team"], g["away_team"]),
-            "home_record": g.get("home_record") or None,
-            "away_record": g.get("away_record") or None,
-            "venue": g.get("stadium") or None,
-            "game_status": "pre",
-            "home_score": None,
-            "away_score": None,
-            "home_win_prob_model": phc if phc is not None else ph,
-            "away_win_prob_model": (1.0 - phc) if phc is not None else ((1.0 - ph) if ph is not None else None),
-            "model_pick": pick,
-            "model_correct": None,
-        }))
+        is_run_date = False
+        if _run_day is not None:
+            gd = _date_str(g.get("gameday", ""))
+            try:
+                is_run_date = (datetime.strptime(gd, "%Y-%m-%d").date()
+                               <= _run_day)
+            except (ValueError, TypeError):
+                is_run_date = False
+        games.append(_board_game_row(g, ph, phc, team_names,
+                                     board_date=is_run_date))
     record = {
         "created_utc": _now_utc(),
         "config": config_meta,
@@ -131,6 +217,46 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
     }
     _dump_json(path, record)
     return record
+
+
+def write_board_csv(out_dir, slate_df: pd.DataFrame, p_home: np.ndarray,
+                    p_home_cal: np.ndarray, team_names: dict[str, str]) -> list[str]:
+    """The DATED per-date board snapshot — MLB's todays_games_<date>.csv
+    structural twin for NFL.
+
+    MLB publishes one board CSV per calendar date (today's slate with
+    official results overlaid: Live rows mid-game, Final rows graded); the
+    shared Today's Games page renders that snapshot for every past date in
+    the rolling 10-day window. NFL had no per-date board, so past dates were
+    rebuilt from OOF stores and today's board came from a single current-
+    slate JSON that could never include a started game. This writer fixes
+    the STRUCTURE: the run's serving horizon (already extends through the
+    ET run date, started games included) is written per game_date, so every
+    in-window date has a real snapshot carrying the frozen pre-game
+    prediction alongside truthful scores/statuses.
+
+    Games beyond the rolling window drop out through the ordinary dated-
+    family retention policy, exactly like MLB's board family.
+    """
+    out_dir = Path(out_dir)
+    rows: list[pd.DataFrame] = []
+    for i, (_, g) in enumerate(slate_df.reset_index(drop=True).iterrows()):
+        ph = _clean(p_home[i]) if i < len(p_home) else None
+        phc = _clean(p_home_cal[i]) if i < len(p_home_cal) else None
+        rec = _board_game_row(g, ph, phc, team_names, board_date=True)
+        rows.append(pd.DataFrame([rec]))
+    out = (pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    written: list[str] = []
+    if out.empty or "game_date" not in out.columns:
+        return written
+    for day, grp in out.groupby("game_date"):
+        day_c = str(day).replace("-", "")
+        if not (len(day_c) == 8 and day_c.isdigit()):
+            continue
+        target = out_dir / f"nfl_board_{day_c}.csv"
+        grp.to_csv(target, index=False)
+        written.append(target.name)
+    return written
 
 
 def _start_time_utc(g) -> str | None:

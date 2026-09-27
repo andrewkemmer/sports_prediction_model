@@ -2063,7 +2063,8 @@ def build_slate_features(schedule: pd.DataFrame,
                          weather: pd.DataFrame | None = None,
                          injuries: pd.DataFrame | None = None,
                          weekly_injuries: pd.DataFrame | None = None,
-                         crosswalk: pd.DataFrame | None = None) -> pd.DataFrame:
+                         crosswalk: pd.DataFrame | None = None,
+                         serve_from=None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full schedule timeline. A pending row's trailing
@@ -2073,12 +2074,30 @@ def build_slate_features(schedule: pd.DataFrame,
     overlapping kickoffs), and injury status is accepted only from the
     strict-PIT injury loader. ``weather`` follows the same boundary as decided
     games: forecasts and provenance must both be pre-kickoff.
+
+    PENDING KEYING: ``serve_from`` (the run's ET date, passed by the
+    pipeline) keys the serving horizon by DATE — MLB parity — instead of by
+    score presence. The old both-scores-missing rule silently DROPPED every
+    game that started earlier today and already carried a result (the
+    2026-09-27 "Today's Games removes games that started earlier today"
+    complaint): the slate shrank to the not-yet-finished games and the board
+    lost them for good. With the horizon keyed by date, a same-day game's
+    card serves its FROZEN PRE-GAME price (the point-in-time ladder prices
+    it from strictly pre-kickoff data no matter when the run executes) with
+    a truthful status/score. The PIT ladder still cannot leak: a scored row
+    is target-like only for rows STRICTLY AFTER it, and the target's own
+    trailing features come from its strictly-prior rows either way.
     """
     sched = schedule.copy()
     for c in ("home_score", "away_score"):
         if c in sched.columns:
             sched[c] = pd.to_numeric(sched[c], errors="coerce")
-    pending = sched[sched["home_score"].isna() | sched["away_score"].isna()]
+    undecided = sched["home_score"].isna() | sched["away_score"].isna()
+    if serve_from is not None:
+        gd = pd.to_datetime(sched["gameday"], errors="coerce")
+        pending = sched[undecided | (gd >= pd.Timestamp(serve_from))]
+    else:
+        pending = sched[undecided]
     if pending.empty:
         return pd.DataFrame()
 

@@ -21,6 +21,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from pathlib import Path  # noqa: E402  (board-snapshot writers)
 
 BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
@@ -3245,6 +3246,115 @@ except Exception as exc:  # noqa: BLE001
     check("pace consumption smoke runs", False,
           f"{type(exc).__name__}: {exc}")
     traceback.print_exc()
+
+
+# ---------------------------------------------------------------------------
+# Serving-horizon board contract (the 2026-09-27 dashboard remediation).
+# A game that started earlier today must stay on the board: the pending
+# selector keys the serving horizon by DATE (MLB parity), the board row
+# carries the frozen pre-game price with a truthful status, and the dated
+# board snapshot family resolves exactly like MLB's todays_games_<date>.csv.
+# ---------------------------------------------------------------------------
+print("\n== 22. Serving-horizon board (started games stay; dated snapshots) ==")
+try:
+    # Started-today simulation: serve_from = the started game's own date.
+    # The target carries a RUNNING score while the later game is unstarted.
+    _sh = _pit_games.astype({"home_score": float, "away_score": float})
+    _sh.loc[_sh["game_id"] == _PIT_TARGET, ["home_score", "away_score"]] = [10.0, 10.0]
+    _sh.loc[_sh["game_id"] == _PIT_FUTURE, "home_score"] = np.nan
+    _sh.loc[_sh["game_id"] == _PIT_FUTURE, "away_score"] = np.nan
+    check("legacy default: a fully-scored game is not a pending row",
+          len(feat_mod.build_slate_features(_sh, _pit_pbp())) == 1)
+    _sh_horizon = feat_mod.build_slate_features(
+        _sh, _pit_pbp(), serve_from="2024-09-08")
+    check("date-keyed horizon keeps the started game + the future game",
+          set(_sh_horizon["game_id"]) == {_PIT_TARGET, _PIT_FUTURE})
+    check("started game keeps strictly-prior trailing features",
+          _same_target_view(
+              _mixed_base,
+              _sh_horizon[_sh_horizon["game_id"] == _PIT_TARGET]))
+    # A game that FINISHED today stays on today's board; earlier days'
+    # decided games never re-enter through the date rule.
+    _sh_fin = _pit_games.astype({"home_score": float, "away_score": float})
+    _sh_fin.loc[_sh_fin["game_id"] == _PIT_FUTURE, "home_score"] = np.nan
+    _sh_fin.loc[_sh_fin["game_id"] == _PIT_FUTURE, "away_score"] = np.nan
+    _sh_h2 = feat_mod.build_slate_features(
+        _sh_fin, _pit_pbp(), serve_from="2024-09-08")
+    check("today's finished game stays on the board; prior days never re-enter",
+          (_sh_h2["game_id"] == _PIT_TARGET).any()
+          and _sh_h2["game_id"].isin(["PIT_G0", "PIT_G1"]).sum() == 0)
+
+    # Status derivation: truthful Live/pre/final on the board contract.
+    _row_live = pd.Series({
+        "game_id": "L1", "gameday": "2026-09-27", "gametime": "15:00",
+        "home_team": "PHI", "away_team": "DAL", "stadium": "The Link",
+        "home_score": np.nan, "away_score": np.nan})
+    _row_final = pd.Series({
+        "game_id": "F1", "gameday": "2026-09-27", "gametime": "13:00",
+        "home_team": "KC", "away_team": "LV", "stadium": "Arrowhead",
+        "home_score": 27.0, "away_score": 24.0})
+    _row_pre = pd.Series({
+        "game_id": "P1", "gameday": "2026-09-27", "gametime": "20:15",
+        "home_team": "SF", "away_team": "SEA", "stadium": "Levi's",
+        "home_score": np.nan, "away_score": np.nan})
+    _rec = serve_mod._board_game_row(_row_live, 0.647, 0.641, {}, True)
+    check("kickoff passed, no final yet -> truthful Live (never pre)",
+          _rec["game_status"] == "Live" and _rec["home_score"] is None)
+    _rec_f = serve_mod._board_game_row(_row_final, 0.581, 0.577, {}, True)
+    check("final score -> Final with graded pick",
+          _rec_f["game_status"] == "Final" and _rec_f["model_correct"] is True)
+    _rec_p = serve_mod._board_game_row(_row_pre, 0.523, 0.520, {}, True)
+    check("kickoff still ahead -> pre (pre-game card intact)",
+          _rec_p["game_status"] == "pre")
+    check("the frozen pre-game price is published beside the live status",
+          _rec["home_win_prob_model"] == 0.641)
+    check("future-slate rows stay the pure pre-game contract",
+          serve_mod._board_game_row(_row_live, 0.6, 0.6, {}, False)
+          ["game_status"] == "pre")
+
+    # Dated snapshot family: one file per game date, MLB todays_games twin.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _td:
+        _slate = pd.DataFrame([
+            {"game_id": "D1", "gameday": "2026-09-26", "gametime": "13:00",
+             "home_team": "CHI", "away_team": "GB", "stadium": "Soldier",
+             "home_score": 20.0, "away_score": 27.0},
+            {"game_id": "D2", "gameday": "2026-09-27", "gametime": "13:00",
+             "home_team": "NYG", "away_team": "WAS", "stadium": "MetLife",
+             "home_score": np.nan, "away_score": np.nan},
+        ])
+        _files = serve_mod.write_board_csv(
+            Path(_td), _slate, np.array([0.41, 0.55]), np.array([0.40, 0.54]),
+            {"CHI": "Bears"})
+        check("dated board snapshots: one dated file per game date",
+              sorted(_files) == ["nfl_board_20260926.csv",
+                                 "nfl_board_20260927.csv"])
+        _b26 = pd.read_csv(Path(_td) / "nfl_board_20260926.csv",
+                           dtype={"game_id": str})
+        check("snapshot carries the frozen price + truthful graded final",
+              _b26.iloc[0]["game_status"] == "Final"
+              and abs(_b26.iloc[0]["home_win_prob_model"] - 0.40) < 1e-9
+              and bool(_b26.iloc[0]["model_correct"]) is True
+              and _b26.iloc[0]["model_pick"] == "GB")
+        _today_csv = pd.read_csv(Path(_td) / "nfl_board_20260927.csv",
+                                 dtype={"game_id": str})
+        check("today's snapshot includes the not-yet-finished game",
+              len(_today_csv) == 1
+              and _today_csv.iloc[0]["game_id"] == "D2"
+              and _today_csv.iloc[0]["game_status"] in ("pre", "Live"))
+        _ml_rec = serve_mod.write_moneyline_json(
+            Path(_td) / "ml.json", _slate.assign(season=2026),
+            np.array([0.41, 0.55]), np.array([0.40, 0.54]), {}, {})
+        check("moneyline JSON statuses stay honest for run-date rows",
+              all(g["game_status"] in ("pre", "Live", "Final")
+                  for g in _ml_rec["games"]))
+except Exception as exc:  # noqa: BLE001
+    import traceback
+    check("serving-horizon board smoke runs", False,
+          f"{type(exc).__name__}: {exc}")
+    traceback.print_exc()
+
+
 
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,10 @@ SPORTS = {
             "markets_csv": "nfl_run_engine_markets_*.csv",
             "markets_monitor_json": "nfl_run_engine_monitor_*.json",
             "qb_matchup_json": "nfl_qb_matchup_*.json",
+            # Dated per-date board snapshots — the MLB todays_games_<date>.csv
+            # structural twin (one dated CSV per game date; the Today's Games
+            # board and the valid-date rail resolve through this family).
+            "nfl_board_csv": "nfl_board_*.csv",
         },
     },
     "nhl": {
