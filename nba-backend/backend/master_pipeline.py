@@ -616,6 +616,76 @@ def _remote_url(repo_root: Path) -> str:
     return ""
 
 
+def feature_importance_weights(final_models: dict[str, dict],
+                               weights: dict[str, float]) -> dict[str, float] | None:
+    """Blend-weighted feature importance across the ensemble (sums to 100).
+
+    The drift table's MODEL WEIGHT column used to publish an explicit
+    ``{feature: 0.0}`` - a correct sum wearing a wrong answer, which every
+    dashboard downstream reads as "no feature carries any of the model".
+    Mirrors MLB's ``feature_importance_weights``: each member's importances
+    are normalised internally, then averaged with the member's share of the
+    ensemble blend.  Tree members contribute split-gain importance; the
+    elastic-net member contributes |coefficient| scattered from its scaled,
+    diff-sliced matrix back to active-column positions, weighted by the
+    preprocessor's own stds so a zero-variance column can never smuggle its
+    importance up to an unrelated feature.
+
+    Returns None when no member exposes importances - the caller then omits
+    the column rather than publishing a fabricated zero.
+    """
+    cols = config.active_moneyline_feature_cols()
+    nfc = len(cols)
+    agg = np.zeros(nfc)
+    raw = {name: max(float(weights.get(name, 0.0)), 0.0) for name in final_models}
+    total = sum(raw.values())
+    slice_cols = feat_mod.linear_feature_columns()
+    contributed = False
+    for name, entry in final_models.items():
+        model = entry.get("model") if isinstance(entry, dict) else entry
+        pre = entry.get("pre") if isinstance(entry, dict) else None
+        share = raw[name] / total if total > 0 else 1.0 / max(len(final_models), 1)
+        try:
+            if hasattr(model, "feature_importances_"):
+                imp = np.asarray(model.feature_importances_, dtype=float).ravel()
+            elif hasattr(model, "coef_"):
+                coef = np.abs(np.asarray(model.coef_, dtype=float)).ravel()
+                imp = coef
+                if name in ml_mod.LINEAR_MEMBERS:
+                    # coef_ is slice-shaped (diff columns only, standardised).
+                    # |mean|*|std| maps each slice position back to its active
+                    # column in the model's own fitted geometry.
+                    if (pre is None or getattr(pre, "stds", None) is None
+                            or len(coef) != len(slice_cols)):
+                        continue
+                    scale = (pd.to_numeric(pre.stds, errors="coerce")
+                             .reindex(slice_cols).to_numpy(dtype=float))
+                    if (not np.all(np.isfinite(scale)) or (scale <= 0).any()):
+                        continue
+                    full = np.zeros(nfc)
+                    index = {c: i for i, c in enumerate(cols)}
+                    for col, importance in zip(slice_cols, coef * scale):
+                        if col in index:
+                            full[index[col]] = importance
+                    imp = full
+            else:
+                continue
+            # Tree members trained with team-ID categoricals carry a longer
+            # vector; the categoricals sit AFTER the numeric active columns,
+            # so the trim keeps exactly the serving width.
+            if len(imp) > nfc:
+                imp = imp[:nfc]
+            if len(imp) != nfc or imp.sum() <= 0 or not np.all(np.isfinite(imp)):
+                continue
+        except Exception:  # noqa: BLE001 - one opaque member cannot kill the report
+            continue
+        agg += share * (imp / imp.sum())
+        contributed = True
+    if not contributed or agg.sum() <= 0:
+        return None
+    return {c: round(float(w), 4) for c, w in zip(cols, agg / agg.sum() * 100.0)}
+
+
 def _sync_data_delivery(repo_root: Path) -> dict:
     """Publish this run's artifacts to ``nba-backend/data_delivery`` on main.
 
@@ -943,9 +1013,15 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     if workbook_name:
         artifacts.append(workbook_name)
     artifacts.append(selection_name)
+    # Drift on MLB's window pair: a recent tail against its like-for-like
+    # prior, never the whole history against itself - comparing a
+    # playoff-heavy 60-row tail to a full season paged eleven features whose
+    # means had not moved.  Weights are the members' real blend-weighted
+    # importances, not a table of zeros.
+    imp_weights = feature_importance_weights(final_models, ml["member_weights"])
+    drift_baseline, drift_current = monitoring.drift_windows(game_df)
     drift_names = monitoring.write_run_engine_feature_artifacts(
-        out, date_c, game_df, game_df.tail(min(60, len(game_df))),
-        {feature: 0.0 for feature in config.active_moneyline_feature_cols()})
+        out, date_c, drift_baseline, drift_current, imp_weights)
     artifacts.extend(drift_names)
     _step("feature report", f"selection {selection_name}, "
                             f"{len(drift_names)} drift/coverage file(s)")
@@ -966,8 +1042,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     artifacts.append(str(model_path.relative_to(out)))
 
     members = monitoring.ensemble_table(ml_oof, ml["member_weights"])
-    drift = monitoring.feature_drift(game_df, game_df.tail(min(60, len(game_df))))
-    cov = monitoring.coverage(game_df)
+    drift = monitoring.feature_drift(drift_baseline, drift_current, imp_weights)
+    cov = monitoring.coverage(drift_baseline, drift_current)
     brier = monitoring.rolling_brier(ml_oof)
     latest_brier = f"{brier[-1]['brier']:.4f}" if brier else "n/a"
     monitoring.write_monitor_json(
