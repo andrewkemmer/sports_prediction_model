@@ -1380,6 +1380,126 @@ def test_boxscore_served_diffs_never_read_the_current_game():
         equal_nan=True), "fixture did not actually change any feature"
 
 
+# ---------------------------------------------------------------------------
+# Raw per-side levels: every served diff ships its home/away level halves
+# ---------------------------------------------------------------------------
+RAW_PER_SIDE_FAMILIES = {
+    "ewm_goal_share": "ewm_goal_share",
+    "ga_per_game": "ga_per_game",
+    "shots_for_per_game": "sog_pg_roll",
+    "shots_against_per_game": "shots_against_pg_roll",
+    "pp_success": "pp_success_rate_roll",
+    "faceoff_win": "faceoff_win_pct_roll",
+    "back_to_back": "back_to_back",
+}
+
+
+def test_raw_per_side_levels_served_for_every_diff_family():
+    """The tree family needs the LEVEL halves of every served diff.
+
+    The contract carried raw sides only for the Elo/state/goalie families;
+    the eight remaining diff families (ewm_goal_share, ga_per_game, shots
+    for/against, pp_success, faceoff_win, back_to_back, goalie_starts)
+    shipped diffs
+    whose home/away halves existed nowhere, so the tree members saw a
+    difference the raw sides could not explain. Now every diff in
+    MONEYLINE_FEATURE_COLS has its level twins served, the ladder/roll
+    families are routed through RAW_PER_SIDE_COLS, and each pair satisfies
+    home - away == diff.
+    """
+    games = _synth_games(n_days=25, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_boxscores(games))
+    served = set(config.MONEYLINE_FEATURE_COLS)
+    raw = config.RAW_PER_SIDE_COLS
+    diffs = [c for c in served if c.endswith("_diff")]
+    assert diffs, "contract sanity: there are served diffs to mirror"
+    for d in diffs:
+        base = d[: -len("_diff")]
+        if base in ("is_playoffs", "is_home"):
+            continue  # game-level facts have no level halves
+        h, a = f"{base}_home", f"{base}_away"
+        assert h in served and a in served, f"{d} served without its level twins"
+        if not base.startswith("pl_"):
+            assert h in raw and a in raw, f"{h}/{a} not routed to the tree family"
+    for base, _lad in RAW_PER_SIDE_FAMILIES.items():
+        h = pd.to_numeric(df[f"{base}_home"], errors="coerce")
+        a = pd.to_numeric(df[f"{base}_away"], errors="coerce")
+        d = pd.to_numeric(df[f"{base}_diff"], errors="coerce")
+        assert np.allclose(h - a, d, equal_nan=True), \
+            f"{base}: home - away does not reproduce the served diff"
+
+
+def test_raw_per_side_levels_are_populated_and_strictly_prior():
+    """Coverage + PIT: the new level twins carry the same shift(1) discipline
+    the diffs inherited -- near-full population on a warm frame, and NaN (not
+    a fabricated 0) on the league's first game where no prior history exists."""
+    games = _synth_games(n_days=25, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_boxscores(games))
+    df = df.sort_values("gameday", kind="stable")
+    for base, _lad in RAW_PER_SIDE_FAMILIES.items():
+        for side in ("home", "away"):
+            v = pd.to_numeric(df[f"{base}_{side}"], errors="coerce")
+            assert v.notna().mean() > 0.9, \
+                f"{base}_{side}: {v.notna().mean():.0%} populated, expected near-full"
+        first = df.iloc[0]
+        assert pd.isna(first[f"{base}_home"]) and pd.isna(first[f"{base}_away"]), \
+            f"{base}: fabricated a value for the league's first game"
+
+
+def test_slate_serves_the_raw_per_side_levels_too():
+    """The serving slate ships the same level halves, from strictly-prior
+    decided games only -- the tree members must not lose them in serving."""
+    games = _synth_games(n_days=20, games_per_day=2)
+    bs = _synth_goalie_boxscores(games)
+    pending = games.tail(4).copy()
+    pending["home_score"] = np.nan
+    pending["away_score"] = np.nan
+    hist = games.head(-4)
+    slate = feat_mod.build_slate_features(
+        pd.concat([hist, pending], ignore_index=True),
+        bs[bs["game_id"].isin(set(hist["game_id"]))])
+    assert len(slate) == len(pending)
+    for base, _lad in RAW_PER_SIDE_FAMILIES.items():
+        for side in ("home", "away"):
+            v = pd.to_numeric(slate[f"{base}_{side}"], errors="coerce")
+            assert v.notna().any(), f"{base}_{side} empty on the serving slate"
+
+
+def test_goalie_starts_levels_come_from_goalie_state_not_a_refit():
+    """goalie_starts_home/away were already computed inside goalie_state; the
+    contract now serves them. The pair must satisfy home - away == diff and
+    degrade to all-NaN honestly when there is no boxscore coverage."""
+    games = _synth_games(n_days=20, games_per_day=2)
+    df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
+    for side in ("home", "away"):
+        v = pd.to_numeric(df[f"goalie_starts_{side}"], errors="coerce")
+        assert v.notna().any(), f"goalie_starts_{side} never populated"
+    assert np.allclose(
+        pd.to_numeric(df["goalie_starts_home"], errors="coerce")
+        - pd.to_numeric(df["goalie_starts_away"], errors="coerce"),
+        pd.to_numeric(df["goalie_starts_diff"], errors="coerce"),
+        equal_nan=True)
+    bare = feat_mod.build_game_features(
+        _synth_games(n_days=8, games_per_day=2), None)
+    assert pd.to_numeric(bare["goalie_starts_home"], errors="coerce").isna().all()
+    assert pd.to_numeric(bare["goalie_starts_away"], errors="coerce").isna().all()
+
+
+def test_manifest_documents_every_served_raw_per_side_level():
+    """A served raw level without a manifest entry is an undocumented model
+    input; manifest.validate() name-for-name parity must hold at the new 66
+    width, and every documented level must carry the tree representation."""
+    import manifest as manifest_mod
+
+    problems = manifest_mod.validate()
+    assert not problems, problems
+    for f in config.MONEYLINE_FEATURE_COLS:
+        if f.endswith(("_home", "_away")) and not f.startswith("pl_"):
+            entry = manifest_mod.FEATURE_MANIFEST.get(f)
+            assert entry is not None, f"{f} served but undocumented"
+            assert "tree" in entry.get("model_family_availability", []), f
+
+
 def test_boxscore_absent_degrades_to_nan_not_an_error():
     """Honest degradation: with no boxscore the diffs are NaN, never zero-filled."""
     games = _synth_games(n_days=12, games_per_day=2)

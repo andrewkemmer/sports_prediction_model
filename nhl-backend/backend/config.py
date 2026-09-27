@@ -130,9 +130,17 @@ MONEYLINE_FEATURE_COLS = [
     "elo_home", "elo_away",
     "win_pct_home", "win_pct_away",
     "ewm_net_goals_home", "ewm_net_goals_away",
+    "ewm_goal_share_home", "ewm_goal_share_away",
     "rest_days_home", "rest_days_away",
+    "ga_per_game_home", "ga_per_game_away",
+    "shots_for_per_game_home", "shots_for_per_game_away",
+    "shots_against_per_game_home", "shots_against_per_game_away",
+    "pp_success_home", "pp_success_away",
+    "faceoff_win_home", "faceoff_win_away",
+    "back_to_back_home", "back_to_back_away",
     "goalie_sv_pct_home", "goalie_sv_pct_away",
     "goalie_gaa_home", "goalie_gaa_away",
+    "goalie_starts_home", "goalie_starts_away",
     # constant home anchor last, so the linear member's positional contract
     # is unchanged by the raw-side block above (MLB parity)
     "is_home",
@@ -239,9 +247,17 @@ RAW_PER_SIDE_COLS = frozenset({
     "elo_home", "elo_away",
     "win_pct_home", "win_pct_away",
     "ewm_net_goals_home", "ewm_net_goals_away",
+    "ewm_goal_share_home", "ewm_goal_share_away",
     "rest_days_home", "rest_days_away",
+    "ga_per_game_home", "ga_per_game_away",
+    "shots_for_per_game_home", "shots_for_per_game_away",
+    "shots_against_per_game_home", "shots_against_per_game_away",
+    "pp_success_home", "pp_success_away",
+    "faceoff_win_home", "faceoff_win_away",
+    "back_to_back_home", "back_to_back_away",
     "goalie_sv_pct_home", "goalie_sv_pct_away",
     "goalie_gaa_home", "goalie_gaa_away",
+    "goalie_starts_home", "goalie_starts_away",
 } | {f"nhl_{m}_{w}_{s}"
      for spec in CANDIDATE_FAMILIES.values()
      for base_spec in spec.values()

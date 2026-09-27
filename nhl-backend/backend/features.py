@@ -1094,12 +1094,32 @@ def build_game_features(games: pd.DataFrame,
         df["is_playoffs"] = 0.0
 
     # Per-side values for the tree view (raw home/away representations).
+    # Every served diff's level halves: the ladder-state family reads its
+    # base column, the boxscore-roll family reads the SAME ``_roll`` column
+    # the diff does (a per-side level is that side's trailing window, and
+    # home - away of the two levels is exactly the served diff).
+    # goalie_starts_home/away are already on the frame from goalie_state
+    # (all-NaN when there is no boxscore coverage).
     for side_col, lad_col in (("elo_home", "elo_entering"), ("elo_away", "elo_entering"),
                               ("win_pct_home", "win_pct"), ("win_pct_away", "win_pct"),
                               ("ewm_net_goals_home", "ewm_net_goals"),
                               ("ewm_net_goals_away", "ewm_net_goals"),
+                              ("ewm_goal_share_home", "ewm_goal_share"),
+                              ("ewm_goal_share_away", "ewm_goal_share"),
                               ("rest_days_home", "rest_days"),
-                              ("rest_days_away", "rest_days")):
+                              ("rest_days_away", "rest_days"),
+                              ("ga_per_game_home", "ga_per_game"),
+                              ("ga_per_game_away", "ga_per_game"),
+                              ("shots_for_per_game_home", "sog_pg_roll"),
+                              ("shots_for_per_game_away", "sog_pg_roll"),
+                              ("shots_against_per_game_home", "shots_against_pg_roll"),
+                              ("shots_against_per_game_away", "shots_against_pg_roll"),
+                              ("pp_success_home", "pp_success_rate_roll"),
+                              ("pp_success_away", "pp_success_rate_roll"),
+                              ("faceoff_win_home", "faceoff_win_pct_roll"),
+                              ("faceoff_win_away", "faceoff_win_pct_roll"),
+                              ("back_to_back_home", "back_to_back"),
+                              ("back_to_back_away", "back_to_back")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
@@ -1188,12 +1208,28 @@ def build_slate_features(schedule: pd.DataFrame,
     else:
         df["is_playoffs"] = 0.0
 
+    # Per-side values for the tree view — the SAME level-twins block the
+    # decided builder serves, so the serving slate carries every raw half.
     for side_col, lad_col in (("elo_home", "elo_entering"), ("elo_away", "elo_entering"),
                               ("win_pct_home", "win_pct"), ("win_pct_away", "win_pct"),
                               ("ewm_net_goals_home", "ewm_net_goals"),
                               ("ewm_net_goals_away", "ewm_net_goals"),
+                              ("ewm_goal_share_home", "ewm_goal_share"),
+                              ("ewm_goal_share_away", "ewm_goal_share"),
                               ("rest_days_home", "rest_days"),
-                              ("rest_days_away", "rest_days")):
+                              ("rest_days_away", "rest_days"),
+                              ("ga_per_game_home", "ga_per_game"),
+                              ("ga_per_game_away", "ga_per_game"),
+                              ("shots_for_per_game_home", "sog_pg_roll"),
+                              ("shots_for_per_game_away", "sog_pg_roll"),
+                              ("shots_against_per_game_home", "shots_against_pg_roll"),
+                              ("shots_against_per_game_away", "shots_against_pg_roll"),
+                              ("pp_success_home", "pp_success_rate_roll"),
+                              ("pp_success_away", "pp_success_rate_roll"),
+                              ("faceoff_win_home", "faceoff_win_pct_roll"),
+                              ("faceoff_win_away", "faceoff_win_pct_roll"),
+                              ("back_to_back_home", "back_to_back"),
+                              ("back_to_back_away", "back_to_back")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
