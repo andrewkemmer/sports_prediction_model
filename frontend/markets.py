@@ -1089,6 +1089,12 @@ def _run_engine_weight_pcts(records: list[dict],
         w = weights.get(f)
         if w is None:
             w = r.get("weight_pct")
+        # NaN is "no weight" (a pandas-read CSV turns absent cells into NaN,
+        # and f-string formatting would render it as the literal 'nan%') —
+        # normalize to None so the cell renders as an em-dash and a fully
+        # unweighted artifact omits the column entirely.
+        if w is None or (isinstance(w, float) and pd.isna(w)):
+            w = None
         out.append(w)
     return out
 

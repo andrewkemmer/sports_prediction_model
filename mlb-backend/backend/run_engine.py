@@ -2335,31 +2335,24 @@ def _resolve_slate_key(slate: pd.DataFrame) -> str:
         f"columns: {sorted(slate.columns.tolist())}")
 
 
-def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
-                       final_fit_rounds: dict[str, int],
-                       curves: dict[str, dict],
-                       n_draws: int = MC_DRAWS,
-                       seed: int = MARKET_SEED,
-                       calibration: Optional[dict] = None) -> pd.DataFrame:
-    """λ + full market grid for TODAY'S SLATE.
+def run_line_feature_weights(decided_games: pd.DataFrame,
+                             final_fit_rounds: dict[str, int]) -> dict[str, float]:
+    """The RUN LINE's own per-feature weights: pooled, n-weighted LightGBM
+    split GAIN across the two per-side Poisson fits (home-λ + away-λ),
+    normalized to sum to 1.0 over the SERVED features.
 
-    Side models refit on ALL decided games at fixed rounds (median fold
-    early-stopping iteration — no early stopping against the future), then
-    priced through the SAME α(λ) curves and MC machinery as OOF rows."""
-    if slate_games.empty:
-        return pd.DataFrame()
+    The side models are the run line's only feature consumers (the NB layer
+    carries no per-feature parameters), so this gain is the run-line model's
+    honest importance — the drift table's MODEL WEIGHT column reports it
+    instead of the moneyline blend's. The team-ID categorical columns are
+    the trees' encoding, not served features: their gain is dropped and the
+    rest renormalized (the moneyline's weight_pct convention sums to 100
+    across the served list). Computed from the DECIDED frame only — never
+    slate-dependent, so an off-day run weights exactly like a game day.
+    Diagnostic only: a failure returns {} and never blocks pricing.
+    """
     from lightgbm import LGBMRegressor
-
-    # Run-line feature importance (2026-09-27): the side models ARE the run
-    # line's feature consumers, so their pooled split GAIN — n-weighted
-    # across the home-λ and away-λ fits that price this very board — is the
-    # run line's own MODEL WEIGHT (one weight per served feature; the NB
-    # layer carries no per-feature parameters). Normalized to sum to 1.0 and
-    # stashed on the returned frame's attrs for run_engine_daily's monitor
-    # block, so the run-engine drift table reports run-line weights instead
-    # of the moneyline blend's. Diagnostic only — training/pricing untouched,
-    # and a failure here never blocks the board.
-    _rl_gain: dict[str, float] = {}
+    gain: dict[str, float] = {}
     try:
         for side in ("home", "away"):
             _, cols = build_side_frame(decided_games, side,
@@ -2373,25 +2366,43 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
             names = list(m.booster_.feature_name())
             n_rows = float(len(tr))
             for f, g in zip(names, gains):
-                _rl_gain[f] = _rl_gain.get(f, 0.0) + float(g) * n_rows
-        _tot = sum(_rl_gain.values())
-        _rl_weight = ({k: v / _tot for k, v in _rl_gain.items()}
-                      if _tot > 0 else {})
-        # Report weights over SERVED features only (the moneyline's own
-        # convention: weight_pct sums to 100 across the served list). The
-        # team-ID categorical columns consume real split gain but are the
-        # trees' encoding, not served features — drop them and renormalize
-        # so the drift table's MODEL WEIGHT column sums to 100.
-        _id_share = sum(_rl_weight.pop(c, 0.0)
-                        for c in RUN_TREE_CATEGORICAL_COLS)
-        if _id_share > 0 and _rl_weight:
-            _kept = sum(_rl_weight.values())
-            if _kept > 0:
-                _rl_weight = {k: v / _kept for k, v in _rl_weight.items()}
-    except Exception as imp_exc:  # diagnostic only — never block pricing
-        logger.warning("predict_slate_runs: run-line feature importance "
-                       "unavailable this run (%s)", imp_exc)
-        _rl_weight = {}
+                gain[f] = gain.get(f, 0.0) + float(g) * n_rows
+        tot = sum(gain.values())
+        weight = {k: v / tot for k, v in gain.items()} if tot > 0 else {}
+        id_share = sum(weight.pop(c, 0.0) for c in RUN_TREE_CATEGORICAL_COLS)
+        if id_share > 0 and weight:
+            kept = sum(weight.values())
+            if kept > 0:
+                weight = {k: v / kept for k, v in weight.items()}
+        return weight
+    except Exception as exc:  # diagnostic only — never block pricing
+        logger.warning("run_line_feature_weights: unavailable (%s)", exc)
+        return {}
+
+
+def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
+                       final_fit_rounds: dict[str, int],
+                       curves: dict[str, dict],
+                       n_draws: int = MC_DRAWS,
+                       seed: int = MARKET_SEED,
+                       calibration: Optional[dict] = None) -> pd.DataFrame:
+    """λ + full market grid for TODAY'S SLATE.
+
+    Side models refit on ALL decided games at fixed rounds (median fold
+    early-stopping iteration — no early stopping against the future), then
+    priced through the SAME α(λ) curves and MC machinery as OOF rows."""
+    # Run line's own MODEL WEIGHT (2026-09-27): pooled split-gain from the
+    # side models, computed on the DECIDED frame — BEFORE the empty-slate
+    # early return, so an off-day run weights exactly like a game day (the
+    # 2026-09-29 all-NaN drift-weight regression had it behind the return).
+    _rl_weight = run_line_feature_weights(decided_games, final_fit_rounds)
+    if slate_games.empty:
+        # Off-day: no slate rows to price, but the weights still ride the
+        # empty frame's attrs to run_engine_daily's monitor block.
+        empty = pd.DataFrame()
+        empty.attrs["run_line_feature_weights"] = _rl_weight
+        return empty
+    from lightgbm import LGBMRegressor
 
     # Guard: ensure required columns exist with an actionable message.
     _required = ["game_date"]

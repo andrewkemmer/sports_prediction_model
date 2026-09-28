@@ -3156,12 +3156,20 @@ def describe_feature(name: str, sport: str = "mlb",
 
 
 def feature_weight_pct(row: dict) -> str:
-    """Formatted blend weight for a drift row ('—' when unavailable)."""
+    """Formatted blend weight for a drift row ('—' when unavailable).
+
+    NaN (a pandas-read CSV turns an absent weight cell into NaN) formats as
+    '—', never the literal 'nan%' — the 2026-09-29 run-engine drift table
+    regression.
+    """
     v = row.get("weight_pct")
     try:
-        return f"{float(v):.2f}%"
+        f = float(v)
     except (TypeError, ValueError):
         return "—"
+    if f != f:  # NaN check without importing math into the hot render path
+        return "—"
+    return f"{f:.2f}%"
 
 
 # ==========================================================================
