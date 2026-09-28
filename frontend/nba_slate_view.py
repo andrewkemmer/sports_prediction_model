@@ -1,4 +1,16 @@
-"""Pure NBA point-spread/totals slate helpers for cards and diagnostics."""
+"""Pure NBA point-spread/totals slate helpers for cards and diagnostics.
+
+DISPLAY CONVENTION (MLB parity, d1a3f79): the run engine ships the raw
+three-way split for every integer line (cover / push / dog cover, summing to
+1.0 with real push mass), while the CARDS quote the two-way folded split the
+way books price a whole-number line — the push folded proportionately into
+both covers so the pair sums to 100%. ``price_total``/``price_spread`` keep
+returning the raw trio (pricing and EV math need the push as its own event);
+the card renderers here do the fold, exactly as MLB's card layer does. The
+per-side derived-ML notes at the ±0.5 stop are labeled "run-ML" with a
+shared footnote, mirroring MLB's convention, so they cannot be mistaken for
+the binary moneyline at the top of the card.
+"""
 from __future__ import annotations
 
 import math
@@ -108,11 +120,15 @@ def price_spread_line(row, line: float) -> tuple[float | None, float | None, flo
     direct = price_spread(row, value)
     if direct[0] is not None:
         return direct
-    # Integer score support lets a half threshold use the adjacent whole
-    # threshold while retaining the strict NBA cover convention.
-    if value > 0:
-        return price_spread(row, math.floor(value))
-    return price_spread(row, math.ceil(value))
+    # A half threshold prices from the FLOOR whole threshold, on both signs:
+    # over integer margins, margin > L (L half-integer) ⟺ margin > floor(L)
+    # exactly — so the home leg is exact and the dog leg is its exact
+    # complement (the floor line's push mass belongs to the dog, which
+    # covers the half line whenever the floor line pushed). The old negative
+    # branch used ceil, which priced home +4.5 as margin > −4 and silently
+    # dropped the margin == −4 covers — the same under-sum class the cards
+    # showed on integer lines.
+    return price_spread(row, math.floor(value))
 
 
 def half_stop_pair(row) -> tuple[float | None, float | None, float | None, float | None, bool | None]:
@@ -183,9 +199,21 @@ def runline_html(row, home_team: str, away_team: str,
         if fav_raw is None:
             return '<span>SPREAD: n/a</span>'
         fav_team, dog_team = (home_team, away_team) if fav_home else (away_team, home_team)
+        # At ±0.5 a cover IS winning outright, so the derived ML equals the
+        # cover by construction — the cover pair carries no push and already
+        # sums to 100% (the calibrated artifact renormalizes it). The derived
+        # ML pair itself, however, ships as the RAW three-way split (p_tie
+        # between the two win legs), so quoting it unfolded renders two
+        # numbers summing to 1 − P(tie). Fold the tie proportionately into
+        # both sides for DISPLAY (same math the totals/spread rows use); the
+        # notes are labeled "run-ML" with a footnote, never "ML" — they are
+        # derived from the run-engine score distribution, not the binary
+        # moneyline at the top of the card.
+        fav_ml_d, dog_ml_d = _fold2(fav_ml, dog_ml)
         return (f'<span>SPREAD: {fav_team} −0.5 {_pct(fav_raw)} '
-                f'<span class="re-na">(ML {_pct(fav_ml)})</span> · {dog_team} +0.5 '
-                f'{_pct(dog_raw)} <span class="re-na">(ML {_pct(dog_ml)})</span></span>')
+                f'<span class="re-na">(run-ML {_pct(fav_ml_d)})</span> · {dog_team} +0.5 '
+                f'{_pct(dog_raw)} <span class="re-na">(run-ML {_pct(dog_ml_d)})</span></span>'
+                f'{_re_ml_caption_span()}')
     if home_spread is None:
         fair = _f(row, "fair_spread")
         if fair is None:
@@ -195,8 +223,19 @@ def runline_html(row, home_team: str, away_team: str,
     home, push, away = price_spread_line(row, threshold)
     if home is None or away is None:
         return f'<span>SPREAD: {_spread_label(home_team, home_spread)} n/a</span>'
-    return (f'<span>SPREAD: {_spread_label(home_team, home_spread)} {_pct(home)} · '
-            f'{_spread_label(away_team, -float(home_spread))} {_pct(away)}'
+    # Integer line: display the 2-way folded split (books' whole-number
+    # convention), push shown as its own note. A half line cannot push, and
+    # for integer NBA margins the dog-cover complement is EXACT
+    # (dog covers +4.5 iff margin ≤ 4 = 1 − home-cover +4.5), so the dog side
+    # renders as 1 − home — which also absorbs the fallback's push mass into
+    # the dog leg where it belongs, instead of rendering the −4 line's
+    # away-cover that excludes it.
+    if abs(float(home_spread) - round(float(home_spread))) <= 1e-9:
+        home_d, away_d = _fold2(home, away)
+    else:
+        home_d, away_d = home, (None if home is None else 1.0 - home)
+    return (f'<span>SPREAD: {_spread_label(home_team, home_spread)} {_pct(home_d)} · '
+            f'{_spread_label(away_team, -float(home_spread))} {_pct(away_d)}'
             f'{_push_note(push) if abs(float(home_spread) - round(float(home_spread))) <= 1e-9 else ""}</span>')
 
 
@@ -210,13 +249,47 @@ def runengine_html(row, home_team: str, away_team: str,
         return '<div class="fb-runengine"><span class="re-label">RUN ENGINE</span><span class="re-na">n/a</span></div>'
     total = float(total_line if total_line is not None else fair_total)
     over, under, push = price_total(row, total)
-    total_span = (f'<span>O/U {_line_text(total)}: n/a</span>' if over is None or under is None
-                  else f'<span>O/U {_line_text(total)}: Over {_pct(over)} / Under {_pct(under)}'
-                       f'{_push_note(push) if abs(total - round(total)) <= 1e-9 else ""}</span>')
+    if over is None or under is None:
+        total_span = f'<span>O/U {_line_text(total)}: n/a</span>'
+    elif abs(total - round(total)) <= 1e-9:
+        # Whole-number total: the 2-way folded split (push folded
+        # proportionately so Over + Under sum to 100%), push as its own note
+        # — the books' convention for a line that can push.
+        over_d, under_d = _fold2(over, under)
+        total_span = (f'<span>O/U {_line_text(total)}: Over {_pct(over_d)} / '
+                      f'Under {_pct(under_d)}{_push_note(push)}</span>')
+    else:
+        total_span = (f'<span>O/U {_line_text(total)}: Over {_pct(over)} / '
+                      f'Under {_pct(under)}</span>')
     spread = runline_html(row, home_team, away_team, home_spread, half_stop)
     return ('<div class="fb-runengine"><span class="re-label">RUN ENGINE</span>'
             f'<span>Proj: {away_team} {_num(mu_a)} – {home_team} {_num(mu_h)}</span>'
             f'{total_span}{spread}</div>')
+
+
+def _fold2(side_a: float | None, side_b: float | None) -> tuple[float | None, float | None]:
+    """Fold the push/tie mass proportionately into the two cover legs so a
+    whole-number (or derived-ML) pair sums to 100% — the books' 2-way quote
+    and the exact fold MLB's card layer applies (todays_games.py's
+    _orient_rl_bits display normalization). None inputs pass through."""
+    if side_a is None or side_b is None:
+        return side_a, side_b
+    denom = side_a + side_b
+    if denom <= 0.0:
+        return side_a, side_b
+    return side_a / denom, side_b / denom
+
+
+def _re_ml_caption_span() -> str:
+    """Footnote under the SPREAD row at the ±0.5 stop (MLB parity, where the
+    per-side '(run-ML X%)' notes render). The derived moneyline comes from
+    the run-engine score distribution — NOT the binary moneyline at the top
+    of the card. The span closes itself on the card's flex-wrap container so
+    it owns a row."""
+    return ('<span class="re-na" style="flex-basis:100%;">'
+            'run-ML is derived from the run-engine score distribution — '
+            'ties are excluded from both sides; the binary moneyline is at the '
+            'top of the card</span>')
 
 
 def push_span(probability: float | None) -> str:

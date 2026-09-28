@@ -655,3 +655,85 @@ class TestRetentionWindow:
         hiding the board — the same contract the MLB window keeps."""
         assert utils._nba_retention_window([], []) == set()
         assert utils._nba_retention_window(["not-a-date"], ["nope"]) == set()
+
+
+class TestRunEngineDisplayNormalization:
+    """MLB parity on the NBA card's run-engine strip (d1a3f79 convention).
+
+    The artifact ships the RAW three-way split for every integer line; the
+    card quotes the 2-WAY folded pair (push/tie folded proportionately so
+    the two displayed sides sum to 100%), with the push as its own note. The
+    ±0.5 derived-ML notes are labeled 'run-ML' (never 'ML') with the shared
+    footnote, because they come from the run-engine score distribution — not
+    the binary moneyline at the top of the card.
+    """
+
+    @staticmethod
+    def _row() -> pd.Series:
+        # Real 20260927 artifact numbers for game 401909088 (BOS@DET).
+        return pd.Series({
+            "mu_h": 110.1, "mu_a": 106.7, "fair_total": 216.0,
+            "fair_spread": -4.0,
+            "p_over_216": 0.5798, "p_under_216": 0.4017,
+            "p_push_total_216": 0.0185,
+            "p_home_cover_m4": 0.4800, "p_push_m4": 0.0298,
+            "p_away_cover_4": 0.4902,
+            "p_home_cover_0_5": 0.3900, "p_away_cover_m0_5": 0.6105,
+            "p_home_win_derived": 0.3792, "p_away_win_derived": 0.5988,
+        })
+
+    def test_whole_total_folds_the_push_into_the_displayed_pair(self):
+        text = nba_sv.runengine_html(self._row(), "DET", "BOS")
+        # Raw 57.98/40.17 under a 1.85% push -> 59%/41% folded, sum 100%.
+        assert "O/U 216: Over 59% / Under 41%" in text
+        assert "(2% push)" in text
+        assert "Over 58%" not in text and "Under 40%" not in text
+
+    def test_half_total_prices_from_the_floor_column_exactly(self):
+        """A .5 total cannot push and cannot tie: total > 216.5 over integer
+        scores ⟺ ≥ 217, so the helper reads the floor column (216) and the
+        displayed over/under are exact complements — no fold, no push note."""
+        row = self._row()
+        text = nba_sv.runengine_html(row, "DET", "BOS", total_line=216.5)
+        assert "O/U 216.5: Over 58% / Under 42%" in text
+        spread_seg = text.split("SPREAD:", 1)[1]
+        assert "push" not in spread_seg.split("<span", 1)[0]
+
+    def test_integer_spread_folds_the_push_into_the_displayed_pair(self):
+        text = nba_sv.runengine_html(self._row(), "DET", "BOS")
+        # Raw 48.00/49.02 under a 2.98% push -> 49%/51% folded, sum 100%:
+        # the pre-fix card showed 48%/49% (sum 97%).
+        assert "DET +4 49%" in text and "BOS \u22124 51%" in text
+        assert "(3% push)" in text
+        assert "48%" not in text and "\u00b7 BOS \u22124 50%" not in text
+
+    def test_half_stop_derived_ml_is_labeled_run_ml_and_folds_the_tie(self):
+        text = nba_sv.runengine_html(self._row(), "DET", "BOS", half_stop=True)
+        # Derived ML raw 37.92/59.88 under a 2.2% tie -> 39%/61% folded.
+        assert "(run-ML 39%)" in text and "(run-ML 61%)" in text
+        assert "(ML " not in text, "the old ML wording must be gone"
+        assert "run-ML is derived from the run-engine score distribution" in text
+        # The cover pair itself is favorite-anchored and push-free.
+        assert "\u22120.5 61%" in text and "+0.5 39%" in text
+
+    def test_half_spread_has_no_push_and_exact_complement_dog(self):
+        """A .5 spread cannot push, and over integer margins the dog covers
+        +4.5 iff margin \u2264 4 — the exact complement of the home cover. The
+        displayed pair sums to 100% by construction (no fold needed)."""
+        row = self._row()
+        # Home (DET) favored −4.5: covers iff margin > 4.5 ⟺ margin ≥ 5
+        # ⟺ margin > 4 over integer scores — the floor column is EXACT.
+        row["p_home_cover_4"] = 0.62
+        text = nba_sv.runengine_html(row, "DET", "BOS", home_spread=-4.5)
+        spread_seg = text.split("SPREAD:", 1)[1]
+        assert "push" not in spread_seg.split("<span", 1)[0]
+        assert "DET \u22124.5 62%" in text and "BOS +4.5 38%" in text
+
+    def test_selection_helpers_still_price_the_raw_trio(self):
+        """The pricing helpers keep returning the raw three-way split — the
+        fold is a card-display concern only, exactly as on MLB."""
+        row = self._row()
+        assert nba_sv.price_total(row, 216.0) == (0.5798, 0.4017, 0.0185)
+        home, push, away = nba_sv.price_spread(row, -4.0)
+        assert (round(home, 4), round(push, 4), round(away, 4)) == (
+            0.4800, 0.0298, 0.4902)
