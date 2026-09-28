@@ -346,6 +346,139 @@ def test_run_line_opposite_tail_is_not_home_dog_tail():
     assert "p_rl_1_5_away_favorite" in re.MARKET_COLUMNS_V3
 
 
+
+class _LogRecorder:
+    """Zero-dep logger stand-in so the contract runner can assert warnings."""
+    def __init__(self):
+        self.messages = []
+
+    def warning(self, msg, *args, **kwargs):
+        self.messages.append(msg % args if args else str(msg))
+
+    def info(self, msg, *args, **kwargs):
+        pass
+
+
+def _invariant_board():
+    return pd.DataFrame({
+        "game_id": ["20260928_NYY@BOS", "20260928_LAD@SF",
+                    "20260925_CHC@BOS_2", "20260926_TB@PHI", "20260927_SEA@TOR"],
+        "game_date": ["2026-09-28", "2026-09-28", "2026-09-25",
+                      "2026-09-26", "garbage"],
+        "home_team": ["BOS", "SF", "BOS", "PHI", "TOR"],
+        "away_team": ["NYY", "LAD", "CHC", "TB", "SEA"],
+    })
+
+
+def test_board_date_invariant_drops_foreign_and_unparseable_rows():
+    """The 2026-09-28 regression contract: a board is EXACTLY its date.
+
+    Rows dated otherwise (the recycled finals from 0925/0926 that shipped
+    under a September 28 header) and rows whose game_date cannot be parsed
+    must all be dropped, with a loud warning; same-date rows survive.
+    """
+    board = _invariant_board()
+    rec = _LogRecorder()
+    with patch.object(ingestion, "logger", rec):
+        out = ingestion.enforce_board_date_invariant(board, date(2026, 9, 28))
+    assert list(out["game_id"]) == ["20260928_NYY@BOS", "20260928_LAD@SF"]
+    assert out is not board  # filtered result is a defensive copy
+    assert len(rec.messages) == 1
+    assert "2026-09-25" in rec.messages[0]
+    assert "2026-09-26" in rec.messages[0]
+
+
+def test_board_date_invariant_keeps_clean_board_and_empty_boards():
+    """A fully same-date board passes through unfiltered; empty frames and
+    frames without a game_date column are returned unchanged (an empty
+    frame in, honest empty board out)."""
+    board = _invariant_board()
+    same_date = board.iloc[[0, 1]].reset_index(drop=True)
+    rec = _LogRecorder()
+    with patch.object(ingestion, "logger", rec):
+        out = ingestion.enforce_board_date_invariant(same_date, date(2026, 9, 28))
+    assert len(out) == 2
+    assert rec.messages == []
+
+    empty = pd.DataFrame(columns=["game_id", "game_date"])
+    assert ingestion.enforce_board_date_invariant(empty, date(2026, 9, 28)).empty
+    no_date_col = pd.DataFrame({"game_id": ["x"]})
+    assert list(ingestion.enforce_board_date_invariant(
+        no_date_col, date(2026, 9, 28))["game_id"]) == ["x"]
+
+
+def _slate_history_row():
+    row = {
+        "game_date": "2026-09-20", "start_time_utc": "2026-09-20T18:00:00",
+        "game_id": "20260920_AWAY@HOME", "home_team": "HOME", "away_team": "AWAY",
+        "home_win": 1.0, "home_score": 5, "away_score": 3,
+        "home_starter_id": 101, "away_starter_id": 202,
+        "sp_k9_home": 8.0, "sp_k9_away": 7.0,
+        "team_k_rate_30g_home": 0.22, "team_k_rate_30g_away": 0.25,
+        "league_k_pct": 0.23,
+    }
+    for cat in ("fastball", "breaking", "offspeed"):
+        row[f"sp_k_pct_cat_{cat}_home"] = 0.22
+        row[f"sp_k_pct_cat_{cat}_away"] = 0.21
+        row[f"sp_usage_cat_{cat}_home"] = 0.50
+        row[f"sp_usage_cat_{cat}_away"] = 0.50
+        row[f"league_k_pct_cat_{cat}"] = 0.23
+    history = pd.DataFrame([row])
+    history["game_date"] = pd.to_datetime(history["game_date"])
+    history["start_time_utc"] = pd.to_datetime(history["start_time_utc"])
+    return history
+
+
+def test_upcoming_slate_rejects_foreign_date_schedule_rows():
+    """Defense in depth for the 2026-09-28 regression: a schedule source
+    that walks back to earlier dates must not let decided games masquerade
+    as the target-date slate. Only target-date rows survive into features."""
+    history = _slate_history_row()
+    schedule = pd.DataFrame([
+        {"game_id": "20260927_BOS@NYY", "game_date": "2026-09-27",
+         "start_time_utc": "2026-09-27T23:00:00", "home_team": "NYY",
+         "away_team": "BOS", "venue": "Test Park",
+         "sp_id_home": 101, "sp_name_home": "Home Starter",
+         "sp_id_away": np.nan, "sp_name_away": "TBD"},
+        {"game_id": "20260925_CHC@BOS_2", "game_date": "2026-09-25",
+         "start_time_utc": "2026-09-25T17:00:00", "home_team": "BOS",
+         "away_team": "CHC", "venue": "Fenway Park",
+         "sp_id_home": 303, "sp_name_home": "Decided Starter",
+         "sp_id_away": 404, "sp_name_away": "Other Starter"},
+    ])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+
+    rec = _LogRecorder()
+    with patch.object(ingestion, "logger", rec):
+        slate = build_upcoming_slate(history, date(2026, 9, 27),
+                                     schedule_df=schedule)
+    assert len(slate) == 1
+    assert slate.iloc[0]["game_id"] == "20260927_BOS@NYY"
+    assert "20260925_CHC@BOS_2" not in set(slate["game_id"])
+    assert any("board-date invariant" in m for m in rec.messages)
+
+
+def test_upcoming_slate_all_foreign_dates_ships_honest_empty_slate():
+    """The off-day shape that produced the polluted board: when nothing is
+    scheduled (or the schedule source only offers other dates), the slate
+    is EMPTY -- never yesterday's finals re-dated as today."""
+    history = _slate_history_row()
+    schedule = pd.DataFrame([
+        {"game_id": "20260925_CHC@BOS_2", "game_date": "2026-09-25",
+         "start_time_utc": "2026-09-25T17:00:00", "home_team": "BOS",
+         "away_team": "CHC", "venue": "Fenway Park",
+         "sp_id_home": 303, "sp_name_home": "A", "sp_id_away": 404,
+         "sp_name_away": "B"},
+    ])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+
+    slate = build_upcoming_slate(history, date(2026, 9, 28),
+                                 schedule_df=schedule)
+    assert slate.empty
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

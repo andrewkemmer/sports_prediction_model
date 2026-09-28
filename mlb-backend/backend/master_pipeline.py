@@ -2165,6 +2165,26 @@ def run_daily_pipeline(
         # get overwritten.
         target_games = _carry_forward_slate_details(target_games, target_date_str)
 
+        # BOARD-DATE POSTCONDITION (2026-09-28 regression): the priced board
+        # must contain ONLY games dated target_date. The polluting run
+        # shipped 15 finals from 0925/0926 under a September 28 header (a
+        # stale clone ran pre-ab0e9c7 code); every downstream consumer —
+        # the accuracy badge, SHAP, the markets artifact contract — trusts
+        # this date filtering. Fail loudly instead of shipping a mislabeled
+        # board. build_upcoming_slate already filters its schedule input;
+        # this is the backstop for every other path into target_games.
+        if not target_games.empty:
+            from data_ingestion import enforce_board_date_invariant
+            _kept = enforce_board_date_invariant(
+                target_games, target_date, what="priced board")
+            if len(_kept) != len(target_games):
+                raise AssertionError(
+                    f"board-date invariant violated: "
+                    f"{len(target_games) - len(_kept)} of {len(target_games)} "
+                    f"board rows are not dated {target_date_str} — refusing "
+                    "to price recycled/foreign games as today's slate "
+                    "(the 2026-09-28 regression)")
+
         # Official-results overlay on today's board.  Slate rows carry no
         # StatsAPI game_pk, so the overlay falls back to (date + teams).
         # Live/preview games get home_win=NULL; finals get authoritative

@@ -1455,6 +1455,39 @@ def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
     return state
 
 
+def enforce_board_date_invariant(board: pd.DataFrame, target_date: date,
+                                 *, what: str = "board") -> pd.DataFrame:
+    """Filter a slate/board frame to EXACTLY ``target_date``'s games.
+
+    The 2026-09-28 regression: a stale-clone run recycled 15 decided games
+    from 0925/0926 under a September 28 board header — every downstream
+    consumer (accuracy badge, SHAP, the markets artifact contract) trusts
+    the board's date filtering, so one mislabeled board poisoned the whole
+    day. This is the single checkable contract for "the board is the target
+    date": rows dated otherwise are dropped with a loud warning, rows with
+    an unparseable/missing game_date are dropped too (a board row that
+    cannot prove its date must not ship), and a resulting empty frame is
+    the honest empty board.
+
+    Pure helper (no I/O) so master_pipeline's board writer and the tests
+    share one implementation.
+    """
+    if "game_date" not in board.columns or board.empty:
+        return board
+    dates = pd.to_datetime(board["game_date"], errors="coerce").dt.date
+    keep = dates == target_date
+    n_bad = int((~keep.fillna(False)).sum())
+    if n_bad:
+        bad_dates = sorted({str(d) for d in dates[~keep.fillna(False)]
+                            if d is not None})
+        logger.warning(
+            "board-date invariant: dropping %d %s row(s) not dated %s "
+            "(foreign/recycled dates: %s) — never shipping mislabeled "
+            "games as the target date", n_bad, what, target_date, bad_dates)
+        board = board.loc[keep.fillna(False)].copy()
+    return board
+
+
 def build_upcoming_slate(
     history_df: pd.DataFrame,
     target_date: date,
@@ -1492,6 +1525,18 @@ def build_upcoming_slate(
     # game_id, so re-key them to distinct per-leg ids (and drop exact
     # duplicates) regardless of which schedule source produced them.
     sched = _disambiguate_slate_keys(sched)
+
+    # BOARD-DATE INVARIANT (2026-09-28 regression, defense in depth behind
+    # the master_pipeline OFF-DAY HONESTY fix): the slate is EXACTLY
+    # target_date's games. A schedule source that walked back to other dates
+    # was historically the mechanism that recycled decided games as "today"
+    # — the polluting board shipped 15 finals from 0925/0926 under a
+    # September 28 header. Keeping other dates' games here would mislabel
+    # them on the board; an empty frame after this filter is the honest
+    # empty slate, and the empty-board contract upstream handles the rest.
+    sched = enforce_board_date_invariant(sched, target_date, what="schedule")
+    if sched.empty:
+        return pd.DataFrame()
 
     hist = history_df.copy()
     hist["game_date"] = pd.to_datetime(hist["game_date"])

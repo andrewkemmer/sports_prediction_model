@@ -1537,6 +1537,27 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     for col in ["home_team_name", "away_team_name", "model_pick", "final_inning", "venue"]:
         if col in df.columns:
             df[col] = df[col].fillna("")
+    # ROW-LEVEL DATE HONESTY (2026-09-28 regression): the 0928 board
+    # shipped 15 rows dated 0925/0926 under its own header (a stale-clone
+    # run recycled decided games as the slate). The FILENAME matching the
+    # date is not enough — rows must prove it too. Filter here so even a
+    # polluted artifact can never feed decided foreign-date rows into the
+    # cards or the accuracy badge; the honest result is the rows that
+    # genuinely belong to the date (an off-day board renders empty).
+    if "game_date" in df.columns:
+        _want = (str(date_str)[:4] + "-" + str(date_str)[4:6] + "-"
+                 + str(date_str)[6:8])
+        _row_dates = df["game_date"].astype(str).str.slice(0, 10)
+        _foreign = _row_dates != _want
+        if bool(_foreign.any()):
+            import logging
+            logging.getLogger("utils.todays_games").warning(
+                "Board row-date honesty: %d of %d row(s) in "
+                "todays_games_%s.csv are not dated %s (%s) — dropping them "
+                "rather than rendering mislabeled games",
+                int(_foreign.sum()), len(df), date_str, _want,
+                sorted(set(_row_dates[_foreign])))
+            df = df.loc[~_foreign].copy()
     return normalize_games(df)
 
 

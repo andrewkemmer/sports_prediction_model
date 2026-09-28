@@ -1716,10 +1716,32 @@ def _render_board(games, date_str: str, valid, history_view: bool = False) -> No
     slate_map = _slate_map_for_view(games, date_str, history_view)
 
     # --- header: date + accuracy badge + evening note ---
+    # BADGE HONESTY (2026-09-28 regression): the phantom off-day board
+    # carried 15 DECIDED rows dated 0925/0926, so the badge read
+    # "12-3 Today · 80.0% accuracy" for a day with no games — recycled
+    # results presented as today's record. A badge is a TODAY claim: it
+    # renders only when this board genuinely has decided games; a pre-game
+    # slate shows the honest pending state and an empty board the honest
+    # no-games state.
+    _decided_mask = (
+        pd.to_numeric(games.get("home_win"), errors="coerce").notna()
+        if "home_win" in games.columns and len(games) else
+        pd.Series(dtype="object").notna()
+    )
+    _n_decided = int(_decided_mask.sum())
     record = cal.get("today_record", {})
     wins, losses = record.get("wins", 0), record.get("losses", 0)
     completed = record.get("completed", wins + losses)
     acc = (wins / completed * 100) if completed else 0.0
+    if _n_decided:
+        _badge = f"✓ {wins}-{losses} Today · {acc:.1f}% accuracy"
+        _badge_bg, _badge_fg = "rgba(16,185,129,.18)", "#34D399"
+    elif len(games):
+        _badge = "No results yet — pre-game slate"
+        _badge_bg, _badge_fg = "rgba(59,130,246,.18)", "#93C5FD"
+    else:
+        _badge = "No games on this date"
+        _badge_bg, _badge_fg = "rgba(148,163,184,.18)", "#94A3B8"
     league_total = cal.get("league_total", len(games))
     evening_league = cal.get(
         "evening_games_league",
@@ -1733,8 +1755,8 @@ def _render_board(games, date_str: str, valid, history_view: bool = False) -> No
           <span style="background:rgba(59,130,246,.18);color:#93C5FD;border-radius:999px;padding:2px 10px;font-size:0.78rem;font-weight:700;">
             {evening_league} evening games begin 7 PM ET+
           </span>
-          <span style="margin-left:auto;background:rgba(16,185,129,.18);color:#34D399;border-radius:999px;padding:2px 10px;font-size:0.8rem;font-weight:700;">
-            ✓ {wins}-{losses} Today · {acc:.1f}% accuracy
+          <span style="margin-left:auto;background:{_badge_bg};color:{_badge_fg};border-radius:999px;padding:2px 10px;font-size:0.8rem;font-weight:700;">
+            {_badge}
           </span>
         </div>
         """,
