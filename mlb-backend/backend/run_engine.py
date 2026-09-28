@@ -1891,10 +1891,10 @@ def derive_markets_v3(oof: pd.DataFrame,
                            n_draws=n_draws, seed=seed)
     se = mc["mc_se_totals"]
     # mc_meta keeps its schema (reason is always "default"): the historical
-    # SE-driven tail bump (re-simulate at MC_DRAWS_TAIL=50_000 when
-    # mc_se_totals_max exceeded MC_SE_TARGET=5e-3) never fired in any
-    # retained production artifact and was removed 2026-09-27. If tail SE
-    # ever regresses, raise MC_DRAWS explicitly after measuring.
+    # SE-driven tail re-simulation (a conditional 5x-draws bump for tail
+    # precision) never fired in any retained production artifact and was
+    # removed 2026-09-27. If tail SE ever regresses, raise MC_DRAWS
+    # explicitly after measuring.
     summary["mc_meta"] = {
         "n_draws": n_draws, "requested_draws": n_draws,
         "reason": "default",
