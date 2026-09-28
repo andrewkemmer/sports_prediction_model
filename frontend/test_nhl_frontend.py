@@ -59,6 +59,37 @@ def test_price_total_half_point_is_coherent_by_construction():
     assert o + u + p == pytest.approx(1.0)
 
 
+def test_card_spans_quote_the_2way_push_folded_basis_with_a_push_note():
+    """MLB card convention: the O/U and RL spans quote the two decided sides
+    on the 2-WAY push-folded basis (they sum to 100%) and carry the push as
+    its own grey note — raw three-way side shares read as a broken quote
+    (Over 55% / Under 22% + 23% push). The ±0.5 stop was already 2-way by
+    construction; integer totals and integer spreads were not."""
+    row = {
+        "mu_h": 3.2, "mu_a": 2.9, "fair_total": 5.0, "fair_spread": 1.0,
+        "p_over_5": 0.42, "p_under_5": 0.35, "p_push_total_5": 0.23,
+        "p_home_cover_1": 0.32, "p_push_1": 0.23,
+        "p_home_cover_0": 0.60, "p_push_0": 0.07,
+    }
+    html = nsv.runengine_html(row, "CAR", "FLA", total_line=5.0,
+                              home_spread=-1.0)
+    import re as _re
+    # O/U: 2-way over = 0.42/(0.42+0.35) = 54.5% -> 55%; under = 45%.
+    m_ou = _re.search(r"O/U 5: Over (\d+)% / Under (\d+)%", html)
+    assert m_ou, html
+    assert int(m_ou.group(1)) + int(m_ou.group(2)) == 100, html
+    assert "23% push" in html
+    # RL (home quoted -1 -> threshold +1): 2-way home cover =
+    # 0.32/(0.32+0.45) = 41.6% -> 42%; away = 58%.
+    m_rl = _re.search(r"RL: CAR −1 (\d+)%", html)
+    assert m_rl, html
+    assert "FLA +1" in html
+    assert "23% push" in html.split("RL:")[1]
+    # The ±0.5 stop remains 2-way by construction (raw vs derived pair).
+    html_hs = nsv.runengine_html(row, "CAR", "FLA", half_stop=True)
+    assert "−0.5" in html_hs and "+0.5" in html_hs and "run-ML" in html_hs
+
+
 def _game(game_id: str, home: str, away: str, kickoff: str | None, ph: float) -> dict:
     return {
         "game_id": game_id,

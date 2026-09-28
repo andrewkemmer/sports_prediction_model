@@ -312,6 +312,20 @@ def _push_note(pp: float | None) -> str:
     return ""
 
 
+def _fold2(a: float | None, b: float | None) -> tuple[float | None, float | None]:
+    """Fold the push mass into the two decided sides (MLB card convention,
+    todays_games._spread_pair: covers RE-SCALED push-folded so they sum to 1).
+    The card quotes the two sides on the 2-WAY basis and carries the push as
+    its own grey note — raw three-way side shares read as a broken quote
+    (Over 55 / Under 22 + 23 push). Returns (None, None) on zero mass."""
+    if a is None or b is None:
+        return None, None
+    mass = a + b
+    if not math.isfinite(mass) or mass <= 0.0:
+        return None, None
+    return a / mass, b / mass
+
+
 def runline_html(row, home_team: str, away_team: str,
                  home_spread: float | None = None,
                  half_stop: bool = False) -> str:
@@ -348,8 +362,14 @@ def runline_html(row, home_team: str, away_team: str,
     if ph is None or pa is None:
         return f'<span>RL: {_spread_label(home_team, home_spread)} n/a</span>'
     push_note = _push_note(pp) if abs(float(home_spread) - round(float(home_spread))) <= 1e-9 else ""
-    return (f'<span>RL: {_spread_label(home_team, home_spread)} {_pct(ph)} · '
-            f'{_spread_label(away_team, -float(home_spread))} {_pct(pa)}'
+    # The card quotes the two covers on the 2-WAY push-folded basis (MLB
+    # convention) with the shared push as a note — raw three-way side shares
+    # read as a broken quote (32% / 45% + 23% push).
+    ph2, pa2 = _fold2(ph, pa)
+    if ph2 is None or pa2 is None:
+        return f'<span>RL: {_spread_label(home_team, home_spread)} n/a</span>'
+    return (f'<span>RL: {_spread_label(home_team, home_spread)} {_pct(ph2)} · '
+            f'{_spread_label(away_team, -float(home_spread))} {_pct(pa2)}'
             f'{push_note}</span>')
 
 
@@ -382,8 +402,15 @@ def runengine_html(row, home_team: str, away_team: str,
         total_span = f'<span>O/U {_line_text(tot)}: n/a</span>'
     else:
         push_note = _push_note(ppush) if abs(tot - round(tot)) <= 1e-9 else ""
-        total_span = (f'<span>O/U {_line_text(tot)}: Over {_pct(po)} / '
-                      f'Under {_pct(pu)}{push_note}</span>')
+        # The card quotes Over/Under on the 2-WAY push-folded basis (MLB
+        # convention) with the push as a note — raw three-way side shares
+        # read as a broken quote (Over 55% / Under 22% + 23% push).
+        po2, pu2 = _fold2(po, pu)
+        if po2 is None or pu2 is None:
+            total_span = f'<span>O/U {_line_text(tot)}: n/a</span>'
+        else:
+            total_span = (f'<span>O/U {_line_text(tot)}: Over {_pct(po2)} / '
+                          f'Under {_pct(pu2)}{push_note}</span>')
 
     rl = runline_html(row, home_team, away_team,
                       home_spread=home_spread, half_stop=half_stop)
