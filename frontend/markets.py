@@ -1070,6 +1070,29 @@ def _render_run_engine_model_card(monitor: dict) -> None:
     )
 
 
+def _run_engine_weight_pcts(records: list[dict],
+                            weights: dict | None) -> list:
+    """Per-row MODEL WEIGHT cells for the run-engine drift table.
+
+    Source of truth: the run-engine drift CSV's own ``weight_pct`` column —
+    the RUN LINE model's weights (pooled split-gain across its two per-side
+    Poisson home/away fits), emitted by the pipeline since 2026-09-27.
+    An explicit ``weights`` map (test seam) takes precedence per feature;
+    rows with no weight of their own render None (the table's '—') — the
+    moneyline blend's shared map is never substituted, so the Totals & Run
+    Lines page reports the run line model and nothing else.
+    """
+    weights = weights or {}
+    out = []
+    for r in records:
+        f = str(r.get("feature", ""))
+        w = weights.get(f)
+        if w is None:
+            w = r.get("weight_pct")
+        out.append(w)
+    return out
+
+
 def _render_run_engine_drift(
         drift: pd.DataFrame | None,
         weights: dict | None = None,
@@ -1078,14 +1101,13 @@ def _render_run_engine_drift(
     plus a MODEL WEIGHT column (layout parity with the Model Monitor's
     Feature Drift Analysis table).
 
-    MODEL WEIGHT = per-feature blend-weighted importance from the shared
-    feature-drift analysis (``model_monitor_*.json`` -> ``feature_drift`` ->
-    ``weight_pct``). The run engine has no per-model weight artifact, so
-    run-engine feature names map onto those shared weights; a run-engine
-    feature with no weight renders '—' (the monitor's own fallback). The
-    column is omitted entirely when no weight data is available (parity with
-    the monitor's ``has_weights`` gate), so the table still renders without
-    the monitor artifact.
+    MODEL WEIGHT = the RUN LINE model's own per-feature importance, shipped
+    in the run-engine drift CSV's ``weight_pct`` column (pooled split-gain
+    from its two per-side Poisson home/away fits, normalized to sum to
+    100%). Rows with no weight of their own render '—' — the moneyline
+    blend's shared weights are never substituted. The column is omitted
+    entirely when the artifact carries no weights at all (legacy
+    artifacts), so the table still renders.
     """
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
@@ -1094,14 +1116,13 @@ def _render_run_engine_drift(
                 "run).")
         return
     records = drift.to_dict("records")
-    if weights is None:
-        # App path: resolve the shared feature-drift weights from the day's
-        # moneyline monitor at render time (no caller wiring to keep in sync).
-        weights = _feature_weight_map(date_str)
-    weights = weights or {}
-    # MODEL WEIGHT per row — every cell is formatted by the SAME helper the
-    # Model Monitor uses (utils.feature_weight_pct), so the column is byte-identical.
-    weight_pcts = [weights.get(str(r.get("feature", ""))) for r in records]
+    # MODEL WEIGHT per row — the RUN LINE MODEL's own weights, shipped in the
+    # run-engine drift CSV itself (pooled split-gain from its two per-side
+    # Poisson models) since 2026-09-27. The moneyline blend's shared map is
+    # NO LONGER borrowed: rows without their own weight render '—' (never
+    # relabeled moneyline importance). Every cell is formatted by the SAME
+    # helper the Model Monitor uses (utils.feature_weight_pct).
+    weight_pcts = _run_engine_weight_pcts(records, weights)
     has_weights = any(w is not None for w in weight_pcts)
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
@@ -1148,11 +1169,11 @@ def _render_run_engine_drift(
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the moneyline drift; statuses on noise-adjusted PSI.
-          INSUFFICIENT = window too small to judge drift.
-          MODEL WEIGHT = blend-weighted feature importance from the shared
-          feature-drift analysis (run engine has no per-model weight; '—' = no
-          weight for this feature).
+          Same windows as the moneyline drift; statuses on noise-adjusted
+          PSI. INSUFFICIENT = window too small to judge drift. MODEL WEIGHT
+          = the run line model's own feature importance (pooled split-gain
+          across its per-side Poisson home/away fits, summing to 100%;
+          '—' = no weight for this feature on this artifact).
         </div>
         """,
         unsafe_allow_html=True,

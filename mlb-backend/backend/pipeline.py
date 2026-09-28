@@ -2179,7 +2179,10 @@ def run_daily_pipeline(
             # its own 29 kept features (single NB sampler -- no weights,
             # no run_margin_diff). Additive artifacts for the run-line
             # monitor; moneyline drift/coverage untouched.
-            compute_run_engine_feature_drift(baseline, current, target_date_str)
+            compute_run_engine_feature_drift(
+                baseline, current, target_date_str,
+                model_weights=(run_engine_block or {}).get("feature_weights")
+                or None)
             summary["artifacts"].append(str(
                 DATA_DELIVERY_DIR
                 / f"run_engine_feature_drift_{target_date_str}.csv"))

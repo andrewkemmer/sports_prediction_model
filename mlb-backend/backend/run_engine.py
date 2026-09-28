@@ -2346,6 +2346,49 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         return pd.DataFrame()
     from lightgbm import LGBMRegressor
 
+    # Run-line feature importance (2026-09-27): the side models ARE the run
+    # line's feature consumers, so their pooled split GAIN — n-weighted
+    # across the home-λ and away-λ fits that price this very board — is the
+    # run line's own MODEL WEIGHT (one weight per served feature; the NB
+    # layer carries no per-feature parameters). Normalized to sum to 1.0 and
+    # stashed on the returned frame's attrs for run_engine_daily's monitor
+    # block, so the run-engine drift table reports run-line weights instead
+    # of the moneyline blend's. Diagnostic only — training/pricing untouched,
+    # and a failure here never blocks the board.
+    _rl_gain: dict[str, float] = {}
+    try:
+        for side in ("home", "away"):
+            _, cols = build_side_frame(decided_games, side,
+                                       strict_feature_parity=True)
+            tr = decided_games.reindex(columns=cols).astype(float)
+            _apply_categorical_ids(tr, rows=decided_games)
+            m = LGBMRegressor(**RUN_LGBM_PARAMS)
+            m.set_params(n_estimators=int(final_fit_rounds[side]))
+            m.fit(tr, decided_games[f"{side}_score"].to_numpy(dtype=float))
+            gains = m.booster_.feature_importance(importance_type="gain")
+            names = list(m.booster_.feature_name())
+            n_rows = float(len(tr))
+            for f, g in zip(names, gains):
+                _rl_gain[f] = _rl_gain.get(f, 0.0) + float(g) * n_rows
+        _tot = sum(_rl_gain.values())
+        _rl_weight = ({k: v / _tot for k, v in _rl_gain.items()}
+                      if _tot > 0 else {})
+        # Report weights over SERVED features only (the moneyline's own
+        # convention: weight_pct sums to 100 across the served list). The
+        # team-ID categorical columns consume real split gain but are the
+        # trees' encoding, not served features — drop them and renormalize
+        # so the drift table's MODEL WEIGHT column sums to 100.
+        _id_share = sum(_rl_weight.pop(c, 0.0)
+                        for c in RUN_TREE_CATEGORICAL_COLS)
+        if _id_share > 0 and _rl_weight:
+            _kept = sum(_rl_weight.values())
+            if _kept > 0:
+                _rl_weight = {k: v / _kept for k, v in _rl_weight.items()}
+    except Exception as imp_exc:  # diagnostic only — never block pricing
+        logger.warning("predict_slate_runs: run-line feature importance "
+                       "unavailable this run (%s)", imp_exc)
+        _rl_weight = {}
+
     # Guard: ensure required columns exist with an actionable message.
     _required = ["game_date"]
     _missing = [c for c in _required if c not in slate_games.columns]
@@ -2457,6 +2500,7 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
             "(no game_pk/game_id) — excluded from the markets artifact "
             "rather than persisted with a NaN key", n)
         out = out[~unresolved].reset_index(drop=True)
+    out.attrs["run_line_feature_weights"] = _rl_weight
     return out
 
 
@@ -2614,6 +2658,12 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
             and not k.endswith("_holdout")  # holdout data nested in main entry
         },
         "rolling_totals_brier": totals_brier,
+        # Run line's OWN feature weights (pooled split-gain, n-weighted,
+        # from the two side models that price this board) — consumed by the
+        # run-engine drift table's MODEL WEIGHT column so it reports the run
+        # line model, not the moneyline blend.
+        "feature_weights": slate_frame.attrs.get(
+            "run_line_feature_weights", {}) if slate_frame is not None else {},
         "phase1": {"n_folds": s1["n_folds"], "n_games": s1["n_games"],
                    "dispersion_ratio": {
                        "home": s1["home_dispersion_ratio"],

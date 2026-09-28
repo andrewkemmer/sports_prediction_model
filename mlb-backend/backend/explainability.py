@@ -760,14 +760,28 @@ def compute_run_engine_feature_drift(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
     target_date_str: str,
+    model_weights: Optional[dict] = None,
 ) -> pd.DataFrame:
-    """PSI over the run engine's OWN 29 kept features on the SAME baseline /
-    current windows as the moneyline drift — leakage-free, no model weights
-    (single NB sampler, not a blend). Writes
-    data_delivery/run_engine_feature_drift_YYYYMMDD.csv."""
+    """PSI over the run engine's own feature view on the SAME baseline /
+    current windows as the moneyline drift — leakage-free.
+
+    ``model_weights`` (2026-09-27) = the RUN LINE's own per-feature weights
+    (pooled split-gain from its two side Poisson models, normalized to sum
+    to 1.0; produced by predict_slate_runs and relayed through
+    run_engine_daily's monitor block). The drift CSV's MODEL WEIGHT column
+    then reports the run line model itself instead of the moneyline blend's
+    weights the frontend used to borrow. Features absent from the map (e.g.
+    the team-ID categoricals) render weight None — never borrowed.
+    Writes data_delivery/run_engine_feature_drift_YYYYMMDD.csv."""
+    weights = None
+    if model_weights:
+        # The drift column is percent-of-total (the moneyline's convention:
+        # weight_pct sums to 100) — scale the run-line shares to match.
+        weights = {k: 100.0 * v for k, v in model_weights.items()
+                   if isinstance(v, (int, float))}
     return compute_feature_drift(
         baseline_games, current_games, target_date_str,
-        model_weights=None, feature_cols=run_engine_feature_cols(),
+        model_weights=weights, feature_cols=run_engine_feature_cols(),
         out_name=f"run_engine_feature_drift_{target_date_str}.csv")
 
 
