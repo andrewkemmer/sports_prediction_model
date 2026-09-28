@@ -165,6 +165,25 @@ def cache_dir(explicit: Path | None = None) -> Path:
     return d
 
 
+def plan_year_refresh(years: list[int], *, refresh: bool, offline: bool,
+                      today: "date | None" = None) -> dict[int, bool]:
+    """Per-year refresh decision for the transaction fetch.
+
+    --refresh refreshes everything, --offline nothing. The DEFAULT
+    behavior refreshes the FINAL year when it is the current calendar
+    year: a closed past year never changes, but the current year gains
+    transactions every day, and the documented regeneration command
+    must not silently reuse yesterday's cache (a rebuild that picks up
+    nothing new is how the IL table goes stale while looking fresh).
+    """
+    today = today or date.today()
+    if refresh:
+        return {y: True for y in years}
+    if offline:
+        return {y: False for y in years}
+    return {y: (y == years[-1] and y == today.year) for y in years}
+
+
 def fetch_year(year: int, cache: Path, refresh: bool = False,
                attempts: int = 3) -> list[dict]:
     """One StatsAPI call per calendar year, cached. Never partially trusted:
@@ -414,6 +433,13 @@ def main() -> None:
     tx: list[dict] = []
     print(f"transactions {start.date()}..{end.date()} "
           f"({len(years)} season call(s)), cache={cache}")
+    refresh_plan = plan_year_refresh(
+        years, refresh=args.refresh, offline=args.offline)
+    auto = [y for y, r in refresh_plan.items()
+            if r and not args.refresh and not args.offline]
+    if auto:
+        print(f"  auto-refreshing current-year cache: {auto} "
+              "(use --offline to pin)")
     for y in years:
         if args.offline:
             p = cache / f"il_tx_{y}.json"
@@ -422,7 +448,7 @@ def main() -> None:
             with open(p, encoding="utf-8") as fh:
                 tx += json.load(fh)
         else:
-            tx += fetch_year(y, cache, refresh=args.refresh)
+            tx += fetch_year(y, cache, refresh=refresh_plan[y])
 
     iv = stints_from_events(build_events(tx))
     pbp = args.pbp or default_pbp_source()

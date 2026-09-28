@@ -68,6 +68,14 @@ PA_END_EVENTS = (
 # The IL table is a CACHE (build_il_stints.py), so absence must degrade
 # loudly to the participant behavior, never silently look correct.
 IL_STINTS_FILE = "il_stints.parquet"
+# A stale IL table is the silent inclusion failure: a player PLACED on
+# the IL after the table's last transaction date stays in the projected
+# nine (his frozen _pa30 keeps him ranked high — the 2026-09-28 Aaron
+# Judge audit measured exactly that shape: rank 5 of 14 without the
+# filter). Beyond this lag vs the data horizon, _register_il_stints
+# warns loudly that new placements are invisible.
+IL_STINTS_MAX_LAG_DAYS = 7
+IL_STINTS_META_FILE = "il_stints.meta.json"
 # How far back a team member's rating row may sit and still make him a
 # candidate for the next game. Rating rows live on dates the team played,
 # so 10 days comfortably spans one skipped game plus a rainout.
@@ -152,6 +160,41 @@ _LINEUP_IL_FLAG_SQL = """
 """
 
 
+def il_stints_freshness() -> dict:
+    """Coverage horizon of the committed IL table, for staleness checks.
+
+    Prefers the builder's provenance meta (``window_end`` = the last
+    transaction date the fetch saw); falls back to the latest stint
+    boundary inside the parquet itself (max of coalesce(il_end,
+    il_start) — an activation recorded later than any start is the
+    later knowledge date). Returns {} when neither is readable; the
+    tripwire must never break feature building.
+    """
+    path = _lineup_base_dir() / IL_STINTS_FILE
+    out: dict = {}
+    try:
+        import json
+        meta = json.loads(
+            (_lineup_base_dir() / IL_STINTS_META_FILE).read_text())
+        if meta.get("window_end"):
+            out["window_end"] = str(meta["window_end"])
+    except Exception:
+        pass
+    try:
+        import duckdb
+        lit = str(path).replace("\\", "/")
+        c = duckdb.connect(database=":memory:")
+        sig = c.execute(
+            f"SELECT max(COALESCE(il_end, il_start)) FROM "
+            f"read_parquet('{lit}')").fetchone()[0]
+        c.close()
+        if sig is not None:
+            out["parquet_max_stint_date"] = str(pd.Timestamp(sig).date())
+    except Exception:
+        pass
+    return out
+
+
 def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
     """Load the IL cache into ``con``; False (loudly) when unavailable.
 
@@ -185,7 +228,38 @@ def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
         logger.warning("il_stints.parquet is EMPTY; expected lineups fall "
                        "back to the participant pool")
         return False
-    logger.info("injured list: %d stints, %d batters", n, nb)
+    # STALENESS TRIPWIRE (2026-09-28 Aaron Judge audit): the table is a
+    # CACHE of transactions, rebuilt out-of-band. A player placed on the
+    # IL AFTER the table's coverage horizon is invisible to the
+    # eligibility filter, and his frozen _pa30 keeps him ranked inside
+    # the projected nine — the inclusion this table exists to prevent.
+    # Compare the horizon against the data horizon of the frame being
+    # built (the pitches table) and warn loudly past the lag budget.
+    horizon = il_stints_freshness()
+    signal = horizon.get("window_end") or horizon.get(
+        "parquet_max_stint_date")
+    try:
+        ref = con.execute(
+            "SELECT max(game_date) FROM pitches").fetchone()[0]
+    except Exception:
+        ref = None
+    if signal and ref is not None:
+        lag = (pd.Timestamp(ref).normalize()
+               - pd.Timestamp(signal)).days
+        logger.info("injured list: %d stints, %d batters; coverage "
+                    "through %s (lag %dd vs data horizon %s)",
+                    n, nb, signal, lag, pd.Timestamp(ref).date())
+        if lag > IL_STINTS_MAX_LAG_DAYS:
+            logger.warning(
+                "il_stints.parquet coverage stops %s — %d days behind the "
+                "data horizon (%s). A player PLACED on the IL after %s "
+                "stays in the projected nine (frozen _pa30 keeps him "
+                "ranked high — the 2026-09-28 Aaron Judge audit failure "
+                "mode). Run: python build_il_stints.py --end <today> "
+                "--refresh", signal, lag, pd.Timestamp(ref).date(),
+                signal)
+    else:
+        logger.info("injured list: %d stints, %d batters", n, nb)
     return True
 
 # Experiment-only superset (audit_pitcher_era_k9.py): keeps intent_walk /

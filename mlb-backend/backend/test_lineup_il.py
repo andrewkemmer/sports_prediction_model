@@ -33,6 +33,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
+from unittest.mock import patch
 
 BACKEND = Path(__file__).resolve().parent
 if str(BACKEND) not in sys.path:
@@ -206,6 +207,107 @@ def test_both_paths_emit_same_columns(con):
         "DESCRIBE SELECT * FROM lineup_agg").fetchall()]
     c2.close()
     assert cols_il == cols_fb and agg_il == agg_fb
+
+
+# ── staleness tripwire (2026-09-28 Aaron Judge audit) ───────────────────────
+
+def _write_il_cache(tmp_path, rows, meta=None):
+    base = tmp_path / "dd"
+    base.mkdir(exist_ok=True)
+    # the dir is reused across calls in a test: clear any prior meta
+    (base / features.IL_STINTS_META_FILE).unlink(missing_ok=True)
+    df = pd.DataFrame(rows, columns=["batter", "il_start", "il_end"])
+    df["batter"] = df["batter"].astype("int64")
+    df["il_start"] = pd.to_datetime(df["il_start"])
+    df["il_end"] = pd.to_datetime(df["il_end"])
+    df.to_parquet(base / features.IL_STINTS_FILE, index=False)
+    if meta is not None:
+        import json
+        (base / features.IL_STINTS_META_FILE).write_text(
+            json.dumps(meta))
+    return base
+
+
+def _con_with_pitches(ref_date: str):
+    c = duckdb.connect(database=":memory:")
+    c.execute(f"CREATE TABLE pitches AS SELECT "
+              f"DATE '{ref_date}' AS game_date")
+    return c
+
+
+def test_il_staleness_tripwire_warns_past_budget(tmp_path, caplog):
+    # Table coverage stops 2026-09-10; the frame's data horizon is
+    # 2026-09-28 -> lag 18d > budget. The filter must still LOAD (the
+    # degrade-don't-fail contract) but warn about the invisible
+    # placements.
+    base = _write_il_cache(
+        tmp_path, [(592450, "2026-09-01", None)],
+        meta={"window_end": "2026-09-10"})
+    con = _con_with_pitches("2026-09-28")
+    with caplog.at_level("WARNING", logger="features"):
+        with patch.object(features, "_lineup_base_dir",
+                          return_value=base):
+            assert features._register_il_stints(con) is True
+    assert any("stays in the projected nine" in r.getMessage()
+               for r in caplog.records), caplog.text
+    con.close()
+
+
+def test_il_fresh_table_does_not_warn(tmp_path, caplog):
+    base = _write_il_cache(
+        tmp_path, [(592450, "2026-09-25", None)],
+        meta={"window_end": "2026-09-26"})
+    con = _con_with_pitches("2026-09-28")
+    with caplog.at_level("WARNING", logger="features"):
+        with patch.object(features, "_lineup_base_dir",
+                          return_value=base):
+            assert features._register_il_stints(con) is True
+    assert not any("stays in the projected nine" in r.getMessage()
+                   for r in caplog.records), caplog.text
+    con.close()
+
+
+def test_il_freshness_prefers_meta_then_parquet(tmp_path):
+    base = _write_il_cache(
+        tmp_path, [(592450, "2026-09-01", "2026-09-20"),
+                   (592451, "2026-09-22", None)],
+        meta={"window_end": "2026-09-25"})
+    with patch.object(features, "_lineup_base_dir",
+                      return_value=base):
+        fr = features.il_stints_freshness()
+    assert fr["window_end"] == "2026-09-25"
+    # parquet signal = max(coalesce(il_end, il_start)) = the OPEN
+    # stint's start (2026-09-22) beats the closed one's end (09-20)?
+    # No: coalesce picks il_end where present -> 2026-09-20; the open
+    # stint contributes il_start 2026-09-22 -> max is 2026-09-22.
+    assert fr["parquet_max_stint_date"] == "2026-09-22"
+
+    base2 = _write_il_cache(
+        tmp_path, [(592450, "2026-09-01", "2026-09-20")])  # no meta
+    with patch.object(features, "_lineup_base_dir",
+                      return_value=base2):
+        fr2 = features.il_stints_freshness()
+    assert "window_end" not in fr2
+    assert fr2["parquet_max_stint_date"] == "2026-09-20"
+
+
+def test_builder_refresh_plan():
+    import build_il_stints as b
+    from datetime import date as _d
+    years = [2025, 2026]
+    # default: only the current year auto-refreshes
+    plan = b.plan_year_refresh(years, refresh=False, offline=False,
+                               today=_d(2026, 9, 28))
+    assert plan == {2025: False, 2026: True}
+    # a past-year-only window never auto-refreshes
+    plan = b.plan_year_refresh([2024, 2025], refresh=False,
+                               offline=False, today=_d(2026, 9, 28))
+    assert plan == {2024: False, 2025: False}
+    assert all(b.plan_year_refresh(years, refresh=True, offline=False,
+                                   today=_d(2026, 9, 28)).values())
+    assert not any(b.plan_year_refresh(years, refresh=False,
+                                       offline=True,
+                                       today=_d(2026, 9, 28)).values())
 
 
 # ── serving contract ─────────────────────────────────────────────────────────
