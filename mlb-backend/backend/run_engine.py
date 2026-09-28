@@ -227,13 +227,12 @@ RUN_LGBM_PARAMS = {
 
 
 # ---------------------------------------------------------------------------
-# C2 edge expansion — RETIRED to monitor-only (2026-09-22, adoption per the
-# run-engine tuning policy: lr 0.03 x fixed 90 rounds gives k-hat ~= 1.0 on
-# the OOF basis, all sealed gates pass, so the transform is inert by
-# construction). run_engine_k_edge.py still imports/patches this module to
-# FIT and PUBLISH the diagnostic k-hat each run (drift monitoring), but the
-# published probabilities price the RAW lambda pair — no edge expansion.
-# The wrappers remain no-ops at k=1.0. See run_engine_k_edge.py.
+# C2 edge expansion — REMOVED (2026-09-27). Retired to monitor-only on
+# 2026-09-22 (adoption per the run-engine tuning policy: lr 0.03 x fixed 90
+# rounds gives k-hat ~= 1.0 on the OOF basis, so the transform was inert by
+# construction); the diagnostic module run_engine_k_edge.py — which fitted
+# and published the monitor-only k-hat — was deleted with it once no
+# consumer remained. The published probabilities price the RAW lambda pair.
 # ---------------------------------------------------------------------------
 
 

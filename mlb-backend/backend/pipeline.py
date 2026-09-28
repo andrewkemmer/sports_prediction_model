@@ -61,13 +61,11 @@ from explainability import (
 )
 from feature_metadata import generate_features_metadata
 
-# k-edge MONITOR-ONLY (2026-09-22, adoption 0.03/90) — run_engine_k_edge
-# imports run_engine and monkey-patches derive_markets_v3 / predict_slate_runs
-# / run_engine_daily at import time: the daily engine still FITS the diagnostic
-# k on the pre-holdout OOF and publishes it + the drift band into the markets
-# meta, but the expansion is RETIRED — the board prices the RAW λ pair.
-# An explicit k_edge= argument re-activates it for offline A/B runs only.
-import run_engine_k_edge  # noqa: F401
+# C2 k-edge expansion RETIRED then REMOVED (2026-09-27): the board prices
+# the RAW λ pair — the diagnostic run_engine_k_edge.py module (monitor-only
+# k-hat publication) is deleted; no k adjustment exists anywhere in the run
+# line. Historical: the 2026-09-22 retirement measured k-hat ≈ 1.0 under the
+# lr 0.03 × fixed-90-rounds adoption, making the transform inert.
 from calibration import is_identity
 from features import (
     add_diff_features,
@@ -1111,10 +1109,8 @@ def _run_engine_fit_block(block: Optional[dict]) -> dict:
     return {
         "alpha_home": block.get("alpha_home"),
         "alpha_away": block.get("alpha_away"),
-        # C2 edge expansion: fitted k + drift band [ref±0.2] + drift_alert
-        # flag, emitted by run_engine_daily's k-edge wrapper (block["k_edge"])
-        # so the served monitor carries the k-drift alert signal.
-        "k_edge": (block.get("k_edge") or {}),
+        # k_edge key dropped 2026-09-27 with the retired C2 expansion (the
+        # monitor-only k-hat publication had no consumers).
         "dispersion_chi2_per_df": {
             "home": dispersion.get("home"),
             "away": dispersion.get("away"),
