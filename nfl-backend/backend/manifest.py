@@ -309,14 +309,18 @@ _STATIC_SIDE_DOC_EPA = {
         "roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
         "candidate ratings come from the prior 21 calendar days to span bye weeks; "
-        "only an Out, "
-        "IR/Injured Reserve, or Doubtful report published strictly before "
-        "target kickoff excludes a player from the target pool; a weekly-roster-"
-        "snapshot unavailability excludes the player likewise",
+        "an Out, "
+        "IR/Injured Reserve, or Doubtful designation excludes a player from "
+        "the target pool through any of three unioned channels: a strict-PIT "
+        "report published before kickoff (2016-2024), the weekly report-cycle "
+        "row for the player's own team-week (the only channel covering "
+        "2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-"
+        "snapshot unavailability",
         "NaN when no projected player at this position has a prior rating; "
-        "non-injury statuses, missing/unreported status, and missing PIT "
-        "timestamps do not erase player history or exclude the player; a "
-        "roster-snapshot unavailability does exclude the player"),
+        "non-injury statuses (incl. Questionable), missing/unreported status, "
+        "and missing PIT timestamps do not erase player history; exclusion "
+        "requires an Out/IR/Doubtful designation on one of the three "
+        "channels"),
     "epa_wr": (
         "Projected-lineup quality",
         "mean shrunk EPA per opportunity of the projected wide receivers",
@@ -324,13 +328,17 @@ _STATIC_SIDE_DOC_EPA = {
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
         "candidate ratings come from the prior 21 calendar days to span bye weeks; "
-        "only an Out, "
-        "IR/Injured Reserve, or Doubtful report published strictly before "
-        "target kickoff excludes a player from the target pool; a weekly-roster-"
-        "snapshot unavailability excludes the player likewise",
+        "an Out, "
+        "IR/Injured Reserve, or Doubtful designation excludes a player from "
+        "the target pool through any of three unioned channels: a strict-PIT "
+        "report published before kickoff (2016-2024), the weekly report-cycle "
+        "row for the player's own team-week (the only channel covering "
+        "2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-"
+        "snapshot unavailability",
         "NaN when no projected player at this position has a prior rating; "
-        "other/missing statuses and missing PIT timestamps do not exclude the "
-        "player; a roster-snapshot unavailability does"),
+        "other/missing statuses (incl. Questionable) and missing PIT timestamps "
+        "do not exclude the player; exclusion requires an Out/IR/Doubtful "
+        "designation on one of the three channels"),
     "epa_te": (
         "Projected-lineup quality",
         "mean shrunk EPA per opportunity of the projected tight ends",
@@ -338,13 +346,17 @@ _STATIC_SIDE_DOC_EPA = {
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
         "candidate ratings come from the prior 21 calendar days to span bye weeks; "
-        "only an Out, "
-        "IR/Injured Reserve, or Doubtful report published strictly before "
-        "target kickoff excludes a player from the target pool; a weekly-roster-"
-        "snapshot unavailability excludes the player likewise",
+        "an Out, "
+        "IR/Injured Reserve, or Doubtful designation excludes a player from "
+        "the target pool through any of three unioned channels: a strict-PIT "
+        "report published before kickoff (2016-2024), the weekly report-cycle "
+        "row for the player's own team-week (the only channel covering "
+        "2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-"
+        "snapshot unavailability",
         "NaN when no projected player at this position has a prior rating; "
-        "other/missing statuses and missing PIT timestamps do not exclude the "
-        "player; a roster-snapshot unavailability does"),
+        "other/missing statuses (incl. Questionable) and missing PIT timestamps "
+        "do not exclude the player; exclusion requires an Out/IR/Doubtful "
+        "designation on one of the three channels"),
     "epa_rb": (
         "Projected-lineup quality",
         "mean shrunk EPA per opportunity of the projected running backs",
@@ -352,13 +364,17 @@ _STATIC_SIDE_DOC_EPA = {
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
         "candidate ratings come from the prior 21 calendar days to span bye weeks; "
-        "only an Out, "
-        "IR/Injured Reserve, or Doubtful report published strictly before "
-        "target kickoff excludes a player from the target pool; a weekly-roster-"
-        "snapshot unavailability excludes the player likewise",
+        "an Out, "
+        "IR/Injured Reserve, or Doubtful designation excludes a player from "
+        "the target pool through any of three unioned channels: a strict-PIT "
+        "report published before kickoff (2016-2024), the weekly report-cycle "
+        "row for the player's own team-week (the only channel covering "
+        "2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-"
+        "snapshot unavailability",
         "NaN when no projected player at this position has a prior rating; "
-        "other/missing statuses and missing PIT timestamps do not exclude the "
-        "player; a roster-snapshot unavailability does"),
+        "other/missing statuses (incl. Questionable) and missing PIT timestamps "
+        "do not exclude the player; exclusion requires an Out/IR/Doubtful "
+        "designation on one of the three channels"),
 }
 
 _STATIC_SIDE_AGGREGATION = {

@@ -1499,7 +1499,8 @@ def _strict_pit_timestamp(value):
 
 def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
                          injuries: pd.DataFrame | None = None,
-                         roster_unavailable: pd.DataFrame | None = None
+                         roster_unavailable: pd.DataFrame | None = None,
+                         weekly_injuries: pd.DataFrame | None = None
                          ) -> pd.DataFrame:
     """Per-(game, team, position) mean of PIT-shrunk EPA player ratings.
 
@@ -1606,13 +1607,21 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
             j["availability_weight"], errors="coerce")
         j = j[~j["availability_weight"].eq(0.0)]
 
-    # The roster overlay removes snapshot-frozen absences the report channel
-    # cannot see (Reserve/Injured, inactive, cut). Snapshots are frozen
-    # before their week's games, so the rows are pre-kickoff information by
-    # construction; this implements min(report, roster) — the overlay can
-    # only narrow the candidate pool, never widen it.
-    if (roster_unavailable is not None and not roster_unavailable.empty
-            and {"season", "week"} <= set(games.columns)):
+    # Availability overlays (2026-09-28): three removal channels, unioned —
+    # the candidate pool can only shrink. (1) The strict-PIT channel above
+    # (pre-kickoff publication, 2016-2024). (2) The REPORT-CYCLE channel:
+    # the weekly report is the ONLY availability source covering 2025/2026
+    # (the strict-PIT feed is empty there — no date_modified), and a
+    # (season, week, team) report row is pre-kickoff information for that
+    # team-week's game by league rule — the identical rule the injury-share
+    # family pins. Excluded statuses: Out / IR / Doubtful — the same
+    # classifier as the injury-share family and
+    # ingestion.injury_availability_weight; Questionable stays eligible
+    # (Bagent-class late calls do not remove a player). (3) The roster-
+    # snapshot overlay: frozen BEFORE their week's games, removing
+    # Reserve/Injured, inactive, and cut players the report never lists.
+    _tw_ok = {"season", "week"} <= set(games.columns)
+    if _tw_ok:
         gmap = games[["game_id", "season", "week", "home_team",
                       "away_team"]].copy()
         gmap["game_id"] = gmap["game_id"].astype(str)
@@ -1626,6 +1635,24 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
         ], ignore_index=True).drop_duplicates(["game_id", "team"])
         gmap["team"] = gmap["team"].astype("string").str.strip().str.upper()
         j = j.merge(gmap, on=["game_id", "team"], how="left")
+
+    if _tw_ok and weekly_injuries is not None and not weekly_injuries.empty:
+        wi = weekly_injuries.copy()
+        wi["season"] = pd.to_numeric(wi["season"], errors="coerce")
+        wi["week"] = pd.to_numeric(wi["week"], errors="coerce")
+        wi["team"] = wi["team"].astype("string").str.strip().str.upper()
+        wi["player_id"] = wi["gsis_id"].map(_normalize_player_id)
+        wi = wi.dropna(subset=["season", "week", "team", "player_id"])
+        wi = wi[wi["report_status"].map(_injured_report_status)]
+        wi = wi[["season", "week", "team", "player_id"]].drop_duplicates()
+        if not wi.empty:
+            j = j.merge(wi.assign(_report_out=True),
+                        on=["season", "week", "team", "player_id"],
+                        how="left")
+            j = j[~j["_report_out"].eq(True)]
+
+    if (_tw_ok and roster_unavailable is not None
+            and not roster_unavailable.empty):
         ro = roster_unavailable.copy()
         ro["season"] = pd.to_numeric(ro["season"], errors="coerce")
         ro["week"] = pd.to_numeric(ro["week"], errors="coerce")
@@ -1666,7 +1693,8 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                      ps: pd.DataFrame | None,
                      injuries: pd.DataFrame | None,
-                     roster_unavailable: pd.DataFrame | None = None
+                     roster_unavailable: pd.DataFrame | None = None,
+                     weekly_injuries: pd.DataFrame | None = None
                      ) -> pd.DataFrame:
     """Build PIT per-position player quality aggregates, degrading to NaN
     when play-by-play, player IDs/positions, or exact schedule kickoff is
@@ -1699,7 +1727,8 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                     how="inner", validate="one_to_one")
     obs = obs.dropna(subset=["gameday", "kickoff_utc"])
     history = epa_quality_ratings(obs)
-    return epa_quality_team_agg(history, games, injuries, roster_unavailable)
+    return epa_quality_team_agg(history, games, injuries, roster_unavailable,
+                                weekly_injuries)
 
 
 def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
@@ -2056,9 +2085,12 @@ def build_game_features(games: pd.DataFrame,
     real priors; every trailing value is shifted strictly prior. ``ps``/
     ``ngs`` is an optional skill source; ``weather`` is a
     provenance-complete hourly Open-Meteo PIT table.    ``injuries`` is the
-    strictly-PIT designation table from ingestion.load_injuries_pit; only a
-    PIT Out/IR/Doubtful report removes a player's target-game lineup membership.
-    Historical player-game EPA is calculated independently and is retained.
+    strictly-PIT designation table from ingestion.load_injuries_pit; a
+    PIT Out/IR/Doubtful report published strictly before kickoff, a weekly-
+    report Out/IR/Doubtful row for the player's own team-week (the report-
+    cycle channel that covers 2025/2026), or a roster-snapshot unavailability
+    removes the player from the target-game projected lineup. Historical
+    player-game EPA is calculated independently and is retained.
 
     Absent or inadmissible sources degrade their features to NaN per the
     missing-value policy. Returns the served diff features + the per-side
@@ -2113,7 +2145,8 @@ def build_game_features(games: pd.DataFrame,
 
     df = _attach_record_fields(df, ev)
     df = _attach_epa_quality_features(
-        df, _epa_quality_agg(games, pbp, ps, injuries, roster_unavailable),
+        df, _epa_quality_agg(games, pbp, ps, injuries, roster_unavailable,
+                             weekly_injuries),
         games)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
@@ -2230,7 +2263,8 @@ def build_slate_features(schedule: pd.DataFrame,
 
     df = _attach_record_fields(df, combined)
     df = _attach_epa_quality_features(
-        df, _epa_quality_agg(sched, pbp, ps, injuries, roster_unavailable),
+        df, _epa_quality_agg(sched, pbp, ps, injuries, roster_unavailable,
+                             weekly_injuries),
         sched)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,

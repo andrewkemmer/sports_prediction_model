@@ -3567,6 +3567,39 @@ check("EPA lineups honor the roster overlay: away emptied, home untouched",
       and len(_ros_joined) == len(_ros_base_home)
       and np.isclose(_ros_joined["epa_q_b"], _ros_joined["epa_q_n"]).all())
 
+# Consumption point 1b (EPA lineups, REPORT-CYCLE channel): the weekly
+# report is the only availability source covering 2025/2026 (strict-PIT
+# empty there). A team-week Out row must remove the player from the
+# target pool (the Caleb-Williams class, 2026-09-28), Questionable must
+# NOT remove him, and the other team's aggregate stays untouched.
+_ros_wi_out = pd.DataFrame([
+    {"gsis_id": "P2", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out"},
+])
+_ros_wi_q = _ros_wi_out.assign(report_status="Questionable")
+_ros_agg_out = feat_mod._epa_quality_agg(
+    _epa_calc_games, _epa_calc_pbp, _epa_calc_ps, _epa_calc_injuries,
+    None, _ros_wi_out)
+_ros_agg_q = feat_mod._epa_quality_agg(
+    _epa_calc_games, _epa_calc_pbp, _epa_calc_ps, _epa_calc_injuries,
+    None, _ros_wi_q)
+
+def _qb_of(agg, team):
+    sel = agg[agg["game_id"].eq("EPA_TARGET") & agg["team"].eq(team)
+              & agg["position"].eq("QB")]
+    return float(sel["epa_q"].iloc[0]) if len(sel) else float("nan")
+
+_ros_qb_base = _qb_of(_epa_quality_agg, "HOME")
+_ros_qb_out = _qb_of(_ros_agg_out, "HOME")
+_ros_qb_away_base = _qb_of(_epa_quality_agg, "AWAY")
+check("EPA lineups honor the weekly report: team-week Out removes the player",
+      not np.isclose(_ros_qb_base, _ros_qb_out),
+      f"HOME QB epa_q {_ros_qb_base:.4f} -> {_ros_qb_out:.4f} with P2 Out")
+check("EPA lineups keep Questionable players (late calls do not remove)",
+      np.isclose(_qb_of(_ros_agg_q, "HOME"), _ros_qb_base))
+check("EPA report-cycle removal is team-week keyed (other team untouched)",
+      np.isclose(_qb_of(_ros_agg_out, "AWAY"), _ros_qb_away_base))
+
 # Consumption point 2 (injury-share flag set): roster rows widen the flagged
 # set additively; players with no snap history price 0.0 (never NaN).
 _ros_snaps = pd.DataFrame([
@@ -3634,6 +3667,12 @@ check("both builders thread the roster overlay into both consumption points",
           feat_mod.epa_quality_team_agg)
       and "roster_unavailable" in inspect.getsource(
           feat_mod.injury_share_table))
+check("both builders thread weekly_injuries into the EPA lineups too",
+      _src_gf.count("weekly_injuries") == 3
+      and _src_sf.count("weekly_injuries") == 3
+      and "weekly_injuries" in inspect.getsource(feat_mod._epa_quality_agg)
+      and "weekly_injuries" in inspect.getsource(feat_mod.epa_quality_team_agg),
+      "the report-cycle channel is the only availability source in 2025/2026")
 
 # Real-snapshot guarantees (2025 cache, network-free when present): after
 # the FULL rule, zero carried-out players played their week's game, every

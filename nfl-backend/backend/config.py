@@ -83,7 +83,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v9.2-roster-availability"
+FEATURE_SET_VERSION = "nfl-prod-v9.3-report-cycle-epa-lineups"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
