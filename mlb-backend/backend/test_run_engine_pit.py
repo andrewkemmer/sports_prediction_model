@@ -39,7 +39,7 @@ _FRONTEND = (BACKEND.parent.parent / "frontend").resolve()
 if _FRONTEND.is_dir():
     sys.path.insert(0, str(_FRONTEND))
 
-import run_engine as re            # noqa: E402
+import distributions as re            # noqa: E402
 from training import canonical_walk_forward_splits  # noqa: E402
 
 
@@ -285,7 +285,7 @@ def test_run_engine_team_id_seam_contract():
       * with the flag off, nothing is attached (numeric-only contract).
     """
     import pandas as pd
-    import run_engine as re
+    import distributions as re
 
     assert re.RUN_TREE_CATEGORICAL_COLS == ["home_team_id", "away_team_id"]
     assert re.RUN_WITH_TEAM_IDS is True

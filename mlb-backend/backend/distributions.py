@@ -1,4 +1,5 @@
-"""Run engine Phase 1 — per-team expected-runs models (λ per side).
+"""Distributions engine (formerly run_engine.py) — per-team expected-runs
+models (λ per side).
 
 THE GOLDEN RULE (REVISED 2026-08-30): run models consume LEVELS + ENVIRONMENT
 + the 24 restored matchup-gap _diff features. Diff features (sp_era_diff ≈ 0

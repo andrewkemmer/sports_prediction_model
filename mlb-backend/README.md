@@ -43,7 +43,7 @@ mlb-backend
 | `backend/training.py` | Walk-forward splits, moneyline/totals/run-line heads, metrics (AUC/Brier/LogLoss/ECE), ensemble persistence |
 | `backend/explainability.py` | Per-game SHAP, PSI computation, feature drift |
 | `backend/github_sync.py` | GitPython clone → copy artifacts → commit → push (SSH key or PAT) |
-| `backend/pipeline.py` | `run_daily_pipeline(target_date)` orchestration + CLI |
+| `backend/master_pipeline.py` | The ONE entry point: Phase 0–6 daily run, incl. `run_daily_pipeline(target_date)` orchestration (merged from the former `pipeline.py`) |
 | `backend/requirements.txt` | Backend dependencies |
 | `backend/test_*.py` | Unit tests: point-in-time, walk-forward, PSI |
 | `frontend/Home.py` | Entry point + four-page navigation |
@@ -54,7 +54,7 @@ mlb-backend
 
 ## 1. Colab runbook (backend)
 
-Open `backend/pipeline.py` (or a fresh notebook) in
+Open `backend/master_pipeline.py` (or a fresh notebook) in
 [Google Colab](https://colab.research.google.com) and run:
 
 ```python
@@ -67,7 +67,9 @@ Open `backend/pipeline.py` (or a fresh notebook) in
 
 # 3) Run the daily pipeline (synthetic demo data by default)
 from datetime import date
-from backend.pipeline import run_daily_pipeline
+# NOTE: the production entry point is `python mlb-backend/backend/master_pipeline.py`
+# (see the Kaggle runbooks). For an in-process call, use the merged orchestrator:
+from backend.master_pipeline import run_daily_pipeline
 
 summary = run_daily_pipeline(date(2026, 8, 9), skip_sync=True)
 print(summary["status"])          # 'ok'
@@ -77,9 +79,8 @@ print(summary["artifacts"])       # files written to data_delivery/
 CLI equivalent (from `backend/`):
 
 ```bash
-python pipeline.py --date 2026-08-09 --skip-sync        # synthetic demo
-python pipeline.py --date 2026-08-09 --real             # pybaseball (needs network)
-python pipeline.py --date 2026-08-09 --force-retrain    # retrain regardless of cadence
+python mlb-backend/backend/master_pipeline.py                        # daily run (Colab/Kaggle)
+python mlb-backend/backend/master_pipeline.py                        # honors MLB_START_DATE / MLB_END_DATE / MLB_FULL_REPULL
 ```
 
 What it does:

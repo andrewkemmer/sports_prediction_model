@@ -15,10 +15,10 @@ from datetime import date
 BACKEND = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND))
 
-import run_engine as re
+import distributions as re
 import data_ingestion as ingestion
 from data_ingestion import build_upcoming_slate
-from pipeline import _attach_slate_lineup_keys, _count_evening_games
+from results import _attach_slate_lineup_keys, _count_evening_games
 
 
 def _market_row(**overrides):

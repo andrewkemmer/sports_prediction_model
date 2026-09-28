@@ -11,7 +11,7 @@ Design contract (2026-08 margin-feature task):
   splits (generated once, filtered by MIN_VAL_FOLD_GAMES), NOT the run
   engine's own fold filter.
 - Run-engine machinery is reused read-only (build_side_frame /
-  _fit_side_model / RUN_LGBM_PARAMS). Nothing in run_engine.py changes; the
+  _fit_side_model / RUN_LGBM_PARAMS). Nothing in distributions.py (former run_engine.py) changes; the
   per-side view and alpha(lambda) stay untouched. (Even if
   ``run_margin_diff`` itself were ever added to MONEYLINE_FEATURE_COLS, the
   run engine's served view is the active moneyline list resolved at call
@@ -41,7 +41,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from run_engine import (  # noqa: E402
+from distributions import (  # noqa: E402
     MAX_ROUNDS,
     RUN_LGBM_PARAMS,
     _fit_side_model,

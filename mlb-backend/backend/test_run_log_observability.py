@@ -182,24 +182,26 @@ def test_build_features_no_longer_computes_diffs():
 
 
 def test_each_caller_derives_diffs_itself():
-    """Both production callers must still produce a diff-complete frame."""
+    """Both production callers must still produce a diff-complete frame
+    (both now live in master_pipeline.py)."""
     mp = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
     assert re.search(r"^game_df = add_diff_features\(game_df\)$", mp, re.M), (
         "master_pipeline must derive diffs after enrich_elo_and_records"
     )
 
-    pipe = (BACKEND / "pipeline.py").read_text(encoding="utf-8")
-    build_call = "game_df, pbp_df = build_features(pitches_path, ckpt)"
-    assert build_call in pipe
-    after = pipe.split(build_call, 1)[1][:400]
-    assert "add_diff_features(game_df)" in after, (
-        "the --statcast branch consumes build_features output directly and "
-        "must derive diffs itself now that build_features does not"
+    # The Phase 2-3 caller consumes build_features output directly (the
+    # former pipeline.py --statcast branch merged into the same module) and
+    # must derive diffs itself, after its own raw inputs are final.
+    build_call = "game_df, pbp_df = build_features("
+    assert build_call in mp
+    after = mp.split(build_call, 1)[1]
+    assert re.search(r"^game_df = add_diff_features\(game_df\)$", after, re.M), (
+        "diffs must be re-derived after the Phase 2-3 build_features call"
     )
 
 
-def test_pipeline_still_imports_add_diff_features():
-    src = (BACKEND / "pipeline.py").read_text(encoding="utf-8")
+def test_master_pipeline_still_imports_add_diff_features():
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
     assert re.search(r"from features import \([^)]*add_diff_features", src, re.S)
 
 

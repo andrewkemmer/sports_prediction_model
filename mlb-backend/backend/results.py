@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -362,3 +363,208 @@ def fetch_statsapi_weather(
             "StatsAPI game-feed weather: %d/%d games reported conditions "
             "(%d unusable)", len(out), len(pks), failures)
     return out
+
+
+def _nearest_slate_pk(legs, start_et) -> Optional[int]:
+    """Nearest StatsAPI game_pk for a slate row by first-pitch time.
+
+    ``legs`` is [(first_pitch_et, game_pk), ...] for ONE matchup — a
+    doubleheader holds two entries (two games, usually two starters). The
+    nearest leg within a 4h window IS the row's own game; single-game
+    matchups match trivially. Returns None when the matchup is unknown or
+    nothing is close (the row falls back to projected lineups). Pure.
+    """
+    if not legs:
+        return None
+    target = pd.Timestamp(start_et)
+    if pd.isna(target):
+        return None
+    if target.tzinfo is not None:
+        target = target.tz_convert("America/New_York").tz_localize(None)
+    best, best_d = None, None
+    for t, pk in legs:
+        if pd.isna(t):
+            continue
+        t = t.tz_localize(None) if t.tzinfo is not None else t
+        d = abs((t - target).total_seconds())
+        if best_d is None or d < best_d:
+            best, best_d = pk, d
+    if best is not None and best_d is not None and best_d <= 4 * 3600:
+        return best
+    return None
+
+
+def _attach_slate_lineup_keys(slate: pd.DataFrame,
+                              lineup_rows: pd.DataFrame) -> pd.DataFrame:
+    """Carry resolved StatsAPI game identities onto the ESPN slate.
+
+    Posted lineup enrichment is keyed by ``game_pk``. ESPN rows generally
+    carry only ``game_id``; keeping this conversion explicit prevents a
+    successful StatsAPI lineup fetch from degenerating into all-NaN lineup
+    features during the subsequent PIT wOBA join.
+    """
+    if "game_pk" not in lineup_rows.columns or len(lineup_rows) != len(slate):
+        raise ValueError("slate lineup identity rows must align one-to-one")
+    out = slate.copy()
+    out["game_pk"] = pd.to_numeric(
+        lineup_rows["game_pk"], errors="coerce").astype("Int64")
+    return out
+
+
+def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame:
+    """Attach the 6 lineup-delta columns to today's slate from posted lineups.
+
+    Resolution: StatsAPI schedule for target_date maps (home, away) → game_pk
+    (the slate carries no StatsAPI game_pk -- ESPN's game_id only), then the
+    live feed per game, paced like the roof fetcher (~2.2 req/s, one retry).
+    Games with a complete 9+9 battingOrder get REAL lineup-delta features
+    (same point-in-time math as training: batter/team sd-wOBA through games
+    strictly before today -- no lookahead).
+
+    Projected fallback for games not yet posted (per the 2026-08-25 posting-
+    curve probe, away sides generally post ~2-3h before first pitch; a morning
+    slate is mostly projected): ALL SIX columns emit NULL. A lineup not yet
+    posted before first pitch is genuinely UNKNOWN at bet time — it must never
+    be fabricated as 0 (a fake "projected lineup equals season mean" leaks a
+    value the model can't actually have). NULLs route through the existing NaN
+    imputation path, so the tree learns "not yet posted" as its own missing
+    state — the same strict point-in-time discipline the market-line as-of
+    join (data_ingestion._attach_market_lines rejects lines posted at/after
+    start) and weather/roof NULLs use. The actual-vs-projected split is logged
+    loudly so a projected-only morning is visible.
+    """
+    if slate is None or slate.empty:
+        return slate
+    slate = slate.reset_index(drop=True)  # posted-mask aligns by position below
+    import requests
+    import time as _time
+    from results import STATSAPI_SCHEDULE_URL  # same endpoint the weather backfill uses
+    _FEED = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
+
+    # 1) game_pk resolution from the StatsAPI schedule (one day, no chunking).
+    # A matchup can hold MULTIPLE games (doubleheader legs with their own
+    # game_pk), so collect EVERY leg with its first-pitch time and match per
+    # slate row by start time — a one-entry-per-matchup map would feed both
+    # legs the first game's lineup.
+    pk_by_teams: dict[tuple[str, str], list[tuple[pd.Timestamp, int]]] = {}
+    try:
+        resp = requests.get(STATSAPI_SCHEDULE_URL,
+                            params={"sportId": 1,
+                                    "startDate": target_date.isoformat(),
+                                    "endDate": target_date.isoformat()},
+                            timeout=20)
+        resp.raise_for_status()
+        for g in (resp.json().get("dates") or [{}])[0].get("games") or []:
+            t = (g.get("teams") or {}).get("away") or {}
+            h = (g.get("teams") or {}).get("home") or {}
+            away = (t.get("team") or {}).get("abbreviation")
+            home = (h.get("team") or {}).get("abbreviation")
+            if home and away:
+                try:
+                    gd = pd.Timestamp(g.get("gameDate"))
+                    if gd.tzinfo is None:
+                        gd = gd.tz_localize("UTC")
+                    gd = gd.tz_convert("America/New_York").tz_localize(None)
+                except Exception:
+                    gd = pd.NaT
+                pk_by_teams.setdefault((home, away), []).append((gd, int(g["gamePk"])))
+    except Exception as e:
+        logger.warning("_fetch_slate_lineups: schedule resolution failed (%s); slate stays projected", e)
+        pk_by_teams = {}
+
+    # 2) per-game feed fetch (paced, one retry, cached per run)
+    def _feed(pk: int) -> dict | None:
+        for attempt in (0, 1):
+            try:
+                r = requests.get(_FEED.format(pk=pk), timeout=15)
+                if r.status_code == 200:
+                    return r.json()
+            except Exception:
+                pass
+            if attempt == 0:
+                _time.sleep(_LINEUP_PAUSE_SEC * 3)
+            _time.sleep(_LINEUP_PAUSE_SEC)
+        return None
+
+    def _orders(feed: dict | None) -> tuple[list[int], list[int]]:
+        out = []
+        if feed:
+            bs = ((feed.get("liveData") or {}).get("boxscore") or {})
+            teams_bs = bs.get("teams") or {}
+            for side in ("home", "away"):
+                try:
+                    order = [p["person"]["id"]
+                             for p in (teams_bs[side].get("battingOrder") or [])]
+                except Exception:
+                    order = []
+                out.append(order)
+        return (out[0] if out else [], out[1] if len(out) > 1 else [])
+
+    rows = []
+    for _, r in slate.iterrows():
+        teams_key = (r.get("home_team"), r.get("away_team"))
+        pk = _nearest_slate_pk(pk_by_teams.get(teams_key), r.get("start_time_utc"))
+        if pk is None:
+            rows.append({"game_pk": pd.NA, "home_order": None, "away_order": None})
+            continue
+        feed = _feed(pk)
+        ho, ao = _orders(feed)
+        rows.append({"game_pk": int(pk), "home_order": ho or None,
+                     "away_order": ao or None})
+    lu = pd.DataFrame(rows)
+    # game_pk must be TYPED before any join: rows mix resolved ints with
+    # pd.NA (games whose StatsAPI identity has not resolved yet), so the
+    # bare list-of-dicts frame lands as object dtype. pandas refuses
+    # object-vs-Int64 key merges outright — on 2026-09-22 that ValueError
+    # killed the whole slate build and shipped zero dated artifacts for the
+    # day (the dashboard fell back to the previous day's files).
+    if "game_pk" in lu.columns:
+        lu["game_pk"] = pd.to_numeric(lu["game_pk"], errors="coerce").astype("Int64")
+
+    # StatsAPI is the authoritative identity for posted lineups. The ESPN
+    # slate normally has only game_id, but add_lineup_delta_features joins
+    # both the lineup override and the PIT wOBA caches by game_pk. Carry the
+    # resolved key onto the slate before enrichment; otherwise every actual
+    # lineup silently misses the join and all six shipped features remain NaN.
+    slate = _attach_slate_lineup_keys(slate, lu)
+
+    # 3) real features where both sides posted; projected fallback otherwise
+    slate = add_lineup_delta_features(slate, lineups_override=lu)
+    from features import LINEUP_DELTA_COLS, LINEUP_TOP5_K
+    posted = lu["home_order"].notna() & lu["away_order"].notna()
+    n_actual = int(posted.sum())
+    for idx, r in slate.iterrows():
+        if not posted.iloc[idx]:
+            # STRICT POINT-IN-TIME: a lineup not posted before first pitch is
+            # UNKNOWN at bet time. Emit NULL for ALL SIX columns — never a
+            # fabricated 0 ("projected lineup equals season mean" would inject
+            # a value that cannot exist at bet time). NULLs route through the
+            # existing imputation path, matching the market-line as-of join
+            # and weather/roof missing-observation semantics.
+            for c in LINEUP_DELTA_COLS:
+                slate.at[idx, c] = pd.NA
+    logger.info(
+        "slate lineups: %d/%d ACTUAL (both sides posted), %d/%d projected "
+        "(not yet posted → all 6 lineup-delta cols NULL, PIT-safe)",
+        n_actual, len(slate), len(slate) - n_actual, len(slate))
+    return slate
+
+
+def _count_evening_games(games: Optional[pd.DataFrame]) -> int:
+    """Count slate games beginning at/after 7 PM ET (ALL statuses).
+
+    ``start_time_utc`` is stored as a NAIVE UTC datetime. Treat it as UTC
+    and convert to America/New_York (zoneinfo, DST-aware) BEFORE comparing
+    the hour — never compare the raw UTC hour: a 9:38 PM ET game is 01:38
+    UTC the NEXT day, so a UTC-hour comparison drops exactly the west-coast
+    night games this badge is meant to count (the UTC-midnight rollover).
+    Rows with a missing/NaN start are skipped, never crashing the count.
+    """
+    if games is None or "start_time_utc" not in games.columns:
+        return 0
+    starts = pd.to_datetime(games["start_time_utc"], errors="coerce", utc=True)
+    valid = starts.notna()
+    if not valid.any():
+        return 0
+    et = starts[valid].dt.tz_convert(ZoneInfo("America/New_York"))
+    return int((et.dt.hour >= 19).sum())

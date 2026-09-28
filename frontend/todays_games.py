@@ -156,7 +156,7 @@ def _pitcher_box(name: str, era: str, k9: str) -> str:
 # the ladder (away covering -1.5 = winning by 2+ is a different bet than
 # away +1.5 = winning or losing by 1). They are derived here from the game's
 # own NB(lambda, alpha) run marginals -- the same distributional model the
-# backend's Monte Carlo samples (mlb-backend/backend/run_engine.py
+# backend's Monte Carlo samples (mlb-backend/backend/distributions.py
 # derive_markets_mc) -- by convolving the two side PMFs into the resolved
 # home-margin mass and summing the mirrored strict inequalities. The model
 # and artifact are unchanged; the card prefers the backend's persisted
@@ -1612,7 +1612,8 @@ def main() -> None:
     """Sport-aware Today's Games: valid-date nav + calendar for the active
     sport (MLB board, NFL moneyline day board), with a graceful missing-date
     fallback that RECOVERS instead of showing a dead end.
-    Deployed regression (2026-09-13, 'No game board exists for Sunday,
+
+    Deployed regression (2026-09-13, 'No game board exists for Sunday,
     September 13, 2026'): the date navigator trusts a UNION date set
     (board snapshots ∪ calibration ``daily`` ∪ prediction-history game
     dates), so its newest entry can carry NO todays_games_<date>.csv —

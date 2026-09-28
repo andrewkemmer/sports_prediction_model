@@ -2704,7 +2704,8 @@ def add_exp2_features(game_df: pd.DataFrame,
 
 
 # ── Lineup-delta features (Phase 2, moneyline-only) ── RETIRED 2026-09-26 ────
-# No longer on the daily run path: pipeline.py stopped calling
+# No longer on the daily run path: the daily orchestrator (now
+# master_pipeline.py, ex-pipeline.py) stopped calling
 # add_lineup_delta_features, and build_batter_woba.py + its two caches were
 # deleted. Retained as the documented shape of a correct re-implementation
 # (one built from PROJECTED lineups on both sides, not post-game actuals).
@@ -2728,8 +2729,8 @@ LINEUP_TOP5_K = 5
 # RETIRED 2026-09-26. The six lineup_actual_* / lineup_rest_count_* columns
 # left MONEYLINE_FEATURE_COLS on 2026-08-29 (training.py) as a train-serve
 # skew fix — populated from post-game ACTUAL lineups in the decided frame but
-# always NULL at bet time — and pipeline.py stopped calling this module's
-# enrichment the same day. build_batter_woba.py and its two caches are
+# always NULL at bet time — and the daily orchestrator (now
+# master_pipeline.py) stopped calling this module's enrichment the same day. build_batter_woba.py and its two caches are
 # deleted: that builder read pbp_chunks/, whose producer (fetch_pbp_chunks.py)
 # was removed in ff372c3, so it could never again produce current data.
 # Nothing on the daily run reads any of it. lineups.parquet and
