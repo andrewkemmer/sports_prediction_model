@@ -1553,6 +1553,7 @@ def build_upcoming_slate(
     exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
+    unresolved_slots: list[tuple[Any, str]] = []
 
     # ESPN name → Statcast pitcher id (latest mapping wins)
     name_to_id: dict[str, Any] = {}
@@ -1695,6 +1696,7 @@ def build_upcoming_slate(
         # side of a box score).  The StatsAPI person id (sp_id_*) is preferred
         # — it is authoritative and needs no name-spelling matching; fall back
         # to name → Statcast id via pbp_df when the id is absent.
+        resolved: dict[str, str | None] = {"home": None, "away": None}
         for side in ("home", "away"):
             pid = row.get(f"sp_id_{side}")
             if pid is not None and pd.notna(pid):
@@ -1710,10 +1712,33 @@ def build_upcoming_slate(
                 continue
             for base, val in pitcher_state.get(pid, {}).items():
                 row[f"{base}_{side}"] = val
+            resolved[side] = str(pid)
 
         rows.append(row)
 
+        # Observability: an unannounced probable pitcher (TBD) leaves every
+        # SP* feature for that side NaN (diffs included), so the model prices
+        # that side on team-level columns alone. Silence here is how a
+        # systematic enrichment failure (2026-09-29: all 4 away starters
+        # TBD) hid inside a green run log. One line per affected game.
+        for side in ("home", "away"):
+            if resolved[side] is None:
+                unresolved_slots.append((row.get("game_id"), side))
+                logger.warning(
+                    "Slate pitcher features unresolved for %s (%s) — "
+                    "probable starter absent or unmappable at run time; "
+                    "%s-side SP and exp2 features ship NaN for this game",
+                    row.get("game_id"), row.get(f"sp_name_{side}"), side,
+                )
+
     slate = pd.DataFrame(rows)
+    if unresolved_slots:
+        logger.warning(
+            "Slate pitcher resolution: %d of %d starter slots unresolved — "
+            "those sides price without SP/exp2 features (%s)",
+            len(unresolved_slots), 2 * len(rows),
+            ", ".join(f"{gid}:{side}" for gid, side in unresolved_slots),
+        )
     slate = slate.sort_values("start_time_utc").reset_index(drop=True)
     logger.info("Upcoming slate built: %d games for %s", len(slate), target_date)
     return slate

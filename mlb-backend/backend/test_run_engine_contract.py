@@ -145,6 +145,56 @@ def test_upcoming_slate_carries_adopted_exp2_sources_pit_safely():
     assert enriched[EXP2_CANDIDATE_COLS].notna().any(axis=1).all()
 
 
+def test_upcoming_slate_tbd_away_pitcher_ships_nan_not_zero():
+    """An unannounced away probable (TBD) must leave the away-side SP and
+    exp2 features NaN — never fabricated 0, never a crash, and the home
+    side still resolves (the 2026-09-29 shape: 2 home starters announced,
+    all 4 away TBD). Silence here is how that run hid inside a green log;
+    build_upcoming_slate now also WARNs per unresolved slot."""
+    row = {
+        "game_date": "2026-09-20", "start_time_utc": "2026-09-20T18:00:00",
+        "game_id": "20260920_AWAY@HOME", "home_team": "HOME", "away_team": "AWAY",
+        "home_win": 1.0, "home_score": 5, "away_score": 3,
+        "home_starter_id": 101, "away_starter_id": 202,
+        "sp_k9_home": 8.0, "sp_k9_away": 7.0,
+        "team_k_rate_30g_home": 0.22, "team_k_rate_30g_away": 0.25,
+        "league_k_pct": 0.23,
+    }
+    for cat in ("fastball", "breaking", "offspeed"):
+        row[f"sp_k_pct_cat_{cat}_home"] = 0.22
+        row[f"sp_k_pct_cat_{cat}_away"] = 0.21
+        row[f"sp_usage_cat_{cat}_home"] = 0.50
+        row[f"sp_usage_cat_{cat}_away"] = 0.50
+        row[f"league_k_pct_cat_{cat}"] = 0.23
+    history = pd.DataFrame([row])
+    history["game_date"] = pd.to_datetime(history["game_date"])
+    history["start_time_utc"] = pd.to_datetime(history["start_time_utc"])
+    schedule = pd.DataFrame([{
+        "game_id": "20260921_AWAY@HOME", "game_date": "2026-09-21",
+        "start_time_utc": "2026-09-21T18:00:00", "home_team": "HOME",
+        "away_team": "AWAY", "venue": "Test Park",
+        "sp_id_home": 101, "sp_name_home": "Home Starter",
+        # Away starter never announced: no id, placeholder name.
+        "sp_id_away": np.nan, "sp_name_away": "TBD",
+    }])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+
+    slate = build_upcoming_slate(history, date(2026, 9, 21), schedule_df=schedule)
+    assert len(slate) == 1
+    assert slate.loc[0, "sp_name_away"] == "TBD"
+    # Away side carries NO pitcher state; home side carries its own.
+    assert pd.isna(slate.loc[0, "sp_k9_away"])
+    assert slate.loc[0, "sp_k9_home"] == 8.0
+
+    from features import add_exp2_features
+    enriched = add_exp2_features(slate)
+    # Home-side half computes; away-side half and the diff propagate NaN.
+    assert pd.notna(enriched.loc[0, "exp2_centered_k_home"])
+    assert pd.isna(enriched.loc[0, "exp2_centered_k_away"])
+    assert pd.isna(enriched.loc[0, "exp2_centered_k_diff"])
+
+
 def test_slate_lineup_keys_are_carried_before_feature_join():
     """StatsAPI lineup identities must reach the slate feature join."""
     slate = pd.DataFrame({"game_id": ["g1", "g2"],
