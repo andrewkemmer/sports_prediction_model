@@ -271,20 +271,53 @@ def _push_note(pp: float | None) -> str:
     return ""
 
 
+def _fold2(side_a: float | None, side_b: float | None) -> tuple[float | None, float | None]:
+    """Fold the push/tie mass proportionately into the two legs so a
+    whole-number pair sums to 100% — the books' 2-way quote, the exact
+    convention MLB's card layer applies (todays_games.py's _orient_rl_bits
+    display normalization, d1a3f79) and NBA's slate view ships. None inputs
+    pass through."""
+    if side_a is None or side_b is None:
+        return side_a, side_b
+    denom = side_a + side_b
+    if denom <= 0.0:
+        return side_a, side_b
+    return side_a / denom, side_b / denom
+
+
 def runline_html(row, home_team: str, away_team: str,
                  home_spread: float | None = None,
                  half_stop: bool = False) -> str:
     """The run-line span at the selected HOME spread (or the ±0.5 stop).
 
     Defaults to the fair home spread (the negative of ``fair_spread``, the
-    median margin threshold). Integer lines render the home/away covers from
-    the home-anchored grid with the SHARED push note; no (ML) parentheticals
-    at integers. The ±0.5 stop renders per-side RAW cover as the main number
-    AND the grey-italic (run-ML X%) derived parenthetical — the NFL-specific raw
+    median margin threshold). Integer lines display the 2-WAY FOLDED pair
+    (push proportionately into both covers, summing to 100% — the books'
+    whole-number convention, d1a3f79) with the shared raw-push note; no
+    (ML) parentheticals at integers. A pick'em game (fair spread 0) has no
+    integer line to quote — it renders the ±0.5 stop, never "±0.0". The
+    ±0.5 stop renders per-side RAW cover as the main number AND the
+    grey-italic (run-ML X%) derived parenthetical — the NFL-specific raw
     vs derived pair (they diverge by the tie rate). Never renders offered
     lines, shrink columns or edges.
     """
     if half_stop:
+        fav_raw, dog_raw, fav_ml, dog_ml, fav_home = half_stop_pair(row)
+        if fav_raw is None:
+            return '<span>RL: n/a</span>'
+        if fav_home:
+            fav_team, dog_team = home_team, away_team
+        else:
+            fav_team, dog_team = away_team, home_team
+        fav_note = f' <span class="re-na">(run-ML {_pct(fav_ml, 0)})</span>'
+        dog_note = f' <span class="re-na">(run-ML {_pct(dog_ml, 0)})</span>'
+        return (f'<span>RL: {fav_team} −0.5 {_pct(fav_raw)}'
+                f'{fav_note} · {dog_team} +0.5 {_pct(dog_raw)}{dog_note}</span>')
+    if half_stop or abs(float(home_spread if home_spread is not None
+                               else -float(_f(row, "fair_spread") or 0.0))) < 0.25:
+        # Pick'em guard: a game whose fair spread rounds to 0 has NO integer
+        # run line to quote (±0.0 is a fake spread) — render the ±0.5
+        # pick'em pair instead, exactly like the selector's default.
         fav_raw, dog_raw, fav_ml, dog_ml, fav_home = half_stop_pair(row)
         if fav_raw is None:
             return '<span>RL: n/a</span>'
@@ -306,9 +339,21 @@ def runline_html(row, home_team: str, away_team: str,
     ph, pp, pa = price_spread_line(row, L)
     if ph is None or pa is None:
         return f'<span>RL: {_spread_label(home_team, home_spread)} n/a</span>'
-    push_note = _push_note(pp) if abs(float(home_spread) - round(float(home_spread))) <= 1e-9 else ""
-    return (f'<span>RL: {_spread_label(home_team, home_spread)} {_pct(ph)} · '
-            f'{_spread_label(away_team, -float(home_spread))} {_pct(pa)}'
+    is_int = abs(float(home_spread) - round(float(home_spread))) <= 1e-9
+    if is_int:
+        # DISPLAY NORMALIZATION (2026-09-28): the persisted integer columns
+        # are the RAW 3-way trio (cover/push/cover, summing to 1.0 with real
+        # push mass). The card quotes the 2-WAY folded pair — push folded
+        # proportionately into both covers so they sum to 100% — the books'
+        # whole-number convention, the totals row's exact convention, and
+        # the fold MLB's card layer and NBA's slate view already apply
+        # (d1a3f79). The raw trio stays available to EV math via price_spread.
+        ph_d, pa_d = _fold2(ph, pa)
+    else:
+        ph_d, pa_d = ph, pa
+    push_note = _push_note(pp) if is_int else ""
+    return (f'<span>RL: {_spread_label(home_team, home_spread)} {_pct(ph_d)} · '
+            f'{_spread_label(away_team, -float(home_spread))} {_pct(pa_d)}'
             f'{push_note}</span>')
 
 
@@ -319,11 +364,11 @@ def runengine_html(row, home_team: str, away_team: str,
     """Model-fair run-engine strip for one slate row — market-free.
 
     Renders ONLY model values: projected scores (the mu pair), the O/U at
-    the fair total (or a caller-chosen grid total) with P(over)/P(under) and
-    a P(push) note at integer totals, the run-line span (see ``runline_html``
-    — integer home/away covers at the fair home spread with the shared push
-    note, or the ±0.5 stop's raw + derived pair), and the derived-ML pair
-    P(H>A)/(1−P(tie)) per side. Offered/book lines, shrink columns and
+    the fair total (or a caller-chosen grid total) with the 2-WAY folded
+    P(over)/P(under) at integer totals (push folded proportionately into
+    both sides so they sum to 100% — the books' convention, d1a3f79) plus
+    the raw-push note, the run-line span (see ``runline_html``), and the
+    ±0.5 stop's raw + derived pair. Offered/book lines, shrink columns and
     market edges never render.
 
     Rows without the fair columns produce a quiet 'n/a' — never fabricated.
@@ -340,9 +385,21 @@ def runengine_html(row, home_team: str, away_team: str,
     if po is None or pu is None:
         total_span = f'<span>O/U {_line_text(tot)}: n/a</span>'
     else:
-        push_note = _push_note(ppush) if abs(tot - round(tot)) <= 1e-9 else ""
-        total_span = (f'<span>O/U {_line_text(tot)}: Over {_pct(po)} / '
-                      f'Under {_pct(pu)}{push_note}</span>')
+        is_int = abs(tot - round(tot)) <= 1e-9
+        if is_int:
+            # DISPLAY NORMALIZATION (2026-09-28): at an integer total the
+            # persisted columns are the raw 3-way split (over/push/under).
+            # Display the 2-WAY folded pair — push folded proportionately
+            # into both sides so Over + Under sum to 100% — the books'
+            # convention and the exact fold MLB's card layer and NBA's
+            # slate view apply (d1a3f79). The push note keeps the raw push
+            # visible. Half-point totals never push and already sum to 1.
+            po_d, pu_d = _fold2(po, pu)
+        else:
+            po_d, pu_d = po, pu
+        push_note = _push_note(ppush) if is_int else ""
+        total_span = (f'<span>O/U {_line_text(tot)}: Over {_pct(po_d)} / '
+                      f'Under {_pct(pu_d)}{push_note}</span>')
 
     rl = runline_html(row, home_team, away_team,
                       home_spread=home_spread, half_stop=half_stop)

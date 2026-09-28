@@ -188,9 +188,65 @@ def _all_text(at: AppTest) -> str:
     return "\n".join(chunks)
 
 
-def run() -> int:
-    _write_artifacts()
+def _fold_checks() -> list[str]:
+    """Pure-function pins for the 2026-09-28 card normalization fix.
+
+    Synthetic rows encode the semantics exactly: an integer total/spread
+    displays the 2-WAY FOLDED pair (push proportionately into both sides,
+    summing to 100%) with the raw push as its own note; a pick'em game
+    (fair spread 0) renders the +/-0.5 stop and NEVER a 0.0 spread; and at
+    +/-0.5 the -0.5 side is the OUTRIGHT win (a tie makes the -0.5 team
+    lose) while the run-ML note excludes the tie from both sides.
+    """
+    import nfl_slate_view as sv
     problems: list[str] = []
+    base = {
+        "mu_h": 28.8, "mu_a": 18.3, "fair_total": 46.0, "fair_spread": 10.0,
+        "p_over_46": 0.49, "p_under_46": 0.47, "p_push_46": 0.04,
+        "p_home_cover_10": 0.52, "p_push_10": 0.03,
+        "p_home_cover_0": 0.45, "p_push_0": 0.10,
+        "p_home_win_derived": 0.50, "p_away_win_derived": 0.50,
+    }
+
+    def _sum100(html: str, kind: str) -> bool:
+        import re as _re
+        nums = [float(x) for x in _re.findall(r"(\d+(?:\.\d+)?)%", html)]
+        return len(nums) >= 2 and abs(nums[0] + nums[1] - 100.0) < 0.5, kind
+
+    # (1) Integer total: folded pair sums to 100%, raw push kept visible.
+    html = sv.runengine_html(base, "BUF", "LAC")
+    if "Over 51% / Under 49%" not in html or "(4% push)" not in html:
+        problems.append(f"integer total not folded with push note: {html}")
+    ok, _ = _sum100(html, "total")
+    if not ok:
+        problems.append(f"integer total pair does not sum to 100: {html}")
+    # (2) Integer spread (home -10): folded pair sums to 100% + push note.
+    rl = sv.runline_html(base, "BUF", "LAC", home_spread=-10.0)
+    if "BUF \u221210 54%" not in rl or "LAC +10 46%" not in rl \
+            or "(3% push)" not in rl:
+        problems.append(f"integer spread not folded: {rl}")
+    # (3) Pick'em guard: fair_spread 0 -> +/-0.5 pair, never 0.0.
+    pickem = dict(base, fair_spread=0.0)
+    pe = sv.runengine_html(pickem, "HOM", "AWY")
+    if "\u22120.0" in pe or "+0.0" in pe:
+        problems.append(f"pick'em game rendered a 0.0 spread: {pe}")
+    # p_home_cover_0 = 0.45 -> AWAY is the favorite; the pair orients to it.
+    if "AWY \u22120.5 45%" not in pe or "HOM +0.5 55%" not in pe:
+        problems.append(f"pick'em did not render the +/-0.5 pair: {pe}")
+    # (4) Tie semantics at +/-0.5: -0.5 is the outright win (tie excluded),
+    # +0.5 includes the tie, run-ML excludes the tie from BOTH sides
+    # (0.45 raw / 0.10 tie -> 45% vs (run-ML 50%)).
+    hs = sv.runline_html(pickem, "HOM", "AWY", half_stop=True)
+    if "AWY \u22120.5 45%" not in hs or "HOM +0.5 55%" not in hs:
+        problems.append(f"+/-0.5 raw pair wrong (tie must break to +0.5): {hs}")
+    if hs.count("(run-ML 50%)") != 2:
+        problems.append(f"run-ML notes must exclude ties from both sides: {hs}")
+    return problems
+
+
+def run() -> int:
+    problems: list[str] = _fold_checks()
+    _write_artifacts()
     try:
         # ---- Today's board renders with the started game PRESENT ----
         # The shipped page entry is todays_games.py (Home.py's st.Page):

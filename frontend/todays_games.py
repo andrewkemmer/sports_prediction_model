@@ -1010,6 +1010,12 @@ def _nfl_run_engine_selectors(r, srow):
     fair_home = -float(round(fair_spread))
     spread_options = [float(v) / 2.0 for v in range(1, 29)]  # ±0.5 … ±14.0
     fair_magnitude = float(abs(fair_home))
+    if fair_magnitude < 0.25:
+        # Pick'em guard (2026-09-28): a fair spread of 0 is NOT a run line —
+        # offering it rendered a "±0.0" spread on the card (a fake number:
+        # neither side lays points). Pick'em games default to the ±0.5 stop
+        # (the model's real pick'em pair) and 0.0 is never offered.
+        fair_magnitude = 0.5
     if fair_magnitude not in spread_options:
         spread_options.append(fair_magnitude)
         spread_options.sort()
