@@ -395,15 +395,24 @@ XGBOOST_REG_PARAMS = {
     "random_state": RANDOM_SEED,
     "verbosity": 0,
 }
+# Optuna-tuned on the 2,792-game/46-fold run-line walk-forward (offline
+# harness, MLB-style protocol; 32 trials, objective = pooled per-game Poisson
+# deviance over folds[:-4]): winner dev_mean 1.06797 vs 1.09167 for the
+# untuned block. Sealed 4-fold holdout CONFIRMED: deviance 1.15373 vs
+# 1.17876 (+250 bps) — unlike the moneyline LGBM candidate, this gain
+# survived — and the derived-market logscore on the canonical lines improved
+# on both the holdout (0.64554 vs 0.65778) and the full 46-fold population
+# (0.62842 vs 0.63820; brier 0.21872 vs 0.22256).
 LIGHTGBM_REG_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "num_leaves": 12,
-    "min_child_samples": 30,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
+    "n_estimators": 139,
+    "max_depth": 5,
+    "num_leaves": 10,
+    "min_child_samples": 49,
+    "min_gain_to_split": 1.8356,
+    "learning_rate": 0.0243,
+    "subsample": 0.6649,
     "subsample_freq": 1,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.6315,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }

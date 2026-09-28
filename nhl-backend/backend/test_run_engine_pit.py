@@ -857,20 +857,30 @@ def test_estimate_alpha_is_the_mlb_pooled_moment_estimator():
 
 
 def test_estimate_alpha_is_uncapped_like_mlb():
-    """MLB applies NO saturation to alpha; a heavy over-dispersion survives.
+    """The SCALAR alpha estimator applies NO saturation; a heavy
+    over-dispersion survives.
 
     The retired NHL form clipped at ALPHA_CAP=2.0, which would have silently
     masked a genuinely over-dispersed fit. This fixture is far beyond 2.0.
+    ALPHA_CAP exists again since the alpha(λ) CURVE port (MLB parity — its
+    curve layer clips at the same 2.0), but the curve clip must never leak
+    into the scalar path: the shipped alpha_home/alpha_away stay uncapped
+    MoM estimates, and only alpha_of() evaluates the curve's clip.
     """
     rng = np.random.default_rng(11)
     mu = np.full(4000, 3.0)
     # size=1/alpha with alpha=8 -> far beyond the old 2.0 cap.
     y = rng.negative_binomial(0.125, 0.125 / (0.125 + 3.0), 4000).astype(float)
     a = dist_mod.estimate_alpha(y, mu)
-    assert a > 2.0, f"alpha {a} was capped; MLB does not cap"
+    assert a > dist_mod.ALPHA_CAP, \
+        f"alpha {a} was capped; the scalar estimator must stay uncapped"
     lam_bar = 3.0
     assert a == round(max((float(y.var(ddof=0)) - lam_bar) / lam_bar ** 2, 0.0), 4)
-    assert not hasattr(dist_mod, "ALPHA_CAP")
+    # The curve layer clips at ALPHA_CAP exactly where MLB's does — the two
+    # saturations are different layers and both are intentional.
+    clipped = dist_mod.alpha_of(np.array([5.0]),
+                                {"form": "linear", "a": 8.0, "b": 0.0})
+    assert clipped[0] == dist_mod.ALPHA_CAP
 
 
 def test_calibrate_dispersion_reports_the_poisson_limit_flag():
@@ -885,6 +895,94 @@ def test_calibrate_dispersion_reports_the_poisson_limit_flag():
                                        <= dist_mod.ALPHA_FLOOR)
     assert params["alpha_home"] >= 0.0
     assert params["alpha_away"] >= 0.0
+
+
+def test_alpha_curve_machinery_mirrors_mlb():
+    """The alpha(λ) curve layer must exist with MLB's shape: quantile-binned
+    MoM points, OOB selection among piecewise/linear/power, per-row alpha_of
+    clipped to ALPHA_CAP — and on Poisson-limit data the selected curve must
+    be flat at ~0, so hockey's current regime is unchanged by the port."""
+    rng = np.random.default_rng(5)
+    # Over-dispersed: alpha ~ 0.5 rising with lambda.
+    lam = rng.uniform(2.0, 5.0, 3000)
+    a_true = 0.1 + 0.08 * lam
+    y = rng.negative_binomial(
+        np.repeat(1.0, 3000) / a_true,
+        (1.0 / a_true) / (1.0 / a_true + lam)).astype(float)
+    curve, diag = dist_mod.select_alpha_curve(y, lam)
+    assert curve["form"] in ("piecewise", "linear", "power")
+    assert set(diag["candidates"]) == {"piecewise", "linear", "power"}
+    vec = dist_mod.alpha_of(lam, curve)
+    assert vec.min() >= 0.0 and vec.max() <= dist_mod.ALPHA_CAP
+    # Poisson-limit data: the curve collapses to ~0 (scalar path unchanged).
+    y_p = rng.poisson(lam).astype(float)
+    curve_p, _ = dist_mod.select_alpha_curve(y_p, lam)
+    assert float(dist_mod.alpha_of(lam, curve_p).max()) < 0.05
+
+
+def test_calibrate_dispersion_carries_the_curve_layer():
+    """The dispersion record ships the fitted alpha(λ) curves, their OOB
+    selection diagnostics, the per-row max alpha, and the MC guard constants
+    — while alpha_home/alpha_away remain the pooled MoM scalars consumers
+    already read."""
+    rng = np.random.default_rng(7)
+    n = 1200
+    mu_h = rng.uniform(2.4, 3.6, n)
+    mu_a = rng.uniform(2.2, 3.4, n)
+    oof = pd.DataFrame({
+        "home_score": rng.poisson(mu_h).astype(float), "mu_h": mu_h,
+        "away_score": rng.poisson(mu_a).astype(float), "mu_a": mu_a})
+    params = dist_mod.calibrate_dispersion(oof)
+    assert "alpha_home_curve" in params and "alpha_away_curve" in params
+    assert "alpha_selection" in params
+    assert params["alpha_selection"]["home"]["selected"] in (
+        "piecewise", "linear", "power")
+    assert "alpha_home_max" in params and "alpha_away_max" in params
+    assert params["alpha_home"] == dist_mod.estimate_alpha(
+        oof["home_score"].to_numpy(float), oof["mu_h"].to_numpy(float))
+    assert params["mc_draws_tail"] == dist_mod.MC_DRAWS_TAIL
+    assert params["mc_se_target"] == dist_mod.MC_SE_TARGET
+    # The flag keeps its SCALAR semantics (scoring consumes the scalars);
+    # the curve's measured verdict is the Pearson probe in run_line_fit_check.
+    assert params["poisson_limit"] == (
+        params["alpha_home"] <= dist_mod.ALPHA_FLOOR
+        and params["alpha_away"] <= dist_mod.ALPHA_FLOOR)
+
+
+def test_simulate_se_guard_bumps_only_over_target():
+    """The MC SE-guard is MLB's conditional discipline: at the default draw
+    count the derivation records its resolution and fires the 50k tail bump
+    ONLY when the worst totals-line SE exceeds MC_SE_TARGET."""
+    meta: dict = {}
+    dist_mod.simulate_distributions(np.array([3.0, 2.9]), np.array([2.7, 2.8]),
+                                    0.0, 0.0, meta_out=meta)
+    assert meta["reason"] == "default"
+    assert meta["n_draws"] == dist_mod.MC_DRAWS
+    assert 0.0 < meta["mc_se_totals_max"] <= dist_mod.MC_SE_TARGET + 1e-9
+    meta_bump: dict = {}
+    dist_mod.simulate_distributions(np.array([3.0, 2.9]), np.array([2.7, 2.8]),
+                                    0.0, 0.0, n_draws=200, meta_out=meta_bump)
+    assert meta_bump["n_draws"] == dist_mod.MC_DRAWS_TAIL
+    assert meta_bump["requested_draws"] == 200
+    assert "bumped" in meta_bump["reason"]
+
+
+def test_run_line_fit_check_reports_adequacy_and_baseline_beat():
+    """MLB's diagnostics shape: the Pearson probe (≈1 under a Poisson-
+    consistent fixture) and deviance/RMSE where the μ model must beat the
+    constant league-mean baseline it replaces."""
+    rng = np.random.default_rng(9)
+    n = 1500
+    mu_h = rng.uniform(2.2, 4.2, n)
+    mu_a = rng.uniform(2.0, 4.0, n)
+    oof = pd.DataFrame({
+        "home_score": rng.poisson(mu_h).astype(float), "mu_h": mu_h,
+        "away_score": rng.poisson(mu_a).astype(float), "mu_a": mu_a})
+    fc = dist_mod.run_line_fit_check(oof)
+    for side in ("home", "away"):
+        assert abs(fc[side]["pearson"] - 1.0) < 0.15, fc[side]
+        assert fc[side]["deviance_model"] < fc[side]["deviance_baseline"]
+        assert fc[side]["rmse_model"] < fc[side]["rmse_baseline"]
 
 
 # ---------------------------------------------------------------------------

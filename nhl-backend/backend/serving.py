@@ -296,9 +296,15 @@ MARKETS_BASE_COLS = [
 
 
 def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
-                      slate_rows: pd.DataFrame, config_meta: dict) -> pd.DataFrame:
+                      slate_rows: pd.DataFrame, config_meta: dict,
+                      mc_meta: dict | None = None,
+                      run_line_fit_check: dict | None = None) -> pd.DataFrame:
     """Combine decided OOF rows (kind='oof') + current slate rows
-    (kind='slate') into the markets artifact the diagnostics page reads."""
+    (kind='slate') into the markets artifact the diagnostics page reads.
+
+    ``mc_meta`` (MLB parity) records the derivation's simulation resolution
+    and whether the SE-guard bumped it; ``run_line_fit_check`` records the
+    pooled Poisson-adequacy/deviance/RMSE diagnostics alongside."""
     cols = MARKETS_BASE_COLS[:]
     # add every grid column (spread -8..8 + half stops, totals 4..12)
     for L in config.SPREAD_GRID:
@@ -363,6 +369,10 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
                   "total": [config.TOTAL_GRID[0], config.TOTAL_GRID[-1]],
                   "half_stops": config.HALF_STOP_LINES},
     }
+    if mc_meta is not None:
+        meta["mc_meta"] = mc_meta
+    if run_line_fit_check is not None:
+        meta["run_line_fit_check"] = run_line_fit_check
     meta_path.write_text(json.dumps(meta, indent=1))
     return out
 

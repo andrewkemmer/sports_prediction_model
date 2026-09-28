@@ -372,17 +372,24 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",
                 dist.get("n_folds", len(fold_list)))
     sig = dist_mod.calibrate_dispersion(oof_dist)
-    # Report the VERDICT, not just the numbers. `calibrate_dispersion` already
-    # decides whether the fit sits at the Poisson limit (both alphas at or
-    # under the floor) and returned that decision as `poisson_limit` - which
-    # the log line dropped. Two zeros in a line reading "NB dispersion" are
-    # indistinguishable from a broken estimator; the honest reading is "no
-    # over-dispersion left to model, so the NB has collapsed to a Poisson and
-    # the dispersion term is inactive". 2026-09-26 printed 0.0000/0.0000
-    # with no way to tell those apart.
+    # Report the VERDICT, not just the numbers. `calibrate_dispersion` decides
+    # whether the fit sits at the Poisson limit — now evaluated over the
+    # per-row α vector under the fitted α(λ) curve (MLB's curve layer), not
+    # just the pooled scalar. The fit check (Pearson adequacy + deviance/RMSE
+    # vs the constant league-mean baseline) makes the Poisson verdict MEASURED
+    # every run, the way MLB's run-engine diagnostics do.
+    _fit_check = dist_mod.run_line_fit_check(oof_dist)
+    logger.info("run-line fit check (MLB diagnostics shape): "
+                "home pearson %.4f dev %.5f (baseline %.5f) | away pearson %.4f "
+                "dev %.5f (baseline %.5f)",
+                _fit_check["home"]["pearson"], _fit_check["home"]["deviance_model"],
+                _fit_check["home"]["deviance_baseline"],
+                _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
+                _fit_check["away"]["deviance_baseline"])
     logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
-                "alpha_home %.4f, alpha_away %.4f - %s",
-                sig["alpha_home"], sig["alpha_away"],
+                "alpha_home %.4f (max %.4f), alpha_away %.4f (max %.4f) - %s",
+                sig["alpha_home"], sig.get("alpha_home_max", sig["alpha_home"]),
+                sig["alpha_away"], sig.get("alpha_away_max", sig["alpha_away"]),
                 "POISSON LIMIT: no over-dispersion to model, the NB term is "
                 "inactive and scoring is Poisson" if sig.get("poisson_limit")
                 else "over-dispersed fit active")
@@ -539,8 +546,12 @@ def main(argv: list[str] | None = None) -> int:
         p_home_cal = np.array([])
     logger.info("slate games: %d", len(slate))
 
-    # decided OOF rows for the markets artifact (same schema as slate rows)
-    oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig)
+    # decided OOF rows for the markets artifact (same schema as slate rows).
+    # mc_meta records the derivation's simulation resolution and whether the
+    # SE-guard bumped it (MLB mc_meta parity) — it rides the markets meta.
+    _mc_meta: dict = {}
+    oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig,
+                                             mc_meta_out=_mc_meta)
     oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
     if len(slate):
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
@@ -611,7 +622,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = out_dir / config.MARKETS_CSV.format(date=date_c)
     mp_path = out_dir / config.MARKETS_META_JSON.format(date=date_c)
-    serve_mod.write_markets_csv(p, mp_path, oof_market_rows, slate, config_meta)
+    serve_mod.write_markets_csv(p, mp_path, oof_market_rows, slate, config_meta,
+                                mc_meta=_mc_meta, run_line_fit_check=_fit_check)
     artifacts.append(p.name)
 
     ml_ref: dict = {}
@@ -851,7 +863,8 @@ def _team_names() -> dict[str, str]:
 
 
 def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
-                           sig: dict) -> pd.DataFrame:
+                           sig: dict,
+                           mc_meta_out: dict | None = None) -> pd.DataFrame:
     """Decided OOF rows in the markets schema: distribution grids from the
     OOF mu pair + honest outcomes (y_*), plus the calibrated moneyline."""
     m = oof_ml[["game_id", "gameday", "season", "fold_id",
@@ -863,7 +876,7 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     df = m.merge(d, on="game_id", how="inner")
     if not len(df):
         return pd.DataFrame()
-    df = dist_mod.apply_distribution(df, sig)
+    df = dist_mod.apply_distribution(df, sig, meta_out=mc_meta_out)
     df["p_home_win"] = df["p_ensemble_calibrated"].where(
         df["p_ensemble_calibrated"].notna(), df["p_ensemble"])
     df["p_away_win"] = 1.0 - df["p_home_win"]

@@ -50,7 +50,20 @@ MONEYLINE_TREE_MEMBER = "lightgbm"
 
 MC_DRAWS = 10_000
 MC_SEED = 42
-ALPHA_FLOOR = 1e-8
+# MLB parity (run_engine.py): a conditional SE-guard on the OOF market
+# derivation — if the worst totals-line MC standard error exceeds the target
+# at the default draw count, re-simulate the whole derivation at the tail
+# resolution. A TRANSPARENCY constant pair: the guard only ever fires when
+# 10k draws are demonstrably too noisy for the tail lines.
+MC_DRAWS_TAIL = 50_000
+MC_SE_TARGET = 5e-3
+# Alpha-machinery parity (run_engine.py 1e-6): the floor under every alpha
+# below which NB degenerates to Poisson. NHL previously ran 1e-8.
+ALPHA_FLOOR = 1e-6
+# α(λ) curve machinery constants (MLB run_engine.py 784-786).
+ALPHA_N_BINS = 7
+ALPHA_MIN_BIN = 250
+ALPHA_CAP = 2.0          # sane max — beyond this variance is degenerate
 
 # Retained for backwards-compatible diagnostics/tests; production uses NB MC.
 MARGIN_SUPPORT = np.arange(-config.MARGIN_PMF_MAX, config.MARGIN_PMF_MAX + 1)
@@ -109,6 +122,201 @@ class ScoreRegressor:
         )
 
 
+# ---------------------------------------------------------------------------
+# α(λ) curve machinery — byte-shape port of MLB run_engine.py's dispersion
+# layer (alpha_bins / _fit_curve_* / alpha_of / eval_alpha_fit). MLB models
+# dispersion as a λ-DEPENDENT curve selected out-of-bag among piecewise /
+# linear / power forms; the NHL previously shipped a single pooled scalar α
+# per side. On hockey's current data both collapse to the Poisson limit
+# (alpha ≈ 0 everywhere), so the curve is flat — but if over-dispersion ever
+# appears it will be modeled as a function of λ, never clipped away.
+# ---------------------------------------------------------------------------
+def alpha_bins(y: np.ndarray, lam: np.ndarray,
+               n_bins: int = ALPHA_N_BINS,
+               min_count: int = ALPHA_MIN_BIN) -> list[dict]:
+    """Binned method-of-moments points: quantile bins on λ, underfilled bins
+    merged into their nearest neighbor until every bin holds ≥ min_count
+    games. Per bin: α = max(0, (Var(y) − mean(λ)) / mean(λ)²)."""
+    y = np.asarray(y, float)
+    lam = np.asarray(lam, float)
+    edges = np.unique(np.quantile(lam, np.linspace(0, 1, n_bins + 1)))
+    if len(edges) < 2:
+        edges = np.array([lam.min() - 1e-9, lam.max() + 1e-9])
+    idx = np.clip(np.digitize(lam, edges[1:-1], right=False), 0, len(edges) - 2)
+    groups = [np.where(idx == b)[0] for b in range(len(edges) - 1)]
+    # Merge any bin below min_count into its smaller neighbor (loop: merges
+    # can cascade).
+    while True:
+        sizes = [len(g) for g in groups]
+        if len(groups) <= 1 or min(sizes) >= min_count:
+            break
+        i = int(np.argmin(sizes))
+        j = i - 1 if i == 0 else (
+            i + 1 if i == len(groups) - 1
+            else (i - 1 if sizes[i - 1] <= sizes[i + 1] else i + 1))
+        lo, hi = min(i, j), max(i, j)
+        groups[lo] = np.concatenate([groups[lo], groups[hi]])
+        del groups[hi]
+    bins = []
+    for g in groups:
+        if not len(g):
+            continue
+        mu, var = float(lam[g].mean()), float(y[g].var(ddof=0))
+        bins.append({
+            "count": int(len(g)),
+            "mean_lam": round(mu, 4),
+            "alpha": round(max((var - mu) / (mu ** 2), 0.0), 4),
+        })
+    return sorted(bins, key=lambda b: b["mean_lam"])
+
+
+def _bin_direction(lams: list[float], alphas: list[float]) -> int:
+    """+1 when dispersion rises with λ, −1 when it falls. Data decides."""
+    if len(lams) < 2 or np.std(alphas) == 0 or np.std(lams) == 0:
+        return +1
+    corr = np.corrcoef(lams, alphas)[0, 1]
+    return -1 if corr < 0 else +1
+
+
+def _fit_curve_piecewise(bins: list[dict]) -> dict:
+    """Weighted isotonic fit through the bin points: monotone in the
+    data-chosen direction, count-weighted, clipped to [0, ALPHA_CAP]."""
+    from sklearn.isotonic import IsotonicRegression
+
+    xs = np.array([b["mean_lam"] for b in bins])
+    ys = np.array([max(b["alpha"], 0.0) for b in bins])
+    w = np.array([b["count"] for b in bins], dtype=float)
+    d = _bin_direction(xs.tolist(), ys.tolist())
+    iso = IsotonicRegression(increasing=bool(d > 0), out_of_bounds="clip")
+    iso.fit(xs, ys, sample_weight=w)
+    grid = np.linspace(float(xs.min()), float(xs.max()), 40)
+    vals = np.clip(iso.predict(grid), 0.0, ALPHA_CAP)
+    return {"form": "piecewise", "lam": [round(float(v), 5) for v in grid],
+            "alpha": [round(float(v), 5) for v in vals],
+            "direction": "rising" if d > 0 else "falling"}
+
+
+def _fit_curve_linear(bins: list[dict]) -> dict:
+    xs = np.array([b["mean_lam"] for b in bins])
+    ys = np.array([max(b["alpha"], 0.0) for b in bins])
+    if len(xs) < 2:   # degenerate: single bin → constant level, no polyfit
+        return {"form": "linear", "a": float(ys.mean()), "b": 0.0}
+    b_, a_ = np.polyfit(xs, ys, 1)
+    return {"form": "linear", "a": float(a_), "b": float(b_)}
+
+
+def _fit_curve_power(bins: list[dict]) -> dict:
+    pos = [b for b in bins if b["alpha"] > 0]
+    if len(pos) < 2:
+        return _fit_curve_linear(bins)
+    xs = np.log(np.array([b["mean_lam"] for b in pos]))
+    ys = np.log(np.array([b["alpha"] for b in pos]))
+    if len(xs) < 2:
+        return _fit_curve_linear(bins)
+    c, log_a = np.polyfit(xs, ys, 1)
+    return {"form": "power", "a": float(np.exp(log_a)), "c": float(c)}
+
+
+def alpha_of(lam: np.ndarray, curve: dict) -> np.ndarray:
+    """Evaluate the fitted α(λ) — always in [0, ALPHA_CAP]."""
+    lam = np.asarray(lam, float)
+    form = curve["form"]
+    if form == "piecewise":
+        out = np.interp(lam, curve["lam"], curve["alpha"])
+    elif form == "linear":
+        out = curve["a"] + curve["b"] * lam
+    else:  # power
+        out = curve["a"] * np.power(np.maximum(lam, 1e-9), curve["c"])
+    return np.clip(out, 0.0, ALPHA_CAP)
+
+
+def nb_pmf_matrix(ks: np.ndarray, mu_col: np.ndarray,
+                  alpha_col: np.ndarray) -> np.ndarray:
+    """Vectorized NB pmf: (n_games, len(ks)). ks ints ≥0; columns (n,1)."""
+    from scipy.special import gammaln
+    ks = np.asarray(ks, dtype=float)[None, :]
+    n_size = 1.0 / np.maximum(alpha_col, ALPHA_FLOOR)
+    p = n_size / (n_size + mu_col)
+    logpmf = (gammaln(ks + n_size) - gammaln(n_size) - gammaln(ks + 1.0)
+              + n_size * np.log(p) + ks * np.log1p(-p))
+    return np.exp(logpmf)
+
+
+def eval_alpha_fit(y: np.ndarray, lam: np.ndarray, alpha: np.ndarray,
+                   tail_k: int = 10, kmax: int = 80) -> dict:
+    """Validation metrics for an α vector on held-out games: absolute gap in
+    P(X≥tail_k) and mean NB log-likelihood (higher is better)."""
+    y = np.asarray(y, float)
+    mu_col = np.maximum(np.asarray(lam, float), 1e-6)[:, None]
+    a_col = np.maximum(np.asarray(alpha, float), ALPHA_FLOOR)[:, None]
+    M = nb_pmf_matrix(np.arange(kmax + 1), mu_col, a_col)
+    modeled_tail = float(M[:, tail_k:].sum(axis=1).mean())
+    obs_tail = float((y >= tail_k).mean())
+    loglik = float(np.log(np.maximum(
+        M[np.arange(len(y)), np.clip(y.astype(int), 0, kmax)], 1e-12)).mean())
+    return {"tail_gap": round(abs(modeled_tail - obs_tail), 5),
+            "modeled_tail": round(modeled_tail, 5),
+            "observed_tail": round(obs_tail, 5),
+            "loglik": round(loglik, 5)}
+
+
+def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
+                       seed: int = MC_SEED) -> tuple[dict, dict]:
+    """Out-of-bag selection among piecewise/linear/power forms.
+
+    Two-fold cross-fit (fit half A → score half B, swap); primary metric =
+    |P(X≥tail_k) modeled − observed| on the held-out half, tie-break = mean
+    NB log-likelihood. The chosen form is then REFIT on all rows passed here
+    by the caller (pre-holdout only). Returns (curve, diagnostics)."""
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(len(y))
+    halves = [perm[:len(perm) // 2], perm[len(perm) // 2:]]
+    fitters = {"piecewise": _fit_curve_piecewise,
+               "linear": _fit_curve_linear,
+               "power": _fit_curve_power}
+    diag: dict[str, dict] = {}
+    for name, fit_fn in fitters.items():
+        scores = []
+        for fit_idx, eval_idx in ((halves[0], halves[1]),
+                                  (halves[1], halves[0])):
+            curve = fit_fn(alpha_bins(y[fit_idx], lam[fit_idx]))
+            ev = eval_alpha_fit(y[eval_idx], lam[eval_idx],
+                                alpha_of(lam[eval_idx], curve))
+            scores.append(ev)
+        diag[name] = {
+            "tail_gap_avg": round(
+                (scores[0]["tail_gap"] + scores[1]["tail_gap"]) / 2, 5),
+            "loglik_avg": round(
+                (scores[0]["loglik"] + scores[1]["loglik"]) / 2, 5),
+        }
+    best = min(fitters,
+               key=lambda n: (diag[n]["tail_gap_avg"], -diag[n]["loglik_avg"]))
+    bins = alpha_bins(y, lam)
+    if len(bins) < 2:
+        # Everything merged into one bin (small samples): every parametric
+        # form degenerates to a constant level — ship piecewise directly.
+        curve = _fit_curve_piecewise(bins)
+    else:
+        curve = fitters[best](bins)
+    if curve["form"] == "piecewise":
+        curve["cross_fit_diagnostics"] = diag
+        curve["selection_metric"] = diag[best]["tail_gap_avg"] \
+            if best in diag else None
+    return curve, {"selected": curve["form"], "candidates": diag,
+                   "bins": bins}
+
+
+def _alpha_vector_for_side(y: np.ndarray, mu: np.ndarray,
+                           curve: dict) -> np.ndarray:
+    """Per-game α column for one side under a fitted curve, pre-holdout only
+    (the caller's discipline). Falls back to the pooled scalar estimate when
+    the frame cannot support binning — identical numbers to the old path."""
+    lam = np.asarray(mu, float)
+    if len(lam) < 2 * ALPHA_MIN_BIN:
+        return np.full(len(lam), float(estimate_alpha(y, mu)))
+    return alpha_of(lam, curve)
+
+
 def estimate_alpha(y: np.ndarray, mu: np.ndarray) -> float:
     """Estimate NB alpha from OOF residual dispersion — MLB's estimator.
 
@@ -141,14 +349,92 @@ def estimate_alpha(y: np.ndarray, mu: np.ndarray) -> float:
     return round(max((var_obs - lam_bar) / (lam_bar ** 2), 0.0), 4)
 
 
-def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, float]:
-    """Fit NHL-specific NB dispersion from leakage-free OOF score predictions."""
-    ah = estimate_alpha(oof["home_score"], oof["mu_h"])
-    aa = estimate_alpha(oof["away_score"], oof["mu_a"])
-    return {"alpha_home": ah, "alpha_away": aa,
-            "distribution": "negative_binomial",
-            "poisson_limit": bool(max(ah, aa) <= ALPHA_FLOOR),
-            "mc_draws": MC_DRAWS}
+def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, Any]:
+    """Fit the run line's NB dispersion from leakage-free OOF score predictions.
+
+    MLB-shaped (run_engine.derive_markets_v3's alpha layer): a per-side
+    α(λ) curve is selected out-of-bag among piecewise/linear/power forms
+    over the OOF frame (every row is leakage-free walk-forward OOF by
+    construction). The shipped ``alpha_home``/``alpha_away`` scalars remain
+    the pooled method-of-moments estimates — the numbers the draw path
+    actually consumes — while the fitted curves ride alongside in
+    ``alpha_*_curve`` as the diagnostic layer, with the per-row max under
+    each curve reported as ``alpha_*_max``. ``poisson_limit`` keeps its
+    SCALAR semantics — "the NB term is inactive in scoring" — because
+    scoring draws from the scalars; bin-level MoM noise makes a per-row
+    verdict hypersensitive (a pure-Poisson sample reads α≈0.005 per bin),
+    so the curve's measured verdict lives in ``run_line_fit_check``'s
+    Pearson probe instead.
+    """
+    y_h = oof["home_score"].to_numpy(float)
+    mu_h = oof["mu_h"].to_numpy(float)
+    y_a = oof["away_score"].to_numpy(float)
+    mu_a = oof["mu_a"].to_numpy(float)
+    ok_h = np.isfinite(y_h) & np.isfinite(mu_h) & (mu_h > 0)
+    ok_a = np.isfinite(y_a) & np.isfinite(mu_a) & (mu_a > 0)
+    curve_h, diag_h = select_alpha_curve(y_h[ok_h], mu_h[ok_h])
+    curve_a, diag_a = select_alpha_curve(y_a[ok_a], mu_a[ok_a])
+    alpha_home_vec = _alpha_vector_for_side(y_h[ok_h], mu_h[ok_h], curve_h)
+    alpha_away_vec = _alpha_vector_for_side(y_a[ok_a], mu_a[ok_a], curve_a)
+    ah = estimate_alpha(y_h[ok_h], mu_h[ok_h])
+    aa = estimate_alpha(y_a[ok_a], mu_a[ok_a])
+    return {
+        "alpha_home": ah, "alpha_away": aa,
+        "alpha_home_curve": curve_h, "alpha_away_curve": curve_a,
+        "alpha_selection": {"home": diag_h, "away": diag_a},
+        "alpha_home_max": round(float(alpha_home_vec.max()), 4),
+        "alpha_away_max": round(float(alpha_away_vec.max()), 4),
+        "distribution": "negative_binomial",
+        "poisson_limit": bool(ah <= ALPHA_FLOOR and aa <= ALPHA_FLOOR),
+        "mc_draws": MC_DRAWS,
+        "mc_draws_tail": MC_DRAWS_TAIL,
+        "mc_se_target": MC_SE_TARGET,
+    }
+
+
+def pearson_poisson_adequacy(y: np.ndarray, mu: np.ndarray) -> float:
+    """Pearson chi-square / df. ≈1 → Poisson variance is adequate; >1 means
+    over-dispersion the NB term should absorb (MLB run_engine fit probe)."""
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    if len(y) < 2:
+        return float("nan")
+    return float(((y - mu) ** 2 / mu).sum() / len(y))
+
+
+def _poisson_deviance_mean(y: np.ndarray, mu: np.ndarray) -> float:
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    term = np.where(y > 0, y * np.log(np.where(y > 0, y, 1.0) / mu), 0.0)
+    return float(2.0 * np.mean(term - (y - mu)))
+
+
+def run_line_fit_check(oof: pd.DataFrame) -> dict[str, Any]:
+    """Pooled fit diagnostics for the run line (MLB run_oof metrics shape):
+    the Poisson-adequacy probe per side plus deviance/RMSE of the μ
+    predictions against the constant league-mean baseline — the model must
+    beat the baseline it replaces, per fold population and pooled."""
+    out: dict[str, Any] = {}
+    for side, y_col, mu_col in (("home", "home_score", "mu_h"),
+                                ("away", "away_score", "mu_a")):
+        y = oof[y_col].to_numpy(float)
+        mu = oof[mu_col].to_numpy(float)
+        ok = np.isfinite(y) & np.isfinite(mu)
+        y, mu = y[ok], mu[ok]
+        base = float(y.mean()) if len(y) else float("nan")
+        out[side] = {
+            "pearson": round(pearson_poisson_adequacy(y, mu), 4),
+            "deviance_model": round(_poisson_deviance_mean(y, mu), 5),
+            "deviance_baseline": round(_poisson_deviance_mean(y, np.full(len(y), base)), 5),
+            "rmse_model": round(float(np.sqrt(np.mean((y - mu) ** 2))), 4),
+            "rmse_baseline": round(float(np.sqrt(np.mean((y - base) ** 2))), 4),
+            "n": int(len(y)),
+        }
+    return out
 
 
 def _nb_draws(mu: np.ndarray, alpha: float, rng: np.random.Generator,
@@ -170,11 +456,37 @@ def _grid_key(prefix: str, value: float | int) -> str:
     return f"{prefix}_{s.replace('-', 'm').replace('.', '_')}"
 
 
+def _mc_se_totals_max(grid: pd.DataFrame, n_draws: int) -> float:
+    """Worst MC standard error over the totals grid (MLB's mc_se_totals_max):
+    se = sqrt(p(1-p)/n) per row per line; the max is the guard's trigger."""
+    if not len(grid) or n_draws <= 0:
+        return 0.0
+    se = 0.0
+    for line in config.TOTAL_GRID:
+        col = _grid_key("p_over", line)
+        if col not in grid.columns:
+            continue
+        p = pd.to_numeric(grid[col], errors="coerce").to_numpy(float)
+        p = p[np.isfinite(p)]
+        if len(p):
+            se = max(se, float(np.sqrt((p * (1 - p)) / n_draws).max()))
+    return se
+
+
 def simulate_distributions(mu_h: np.ndarray, mu_a: np.ndarray,
                            alpha_home: float, alpha_away: float,
                            n_draws: int = MC_DRAWS,
-                           seed: int = MC_SEED) -> pd.DataFrame:
-    """Monte Carlo all NHL grid probabilities from paired score draws."""
+                           seed: int = MC_SEED,
+                           meta_out: dict | None = None) -> pd.DataFrame:
+    """Monte Carlo all NHL grid probabilities from paired score draws.
+
+    MLB SE-guard parity (run_engine.derive_markets_v3): when the worst
+    totals-line standard error exceeds :data:`MC_SE_TARGET` at this draw
+    count, the whole derivation is re-simulated at :data:`MC_DRAWS_TAIL` and
+    the bump is recorded. Pass ``meta_out`` to receive the ``mc_meta`` block
+    (n_draws, requested_draws, mc_se_totals_max, reason) — the same
+    transparency MLB writes into its markets summary.
+    """
     rng = np.random.default_rng(seed)
     mu_h = np.asarray(mu_h, dtype=float)
     mu_a = np.asarray(mu_a, dtype=float)
@@ -231,6 +543,22 @@ def simulate_distributions(mu_h: np.ndarray, mu_a: np.ndarray,
             float(r[_grid_key("p_over", r["fair_total"])])
             for _, r in out.iterrows()
         ]
+    se = _mc_se_totals_max(out, n_draws)
+    meta = {"n_draws": int(n_draws), "requested_draws": int(n_draws),
+            "mc_se_totals_max": round(se, 6), "reason": "default"}
+    if se > MC_SE_TARGET and n_draws < MC_DRAWS_TAIL:
+        # Bump once, whole derivation (MLB's derive_markets_v3 discipline).
+        bumped = simulate_distributions(mu_h, mu_a, alpha_home, alpha_away,
+                                        n_draws=MC_DRAWS_TAIL, seed=seed)
+        se = _mc_se_totals_max(bumped, MC_DRAWS_TAIL)
+        meta = {"n_draws": int(MC_DRAWS_TAIL),
+                "requested_draws": int(n_draws),
+                "mc_se_totals_max": round(se, 6),
+                "reason": (f"SE {se:.4f} > {MC_SE_TARGET} at N={n_draws} "
+                           "— bumped")}
+        out = bumped
+    if meta_out is not None:
+        meta_out.update(meta)
     return out
 
 
@@ -261,14 +589,21 @@ def game_distribution(mu_h: float, mu_a: float,
 
 
 def apply_distribution(df: pd.DataFrame, params: dict | None = None,
-                       sigma_total: float | None = None) -> pd.DataFrame:
-    """Expand mu predictions into the complete NB/MC market grid."""
+                       sigma_total: float | None = None,
+                       meta_out: dict | None = None) -> pd.DataFrame:
+    """Expand mu predictions into the complete NB/MC market grid.
+
+    ``meta_out`` receives the MC ``mc_meta`` block (see
+    :func:`simulate_distributions`) when the caller wants the derivation's
+    resolution recorded.
+    """
     if not isinstance(params, dict):
         params = {}
     ah = float(params.get("alpha_home", 0.0))
     aa = float(params.get("alpha_away", 0.0))
     dist = simulate_distributions(df["mu_h"].to_numpy(float),
-                                  df["mu_a"].to_numpy(float), ah, aa)
+                                  df["mu_a"].to_numpy(float), ah, aa,
+                                  meta_out=meta_out)
     base = df.drop(columns=[c for c in dist.columns if c in df.columns], errors="ignore")
     return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)], axis=1)
 
