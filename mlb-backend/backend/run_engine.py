@@ -741,8 +741,6 @@ def build_artifact_contract(oof: pd.DataFrame,
 # ---------------------------------------------------------------------------
 MARKET_SEED = 42
 MC_DRAWS = 10_000
-MC_DRAWS_TAIL = 50_000   # bump when tail-sensitive SE > MC_SE_TARGET
-MC_SE_TARGET = 5e-3
 TOTAL_LINE = 8.5          # reference over line (over = total ≥ 9)
 RUN_LINE_MARGIN = 1.5     # home cover = home − away ≥ 2
 ALPHA_FLOOR = 1e-6        # α below this ≈ Poisson; sample with huge n instead
@@ -1892,19 +1890,14 @@ def derive_markets_v3(oof: pd.DataFrame,
                            alpha_cols["home"], alpha_cols["away"],
                            n_draws=n_draws, seed=seed)
     se = mc["mc_se_totals"]
-    used_draws = n_draws
-    draw_reason = "default"
-    if se.max() > MC_SE_TARGET and n_draws < MC_DRAWS_TAIL:
-        used_draws, draw_reason = MC_DRAWS_TAIL, (
-            f"SE {se.max():.4f} > {MC_SE_TARGET} at N={n_draws} — bumped")
-        mc = derive_markets_mc(oof["home_expected_runs"].to_numpy(float),
-                               oof["away_expected_runs"].to_numpy(float),
-                               alpha_cols["home"], alpha_cols["away"],
-                               n_draws=MC_DRAWS_TAIL, seed=seed)
-        se = mc["mc_se_totals"]
+    # mc_meta keeps its schema (reason is always "default"): the historical
+    # SE-driven tail bump (re-simulate at MC_DRAWS_TAIL=50_000 when
+    # mc_se_totals_max exceeded MC_SE_TARGET=5e-3) never fired in any
+    # retained production artifact and was removed 2026-09-27. If tail SE
+    # ever regresses, raise MC_DRAWS explicitly after measuring.
     summary["mc_meta"] = {
-        "n_draws": used_draws, "requested_draws": n_draws,
-        "reason": draw_reason,
+        "n_draws": n_draws, "requested_draws": n_draws,
+        "reason": "default",
         "mc_se_totals_max": round(float(se.max()), 6),
     }
 
