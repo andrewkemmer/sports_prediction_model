@@ -1,0 +1,60 @@
+{
+ "date": "2026-09-27 20:55",
+ "n_games": 2672,
+ "n_folds": 106,
+ "n_search_folds": 102,
+ "n_holdout_folds": 4,
+ "n_trials": 32,
+ "incumbent": {
+  "params": {
+   "n_estimators": 200,
+   "max_depth": 4,
+   "num_leaves": 12,
+   "min_child_samples": 30,
+   "learning_rate": 0.05,
+   "subsample": 0.8,
+   "subsample_freq": 1,
+   "colsample_bytree": 0.8
+  },
+  "train": {
+   "n": 1610,
+   "dev_home": 4.504155580638565,
+   "dev_away": 4.489142161451589,
+   "dev_mean": 4.4966488710450765
+  },
+  "holdout": {
+   "n": 48,
+   "dev_home": 5.562481042620163,
+   "dev_away": 5.586339326172321,
+   "dev_mean": 5.574410184396243
+  }
+ },
+ "candidate": {
+  "params": {
+   "n_estimators": 224,
+   "max_depth": 6,
+   "num_leaves": 7,
+   "min_child_samples": 88,
+   "min_gain_to_split": 2.497327922401265,
+   "learning_rate": 0.02140235297964198,
+   "subsample": 0.6636387385224852,
+   "colsample_bytree": 0.5825320294340453
+  },
+  "train": {
+   "n": 1610,
+   "dev_home": 4.389360999935842,
+   "dev_away": 4.37379568706997,
+   "dev_mean": 4.381578343502905
+  },
+  "holdout": {
+   "n": 48,
+   "dev_home": 5.5742042278613715,
+   "dev_away": 5.40398324394106,
+   "dev_mean": 5.489093735901216
+  }
+ },
+ "holdout_delta_dev": 0.08531644849502662,
+ "adopted": true,
+ "n_pruned": 14,
+ "elapsed_s": 262.5
+}

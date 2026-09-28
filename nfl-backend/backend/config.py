@@ -711,15 +711,23 @@ MLP_PARAMS = {
 # Regression members (margin + total point regressions)
 # The score regressors are LightGBM Poisson fits (distributions._build_member);
 # there is no xgboost regressor, so only one params dict belongs here.
+# Optuna-tuned on the 2,672-game/106-fold run-line walk-forward (offline
+# harness tune_run_line.py, the NHL protocol: 32-trial TPE search, objective =
+# pooled per-game Poisson deviance over folds[:-4]): winner dev_mean 4.38158
+# vs 4.49665 for the untuned block. Sealed 4-fold holdout CONFIRMED: deviance
+# 5.48909 vs 5.57441 (+85 bps pooled; home 5.57420 vs 5.56248 ~flat, away
+# 5.40398 vs 5.58634 — the entire gain is the away side, the deeper trees
+# fixing the away regressor's underfit). Record: run_line_tuning_20260927.json.
 LIGHTGBM_REG_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "num_leaves": 12,
-    "min_child_samples": 30,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
+    "n_estimators": 224,
+    "max_depth": 6,
+    "num_leaves": 7,
+    "min_child_samples": 88,
+    "min_gain_to_split": 2.497328,
+    "learning_rate": 0.0214,
+    "subsample": 0.6636,
     "subsample_freq": 1,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.5825,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
