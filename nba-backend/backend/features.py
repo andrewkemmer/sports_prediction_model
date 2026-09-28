@@ -395,40 +395,47 @@ def _prior_records(events: pd.DataFrame) -> dict[tuple[str, str], str]:
 def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
     out = df.copy().reset_index(drop=True)
     ids = out.game_id.astype(str)
-    out["elo_diff"] = _diff(ladder, ids, "elo_entering")
-    out["win_pct_diff"] = _diff(ladder, ids, "win_pct")
-    out["rest_days_diff"] = _diff(ladder, ids, "rest_days")
-    out["back_to_back_diff"] = _diff(ladder, ids, "back_to_back")
+    # Every contract column is built as a value first and attached in ONE
+    # ``pd.concat(axis=1)``. Growing the frame one ``insert`` at a time
+    # fragments pandas' internal blocks: past roughly a hundred columns every
+    # further write logged a PerformanceWarning on Kaggle and the writes got
+    # slower. The concat produces the identical frame — same columns, same
+    # order, same dtypes — without the block explosion.
+    new: dict[str, object] = {}
+    new["elo_diff"] = _diff(ladder, ids, "elo_entering")
+    new["win_pct_diff"] = _diff(ladder, ids, "win_pct")
+    new["rest_days_diff"] = _diff(ladder, ids, "rest_days")
+    new["back_to_back_diff"] = _diff(ladder, ids, "back_to_back")
     for base in ("ewm_net_points", "ewm_off_rating", "ewm_def_rating",
                  "ewm_pace", "ewm_efg_pct", "ewm_turnover_margin",
                  "ewm_rebound_margin", "ewm_ast_per_game"):
-        out[f"{base}_diff"] = _diff(ladder, ids, base)
+        new[f"{base}_diff"] = _diff(ladder, ids, base)
     for col, side in (("elo_entering", "elo"), ("win_pct", "win_pct"),
                       ("ewm_off_rating", "ewm_off_rating"),
                       ("ewm_def_rating", "ewm_def_rating"), ("rest_days", "rest_days")):
-        out[f"{side}_home"] = _side(ladder, ids, col, True)
-        out[f"{side}_away"] = _side(ladder, ids, col, False)
+        new[f"{side}_home"] = _side(ladder, ids, col, True)
+        new[f"{side}_away"] = _side(ladder, ids, col, False)
     # The remaining diff families publish their sides too; config.PER_SIDE_SOURCES
     # owns the mapping so the builder, the contract and the provenance map
     # cannot drift apart. Each pair's difference is the ``*_diff`` column built
     # above from the SAME ladder column, so ``diff == home - away`` holds by
     # construction rather than by coincidence.
     for ladder_col, stem in config.PER_SIDE_SOURCES.items():
-        out[f"{stem}_home"] = _side(ladder, ids, ladder_col, True)
-        out[f"{stem}_away"] = _side(ladder, ids, ladder_col, False)
-    out["is_home"] = 1.0
+        new[f"{stem}_home"] = _side(ladder, ids, ladder_col, True)
+        new[f"{stem}_away"] = _side(ladder, ids, ladder_col, False)
+    new["is_home"] = 1.0
     raw_type = out.get("game_type", pd.Series(config.GAME_TYPE_REG, index=out.index))
     type_num = pd.to_numeric(raw_type, errors="coerce")
     type_text = raw_type.astype("string").str.lower()
-    out["is_playoffs"] = ((type_num == config.GAME_TYPE_POST) |
+    new["is_playoffs"] = ((type_num == config.GAME_TYPE_POST) |
                           type_text.str.contains("play|post", regex=True, na=False)).astype(float)
     for metric, windows in config.TEAM_CANDIDATE_TRAILING_SPECS.items():
         for window in windows:
             col = f"{metric}_{window}"
             h, a = _side(ladder, ids, col, True), _side(ladder, ids, col, False)
-            out[f"nba_{col}_diff"] = h - a
-            out[f"nba_{col}_home"] = h
-            out[f"nba_{col}_away"] = a
+            new[f"nba_{col}_diff"] = h - a
+            new[f"nba_{col}_home"] = h
+            new[f"nba_{col}_away"] = a
     # The play-by-play contribution: every event feature is a home-minus-away
     # difference of the same trailing statistic, which is the form the rest of
     # the contract uses and the form a level feature must not take. The window
@@ -436,25 +443,40 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
     # name, so the contract column is ``event_<metric>_diff`` and the config
     # declaration and this line cannot drift apart.
     for metric, window in config.EVENT_TRAILING_SPECS.items():
-        out[f"event_{metric}_diff"] = _diff(ladder, ids, f"{metric}_{window}")
+        new[f"event_{metric}_diff"] = _diff(ladder, ids, f"{metric}_{window}")
     for col in config.MONEYLINE_FEATURE_COLS:
-        if col not in out:
-            out[col] = np.nan
-    return out
+        if col not in out and col not in new:
+            new[col] = np.nan
+    extra = pd.DataFrame(new, index=out.index)
+    # A caller may hand in a frame that already carries one of these names.
+    # The old assignment semantics let the freshly computed value win, so the
+    # stale column is dropped here rather than surviving the concat.
+    overwritten = [c for c in extra.columns if c in out.columns]
+    if overwritten:
+        out = out.drop(columns=overwritten)
+    return pd.concat([out, extra], axis=1)
 
 
 def _records_for(out: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    # Same one-concat discipline as _attach_contract: the frame arrives
+    # block-heavy and two more inserts would re-fragment it.
     if out is None or out.empty or events is None or events.empty:
         if out is not None and not out.empty:
-            out["home_record"] = ""
-            out["away_record"] = ""
+            return pd.concat(
+                [out, pd.DataFrame({"home_record": "", "away_record": ""},
+                                   index=out.index)], axis=1)
         return out
     records = _prior_records(events)
-    out["home_record"] = [records.get((str(g), str(h)), "")
-                          for g, h in zip(out.game_id, out.home_team)]
-    out["away_record"] = [records.get((str(g), str(a)), "")
-                          for g, a in zip(out.game_id, out.away_team)]
-    return out
+    extra = pd.DataFrame(
+        {"home_record": [records.get((str(g), str(h)), "")
+                         for g, h in zip(out.game_id, out.home_team)],
+         "away_record": [records.get((str(g), str(a)), "")
+                         for g, a in zip(out.game_id, out.away_team)]},
+        index=out.index)
+    stale = [c for c in extra.columns if c in out.columns]
+    if stale:
+        out = out.drop(columns=stale)
+    return pd.concat([out, extra], axis=1)
 
 
 def build_game_features(games: pd.DataFrame,
