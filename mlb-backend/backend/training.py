@@ -2043,6 +2043,16 @@ def predict_games(
     if not models:
         return games
 
+    if games.empty:
+        # 0-row board (genuine off-day, 2026-09-28 incident): tree predict()
+        # rejects 0-sample matrices — including inside ensemble_predict — so
+        # guard BEFORE any model call: stamp the probability columns on the
+        # empty frame and return; the artifact writers ship an honest empty
+        # board.
+        games["home_win_prob_model"] = pd.Series(dtype=float)
+        games["away_win_prob_model"] = pd.Series(dtype=float)
+        games["model_pick"] = pd.Series(dtype=object)
+        return games
     blend, _members, _wts = ensemble_predict(models, games)
     # Post-hoc recalibration: correct blended probabilities before they
     # feed picks/edges. Identity (no-op) when no calibrator is loaded.

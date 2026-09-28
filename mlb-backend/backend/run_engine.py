@@ -610,16 +610,31 @@ def build_artifact_contract(oof: pd.DataFrame,
     lmap = left.set_index("_key")
     rmap = right.set_index("_key")
     if common:
-        hdiff = (pd.to_numeric(lmap.loc[common, "home_expected_runs"], errors="coerce")
-                 - pd.to_numeric(rmap.loc[common, "home_expected_runs"], errors="coerce")).abs()
-        adiff = (pd.to_numeric(lmap.loc[common, "away_expected_runs"], errors="coerce")
-                 - pd.to_numeric(rmap.loc[common, "away_expected_runs"], errors="coerce")).abs()
+        # Duplicate keys make .loc[common] return MORE rows than common
+        # (every duplicate entry) — the 2026-09-28 persist crash. De-duplicate
+        # and position-align via an index intersection instead of a direct
+        # label lookup; duplicate_* counts already reported above flag the
+        # duplication (aligned requires both == 0, so the contract reads
+        # misaligned — but the builder must never CRASH).
+        lcommon = lmap.loc[[k for k in common if k in lmap.index]]
+        rcommon = rmap.loc[[k for k in common if k in rmap.index]]
+        lcommon = lcommon[~lcommon.index.duplicated(keep="first")]
+        rcommon = rcommon[~rcommon.index.duplicated(keep="first")]
+        shared = lcommon.index.intersection(rcommon.index)
+        lcommon = lcommon.loc[shared]
+        rcommon = rcommon.loc[shared]
+        hdiff = (pd.to_numeric(lcommon["home_expected_runs"], errors="coerce")
+                 - pd.to_numeric(rcommon["home_expected_runs"], errors="coerce")).abs()
+        adiff = (pd.to_numeric(lcommon["away_expected_runs"], errors="coerce")
+                 - pd.to_numeric(rcommon["away_expected_runs"], errors="coerce")).abs()
         max_home = float(hdiff.max()) if len(hdiff) else 0.0
         max_away = float(adiff.max()) if len(adiff) else 0.0
     else:
         max_home = max_away = float("inf")
-    left_dates = pd.to_datetime(lmap.loc[common, "game_date"], errors="coerce") if common else pd.Series(dtype="datetime64[ns]")
-    right_dates = pd.to_datetime(rmap.loc[common, "game_date"], errors="coerce") if common else pd.Series(dtype="datetime64[ns]")
+    left_dates = (pd.to_datetime(lcommon["game_date"], errors="coerce")
+                  if common and len(lcommon) else pd.Series(dtype="datetime64[ns]"))
+    right_dates = (pd.to_datetime(rcommon["game_date"], errors="coerce")
+                   if common and len(rcommon) else pd.Series(dtype="datetime64[ns]"))
     date_mismatch = int((left_dates.reset_index(drop=True).dt.normalize().to_numpy()
                          != right_dates.reset_index(drop=True).dt.normalize().to_numpy()).sum()) if common else 0
     aligned = bool(lk == rk and duplicate_oof_keys == 0
@@ -2584,6 +2599,24 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
 
     combined = (pd.concat([markets, slate_frame], ignore_index=True)
                 if not slate_frame.empty else markets)
+    if not slate_frame.empty:
+        # Duplicate-key guard (2026-09-28 incident): a fallback/off-day slate
+        # carrying games the OOF already scored made combined carry both
+        # copies; persist_markets' artifact contract then hit mismatched
+        # label-lookup lengths and the markets artifact was LOST for the day.
+        # The slate row is never the authoritative record for a decided game
+        # — the OOF row is — so drop the slate-side duplicates loudly and
+        # keep any genuine pre-game rows.
+        _oof_keys = set(oof["game_pk"].astype(str))
+        _slate_dup = slate_frame["game_pk"].astype(str).isin(_oof_keys)
+        if _slate_dup.any():
+            logger.warning(
+                "Run engine: dropping %d slate row(s) whose game_pk already "
+                "exists in the OOF (decided games re-served as slate — the "
+                "OOF row is authoritative)", int(_slate_dup.sum()))
+            _surviving = slate_frame[~_slate_dup]
+            combined = (pd.concat([markets, _surviving], ignore_index=True)
+                        if not _surviving.empty else markets)
     summary["artifact_contract"] = build_artifact_contract(oof, combined)
     # Persist the markets artifact LAST so a persist failure leaves the OOF +
     # monitor block intact and loudly flags markets_persisted=False (never a

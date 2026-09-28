@@ -134,6 +134,8 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     from training import MONEYLINE_FEATURE_COLS
     if MARGIN_COL not in MONEYLINE_FEATURE_COLS:
         return target_games
+    if target_games.empty:
+        return target_games  # 0-row board (off-day): nothing to attach to
     _missing = {"game_pk", "home_score", "away_score"} - set(games.columns)
     if _missing:
         logger.warning(
@@ -1955,11 +1957,22 @@ def run_daily_pipeline(
                 games = pd.concat([games, slate], ignore_index=True)
                 target_games = slate.copy()
             else:
+                # OFF-DAY HONESTY (2026-09-28 incident): a failed/empty
+                # schedule fetch on a no-games day used to recycle the most
+                # recent DECIDED games as "today's" slate — re-pricing games
+                # the OOF already scored (duplicate keys crashed the markets
+                # artifact contract: 6884 vs 6869) and pointing SHAP at final
+                # scores (zero attributions). An empty board is the honest
+                # result: moneyline + run-engine + SHAP consumers all handle
+                # a 0-row slate, and the artifacts ship with an empty board
+                # instead of phantom predictions.
                 logger.warning(
-                    "No games found for %s (schedule fetch empty) -- falling "
-                    "back to most recent games", target_date_str,
+                    "No games found for %s (schedule fetch empty) -- shipping "
+                    "an EMPTY board (genuine off-day or schedule-source "
+                    "outage; never recycling decided games as today's slate)",
+                    target_date_str,
                 )
-                target_games = games.tail(15).copy()
+                target_games = games.tail(0).copy()
 
         # ESPN drops probablePitcher once games start -- restore the pitching
         # matchup and lines published by an earlier same-day run before they
