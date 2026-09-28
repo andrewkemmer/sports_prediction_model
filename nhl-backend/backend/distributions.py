@@ -88,9 +88,13 @@ def _make_reg():
 class ScoreRegressor:
     """Two same-contract LightGBM Poisson regressors, one per score side."""
 
-    def __init__(self) -> None:
+    def __init__(self, declare_categoricals: bool = True) -> None:
         self.home_model = _make_reg()
         self.away_model = _make_reg()
+        # Categorical routing MUST match the OOF walk exactly (train/serve
+        # skew): the walk passes the team-ID pair via categorical_feature by
+        # name, so the production refit declares the same columns by default.
+        self._declare_categoricals = bool(declare_categoricals)
         self.feature_columns: list[str] = []
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -110,8 +114,15 @@ class ScoreRegressor:
 
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
         X = self._matrix(df)
-        self.home_model.fit(X, pd.to_numeric(df["home_score"], errors="coerce"))
-        self.away_model.fit(X, pd.to_numeric(df["away_score"], errors="coerce"))
+        fit_kwargs = ({"categorical_feature": list(config.TREE_CATEGORICAL_COLS)}
+                      if self._declare_categoricals
+                      and config.TREE_CATEGORICAL_COLS
+                      and all(c in X.columns for c in config.TREE_CATEGORICAL_COLS)
+                      else {})
+        self.home_model.fit(X, pd.to_numeric(df["home_score"], errors="coerce"),
+                            **fit_kwargs)
+        self.away_model.fit(X, pd.to_numeric(df["away_score"], errors="coerce"),
+                            **fit_kwargs)
         return self
 
     def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:

@@ -93,7 +93,13 @@ def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
             pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
             try:
                 X = ml_mod.member_matrix_ndarray(name, one, pre)
-                raw = ex.shap_values(X)
+                # The list-output notice also fires from ``shap_values`` per
+                # call, not only at explainer init — suppress both seams or
+                # the log drowns again (the 2026-09-28 01:30 run showed the
+                # init-only wrap was not enough).
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    raw = ex.shap_values(X)
                 # Binary output shapes vary by explainer version/member:
                 # normalize to the log-odds view (class-1 minus class-0).
                 if isinstance(raw, list):

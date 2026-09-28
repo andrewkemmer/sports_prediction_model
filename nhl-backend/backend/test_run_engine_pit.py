@@ -1033,6 +1033,50 @@ def test_run_line_matrix_is_exactly_the_moneyline_production_matrix():
     assert run_line_cols[len(active):] == list(_CFG.TREE_CATEGORICAL_COLS)
 
 
+def test_run_line_refit_routes_categoricals_like_the_oof_walk():
+    """Train/serve skew guard: the production refit must declare the team-ID
+    categoricals to LightGBM exactly as the OOF walk does (categorical_feature
+    by name) — the OOF metrics only validate the deployed model if both fits
+    route the identical columns the identical way. The default constructor
+    declares them; opt-out exists only for controlled comparisons."""
+    games = feat_mod.build_game_features(_synth_games(n_days=30))
+    reg = dist_mod.ScoreRegressor()
+    assert reg._declare_categoricals is True
+    captured: dict[str, object] = {}
+
+    class _Spy(dist_mod.lightgbm.LGBMRegressor if hasattr(dist_mod, "lightgbm")
+               else object):
+        pass
+
+    # Capture the fit kwargs without depending on lightgbm's import site.
+    real_home, real_away = reg.home_model, reg.away_model
+    for side, model in (("home", real_home), ("away", real_away)):
+        def _make_fit(m, s):
+            def _fit(X, y, **kwargs):
+                captured[s] = dict(kwargs)
+                return m.__class__.fit(m, X, y)
+            return _fit
+        model.fit = _make_fit(model, side)
+    X = reg._matrix(games)
+    reg.fit(games.assign(home_score=3.0, away_score=2.0))
+    for side in ("home", "away"):
+        assert captured[side].get("categorical_feature") == \
+            list(_CFG.TREE_CATEGORICAL_COLS), captured[side]
+    # Opt-out path (controlled comparisons only) routes nothing.
+    reg2 = dist_mod.ScoreRegressor(declare_categoricals=False)
+    seen: dict[str, object] = {}
+    for side, model in (("home", reg2.home_model), ("away", reg2.away_model)):
+        def _make_fit2(m, s):
+            def _fit(X, y, **kwargs):
+                seen[s] = dict(kwargs)
+                return m.__class__.fit(m, X, y)
+            return _fit
+        model.fit = _make_fit2(model, side)
+    reg2.fit(games.assign(home_score=3.0, away_score=2.0))
+    for side in ("home", "away"):
+        assert "categorical_feature" not in seen[side], seen[side]
+
+
 def test_run_line_features_follow_the_active_moneyline_subset():
     """Dynamic derivation: adopt an RFE subset, the run line follows it.
 
