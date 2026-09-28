@@ -870,7 +870,7 @@ def main(argv: list[str] | None = None) -> int:
         final_models, weights, feature_frame=game_df)
     drift = monitoring.feature_drift(drift_baseline, recent,
                                      weights=feature_weights)
-    cov_rows = monitoring.coverage(game_df, current_df=recent)
+    cov_rows = monitoring.coverage(drift_baseline, current_df=recent)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
         out_dir, date_c, drift_baseline, recent, weights=feature_weights)
     artifacts.extend([run_drift_name, run_cov_name])
@@ -906,7 +906,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("monitoring: %d features scored, %d drift (ALERT/WARN), "
                 "%d insufficient-window, %d coverage (STARVED/LOW)",
                 len(drift), len(_verdicts), len(_no_verdict), len(_starved))
-    for _d in (_verdicts + _no_verdict)[:5]:
+    for _d in _verdicts + _no_verdict:
         # Report the value the verdict was actually made on. status is gated on
         # psi_adjusted (and a location gate), so pairing it with raw psi made
         # lines like "wind_mph ALERT psi=1.470" impossible to interpret. The
@@ -920,7 +920,11 @@ def main(argv: list[str] | None = None) -> int:
                        float(_d.get("psi_raw") or 0),
                        float(_d.get("noise_floor") or 0),
                        float(_d.get("psi_null_median") or 0))
-    for _c in _starved[:5]:
+    for _c in _starved:
+        # No [:5] cap: the headline count promises every flagged feature, and
+        # the 2026-09-28 run proved the cap lies in practice -- it printed 5
+        # of 24 flagged coverage rows, so 19 warnings existed only in the CSV
+        # the log never pointed at.
         logger.warning("  coverage %-32s %-13s %.1f%%", _c.get("feature", "?"),
                        _c.get("status", "?"),
                        float(_c.get("pct_nonnull", 0) or 0))
@@ -1253,8 +1257,18 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
     published (``source_artifact_date`` = its publication run) — never
     retro-seeded from a decided OOF walk-forward row. The OOF branch below
     exists only as the pre-2026-09-27 seeding path (rows the store never
-    saw published while the game was in the horizon); it keeps the frozen
-    OOF price exactly as it graded, and newer runs can never re-open it.
+    saw published while the game was in the horizon); it is ERA-GATED to
+    game dates before the first horizon-serving run and can never re-open
+    a post-era game.
+
+    Source precedence (2026-09-28 lesson): the frozen-price sources run
+    FIRST — the run-date slate, then the dated board ledger (a game that
+    settled BETWEEN runs is off the next run's slate but its publication
+    price is preserved in its game-date board snapshot) — and the OOF
+    seed runs last, era-confined. The 2026-09-28 run caught the old order
+    (OOF first, unconfined) pricing week-3 settle-between-runs games at
+    OOF walk-forward re-prices instead of the production prices the board
+    had already published.
     """
     store_path = out_dir / "nfl_production_cards_history.csv"
     meta_path = out_dir / "nfl_production_cards_history.meta.json"
@@ -1266,7 +1280,11 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
     try:
         known: set[str] = set()
         if store_path.exists():
-            store = pd.read_csv(store_path, dtype={"game_id": str})
+            # source_artifact_date is a date KEY (the publication run), not a
+            # quantity — read it as a string or an all-numeric store column
+            # round-trips to int64 and string comparisons downstream break.
+            store = pd.read_csv(store_path, dtype={"game_id": str,
+                                                   "source_artifact_date": str})
             known = set(store["game_id"].astype(str))
         else:
             # Seed from every retained dated history artifact (oldest first
@@ -1320,10 +1338,74 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                 })
                 added += len(out)
                 store = pd.concat([store, out], ignore_index=True)
+        # (1b) Dated-board ledger append: a game that settled BETWEEN runs
+        _led = pd.DataFrame()
+        for art in sorted(out_dir.glob("nfl_board_*.csv")):
+            try:
+                bdf = pd.read_csv(art, dtype={"game_id": str})
+            except Exception:
+                continue
+            if bdf.empty or "game_id" not in bdf.columns \
+                    or "game_status" not in bdf.columns:
+                continue
+            bdf = bdf[(bdf["game_status"] == "Final")]
+            bdf = bdf[~bdf["game_id"].astype(str).isin(known)]
+            if not len(bdf):
+                continue
+            bdf["source_artifact_date"] = art.stem.rsplit("_", 1)[-1]
+            _led = pd.concat([_led, bdf], ignore_index=True)
+            if len(_led):
+                ph = pd.to_numeric(_led["home_win_prob_model"], errors="coerce")
+                hs = pd.to_numeric(_led["home_score"], errors="coerce")
+                asx = pd.to_numeric(_led["away_score"], errors="coerce")
+                winner = np.where(hs > asx, _led["home_team"],
+                                  np.where(asx > hs, _led["away_team"], "TIE"))
+                # The board row CARRIES the published pick/correct — derived
+                # from the raw pre-calibration probability, which is not
+                # recoverable from the stored (calibrated) field. Re-deriving
+                # from p=0.5 would flip exact-tie picks (2026-09-27: raw
+                # 0.49997 published pick=away, calibrated field 0.5).
+                _derived_pick = np.where(ph >= 0.5, _led["home_team"],
+                                         _led["away_team"])
+                _derived_pick = pd.Series(_derived_pick, index=_led.index)
+                _derived_ok = pd.Series(_derived_pick == winner, index=_led.index)
+                if "model_pick" in _led.columns:
+                    _pick = _led["model_pick"].fillna(_derived_pick)
+                else:
+                    _pick = _derived_pick
+                if "model_correct" in _led.columns:
+                    _ok = _led["model_correct"].astype("boolean").fillna(_derived_ok)
+                else:
+                    _ok = _derived_ok
+                out = pd.DataFrame({
+                    "game_id": _led["game_id"].astype(str),
+                    "game_date": _led["game_date"],
+                    "home_team": _led["home_team"], "away_team": _led["away_team"],
+                    "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                    "model_pick": _pick,
+                    "correct": _ok.astype(object),
+                    "home_score": hs, "away_score": asx,
+                    "actual_winner": winner,
+                    "game_status": "Final",
+                    "source_artifact_date": _led["source_artifact_date"],
+                })
+                out = out[ph.notna() & hs.notna() & asx.notna()]
+                out = out[~out["game_id"].isin(set(store["game_id"].astype(str)))] \
+                    if len(store) else out
+                if len(out):
+                    added += len(out)
+                    store = pd.concat([store, out], ignore_index=True)
+                    known.update(out["game_id"].astype(str))
         # (2) Legacy seeding append: decided OOF rows the store has never
-        # seen (pre-horizon-serving games; publication-grade prices frozen).
+        # seen — ERA-CONFINED to game dates before the first horizon-serving
+        # run (2026-09-27). Post-era games must enter through the frozen-
+        # price branches above; letting the OOF seed touch them is exactly
+        # the substitution defect this store exists to prevent.
+        _SERVING_ERA_START = pd.Timestamp("2026-09-27")
         if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
             dec = oof_ml[oof_ml["game_id"].astype(str).isin(known) == False].copy()
+            dec = dec[pd.to_datetime(dec["gameday"], errors="coerce")
+                      < _SERVING_ERA_START]
             dec = dec[dec[["home_score", "away_score"]].notna().all(axis=1)] \
                 if {"home_score", "away_score"}.issubset(dec.columns) else dec
             if len(dec):

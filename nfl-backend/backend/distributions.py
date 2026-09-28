@@ -487,8 +487,15 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 
 def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
-    """Apply final line calibrators to a slate frame (no outcomes required)."""
+    """Apply final line calibrators to a slate frame (no outcomes required).
+
+    The calibrated grid columns are BATCHED here and materialized in ONE wide
+    pd.concat after the loops, mirroring calibrate_market_frame: per-column
+    assignment into a slate frame fragmented it enough for pandas to print a
+    PerformanceWarning per row of the serving slate.
+    """
     out = df.copy()
+    grid_updates: dict[str, np.ndarray] = {}
     for line in config.TOTAL_GRID:
         key = _grid_key("p_over", line)
         if key not in out:
@@ -500,9 +507,11 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
             cu = _apply_platt(out[_grid_key("p_under", line)].to_numpy(float), rec.get("under"))
             vals = np.maximum(np.column_stack([co, cp, cu]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
-            out[key], out[_grid_key("p_push", line)], out[_grid_key("p_under", line)] = vals.T
+            grid_updates[key] = vals[:, 0]
+            grid_updates[_grid_key("p_push", line)] = vals[:, 1]
+            grid_updates[_grid_key("p_under", line)] = vals[:, 2]
         else:
-            out[key] = co
+            grid_updates[key] = co
     for line in config.SPREAD_GRID:
         key = _grid_key("p_home_cover", line)
         if key not in out:
@@ -526,14 +535,20 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
                 ca = np.maximum(1.0 - ch - cp, 1e-9)
             vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
             vals /= vals.sum(axis=1, keepdims=True)
-            out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
+            grid_updates[key] = vals[:, 0]
+            grid_updates[_grid_key("p_push", line)] = vals[:, 1]
             # Always materialize the away leg (slate rows ship it too, not
             # just OOF rows): a reader deriving it as 1 - home - push gets
             # the same number either way now, and the artifact is honest
             # about the away side being its own calibrated event.
-            out[_grid_key("p_away_cover", line)] = vals[:, 2]
+            grid_updates[_grid_key("p_away_cover", line)] = vals[:, 2]
         else:
-            out[key] = ch
+            grid_updates[key] = ch
+    if grid_updates:
+        out = pd.concat(
+            [out.drop(columns=[c for c in grid_updates if c in out.columns],
+                      errors="ignore"),
+             pd.DataFrame(grid_updates, index=out.index)], axis=1)
     if _grid_key("p_push", 0) in out:
         out["p_tie"] = out[_grid_key("p_push", 0)]
     # Derived-ML pair: the slate frame carries the RAW pair from

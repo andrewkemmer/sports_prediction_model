@@ -436,6 +436,77 @@ except Exception as exc:  # noqa: BLE001
     check("publish-then-grade store probe", False, str(exc))
 
 # ---------------------------------------------------------------------------
+print("\n== 7c. Store source precedence (board ledger + OOF era gate) ==")
+try:
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        # (i) A post-era game that settled between runs (gone from the next
+        # run's slate, as the horizon starts at the run date) must enter at
+        # its game-date BOARD LEDGER price — the production price the serving
+        # horizon published — never through the OOF seed at a re-price.
+        # 2026-09-28 incident: the OOF branch ran first, unconfined, and
+        # priced four week-3 settle-between-runs games at OOF walk-forward
+        # re-prices.
+        board = pd.DataFrame([{
+            "game_id": "2026_03_ARI_SF", "game_date": "2026-09-27",
+            "home_team": "SF", "away_team": "ARI", "game_status": "Final",
+            "home_score": 36.0, "away_score": 30.0,
+            "home_win_prob_model": 0.859275, "model_pick": "SF",
+            "model_correct": True,
+        }])
+        board.to_csv(out / "nfl_board_20260927.csv", index=False)
+        oof_reprice = pd.DataFrame({
+            "game_id": ["2026_03_ARI_SF"], "gameday": ["2026-09-27"],
+            "home_team": ["SF"], "away_team": ["ARI"],
+            "p_ensemble": [0.9], "p_ensemble_calibrated": [0.8622],
+            "home_win": [1.0], "home_score": [36.0], "away_score": [30.0],
+        })
+        name = mp_mod._update_cards_history_store(out, oof_reprice,
+                                                  pd.DataFrame(), "20260928")
+        s = pd.read_csv(out / name, dtype={"game_id": str})
+        row = s[s.game_id == "2026_03_ARI_SF"].iloc[0]
+        _conds = {
+            "p": abs(float(row["p_home_win"]) - 0.859275) < 1e-6,
+            "pick": row["model_pick"] == "SF",
+            "ok": bool(row["correct"]),
+            "src": str(row["source_artifact_date"]) == "20260927",
+        }
+        check("between-run settle freezes the BOARD publication price",
+              all(_conds.values()),
+              f"conds={_conds} repr(p)={row['p_home_win']!r} "
+              f"repr(pick)={row['model_pick']!r} repr(correct)={row['correct']!r} "
+              f"repr(src)={row['source_artifact_date']!r}")
+        # (ii) The OOF seed can never add a post-era game, even one the
+        # board family never saw (old code appended it at an OOF re-price).
+        oof_post = pd.DataFrame({
+            "game_id": ["2026_04_PST_NOW"], "gameday": ["2026-10-01"],
+            "home_team": ["HOM"], "away_team": ["AWY"],
+            "p_ensemble": [0.7], "p_ensemble_calibrated": [0.7],
+            "home_win": [1.0], "home_score": [28.0], "away_score": [10.0],
+        })
+        mp_mod._update_cards_history_store(out, oof_post, pd.DataFrame(),
+                                           "20260928")
+        s2 = pd.read_csv(out / name, dtype={"game_id": str})
+        check("OOF seed is era-confined (post-2026-09-26 games never enter via OOF)",
+              int((s2.game_id == "2026_04_PST_NOW").sum()) == 0)
+        # (iii) Pre-era rows still seed through OOF (legacy path intact).
+        oof_pre = pd.DataFrame({
+            "game_id": ["2020_05_OLD_NFW"], "gameday": ["2020-10-11"],
+            "home_team": ["OLD"], "away_team": ["NFW"],
+            "p_ensemble": [0.65], "p_ensemble_calibrated": [0.66],
+            "home_win": [1.0], "home_score": [24.0], "away_score": [17.0],
+        })
+        mp_mod._update_cards_history_store(out, oof_pre, pd.DataFrame(),
+                                           "20260928")
+        s3 = pd.read_csv(out / name, dtype={"game_id": str})
+        _r = s3[s3.game_id == "2020_05_OLD_NFW"].iloc[0]
+        check("pre-era OOF seeding still works (legacy path)",
+              int((s3.game_id == "2020_05_OLD_NFW").sum()) == 1
+              and abs(float(_r["p_home_win"]) - 0.66) < 1e-6)
+except Exception as exc:  # noqa: BLE001
+    check("store source-precedence probe", False, str(exc))
+
+# ---------------------------------------------------------------------------
 print("\n== 8. Persistence failure semantics ==")
 mon_src = (BACKEND_DIR / "master_pipeline.py").read_text(encoding="utf-8")
 check("pipeline gates completion on schema validation (no silent success)",

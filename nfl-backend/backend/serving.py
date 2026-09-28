@@ -239,13 +239,17 @@ def write_board_csv(out_dir, slate_df: pd.DataFrame, p_home: np.ndarray,
     family retention policy, exactly like MLB's board family.
     """
     out_dir = Path(out_dir)
-    rows: list[pd.DataFrame] = []
+    rows: list[dict] = []
     for i, (_, g) in enumerate(slate_df.reset_index(drop=True).iterrows()):
         ph = _clean(p_home[i]) if i < len(p_home) else None
         phc = _clean(p_home_cal[i]) if i < len(p_home_cal) else None
-        rec = _board_game_row(g, ph, phc, team_names, board_date=True)
-        rows.append(pd.DataFrame([rec]))
-    out = (pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+        rows.append(_board_game_row(g, ph, phc, team_names, board_date=True))
+    # A single DataFrame-from-records construction: concat over one-row
+    # frames with all-NA columns (every pre-game score is None) triggered
+    # pandas' deprecated empty/all-NA-concat dtype exclusion (FutureWarning
+    # in the 2026-09-28 run log) and would silently change dtypes when the
+    # deprecation lands. Records-then-DataFrame never concat-casts.
+    out = (pd.DataFrame(rows) if rows else pd.DataFrame())
     written: list[str] = []
     if out.empty or "game_date" not in out.columns:
         return written

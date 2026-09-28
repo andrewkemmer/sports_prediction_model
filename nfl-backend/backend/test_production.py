@@ -2128,8 +2128,13 @@ try:
     check("the pipeline slices the drift windows once and shares the frames",
           "drift_windows(game_df)" in mp_src
           and "feature_drift(drift_baseline, recent" in mp_src
-          and "coverage(game_df, current_df=recent)" in mp_src
+          and "coverage(drift_baseline, current_df=recent)" in mp_src
           and "out_dir, date_c, drift_baseline, recent" in mp_src)
+    # 2026-09-28 log incident: Phase 13 handed coverage() the FULL pool while
+    # the drift step and the CSV writer shared the baseline tail, so the log
+    # printed an all-history pct (temp_f 71.1%) beside a CSV baseline row of
+    # 66.40% -- two windows described in one phase. The check above now pins
+    # all three consumers to the same `drift_baseline` frame.
     _cov_pairs = monitoring_mod.coverage(_gdf, current_df=_cur)
     _windows = sorted({r["window"] for r in _cov_pairs})
     check("coverage with a current window emits baseline + current rows",
