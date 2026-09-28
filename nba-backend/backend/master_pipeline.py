@@ -978,7 +978,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                     _fit_check["away"]["deviance_baseline"])
         logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
-                    "alpha_home %.4f (max %.4f), alpha_away %.4f (max %.4f) - %s",
+                    "alpha_home %.4f (curve max %.4f), alpha_away %.4f "
+                    "(curve max %.4f) - %s",
                     dispersion["alpha_home"],
                     dispersion.get("alpha_home_max", dispersion["alpha_home"]),
                     dispersion["alpha_away"],
