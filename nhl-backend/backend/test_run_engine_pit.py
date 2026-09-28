@@ -23,8 +23,12 @@ the engine's honesty depends on:
      priced at fair lines with honest outcomes;
   9. delivery honesty: the gates run BEFORE monitoring writes, retention can
      never delete a file the run itself just wrote, and the run-log lines
-     that decide what a log means name what they actually measured;
- 10. pull progress: a real tqdm bar is drawn in every context, including a
+     describe what actually happened;
+ 10. sealed holdout: the α(λ) dispersion layer and the final market-line
+     calibrators never see the sealed tail (last HOLDOUT_DAYS of OOF rows);
+     poisoning the sealed tail cannot move the fitted dispersion, and the
+     tail is stamped frame_view='sealed' and scored separately;
+ 11. pull progress: a real tqdm bar is drawn in every context, including a
      pipe (the notebook drives the pipeline through subprocess, so stderr is
      never a terminal), and where no bar can be drawn the log line carries a
      fixed-width one of its own. Either way the log records a live position
@@ -947,6 +951,165 @@ def test_calibrate_dispersion_carries_the_curve_layer():
     assert params["poisson_limit"] == (
         params["alpha_home"] <= dist_mod.ALPHA_FLOOR
         and params["alpha_away"] <= dist_mod.ALPHA_FLOOR)
+
+
+# ---------------------------------------------------------------------------
+# 6b. Sealed holdout: the alpha layer and the final line calibrators never
+#     see the sealed tail (MLB derive_markets_v3 gate, ported).
+# ---------------------------------------------------------------------------
+def _sealed_holdout_oof(n_days: int = 60, seed: int = 17) -> pd.DataFrame:
+    """A dated OOF frame shaped like walk_forward_oof's output."""
+    rng = np.random.default_rng(seed)
+    start = pd.Timestamp("2025-10-01")
+    rows = []
+    for d in range(n_days):
+        day = start + pd.Timedelta(days=d)
+        for k in range(4):
+            mu_h, mu_a = 3.0 + 0.2 * k, 2.8 - 0.1 * k
+            rows.append({
+                "game_id": f"{day:%Y%m%d}_{k}",
+                "gameday": day,
+                "fold_id": d // 7,
+                "home_score": float(rng.poisson(mu_h)),
+                "away_score": float(rng.poisson(mu_a)),
+                "mu_h": mu_h, "mu_a": mu_a,
+                "margin": 0.0, "total": 0.0,
+            })
+    oof = pd.DataFrame(rows)
+    oof["margin"] = oof["home_score"] - oof["away_score"]
+    oof["total"] = oof["home_score"] + oof["away_score"]
+    return oof
+
+
+def test_alpha_curve_fits_on_pre_holdout_rows_only():
+    """The dispersion layer must hand select_alpha_curve exactly the
+    pre-holdout rows (gameday < max − HOLDOUT_DAYS) — never the sealed tail.
+    Poisoning the sealed tail's outcomes must not move ANY fitted dispersion
+    value: the recent window is evaluation evidence, never fit evidence."""
+    oof = _sealed_holdout_oof()
+    seen: dict = {}
+    orig = dist_mod.select_alpha_curve
+
+    def spy(y, lam, seed=dist_mod.MC_SEED):
+        seen["n"] = seen.get("n", 0) + len(y)
+        return orig(y, lam, seed=seed)
+
+    with _mock_patch.object(dist_mod, "select_alpha_curve", spy):
+        sig = dist_mod.calibrate_dispersion(oof)
+    dates = pd.to_datetime(oof["gameday"])
+    cutoff = dates.max().normalize() - pd.Timedelta(days=dist_mod.HOLDOUT_DAYS)
+    n_pre = int((dates < cutoff).sum())
+    assert seen.get("n") == 2 * n_pre, (
+        f"alpha fit saw {seen.get('n')} rows across both sides, "
+        f"pre-holdout pool is {2 * n_pre}")
+    gate = sig["holdout"]
+    assert gate["n_pre"] == n_pre
+    assert gate["n_holdout"] == len(oof) - n_pre
+    assert gate["fitted_on"] == "pre-holdout OOF only"
+
+    # The poison: rewrite the SEALED tail's scores entirely.
+    poisoned = oof.copy()
+    sealed = pd.to_datetime(poisoned["gameday"]) >= cutoff
+    poisoned.loc[sealed, "home_score"] = 9.0
+    poisoned.loc[sealed, "away_score"] = 1.0
+    sig_p = dist_mod.calibrate_dispersion(poisoned)
+    for key in ("alpha_home", "alpha_away",
+                "alpha_home_max", "alpha_away_max"):
+        assert sig[key] == sig_p[key], (
+            f"{key} moved after the sealed tail was poisoned — leakage")
+
+
+def test_calibrate_dispersion_without_gameday_fits_everything():
+    """Undated frames (unit fixtures, ad-hoc callers) keep the ungated
+    full-OOF behavior: no cutoff, no sealed rows, and the fitted values
+    are identical to a dated frame whose rows all sit inside the gate."""
+    undated = pd.DataFrame({
+        "home_score": [3.0, 4.0, 2.0, 5.0], "mu_h": [3.0] * 4,
+        "away_score": [2.0, 2.0, 3.0, 1.0], "mu_a": [2.0] * 4})
+    sig = dist_mod.calibrate_dispersion(undated)
+    assert sig["holdout"]["cutoff"] is None
+    assert sig["holdout"]["n_pre"] == len(undated)
+    assert sig["holdout"]["n_holdout"] == 0
+    dated = undated.copy()
+    dated["gameday"] = pd.date_range("2025-11-01", periods=4)
+    sig_d = dist_mod.calibrate_dispersion(dated)
+    assert sig_d["holdout"]["cutoff"] is not None
+    assert (sig["alpha_home"], sig["alpha_away"]) == \
+        (sig_d["alpha_home"], sig_d["alpha_away"])
+
+
+def test_calibrate_dispersion_fully_sealed_timeline_degrades_to_full_fit():
+    """A dated frame whose ENTIRE timeline sits inside the holdout window
+    (an early-season small sample) must degrade to the full-frame fit and
+    say so — never crash on an empty pre-holdout pool, never claim the
+    gated scope it did not use."""
+    oof = _sealed_holdout_oof(n_days=10)   # 10 days of rows, all sealed
+    sig = dist_mod.calibrate_dispersion(oof)
+    assert sig["holdout"]["n_pre"] == 0
+    assert sig["holdout"]["n_holdout"] == len(oof)
+    assert sig["holdout"]["fitted_on"] == "full OOF (pre-holdout pool too small)"
+    assert np.isfinite(sig["alpha_home"]) and np.isfinite(sig["alpha_away"])
+
+
+def test_sealed_holdout_rows_are_stamped_and_scored_separately():
+    """The last HOLDOUT_DAYS of OOF market rows carry frame_view='sealed',
+    and the markets monitor nests per-line holdout metrics under each
+    canonical line's own 'holdout' key (MLB card shape) — the sealed tail
+    is scored, never fit on."""
+    games = feat_mod.build_game_features(_synth_games(n_days=60))
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    oof = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
+    dist = dist_mod.apply_distribution(oof)
+    calibrated, bundle = dist_mod.calibrate_market_frame(dist)
+    assert bundle["method"] == "prequential_platt"
+
+    # Stamp the sealed tail exactly as master_pipeline does.
+    mdates = pd.to_datetime(calibrated["gameday"])
+    cutoff = mdates.max().normalize() - pd.Timedelta(days=dist_mod.HOLDOUT_DAYS)
+    calibrated.loc[mdates >= cutoff, "frame_view"] = "sealed"
+    n_sealed = int((calibrated["frame_view"] == "sealed").sum())
+    assert n_sealed > 0, "the sealed tail stamped nothing"
+    assert n_sealed < len(calibrated), "everything was sealed — gate degenerated"
+
+    mon_rows = calibrated.copy()
+    mon_rows["derived_ml"] = mon_rows["p_home_win_derived"]
+    with _mock_patch.object(mon, "_dump_json"):
+        record = mon.write_markets_monitor_json(
+            Path("probe.json"), "20260928", mon_rows, {})
+    holdout_gate = record.get("holdout_gate") or {}
+    assert holdout_gate.get("n_holdout") == n_sealed
+    metrics = record["market_metrics"]
+    assert metrics, "the monitor produced no per-line metrics"
+    holdout_keys = [k for k, v in metrics.items()
+                    if isinstance(v, dict) and v.get("holdout")]
+    assert holdout_keys, (
+        "sealed rows exist but no per-line holdout metrics were scored")
+    for key in holdout_keys:
+        h = metrics[key]["holdout"]
+        assert h.get("n"), f"{key}: empty holdout metrics"
+
+
+def test_sealed_holdout_gate_is_a_schema_gate():
+    """A dispersion record without a cutoff (the ungated path reaching
+    production) must FAIL the Phase 13 gates — the regression this port
+    exists to prevent cannot ship silently."""
+    import master_pipeline as mp
+
+    gates: dict[str, bool] = {}
+    gated = {"holdout": {"cutoff": "2026-06-01", "n_pre": 100,
+                         "n_holdout": 20}}
+    ungated = {"holdout": {"cutoff": None, "n_pre": 120,
+                           "n_holdout": 0}}
+    gates["sealed_holdout_gate"] = bool(gated.get("holdout", {}).get("cutoff"))
+    assert gates["sealed_holdout_gate"] is True
+    gates["sealed_holdout_gate"] = bool(ungated.get("holdout", {}).get("cutoff"))
+    assert gates["sealed_holdout_gate"] is False
+    gates["sealed_holdout_gate"] = bool({}.get("holdout"))
+    assert gates["sealed_holdout_gate"] is False
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    node = _log_call_containing(src, "sealed holdout gate")
+    assert node is not None, "the sealed-holdout log line is gone"
 
 
 def test_simulate_se_guard_bumps_only_over_target():

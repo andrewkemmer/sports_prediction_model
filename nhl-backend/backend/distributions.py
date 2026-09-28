@@ -57,6 +57,13 @@ MC_SEED = 42
 # 10k draws are demonstrably too noisy for the tail lines.
 MC_DRAWS_TAIL = 50_000
 MC_SE_TARGET = 5e-3
+# Sealed-holdout convention (MLB derive_markets_v3 HOLDOUT_DAYS parity): the
+# LAST ``HOLDOUT_DAYS`` of OOF games are SEALED — no α(λ) fitting, no curve
+# binning, and no final market-line calibrator may see them. The tail scores
+# the market engine honestly instead of validating itself. The shipped
+# serving dispersion (alpha_home/alpha_away scalars in the bundle) is a
+# full-OOF fit and is unaffected — this gate disciplines EVALUATION only.
+HOLDOUT_DAYS = 21
 # Alpha-machinery parity (run_engine.py 1e-6): the floor under every alpha
 # below which NB degenerates to Poisson. NHL previously ran 1e-8.
 ALPHA_FLOOR = 1e-6
@@ -156,15 +163,25 @@ def alpha_bins(y: np.ndarray, lam: np.ndarray,
     idx = np.clip(np.digitize(lam, edges[1:-1], right=False), 0, len(edges) - 2)
     groups = [np.where(idx == b)[0] for b in range(len(edges) - 1)]
     # Merge any bin below min_count into its smaller neighbor (loop: merges
-    # can cascade).
+    # can cascade). Edge bins merge with their single ADJACENT neighbor:
+    # the last bin merges left and the first bin merges right. The original
+    # loop crashed on the last bin (j = i + 1 one past the end) and wrapped
+    # the first bin's merge to the LAST group (j = -1), a non-adjacent
+    # merge that mislabeled a right-edge bin as the first bin's neighbor.
+    # Latent since the MLB port: full-OOF pools always cleared min_count,
+    # so neither edge fired until the sealed-holdout gate shrank the fit
+    # pool and made small-sample paths reachable.
     while True:
         sizes = [len(g) for g in groups]
         if len(groups) <= 1 or min(sizes) >= min_count:
             break
         i = int(np.argmin(sizes))
-        j = i - 1 if i == 0 else (
-            i + 1 if i == len(groups) - 1
-            else (i - 1 if sizes[i - 1] <= sizes[i + 1] else i + 1))
+        if i == 0:
+            j = 1
+        elif i == len(groups) - 1:
+            j = i - 1
+        else:
+            j = i - 1 if sizes[i - 1] <= sizes[i + 1] else i + 1
         lo, hi = min(i, j), max(i, j)
         groups[lo] = np.concatenate([groups[lo], groups[hi]])
         del groups[hi]
@@ -276,9 +293,11 @@ def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
     """Out-of-bag selection among piecewise/linear/power forms.
 
     Two-fold cross-fit (fit half A → score half B, swap); primary metric =
-    |P(X≥tail_k) modeled − observed| on the held-out half, tie-break = mean
-    NB log-likelihood. The chosen form is then REFIT on all rows passed here
-    by the caller (pre-holdout only). Returns (curve, diagnostics)."""
+    |P(X≥tail_k) modeled − observed| on the held-out half,    tie-break = mean NB log-likelihood. The chosen form is then REFIT on all rows passed here
+    by the caller. PRE-HOLDOUT DISCIPLINE: when the caller holds a dated
+    OOF frame it must pass only the pre-holdout rows (production does —
+    calibrate_dispersion's sealed-holdout gate); undated test fixtures fit
+    everything they are given. Returns (curve, diagnostics)."""
     rng = np.random.default_rng(seed)
     perm = rng.permutation(len(y))
     halves = [perm[:len(perm) // 2], perm[len(perm) // 2:]]
@@ -319,9 +338,12 @@ def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
 
 def _alpha_vector_for_side(y: np.ndarray, mu: np.ndarray,
                            curve: dict) -> np.ndarray:
-    """Per-game α column for one side under a fitted curve, pre-holdout only
-    (the caller's discipline). Falls back to the pooled scalar estimate when
-    the frame cannot support binning — identical numbers to the old path."""
+    """Per-game α column for one side under a fitted curve. The curve is
+    whatever the caller fitted; the pre-holdout row selection is the
+    caller's discipline (production fits on pre-holdout rows only via
+    calibrate_dispersion's sealed-holdout gate). Falls back to the pooled
+    scalar estimate when the frame cannot support binning — identical
+    numbers to the old path."""
     lam = np.asarray(mu, float)
     if len(lam) < 2 * ALPHA_MIN_BIN:
         return np.full(len(lam), float(estimate_alpha(y, mu)))
@@ -364,25 +386,57 @@ def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, Any]:
     """Fit the run line's NB dispersion from leakage-free OOF score predictions.
 
     MLB-shaped (run_engine.derive_markets_v3's alpha layer): a per-side
-    α(λ) curve is selected out-of-bag among piecewise/linear/power forms
-    over the OOF frame (every row is leakage-free walk-forward OOF by
-    construction). The shipped ``alpha_home``/``alpha_away`` scalars remain
-    the pooled method-of-moments estimates — the numbers the draw path
-    actually consumes — while the fitted curves ride alongside in
-    ``alpha_*_curve`` as the diagnostic layer, with the per-row max under
-    each curve reported as ``alpha_*_max``. ``poisson_limit`` keeps its
-    SCALAR semantics — "the NB term is inactive in scoring" — because
-    scoring draws from the scalars; bin-level MoM noise makes a per-row
-    verdict hypersensitive (a pure-Poisson sample reads α≈0.005 per bin),
-    so the curve's measured verdict lives in ``run_line_fit_check``'s
-    Pearson probe instead.
+    α(λ) curve is selected out-of-bag among piecewise/linear/power forms.
+    SEALED-HOLDOUT GATE (MLB v3 parity): when the frame carries ``gameday``
+    the curve and the fitting scalars see only the PRE-HOLDOUT rows (dates
+    strictly before ``max − HOLDOUT_DAYS``); the sealed tail is never fit
+    on. A frame without ``gameday`` (unit-test fixtures, callers that never
+    held a timeline) is ungated and fits the full frame, exactly as before.
+    The shipped ``alpha_home``/``alpha_away`` scalars remain the
+    method-of-moments estimates — the numbers the draw path actually
+    consumes — while the fitted curves ride alongside in ``alpha_*_curve``
+    as the diagnostic layer, with the per-row max under each curve reported
+    as ``alpha_*_max``. ``poisson_limit`` keeps its SCALAR semantics — "the
+    NB term is inactive in scoring" — because scoring draws from the
+    scalars; bin-level MoM noise makes a per-row verdict hypersensitive (a
+    pure-Poisson sample reads α≈0.005 per bin), so the curve's measured
+    verdict lives in ``run_line_fit_check``'s Pearson probe instead. The
+    gate scope is recorded in ``holdout`` (cutoff, n_pre, n_holdout,
+    fitted_on); ``fitted_on`` mirrors MLB's ``pre-holdout OOF only`` tag,
+    and an undersized pre-holdout pool degrades honestly to the full-frame
+    fit (tagged ``full OOF (pre-holdout pool too small)``).
     """
     y_h = oof["home_score"].to_numpy(float)
     mu_h = oof["mu_h"].to_numpy(float)
     y_a = oof["away_score"].to_numpy(float)
     mu_a = oof["mu_a"].to_numpy(float)
-    ok_h = np.isfinite(y_h) & np.isfinite(mu_h) & (mu_h > 0)
-    ok_a = np.isfinite(y_a) & np.isfinite(mu_a) & (mu_a > 0)
+    # Sealed-holdout mask: only rows with a real timeline can be gated. A
+    # frame without dates (test fixtures, ad-hoc callers) is ungated and
+    # fits everything — identical behavior to the pre-gate path.
+    if "gameday" in oof.columns and len(oof):
+        dates = pd.to_datetime(oof["gameday"], errors="coerce")
+        if dates.notna().any():
+            cutoff = dates.max().normalize() - pd.Timedelta(days=HOLDOUT_DAYS)
+            gate = (dates < cutoff).to_numpy()
+        else:
+            cutoff, gate = None, np.ones(len(oof), dtype=bool)
+    else:
+        cutoff, gate = None, np.ones(len(oof), dtype=bool)
+
+    def _side_mask(y: np.ndarray, mu: np.ndarray) -> tuple[np.ndarray, bool]:
+        """Fit pool for one side: the gated pre-holdout rows when they can
+        support a fit (>=2 valid rows), else every valid row. A timeline
+        entirely inside the holdout window (early-season small samples)
+        must degrade to the full-frame fit, never crash on an empty pool
+        and never fabricate a fit from nothing."""
+        valid = np.isfinite(y) & np.isfinite(mu) & (mu > 0)
+        pre = valid & gate
+        if int(pre.sum()) >= 2:
+            return pre, True
+        return valid, False
+
+    ok_h, pre_h = _side_mask(y_h, mu_h)
+    ok_a, pre_a = _side_mask(y_a, mu_a)
     curve_h, diag_h = select_alpha_curve(y_h[ok_h], mu_h[ok_h])
     curve_a, diag_a = select_alpha_curve(y_a[ok_a], mu_a[ok_a])
     alpha_home_vec = _alpha_vector_for_side(y_h[ok_h], mu_h[ok_h], curve_h)
@@ -400,6 +454,17 @@ def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, Any]:
         "mc_draws": MC_DRAWS,
         "mc_draws_tail": MC_DRAWS_TAIL,
         "mc_se_target": MC_SE_TARGET,
+        "holdout": {
+            "cutoff": (str(pd.Timestamp(cutoff).date())
+                       if cutoff is not None else None),
+            "n_pre": int(gate.sum()),
+            "n_holdout": int(len(gate) - gate.sum()),
+            "fitted_on": ("pre-holdout OOF only"
+                          if cutoff is not None and pre_h and pre_a
+                          else ("full OOF (pre-holdout pool too small)"
+                                if cutoff is not None
+                                else "full OOF (no gameday on frame)")),
+        },
     }
 
 

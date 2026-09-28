@@ -393,6 +393,14 @@ def main(argv: list[str] | None = None) -> int:
                 "POISSON LIMIT: no over-dispersion to model, the NB term is "
                 "inactive and scoring is Poisson" if sig.get("poisson_limit")
                 else "over-dispersed fit active")
+    # Name the gate scope (MLB v3 parity): which rows the alpha layer was
+    # allowed to see, and how many recent rows are sealed away from it.
+    _hg = sig.get("holdout") or {}
+    if _hg.get("cutoff"):
+        logger.info("sealed holdout gate: alpha fitted on %s "
+                    "(cutoff %s; %d pre / %d sealed rows)",
+                    _hg.get("fitted_on"), _hg.get("cutoff"),
+                    _hg.get("n_pre", 0), _hg.get("n_holdout", 0))
 
     # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ────
     _banner("PHASE 8", "calibration")
@@ -553,6 +561,19 @@ def main(argv: list[str] | None = None) -> int:
     oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig,
                                              mc_meta_out=_mc_meta)
     oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
+    # Sealed-holdout tail (MLB derive_markets_v3 parity): the last
+    # HOLDOUT_DAYS of OOF rows are stamped frame_view='sealed' so the
+    # monitor's winner cards and per-line metrics score them separately.
+    # The sealed window never fit the alpha layer above (pre-holdout-only
+    # gate in calibrate_dispersion) and never fit the final market-line
+    # calibrators, so its scores are the engine's honest recent-form
+    # evaluation instead of the window validating itself.
+    if len(oof_market_rows) and "gameday" in oof_market_rows.columns:
+        _mdates = pd.to_datetime(oof_market_rows["gameday"], errors="coerce")
+        if _mdates.notna().any():
+            _cutoff = (_mdates.max().normalize()
+                       - pd.Timedelta(days=dist_mod.HOLDOUT_DAYS))
+            oof_market_rows.loc[_mdates >= _cutoff, "frame_view"] = "sealed"
     if len(slate):
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
 
@@ -718,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
     # blocks read only pre-Phase-12 state, so ordering them numerically is
     # free: a failed gate now aborts BEFORE monitoring writes a word.
     _banner("PHASE 13", "schema validation")
-    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
+    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info, sig=sig)
     for name, ok in gates.items():
         logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
     if not all(gates.values()):
@@ -965,7 +986,8 @@ def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
 
 
 def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
-                      slate: pd.DataFrame, fold_info: dict) -> dict:
+                      slate: pd.DataFrame, fold_info: dict,
+                      sig: dict | None = None) -> dict:
     """Schema/coherence gates over the written artifacts."""
     gates: dict[str, bool] = {}
     p = oof_ml["p_ensemble_calibrated"].to_numpy(float)
@@ -1011,6 +1033,11 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
             "p_away_win_derived"}
     gates["slate_contract_fields"] = need.issubset(slate.columns) if len(slate) else True
     gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
+    # The dispersion fit must have run under the sealed-holdout gate: a
+    # record without a cutoff means the alpha layer saw the whole OOF
+    # window (an undated frame reaching production), which is exactly the
+    # silent regression this gate exists to catch.
+    gates["sealed_holdout_gate"] = bool(((sig or {}).get("holdout") or {}).get("cutoff"))
     return gates
 
 

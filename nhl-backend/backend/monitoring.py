@@ -787,6 +787,13 @@ def write_markets_monitor_json(path, run_date: str,
                                ml_reference: dict | None = None) -> dict:
     """``Run-Line & Totals Monitor`` artifact (MLB run-engine-monitor/v2
     shape, NHL data)."""
+    # Lazy import: distributions pulls the model stack, and this function is
+    # the only consumer of its sealed-holdout constant.
+    try:
+        from backend import distributions as _dist
+    except ImportError:
+        import distributions as _dist
+    HOLDOUT_DAYS = _dist.HOLDOUT_DAYS
     iso_date = (f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}"
                 if len(str(run_date)) == 8 and str(run_date).isdigit()
                 else str(run_date))
@@ -818,6 +825,42 @@ def write_markets_monitor_json(path, run_date: str,
         "market_metrics": _run_engine_market_metrics(oof_market_rows),
         "config": config_meta or {},
     }
+    # Sealed-holdout per-line metrics (MLB v3 parity): the last HOLDOUT_DAYS
+    # of OOF rows — stamped frame_view='sealed' — scored at the canonical
+    # lines against the same prequentially calibrated grids. The sealed
+    # window never fit the alpha layer nor the final line calibrators, so
+    # this is the engine's honest recent-form evaluation, nested per line
+    # under each metric's "holdout" key exactly like MLB's card shape.
+    hold_rows = None
+    if oof_market_rows is not None and len(oof_market_rows) \
+            and "frame_view" in oof_market_rows.columns \
+            and (oof_market_rows["frame_view"] == "sealed").any():
+        hold_rows = oof_market_rows.loc[
+            oof_market_rows["frame_view"] == "sealed"]
+    if hold_rows is not None:
+        for u in config.RUN_ENGINE_FIXED_TOTALS:
+            y, p = _run_engine_line_pairs(hold_rows, "over", float(u))
+            if len(y):
+                out = record["market_metrics"].get(f"over_{u}") or {}
+                out["holdout"] = _markets_card_metrics(y, p)
+                record["market_metrics"][f"over_{u}"] = out
+        for l in config.RUN_ENGINE_CANONICAL_SPREADS:
+            y, p = _run_engine_line_pairs(hold_rows, "spread", float(l))
+            if len(y):
+                key = f"home_cover_{str(l).replace('.', '_')}"
+                out = record["market_metrics"].get(key) or {}
+                out["holdout"] = _markets_card_metrics(y, p)
+                record["market_metrics"][key] = out
+        y, p = _run_engine_line_pairs(hold_rows, "ml", 0.0)
+        if len(y):
+            out = record["market_metrics"].get("derived_moneyline") or {}
+            out["holdout"] = _markets_card_metrics(y, p)
+            record["market_metrics"]["derived_moneyline"] = out
+        record["holdout_gate"] = {
+            "n_holdout": int(len(hold_rows)),
+            "note": (f"last {HOLDOUT_DAYS} days of OOF rows; sealed from "
+                     "the alpha fit and the final line calibrators"),
+        }
     _dump_json(path, record)
     return record
 
