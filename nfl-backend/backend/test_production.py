@@ -3459,6 +3459,253 @@ except Exception as exc:  # noqa: BLE001
 
 # ---------------------------------------------------------------------------
 print(f"\n{'=' * 60}")
+# ---------------------------------------------------------------------------
+# Roster-availability overlay (2026-09-28): weekly snapshots frozen BEFORE
+# their week's games are pre-kickoff information by construction. Rules:
+# same-week RES/INA/CUT/SUS/PUP; carried RES/SUS/PUP unless back to ACT;
+# week 1 snapshot-only. Merged as min(report, roster) at BOTH consumption
+# points (EPA projected lineups + injury-share flag set). 30 served features
+# change values; the 70-name contract is untouched.
+# ---------------------------------------------------------------------------
+_ros_rows = pd.DataFrame([
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 2, "status": "RES"},
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "status": "RES"},
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 4, "status": "RES"},
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 5, "status": "ACT"},   # back to ACT: the return-from-IR path
+    {"gsis_id": "P2", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 2, "status": "RES"},
+    {"gsis_id": "P2", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "status": "ACT"},   # carried RES freed by same-week ACT
+    {"gsis_id": "P3", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "status": "INA"},   # late scratch: same-week only
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 2, "status": "CUT"},
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "status": "ACT"},   # CUT -> ACT re-sign: must NOT carry
+    {"gsis_id": "P5", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "status": "CUT"},
+    {"gsis_id": "P6", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "status": "ACT"},
+    {"gsis_id": "P7", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 1, "status": "RES"},   # week 1: snapshot-only, no blind week 0
+    {"gsis_id": "P7", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 2, "status": "ACT"},
+    {"gsis_id": "P9", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 2, "status": "SUS"},
+    {"gsis_id": "P10", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 2, "status": "PUP"},
+    {"gsis_id": "P11", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "status": "DEV"},   # practice-squad elevations play
+])
+_ros_tbl = ingest_mod.roster_unavailable_table(_ros_rows)
+_ros_keys = set(zip(_ros_tbl["week"].astype(int), _ros_tbl["team"],
+                    _ros_tbl["player_id"]))
+def _ros_out(wk, team, pid):
+    return (wk, team, pid) in _ros_keys
+check("roster rule: carried RES applies until the player is back to ACT",
+      _ros_out(3, "HOME", "P1") and _ros_out(4, "HOME", "P1")
+      and not _ros_out(5, "HOME", "P1"),
+      "RES wk2-4 -> out wk3+wk4; ACT wk5 frees wk5")
+check("roster rule: same-week ACT overrides the carried RES",
+      not _ros_out(3, "HOME", "P2"),
+      "the return-from-IR activation path must never be zeroed")
+check("roster rule: same-week INA is out and NEVER carries",
+      _ros_out(3, "HOME", "P3") and not _ros_out(4, "HOME", "P3"),
+      "26% of carried-INA players play the next week")
+check("roster rule: CUT is out same-week, never carries, re-signs freed",
+      _ros_out(3, "AWAY", "P5") and not _ros_out(4, "AWAY", "P5")
+      and not _ros_out(3, "AWAY", "P4"),
+      "the 251-row CUT->ACT re-sign class stays eligible")
+check("roster rule: ACT and DEV are never unavailable",
+      not _ros_out(3, "AWAY", "P6") and not _ros_out(3, "HOME", "P11"))
+check("roster rule: SUS and PUP carry like RES",
+      _ros_out(2, "HOME", "P9") and _ros_out(3, "HOME", "P9")
+      and _ros_out(2, "AWAY", "P10") and _ros_out(3, "AWAY", "P10"))
+check("roster rule: week 1 is snapshot-only (no blind week-0 carry)",
+      _ros_out(1, "AWAY", "P7") and not _ros_out(2, "AWAY", "P7")
+      and _ros_tbl[_ros_tbl["week"].eq(1)]["player_id"].eq("P7").all())
+with tempfile.TemporaryDirectory() as _rl_dir:
+    _ros_rows.to_parquet(
+        Path(_rl_dir) / "roster_weekly_v2_2024.parquet", index=False)
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_rl_dir)):
+        _rl = ingest_mod.load_weekly_rosters(seasons=[2024], use_cache=True)
+check("weekly-roster loader serves the cached snapshot rows unchanged",
+      len(_rl) == len(_ros_rows)
+      and list(_rl.columns) == list(ingest_mod.ROSTER_WEEKLY_NEEDS)
+      and len(ingest_mod.roster_unavailable_table(_rl)) == len(_ros_tbl))
+
+# Consumption point 1 (EPA projected lineups): excluding every away player
+# via the overlay empties the away aggregates while home rows are untouched
+# — the overlay can only narrow the candidate pool, never widen it.
+_ros_t = _epa_calc_games[_epa_calc_games["game_id"].eq("EPA_TARGET")].iloc[0]
+_ros_away_ids = _epa_calc_ps[
+    _epa_calc_ps["team"].eq("AWAY")]["player_id"].dropna().unique()
+_ros_roster_away = pd.DataFrame({
+    "season": int(_ros_t["season"]), "week": int(_ros_t["week"]),
+    "team": "AWAY", "player_id": _ros_away_ids})
+check("EPA probe is meaningful: the away pool is non-empty before the overlay",
+      (_epa_quality_agg["game_id"].eq("EPA_TARGET")
+       & _epa_quality_agg["team"].eq("AWAY")).sum() > 0)
+_ros_agg = feat_mod._epa_quality_agg(
+    _epa_calc_games, _epa_calc_pbp, _epa_calc_ps, _epa_calc_injuries,
+    _ros_roster_away)
+_ros_base_home = _epa_quality_agg[
+    _epa_quality_agg["game_id"].eq("EPA_TARGET")
+    & _epa_quality_agg["team"].eq("HOME")]
+_ros_new_home = _ros_agg[
+    _ros_agg["game_id"].eq("EPA_TARGET") & _ros_agg["team"].eq("HOME")]
+_ros_joined = _ros_base_home.merge(
+    _ros_new_home, on=["game_id", "team", "position"], how="outer",
+    suffixes=("_b", "_n"))
+check("EPA lineups honor the roster overlay: away emptied, home untouched",
+      (_ros_agg["game_id"].eq("EPA_TARGET")
+       & _ros_agg["team"].eq("AWAY")).sum() == 0
+      and len(_ros_joined) == len(_ros_base_home)
+      and np.isclose(_ros_joined["epa_q_b"], _ros_joined["epa_q_n"]).all())
+
+# Consumption point 2 (injury-share flag set): roster rows widen the flagged
+# set additively; players with no snap history price 0.0 (never NaN).
+_ros_snaps = pd.DataFrame([
+    {"game_id": "RS1", "season": 2024, "week": 1, "team": "HOME",
+     "position": "DE", "pfr_player_id": "RPD1", "offense_snaps": 0.0,
+     "offense_pct": 0.0, "defense_snaps": 50.0, "defense_pct": 0.8},
+    {"game_id": "RS2", "season": 2024, "week": 1, "team": "HOME",
+     "position": "LB", "pfr_player_id": "RPD2", "offense_snaps": 0.0,
+     "offense_pct": 0.0, "defense_snaps": 55.0, "defense_pct": 0.7},
+    {"game_id": "RS3", "season": 2024, "week": 1, "team": "HOME",
+     "position": "LB", "pfr_player_id": "RPD3", "offense_snaps": 0.0,
+     "offense_pct": 0.0, "defense_snaps": 60.0, "defense_pct": 0.9},
+])
+_ros_crosswalk = pd.DataFrame([
+    {"gsis_id": "P1", "pfr_id": "RPD1"},
+    {"gsis_id": "P2", "pfr_id": "RPD2"},
+    {"gsis_id": "P3", "pfr_id": "RPD3"},
+])
+_ros_weekly = pd.DataFrame([
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 2, "report_status": "Out"},   # the only REPORT row
+])
+_ros_overlay = pd.DataFrame([
+    {"season": 2024, "week": 2, "team": "HOME", "player_id": "P2"},
+    {"season": 2024, "week": 2, "team": "HOME", "player_id": "P3"},
+])
+_ros_base = feat_mod.injury_share_table(
+    _ros_snaps, _ros_weekly, _ros_crosswalk)
+_ros_wide = feat_mod.injury_share_table(
+    _ros_snaps, _ros_weekly, _ros_crosswalk, _ros_overlay)
+_ros_b = _ros_base[(_ros_base["week"] == 2) & (_ros_base["team"] == "HOME")]
+_ros_w = _ros_wide[(_ros_wide["week"] == 2) & (_ros_wide["team"] == "HOME")]
+check("injury-share flags widen under the roster overlay, min(report, roster)",
+      len(_ros_b) == 1 and float(_ros_b.iloc[0]["inj_def_out"]) == 1.0
+      and len(_ros_w) == 1
+      and float(_ros_w.iloc[0]["inj_def_out"]) == 3.0
+      and np.isclose(float(_ros_w.iloc[0]["def_snaps_lost_share"]), 2.4)
+      and float(_ros_w.iloc[0]["def_key_out"]) == 1.0,
+      f"base={_ros_b.iloc[0]['inj_def_out']} wide={_ros_w.iloc[0]['inj_def_out']}"
+      f" lost={_ros_w.iloc[0]['def_snaps_lost_share']}")
+check("injury-share share pricing unchanged for report-flagged players",
+      np.isclose(float(_ros_b.iloc[0]["def_snaps_lost_share"]), 0.8)
+      and np.isclose(float(_ros_b.iloc[0]["def_snaps_lost_share"]),
+                     float(_ros_w.iloc[0]["def_snaps_lost_share"]) - 1.6),
+      "the two roster adds price 0.7 + 0.9; the report row keeps 0.8")
+
+# Wiring: both builders must thread the overlay into BOTH consumption
+# points (serving never drifts from training).
+_src_gf = inspect.getsource(feat_mod.build_game_features)
+_src_sf = inspect.getsource(feat_mod.build_slate_features)
+check("both builders thread the roster overlay into both consumption points",
+      _src_gf.count("roster_unavailable") == 3
+      and _src_sf.count("roster_unavailable") == 3
+      and "roster_unavailable" in inspect.getsource(
+          feat_mod.epa_quality_team_agg)
+      and "roster_unavailable" in inspect.getsource(
+          feat_mod.injury_share_table))
+
+# Real-snapshot guarantees (2025 cache, network-free when present): after
+# the FULL rule, zero carried-out players played their week's game, every
+# INA row missed the week, and no CUT re-sign is zeroed.
+_ros_cache = Path(ingest_mod.CACHE_DIR)
+if ((_ros_cache / "roster_weekly_v2_2025.parquet").exists()
+        and (_ros_cache / "snaps_v2_2025.parquet").exists()):
+    _ros_raw25 = pd.read_parquet(_ros_cache / "roster_weekly_v2_2025.parquet")
+    _ros_r25 = ingest_mod.roster_unavailable_table(_ros_raw25)
+    _ros_s25 = pd.read_parquet(_ros_cache / "snaps_v2_2025.parquet")
+    _ros_s25 = _ros_s25[_ros_s25["week"] <= 18].copy()
+    _ros_s25["snaps"] = (_ros_s25["offense_snaps"].fillna(0)
+                         + _ros_s25["defense_snaps"].fillna(0))
+    _ros_s25 = _ros_s25.groupby(["week", "team", "pfr_player_id"],
+                                as_index=False)["snaps"].max()
+    _ros_xw = ingest_mod.load_player_id_crosswalk(use_cache=True)
+    _ros_gmap = _ros_xw[["gsis_id", "pfr_id"]].dropna(
+        how="any").drop_duplicates("gsis_id")
+    _ros_pfr = dict(zip(_ros_gmap["gsis_id"], _ros_gmap["pfr_id"]))
+    _ros_sidx = {(int(w), t, p): s for w, t, p, s in
+                 zip(_ros_s25["week"], _ros_s25["team"],
+                     _ros_s25["pfr_player_id"], _ros_s25["snaps"])}
+    _ros_played = _ros_r25.apply(
+        lambda x: _ros_sidx.get(
+            (int(x["week"]), str(x["team"]),
+             str(_ros_pfr.get(x["player_id"], ""))), 0.0) > 0, axis=1)
+    # CARRIED population: a table row whose player ALSO carried an OUT
+    # status in the prior week's snapshot (the RES-in-both-weeks class —
+    # measured zero played across all tested seasons). Same-week-only
+    # statuses cannot form this population.
+    _ros_out_mask = _ros_raw25["status"].isin(ingest_mod._ROSTER_SAME_WEEK_OUT)
+    _ros_prev_out = set(zip(
+        _ros_raw25.loc[_ros_out_mask, "season"],
+        _ros_raw25.loc[_ros_out_mask, "team"],
+        _ros_raw25.loc[_ros_out_mask, "gsis_id"].map(
+            ingest_mod._normalize_id),
+        _ros_raw25.loc[_ros_out_mask, "week"] + 1))
+    _ros_is_carried = pd.Series(
+        [(int(r["season"]), str(r["team"]), str(r["player_id"]),
+          int(r["week"])) in _ros_prev_out
+         for _, r in _ros_r25.iterrows()], index=_ros_r25.index)
+    _ros_carr_played = _ros_played & _ros_is_carried
+    check("2025 guarantee: zero CARRIED unavailables played (RES-in-both-weeks "
+          "played measured zero across all tested seasons)",
+          not _ros_carr_played.any(),
+          f"{int(_ros_carr_played.sum())} of {len(_ros_r25)} rows")
+    # Same-week-out players who played must all trace to a snapshot row
+    # whose own description contradicts the status (active-code spellings).
+    _ros_raw25 = _ros_raw25.assign(
+        _pid=_ros_raw25["gsis_id"].map(ingest_mod._normalize_id),
+        _week=_ros_raw25["week"].astype(int))
+    _ros_desc = dict(zip(
+        zip(_ros_raw25["season"].astype(int), _ros_raw25["team"].astype(str),
+            _ros_raw25["_pid"].astype(str), _ros_raw25["_week"]),
+        _ros_raw25["status_description_abbr"].astype(str)))
+    _ros_sw = _ros_r25[_ros_played]
+    _ros_descs = [_ros_desc.get(
+        (int(r["season"]), str(r["team"]), str(r["player_id"]),
+         int(r["week"])), "") for _, r in _ros_sw.iterrows()]
+    check("2025 guarantee: every same-week-out player who played carries an "
+          "active-code snapshot description (source contradiction class)",
+          all(d.startswith("A") for d in _ros_descs),
+          f"{len(_ros_sw)} played rows; descs={sorted(set(_ros_descs))[:6]}")
+    # CUT re-signs: a CUT->ACT->played player must NOT be marked in W+1.
+    _ros_keys = set(zip(_ros_r25["season"].astype(int),
+                        _ros_r25["team"].astype(str),
+                        _ros_r25["player_id"].astype(str),
+                        _ros_r25["week"].astype(int)))
+    _ros_c = _ros_raw25[_ros_raw25["status"].eq("CUT")]
+    _ros_bad = 0
+    for _, x in _ros_c.iterrows():
+        _pid = str(x["_pid"])
+        if (_ros_sidx.get((int(x["week"]) + 1, str(x["team"]),
+                           str(_ros_pfr.get(_pid, ""))), 0.0) > 0
+                and (int(x["season"]), str(x["team"]), _pid,
+                     int(x["week"]) + 1) in _ros_keys):
+            _ros_bad += 1
+    check("2025 guarantee: no CUT->ACT->played re-sign is zeroed",
+          _ros_bad == 0, f"{_ros_bad} misfires")
+else:
+    print("  (roster real-snapshot probes skipped: 2025 caches not populated)")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)

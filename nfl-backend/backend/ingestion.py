@@ -785,6 +785,138 @@ def load_injuries_weekly(seasons: list[int] | None = None,
     return out[list(INJ_WEEKLY_NEEDS)]
 
 
+# ---------------------------------------------------------------------------
+# Weekly roster snapshots (2026-09-28 roster-availability overlay)
+# ---------------------------------------------------------------------------
+# The weekly report NEVER carries Injured Reserve (~90% of IR'd players have
+# no report row that week), so both served injury families are blind to the
+# largest absences, and the strict-PIT feed is empty for 2025/2026 (no
+# date_modified). The nflverse weekly_rosters release (roster_weekly_YYYY,
+# 2002+) publishes full per-week roster snapshots; each snapshot is frozen
+# BEFORE that week's games (the Achane proof: his Monday IR never appears in
+# the in-week snapshot he already played in), so a designation in week W's
+# snapshot is pre-kickoff information for week W by construction — no
+# timestamp gate needed, unlike the report channel.
+#
+# Designation semantics (probe-validated against snap counts, 2016/2024/2025):
+#   SAME-WEEK OUT (W's own snapshot): RES (reserve list, incl. Reserve/
+#     Injured — same-week play rate 0.00-0.03%), INA (inactive, the
+#     late-scratch channel — 0.00%), CUT (released this week — 0.00%),
+#     SUS, PUP.
+#   CARRIED OUT (W-1 snapshot applies to W, unless the player is back to
+#     ACT in W's own snapshot — the return-from-IR activation path): RES,
+#     SUS, PUP. RES in both weeks and playing measured ZERO across all
+#     tested seasons; INA must NEVER carry (26% of carried-INA players
+#     play the next week) and CUT must NEVER carry (the 251-row CUT->ACT
+#     re-sign class).
+#   NOT excluded: ACT, DEV (practice-squad elevations play), EXE (exempt,
+#     real play rate), RET, TRC/TRD, RSN, NWT, UDF and unknown spellings —
+#     the overlay only ever REMOVES a candidate, never invents one.
+#   Week 1: no blind week-0 carry; the snapshot speaks for itself.
+ROSTER_WEEKLY_NEEDS = ("gsis_id", "season", "game_type", "team", "week",
+                       "status", "status_description_abbr")
+ROSTER_WEEKLY_CACHE_VERSION = "v2"
+_ROSTER_SAME_WEEK_OUT = frozenset({"RES", "INA", "CUT", "SUS", "PUP"})
+_ROSTER_CARRIED_OUT = frozenset({"RES", "SUS", "PUP"})
+
+
+def load_weekly_rosters(seasons: list[int] | None = None,
+                        use_cache: bool = True, progress=None) -> pd.DataFrame:
+    """Raw weekly roster snapshot rows for the availability overlay.
+
+    Narrow (gsis_id, season, game_type, team, week, status) frame, per-season
+    parquet caches (ROSTER_WEEKLY cache v1), mirroring load_injuries_weekly.
+    Status interpretation (which spellings and carry rules exclude a player)
+    lives in roster_unavailable_table, so this stays a faithful cache of the
+    source rows."""
+    seasons = seasons or config.ALL_SEASONS
+    frames: list[pd.DataFrame] = []
+    for season in seasons:
+        try:
+            path = _cache_path(
+                f"roster_weekly_{ROSTER_WEEKLY_CACHE_VERSION}_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache -> re-pull
+                    logger.warning("weekly roster cache %s unreadable (%s)",
+                                   path.name, exc)
+        finally:
+            if progress is not None:
+                progress()
+        try:
+            from nflreadpy import load_rosters_weekly
+            logger.info("loading weekly roster snapshot season %s", season)
+            df = _polars_to_pandas(load_rosters_weekly(season))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("weekly roster snapshot unavailable for %s: %s",
+                           season, exc)
+            continue
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+        if "game_type" not in df.columns and "season_type" in df.columns:
+            df["game_type"] = df["season_type"]
+        for c in ROSTER_WEEKLY_NEEDS:
+            if c not in df.columns:
+                df[c] = pd.NA
+        df = df[list(ROSTER_WEEKLY_NEEDS)]
+        df.to_parquet(path, index=False)
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=list(ROSTER_WEEKLY_NEEDS))
+    out = pd.concat(frames, ignore_index=True)
+    for c in ROSTER_WEEKLY_NEEDS:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out[list(ROSTER_WEEKLY_NEEDS)]
+
+
+def roster_unavailable_table(weekly_rosters: pd.DataFrame | None
+                             ) -> pd.DataFrame:
+    """Per (season, week, team, player) unavailable rows from the snapshots.
+
+    Implements the probe-validated rule: a player is unavailable for week W's
+    game when W's own snapshot carries a same-week OUT status (RES/INA/CUT/
+    SUS/PUP) or W-1's snapshot carried RES/SUS/PUP and W's own snapshot does
+    NOT show him back to ACT (the ACT-override frees returning players; it
+    can only narrow the carried set, never the same-week one). Week 1 is
+    snapshot-only. The output is keyed for direct joins on (season, week,
+    team, player) — the roster channel needs no publication timestamp
+    because snapshots are frozen before their week's games.
+    """
+    cols = ["season", "week", "team", "player_id"]
+    if (weekly_rosters is None or weekly_rosters.empty
+            or not {"gsis_id", "season", "team", "week", "status"}
+            <= set(weekly_rosters.columns)):
+        return pd.DataFrame(columns=cols)
+    r = weekly_rosters.copy()
+    r["season"] = pd.to_numeric(r["season"], errors="coerce")
+    r["week"] = pd.to_numeric(r["week"], errors="coerce")
+    r["team"] = r["team"].astype("string").str.strip().str.upper()
+    r["player_id"] = r["gsis_id"].map(_normalize_id)
+    r["status"] = (r["status"].astype("string").str.strip()
+                   .str.upper().fillna(""))
+    r = r.dropna(subset=["season", "week", "team", "player_id"])
+    r = r[r["team"].ne("") & r["status"].ne("")]
+    if r.empty:
+        return pd.DataFrame(columns=cols)
+    parts = [r.loc[r["status"].isin(_ROSTER_SAME_WEEK_OUT),
+                   ["season", "week", "team", "player_id"]]]
+    carried = r[r["status"].isin(_ROSTER_CARRIED_OUT)]
+    if not carried.empty:
+        nxt = carried.assign(week=carried["week"] + 1)[
+            ["season", "week", "team", "player_id"]]
+        act_now = r.loc[r["status"].eq("ACT"),
+                        ["season", "week", "team", "player_id"]].assign(
+                            _act=True)
+        nxt = nxt.merge(act_now, on=["season", "week", "team", "player_id"],
+                        how="left")
+        nxt = nxt[nxt["_act"].isna()]
+        parts.append(nxt[["season", "week", "team", "player_id"]])
+    out = pd.concat(parts, ignore_index=True)
+    return out.drop_duplicates(["season", "week", "team", "player_id"])[cols]
+
+
 def load_team_names() -> dict[str, str]:
     """team abbr -> full team name (frontend games[] display fields)."""
     path = _cache_path("teams.parquet")
@@ -1058,4 +1190,5 @@ def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:
         "ftn_charting": len(ftn_charting_seasons(core_seasons)),
         "injuries": len(core_seasons),
         "injuries_weekly": len(core_seasons),
+        "weekly_rosters": len(core_seasons),
     }

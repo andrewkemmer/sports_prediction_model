@@ -300,11 +300,21 @@ def main(argv: list[str] | None = None) -> int:
         seasons=seasons, use_cache=not full_repull, progress=_pop.advance)
     crosswalk = ingestion.load_player_id_crosswalk(
         use_cache=not full_repull)
+    # Weekly roster snapshots -> per-player unavailable table. The snapshots
+    # are frozen BEFORE their week's games (no backward leak), so the rows
+    # are pre-kickoff information without any timestamp gate — the channel
+    # that covers Reserve/Injured (absent from every weekly report) and the
+    # strict-PIT-blind 2025/2026 seasons.
+    weekly_rosters = ingestion.load_weekly_rosters(
+        seasons=seasons, use_cache=not full_repull, progress=_pop.advance)
+    roster_unavailable = ingestion.roster_unavailable_table(weekly_rosters)
     _pop.close()
     logger.info("PIT injury designation rows: %s",
                 len(injuries))
     logger.info("weekly injury report rows: %s | player crosswalk rows: %s",
                 len(weekly_injuries), len(crosswalk))
+    logger.info("weekly roster rows: %s | roster-unavailable rows: %s",
+                len(weekly_rosters), len(roster_unavailable))
     logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs))
@@ -324,7 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     game_df = feat_mod.build_game_features(
         decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather, injuries=injuries,
-        weekly_injuries=weekly_injuries, crosswalk=crosswalk)
+        weekly_injuries=weekly_injuries, crosswalk=crosswalk,
+        roster_unavailable=roster_unavailable)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional and the tree members are
@@ -605,6 +616,7 @@ def main(argv: list[str] | None = None) -> int:
         schedule, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather, injuries=injuries,
         weekly_injuries=weekly_injuries, crosswalk=crosswalk,
+        roster_unavailable=roster_unavailable,
         serve_from=run_date)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)

@@ -1498,7 +1498,8 @@ def _strict_pit_timestamp(value):
 
 
 def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
-                         injuries: pd.DataFrame | None = None
+                         injuries: pd.DataFrame | None = None,
+                         roster_unavailable: pd.DataFrame | None = None
                          ) -> pd.DataFrame:
     """Per-(game, team, position) mean of PIT-shrunk EPA player ratings.
 
@@ -1605,6 +1606,38 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
             j["availability_weight"], errors="coerce")
         j = j[~j["availability_weight"].eq(0.0)]
 
+    # The roster overlay removes snapshot-frozen absences the report channel
+    # cannot see (Reserve/Injured, inactive, cut). Snapshots are frozen
+    # before their week's games, so the rows are pre-kickoff information by
+    # construction; this implements min(report, roster) — the overlay can
+    # only narrow the candidate pool, never widen it.
+    if (roster_unavailable is not None and not roster_unavailable.empty
+            and {"season", "week"} <= set(games.columns)):
+        gmap = games[["game_id", "season", "week", "home_team",
+                      "away_team"]].copy()
+        gmap["game_id"] = gmap["game_id"].astype(str)
+        gmap["season"] = pd.to_numeric(gmap["season"], errors="coerce")
+        gmap["week"] = pd.to_numeric(gmap["week"], errors="coerce")
+        gmap = pd.concat([
+            gmap[["game_id", "season", "week", "home_team"]]
+            .rename(columns={"home_team": "team"}),
+            gmap[["game_id", "season", "week", "away_team"]]
+            .rename(columns={"away_team": "team"}),
+        ], ignore_index=True).drop_duplicates(["game_id", "team"])
+        gmap["team"] = gmap["team"].astype("string").str.strip().str.upper()
+        j = j.merge(gmap, on=["game_id", "team"], how="left")
+        ro = roster_unavailable.copy()
+        ro["season"] = pd.to_numeric(ro["season"], errors="coerce")
+        ro["week"] = pd.to_numeric(ro["week"], errors="coerce")
+        ro["team"] = ro["team"].astype("string").str.strip().str.upper()
+        ro["player_id"] = ro["player_id"].astype("string").str.strip()
+        ro = ro.dropna(subset=["season", "week", "team", "player_id"])
+        j = j.merge(
+            ro[["season", "week", "team", "player_id"]].assign(
+                _roster_out=True),
+            on=["season", "week", "team", "player_id"], how="left")
+        j = j[~j["_roster_out"].eq(True)]
+
     if j.empty:
         return pd.DataFrame(columns=cols)
     # Mirror MLB's candidate-roster -> injury filter -> lineup-rank structure:
@@ -1632,7 +1665,9 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 
 def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                      ps: pd.DataFrame | None,
-                     injuries: pd.DataFrame | None) -> pd.DataFrame:
+                     injuries: pd.DataFrame | None,
+                     roster_unavailable: pd.DataFrame | None = None
+                     ) -> pd.DataFrame:
     """Build PIT per-position player quality aggregates, degrading to NaN
     when play-by-play, player IDs/positions, or exact schedule kickoff is
     unavailable.
@@ -1664,7 +1699,7 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                     how="inner", validate="one_to_one")
     obs = obs.dropna(subset=["gameday", "kickoff_utc"])
     history = epa_quality_ratings(obs)
-    return epa_quality_team_agg(history, games, injuries)
+    return epa_quality_team_agg(history, games, injuries, roster_unavailable)
 
 
 def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
@@ -1777,7 +1812,9 @@ def _normalize_player_id(value) -> str | None:
 
 def injury_share_table(snaps: pd.DataFrame | None,
                        weekly_injuries: pd.DataFrame | None,
-                       crosswalk: pd.DataFrame | None) -> pd.DataFrame:
+                       crosswalk: pd.DataFrame | None,
+                       roster_unavailable: pd.DataFrame | None = None
+                       ) -> pd.DataFrame:
     """Per (team, game) injury-share aggregates, or an empty frame.
 
     Inputs are the raw snap-count cache rows (needs pfr_player_id), the raw
@@ -1815,6 +1852,28 @@ def injury_share_table(snaps: pd.DataFrame | None,
     inj["player_id"] = inj["gsis_id"].map(_normalize_player_id)
     inj = inj.dropna(subset=["player_id", "team", "season", "week"])
     inj = inj[inj["report_status"].map(_injured_report_status)]
+    # The roster overlay widens the flagged set with snapshot-frozen
+    # absences the report never carries (Reserve/Injured, inactive, cut).
+    # Expressed in the narrow report shape, the roster rows reuse the
+    # identical unit-attribution and share-pricing machinery below;
+    # min(report, roster) is additive — the flag set only grows.
+    if roster_unavailable is not None and not roster_unavailable.empty:
+        ro = roster_unavailable.copy()
+        ro["season"] = pd.to_numeric(ro["season"], errors="coerce")
+        ro["week"] = pd.to_numeric(ro["week"], errors="coerce")
+        ro["team"] = ro["team"].astype("string").str.strip().str.upper()
+        ro["player_id"] = ro["player_id"].astype("string").str.strip()
+        ro = ro.dropna(subset=["season", "week", "team", "player_id"])
+        ro = ro[ro["team"].ne("")]
+        inj = pd.concat([
+            inj,
+            pd.DataFrame({"gsis_id": ro["player_id"],
+                          "player_id": ro["player_id"],
+                          "season": ro["season"],
+                          "team": ro["team"],
+                          "week": ro["week"],
+                          "report_status": "Out"}),
+        ], ignore_index=True, sort=False)
     if inj.empty:
         return empty
     xw = crosswalk[["gsis_id", "pfr_id"]].dropna(how="any").drop_duplicates(
@@ -1979,7 +2038,9 @@ def build_game_features(games: pd.DataFrame,
                         weather: pd.DataFrame | None = None,
                         injuries: pd.DataFrame | None = None,
                         weekly_injuries: pd.DataFrame | None = None,
-                        crosswalk: pd.DataFrame | None = None) -> pd.DataFrame:
+                        crosswalk: pd.DataFrame | None = None,
+                        roster_unavailable: pd.DataFrame | None = None
+                        ) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
@@ -2043,9 +2104,11 @@ def build_game_features(games: pd.DataFrame,
 
     df = _attach_record_fields(df, ev)
     df = _attach_epa_quality_features(
-        df, _epa_quality_agg(games, pbp, ps, injuries), games)
+        df, _epa_quality_agg(games, pbp, ps, injuries, roster_unavailable),
+        games)
     df = _attach_injury_share_features(
-        df, injury_share_table(snaps, weekly_injuries, crosswalk), games)
+        df, injury_share_table(snaps, weekly_injuries, crosswalk,
+                               roster_unavailable), games)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
@@ -2064,6 +2127,7 @@ def build_slate_features(schedule: pd.DataFrame,
                          injuries: pd.DataFrame | None = None,
                          weekly_injuries: pd.DataFrame | None = None,
                          crosswalk: pd.DataFrame | None = None,
+                         roster_unavailable: pd.DataFrame | None = None,
                          serve_from=None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
@@ -2157,9 +2221,11 @@ def build_slate_features(schedule: pd.DataFrame,
 
     df = _attach_record_fields(df, combined)
     df = _attach_epa_quality_features(
-        df, _epa_quality_agg(sched, pbp, ps, injuries), sched)
+        df, _epa_quality_agg(sched, pbp, ps, injuries, roster_unavailable),
+        sched)
     df = _attach_injury_share_features(
-        df, injury_share_table(snaps, weekly_injuries, crosswalk), sched)
+        df, injury_share_table(snaps, weekly_injuries, crosswalk,
+                               roster_unavailable), sched)
     return df
 
 
