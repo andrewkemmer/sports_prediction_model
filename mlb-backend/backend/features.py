@@ -2461,8 +2461,8 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
 # WITHOUT measurement on the committed CSV (run_form_delta_ablation.py) lost
 # BOTH pooled OOF (0.6895/0.5494 vs 0.6867/0.5540) and the sealed 21-day
 # holdout (0.6829/0.5437 vs 0.6814/0.5529), so MONEYLINE_FEATURE_COLS excludes them.
-# The columns still ship in the artifact and the run engine drops them via
-# derive_run_features — re-test on a refreshed artifact before re-enabling.
+# The columns still ship in the artifact — re-test on a refreshed artifact
+# before re-enabling.
 
 # (delta_base, recent_col_base, season_col_base, window_label)
 FORM_DELTA_SPECS: list[tuple[str, str, str, str]] = [
@@ -2714,8 +2714,8 @@ def add_exp2_features(game_df: pd.DataFrame,
 #   data_delivery/lineups.parquet      StatsAPI battingOrder per game (4,451/4,451)
 #   data_delivery/batter_woba.parquet  point-in-time batter sd-wOBA (prior games only)
 #   data_delivery/team_woba.parquet    point-in-time team sd-wOBA + top-3/top-5 regulars
-# Moneyline-only: derive_run_features excludes these columns from the run
-# engine's raw-only view.
+# Moneyline-only: these columns are excluded from MONEYLINE_FEATURE_COLS (the
+# run engine serves that list verbatim), so they stay out of the run view.
 LINEUP_DELTA_COLS: list[str] = [
     "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
     "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",

@@ -507,21 +507,22 @@ def classify_drift_retention(gain: float, psi_adjusted: float,
                              kept_median_gain: float) -> bool:
     """Flag a CULLED feature for retention (false-positive-cull test).
 
-    The run engine's feature cull is a STATIC name rule (derive_run_features:
-    *_diff except the RUN_RESTORED_DIFF_FEATURES set and park_factor_slug_diff,
-    the RUN_EXTRA_EXCLUSIONS composites, *_delta_home/away) — it never consults
-    importance or drift. The read-only cull diagnostic
-    (run_engine_cull_diagnostic.py) measures the rule's outcome: a feature is
-    a FALSE-POSITIVE CULL when it was dropped by the rule yet (a) its gain
-    importance is at least the kept-view median and (b) its noise-adjusted PSI
-    is at or below its sampling noise floor — the cull removed predictive
-    signal with no measured distributional change. Returns True → recommend
-    retention. Both thresholds are INCLUSIVE (gain == median, psi_adjusted ==
-    noise_floor flag) so a borderline feature is never silently dropped.
+    Historical: the run engine's feature cull WAS a static name rule (the
+    removed derive_run_features: *_diff except the restored matchup gaps and
+    park_factor_slug_diff, the RUN_EXTRA_EXCLUSIONS composites,
+    *_delta_home/away); since the 2026-08-30 gap restore the served view has
+    been the FULL active moneyline list and the rule was deleted 2026-09-27.
+    A feature is a FALSE-POSITIVE CULL when it was dropped by the historical
+    rule yet (a) its gain importance is at least the kept-view median and
+    (b) its noise-adjusted PSI is at or below its sampling noise floor — the
+    cull removed predictive signal with no measured distributional change.
+    Returns True → recommend retention. Both thresholds are INCLUSIVE (gain
+    == median, psi_adjusted == noise_floor flag) so a borderline feature is
+    never silently dropped.
 
-    Not called by production monitors — selection remains the static rule;
-    this is the retention-backstop policy the cull diagnostic (and its
-    fixture tests) pins.
+    Not called by production monitors — selection is call-time resolution of
+    the active moneyline list; this is the retention-backstop policy the
+    cull diagnostic (and its fixture tests) pins.
     """
     return bool(gain >= kept_median_gain and psi_adjusted <= noise_floor)
 

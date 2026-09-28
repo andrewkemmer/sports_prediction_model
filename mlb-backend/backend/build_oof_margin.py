@@ -12,10 +12,10 @@ Design contract (2026-08 margin-feature task):
   engine's own fold filter.
 - Run-engine machinery is reused read-only (build_side_frame /
   _fit_side_model / RUN_LGBM_PARAMS). Nothing in run_engine.py changes; the
-  29-feature view and alpha(lambda) stay untouched. (Even if
-  ``run_margin_diff`` itself were ever added to MONEYLINE_FEATURE_COLS,
-  derive_run_features drops every ``*_diff`` except park_factor_slug_diff —
-  the run view cannot leak it.)
+  per-side view and alpha(lambda) stay untouched. (Even if
+  ``run_margin_diff`` itself were ever added to MONEYLINE_FEATURE_COLS, the
+  run engine's served view is the active moneyline list resolved at call
+  time — a one-line re-add would be an explicit act, not a silent flow.)
 - Early stopping uses the validation fold's targets to pick the ITERATION
   COUNT only — the same per-fold early-stopping convention every moneyline
   member and the run engine's own OOF already use. No target information

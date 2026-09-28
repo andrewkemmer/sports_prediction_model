@@ -13,8 +13,9 @@ features their *_diff name plus per-side twins. Invariants pinned here:
   * exp2 twins are the per-side scratch the diff was already computed
     from (previously dropped at the end of add_exp2_features),
   * twins join the serving universe but route TREE-ONLY (logistic keeps
-    its diffs-only view; the run engine's λ view keeps its GOLDEN RULE —
-    levels flow, matchup composites do not),
+    its diffs-only view; the run engine serves the FULL active moneyline
+    list verbatim — the historical λ-view drop rule was removed
+    2026-09-27),
   * the adopted RFE state is re-issued so apply_adopted_subset() binds
     the new width instead of silently falling back to the universe.
 
@@ -280,24 +281,50 @@ def test_logistic_stays_diffs_only_twins_route_tree_only():
             f"diff {diff} missing from the logistic view")
 
 
-def test_run_engine_lambda_view_keeps_levels_drops_composites():
-    run_feats, dropped = re_engine.derive_run_features(
-        list(training.MONEYLINE_FEATURE_COLS))
-    kept = set(run_feats)
-    for base in ("rest_days", "sp_era_5g", "sp_fbvelo_3g", "lineup_woba_std",
-                 "bullpen_pitches_3d", "team_hardhit_15g",
-                 "time_zones_crossed_last_3d"):
-        for twin in (f"{base}_home", f"{base}_away"):
-            assert twin in kept, f"level twin {twin} should flow into the λ view"
-    for diff, (h, a) in {**RENAME_FAMILIES, **EXP2_FAMILIES}.items():
-        assert diff not in kept, f"composite {diff} must stay out of the λ view"
-        assert h not in kept and a not in kept, (
-            f"interaction/exp2 twin {h}/{a} must stay out of the λ view")
-    for inter in ("bullpen_meltdown_risk", "lineup_handedness_matchup_advantage"):
-        assert inter not in kept, inter
-    # the 7 restored level diffs stay (by design); no renamed/exp2 composite
-    assert not (set(RENAME_FAMILIES) & kept), sorted(set(RENAME_FAMILIES) & kept)
-    assert not (set(EXP2_FAMILIES) & kept), sorted(set(EXP2_FAMILIES) & kept)
+def test_run_engine_lambda_view_serves_full_active_list():
+    # Production contract: the run engine serves the ACTIVE moneyline list
+    # verbatim — nothing is dropped by rule. (The historical derivation that
+    # filtered *_diff composites out of the λ view was retired to monitor-only
+    # by the 2026-08-30 restore and removed outright on 2026-09-27.)
+    feats, dropped = re_engine._resolve_run_view()
+    active = training.active_moneyline_feature_cols()
+    assert feats == list(active), "run view must be the active list verbatim"
+    assert dropped == [], "the no-drop contract must hold (dropped always empty)"
+
+
+def test_run_engine_side_view_carries_every_served_feature():
+    # build_side_frame's production branch must carry EVERY served moneyline
+    # feature into the side models: each side's view holds its own side
+    # columns plus the shared environment, and the UNION of the home+away
+    # views must be exactly the active list — nothing dropped by rule. (The
+    # historical derivation that filtered *_diff composites out of the λ view
+    # was retired to monitor-only by the 2026-08-30 restore and removed
+    # outright on 2026-09-27; the P1 projection column may only append.)
+    games = pd.DataFrame({
+        "game_pk": [1],
+        "game_date": ["2026-09-20"],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "home_score": [5], "away_score": [2], "home_win": [1.0],
+        "elo_diff": [0.1],
+    })
+    _, home_cols = re_engine.build_side_frame(games, "home")
+    _, away_cols = re_engine.build_side_frame(games, "away")
+    active = set(training.active_moneyline_feature_cols())
+    union = set(home_cols) | set(away_cols)
+    missing = active - union
+    assert not missing, (
+        f"run side views dropped {len(missing)} served features: "
+        f"{sorted(missing)[:8]}")
+    # Side-agnostic matchup gaps are shared environment — present in BOTH
+    # side views; per-side levels appear in their own side's view.
+    for shared in ("win_pct_diff", "elo_diff", "bullpen_whip_3g_diff",
+                   "bullpen_meltdown_risk",
+                   "lineup_handedness_matchup_advantage"):
+        assert shared in home_cols and shared in away_cols, shared
+    for twin in ("pitcher_regression_indicator_home", "exp2_centered_k_home"):
+        assert twin in home_cols, twin
+    for twin in ("pitcher_regression_indicator_away", "exp2_centered_k_away"):
+        assert twin in away_cols, twin
 
 
 def test_adopted_state_binds_the_new_width():

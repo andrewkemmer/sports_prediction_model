@@ -233,8 +233,8 @@ MONEYLINE_FEATURE_COLS = [
     # 58-column baseline; see run_form_delta_ablation.py and
     # data_delivery/form_delta_ablation_<sha>.json). The 38 *_delta_* columns
     # are still computed and shipped in the artifact (features.py SQL +
-    # add_form_delta_features, metadata authored) and excluded from the run
-    # engine by derive_run_features — re-enabling is a one-line append here
+    # add_form_delta_features, metadata authored) but excluded from
+    # MONEYLINE_FEATURE_COLS — re-enabling is a one-line append here
     # after a re-test on a refreshed artifact.
     # 57–62. Phase 2 lineup-delta features — REMOVED 2026-08-29: train-serve
     # skew fix. These 6 features (lineup_actual_woba_delta_home/away,
@@ -255,14 +255,15 @@ MONEYLINE_FEATURE_COLS = [
     # 0.6839 → 0.6830 / AUC 0.5669 → 0.5694; see run_margin_ablation.py and
     # data_delivery/margin_ablation_<sha>.json). One column, computed
     # OUT-OF-FOLD on the MONEYLINE'S OWN fold split: λ_home − λ_away from the
-    # run engine's per-side LightGBM Poisson models (its unchanged 29-feature
+    # run engine's per-side LightGBM Poisson models (its unchanged per-side
     # levels+env view), so no game's margin ever comes from a model that saw
     # it. Computed at training time by _attach_oof_run_margins() in
     # walk_forward_evaluate; slate margins come from a fit-only refit on all
     # decided games at the median fold round count (pipeline._attach_slate_
-    # run_margins). The run engine itself can never consume it: the *_diff
-    # rule in derive_run_features drops it (and the ablation's LAMBDAS
-    # variant showed λ_home/λ_away add nothing beyond the margin).
+    # run_margins). The run engine itself can never consume it through the
+    # moneyline list: run_margin_diff is not a member of
+    # MONEYLINE_FEATURE_COLS (and the ablation's LAMBDAS variant showed
+    # λ_home/λ_away add nothing beyond the margin).
     # Home-edge interaction ablation (DON'T ADOPT, 2026-08-27): the structural
     # finding that home edge is environment-conditional (+0.27 low-total vs
     # -0.09 high-total) is NOT recoverable through the run engine's expected
@@ -306,9 +307,9 @@ MONEYLINE_FEATURE_COLS = [
     # ASOF, doubleheader-safe), so no new temporal exposure. Formulas frozen
     # from run_exp2_feature_test.add_candidates; adoption evidence:
     # data_delivery/exp2_feature_test_20260907.json +
-    # exp2_stability_20260907.json. All 8 end in _diff and are matchup gaps,
-    # so derive_run_features drops them from the run engine's λ view — the
-    # run engine (NB pricing) is untouched by this decision; the run-line
+    # exp2_stability_20260907.json. All 8 end in _diff and are matchup gaps
+    # that the run engine's per-side view splits into side columns — the run
+    # engine (NB pricing) prices each side from its own columns; the run-line
     # model is the true −1.5 classifier below.
     "exp2_centered_k_diff",
     "exp2_cat_k_fastball_diff",
@@ -374,8 +375,8 @@ MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
 # their diff, so a diff can never be better covered than its halves).
 # Routing stays untouched: RAW_PER_SIDE_COLS (below) routes all 38 new
 # twins tree-only; the logistic member keeps its diffs-only view and the
-# run engine's λ view carries the levels but not the matchup composites#     (derive_run_features drops *_diff composites by rule and the six
-#     interaction twins by name). Universe 62 → 98.
+# run engine's λ view prices each side from its own side columns (split_side_view).
+# Universe 62 → 98.
 MONEYLINE_FEATURE_COLS += [
     # Raw per-side levels for the remaining served diff families
     "rest_days_home", "rest_days_away",

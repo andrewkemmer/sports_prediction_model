@@ -1704,8 +1704,8 @@ def run_daily_pipeline(
         # Momentum form deltas (recent − season-to-date baseline). Idempotent:
         # SQL-shipped columns win; missing ones are computed from the shipped
         # recent/season columns when both exist (NaN otherwise -- imputed by
-        # the existing paths). Moneyline-only: the run engine excludes
-        # *_delta_* columns in derive_run_features.
+        # the existing paths). Moneyline-only: they are excluded from
+        # MONEYLINE_FEATURE_COLS (the run engine's served view).
         games = add_form_delta_features(games)
         # Phase 2 lineup deltas REMOVED 2026-09-26: the six lineup_actual_*/
         # lineup_rest_count_* columns left MONEYLINE_FEATURE_COLS on

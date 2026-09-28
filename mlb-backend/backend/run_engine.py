@@ -54,8 +54,13 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Excluded despite not ending in _diff: pure matchup term (no level info) and
-# interactions whose factors are themselves excluded diffs.
+# HISTORICAL (2026-08-30 derivation era): moneyline-only composites kept out
+# of the run engine's λ view — pure matchup terms with no level info, and
+# interactions whose factors are themselves matchup diffs. The legacy rule
+# that consumed this set was removed 2026-09-27; the production run view is
+# the FULL active moneyline list (build_side_frame), so these columns are
+# now SERVED — the side-view split prices each side from its own columns and
+# the tree members may use them freely.
 RUN_EXTRA_EXCLUSIONS = {
     "lineup_handedness_matchup_advantage",
     "bullpen_meltdown_risk",          # pitches_diff × whip_diff
@@ -163,22 +168,18 @@ def _apply_categorical_ids(*frames: pd.DataFrame,
 RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
 
 # 2026-08-30 feature-restore decision (run_engine_cull_diagnostic_20260830.json):
-# the 24 matchup-gap _diff features are RESTORED. The earlier DO-NOT-SHIP
-# verdict (2026-08 ablation) measured calibration on an older artifact; the
-# fresh A/B on the 2026-08-30 frame (6,829 OOF) shows restoring them improves
-# EVERYTHING: derived-ML AUC 0.5515 -> 0.5682, margin-spread sd +27%, the
-# share of wide prices (~>0.55) up 0.19 -> 0.25, home/away lambda deviance and
-# RMSE DOWN, holdout logloss 0.6865 -> 0.6846. The levels-only GOLDEN RULE is
-# relaxed to LEVELS + these restored matchup gaps; the 5 engineered composites
-# (RUN_EXTRA_EXCLUSIONS) and run_margin_diff (a lambda-derived moneyline-side
-# feature) stay excluded. Two restored features show material drift
-# (woba_30g_diff 0.296, lineup_woba_top3_diff 0.104 WARN) but still net-improve
-# in the A/B; they are now drift-monitored so classify_drift_retention can act.
-# 2026-09-27 twin expansion: the 16 exp2 per-side twins are the halves of
-# matchup-gap diffs — same exclusion class as the gaps themselves (the λ
-# view carries LEVELS + environment, never matchup composites). The 14
-# level/travel twins flow in by the existing rule; the six interaction
-# twins are named in RUN_EXTRA_EXCLUSIONS above.
+# the 24 matchup-gap _diff features were RESTORED to the served run view —
+# the fresh A/B on the 2026-08-30 frame (6,829 OOF) showed restoring them
+# improves EVERYTHING: derived-ML AUC 0.5515 -> 0.5682, margin-spread sd +27%,
+# the share of wide prices (~>0.55) up 0.19 -> 0.25, home/away lambda deviance
+# and RMSE DOWN, holdout logloss 0.6865 -> 0.6846. Two restored features show
+# material drift (woba_30g_diff 0.296, lineup_woba_top3_diff 0.104 WARN) but
+# still net-improve in the A/B; they stay drift-monitored so
+# classify_drift_retention can act. 2026-09-27 twin expansion: the 16 exp2
+# per-side twins are the halves of matchup-gap diffs and joined the served
+# view with everything else. The frozensets below now carry the HISTORY of
+# those exclusions (the legacy rule that consumed them was removed
+# 2026-09-27); the production contract is the full active moneyline list.
 RUN_EXP2_TWIN_EXCLUSIONS = frozenset({
     "exp2_centered_k_home", "exp2_centered_k_away",
     "exp2_cat_k_fastball_home", "exp2_cat_k_fastball_away",
@@ -240,40 +241,24 @@ RUN_LGBM_PARAMS = {
 # ---------------------------------------------------------------------------
 # Feature-view derivation
 # ---------------------------------------------------------------------------
-def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
-    """Derive (run_features, dropped) from MONEYLINE_FEATURE_COLS by rule:
+def _resolve_run_view(
+        feature_cols: Optional[list[str]] = None,
+) -> tuple[list[str], list[str]]:
+    """Resolve the run engine's served view: the active moneyline feature
+    list, VERBATIM — every served column flows in, nothing is dropped.
 
-      drop  f  if f.endswith("_diff")
-                   and f not in RUN_RESTORED_DIFF_FEATURES
-                   and f != RUN_DIFF_EXCEPTION
-         or  f in RUN_EXTRA_EXCLUSIONS
-         or  f ends with _delta_home/_delta_away (momentum form deltas)
-
-    The 24 matchup-gap _diff features in RUN_RESTORED_DIFF_FEATURES are KEPT
-    (2026-08-30 restore); run_margin_diff, the 5 composites, and any other
-    new _diff column are still dropped. Everything else flows in automatically
-    (new level/env features included without touching this file). Returns both
-    lists so callers log the drops. Production no longer uses this legacy
-    derivation; the run engine resolves the active moneyline feature list
-    directly at call time.
-
+    Single seam used by build_side_frame (and pinned by the tests); the
+    production contract has been call-time resolution since the 2026-08-30
+    matchup-gap restore, and the historical *_diff-drop rule that once sat
+    here was removed 2026-09-27. ``feature_cols`` overrides the list for
+    alternative universes (diagnostics only). Returns (features, dropped) —
+    ``dropped`` is always empty; it exists so callers can assert the
+    no-drop contract loudly.
     """
-    run_feats, dropped = [], []
-    for f in feature_cols:
-        if f.endswith("_diff") and f not in RUN_RESTORED_DIFF_FEATURES \
-                and f != RUN_DIFF_EXCEPTION:
-            dropped.append(f)
-        elif f in RUN_EXTRA_EXCLUSIONS or f in RUN_EXP2_TWIN_EXCLUSIONS:
-            dropped.append(f)
-        elif f.endswith("_delta_home") or f.endswith("_delta_away"):
-            # Momentum form deltas (recent − season baseline) are matchup/form
-            # signal, not scoring LEVEL — moneyline-only per the 2026-08
-            # momentum feature set. Excluded here so the run engine's view
-            # stays byte-identical (GOLDEN RULE: levels + environment).
-            dropped.append(f)
-        else:
-            run_feats.append(f)
-    return run_feats, dropped
+    if feature_cols is None:
+        from training import active_moneyline_feature_cols
+        feature_cols = active_moneyline_feature_cols()
+    return list(feature_cols), []
 
 
 # The run engine has one feature contract: the active moneyline list. It is
@@ -315,9 +300,7 @@ def build_side_frame(games: pd.DataFrame, side: str,
         # Synchronization contract: every production run model receives exactly
         # the active moneyline feature list. Resolve it at call time so adopted
         # RFE additions/removals automatically affect run-line serving.
-        from training import active_moneyline_feature_cols
-        feats = list(active_moneyline_feature_cols())
-        dropped = []
+        feats, dropped = _resolve_run_view()
         include_level_env = False
         logger.info("Run engine: active moneyline feature view (%d features)",
                     len(feats))
@@ -874,8 +857,8 @@ def _as_alpha_col(alpha: float | np.ndarray, n_games: int) -> np.ndarray:
 # PINNED VERDICT 2026-08-27 — discriminative totals/run-line blending member
 # (run_total_blend_ablation.py, data_delivery/total_blend_ablation_20260827.json):
 # DON'T ADOPT. A gradient-boosted member trained on the run engine's own
-# 29-feature view (levels + environment; the same keep-list derive_run_features
-# produces for this module) with heads E[total runs] / P(over 8.5) / P(home
+# 29-feature view (levels + environment; the era's keep-list for this
+# module) with heads E[total runs] / P(over 8.5) / P(home
 # cover -1.5), blended with the NB sampler's per-line probabilities (fixed
 # 50/50 average + prequential L2 logistic stackers) through the shared 45-fold
 # geometry + sealed 284 holdout. The GBM member improves POOLED OOF on both
