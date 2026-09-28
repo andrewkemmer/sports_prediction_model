@@ -124,12 +124,16 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
 
 
 def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
-                distribution_params: dict[str, Any] | None = None) -> pd.DataFrame:
+                distribution_params: dict[str, Any] | None = None,
+                mc_meta_out: dict | None = None) -> pd.DataFrame:
     """Attach a complete NBA score/line distribution to a base game frame.
 
     ``distribution_params`` carries the OOF-estimated dispersion into the
     slate pricing path; omitting it would silently fall back to Poisson even
-    after the production fit learned overdispersion.
+    after the production fit learned overdispersion. ``mc_meta_out`` receives
+    the derivation's mc_meta transparency block when the grid is expanded
+    here (MLB mc_meta parity; the OOF path passes it, the slate path — whose
+    grid rides the calibrated OOF bundle — reuses the OOF resolution).
     """
     if base is None or not len(base) or dist is None or not len(dist):
         return pd.DataFrame()
@@ -148,7 +152,8 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
     # line grid when no priced spread column is present yet.
     has_grid = any(str(c).startswith("p_home_cover_") for c in out.columns)
     if "mu_h" not in out or "mu_a" not in out or not has_grid:
-        out = dist_mod.apply_distribution(out, distribution_params or {})
+        out = dist_mod.apply_distribution(out, distribution_params or {},
+                                          meta_out=mc_meta_out)
     out["kind"] = kind
     out["decided"] = kind == "oof"
     out["frame_view"] = kind
@@ -936,6 +941,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     ml: dict | None = None
     ml_oof = platt = dist_oof = dispersion = None
     oof_markets = market_calibration = None
+    _fit_check: dict | None = None
+    _mc_meta: dict = {}
     final_models: dict = {}
     final_reg = None
     slate_markets = pd.DataFrame()
@@ -956,7 +963,33 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
         dist_oof = _merge_oof_metadata(dist["oof"], game_df)
         dispersion = dist_mod.calibrate_dispersion(dist_oof)
-        oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion)
+        # The run line's fit is now MEASURED every run the way MLB's run
+        # engine reports its own: the Pearson Poisson-adequacy probe plus
+        # pooled deviance/RMSE against the constant league-mean baseline.
+        # "Poisson limit" stops being an unmeasured assertion — the probe
+        # either confirms adequate Poisson variance or names the
+        # over-dispersion the NB term should absorb.
+        _fit_check = dist_mod.run_line_fit_check(dist_oof)
+        logger.info("run-line fit check (MLB diagnostics shape): "
+                    "home pearson %.4f dev %.5f (baseline %.5f) | away pearson %.4f "
+                    "dev %.5f (baseline %.5f)",
+                    _fit_check["home"]["pearson"], _fit_check["home"]["deviance_model"],
+                    _fit_check["home"]["deviance_baseline"],
+                    _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
+                    _fit_check["away"]["deviance_baseline"])
+        logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
+                    "alpha_home %.4f (max %.4f), alpha_away %.4f (max %.4f) - %s",
+                    dispersion["alpha_home"],
+                    dispersion.get("alpha_home_max", dispersion["alpha_home"]),
+                    dispersion["alpha_away"],
+                    dispersion.get("alpha_away_max", dispersion["alpha_away"]),
+                    "POISSON LIMIT: no over-dispersion to model, the NB term is "
+                    "inactive and scoring is Poisson" if dispersion.get("poisson_limit")
+                    else "over-dispersed fit active")
+        # mc_meta rides the markets meta: the derivation records its own MC
+        # resolution and whether the SE-guard bumped it (MLB mc_meta parity).
+        oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion,
+                                 mc_meta_out=_mc_meta)
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
@@ -1030,7 +1063,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         p_markets = out / config.MARKETS_CSV.format(date=date_c)
         serving.write_markets_csv(p_markets,
                                   out / config.MARKETS_META_JSON.format(date=date_c),
-                                  oof_markets, slate_markets, _config_meta(facts))
+                                  oof_markets, slate_markets, _config_meta(facts),
+                                  mc_meta=_mc_meta,
+                                  run_line_fit_check=_fit_check)
         artifacts += [p_markets.name,
                       (out / config.MARKETS_META_JSON.format(date=date_c)).name]
 

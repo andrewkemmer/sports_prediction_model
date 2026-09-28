@@ -278,7 +278,9 @@ def markets_columns() -> list[str]:
     return list(dict.fromkeys(base + _grid_columns()))
 
 
-def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None) -> pd.DataFrame:
+def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
+                      mc_meta: dict | None = None,
+                      run_line_fit_check: dict | None = None) -> pd.DataFrame:
     pieces = [frame for frame in (oof_rows, slate_rows)
               if frame is not None and len(frame)]
     out = pd.concat(pieces, ignore_index=True) if pieces else pd.DataFrame()
@@ -302,6 +304,17 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None) -
                   "half_stops": list(config.HALF_STOP_LINES),
                   "totals_push_namespace": "p_push_total_<U>"},
     }
+    # MLB mc_meta parity: the markets meta records the MC resolution the
+    # derivation actually used, the worst totals-line standard error at that
+    # resolution, and whether the SE-guard bumped the draw count. A reader
+    # can tell a 10k grid from a 50k grid without re-deriving anything.
+    if mc_meta:
+        meta["mc_meta"] = mc_meta
+    # MLB fit-diagnostics parity: the Pearson Poisson-adequacy probe and the
+    # pooled deviance/RMSE against the constant league-mean baseline, per
+    # side — the measured verdict behind the poisson_limit flag.
+    if run_line_fit_check:
+        meta["run_line_fit_check"] = run_line_fit_check
     dump_json(Path(meta_path), meta)
     return out
 

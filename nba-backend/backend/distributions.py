@@ -1,8 +1,30 @@
 """NBA totals and point-spread/run-line distribution engine.
 
-The engine fits two score regressors, estimates negative-binomial dispersion
-from leakage-free OOF residuals, and prices a complete NBA line grid from
-paired score draws.  It never reads a sportsbook or silently changes source.
+Structural mirror of the NFL/NHL distributions.py (MLB lineage):
+
+* two LightGBM Poisson regressors (expected points, one per side) sharing the
+  active binary-moneyline feature contract;
+* genuine NaNs remain intact for native LightGBM missing-value routing;
+* negative-binomial dispersion is estimated from leakage-free walk-forward
+  OOF with MLB's pooled method-of-moments estimator, with the MLB α(λ) curve
+  machinery riding alongside as the diagnostic layer;
+* one Monte Carlo score-pair sample supplies every total/margin probability,
+  under a conditional SE-guard that records (and repairs) its own resolution;
+* every run logs the MLB-shaped fit-diagnostics pack (Pearson Poisson
+  adequacy, pooled deviance/RMSE against the constant league-mean baseline)
+  and records it in the markets meta.
+
+FEATURE PARITY (MLB parity, structural not incidental). MLB's run engine does
+not own a run-line feature list: the side models receive the SAME resolved
+list the production moneyline serves. This module does that through the NBA
+equivalent: the run-line matrix is built by the binary moneyline's own
+``moneyline.member_matrix`` helper, so the run line PULLS the production
+moneyline contract by construction rather than through a parallel path that
+merely agrees today. Adopted RFE additions/removals therefore reach the run
+line automatically, and there is no second list to keep in sync. The binary
+moneyline is only ever READ here — never modified, and never re-fit.
+
+It never reads a sportsbook or silently changes source.
 """
 from __future__ import annotations
 
@@ -14,18 +36,37 @@ import pandas as pd
 
 try:
     from backend import config
-    from backend import features as feat_mod
     from backend import folds as folds_mod
+    from backend import moneyline as ml_mod
 except ImportError:
     import config
-    import features as feat_mod
     import folds as folds_mod
+    import moneyline as ml_mod
 
 logger = logging.getLogger(__name__)
-MC_DRAWS = 4000
+
+# The moneyline member whose matrix the run-line regressors consume. The
+# run-line models are LightGBM Poisson — tree family — so the tree member's
+# view is the correct one (mirrors MLB's RUN_TREE_CATEGORICAL_COLS routing:
+# the categorical team-ID pair rides with the tree view, never the linear one).
+MONEYLINE_TREE_MEMBER = "lightgbm"
+
+# MLB parity (run_engine.py): 10k draws at the default resolution, with a
+# conditional SE-guard that re-simulates the whole derivation at the tail
+# resolution when the worst totals-line standard error exceeds the target.
+# The NBA totals grid is the family's widest (101 integer lines), so tail
+# lines are exactly where MC noise shows up first.
+MC_DRAWS = 10_000
 MC_SEED = 42
-ALPHA_FLOOR = 1e-8
-ALPHA_CAP = 2.0
+MC_DRAWS_TAIL = 50_000
+MC_SE_TARGET = 5e-3
+# Alpha-machinery parity (run_engine.py 1e-6): the floor under every alpha
+# below which NB degenerates to Poisson. The NBA previously ran 1e-8.
+ALPHA_FLOOR = 1e-6
+# α(λ) curve machinery constants (MLB run_engine.py 784-786).
+ALPHA_N_BINS = 7
+ALPHA_MIN_BIN = 250
+ALPHA_CAP = 2.0          # sane max — beyond this variance is degenerate
 
 
 def _grid_key(prefix: str, value: float | int) -> str:
@@ -43,7 +84,7 @@ def _make_reg():
 
 
 class ScoreRegressor:
-    """Two score regressors sharing the active moneyline feature view."""
+    """Two same-contract LightGBM Poisson regressors, one per score side."""
 
     def __init__(self) -> None:
         self.home_model: Any | None = None
@@ -52,19 +93,28 @@ class ScoreRegressor:
         self.fallback: tuple[Any, Any] | None = None
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        X = feat_mod.tree_view(df)
+        # Resolved through the binary moneyline's OWN member_matrix helper —
+        # the NBA equivalent of MLB's
+        # ``from training import active_moneyline_feature_cols``. That helper
+        # is the single point where the production moneyline decides its
+        # feature contract (adopted RFE subset or the full universe, plus the
+        # tree family's categorical team-ID pair), so calling it here makes
+        # "the run line uses exactly the moneyline production feature set" a
+        # structural property instead of a convention two paths happen to
+        # agree on. Do not fill NaN: LightGBM handles missing natively.
+        X = ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df)
         if not self.feature_columns:
             self.feature_columns = list(X.columns)
         return X.reindex(columns=self.feature_columns)
 
     @staticmethod
-    def _target(df: pd.DataFrame, col: str) -> pd.Series:
+    def _numeric(df: pd.DataFrame, col: str) -> pd.Series:
         return pd.to_numeric(df[col], errors="coerce")
 
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
         X = self._matrix(df)
-        h = self._target(df, "home_score")
-        a = self._target(df, "away_score")
+        h = self._numeric(df, "home_score")
+        a = self._numeric(df, "away_score")
         valid = h.notna() & a.notna()
         if valid.sum() < 2:
             raise ValueError("score regressor requires at least two settled games")
@@ -72,8 +122,28 @@ class ScoreRegressor:
         try:
             self.home_model = _make_reg()
             self.away_model = _make_reg()
-            self.home_model.fit(X, h.clip(lower=0))
-            self.away_model.fit(X, a.clip(lower=0))
+            # Declare the team-ID categoricals by name in the refit, exactly
+            # as the OOF walk's matrix marks them (family standard after the
+            # NHL train/serve skew guard): pandas Categorical columns are
+            # auto-detected by LightGBM, but the explicit declaration makes
+            # the refit's routing identical to the walk's by contract rather
+            # than by pandas courtesy.
+            categorical = [c for c in config.TREE_CATEGORICAL_COLS
+                           if c in getattr(X, "columns", [])]
+            try:
+                if categorical:
+                    self.home_model.fit(X, h.clip(lower=0),
+                                        categorical_feature=categorical)
+                    self.away_model.fit(X, a.clip(lower=0),
+                                        categorical_feature=categorical)
+                else:
+                    self.home_model.fit(X, h.clip(lower=0))
+                    self.away_model.fit(X, a.clip(lower=0))
+            except TypeError:
+                # Older LightGBM wrappers without the keyword keep the
+                # pandas auto-detection routing.
+                self.home_model.fit(X, h.clip(lower=0))
+                self.away_model.fit(X, a.clip(lower=0))
             self.fallback = None
         except Exception as exc:  # noqa: BLE001
             logger.warning("LightGBM score regressor unavailable, using ridge: %s", exc)
@@ -90,7 +160,7 @@ class ScoreRegressor:
         return self
 
     def _matrix_numeric(self, df: pd.DataFrame, columns) -> pd.DataFrame:
-        X = feat_mod.tree_view(df).reindex(columns=list(columns))
+        X = feat_mod_tree(df).reindex(columns=list(columns))
         for col in config.TREE_CATEGORICAL_COLS:
             if col in X:
                 X[col] = X[col].astype(float)
@@ -108,47 +178,385 @@ class ScoreRegressor:
                 np.clip(self.away_model.predict(X), 1e-6, None))
 
 
-def estimate_alpha(y, mu) -> float:
-    y, mu = np.asarray(y, dtype=float), np.asarray(mu, dtype=float)
+def feat_mod_tree(df: pd.DataFrame) -> pd.DataFrame:
+    """The moneyline tree view, without the member wrapper (fallback path)."""
+    return ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df)
+
+
+# ---------------------------------------------------------------------------
+# α(λ) curve machinery — byte-shape port of MLB run_engine.py's dispersion
+# layer (alpha_bins / _fit_curve_* / alpha_of / eval_alpha_fit). MLB models
+# dispersion as a λ-DEPENDENT curve selected out-of-bag among piecewise /
+# linear / power forms; the NBA previously shipped a single pooled scalar α
+# per side. On basketball's current data the pooled estimate is small, so the
+# curve may be flat — but if over-dispersion ever appears it will be modeled
+# as a function of λ, never clipped away.
+# ---------------------------------------------------------------------------
+def alpha_bins(y: np.ndarray, lam: np.ndarray,
+               n_bins: int = ALPHA_N_BINS,
+               min_count: int = ALPHA_MIN_BIN) -> list[dict]:
+    """Binned method-of-moments points: quantile bins on λ, underfilled bins
+    merged into their nearest neighbor until every bin holds ≥ min_count
+    games. Per bin: α = max(0, (Var(y) − mean(λ)) / mean(λ)²)."""
+    y = np.asarray(y, float)
+    lam = np.asarray(lam, float)
+    edges = np.unique(np.quantile(lam, np.linspace(0, 1, n_bins + 1)))
+    if len(edges) < 2:
+        edges = np.array([lam.min() - 1e-9, lam.max() + 1e-9])
+    idx = np.clip(np.digitize(lam, edges[1:-1], right=False), 0, len(edges) - 2)
+    groups = [np.where(idx == b)[0] for b in range(len(edges) - 1)]
+    # Merge any bin below min_count into its smaller neighbor (loop: merges
+    # can cascade). The neighbor rule must respect the array's edges — the
+    # first group has only a right neighbor, the last group only a left one
+    # (the byte-shape port indexed past the end when the LAST bin was the
+    # underfilled one, and read sizes[-1] as a wraparound when the first was).
+    while True:
+        sizes = [len(g) for g in groups]
+        if len(groups) <= 1 or min(sizes) >= min_count:
+            break
+        i = int(np.argmin(sizes))
+        if i == 0:
+            j = 1
+        elif i == len(groups) - 1:
+            j = i - 1
+        else:
+            j = i - 1 if sizes[i - 1] <= sizes[i + 1] else i + 1
+        lo, hi = min(i, j), max(i, j)
+        groups[lo] = np.concatenate([groups[lo], groups[hi]])
+        del groups[hi]
+    bins = []
+    for g in groups:
+        if not len(g):
+            continue
+        mu, var = float(lam[g].mean()), float(y[g].var(ddof=0))
+        bins.append({
+            "count": int(len(g)),
+            "mean_lam": round(mu, 4),
+            "alpha": round(max((var - mu) / (mu ** 2), 0.0), 4),
+        })
+    return sorted(bins, key=lambda b: b["mean_lam"])
+
+
+def _bin_direction(lams: list[float], alphas: list[float]) -> int:
+    """+1 when dispersion rises with λ, −1 when it falls. Data decides."""
+    if len(lams) < 2 or np.std(alphas) == 0 or np.std(lams) == 0:
+        return +1
+    corr = np.corrcoef(lams, alphas)[0, 1]
+    return -1 if corr < 0 else +1
+
+
+def _fit_curve_piecewise(bins: list[dict]) -> dict:
+    """Weighted isotonic fit through the bin points: monotone in the
+    data-chosen direction, count-weighted, clipped to [0, ALPHA_CAP]."""
+    from sklearn.isotonic import IsotonicRegression
+
+    xs = np.array([b["mean_lam"] for b in bins])
+    ys = np.array([max(b["alpha"], 0.0) for b in bins])
+    w = np.array([b["count"] for b in bins], dtype=float)
+    d = _bin_direction(xs.tolist(), ys.tolist())
+    iso = IsotonicRegression(increasing=bool(d > 0), out_of_bounds="clip")
+    iso.fit(xs, ys, sample_weight=w)
+    grid = np.linspace(float(xs.min()), float(xs.max()), 40)
+    vals = np.clip(iso.predict(grid), 0.0, ALPHA_CAP)
+    return {"form": "piecewise", "lam": [round(float(v), 5) for v in grid],
+            "alpha": [round(float(v), 5) for v in vals],
+            "direction": "rising" if d > 0 else "falling"}
+
+
+def _fit_curve_linear(bins: list[dict]) -> dict:
+    xs = np.array([b["mean_lam"] for b in bins])
+    ys = np.array([max(b["alpha"], 0.0) for b in bins])
+    if len(xs) < 2:   # degenerate: single bin → constant level, no polyfit
+        return {"form": "linear", "a": float(ys.mean()), "b": 0.0}
+    b_, a_ = np.polyfit(xs, ys, 1)
+    return {"form": "linear", "a": float(a_), "b": float(b_)}
+
+
+def _fit_curve_power(bins: list[dict]) -> dict:
+    pos = [b for b in bins if b["alpha"] > 0]
+    if len(pos) < 2:
+        return _fit_curve_linear(bins)
+    xs = np.log(np.array([b["mean_lam"] for b in pos]))
+    ys = np.log(np.array([b["alpha"] for b in pos]))
+    if len(xs) < 2:
+        return _fit_curve_linear(bins)
+    c, log_a = np.polyfit(xs, ys, 1)
+    return {"form": "power", "a": float(np.exp(log_a)), "c": float(c)}
+
+
+def alpha_of(lam: np.ndarray, curve: dict) -> np.ndarray:
+    """Evaluate the fitted α(λ) — always in [0, ALPHA_CAP]."""
+    lam = np.asarray(lam, float)
+    form = curve["form"]
+    if form == "piecewise":
+        out = np.interp(lam, curve["lam"], curve["alpha"])
+    elif form == "linear":
+        out = curve["a"] + curve["b"] * lam
+    else:  # power
+        out = curve["a"] * np.power(np.maximum(lam, 1e-9), curve["c"])
+    return np.clip(out, 0.0, ALPHA_CAP)
+
+
+def nb_pmf_matrix(ks: np.ndarray, mu_col: np.ndarray,
+                  alpha_col: np.ndarray) -> np.ndarray:
+    """Vectorized NB pmf: (n_games, len(ks)). ks ints ≥0; columns (n,1)."""
+    from scipy.special import gammaln
+    ks = np.asarray(ks, dtype=float)[None, :]
+    n_size = 1.0 / np.maximum(alpha_col, ALPHA_FLOOR)
+    p = n_size / (n_size + mu_col)
+    logpmf = (gammaln(ks + n_size) - gammaln(n_size) - gammaln(ks + 1.0)
+              + n_size * np.log(p) + ks * np.log1p(-p))
+    return np.exp(logpmf)
+
+
+def eval_alpha_fit(y: np.ndarray, lam: np.ndarray, alpha: np.ndarray,
+                   tail_k: int = 10, kmax: int = 80) -> dict:
+    """Validation metrics for an α vector on held-out games: absolute gap in
+    P(X≥tail_k) and mean NB log-likelihood (higher is better)."""
+    y = np.asarray(y, float)
+    mu_col = np.maximum(np.asarray(lam, float), 1e-6)[:, None]
+    a_col = np.maximum(np.asarray(alpha, float), ALPHA_FLOOR)[:, None]
+    M = nb_pmf_matrix(np.arange(kmax + 1), mu_col, a_col)
+    modeled_tail = float(M[:, tail_k:].sum(axis=1).mean())
+    obs_tail = float((y >= tail_k).mean())
+    loglik = float(np.log(np.maximum(
+        M[np.arange(len(y)), np.clip(y.astype(int), 0, kmax)], 1e-12)).mean())
+    return {"tail_gap": round(abs(modeled_tail - obs_tail), 5),
+            "modeled_tail": round(modeled_tail, 5),
+            "observed_tail": round(obs_tail, 5),
+            "loglik": round(loglik, 5)}
+
+
+def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
+                       seed: int = MC_SEED) -> tuple[dict, dict]:
+    """Out-of-bag selection among piecewise/linear/power forms.
+
+    Two-fold cross-fit (fit half A → score half B, swap); primary metric =
+    |P(X≥tail_k) modeled − observed| on the held-out half, tie-break = mean
+    NB log-likelihood. The chosen form is then REFIT on all rows passed here
+    by the caller (pre-holdout only). Returns (curve, diagnostics)."""
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(len(y))
+    halves = [perm[:len(perm) // 2], perm[len(perm) // 2:]]
+    fitters = {"piecewise": _fit_curve_piecewise,
+               "linear": _fit_curve_linear,
+               "power": _fit_curve_power}
+    diag: dict[str, dict] = {}
+    for name, fit_fn in fitters.items():
+        scores = []
+        for fit_idx, eval_idx in ((halves[0], halves[1]),
+                                  (halves[1], halves[0])):
+            curve = fit_fn(alpha_bins(y[fit_idx], lam[fit_idx]))
+            ev = eval_alpha_fit(y[eval_idx], lam[eval_idx],
+                                alpha_of(lam[eval_idx], curve))
+            scores.append(ev)
+        diag[name] = {
+            "tail_gap_avg": round(
+                (scores[0]["tail_gap"] + scores[1]["tail_gap"]) / 2, 5),
+            "loglik_avg": round(
+                (scores[0]["loglik"] + scores[1]["loglik"]) / 2, 5),
+        }
+    best = min(fitters,
+               key=lambda n: (diag[n]["tail_gap_avg"], -diag[n]["loglik_avg"]))
+    bins = alpha_bins(y, lam)
+    if len(bins) < 2:
+        # Everything merged into one bin (small samples): every parametric
+        # form degenerates to a constant level — ship piecewise directly.
+        curve = _fit_curve_piecewise(bins)
+    else:
+        curve = fitters[best](bins)
+    if curve["form"] == "piecewise":
+        curve["cross_fit_diagnostics"] = diag
+        curve["selection_metric"] = diag[best]["tail_gap_avg"] \
+            if best in diag else None
+    return curve, {"selected": curve["form"], "candidates": diag,
+                   "bins": bins}
+
+
+def _alpha_vector_for_side(y: np.ndarray, mu: np.ndarray,
+                           curve: dict) -> np.ndarray:
+    """Per-game α column for one side under a fitted curve, pre-holdout only
+    (the caller's discipline). Falls back to the pooled scalar estimate when
+    the frame cannot support binning — identical numbers to the old path."""
+    lam = np.asarray(mu, float)
+    if len(lam) < 2 * ALPHA_MIN_BIN:
+        return np.full(len(lam), float(estimate_alpha(y, mu)))
+    return alpha_of(lam, curve)
+
+
+def estimate_alpha(y: np.ndarray, mu: np.ndarray) -> float:
+    """Estimate NB alpha from OOF residual dispersion — MLB's estimator.
+
+    For NB variance ``mu + alpha*mu²``, the method-of-moments estimate is
+    ``alpha = max((var_obs - lam_bar) / lam_bar², 0)``: the excess of observed
+    variance over the Poisson expectation, divided by the squared mean
+    intensity. A value near zero is the Poisson limit.
+
+    This is byte-for-byte the same estimator as MLB's ``run_engine.fit_alpha``
+    — pooled and UNWEIGHTED, rounded to 4 dp, and deliberately UNCAPPED. The
+    prior NBA form was a different, mu²-weighted moment ratio with a 2.0
+    saturation cap: a genuinely over-dispersed fit could be silently clipped,
+    and the weighting made the estimate disagree with MLB whenever lambda was
+    heterogeneous. Both are gone. The only addition over MLB is the
+    degenerate-input guard (MLB never needs it because its lambda is clipped
+    at 1e-6 before it arrives here).
+    """
+    y = np.asarray(y, dtype=float)
+    mu = np.asarray(mu, dtype=float)
     ok = np.isfinite(y) & np.isfinite(mu) & (mu > 0)
     if ok.sum() < 2:
         return 0.0
-    excess = np.sum((y[ok] - mu[ok]) ** 2 - y[ok])
-    denom = np.sum(mu[ok] ** 2)
-    return float(np.clip(max(excess / max(denom, 1e-12), 0.0), 0.0, ALPHA_CAP))
+    lam = mu[ok]
+    lam_bar = float(lam.mean())
+    if lam_bar <= 0.0:
+        return 0.0
+    var_obs = float(y[ok].var(ddof=0))
+    return round(max((var_obs - lam_bar) / (lam_bar ** 2), 0.0), 4)
 
 
 def calibrate_dispersion(oof: pd.DataFrame | None) -> dict[str, Any]:
-    if oof is None or not len(oof):
+    """Fit the run line's NB dispersion from leakage-free OOF score predictions.
+
+    An absent or empty OOF frame (a contained training failure upstream)
+    degrades to the Poisson draw path exactly as before — a missing fit is
+    never an exception on the artifact path.
+
+    MLB-shaped (run_engine.derive_markets_v3's alpha layer): a per-side
+    α(λ) curve is selected out-of-bag among piecewise/linear/power forms
+    over the OOF frame (every row is leakage-free walk-forward OOF by
+    construction). The shipped ``alpha_home``/``alpha_away`` scalars remain
+    the pooled method-of-moments estimates — the numbers the draw path
+    actually consumes — while the fitted curves ride alongside in
+    ``alpha_*_curve`` as the diagnostic layer, with the per-row max under
+    each curve reported as ``alpha_*_max``. ``poisson_limit`` keeps its
+    SCALAR semantics — "the NB term is inactive in scoring" — because
+    scoring draws from the scalars; bin-level MoM noise makes a per-row
+    verdict hypersensitive (a pure-Poisson sample reads α≈0.005 per bin),
+    so the curve's measured verdict lives in ``run_line_fit_check``'s
+    Pearson probe instead.
+    """
+    if oof is None or not len(oof) or "mu_h" not in oof:
         return {"alpha_home": 0.0, "alpha_away": 0.0,
                 "distribution": "negative_binomial", "mc_draws": MC_DRAWS,
+                "mc_draws_tail": MC_DRAWS_TAIL, "mc_se_target": MC_SE_TARGET,
                 "poisson_limit": True}
-    ah = estimate_alpha(oof.home_score, oof.mu_h)
-    aa = estimate_alpha(oof.away_score, oof.mu_a)
-    return {"alpha_home": ah, "alpha_away": aa,
-            "distribution": "negative_binomial", "mc_draws": MC_DRAWS,
-            "poisson_limit": bool(max(ah, aa) <= ALPHA_FLOOR)}
+    y_h = oof["home_score"].to_numpy(float)
+    mu_h = oof["mu_h"].to_numpy(float)
+    y_a = oof["away_score"].to_numpy(float)
+    mu_a = oof["mu_a"].to_numpy(float)
+    ok_h = np.isfinite(y_h) & np.isfinite(mu_h) & (mu_h > 0)
+    ok_a = np.isfinite(y_a) & np.isfinite(mu_a) & (mu_a > 0)
+    curve_h, diag_h = select_alpha_curve(y_h[ok_h], mu_h[ok_h])
+    curve_a, diag_a = select_alpha_curve(y_a[ok_a], mu_a[ok_a])
+    alpha_home_vec = _alpha_vector_for_side(y_h[ok_h], mu_h[ok_h], curve_h)
+    alpha_away_vec = _alpha_vector_for_side(y_a[ok_a], mu_a[ok_a], curve_a)
+    ah = estimate_alpha(y_h[ok_h], mu_h[ok_h])
+    aa = estimate_alpha(y_a[ok_a], mu_a[ok_a])
+    return {
+        "alpha_home": ah, "alpha_away": aa,
+        "alpha_home_curve": curve_h, "alpha_away_curve": curve_a,
+        "alpha_selection": {"home": diag_h, "away": diag_a},
+        "alpha_home_max": round(float(alpha_home_vec.max()), 4),
+        "alpha_away_max": round(float(alpha_away_vec.max()), 4),
+        "distribution": "negative_binomial",
+        "poisson_limit": bool(ah <= ALPHA_FLOOR and aa <= ALPHA_FLOOR),
+        "mc_draws": MC_DRAWS,
+        "mc_draws_tail": MC_DRAWS_TAIL,
+        "mc_se_target": MC_SE_TARGET,
+    }
+
+
+def pearson_poisson_adequacy(y: np.ndarray, mu: np.ndarray) -> float:
+    """Pearson chi-square / df. ≈1 → Poisson variance is adequate; >1 means
+    over-dispersion the NB term should absorb (MLB run_engine fit probe)."""
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    if len(y) < 2:
+        return float("nan")
+    return float(((y - mu) ** 2 / mu).sum() / len(y))
+
+
+def _poisson_deviance_mean(y: np.ndarray, mu: np.ndarray) -> float:
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    term = np.where(y > 0, y * np.log(np.where(y > 0, y, 1.0) / mu), 0.0)
+    return float(2.0 * np.mean(term - (y - mu)))
+
+
+def run_line_fit_check(oof: pd.DataFrame) -> dict[str, Any]:
+    """Pooled fit diagnostics for the run line (MLB run_oof metrics shape):
+    the Poisson-adequacy probe per side plus deviance/RMSE of the μ
+    predictions against the constant league-mean baseline — the model must
+    beat the baseline it replaces, per fold population and pooled."""
+    out: dict[str, Any] = {}
+    for side, y_col, mu_col in (("home", "home_score", "mu_h"),
+                                ("away", "away_score", "mu_a")):
+        y = oof[y_col].to_numpy(float)
+        mu = oof[mu_col].to_numpy(float)
+        ok = np.isfinite(y) & np.isfinite(mu)
+        y, mu = y[ok], mu[ok]
+        base = float(y.mean()) if len(y) else float("nan")
+        out[side] = {
+            "pearson": round(pearson_poisson_adequacy(y, mu), 4),
+            "deviance_model": round(_poisson_deviance_mean(y, mu), 5),
+            "deviance_baseline": round(_poisson_deviance_mean(y, np.full(len(y), base)), 5),
+            "rmse_model": round(float(np.sqrt(np.mean((y - mu) ** 2))), 4),
+            "rmse_baseline": round(float(np.sqrt(np.mean((y - base) ** 2))), 4),
+            "n": int(len(y)),
+        }
+    return out
 
 
 def _nb_draws(mu: np.ndarray, alpha: float, rng: np.random.Generator,
               n_draws: int) -> np.ndarray:
+    """Draw NB(mu, alpha); alpha≈0 uses Poisson exactly."""
     mu = np.maximum(np.asarray(mu, dtype=float), 1e-6)
     if alpha <= ALPHA_FLOOR:
-        return rng.poisson(mu[:, None], size=(len(mu), n_draws))
+        return rng.poisson(mu[:, None], size=(len(mu), n_draws)).astype(np.int16)
     size = np.full(len(mu), 1.0 / max(alpha, ALPHA_FLOOR))
     prob = size / (size + mu)
     return rng.negative_binomial(size[:, None], prob[:, None],
-                                 size=(len(mu), n_draws))
+                                 size=(len(mu), n_draws)).astype(np.int16)
 
 
-def simulate_distributions(mu_h, mu_a, alpha_home=0.0, alpha_away=0.0,
-                           n_draws=MC_DRAWS, seed=MC_SEED) -> pd.DataFrame:
-    """Price all configured lines from paired NBA score draws."""
+def _mc_se_totals_max(grid: pd.DataFrame, n_draws: int) -> float:
+    """Worst MC standard error over the totals grid (MLB's mc_se_totals_max):
+    se = sqrt(p(1-p)/n) per row per line; the max is the guard's trigger."""
+    if not len(grid) or n_draws <= 0:
+        return 0.0
+    se = 0.0
+    for line in config.TOTAL_GRID:
+        col = _grid_key("p_over", line)
+        if col not in grid.columns:
+            continue
+        p = pd.to_numeric(grid[col], errors="coerce").to_numpy(float)
+        p = p[np.isfinite(p)]
+        if len(p):
+            se = max(se, float(np.sqrt((p * (1 - p)) / n_draws).max()))
+    return se
+
+
+def simulate_distributions(mu_h: np.ndarray, mu_a: np.ndarray,
+                           alpha_home: float = 0.0, alpha_away: float = 0.0,
+                           n_draws: int = MC_DRAWS, seed: int = MC_SEED,
+                           meta_out: dict | None = None) -> pd.DataFrame:
+    """Price all configured lines from paired NBA score draws.
+
+    MLB SE-guard parity (run_engine.derive_markets_v3): when the worst
+    totals-line standard error exceeds :data:`MC_SE_TARGET` at this draw
+    count, the whole derivation is re-simulated at :data:`MC_DRAWS_TAIL` and
+    the bump is recorded. Pass ``meta_out`` to receive the ``mc_meta`` block
+    (n_draws, requested_draws, mc_se_totals_max, reason) — the same
+    transparency MLB writes into its markets summary."""
+    rng = np.random.default_rng(seed)
     mu_h = np.asarray(mu_h, dtype=float)
     mu_a = np.asarray(mu_a, dtype=float)
     if len(mu_h) != len(mu_a):
         raise ValueError("home/away expected-score arrays must have equal length")
-    rng = np.random.default_rng(seed)
     rows: list[dict[str, Any]] = []
     # Keep memory bounded for a full slate while preserving deterministic order.
     chunk = max(1, min(len(mu_h), 2_000_000 // max(int(n_draws), 1)))
@@ -195,6 +603,22 @@ def simulate_distributions(mu_h, mu_a, alpha_home=0.0, alpha_away=0.0,
                                for _, row in out.iterrows()]
         out["p_over_fair"] = [float(row[_grid_key("p_over", row.fair_total)])
                               for _, row in out.iterrows()]
+    se = _mc_se_totals_max(out, int(n_draws))
+    meta = {"n_draws": int(n_draws), "requested_draws": int(n_draws),
+            "mc_se_totals_max": round(se, 6), "reason": "default"}
+    if se > MC_SE_TARGET and n_draws < MC_DRAWS_TAIL:
+        # Bump once, whole derivation (MLB's derive_markets_v3 discipline).
+        bumped = simulate_distributions(mu_h, mu_a, alpha_home, alpha_away,
+                                        n_draws=MC_DRAWS_TAIL, seed=seed)
+        se = _mc_se_totals_max(bumped, MC_DRAWS_TAIL)
+        meta = {"n_draws": int(MC_DRAWS_TAIL),
+                "requested_draws": int(n_draws),
+                "mc_se_totals_max": round(se, 6),
+                "reason": (f"SE {se:.4f} > {MC_SE_TARGET} at N={n_draws} "
+                           "— bumped")}
+        out = bumped
+    if meta_out is not None:
+        meta_out.update(meta)
     return out
 
 
@@ -206,12 +630,14 @@ def _fair(row: dict[str, Any], prefix: str, lines: list[int]) -> float:
     return float(lines[int(np.nanargmin(np.abs(values - 0.5)))])
 
 
-def apply_distribution(df: pd.DataFrame, params: dict | None = None, **kwargs) -> pd.DataFrame:
+def apply_distribution(df: pd.DataFrame, params: dict | None = None,
+                       meta_out: dict | None = None, **kwargs) -> pd.DataFrame:
     params = params or {}
     dist = simulate_distributions(
         df.mu_h.to_numpy(float), df.mu_a.to_numpy(float),
         float(params.get("alpha_home", 0)), float(params.get("alpha_away", 0)),
-        n_draws=int(params.get("mc_draws", MC_DRAWS)), seed=int(params.get("seed", MC_SEED)))
+        n_draws=int(params.get("mc_draws", MC_DRAWS)),
+        seed=int(params.get("seed", MC_SEED)), meta_out=meta_out)
     base = df.drop(columns=[c for c in dist.columns if c in df.columns], errors="ignore")
     return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)], axis=1)
 
@@ -266,7 +692,6 @@ def _fit_platt(p, y):
 
 
 def _sigmoid(z):
-    """Numerically stable logistic transform for calibration logits."""
     values = np.asarray(z, dtype=float)
     out = np.empty_like(values, dtype=float)
     positive = values >= 0
@@ -277,12 +702,11 @@ def _sigmoid(z):
 
 
 def _apply_platt(p, cal):
-    values = np.asarray(p, dtype=float)
+    p = np.asarray(p, dtype=float)
     if not cal:
-        return values
-    clipped = np.clip(values, 1e-7, 1 - 1e-7)
-    z = np.log(clipped / (1 - clipped))
-    return np.clip(_sigmoid(cal["a"] * z + cal["b"]), 1e-7, 1 - 1e-7)
+        return np.clip(p, 0.0, 1.0)
+    z = np.log(np.clip(p, 1e-7, 1 - 1e-7) / (1 - np.clip(p, 1e-7, 1 - 1e-7)))
+    return _sigmoid(float(cal.get("a", 1)) * z + float(cal.get("b", 0)))
 
 
 def _apply_derived_calibration(p_home, p_tie, cal):
@@ -343,7 +767,14 @@ def _prequential(p, y, folds):
 
 
 def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Apply causal line-specific calibration to a priced OOF market frame."""
+    """Apply causal line-specific calibration to a priced OOF market frame.
+
+    Third-leg audit (NHL commit 8d6f9b0 parity, verified 2026-09-27): every
+    leg of every three-way market is calibrated from its OWN outcome — over
+    vs ``total > line``, push vs ``total == line``, under vs ``total < line``
+    (and symmetrically across the margin legs) — never from another leg's
+    map. The renormalization afterwards is the only cross-leg interaction.
+    """
     out = df.copy()
     bundle: dict[str, Any] = {"method": "prequential_platt", "scope": "line_specific",
                               "totals": {}, "run_lines": {}}
@@ -414,63 +845,42 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, An
 
 
 def apply_market_calibration(df: pd.DataFrame, bundle: dict | None) -> pd.DataFrame:
-    """Apply a fitted calibration bundle to a newly priced slate frame.
-
-    OOF rows already carry prequential values from ``calibrate_market_frame``
-    and are returned unchanged.  Slate rows receive the final maps learned
-    from all OOF folds, with three-way probabilities renormalized.
-    """
+    """Apply the OOF-fitted calibration bundle to a slate frame."""
     out = df.copy()
-    if not bundle or "method" not in bundle or not len(out):
+    if not bundle or not len(out):
         return out
-    for line, maps in (bundle.get("totals") or {}).items():
-        try:
-            number = int(line)
-        except (TypeError, ValueError):
-            continue
-        over_key, push_key, under_key = (_grid_key("p_over", number),
-                                          _grid_key("p_push_total", number),
-                                          _grid_key("p_under", number))
-        if over_key not in out:
-            continue
-        over = _apply_platt(out[over_key].to_numpy(float), maps.get("over"))
-        if number == int(number) and push_key in out:
-            push = _apply_platt(out[push_key].to_numpy(float), maps.get("push"))
-            under = _apply_platt(out[under_key].to_numpy(float), maps.get("under"))
-            values = np.maximum(np.column_stack([over, push, under]), 1e-9)
-            values /= values.sum(axis=1, keepdims=True)
-            out[over_key], out[push_key], out[under_key] = values.T
-        else:
-            out[over_key] = over
-    for line, maps in (bundle.get("run_lines") or {}).items():
-        try:
-            number = float(line)
-        except (TypeError, ValueError):
-            continue
-        label = int(number) if number.is_integer() else number
-        home_key, push_key, away_key = (_grid_key("p_home_cover", label),
-                                        _grid_key("p_push", label),
-                                        _grid_key("p_away_cover", label))
-        if home_key not in out:
-            continue
-        home = _apply_platt(out[home_key].to_numpy(float), maps.get("home"))
-        away = (_apply_platt(out[away_key].to_numpy(float), maps.get("away"))
-                if away_key in out else 1.0 - home)
-        if number.is_integer() and push_key in out:
-            push = _apply_platt(out[push_key].to_numpy(float), maps.get("push"))
-            values = np.maximum(np.column_stack([home, push, away]), 1e-9)
-            values /= values.sum(axis=1, keepdims=True)
-            out[home_key], out[push_key], out[away_key] = values.T
-        else:
-            values = np.maximum(np.column_stack([home, away]), 1e-9)
-            values /= values.sum(axis=1, keepdims=True)
-            out[home_key], out[away_key] = values.T
-            out[push_key] = 0.0
-    cal = bundle.get("derived_moneyline")
-    if cal and "p_home_win_derived" in out:
+    for line, maps in bundle.get("totals", {}).items():
+        line_val = int(float(line))
+        key, push_key, under_key = (_grid_key("p_over", line_val),
+                                    _grid_key("p_push_total", line_val),
+                                    _grid_key("p_under", line_val))
+        if key in out:
+            out[key] = np.clip(_apply_platt(out[key].to_numpy(float),
+                                            maps.get("over")), 0.0, 1.0)
+            if maps.get("push") and push_key in out:
+                out[push_key] = np.clip(_apply_platt(out[push_key].to_numpy(float),
+                                                     maps["push"]), 0.0, 1.0)
+            if maps.get("under") and under_key in out:
+                out[under_key] = np.clip(_apply_platt(out[under_key].to_numpy(float),
+                                                      maps["under"]), 0.0, 1.0)
+    for line, maps in bundle.get("run_lines", {}).items():
+        line_val = float(line)
+        key, push_key, away_key = (_grid_key("p_home_cover", line_val),
+                                   _grid_key("p_push", line_val),
+                                   _grid_key("p_away_cover", line_val))
+        if key in out:
+            out[key] = np.clip(_apply_platt(out[key].to_numpy(float),
+                                            maps.get("home")), 0.0, 1.0)
+            if maps.get("push") and push_key in out:
+                out[push_key] = np.clip(_apply_platt(out[push_key].to_numpy(float),
+                                                     maps["push"]), 0.0, 1.0)
+            if maps.get("away") and away_key in out:
+                out[away_key] = np.clip(_apply_platt(out[away_key].to_numpy(float),
+                                                     maps["away"]), 0.0, 1.0)
+    if bundle.get("derived_moneyline") and "p_home_win_derived" in out:
         p = out.p_home_win_derived.to_numpy(float)
         tie = out.get("p_tie", pd.Series(np.zeros(len(out)), index=out.index)).to_numpy(float)
-        p, tie = _apply_derived_calibration(p, tie, cal)
+        p, tie = _apply_derived_calibration(p, tie, bundle["derived_moneyline"])
         out["p_home_win_derived"] = p
         out["p_tie"] = tie
         out["p_away_win_derived"] = np.maximum(0.0, 1.0 - tie - p)

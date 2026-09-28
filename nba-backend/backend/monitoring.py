@@ -390,12 +390,24 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
 def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
                              calibration=None, config_meta=None,
                              slate_history=None) -> dict:
+    # The fit block must report the ENGINE's constants, not a number a
+    # refactor forgot: the draw count here used to be hardcoded at 4000 while
+    # the derivation itself moved to the MLB pair (10k default, 50k SE-guard
+    # tail), so the monitor described a resolution the run never used.
+    try:
+        from backend import distributions as _dist_mod
+    except ImportError:  # pragma: no cover - direct script/import fallback
+        import distributions as _dist_mod
     record = {
         "created_utc": pd.Timestamp.utcnow().isoformat(), "date": date_c,
         "config": config_meta or {}, "winner_cards": metrics or {},
         "market_metrics": metrics or {}, "calibration_cards": calibration or {},
         "slate_history": slate_history or [],
-        "fit": {"distribution": "negative_binomial", "mc_draws": 4000, "seed": 42,
+        "fit": {"distribution": "negative_binomial",
+                "mc_draws": _dist_mod.MC_DRAWS,
+                "mc_draws_tail": _dist_mod.MC_DRAWS_TAIL,
+                "mc_se_target": _dist_mod.MC_SE_TARGET,
+                "seed": _dist_mod.MC_SEED,
                 "spread_grid": [min(config.SPREAD_GRID), max(config.SPREAD_GRID)],
                 "total_grid": [min(config.TOTAL_GRID), max(config.TOTAL_GRID)],
                 "half_stops": list(config.HALF_STOP_LINES)},

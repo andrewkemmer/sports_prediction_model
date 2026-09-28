@@ -485,3 +485,185 @@ class TestFeatureImportanceWeights:
         weights = mp.feature_importance_weights(
             {"xgboost": {"model": types.SimpleNamespace()}}, {"xgboost": 1.0})
         assert weights is None
+
+
+class TestRunLineStructuralContract:
+    """The run line's structural contract with the MLB/NHL/NFL family.
+
+    Each test pins one clause of the alignment: the feature matrix is PULLED
+    from the binary moneyline's own member path (never a parallel list), the
+    dispersion estimator is MLB's pooled method-of-moments form, the MC
+    derivation records its own resolution and guards it, and the artifacts
+    carry the transparency blocks. Every later run-line change must flip one
+    of these deliberately or it is a regression.
+    """
+
+    @staticmethod
+    def _decided(n: int = 240, seed: int = 7) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        teams = list(range(30))
+        df = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.date_range("2026-01-01", periods=n, freq="D"),
+            "season": 2026,
+            "home_team": rng.choice(teams, n),
+            "away_team": rng.choice(teams, n),
+            "home_score": rng.integers(95, 125, n).astype(float),
+            "away_score": rng.integers(95, 125, n).astype(float),
+        })
+        for col in config.MONEYLINE_FEATURE_COLS:
+            df[col] = rng.normal(0, 1, n)
+        return df
+
+    @staticmethod
+    def _oof(n: int = 200, seed: int = 11) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        scores_h = rng.integers(95, 125, n).astype(float)
+        scores_a = rng.integers(95, 125, n).astype(float)
+        oof = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "mu_h": scores_h + rng.normal(0, 4, n),
+            "mu_a": scores_a + rng.normal(0, 4, n),
+            "home_score": scores_h, "away_score": scores_a,
+            "fold_id": np.arange(n) // 25,
+        })
+        oof["margin"] = oof.home_score - oof.away_score
+        oof["total"] = oof.home_score + oof.away_score
+        return oof
+
+    def test_the_run_line_pulls_the_moneyline_contract_by_construction(self):
+        import distributions as dist_mod
+        import moneyline as ml_mod
+        df = self._decided()
+        reg = dist_mod.ScoreRegressor().fit(df)
+        expected = ml_mod.member_matrix(dist_mod.MONEYLINE_TREE_MEMBER, df)
+        assert list(reg.feature_columns) == list(expected.columns)
+
+    def test_matrix_route_is_the_moneyline_member_helper_not_a_parallel_path(self):
+        import distributions as dist_mod
+        import moneyline as ml_mod
+        df = self._decided(n=12)
+        X = dist_mod.ScoreRegressor()._matrix(df)
+        expected = ml_mod.member_matrix(dist_mod.MONEYLINE_TREE_MEMBER, df)
+        assert list(X.columns) == list(expected.columns)
+        assert X.shape == expected.shape
+
+    def test_dispersion_estimator_is_mlbs_pooled_moment_form(self):
+        import distributions as dist_mod
+        # MLB's fit_alpha: pooled, unweighted, UNcapped, 4dp:
+        #   alpha = max((var(y) - mean(mu)) / mean(mu)^2, 0)
+        rng = np.random.default_rng(3)
+        mu = np.full(500, 110.0)
+        # Poisson sample -> estimate ~ 0
+        y = rng.poisson(mu).astype(float)
+        est = dist_mod.estimate_alpha(y, mu)
+        expect = max((y.var(ddof=0) - mu.mean()) / mu.mean() ** 2, 0.0)
+        assert abs(est - round(expect, 4)) < 1e-9
+        # A genuinely over-dispersed sample must NOT be clipped by a cap
+        # (the old mu^2-weighted capped form silently saturated): variance
+        # far above the mean must land well above the Poisson-limit noise.
+        y_over = mu + rng.normal(0, 25, 500)
+        assert dist_mod.estimate_alpha(y_over, mu) > 0.03
+        assert dist_mod.ALPHA_FLOOR == 1e-6
+
+    def test_the_alpha_curve_layer_rides_alongside_the_scalars(self):
+        import distributions as dist_mod
+        oof = self._oof()
+        sig = dist_mod.calibrate_dispersion(oof)
+        for side in ("home", "away"):
+            curve = sig[f"alpha_{side}_curve"]
+            assert curve["form"] in ("piecewise", "linear", "power")
+            assert f"alpha_{side}_max" in sig
+        # The draw path consumes the SCALARS; the limit verdict is scalar too.
+        assert sig["poisson_limit"] == bool(
+            sig["alpha_home"] <= dist_mod.ALPHA_FLOOR
+            and sig["alpha_away"] <= dist_mod.ALPHA_FLOOR)
+
+    def test_empty_oof_degrades_to_poisson_not_an_exception(self):
+        import distributions as dist_mod
+        sig = dist_mod.calibrate_dispersion(None)
+        assert sig["poisson_limit"] is True
+        assert sig["alpha_home"] == 0.0 and sig["alpha_away"] == 0.0
+
+    def test_mc_derivation_records_its_resolution_and_guards_it(self):
+        import distributions as dist_mod
+        rng = np.random.default_rng(5)
+        mu_h = rng.uniform(105, 115, 4)
+        mu_a = rng.uniform(105, 115, 4)
+        meta: dict = {}
+        dist_mod.simulate_distributions(mu_h, mu_a, 0.0, 0.0,
+                                        n_draws=2000, meta_out=meta)
+        assert set(meta) == {"n_draws", "requested_draws",
+                             "mc_se_totals_max", "reason"}
+        # At a tiny draw count the guard MUST fire: the NBA totals grid is
+        # 101 lines, and the tail lines cannot be priced at se <= 5e-3
+        # without the bump.
+        assert meta["n_draws"] == dist_mod.MC_DRAWS_TAIL
+        assert "bumped" in meta["reason"]
+        # At the production resolution the guard must NOT fire.
+        meta2: dict = {}
+        dist_mod.simulate_distributions(mu_h[:2], mu_a[:2], 0.0, 0.0,
+                                        n_draws=dist_mod.MC_DRAWS,
+                                        meta_out=meta2)
+        assert meta2["n_draws"] == dist_mod.MC_DRAWS
+        assert meta2["reason"] == "default"
+
+    def test_draw_constants_are_family_aligned(self):
+        import distributions as dist_mod
+        assert dist_mod.MC_DRAWS == 10_000
+        assert dist_mod.MC_DRAWS_TAIL == 50_000
+        assert dist_mod.MC_SE_TARGET == 5e-3
+        assert dist_mod.ALPHA_CAP == 2.0
+
+    def test_the_fit_diagnostics_pack_is_measured_every_run(self):
+        import distributions as dist_mod
+        fc = dist_mod.run_line_fit_check(self._oof())
+        for side in ("home", "away"):
+            block = fc[side]
+            assert {"pearson", "deviance_model", "deviance_baseline",
+                    "rmse_model", "rmse_baseline", "n"} <= set(block)
+            # A real regressor beats the constant league-mean baseline it
+            # replaces on this synthetic signal; in any case the baseline
+            # numbers must be real measurements, not placeholders.
+            assert block["n"] > 0
+            assert np.isfinite(block["deviance_baseline"])
+
+    def test_markets_meta_carries_the_transparency_blocks(self, tmp_path):
+        import serving
+        oof = self._oof(n=8)
+        oof["kind"] = "oof"
+        oof["fold_id"] = 0
+        slate = oof.head(2).copy()
+        slate["kind"] = "slate"
+        meta_path = tmp_path / "meta.json"
+        serving.write_markets_csv(
+            tmp_path / "markets.csv", meta_path, oof, slate,
+            mc_meta={"n_draws": 10000, "requested_draws": 10000,
+                     "mc_se_totals_max": 0.0005, "reason": "default"},
+            run_line_fit_check={"home": {"pearson": 1.0}, "away": {"pearson": 1.0}})
+        import json
+        meta = json.loads(meta_path.read_text())
+        assert meta["mc_meta"]["n_draws"] == 10000
+        assert "home" in meta["run_line_fit_check"]
+
+    def test_every_market_leg_is_calibrated_from_its_own_outcome(self):
+        """NHL 8d6f9b0 parity, pinned: over/under/push legs must each carry
+        their OWN platt map in the bundle, never a shared one."""
+        import distributions as dist_mod
+        rng = np.random.default_rng(9)
+        n = 120
+        total = rng.uniform(190, 260, n)
+        oof = self._oof(n=n, seed=13)
+        oof["total"] = total
+        oof["margin"] = rng.uniform(-20, 20, n)
+        grid = dist_mod.simulate_distributions(
+            oof.mu_h.to_numpy(), oof.mu_a.to_numpy(), 0.0, 0.0,
+            n_draws=dist_mod.MC_DRAWS)
+        frame = grid
+        frame["fold_id"] = oof.fold_id.to_numpy()
+        frame["margin"] = oof.margin.to_numpy()
+        frame["total"] = oof.total.to_numpy()
+        _, bundle = dist_mod.calibrate_market_frame(frame)
+        sample = bundle["totals"].get("220") or next(iter(bundle["totals"].values()))
+        assert sample["over"] is not None and sample["under"] is not None
+        assert sample["over"] != sample["under"] or sample["push"] != sample["over"]
