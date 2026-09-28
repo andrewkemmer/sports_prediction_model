@@ -19,15 +19,14 @@ the SAME fixed walk-forward folds as the moneyline pipeline. Pooled OOF scoring,
 baseline comparison vs constant league-mean, Pearson chi-square/dispersion
 probe for the Phase-2 Poisson-vs-negative-binomial decision.
 
-P1 PROJECTION INPUT (adoption 2026-09-05, gate 7e4c529 ADOPT — see
-attach_projection_levels): production daily attaches the opponent starter's
-projection level (sp_proj_era_<opp>, the sp_projection.py composite) to the
-decided frame + slate before the walk/pricing; build_side_frame appends it
-per side when present. The margin-walk gate that ADOPTED P1 measured sealed
-margin CRPS 2.53856 -> 2.51736 and P(win) SD 0.0409 -> 0.0546 with totals /
-covers ECE within tolerance. SP compression (~0.38 sextile ratio) stays
-capped by design — the binary moneyline owns SP-mismatch pricing. If projection components are unavailable, the run engine continues with the
-active moneyline feature contract without the optional projection columns.
+FEATURE PARITY (2026-09-27): the run line's per-side Poisson models train
+and price on EXACTLY the binary moneyline's active feature list — the same
+served columns, nothing appended. The P1 projection input seam
+(attach_projection_levels / sp_proj_era_<opp>, adopted by gate 7e4c529 on
+2026-09-04) was REMOVED here; the projection producer (sp_projection.py)
+survives as a standalone research module only. The prior P1 arm measured
+sealed margin CRPS 2.53856 -> 2.51736 and P(win) SD 0.0409 -> 0.0546, but
+run-line/moneyline feature identity is the governing contract.
 """
 from __future__ import annotations
 
@@ -319,18 +318,15 @@ def build_side_frame(games: pd.DataFrame, side: str,
         logger.info("Run engine: env-level features EXCLUDED (ablation arm A)")
     if strict_feature_parity:
         # Do not apply the legacy side/level/environment split in parity mode:
-        # both home and away run regressors receive the same 62 named columns.
+        # both home and away run regressors receive the same named columns.
         cols = list(feats)
     else:
         side_cols, env_cols = split_side_view(feats, side)
         cols = side_cols + env_cols
-        # Legacy P1 projection input: appended only outside strict parity mode.
-        opp = "away" if side == "home" else "home"
-        proj_col = f"sp_proj_era_{opp}"
-        if proj_col in games.columns and proj_col not in cols:
-            cols = list(cols) + [proj_col]
-            logger.info("Run engine: %s view += P1 projection opponent level %s",
-                        side, proj_col)
+        # FEATURE PARITY: the side view carries exactly the served moneyline
+        # columns (side split + shared environment). No extra inputs — the
+        # former P1 projection append (sp_proj_era_<opp>) was removed
+        # 2026-09-27 so both models train on identical features.
     frame, out_cols = _materialize_side_frame(games, cols, side)
     # Record the pair on the returned list (contract metadata for callers
     # that need the full model width) — but NOT in the frame; the fitting
@@ -339,78 +335,6 @@ def build_side_frame(games: pd.DataFrame, side: str,
     if RUN_WITH_TEAM_IDS and RUN_TREE_CATEGORICAL_COLS:
         out_cols = list(out_cols) + list(RUN_TREE_CATEGORICAL_COLS)
     return frame, out_cols
-
-
-# ---------------------------------------------------------------------------
-# P1 projection input seam (adoption 2026-09-05, gate 7e4c529 ADOPT)
-# ---------------------------------------------------------------------------
-def attach_projection_levels(
-    decided: pd.DataFrame,
-    slate: Optional[pd.DataFrame] = None,
-    pre_mask: Optional[np.ndarray] = None,
-) -> tuple[pd.DataFrame, Optional[pd.DataFrame], dict]:
-    """P1 production seam: attach sp_proj_era_{home,away} (VERBATIM
-    sp_projection.py producer, committed 3108bb0) to the decided frame and
-    to the slate rows with the SAME decided-fit stats.
-
-    Stats discipline mirrors the measured arm byte-for-byte: z-mu/sd + the
-    ERA~composite OLS scale are fit on the PRE-HOLDOUT rows of ``decided``
-    only (dates strictly before max − HOLDOUT_DAYS — the α/k convention),
-    then applied to every decided row and every slate row. The slate is
-    never fit on itself; a slate row is transformed with the decided-frame
-    fit exactly like the OOF rows the walk prices.
-
-    Degrades gracefully (loud log, without optional projection inputs) when the
-    frame lacks the producer's component columns (synthetic fixtures /
-    cold-start frame) or
-    the pre pool is too thin to fit — this function must never take down
-    Phase 3. When the columns are already present (re-entry) the fit is
-    recomputed deterministically on the same rows, so it is idempotent.
-
-    Returns (decided_with_cols, slate_with_cols|None, meta)."""
-    from sp_projection import (
-        apply_projection_stats,
-        fit_projection_stats,
-        projection_components_present,
-    )
-
-    meta: dict = {"attached": False, "reason": None, "coverage": None,
-                  "slopes": None}
-    if decided is None or not len(decided):
-        meta["reason"] = "empty decided frame"
-        return decided, slate, meta
-    if not projection_components_present(decided):
-        meta["reason"] = ("projection component columns absent from the "
-                           "decided frame")
-        logger.warning("Run engine: P1 projection input NOT attached (%s) — "
-                       "continuing without optional projection inputs", meta["reason"])
-        return decided, slate, meta
-    orig_decided, orig_slate = decided, slate
-    try:
-        if pre_mask is None:
-            dates = pd.to_datetime(decided["game_date"])
-            pre_mask = (dates < dates.max()
-                        - pd.Timedelta(days=HOLDOUT_DAYS)).to_numpy()
-        stats = fit_projection_stats(decided, pre_mask)
-        decided = apply_projection_stats(decided, stats)
-        if slate is not None and len(slate):
-            slate = apply_projection_stats(slate, stats)
-    except Exception as exc:
-        meta["reason"] = f"{type(exc).__name__}: {exc}"
-        logger.warning("Run engine: P1 projection input NOT attached (%s) — "
-                       "continuing without optional projection inputs", meta["reason"])
-        return orig_decided, orig_slate, meta
-    cov = {s: round(float(decided[f"sp_proj_era_{s}"].notna().mean()), 4)
-           for s in ("home", "away")}
-    slopes = {s: round(float(stats[s]["slope"]), 4)
-              for s in ("home", "away")}
-    meta = {"attached": True, "reason": None, "coverage": cov,
-            "slopes": slopes}
-    logger.warning(
-        "Run engine: P1 projection input attached (opponent sp_proj_era per "
-        "side) — decided coverage %s, ERA~proj slopes %s, pre pool %d rows",
-        cov, slopes, int(np.asarray(pre_mask).sum()))
-    return decided, slate, meta
 
 
 # ---------------------------------------------------------------------------
@@ -2581,14 +2505,10 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     Returns the monitor-embed block plus written artifact paths."""
     decided = (decided_snapshot.copy() if decided_snapshot is not None
                else get_decided_frame(games))
-    # P1 projection input (adoption 7e4c529 ADOPT): attach the opponent
-    # sp_proj_era level to the decided frame and to today's slate rows with
-    # the same decided-fit stats BEFORE the OOF walk and slate pricing, so
-    # both sides of the board price the P1 view. Unattached (cold-start /
-    # component-less frame) continues with the active moneyline feature contract
-    # and logs that optional projection inputs were unavailable.
-    decided, slate_ready, _proj = attach_projection_levels(
-        decided, slate=target_games.copy())
+    # FEATURE PARITY (2026-09-27): no attach step — the run line trains and
+    # prices on exactly the moneyline's active feature list. (The P1
+    # projection attach adopted by gate 7e4c529 was removed here so both
+    # models see identical features.)
     result = run_oof(decided, decided_snapshot=decided)
     oof = result["oof"]
 
@@ -2606,7 +2526,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     curves = {s: summary[f"alpha_{s}"] for s in ("home", "away")}
 
     slate_frame = predict_slate_runs(
-        decided, slate_ready, result["summary"]["final_fit_rounds"],
+        decided, target_games, result["summary"]["final_fit_rounds"],
         curves, n_draws=n_draws,
         calibration=summary.get("calibration", {}).get("calibrators"))
     if (not slate_frame.empty and ml_probs is not None
@@ -2999,7 +2919,7 @@ def main() -> None:
     date_stamp = args.date or datetime.date.today().strftime("%Y%m%d")
 
     df = pd.read_csv(args.data)
-    decided, _, _ = attach_projection_levels(get_decided_frame(df))
+    decided = get_decided_frame(df)
     result = run_oof(decided, decided_snapshot=decided)
 
     # Phase 2 consumes Phase 1's OOF λ directly (same process, no retrain).

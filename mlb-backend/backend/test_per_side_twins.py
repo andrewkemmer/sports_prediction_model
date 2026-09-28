@@ -296,10 +296,9 @@ def test_run_engine_side_view_carries_every_served_feature():
     # build_side_frame's production branch must carry EVERY served moneyline
     # feature into the side models: each side's view holds its own side
     # columns plus the shared environment, and the UNION of the home+away
-    # views must be exactly the active list — nothing dropped by rule. (The
-    # historical derivation that filtered *_diff composites out of the λ view
-    # was retired to monitor-only by the 2026-08-30 restore and removed
-    # outright on 2026-09-27; the P1 projection column may only append.)
+    # views must be exactly the active list — nothing dropped by rule and
+    # NOTHING APPENDED (feature parity with the binary moneyline; the former
+    # P1 projection append was removed 2026-09-27).
     games = pd.DataFrame({
         "game_pk": [1],
         "game_date": ["2026-09-20"],
@@ -315,6 +314,18 @@ def test_run_engine_side_view_carries_every_served_feature():
     assert not missing, (
         f"run side views dropped {len(missing)} served features: "
         f"{sorted(missing)[:8]}")
+    # STRICT PARITY: the run view carries ONLY the moneyline's columns —
+    # any foreign column present in the frame must NOT be appended (the
+    # former P1 sp_proj_era append violated this; removed 2026-09-27).
+    foreign = games.assign(sp_proj_era_home=[4.1], sp_proj_era_away=[4.3])
+    _, home_foreign = re_engine.build_side_frame(foreign, "home")
+    _, away_foreign = re_engine.build_side_frame(foreign, "away")
+    assert "sp_proj_era_away" not in home_foreign, "P1 append must stay dead"
+    assert "sp_proj_era_home" not in away_foreign, "P1 append must stay dead"
+    assert set(home_foreign) == set(home_cols), (
+        "frame extras must not change the side view")
+    assert set(away_foreign) == set(away_cols), (
+        "frame extras must not change the side view")
     # Side-agnostic matchup gaps are shared environment — present in BOTH
     # side views; per-side levels appear in their own side's view.
     for shared in ("win_pct_diff", "elo_diff", "bullpen_whip_3g_diff",
