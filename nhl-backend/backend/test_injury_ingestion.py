@@ -18,10 +18,13 @@ import injury_stints as ist  # noqa: E402
 
 
 class _Response:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self.payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
         return None
 
     def json(self):
@@ -47,6 +50,52 @@ def _payload(*, status="Out", include_player=True):
 def _set_clock(monkeypatch, stamps):
     values = iter(pd.to_datetime(value, utc=True) for value in stamps)
     monkeypatch.setattr(ing, "_utc_now", lambda: next(values))
+
+
+def test_transient_edge_block_is_retried_before_history_falls_back(
+        tmp_path, monkeypatch):
+    """The ESPN edge blocks agents in passing waves (2026-09-28 Kaggle run:
+    one 403 with a profile that tested 200 minutes before and after, costing
+    BOTH snapshots of the day because a single failed request fell straight
+    to previously-captured history). A 403 must be retried and only a
+    persistent block falls back to history.
+    """
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+    _set_clock(monkeypatch, ["2026-09-26T10:00:00Z", "2026-09-26T10:05:12Z"])
+    responses = [_Response(_payload(), status_code=403),
+                 _Response(_payload(), status_code=403),
+                 _Response(_payload())]
+    with patch("requests.get", side_effect=responses) as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    assert get.call_count == 3  # two transient blocks, then success
+    assert out.iloc[0]["status"] == "Out"
+    assert not bool(out.iloc[0]["snapshot_marker"])
+    latest = json.loads(
+        (tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_latest.json").read_text())
+    assert latest["snapshot_at"] == "2026-09-26T10:05:12+00:00"
+
+
+def test_persistent_edge_block_still_falls_back_to_captured_history(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+    old = pd.DataFrame([{
+        "player_id": "mp-1", "player_name": "Alex Example", "status": "Out",
+        "report_date": "2026-09-01", "snapshot_at": pd.Timestamp("2026-09-01T12:00:00Z"),
+        "snapshot_marker": False,
+    }])
+    old.to_parquet(tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+    _set_clock(monkeypatch, ["2026-09-26T10:00:00Z"])
+    with patch("requests.get",
+               return_value=_Response(_payload(), status_code=403)) as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    assert get.call_count == 4  # bounded retries, then the history fallback
+    assert len(out) == 1
+    # The fallback is the OLD captured state, never re-stamped as fresh.
+    assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-01T12:00:00Z")
 
 
 def test_schedule_parser_retains_exact_utc_puck_drop_for_snapshot_filtering():
@@ -148,10 +197,13 @@ def test_fetch_failure_returns_old_archive_without_stamping_it_fresh(
     }])
     old.to_parquet(tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
     _set_clock(monkeypatch, ["2026-09-26T10:00:00Z"])
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
     with patch("requests.get", side_effect=RuntimeError("offline")) as get:
         out = ing.load_espn_injuries(use_cache=True, snapshot=True)
 
-    get.assert_called_once()
+    # Hard network failures are also retried (bounded) before the run
+    # settles for previously captured history.
+    assert get.call_count == 4
     assert len(out) == 1
     assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-01T12:00:00Z")
 

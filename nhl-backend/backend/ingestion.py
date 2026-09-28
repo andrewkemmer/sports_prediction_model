@@ -73,7 +73,11 @@ ESPN_NHL_INJURIES_URL = ("https://site.api.espn.com/apis/site/v2/sports/hockey/"
 # a browser agent. Counter-intuitively the SHORT agent is the one that works:
 # verified 2026-09-26 against this exact URL, "Mozilla/5.0" -> 200, a full
 # Chrome UA string ("...Chrome/124.0 Safari/537.36") -> 403, and the product
-# agent -> 403. Do not "improve" this to a fuller browser string.
+# agent -> 403. Do not "improve" this to a fuller browser string. The edge
+# also blocks in WAVES: on 2026-09-28 a Kaggle run's single 403 with these
+# exact headers coincided with probes of the same profile testing 200 both
+# minutes before and minutes after — so a 403 here is treated as transient
+# (retried), not as a permanent endpoint ban.
 ESPN_USER_AGENT = "Mozilla/5.0"
 ESPN_HEADERS = {
     "User-Agent": ESPN_USER_AGENT,
@@ -377,9 +381,18 @@ def clear_cache() -> None:
             path.unlink(missing_ok=True)
 
 
-def _http_json(url: str, retries: int = 3, timeout: float = 30.0):
+def _http_json(url: str, retries: int = 3, timeout: float = 30.0,
+               headers: dict | None = None,
+               retry_statuses: tuple[int, ...] = (429, 500, 502, 503, 504)):
     """GET a JSON document with retry/backoff (the official API is free but
     rate-limited; a transient 5xx must not fail a run).
+
+    ``headers`` overrides the default product user-agent (third-party edges
+    such as ESPN's accept and 403 specific agents in passing waves; the
+    caller owns that choice). ``retry_statuses`` extends the transient set
+    worth a bounded retry — include 403 there only for an edge whose blocks
+    are known to clear between attempts, never for a permanently forbidden
+    endpoint.
 
     ``timeout`` is the READ budget; the connect/TLS handshake gets a shorter
     one. A single float applies to each socket operation, so a host that
@@ -391,8 +404,8 @@ def _http_json(url: str, retries: int = 3, timeout: float = 30.0):
     for attempt in range(1, retries + 1):
         try:
             resp = requests.get(url, timeout=(min(10.0, timeout), timeout),
-                                headers={"User-Agent": "sports-prediction-model/1.0"})
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries:
+                                headers=headers or {"User-Agent": "sports-prediction-model/1.0"})
+            if resp.status_code in retry_statuses and attempt < retries:
                 time.sleep(2.0 * attempt)
                 continue
             resp.raise_for_status()
@@ -1142,11 +1155,17 @@ def load_espn_injuries(use_cache: bool = True,
                    or cache_age > pd.Timedelta(hours=INJURY_CACHE_TTL_HOURS))
     if needs_fetch:
         try:
-            import requests
-            resp = requests.get(ESPN_NHL_INJURIES_URL, timeout=45,
-                                headers=ESPN_HEADERS)
-            resp.raise_for_status()
-            fetched = resp.json()
+            # The ESPN edge blocks agents and header profiles in passing
+            # waves — the 2026-09-28 Kaggle run's single 403 (a profile that
+            # tested 200 minutes earlier and later) cost BOTH snapshots of
+            # the day because one failed request fell straight to history.
+            # A 403 here is transient like a 5xx: retry it with the verified
+            # short browser agent (ESPN_HEADERS) instead of silently serving
+            # the slate on stale injury state (unknown is not healthy).
+            fetched = _http_json(
+                ESPN_NHL_INJURIES_URL, retries=4, timeout=45.0,
+                headers=ESPN_HEADERS,
+                retry_statuses=(403, 429, 500, 502, 503, 504))
             if not _valid_espn_injury_payload(fetched):
                 raise ValueError("ESPN injury payload missing a complete injuries list")
             payload = fetched
