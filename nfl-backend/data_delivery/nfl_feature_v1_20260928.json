@@ -1,0 +1,1751 @@
+{
+ "created_utc": "2026-09-28T05:03:07.479208+00:00",
+ "feature_set_version": "nfl-prod-v9.1-injury-share-side-twins",
+ "manifest": {
+  "elo_diff": {
+   "description": "Home minus away pre-game Elo rating",
+   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_diff": {
+   "description": "Home minus away trailing win percentage",
+   "definition": "mean(team_win) over the team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_diff": {
+   "description": "Home minus away days since each team's previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the same (team, season)",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "is_dome_home": {
+   "description": "Home venue roof is a dome (or closed retractable)",
+   "definition": "1.0 when the schedule roof is {dome, closed}, or the schedule is silent and the committed venue is roofed (fixed or retractable); 0.0 when the schedule roof is {outdoors, open} or the committed venue has no roof at all; NaN when both are unknown",
+   "source": "nflverse schedule roof field, falling back to the committed nfl_stadiums.csv roof column",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when the schedule roof and the committed venue classification are both unknown; a roofed venue never implies an open-air game day",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_diff": {
+   "description": "Home minus away exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_diff": {
+   "description": "Home minus away exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_diff": {
+   "description": "Home minus away trailing plays per minute",
+   "definition": "trailing 4-game mean of n_plays/elapsed_min per game",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1)",
+   "missing_value_policy": "NaN when prior games lack clock data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_home": {
+   "description": "Home team's trailing plays per minute",
+   "definition": "team pace entering kickoff (home side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when prior games lack clock data (early-season openers)",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_away": {
+   "description": "Away team's trailing plays per minute",
+   "definition": "team pace entering kickoff (away side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when prior games lack clock data (early-season openers)",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_short_diff": {
+   "description": "Home minus away short-rest flag (rest < 7 days)",
+   "definition": "1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag; a season opener prices 0.0 on each side (no in-season predecessor is never short rest), so the diff equals 0 at opener-vs-opener",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+   "missing_value_policy": "0.0 at a season opener (was NaN before the side-twin promotion; the opener flag is definitionally 0)",
+   "representation": "difference flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 10
+  },
+  "div_game": {
+   "description": "Division matchup flag",
+   "definition": "1.0 when home and away share a division else 0.0",
+   "source": "nflverse schedule div_game field",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "known before kickoff",
+   "missing_value_policy": "NaN when the source field is missing",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "travel_miles_diff": {
+   "description": "Home minus away distance traveled to the venue (miles)",
+   "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team\u2192stadium map",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games",
+   "aggregation": "point-in-time static venue fact",
+   "point_in_time_rule": "each side uses its most recent home venue strictly before kickoff; no current/future venue association",
+   "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 5
+  },
+  "altitude_home": {
+   "description": "Game-venue elevation in feet",
+   "definition": "altitude_ft of the game stadium",
+   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when the venue is missing from the committed table; every stadium the schedule references is listed",
+   "representation": "home-side value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "prime_time": {
+   "description": "Evening-kickoff flag",
+   "definition": "1.0 when ET kickoff hour >= 17 else 0.0",
+   "source": "nflverse schedule gametime (ET)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "schedule fact known before kickoff",
+   "missing_value_policy": "NaN when gametime is missing",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "is_turf_home": {
+   "description": "Home venue playing surface is artificial turf",
+   "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+   "source": "nflverse schedule surface field",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when surface is unlisted/blank; never fabricated",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "temp_f": {
+   "description": "Hourly venue temperature immediately before kickoff (F)",
+   "definition": "Open-Meteo hourly temperature_2m at the committed stadium coordinates, converted to Fahrenheit; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "single latest strictly-prior hourly value; no daily aggregation",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc; historical archive rows may be retrieved later using the same pre-kickoff observation",
+   "missing_value_policy": "NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never use a daily aggregate or raw schedule fallback",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "wind_mph": {
+   "description": "Hourly venue wind speed immediately before kickoff (mph)",
+   "definition": "Open-Meteo hourly wind_speed_10m at the committed stadium coordinates, converted to mph; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "single latest strictly-prior hourly value; no daily max/gust aggregate",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never fabricated",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_precip": {
+   "description": "Hourly precipitation flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo precipitation is >= PRECIP_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly precipitation archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "threshold of one hourly precipitation total; never a daily sum",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN when no strictly-prior hourly precipitation value exists; never inferred from a daily archive or schedule payload",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_snow": {
+   "description": "Hourly snowfall flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo snowfall, converted to inches from the unit the API itself reports, is >= SNOW_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly snowfall archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "threshold of one hourly snowfall total; never a daily sum",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN when no strictly-prior hourly snowfall value exists; never inferred from a daily archive or schedule payload",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_home": {
+   "description": "Constant 1.0 anchor for the home-field edge",
+   "definition": "constant 1.0 on every row",
+   "source": "structural constant",
+   "lookback": 0,
+   "aggregation": "constant",
+   "point_in_time_rule": "structural \u2014 no data dependency",
+   "missing_value_policy": "never missing",
+   "representation": "constant anchor (part of the served contract; every family receives it)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1,
+   "role": "anchor \u2014 in config.MONEYLINE_FEATURE_COLS, so trees receive it too"
+  },
+  "elo_home": {
+   "description": "Home team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (home side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "elo_away": {
+   "description": "Away team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (away side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_home": {
+   "description": "Home team's trailing win percentage",
+   "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_away": {
+   "description": "Away team's trailing win percentage",
+   "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_home": {
+   "description": "Home team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_away": {
+   "description": "Away team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_home": {
+   "description": "Home team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_away": {
+   "description": "Away team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_home": {
+   "description": "Home team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the home team's season",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_away": {
+   "description": "Away team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the away team's season",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_short_home": {
+   "description": "Home team's short-rest flag (rest < 7 days)",
+   "definition": "1.0 when the home team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+   "missing_value_policy": "0.0 at a season opener; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 10
+  },
+  "rest_short_away": {
+   "description": "Away team's short-rest flag (rest < 7 days)",
+   "definition": "1.0 when the away team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+   "missing_value_policy": "0.0 at a season opener; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 10
+  },
+  "travel_miles_home": {
+   "description": "Home team's travel distance to the game venue (miles)",
+   "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games",
+   "aggregation": "point-in-time static venue fact",
+   "point_in_time_rule": "the home team's most recent home venue strictly before kickoff; no current/future venue association",
+   "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 10
+  },
+  "travel_miles_away": {
+   "description": "Away team's travel distance to the game venue (miles)",
+   "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games",
+   "aggregation": "point-in-time static venue fact",
+   "point_in_time_rule": "the away team's most recent home venue strictly before kickoff; no current/future venue association",
+   "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 10
+  },
+  "inj_ol_out_home": {
+   "description": "The home team's Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "inj_ol_out_away": {
+   "description": "The away team's Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "inj_ol_out_diff": {
+   "description": "Home minus away Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "ol_snaps_lost_share_home": {
+   "description": "The home team's Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "ol_snaps_lost_share_away": {
+   "description": "The away team's Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "ol_snaps_lost_share_diff": {
+   "description": "Home minus away Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "ol_key_out_home": {
+   "description": "The home team's Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged Out/IR/Doubtful this week carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "ol_key_out_away": {
+   "description": "The away team's Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged Out/IR/Doubtful this week carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "ol_key_out_diff": {
+   "description": "Home minus away Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged Out/IR/Doubtful this week carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "inj_def_out_home": {
+   "description": "The home team's Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "inj_def_out_away": {
+   "description": "The away team's Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "inj_def_out_diff": {
+   "description": "Home minus away Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports",
+   "lookback": "this week's report cycle",
+   "aggregation": "count of Out/IR/Doubtful report rows",
+   "point_in_time_rule": "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+   "missing_value_policy": "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "def_snaps_lost_share_home": {
+   "description": "The home team's Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "def_snaps_lost_share_away": {
+   "description": "The away team's Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "def_snaps_lost_share_diff": {
+   "description": "Home minus away Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "def_key_out_home": {
+   "description": "The home team's Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged Out/IR/Doubtful this week carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "def_key_out_away": {
+   "description": "The away team's Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged Out/IR/Doubtful this week carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 9
+  },
+  "def_key_out_diff": {
+   "description": "Home minus away Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged Out/IR/Doubtful this week carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week",
+   "aggregation": "threshold flag over per-player rolling(8) mean unit-snap shares",
+   "point_in_time_rule": "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+   "missing_value_policy": "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 9
+  },
+  "epa_qb_home": {
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_qb_away": {
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_qb_diff": {
+   "description": "Home minus away quarterback quality",
+   "definition": "epa_qb_home - epa_qb_away",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 8
+  },
+  "epa_wr_home": {
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_wr_away": {
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_wr_diff": {
+   "description": "Home minus away wide receiver quality",
+   "definition": "epa_wr_home - epa_wr_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 8
+  },
+  "epa_te_home": {
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected tight ends",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_te_away": {
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected tight ends",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_te_diff": {
+   "description": "Home minus away tight end quality",
+   "definition": "epa_te_home - epa_te_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 8
+  },
+  "epa_rb_home": {
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected running backs",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_rb_away": {
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected running backs",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 8
+  },
+  "epa_rb_diff": {
+   "description": "Home minus away running back quality",
+   "definition": "epa_rb_home - epa_rb_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels",
+   "lookback": "8 player-games; 21-calendar-day roster window",
+   "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 8
+  },
+  "pbp_air_yards_att_ewm_diff": {
+   "description": "Home minus away trailing air yards per attempt",
+   "definition": "pbp_air_yards_att_ewm_home - pbp_air_yards_att_ewm_away \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_home": {
+   "description": "Home team's trailing air yards per attempt",
+   "definition": "The home team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_away": {
+   "description": "Away team's trailing air yards per attempt",
+   "definition": "The away team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_def_epa_play_ewm_diff": {
+   "description": "Home minus away trailing epa allowed per play",
+   "definition": "pbp_def_epa_play_ewm_home - pbp_def_epa_play_ewm_away \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_def_epa_play_ewm_home": {
+   "description": "Home team's trailing epa allowed per play",
+   "definition": "The home team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_def_epa_play_ewm_away": {
+   "description": "Away team's trailing epa allowed per play",
+   "definition": "The away team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  }
+ },
+ "served_columns": [
+  "elo_diff",
+  "win_pct_diff",
+  "rest_days_diff",
+  "is_dome_home",
+  "ewm_net_pts_diff",
+  "ewm_ypp_diff",
+  "pace_plays_min_diff",
+  "rest_short_diff",
+  "rest_short_home",
+  "rest_short_away",
+  "div_game",
+  "travel_miles_diff",
+  "altitude_home",
+  "prime_time",
+  "is_turf_home",
+  "temp_f",
+  "wind_mph",
+  "is_precip",
+  "is_snow",
+  "pbp_air_yards_att_ewm_diff",
+  "pbp_air_yards_att_ewm_home",
+  "pbp_air_yards_att_ewm_away",
+  "pbp_def_epa_play_ewm_diff",
+  "pbp_def_epa_play_ewm_home",
+  "pbp_def_epa_play_ewm_away",
+  "travel_miles_home",
+  "travel_miles_away",
+  "elo_home",
+  "elo_away",
+  "win_pct_home",
+  "win_pct_away",
+  "ewm_net_pts_home",
+  "ewm_net_pts_away",
+  "ewm_ypp_home",
+  "ewm_ypp_away",
+  "rest_days_home",
+  "rest_days_away",
+  "pace_plays_min_home",
+  "pace_plays_min_away",
+  "epa_qb_home",
+  "epa_qb_away",
+  "epa_qb_diff",
+  "epa_wr_home",
+  "epa_wr_away",
+  "epa_wr_diff",
+  "epa_te_home",
+  "epa_te_away",
+  "epa_te_diff",
+  "epa_rb_home",
+  "epa_rb_away",
+  "epa_rb_diff",
+  "inj_ol_out_home",
+  "inj_ol_out_away",
+  "inj_ol_out_diff",
+  "ol_snaps_lost_share_home",
+  "ol_snaps_lost_share_away",
+  "ol_snaps_lost_share_diff",
+  "ol_key_out_home",
+  "ol_key_out_away",
+  "ol_key_out_diff",
+  "inj_def_out_home",
+  "inj_def_out_away",
+  "inj_def_out_diff",
+  "def_snaps_lost_share_home",
+  "def_snaps_lost_share_away",
+  "def_snaps_lost_share_diff",
+  "def_key_out_home",
+  "def_key_out_away",
+  "def_key_out_diff",
+  "is_home"
+ ],
+ "coverage": [
+  {
+   "feature": "elo_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.8694383922069076,
+   "std": 140.06833998768155
+  },
+  {
+   "feature": "win_pct_diff",
+   "n_games": 2686,
+   "coverage_pct": 99.33,
+   "mean": -0.002439026698771827,
+   "std": 0.29386611478596714
+  },
+  {
+   "feature": "rest_days_diff",
+   "n_games": 2686,
+   "coverage_pct": 93.41,
+   "mean": -0.03387803905938621,
+   "std": 2.523898560175753
+  },
+  {
+   "feature": "is_dome_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.2889054355919583,
+   "std": 0.45333828263563936
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "n_games": 2686,
+   "coverage_pct": 99.33,
+   "mean": -0.48652633879244944,
+   "std": 10.413271922505295
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "n_games": 2686,
+   "coverage_pct": 96.5,
+   "mean": -0.013063205014561914,
+   "std": 0.6985498039038379
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "n_games": 2686,
+   "coverage_pct": 96.5,
+   "mean": -0.002308552381207257,
+   "std": 0.12267223281604456
+  },
+  {
+   "feature": "rest_short_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.0189873417721519,
+   "std": 0.3600287830256579
+  },
+  {
+   "feature": "rest_short_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.155994043186895,
+   "std": 0.36291725919584794
+  },
+  {
+   "feature": "rest_short_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.1370067014147431,
+   "std": 0.34391845092430656
+  },
+  {
+   "feature": "div_game",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.3622486969471333,
+   "std": 0.4807396605032704
+  },
+  {
+   "feature": "travel_miles_diff",
+   "n_games": 2686,
+   "coverage_pct": 98.62,
+   "mean": -905.9680367397407,
+   "std": 877.3238071878231
+  },
+  {
+   "feature": "altitude_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 600.819061801936,
+   "std": 976.0430307057209
+  },
+  {
+   "feature": "prime_time",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.2081161578555473,
+   "std": 0.40603596163984346
+  },
+  {
+   "feature": "is_turf_home",
+   "n_games": 2686,
+   "coverage_pct": 97.88,
+   "mean": 0.42868010650437427,
+   "std": 0.4949814811233671
+  },
+  {
+   "feature": "temp_f",
+   "n_games": 2686,
+   "coverage_pct": 71.11,
+   "mean": 58.66853403141361,
+   "std": 16.871329822566352
+  },
+  {
+   "feature": "wind_mph",
+   "n_games": 2686,
+   "coverage_pct": 71.11,
+   "mean": 7.951465968586387,
+   "std": 4.46071560472978
+  },
+  {
+   "feature": "is_precip",
+   "n_games": 2686,
+   "coverage_pct": 71.11,
+   "mean": 0.012041884816753926,
+   "std": 0.1091013740586451
+  },
+  {
+   "feature": "is_snow",
+   "n_games": 2686,
+   "coverage_pct": 71.11,
+   "mean": 0.005235602094240838,
+   "std": 0.07218669402796479
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "n_games": 2686,
+   "coverage_pct": 96.5,
+   "mean": -0.00963556817910526,
+   "std": 1.5596717567298966
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 7.967900671419341,
+   "std": 1.1234707194891578
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 7.972290305538541,
+   "std": 1.1099150459203597
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_diff",
+   "n_games": 2686,
+   "coverage_pct": 96.5,
+   "mean": 0.0006905505629473052,
+   "std": 0.10883594665713399
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_home",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": -0.011499451386623295,
+   "std": 0.07609223107847486
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_away",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": -0.012214304920324378,
+   "std": 0.07973049362367098
+  },
+  {
+   "feature": "travel_miles_home",
+   "n_games": 2686,
+   "coverage_pct": 98.73,
+   "mean": 115.05313802876898,
+   "std": 716.0150764663296
+  },
+  {
+   "feature": "travel_miles_away",
+   "n_games": 2686,
+   "coverage_pct": 99.18,
+   "mean": 1022.454657622642,
+   "std": 806.1000438985823
+  },
+  {
+   "feature": "elo_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 1503.1269335881686,
+   "std": 99.88161967011919
+  },
+  {
+   "feature": "elo_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 1503.9963719803757,
+   "std": 99.14660520106176
+  },
+  {
+   "feature": "win_pct_home",
+   "n_games": 2686,
+   "coverage_pct": 99.4,
+   "mean": 0.49905167242245896,
+   "std": 0.20983875974556693
+  },
+  {
+   "feature": "win_pct_away",
+   "n_games": 2686,
+   "coverage_pct": 99.33,
+   "mean": 0.5016149257622271,
+   "std": 0.209332304868553
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "n_games": 2686,
+   "coverage_pct": 99.4,
+   "mean": -0.24194076703027764,
+   "std": 7.516565847524593
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "n_games": 2686,
+   "coverage_pct": 99.33,
+   "mean": 0.252588790540441,
+   "std": 7.515344455839589
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 4.193292348648779,
+   "std": 0.5043988787839953
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 4.207292695003038,
+   "std": 0.5029863740674309
+  },
+  {
+   "feature": "rest_days_home",
+   "n_games": 2686,
+   "coverage_pct": 93.45,
+   "mean": 7.433864541832669,
+   "std": 2.1009327687913846
+  },
+  {
+   "feature": "rest_days_away",
+   "n_games": 2686,
+   "coverage_pct": 93.45,
+   "mean": 7.468127490039841,
+   "std": 2.07731682633441
+  },
+  {
+   "feature": "pace_plays_min_home",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 1.3550494967604385,
+   "std": 0.08874781210240436
+  },
+  {
+   "feature": "pace_plays_min_away",
+   "n_games": 2686,
+   "coverage_pct": 97.92,
+   "mean": 1.3573064374113493,
+   "std": 0.08871276110031164
+  },
+  {
+   "feature": "epa_qb_home",
+   "n_games": 2686,
+   "coverage_pct": 91.51,
+   "mean": 0.01868521575151527,
+   "std": 0.10667762956595317
+  },
+  {
+   "feature": "epa_qb_away",
+   "n_games": 2686,
+   "coverage_pct": 91.55,
+   "mean": 0.018204098027868366,
+   "std": 0.10776513568027427
+  },
+  {
+   "feature": "epa_qb_diff",
+   "n_games": 2686,
+   "coverage_pct": 89.65,
+   "mean": 0.0004973194044975878,
+   "std": 0.14918806947012753
+  },
+  {
+   "feature": "epa_wr_home",
+   "n_games": 2686,
+   "coverage_pct": 92.03,
+   "mean": 0.19574681498250324,
+   "std": 0.147900631088604
+  },
+  {
+   "feature": "epa_wr_away",
+   "n_games": 2686,
+   "coverage_pct": 92.07,
+   "mean": 0.19590488908966766,
+   "std": 0.1442666838716562
+  },
+  {
+   "feature": "epa_wr_diff",
+   "n_games": 2686,
+   "coverage_pct": 90.69,
+   "mean": 0.0003691897909725543,
+   "std": 0.19747792416264856
+  },
+  {
+   "feature": "epa_te_home",
+   "n_games": 2686,
+   "coverage_pct": 91.44,
+   "mean": 0.1979520491015538,
+   "std": 0.20945836253758046
+  },
+  {
+   "feature": "epa_te_away",
+   "n_games": 2686,
+   "coverage_pct": 91.36,
+   "mean": 0.1891717424421903,
+   "std": 0.2068724737698574
+  },
+  {
+   "feature": "epa_te_diff",
+   "n_games": 2686,
+   "coverage_pct": 89.43,
+   "mean": 0.009535644853105672,
+   "std": 0.2978724134555012
+  },
+  {
+   "feature": "epa_rb_home",
+   "n_games": 2686,
+   "coverage_pct": 92.03,
+   "mean": -0.05938223303543276,
+   "std": 0.08242465349424917
+  },
+  {
+   "feature": "epa_rb_away",
+   "n_games": 2686,
+   "coverage_pct": 92.07,
+   "mean": -0.05838810558219077,
+   "std": 0.08017970584896236
+  },
+  {
+   "feature": "epa_rb_diff",
+   "n_games": 2686,
+   "coverage_pct": 90.69,
+   "mean": -0.0008677705827317684,
+   "std": 0.11592145800248364
+  },
+  {
+   "feature": "inj_ol_out_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.33283693224125094,
+   "std": 0.5693747698309521
+  },
+  {
+   "feature": "inj_ol_out_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.35815338793745344,
+   "std": 0.5832728696956209
+  },
+  {
+   "feature": "inj_ol_out_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.02531645569620253,
+   "std": 0.7915471687162242
+  },
+  {
+   "feature": "ol_snaps_lost_share_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.27190793532602914,
+   "std": 0.48121800165683315
+  },
+  {
+   "feature": "ol_snaps_lost_share_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.29039278622841547,
+   "std": 0.48806609528771105
+  },
+  {
+   "feature": "ol_snaps_lost_share_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.018484850902386267,
+   "std": 0.6638231133834435
+  },
+  {
+   "feature": "ol_key_out_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.2501861504095309,
+   "std": 0.4332007705521708
+  },
+  {
+   "feature": "ol_key_out_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.2684288905435592,
+   "std": 0.4432245018059804
+  },
+  {
+   "feature": "ol_key_out_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.018242740134028296,
+   "std": 0.6078646894828459
+  },
+  {
+   "feature": "inj_def_out_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 1.0219657483246463,
+   "std": 1.0806757009024288
+  },
+  {
+   "feature": "inj_def_out_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 1.0886075949367089,
+   "std": 1.0777781463452147
+  },
+  {
+   "feature": "inj_def_out_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.06664184661206254,
+   "std": 1.5002260673166696
+  },
+  {
+   "feature": "def_snaps_lost_share_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.5922772355777755,
+   "std": 0.6926085843277022
+  },
+  {
+   "feature": "def_snaps_lost_share_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.6315489353969436,
+   "std": 0.6966122305593021
+  },
+  {
+   "feature": "def_snaps_lost_share_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.03927169981916817,
+   "std": 0.9679150140230427
+  },
+  {
+   "feature": "def_key_out_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.39501116902457184,
+   "std": 0.48894411742890037
+  },
+  {
+   "feature": "def_key_out_away",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 0.41474311243484735,
+   "std": 0.4927693840203338
+  },
+  {
+   "feature": "def_key_out_diff",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": -0.019731943410275503,
+   "std": 0.6839348872378775
+  },
+  {
+   "feature": "is_home",
+   "n_games": 2686,
+   "coverage_pct": 100.0,
+   "mean": 1.0,
+   "std": 0.0
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 106,
+  "first_val_start": "2017-09-07",
+  "last_val_end": "2026-09-30",
+  "min_train": 256,
+  "max_train": 2671,
+  "total_val_games": 1672
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v9.1-injury-share-side-twins",
+  "warmup_seasons": [
+   2016
+  ],
+  "oof_first_season": 2017,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "rest_short_home",
+    "rest_short_away",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+    "pbp_def_epa_play_ewm_diff",
+    "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
+    "travel_miles_home",
+    "travel_miles_away",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "pace_plays_min_home",
+    "pace_plays_min_away",
+    "epa_qb_home",
+    "epa_qb_away",
+    "epa_qb_diff",
+    "epa_wr_home",
+    "epa_wr_away",
+    "epa_wr_diff",
+    "epa_te_home",
+    "epa_te_away",
+    "epa_te_diff",
+    "epa_rb_home",
+    "epa_rb_away",
+    "epa_rb_diff",
+    "inj_ol_out_home",
+    "inj_ol_out_away",
+    "inj_ol_out_diff",
+    "ol_snaps_lost_share_home",
+    "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home",
+    "ol_key_out_away",
+    "ol_key_out_diff",
+    "inj_def_out_home",
+    "inj_def_out_away",
+    "inj_def_out_diff",
+    "def_snaps_lost_share_home",
+    "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home",
+    "def_key_out_away",
+    "def_key_out_diff",
+    "is_home"
+   ],
+   "appended_categorical_cols": [
+    "home_team_id",
+    "away_team_id"
+   ]
+  },
+  "random_seed": 42,
+  "weather": {
+   "provider": "Open-Meteo",
+   "cadence": "hourly",
+   "cutoff": "latest weather_time_utc strictly before kickoff_utc",
+   "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
+   "daily_aggregates_allowed": false
+  },
+  "market_independence": true
+ }
+}
