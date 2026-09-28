@@ -13,8 +13,14 @@ path). This test:
    status pills (incl. WARN), the Feature Coverage panel, the Model Ensemble
    table, the Rolling Brier timeline as a real Altair chart, and the Model
    Version History table — with no exceptions.
-3. Runs the same page under ``sport=mlb`` and asserts it also runs clean
-   (locally it warns on a missing MLB monitor artifact rather than crashing).
+3. Runs the same page under ``sport=mlb`` against a staged minimal MLB
+   monitor fixture (backed up/restored if a committed artifact exists) and
+   asserts it renders clean WHILE pinning describe_feature's served-metadata
+   precedence: backend-authored per-side summaries (sp_era_home,
+   bullpen_whip_10g_home, home_elo) beat the legacy diff-text + side-suffix
+   and bare-name fallbacks; the static dict still answers unserved rows
+   (elo_diff); a degenerate served summary equal to the bare column name is
+   ignored (is_home keeps its dict wording).
 
 Run from the frontend/ directory:
     python -m test_monitor_smoke
@@ -31,12 +37,14 @@ from streamlit.testing.v1 import AppTest
 FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
+MLB_DD = REPO_ROOT / "mlb-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
 ARTIFACT_DATE = "20260923"
 MONITOR_NAME = f"nfl_model_monitor_{ARTIFACT_DATE}.json"
 MONITOR_PATH = NFL_DD / MONITOR_NAME
+MLB_MONITOR_PATH = MLB_DD / f"model_monitor_{ARTIFACT_DATE}.json"
 
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
@@ -132,6 +140,65 @@ def _monitor_record() -> dict:
     }
 
 
+def _mlb_monitor_record() -> dict:
+    """Minimal MLB monitor fixture exercising the served-metadata label path.
+
+    Each drift row pins one branch of describe_feature's precedence:
+    - sp_era_home: served summary WINS over the legacy diff-text + side
+      fallback (the 2026-09-27 mislabel: "Home SP season-to-date ERA −
+      away SP — home team").
+    - bullpen_whip_10g_home: served summary wins over the legacy BARE-NAME
+      leak (no *_diff entry exists for the stem).
+    - home_elo: served summary wins over the legacy bare-name leak.
+    - elo_diff: no served entry -> the static dict exact match must still
+      answer (fallback intact).
+    - is_home: served entry whose summary equals the bare name is REJECTED
+      (degenerate-summary guard) -> the dict's exact match answers, so the
+      baseline feature keeps its real wording.
+    """
+    drift = [
+        {"feature": "sp_era_home", "current_mean": 4.21, "baseline_mean": 4.08,
+         "psi": 0.068, "psi_adjusted": 0.002, "noise_floor": 0.066,
+         "mean_shift": 0.13, "shift_se": 0.15, "location_shift": False,
+         "status": "OK", "weight_pct": 1.30, "n_baseline": 273, "n_current": 91},
+        {"feature": "bullpen_whip_10g_home", "current_mean": 1.36,
+         "baseline_mean": 1.34, "psi": 0.175, "psi_adjusted": 0.11,
+         "noise_floor": 0.066, "mean_shift": 0.02, "shift_se": 0.04,
+         "location_shift": False, "status": "OK", "weight_pct": 1.03,
+         "n_baseline": 272, "n_current": 90},
+        {"feature": "home_elo", "current_mean": 1499.6, "baseline_mean": 1498.3,
+         "psi": 0.311, "psi_adjusted": 0.245, "noise_floor": 0.066,
+         "mean_shift": 1.3, "shift_se": 3.0, "location_shift": False,
+         "status": "OK", "weight_pct": 1.04, "n_baseline": 273, "n_current": 91},
+        {"feature": "elo_diff", "current_mean": -2.59, "baseline_mean": -2.88,
+         "psi": 0.181, "psi_adjusted": 0.115, "noise_floor": 0.066,
+         "mean_shift": 0.29, "shift_se": 4.2, "location_shift": False,
+         "status": "OK", "weight_pct": 2.40, "n_baseline": 273, "n_current": 91},
+        {"feature": "is_home", "current_mean": 1.0, "baseline_mean": 1.0,
+         "psi": None, "psi_adjusted": None, "noise_floor": 0.066,
+         "mean_shift": 0.0, "shift_se": 0.0, "location_shift": False,
+         "status": "OK", "weight_pct": 0.0, "n_baseline": 273, "n_current": 91},
+    ]
+    served = {
+        "sp_era_home": {
+            "summary": "Starting-pitcher earned-run average — home team",
+            "tooltip": "What: Starting-pitcher earned-run average — home team."},
+        "bullpen_whip_10g_home": {
+            "summary": "Bullpen walks+hits per inning — home team",
+            "tooltip": "What: Bullpen walks+hits per inning — home team."},
+        "home_elo": {
+            "summary": "Home team Elo rating (level)",
+            "tooltip": "What: Home team Elo rating (level)."},
+        # Degenerate entry: summary == the bare column name must be ignored.
+        "is_home": {"summary": "is_home", "tooltip": "What: is_home."},
+    }
+    return {
+        "date": ARTIFACT_DATE,
+        "feature_drift": drift,
+        "features_metadata": served,
+    }
+
+
 def _stage(path: Path, data: bytes) -> None:
     """Write a fixture over ``path``, preserving any pre-existing (committed)
     artifact's bytes so cleanup can restore it rather than delete it."""
@@ -144,6 +211,9 @@ def _stage(path: Path, data: bytes) -> None:
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
     _stage(MONITOR_PATH, json.dumps(_monitor_record(), indent=2).encode("utf-8"))
+    MLB_DD.mkdir(parents=True, exist_ok=True)
+    _stage(MLB_MONITOR_PATH,
+           json.dumps(_mlb_monitor_record(), indent=2).encode("utf-8"))
 
 
 def _remove_artifacts() -> None:
@@ -283,17 +353,46 @@ def run() -> int:
         print("  - health boxes + upset callout + drift matrix (WARN) + coverage"
               " (STARVED) + ensemble + rolling Brier + version history")
 
-        # sport=mlb must still run the SAME shared path, no exception.
+        # sport=mlb must still run the SAME shared path, no exception. Pin the
+        # date to the staged MLB fixture (the committed 20260927 artifact would
+        # otherwise win the newest-date resolution) and pin describe_feature's
+        # served-metadata precedence: the backend-authored per-side summaries
+        # beat the static dict and the legacy diff-text/bare-name fallbacks.
         mlb = AppTest.from_file(str(FRONTEND_DIR / "model_monitor.py"),
                                 default_timeout=60)
         mlb.session_state["sport"] = "mlb"
+        mlb.session_state["selected_date"] = ARTIFACT_DATE
         mlb.run()
         if mlb.exception:
             prob = "\n  ".join(str(e.value) for e in mlb.exception)
             print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
             print("  - mlb path raised:\n    " + prob)
             return 1
+        mlb_text = _all_text(mlb)
+        _served_ok = all(
+            needle in mlb_text for needle in (
+                "Starting-pitcher earned-run average — home team",
+                "Bullpen walks+hits per inning — home team",
+                "Home team Elo rating (level)",
+            ))
+        _dict_fallback_ok = (
+            "Home Elo − away Elo (skill-gap anchor, updated each game)"
+            in mlb_text)
+        _degenerate_ok = (
+            "Always 1 — anchors the ~53% MLB home-field win advantage"
+            in mlb_text and "is_home\nis_home" not in mlb_text)
+        if not (_served_ok and _dict_fallback_ok and _degenerate_ok):
+            print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
+            if not _served_ok:
+                print("  - served-metadata labels missing from the drift table")
+            if not _dict_fallback_ok:
+                print("  - static-dict fallback for unserved rows broken")
+            if not _degenerate_ok:
+                print("  - degenerate served summary (== bare name) not ignored")
+            return 1
         print("  - sport=mlb path clean (no exception)")
+        print("  - served-metadata labels win; dict fallback + degenerate "
+              "summary guard intact")
         return 0
     finally:
         _remove_artifacts()

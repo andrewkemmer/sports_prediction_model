@@ -23,7 +23,12 @@ utils.inject_css()
 # ``nfl_model_monitor_*.json`` — both MLB-shaped, so this one page renders
 # each sport unchanged (the NFL backend emits the same contract).
 dates = utils.available_dates(**utils.get_source_config())
-date_str = dates[0] if dates else "20260809"
+# selected_date (set by the shared date navigation, and by the smoke tests'
+# fixture pins) wins over the default newest-artifact date — the same
+# contract power_rankings.py runs. Without this, a staged test fixture
+# older than the newest committed artifact is silently bypassed.
+date_str = st.session_state.get("selected_date",
+                                dates[0] if dates else "20260809")
 mon = utils.load_model_monitor(date_str)
 if not mon:
     st.warning(f"No model monitor artifacts found for {date_str}.")
@@ -183,7 +188,17 @@ if drift:
                     "INSUFFICIENT": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
-        label = utils.describe_feature(r.get("feature", ""), sport=utils.get_sport()) or r.get("feature", "")
+        # served_metadata first (MLB only): the backend-authored per-side
+        # summaries match the exact feature name (sp_era_home gets its own
+        # wording, not the diff twin's text with a tacked-on side); the static
+        # dict remains the fallback for rows absent from the run's
+        # features_metadata artifact. NFL/NHL keep the legacy dict+suffix
+        # labels until their own dicts adopt the served-metadata source.
+        _served_meta = features_metadata if utils.get_sport() == "mlb" else None
+        label = utils.describe_feature(r.get("feature", ""),
+                                       sport=utils.get_sport(),
+                                       served_metadata=_served_meta) \
+            or r.get("feature", "")
         # Hover tooltip from the backend-generated features_metadata artifact
         # (definition/formula/source/window/units/direction/members). Row
         # content unchanged — the tooltip is additive; unknown features fall
@@ -195,7 +210,7 @@ if drift:
             tip = html.escape(label + "\n(no detailed metadata)", quote=False)
         feature_cell = (
             f"<span title='{tip}' style='cursor:help;'>{r.get('feature','')}</span>"
-            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{label}</div>"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{html.escape(label, quote=False)}</div>"
         )
         weight_cell = f"<td>{utils.feature_weight_pct(r)}</td>" if has_weights else ""
         rows.append(

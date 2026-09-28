@@ -1072,7 +1072,8 @@ def _render_run_engine_model_card(monitor: dict) -> None:
 
 def _render_run_engine_drift(
         drift: pd.DataFrame | None,
-        weights: dict | None = None) -> None:
+        weights: dict | None = None,
+        served_metadata: dict | None = None) -> None:
     """Run-engine feature drift — same PSI table as the moneyline monitor,
     plus a MODEL WEIGHT column (layout parity with the Model Monitor's
     Feature Drift Analysis table).
@@ -1120,7 +1121,8 @@ def _render_run_engine_drift(
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
-        label = utils.describe_feature(r.get("feature", "")) \
+        label = utils.describe_feature(r.get("feature", ""),
+                                       served_metadata=served_metadata) \
             or r.get("feature", "")
         weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
                        if has_weights else "")
@@ -1332,7 +1334,14 @@ else:
     # layout (drift -> coverage -> model card), over the run engine's own
     # feature view + per-line OOF metrics.
     re_drift = _load_run_engine_csv(date_str, "run_engine_feature_drift")
-    _render_run_engine_drift(re_drift)
+    # Same served-metadata source the Model Monitor labels from — the run's
+    # embedded features_metadata keeps run-engine row labels (many of which
+    # are the moneyline's per-side columns) on the backend-authored text.
+    try:
+        _mon_served = utils.load_model_monitor(date_str).get("features_metadata") or {}
+    except Exception:
+        _mon_served = {}
+    _render_run_engine_drift(re_drift, served_metadata=_mon_served or None)
     re_cov = _load_run_engine_csv(date_str, "run_engine_feature_coverage")
     _render_run_engine_coverage(re_cov)
     _render_run_engine_model_card(monitor)

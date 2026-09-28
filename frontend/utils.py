@@ -3092,7 +3092,8 @@ NFL_FEATURE_DESCRIPTIONS = {
 }
 
 
-def describe_feature(name: str, sport: str = "mlb") -> str:
+def describe_feature(name: str, sport: str = "mlb",
+                     served_metadata: dict | None = None) -> str:
     """Human description for a feature column like 'sp_era_5g_diff'.
 
     Sport-dispatched: MLB and NFL share this page but describe their own
@@ -3103,8 +3104,26 @@ def describe_feature(name: str, sport: str = "mlb") -> str:
     feature whose name genuinely ends in '_home' — the exact match must win
     so it is not mangled into a name-repeating label. Default sport is MLB,
     so existing callers (and MLB-only pages) are byte-unchanged.
+
+    ``served_metadata`` — the run's backend-generated
+    ``features_metadata_*.json`` (as embedded in ``model_monitor_*.json``
+    under ``features_metadata``) — takes PRECEDENCE over the static dict:
+    each entry's one-line ``summary`` is authored against the exact served
+    name, so ``sp_era_home`` reads "Starting-pitcher earned-run average —
+    home team" instead of the diff twin's "Home SP season-to-date ERA −
+    away SP — home team", and names with no ``*_diff`` sibling (the
+    bullpen/team level columns, elo, the exp2 per-side halves) stop leaking
+    as their bare column name — the exact mislabels the 2026-09-27 MLB
+    drift report showed for 22 of 98 rows. ``None`` (older artifacts, the
+    bare-call pages) falls back to the legacy dict+suffix heuristic.
     """
     s = str(name or "").strip()
+    if served_metadata:
+        entry = served_metadata.get(s) if isinstance(served_metadata, dict) else None
+        if isinstance(entry, dict):
+            summary = str(entry.get("summary") or "").strip()
+            if summary and summary != s:
+                return summary
     table = FEATURE_DESCRIPTIONS
     if sport == "nfl":
         table = NFL_FEATURE_DESCRIPTIONS
