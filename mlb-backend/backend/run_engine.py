@@ -201,13 +201,14 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
     "closer_availability_diff",
 })
 
-# Phase 3.5b — standalone ENVIRONMENT-LEVEL features. These live OUTSIDE
-# MONEYLINE_FEATURE_COLS (the moneyline's list is untouched until its own ablation
-# says otherwise); the run engine appends whichever are present in the frame.
-RUN_LEVEL_ENV_FEATURES = (
-    "park_wind_factor", "air_density_level", "park_factor_slug",
-    "dome_is_neutral_game",
-)
+# The standalone env-LEVEL columns (park_wind_factor, air_density_level,
+# park_factor_slug, dome_is_neutral_game) are computed into the artifact frame
+# (features.add_env_level_features) and feed the moneyline's DERIVED env
+# features, but they are NOT served features and the run engine never
+# appends them: since the 2026-09-27 feature-parity contract the run line's
+# side models train on EXACTLY the active moneyline list. If an env level
+# is ever adopted into the feature set, it joins MONEYLINE_FEATURE_COLS and
+# flows to the run line automatically — there is no separate append path.
 
 MAX_ROUNDS = 1000
 EARLY_STOPPING_ROUNDS = 20  # matches the tuned LightGBM fold convention
@@ -284,37 +285,27 @@ def split_side_view(run_features: list[str],
 def build_side_frame(games: pd.DataFrame, side: str,
                      run_features: Optional[list[str]] = None,
                      dropped: Optional[list[str]] = None,
-                     include_level_env: bool = True,
                      strict_feature_parity: bool = False,
                      ) -> tuple[pd.DataFrame, list[str]]:
-    """Materialize the side's model frame (levels + environment), preserving
+    """Materialize the side's model frame from the run view, preserving
     NaN (LightGBM routes it natively). Logs the derivation once per call.
 
-    ``include_level_env=False`` excludes the standalone env-LEVEL columns
-    (ablation variant A); present-in-frame level features otherwise append
-    automatically, with any missing source warned loudly."""
+    The side view is EXACTLY the resolved feature list — nothing appended.
+    The former env-LEVEL append path (RUN_LEVEL_ENV_FEATURES /
+    include_level_env, the pre-parity 'ablation arm A/B' switch) was
+    removed 2026-09-27: the run line trains on exactly what the moneyline
+    serves, and any future env feature must join the served list to reach
+    the run view."""
     feats = list(run_features) if run_features is not None else None
     if strict_feature_parity or (feats is None and dropped is None):
         # Synchronization contract: every production run model receives exactly
         # the active moneyline feature list. Resolve it at call time so adopted
         # RFE additions/removals automatically affect run-line serving.
         feats, dropped = _resolve_run_view()
-        include_level_env = False
         logger.info("Run engine: active moneyline feature view (%d features)",
                     len(feats))
     elif feats is None:
         raise ValueError("run_features and dropped must be supplied together")
-    if include_level_env:
-        present = [c for c in RUN_LEVEL_ENV_FEATURES if c in games.columns]
-        missing = [c for c in RUN_LEVEL_ENV_FEATURES if c not in games.columns]
-        if missing:
-            logger.warning(
-                "Run engine: %d/%d env-level feature columns absent from the "
-                "frame (stale artifact?): %s", len(missing),
-                len(RUN_LEVEL_ENV_FEATURES), missing)
-        feats = feats + present
-    else:
-        logger.info("Run engine: env-level features EXCLUDED (ablation arm A)")
     if strict_feature_parity:
         # Do not apply the legacy side/level/environment split in parity mode:
         # both home and away run regressors receive the same named columns.
@@ -403,7 +394,6 @@ def run_oof(games: pd.DataFrame,
             retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
             min_val_games: int = MIN_VAL_FOLD_GAMES,
             min_train_days: int = 30,
-            include_level_env: bool = True,
             run_features: Optional[list[str]] = None,
             dropped: Optional[list[str]] = None,
             decided_snapshot: Optional[pd.DataFrame] = None,
@@ -438,7 +428,6 @@ def run_oof(games: pd.DataFrame,
     frames = {
         side: build_side_frame(games, side, run_features=run_features,
                                dropped=dropped,
-                               include_level_env=include_level_env,
                                strict_feature_parity=(run_features is None
                                                       and dropped is None))
         for side in ("home", "away")}
