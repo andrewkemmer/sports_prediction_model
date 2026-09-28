@@ -3590,6 +3590,7 @@ _ros_weekly = pd.DataFrame([
      "week": 2, "report_status": "Out"},   # the only REPORT row
 ])
 _ros_overlay = pd.DataFrame([
+    {"season": 2024, "week": 2, "team": "HOME", "player_id": "P1"},
     {"season": 2024, "week": 2, "team": "HOME", "player_id": "P2"},
     {"season": 2024, "week": 2, "team": "HOME", "player_id": "P3"},
 ])
@@ -3607,11 +3608,20 @@ check("injury-share flags widen under the roster overlay, min(report, roster)",
       and float(_ros_w.iloc[0]["def_key_out"]) == 1.0,
       f"base={_ros_b.iloc[0]['inj_def_out']} wide={_ros_w.iloc[0]['inj_def_out']}"
       f" lost={_ros_w.iloc[0]['def_snaps_lost_share']}")
+check("injury-share report x roster intersection counts ONCE (bag union "
+      "would double-count: report-Out players are almost always also "
+      "roster-INA)",
+      _ros_overlay["player_id"].eq("P1").any()
+      and float(_ros_w.iloc[0]["inj_def_out"]) == 3.0
+      and np.isclose(float(_ros_w.iloc[0]["def_snaps_lost_share"]), 2.4),
+      f"P1 is on BOTH channels; count={_ros_w.iloc[0]['inj_def_out']} "
+      f"lost={_ros_w.iloc[0]['def_snaps_lost_share']} (4.0/3.2 = the bug)")
 check("injury-share share pricing unchanged for report-flagged players",
       np.isclose(float(_ros_b.iloc[0]["def_snaps_lost_share"]), 0.8)
       and np.isclose(float(_ros_b.iloc[0]["def_snaps_lost_share"]),
                      float(_ros_w.iloc[0]["def_snaps_lost_share"]) - 1.6),
-      "the two roster adds price 0.7 + 0.9; the report row keeps 0.8")
+      "the two roster adds price 0.7 + 0.9; the report row keeps 0.8 (its "
+      "duplicate overlay row is deduped, not summed)")
 
 # Wiring: both builders must thread the overlay into BOTH consumption
 # points (serving never drifts from training).

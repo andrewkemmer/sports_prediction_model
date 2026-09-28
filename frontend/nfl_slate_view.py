@@ -42,8 +42,10 @@ tests and by page modules without a Streamlit runtime.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
+from pathlib import Path
 
 # The slate engine's grids (mirror nfl_slate_engine.SPREAD_INT_LINES /
 # TOTAL_INT_LINES — integers; the NFL margin/total PMFs are integer-support,
@@ -60,6 +62,25 @@ _UNDER_RE = re.compile(r"^p_under_(\d+)$")
 _FAIR_LINE_COLUMNS = ("fair_spread", "fair_total", "mu_margin", "mu_total",
                       "mu_h", "mu_a", "p_home_win_derived",
                       "p_away_win_derived")
+
+# Build stamp (2026-09-28): a short digest of THIS module's own source,
+# computed once per process. It rides the RUN ENGINE strip so a stale
+# Streamlit process is detectable ON SCREEN — the user has now hit the
+# "committed code renders 100%, screenshot shows raw pairs" mismatch twice
+# (2026-09-27, 2026-09-28): the panel renders the process's own old code,
+# so its strip carries the old digest while a fresh process shows the
+# current one. Compare the two chips to diagnose; never trust a screenshot
+# whose digest differs from the repo's current value.
+
+def _build_stamp() -> str:
+    try:
+        src = Path(__file__).read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha1(src).hexdigest()[:6]
+
+
+BUILD_STAMP = _build_stamp()
 
 
 def parse_spread_line(name: str) -> int | None:
@@ -415,11 +436,13 @@ def runengine_html(row, home_team: str, away_team: str,
     # only, and the win probabilities are already the card's two team bars
     # (the ±0.5 stop's per-side derived-ML notes carry the raw pair where
     # it is genuinely line-specific). Same strip anatomy, byte-for-byte.
+    stamp = (f'<span class="re-na">build {BUILD_STAMP}</span>'
+             if BUILD_STAMP else "")
     return ('<div class="fb-runengine"><span class="re-label">'
             'RUN ENGINE</span>'
             f'<span>Proj: {away_team} {_num(mu_a)} – '
             f'{home_team} {_num(mu_h)}</span>'
-            f'{total_span}{rl}{ml_caption}</div>')
+            f'{total_span}{rl}{ml_caption}{stamp}</div>')
 
 
 def push_span(pp: float | None) -> str:

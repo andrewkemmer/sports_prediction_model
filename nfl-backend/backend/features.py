@@ -1865,6 +1865,13 @@ def injury_share_table(snaps: pd.DataFrame | None,
         ro["player_id"] = ro["player_id"].astype("string").str.strip()
         ro = ro.dropna(subset=["season", "week", "team", "player_id"])
         ro = ro[ro["team"].ne("")]
+        # Union semantics, NOT a bag union: a player Out on the report is
+        # almost always also INA on the roster snapshot (measured 1499 of
+        # 1502 2025 report rows overlapping), so a raw concat double-counts
+        # every intersection player in inj_<unit>_out and doubles his share
+        # in <unit>_snaps_lost_share. Dedup on the flag key so each player
+        # is priced once; share comes from the SAME prior-snap history
+        # either way, so the union row is information-identical.
         inj = pd.concat([
             inj,
             pd.DataFrame({"gsis_id": ro["player_id"],
@@ -1874,6 +1881,8 @@ def injury_share_table(snaps: pd.DataFrame | None,
                           "week": ro["week"],
                           "report_status": "Out"}),
         ], ignore_index=True, sort=False)
+        inj = inj.drop_duplicates(["season", "week", "team", "player_id"],
+                                  keep="first")
     if inj.empty:
         return empty
     xw = crosswalk[["gsis_id", "pfr_id"]].dropna(how="any").drop_duplicates(
