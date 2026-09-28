@@ -272,11 +272,22 @@ XGBOOST_PARAMS = {
 }
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
+# NBA-specific re-tune (2026-09-27, offline Optuna study over the production
+# 41-fold walk-forward, 150 trials, .adhoc protocol per MLB's documented
+# provenance): pooled member OOF logloss 0.63260 -> 0.62339 on folds[:-4], and
+# the gain SURVIVED the sealed 4-fold holdout (0.52094 vs 0.53104, AUC .8475
+# vs .8467) and the full population (0.61532 vs 0.62460). The tuned member
+# still earns a zero final blend weight (elasticnet .4264 / xgboost .5736
+# vertex unchanged), so this is member strength with the blend unharmed - the
+# MLB member-strength policy, not a served-metric claim. The XGBoost member
+# was tuned under the same protocol and REJECTED there: its pooled gain
+# (+117 bps) reversed on the sealed holdout, so XGBOOST_PARAMS stays the MLB
+# copy verbatim.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 50, "max_depth": 6, "num_leaves": 6,
-    "min_child_samples": 70, "min_gain_to_split": 1.2224,
-    "bagging_fraction": 0.4518, "bagging_freq": 1,
-    "feature_fraction": 0.7632, "learning_rate": 0.0332,
+    "n_estimators": 61, "max_depth": 4, "num_leaves": 9,
+    "min_child_samples": 58, "min_gain_to_split": 2.2171,
+    "bagging_fraction": 0.8053, "bagging_freq": 1,
+    "feature_fraction": 0.6811, "learning_rate": 0.0300,
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 ELASTICNET_PARAMS = {
