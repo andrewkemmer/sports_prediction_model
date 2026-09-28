@@ -616,6 +616,14 @@ def main(argv: list[str] | None = None) -> int:
     if _card_store:
         artifacts.append(_card_store)
 
+    # Repo-carried injury history: persist this run's captured ESPN snapshots
+    # into data_delivery so a later sandbox run whose egress to the injury
+    # endpoint is blocked (2026-09-28 Kaggle 403s) still replays real captured
+    # state. Health is a data artifact, not a cache-local one.
+    _inj_artifact = ingestion.export_injury_history_artifact()
+    if _inj_artifact:
+        artifacts.append(_inj_artifact)
+
     p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
     _write_power_rankings(p, game_df)
     artifacts.append(p.name)

@@ -1260,16 +1260,81 @@ def _append_injury_snapshot(today: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+# Repo-carried injury-history artifact: the last successfully captured ESPN
+# snapshots, persisted into data_delivery by the pipeline so a sandbox whose
+# egress to the injury endpoint is blocked (2026-09-28 Kaggle runs: 403 on
+# every retry wave while the same profile probed 200 from another network)
+# still replays captured history instead of none.
+INJURY_HISTORY_ARTIFACT = "nhl_injury_snapshot_history.parquet"
+
+
 def _injury_history() -> pd.DataFrame | None:
-    path = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
-    if not path.exists():
+    """The best available captured injury history, never fabricated.
+
+    Two tiers: the local snapshot cache first (freshest, machine-local),
+    then the repo-carried artifact in data_delivery — the export a previous
+    successful run persisted for exactly the sandbox runs whose egress to
+    the injury endpoint is blocked. Tiers are unioned so a Kaggle run that
+    CAN refresh keeps both its new rows and the artifact's older ones.
+    """
+    frames: list[pd.DataFrame] = []
+    local = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
+    if local.exists():
+        try:
+            df = pd.read_parquet(local)
+            if len(df):
+                frames.append(df)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ESPN injury history unreadable (%s)", exc)
+    artifact = config.DATA_DELIVERY_DIR / INJURY_HISTORY_ARTIFACT
+    if artifact.exists() and artifact != local:
+        try:
+            df = pd.read_parquet(artifact)
+            if len(df):
+                frames.append(df)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ESPN injury history artifact unreadable (%s)", exc)
+    if not frames:
+        return None
+    if len(frames) == 1:
+        return frames[0].reset_index(drop=True)
+    combined = pd.concat(frames, ignore_index=True, sort=False)
+    keys = [c for c in ("snapshot_at", "player_id", "player_name")
+            if c in combined.columns]
+    if keys:
+        combined = combined.drop_duplicates(keys, keep="first")
+    return combined.reset_index(drop=True)
+
+
+def export_injury_history_artifact() -> str | None:
+    """Persist the local captured history into data_delivery (best effort).
+
+    Called by the pipeline's persistence phase so the NEXT run — local or
+    sandbox — inherits every snapshot this run captured. Returns the artifact
+    name when written, None when there is nothing to persist (never fails a
+    run; the artifact simply ages until a healthy fetch repopulates it).
+    """
+    local = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
+    if not local.exists():
         return None
     try:
-        df = pd.read_parquet(path)
+        df = pd.read_parquet(local)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("ESPN injury history unreadable (%s)", exc)
+        logger.warning("ESPN injury history export skipped (unreadable): %s", exc)
         return None
-    return df.reset_index(drop=True) if len(df) else None
+    if not len(df):
+        return None
+    artifact = config.DATA_DELIVERY_DIR / INJURY_HISTORY_ARTIFACT
+    try:
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        tmp = artifact.with_suffix(".parquet.tmp")
+        df.to_parquet(tmp, index=False)
+        tmp.replace(artifact)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ESPN injury history export failed (run continues): %s", exc)
+        return None
+    logger.info("injury history artifact: %d rows -> %s", len(df), artifact.name)
+    return artifact.name
 
 
 def load_team_names() -> dict[str, str]:

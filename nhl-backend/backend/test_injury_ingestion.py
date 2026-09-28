@@ -77,6 +77,92 @@ def test_transient_edge_block_is_retried_before_history_falls_back(
     assert latest["snapshot_at"] == "2026-09-26T10:05:12+00:00"
 
 
+def test_history_falls_back_to_repo_artifact_when_local_cache_is_absent(
+        tmp_path, monkeypatch):
+    """A sandbox whose egress to the injury endpoint is blocked (2026-09-28
+    Kaggle runs: every retry 403'd while the same profile probed 200 from
+    another network) must still replay captured history — the pipeline
+    persists it into data_delivery so health is a data artifact, not a
+    cache-local one. Local snapshot cache first, artifact second.
+    """
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    artifact = pd.DataFrame([{
+        "player_id": "mp-9", "player_name": "Repo Example", "status": "Out",
+        "report_date": "2026-09-20", "snapshot_at": pd.Timestamp("2026-09-20T09:00:00Z"),
+        "snapshot_marker": False,
+    }])
+    # Patch the config module ingestion ACTUALLY holds (under pytest the
+    # backend package import makes it backend.config; the test file's own
+    # `import config` would be a different module object).
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    artifact.to_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+
+    out = ing._injury_history()
+
+    assert len(out) == 1
+    assert out.iloc[0]["player_id"] == "mp-9"
+    # And the fetch-failure fallback now returns that history, not None.
+    _set_clock(monkeypatch, ["2026-09-26T10:00:00Z"])
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+    with patch("requests.get",
+               return_value=_Response(_payload(), status_code=403)) as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+    assert get.call_count == 4
+    assert len(out) == 1
+    assert out.iloc[0]["player_id"] == "mp-9"
+    assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-20T09:00:00Z")
+
+
+def test_history_tiers_union_and_dedupe_on_snapshot_identity(
+        tmp_path, monkeypatch):
+    """Local cache rows and artifact rows are unioned on (snapshot_at,
+    player_id): a sandbox that CAN refresh keeps its new rows alongside the
+    artifact's older ones; overlapping rows never double-count a player-day.
+    """
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    stamp = pd.Timestamp("2026-09-20T09:00:00Z")
+    shared = {"player_id": "mp-1", "player_name": "Alex Example",
+              "status": "Out", "report_date": "2026-09-20",
+              "snapshot_at": stamp, "snapshot_marker": False}
+    pd.DataFrame([shared]).to_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+    pd.DataFrame([shared, {**shared, "player_id": "mp-2",
+                           "player_name": "Repo Example"}]).to_parquet(
+        tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+
+    out = ing._injury_history()
+
+    assert sorted(out["player_id"]) == ["mp-1", "mp-2"]
+
+
+def test_export_injury_history_artifact_round_trips(tmp_path, monkeypatch):
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    pd.DataFrame([{
+        "player_id": "mp-1", "player_name": "Alex Example", "status": "Out",
+        "report_date": "2026-09-20", "snapshot_at": pd.Timestamp("2026-09-20T09:00:00Z"),
+        "snapshot_marker": False,
+    }]).to_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+
+    name = ing.export_injury_history_artifact()
+
+    assert name == ing.INJURY_HISTORY_ARTIFACT
+    restored = pd.read_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    assert len(restored) == 1
+    assert restored.iloc[0]["player_id"] == "mp-1"
+
+
+def test_export_injury_history_artifact_without_history_writes_nothing(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+
+    assert ing.export_injury_history_artifact() is None
+    assert not (tmp_path / ing.INJURY_HISTORY_ARTIFACT).exists()
+
+
 def test_persistent_edge_block_still_falls_back_to_captured_history(
         tmp_path, monkeypatch):
     monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
