@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-09-28T21:10:12.332771+00:00",
- "feature_set_version": "nfl-prod-v9.2-roster-availability",
+ "created_utc": "2026-09-28T22:28:18.499818+00:00",
+ "feature_set_version": "nfl-prod-v9.3-report-cycle-epa-lineups",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
@@ -785,8 +785,8 @@
    "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; a roster-snapshot unavailability does exclude the player; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
@@ -799,8 +799,8 @@
    "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; a roster-snapshot unavailability does exclude the player; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
@@ -813,8 +813,8 @@
    "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses, missing/unreported status, and missing PIT timestamps do not erase player history or exclude the player; a roster-snapshot unavailability does exclude the player; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -829,8 +829,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
@@ -843,8 +843,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
@@ -857,8 +857,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -873,8 +873,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
@@ -887,8 +887,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
@@ -901,8 +901,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -917,8 +917,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
@@ -931,8 +931,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
@@ -945,8 +945,8 @@
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "unweighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT)",
-   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; only an Out, IR/Injured Reserve, or Doubtful report published strictly before target kickoff excludes a player from the target pool; a weekly-roster-snapshot unavailability excludes the player likewise",
-   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses and missing PIT timestamps do not exclude the player; a roster-snapshot unavailability does; in-model handling",
+   "point_in_time_rule": "rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player's own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability",
+   "missing_value_policy": "NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -1484,43 +1484,43 @@
    "feature": "inj_ol_out_home",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 2.5420699925539836,
-   "std": 1.7540319172676992
+   "mean": 2.3131049888309754,
+   "std": 1.5580246654809549
   },
   {
    "feature": "inj_ol_out_away",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 2.574832464631422,
-   "std": 1.7416423117638873
+   "mean": 2.330975428145942,
+   "std": 1.5294456639170233
   },
   {
    "feature": "inj_ol_out_diff",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": -0.03276247207743857,
-   "std": 2.2788082826330807
+   "mean": -0.017870439314966492,
+   "std": 2.018456941372835
   },
   {
    "feature": "ol_snaps_lost_share_home",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 1.6664994725738396,
-   "std": 1.3282170326152538
+   "mean": 1.4815283391837748,
+   "std": 1.1358169497150215
   },
   {
    "feature": "ol_snaps_lost_share_away",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 1.6927887591745558,
-   "std": 1.3197346879710228
+   "mean": 1.4963330496755665,
+   "std": 1.1154460107221547
   },
   {
    "feature": "ol_snaps_lost_share_diff",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": -0.026289286600716243,
-   "std": 1.7559316246522765
+   "mean": -0.014804710491791655,
+   "std": 1.5056582479527914
   },
   {
    "feature": "ol_key_out_home",
@@ -1547,43 +1547,43 @@
    "feature": "inj_def_out_home",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 7.854802680565897,
-   "std": 3.6393961193789663
+   "mean": 7.130677587490693,
+   "std": 3.315958375852687
   },
   {
    "feature": "inj_def_out_away",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 7.94825018615041,
-   "std": 3.6721208854483924
+   "mean": 7.180938198064036,
+   "std": 3.3529810542257006
   },
   {
    "feature": "inj_def_out_diff",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": -0.09344750558451229,
-   "std": 4.559703046462281
+   "mean": -0.05026061057334326,
+   "std": 4.108501193253073
   },
   {
    "feature": "def_snaps_lost_share_home",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 3.5025383647129735,
-   "std": 1.9288588715762958
+   "mean": 3.0875388123603873,
+   "std": 1.6273066018659854
   },
   {
    "feature": "def_snaps_lost_share_away",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": 3.56309225082438,
-   "std": 1.9296941086122337
+   "mean": 3.1191470100698506,
+   "std": 1.622817633511026
   },
   {
    "feature": "def_snaps_lost_share_diff",
    "n_games": 2686,
    "coverage_pct": 100.0,
-   "mean": -0.06055388611140661,
-   "std": 2.5020551868326204
+   "mean": -0.03160819770946354,
+   "std": 2.1189931997301215
   },
   {
    "feature": "def_key_out_home",
@@ -1623,7 +1623,7 @@
   "total_val_games": 1672
  },
  "config": {
-  "feature_set_version": "nfl-prod-v9.2-roster-availability",
+  "feature_set_version": "nfl-prod-v9.3-report-cycle-epa-lineups",
   "warmup_seasons": [
    2016
   ],
