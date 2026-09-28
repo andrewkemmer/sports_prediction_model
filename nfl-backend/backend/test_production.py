@@ -1877,7 +1877,8 @@ check("every nflverse loader takes an opt-in progress hook, appended last",
                      "load_snap_counts", "load_ftn_charting")))
 _uc = ingest_mod.population_unit_counts(list(range(2016, 2027)))
 check("population_unit_counts counts NGS per (season, group), not per season",
-      _uc["nextgen"] == 3 * (len(range(2016, 2027)) + 1)
+      _uc["nextgen"] == 3 * len(ingest_mod.ngs_seasons(
+          [2015] + list(range(2016, 2027))))
       and _uc["pbp"] == len(range(2016, 2027))
       and _uc["player_stats"] == len(range(2016, 2027)) + 1
       # The snap pull reaches back to SNAPS_HISTORY_FIRST_SEASON so report
@@ -1885,6 +1886,17 @@ check("population_unit_counts counts NGS per (season, group), not per season",
       and _uc["snap_counts"] == len(ingest_mod.snap_count_seasons(
           list(range(2016, 2027))))
       and _uc["injuries_weekly"] == len(range(2016, 2027)))
+check("NGS/FTN unit counts exclude out-of-window seasons (no doomed units)",
+      # The 2026-09-28 log: 9 guaranteed-fail WARNINGs (ngs 2015 x3 groups,
+      # ftn 2016..2021) came from counting and requesting out-of-window
+      # seasons. The bar denominator must share the loaders' published
+      # windows, so a requested pre-window season is one INFO line, not a
+      # warning per (season, group).
+      _uc["nextgen"] == 3 * 11   # 12 requested (2015 warmup + 2016..2026) − 1 pre-window
+      and _uc["ftn_charting"] == 5   # 2022..2026 of the requested 2016..2026
+      and ingest_mod.ngs_seasons([2014, 2015, 2016, 2026]) == [2016, 2026]
+      and ingest_mod.ftn_charting_seasons([2016, 2021, 2022, 2026])
+      == [2022, 2026])
 check("the Open-Meteo archive window is 14 days, matching MLB exactly",
       weather_mod._BATCH_DAYS == 14
       and weather_mod._BATCH_SIZE == 15

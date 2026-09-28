@@ -450,6 +450,12 @@ PS_CACHE_VERSION = "v2"  # v2 includes player_id so EPA histories join by player
 # Weekly per-player tracking efficiency (week-0 rows are SEASON aggregates —
 # they mix future games into a week-1 value, so they are dropped at load).
 NGS_GROUPS = ("passing", "rushing", "receiving")
+# Published windows (nflreadpy rejects out-of-window seasons outright —
+# "Season must be between ..." — so requesting them is a guaranteed skip,
+# not a degradation to warn about at runtime). Declared once here so the
+# loaders, the progress-bar denominator, and the tests share one truth.
+NGS_FIRST_SEASON = 2016
+FTN_FIRST_SEASON = 2022
 NGS_NEEDS = {
     "passing": ["season", "week", "team_abbr", "player_position", "attempts",
                 "completion_percentage_above_expectation"],
@@ -497,6 +503,16 @@ def load_player_stats(seasons: list[int] | None = None,
     return pd.concat(frames, ignore_index=True)
 
 
+def ngs_seasons(seasons: list[int]) -> list[int]:
+    """Seasons the NGS source can actually serve (published window)."""
+    return [s for s in seasons if s >= NGS_FIRST_SEASON]
+
+
+def ftn_charting_seasons(seasons: list[int]) -> list[int]:
+    """Seasons the FTN charting source can actually serve (2022+)."""
+    return [s for s in seasons if s >= FTN_FIRST_SEASON]
+
+
 def load_nextgen(seasons: list[int] | None = None,
                  use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse Next-Gen Stats weekly tracking efficiency, all three groups.
@@ -504,8 +520,16 @@ def load_nextgen(seasons: list[int] | None = None,
     Week-0 rows (season aggregates that would leak future performance into
     early-game features) are dropped at load. Per-(season, group) caches
     (NGS cache v2 = rush_attempts weight fix); a failed season/group is
-    warned and skipped. Returns None only when NOTHING could be loaded."""
+    warned and skipped. Seasons below the source's published window are
+    pre-filtered OUT (one INFO line, not a per-season WARNING — the skip
+    is the documented policy, not a surprise). Returns None only when
+    NOTHING could be loaded."""
     seasons = seasons or config.ALL_SEASONS
+    _skipped = [s for s in seasons if s < NGS_FIRST_SEASON]
+    if _skipped:
+        logger.info("ngs published from %d — skipping %s (documented window)",
+                    NGS_FIRST_SEASON, _skipped)
+    seasons = ngs_seasons(seasons)
     frames: list[pd.DataFrame] = []
     for season in seasons:
         for group in NGS_GROUPS:
@@ -625,6 +649,11 @@ def load_ftn_charting(seasons: list[int] | None = None,
     publication window (and any failed season) are warned and skipped,
     never fatal. Returns None only when NO season loaded."""
     seasons = seasons or config.ALL_SEASONS
+    _skipped = [s for s in seasons if s < FTN_FIRST_SEASON]
+    if _skipped:
+        logger.info("ftn charting published from %d — skipping %s "
+                    "(documented window)", FTN_FIRST_SEASON, _skipped)
+    seasons = ftn_charting_seasons(seasons)
     frames: list[pd.DataFrame] = []
     for season in seasons:
         try:
@@ -1015,11 +1044,18 @@ def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:
     return {
         "pbp": len(core_seasons),
         "player_stats": extended,
-        "nextgen": len(NGS_GROUPS) * extended,
+        # NGS publishes 2016+ and FTN 2022+: the requested window is
+        # pre-filtered by the same helpers the loaders use, so the bar never
+        # counts units that can only fail (the old count included the
+        # doomed 2015 NGS pulls and six 2016-2021 FTN units). The pipeline
+        # pulls NGS with one warmup season in front — mirror that here.
+        "nextgen": len(NGS_GROUPS) * len(
+            ngs_seasons(([core_seasons[0] - 1] + core_seasons)
+                        if core_seasons else [])),
         # The snap pull reaches back to SNAPS_HISTORY_FIRST_SEASON so the
         # injury-share family can price the earliest report weeks.
         "snap_counts": len(snap_count_seasons(core_seasons)),
-        "ftn_charting": len(core_seasons),
+        "ftn_charting": len(ftn_charting_seasons(core_seasons)),
         "injuries": len(core_seasons),
         "injuries_weekly": len(core_seasons),
     }
