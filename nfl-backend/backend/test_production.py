@@ -2069,6 +2069,80 @@ except Exception as exc:  # noqa: BLE001
     check("the drift noise floor is the sampling-noise expectation for the sizes",
           False, str(exc))
 
+# ---------------------------------------------------------------------------
+# Drift geometry (the 2026-09-27 remediation): the baseline is the era
+# IMMEDIATELY BEFORE the current window -- MLB's trailing-tail slice, the
+# twin of the NHL geometry committed the same day. A full-history baseline
+# mixed whole seasons into every comparison and lit season/era-boundary
+# effects (the pace_plays_min_away ALERT was a multi-year league-wide pace
+# decline, unremarkable against its own recent era). MONITORING ONLY.
+# ---------------------------------------------------------------------------
+print("\n== 12b. Drift windows follow the MLB trailing-tail geometry ==")
+try:
+    _gdf = pd.DataFrame(np.random.default_rng(7).normal(0, 1, (600, 8)),
+                        columns=[c for c in config.active_moneyline_feature_cols()[:8]])
+    _gdf["gameday"] = pd.date_range("2024-01-01", periods=600, freq="D")
+    _base, _cur = monitoring_mod.drift_windows(_gdf)
+    check("current window is the trailing DRIFT_CURRENT_GAMES games",
+          len(_cur) == config.DRIFT_CURRENT_GAMES
+          and _cur["gameday"].iloc[-1] == _gdf["gameday"].iloc[-1])
+    _n_base_expected = min(max(3 * config.DRIFT_CURRENT_GAMES,
+                               config.DRIFT_BASELINE_MIN_GAMES),
+                           len(_gdf) - config.DRIFT_CURRENT_GAMES)
+    check("baseline is max(3x current, floor) games of the preceding era",
+          len(_base) == _n_base_expected)
+    check("windows are disjoint AND adjacent",
+          len(pd.concat([_base, _cur])) == len(_base) + len(_cur)
+          and _base["gameday"].iloc[-1] < _cur["gameday"].iloc[0])
+    _small = monitoring_mod.drift_windows(_gdf.iloc[:40])
+    check("a pool too small for both windows degrades to the whole tail",
+          len(_small[1]) == 20 and len(_small[0]) == 20
+          and len(set(_small[0].index) & set(_small[1].index)) == 0)
+
+    # End-to-end verdict probe: a feature with a genuine SLOW RAMP baked
+    # across the whole pool must not page against its own recent era,
+    # while a genuine step change in the recent window still must.
+    _pool = pd.DataFrame(np.random.default_rng(11).normal(0, 1, (1000, 8)),
+                         columns=[c for c in config.active_moneyline_feature_cols()[:8]])
+    _pool["gameday"] = pd.date_range("2024-01-01", periods=1000, freq="D")
+    _ramp = np.linspace(-0.5, 0.5, 1000)
+    _pool[_pool.columns[0]] = _ramp + np.random.default_rng(12).normal(0, 1, 1000) * 0.3
+    _rb, _rc = monitoring_mod.drift_windows(_pool)
+    _ramp_row = [r for r in monitoring_mod.feature_drift(_rb, _rc)
+                 if r["feature"] == _pool.columns[0]][0]
+    check("a slow era ramp is unremarkable against its own recent era",
+          _ramp_row["status"] == "OK",
+          f"status={_ramp_row['status']} psi={_ramp_row['psi']:.3f}")
+    _pool2 = _pool.copy()
+    _pool2.loc[_pool2.index[-60:], _pool2.columns[0]] += 1.2
+    _rb2, _rc2 = monitoring_mod.drift_windows(_pool2)
+    _step_row = [r for r in monitoring_mod.feature_drift(_rb2, _rc2)
+                 if r["feature"] == _pool2.columns[0]][0]
+    check("a genuine recent step change still pages under the tail baseline",
+          _step_row["status"] in ("ALERT", "WARN"),
+          f"status={_step_row['status']} psi={_step_row['psi']:.3f}")
+
+    # The coverage companion shares the drift step's frames structurally:
+    # both windows are emitted, labeled baseline/current, and the coverage
+    # CSV can never answer a different window than the drift CSV beside it.
+    check("the pipeline slices the drift windows once and shares the frames",
+          "drift_windows(game_df)" in mp_src
+          and "feature_drift(drift_baseline, recent" in mp_src
+          and "coverage(game_df, current_df=recent)" in mp_src
+          and "out_dir, date_c, drift_baseline, recent" in mp_src)
+    _cov_pairs = monitoring_mod.coverage(_gdf, current_df=_cur)
+    _windows = sorted({r["window"] for r in _cov_pairs})
+    check("coverage with a current window emits baseline + current rows",
+          _windows == ["baseline", "current"]
+          and len(_cov_pairs) == 2 * len(config.active_moneyline_feature_cols()))
+    check("coverage keeps the legacy decided-pool label without a current window",
+          sorted({r["window"] for r in monitoring_mod.coverage(_gdf)})
+          == ["decided pool"])
+except Exception as exc:  # noqa: BLE001
+    import traceback
+    check("the drift geometry pins run", False, f"{type(exc).__name__}: {exc}")
+    traceback.print_exc()
+
 # 10f. Chart reproduction from the persisted history columns.
 try:
     rng4 = np.random.default_rng(17)
@@ -3285,16 +3359,25 @@ try:
           and _sh_h2["game_id"].isin(["PIT_G0", "PIT_G1"]).sum() == 0)
 
     # Status derivation: truthful Live/pre/final on the board contract.
+    # Kickoffs are relative to the clock so the fixtures cannot go stale
+    # as real time passes (a pinned 20:15 kickoff eventually lands in
+    # the past and flips the "pre" expectation).
+    from datetime import datetime as _dt, timedelta as _td
+    from zoneinfo import ZoneInfo as _ZI
+    def _kick_cols(minutes_ahead):
+        k = _dt.now(_ZI("America/New_York")) + _td(minutes=minutes_ahead)
+        return {"gameday": k.strftime("%Y-%m-%d"),
+                "gametime": k.strftime("%H:%M")}
     _row_live = pd.Series({
-        "game_id": "L1", "gameday": "2026-09-27", "gametime": "15:00",
+        "game_id": "L1", **_kick_cols(-120),
         "home_team": "PHI", "away_team": "DAL", "stadium": "The Link",
         "home_score": np.nan, "away_score": np.nan})
     _row_final = pd.Series({
-        "game_id": "F1", "gameday": "2026-09-27", "gametime": "13:00",
+        "game_id": "F1", **_kick_cols(-180),
         "home_team": "KC", "away_team": "LV", "stadium": "Arrowhead",
         "home_score": 27.0, "away_score": 24.0})
     _row_pre = pd.Series({
-        "game_id": "P1", "gameday": "2026-09-27", "gametime": "20:15",
+        "game_id": "P1", **_kick_cols(180),
         "home_team": "SF", "away_team": "SEA", "stadium": "Levi's",
         "home_score": np.nan, "away_score": np.nan})
     _rec = serve_mod._board_game_row(_row_live, 0.647, 0.641, {}, True)

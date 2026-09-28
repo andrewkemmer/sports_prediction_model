@@ -729,6 +729,20 @@ LIGHTGBM_REG_PARAMS = {
 # ---------------------------------------------------------------------------
 SPREAD_GRID = list(range(-14, 15))          # margin thresholds L: -14..+14
 TOTAL_GRID = list(range(24, 67))            # totals U: 24..66
+
+# Drift windows (MONITORING ONLY — nothing in the fit or serve path reads
+# these): PSI compares the LAST N decided games ("current") against a
+# trailing tail of the history that immediately precedes them ("baseline").
+# The tail geometry is MLB's (mlb pipeline: prior.tail(max(3 * len(current),
+# 250))) and NHL's (monitoring.drift_windows, 2026-09-27): a baseline drawn
+# from the same recent era as the current window so a PSI row answers "did
+# the recent game change?" rather than mixing in whole seasons ago — the
+# full-history baseline flagged pace_plays_min_away ALERT (0.327) on a slow
+# multi-year league-wide pace decline that the recent-era baseline measures
+# as unremarkable. One pair of knobs so the drift step, its coverage
+# companion, and every test quote the same geometry.
+DRIFT_CURRENT_GAMES = 60
+DRIFT_BASELINE_MIN_GAMES = 250
 # Canonical lines the Run-Engine Model card scores per-line OOF metrics at
 # (the pooled-diagnostics tab's fixed totals + the NFL key-number spread).
 RUN_ENGINE_FIXED_TOTALS = (38, 42, 46, 50, 54)

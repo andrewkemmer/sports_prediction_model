@@ -251,9 +251,45 @@ def feature_importance_weights(models: dict,
     return {f: float(v / total) for f, v in importance.items()}
 
 
+def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Slice the drift comparison's two windows from one canonical frame.
+
+    The structural twin of MLB's pipeline slice (mlb-backend pipeline.py:
+    ``baseline = prior.tail(max(3 * len(current), 250))``) and NHL's
+    monitoring.drift_windows (2026-09-27): "current" is the trailing
+    :attr:`config.DRIFT_CURRENT_GAMES` decided games and "baseline" is the
+    tail of the history that immediately precedes them — ``max(3x the
+    current window, :attr:`config.DRIFT_BASELINE_MIN_GAMES`) games`` — never
+    the full pool. A baseline drawn from the same recent era as the current
+    window makes a PSI row answer "did the recent game change?"; the
+    full-history baseline mixed whole seasons in, which flagged season- and
+    era-boundary effects (the 2026-09-27 pace_plays_min_away ALERT lit on a
+    slow multi-year league-wide pace decline, not a recent change).
+
+    MONITORING ONLY: nothing in the fit or serve path reads these windows —
+    training is expanding walk-forward over the full pool regardless.
+
+    Returns ``(baseline, current)`` in the same order callers pass them to
+    :func:`feature_drift`. Falls back to the whole-pool tail when the frame
+    is too small to slice both windows disjointly.
+    """
+    n_cur = min(int(config.DRIFT_CURRENT_GAMES), max(len(df) // 2, 1))
+    current = df.tail(n_cur)
+    prior = df.head(len(df) - n_cur)
+    n_base = min(max(3 * n_cur, int(config.DRIFT_BASELINE_MIN_GAMES)),
+                 len(prior))
+    baseline = prior.tail(n_base)
+    return baseline, current
+
+
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
-    """PSI per served feature: recent slate window vs full-history baseline.
+    """PSI per served feature: current window vs its preceding-era baseline.
+
+    The frames come from :func:`drift_windows` (MLB's trailing-tail geometry:
+    the baseline is the era immediately before the current window, not the
+    full pool — a full-history baseline mixes whole seasons in and flags
+    season-boundary effects every early-season run).
 
     Rows carry the MLB-shaped fields the shared monitor page renders:
     ``status`` (OK/WARN/ALERT from the same PSI thresholds MLB uses),
@@ -378,13 +414,16 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        weights: dict[str, float] | None = None) -> tuple[str, str]:
     """Emit MLB-shaped run-engine drift/coverage CSVs for the NFL page.
 
-    The run engine intentionally resolves the same contract
-    (config.MONEYLINE_FEATURE_COLS via features.tree_view) as binary
-    moneyline; this is monitoring output only and does not create a second
-    training feature contract.
+    The drift CSV and the coverage CSV describe the SAME two frames — one
+    call receives them once (the drift step's baseline/current slice), so
+    the tables beside each other on the monitor page cannot answer different
+    windows (MLB's 08-28 incident guard). The run engine intentionally
+    resolves the same contract (config.MONEYLINE_FEATURE_COLS via
+    features.tree_view) as binary moneyline; this is monitoring output only
+    and does not create a second training feature contract.
     """
     drift = feature_drift(full_df, recent_df, weights=weights)
-    cov = coverage(full_df)
+    cov = coverage(full_df, current_df=recent_df)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
     pd.DataFrame(drift).to_csv(drift_path, index=False)
@@ -392,33 +431,51 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
     return drift_path.name, cov_path.name
 
 
-def coverage(full_df: pd.DataFrame) -> list[dict]:
-    """Per-feature measured/non-null coverage over the decided pool.
+def coverage(full_df: pd.DataFrame,
+             current_df: pd.DataFrame | None = None) -> list[dict]:
+    """Per-feature measured/non-null coverage over the drift windows.
 
     MLB-shaped fields: ``status`` (STARVED <25% measured / LOW_COVERAGE
     <80% / OK — the same thresholds the shared page documents) and
     ``n_default_zero``. The NFL engine does not default-fill features (NaN
     routes to imputation at fit time), so every present non-null value is a
     real measurement: pct_measured == pct_nonnull and n_default_zero is 0.
+
+    The windows are the SAME two frames the drift table compares (the
+    guaranteed shared-frames property MLB enforced after its 08-28 incident,
+    when the coverage CSV answered a different window than the drift CSV
+    beside it): pass ``current_df`` (the drift step's trailing window) to
+    emit both drift windows — ``full_df`` is then labeled ``baseline`` and
+    ``current_df`` ``current``; without it, ``full_df`` keeps the legacy
+    ``decided pool`` label. The engine never default-fills, so the report
+    also cannot mistake its own windows: the weather quartet's 71% is the
+    all-time share of roofed/dome games (a real measurement absent by
+    nature, not a broken fetcher) and stays visible for exactly that
+    structural read.
     """
-    rows = []
-    for f in config.active_moneyline_feature_cols():
-        if f not in full_df.columns:
-            rows.append({"feature": f, "window": "decided pool",
-                         "n_games": len(full_df), "pct_measured": 0.0,
-                         "pct_nonnull": 0.0, "n_default_zero": 0,
-                         "status": "STARVED"})
-            continue
-        v = pd.to_numeric(full_df[f], errors="coerce")
+    def _row(f: str, frame: pd.DataFrame, window: str) -> dict:
+        if f not in frame.columns:
+            return {"feature": f, "window": window, "n_games": len(frame),
+                    "pct_measured": 0.0, "pct_nonnull": 0.0,
+                    "n_default_zero": 0, "status": "STARVED"}
+        v = pd.to_numeric(frame[f], errors="coerce")
         pct = round(100.0 * float(v.notna().mean()), 2)
-        rows.append({
-            "feature": f, "window": "decided pool", "n_games": int(len(full_df)),
+        return {
+            "feature": f, "window": window, "n_games": int(len(frame)),
             "pct_measured": pct,
             "pct_nonnull": pct,
             "n_default_zero": 0,
             "status": ("STARVED" if pct < 25.0
                        else "LOW_COVERAGE" if pct < 80.0 else "OK"),
-        })
+        }
+
+    rows = []
+    for f in config.active_moneyline_feature_cols():
+        if current_df is not None and len(current_df):
+            rows.append(_row(f, full_df, "baseline"))
+            rows.append(_row(f, current_df, "current"))
+        else:
+            rows.append(_row(f, full_df, "decided pool"))
     return rows
 
 
