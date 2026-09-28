@@ -2184,6 +2184,11 @@ def run_engine_card_bits(game_id: str,
     # push = 0 → re-scale is a no-op. rl_ml_home/rl_ml_away (set only at the
     # ±0.5 stop) are the per-side derived-ML display values; at ±0.5 they
     # equal the raw cover by construction (see the branch above).
+    # ORIENTATION CONTRACT (2026-09-27): rl_home/rl_away handed to
+    # _orient_rl_bits are ALWAYS this folded pair — the away-favorite branch
+    # must re-fold the persisted raw trio it consumes (the screenshot bug:
+    # away-favored cards displayed 39% + 51% under a 10% push, summing to
+    # 90%, while home-favored cards summed to 100%).
     if rl_home is not None and rl_away is not None:
         denom = rl_home + rl_away
         if denom > 0:

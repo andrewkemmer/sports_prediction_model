@@ -283,8 +283,23 @@ def _orient_rl_bits(bits, row, fav_home: bool) -> dict:
     push = diag._num(row, push_col)
     if fav_cov is not None and dog_cov is not None:
         out["rl_fav_side"] = "away"
-        out["rl_fav_cover"] = fav_cov
-        out["rl_dog_cover"] = dog_cov
+        # DISPLAY NORMALIZATION (2026-09-27): the persisted columns are the
+        # RAW 3-way trio (favorite cover / push / dog cover, summing to 1.0
+        # on integer lines with real push mass). The card shows the 2-WAY
+        # folded split the way books quote a whole-number run line — push
+        # folded PROPORTIONATELY into both covers so they sum to 100%, the
+        # same convention the totals row and the home-favorite path (which
+        # inherits run_engine_card_bits' already-folded pair) use. The raw
+        # trio stays in the card bits for EV math. Without this fold the
+        # away-favorite pair displayed raw covers summing to 1 − push
+        # (the 39% + 51% under a 10% push screenshot bug).
+        denom = fav_cov + dog_cov
+        if denom > 0.0:
+            fav_disp, dog_disp = fav_cov / denom, dog_cov / denom
+        else:
+            fav_disp, dog_disp = fav_cov, dog_cov
+        out["rl_fav_cover"] = fav_disp
+        out["rl_dog_cover"] = dog_disp
         out["rl_fav_push"] = float(push or 0.0)
         out["rl_fav_source"] = "persisted_calibrated"
         return out
