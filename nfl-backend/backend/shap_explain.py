@@ -18,6 +18,7 @@ Output: data_delivery/nfl_shap_game_<game_id>.csv (one file per slate game).
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -85,7 +86,17 @@ def compute_nfl_shap_per_game(bundle: dict, games: pd.DataFrame,
             pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
             try:
                 X = ml_mod.member_matrix_ndarray(name, one, pre)
-                raw = ex.shap_values(X)
+                # shap announces its LightGBM binary output-format change
+                # (list of per-class arrays) once per call — 14 lines of log
+                # noise per slate. The list shape IS handled directly below
+                # (class-1 minus class-0), so the warning describes a case
+                # this code already normalizes; silence exactly that message.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message="LightGBM binary classifier with TreeExplainer",
+                        category=UserWarning)
+                    raw = ex.shap_values(X)
                 # Binary output shapes vary by explainer version/member:
                 # a single (1, n) array, a list of two (1, n) arrays, or an
                 # (n_samples, n, 2)-style stacked array. Normalize to the
