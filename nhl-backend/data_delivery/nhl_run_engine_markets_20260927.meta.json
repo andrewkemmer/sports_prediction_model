@@ -1,6 +1,6 @@
 {
  "record": "nhl_run_engine_markets",
- "written_utc": "2026-09-28T00:15:58.164472+00:00",
+ "written_utc": "2026-09-28T01:30:29.866950+00:00",
  "config": {
   "feature_set_version": "nhl-prod-v1.1-player-game-ratings",
   "warmup_days": 30,
@@ -130,5 +130,29 @@
    -0.5,
    0.5
   ]
+ },
+ "mc_meta": {
+  "n_draws": 10000,
+  "requested_draws": 10000,
+  "mc_se_totals_max": 0.005,
+  "reason": "default"
+ },
+ "run_line_fit_check": {
+  "home": {
+   "pearson": 0.9481,
+   "deviance_model": 1.05354,
+   "deviance_baseline": 1.06775,
+   "rmse_model": 1.7367,
+   "rmse_baseline": 1.7498,
+   "n": 2435
+  },
+  "away": {
+   "pearson": 0.9713,
+   "deviance_model": 1.0945,
+   "deviance_baseline": 1.10391,
+   "rmse_model": 1.6889,
+   "rmse_baseline": 1.6967,
+   "n": 2435
+  }
  }
 }
