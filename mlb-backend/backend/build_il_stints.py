@@ -110,22 +110,56 @@ TX_URL = "https://statsapi.mlb.com/api/v1/transactions"
 #                 "activated RHP X.", so matching closes on /injur/ discards
 #                 1,552 real closing events and the "on IL" curve then climbs
 #                 monotonically 29 -> 1,117 instead of settling near ~120.
-_OPEN = re.compile(r"\b(placed|transferred)\b.*\binjured list\b", re.I)
-_CLOSE = re.compile(r"\bactivated\b", re.I)
+#
+# GENERALIZED AVAILABILITY (2026-09-30): the projected nine needs
+# "unavailable as of game date", not merely "hurt". The same
+# wholesale-refetchable transactions feed carries every FORMAL
+# non-IL unavailability move, so the table extends without any new
+# source or incremental state (full rebuild in one pass):
+#   opens  += paternity / bereavement + family medical / restricted
+#             lists, suspensions, and optioned or reassigned to the
+#             minors (the player cannot take a major-league at-bat)
+#   closes += recalled / contract selected / purchased -- an
+#             optioned player returns exactly that way
+# Day-to-day manager holds (Moreno/Bibee/Gausman class) file NO
+# transaction and stay honestly invisible here; the roster-status
+# sweep is their watchtower. Rehab assignments open nothing: a
+# rehabbing player is already flagged by his open IL stint.
+# PIT contract unchanged: interval bounds are transaction DATES
+# (moves are pre-game filings -- knowable by first pitch of the
+# filing day), a same-date appearance is the announcement and never
+# a return, and PA reconciliation stays strictly subtractive at the
+# far end only.
+_OPEN = re.compile(r"\b(placed|transferred)\b.*\binjured list\b"
+                   r"|\bplaced\b.*\bpaternity list\b"
+                   r"|\bplaced\b.*\bbereavement list\b"
+                   r"|\bplaced\b.*\bfamily medical\b"
+                   r"|\bplaced\b.*\brestricted list\b"
+                   r"|\bsuspended\b"
+                   r"|\boptioned\b"
+                   r"|\breassigned\b.*\b(minor league|minors)\b", re.I)
+_CLOSE = re.compile(r"\bactivated\b|\breinstated\b|\brecalled\b"
+                    r"|\bselected the contract\b|\bpurchased\b", re.I)
 _OFF_ROSTER = re.compile(r"\bdesignated\b.*\bfor assignment\b"
                          r"|\bsent\b.*\boutright\b"
                          r"|\breleased\b", re.I)
 
 # Plausibility gate, two-sided. The broken open/close pairing produced a
 # monotone climb to 1,117 players "on the IL" league-wide. Real utilization
-# drifts year to year -- measured weekly medians are 212 (2023), 248 (2024),
-# 267 (2025), 301 (2026) -- so a band pinned to one era's number false-fails a
-# perfectly good table. The ceiling sits ~50% above the highest observed era
-# (the failure mode is nearly 4x) and the floor catches the opposite
-# regression, a match that finds nobody ever injured. Per-season medians are
-# printed and recorded in the meta so drift stays visible either way.
-_MIN_MEDIAN_ON_IL = 20
-_MAX_MEDIAN_ON_IL = 450
+# drifts year to year, and the DEFINITION sets the scale: the IL-only era
+# measured weekly medians 212/248/267/301 (2023-2026); the generalized
+# availability definition (IL + paternity + bereavement/family + suspended
+# + restricted + optioned to the minors, 2026-09-30) measures
+# 496/507/530/559 on the same window. The band below is pinned to the
+# availability era: the ceiling sits ~60% above the highest observed
+# season (the broken-pairing failure mode would read ~4x) and the floor
+# catches the opposite regression, a match that finds nobody ever
+# unavailable. Per-season medians are printed and recorded in the meta so
+# drift stays visible either way. (The gate itself proved the point on
+# extension day: the first wider rebuild measured 510 and was REFUSED
+# against the old IL-era ceiling until the band was re-derived here.)
+_MIN_MEDIAN_ON_IL = 100
+_MAX_MEDIAN_ON_IL = 900
 
 # Second gate, same spirit: the residual defect count. After reconciliation
 # the table may only claim a batter is on the IL for dates on which he had no
@@ -732,6 +766,10 @@ def main() -> None:
         "gate_band": [_MIN_MEDIAN_ON_IL, _MAX_MEDIAN_ON_IL],
         "stint_length_days_median": float(dur.median()),
         "pit_rule": "interval bounds are transaction DATES, not effectiveDate",
+        "definition": ("availability stints: IL + paternity + bereavement/family"
+                       " + suspended + restricted + optioned/reassigned to"
+                       " minors; closes: activated/reinstated/recalled/"
+                       "contract-selected/purchased"),
         "source": "MLB StatsAPI /api/v1/transactions?sportId=1",
         "reconciled_against": None if args.no_reconcile else pbp.name,
         "plate_appearances": int(len(pa)),

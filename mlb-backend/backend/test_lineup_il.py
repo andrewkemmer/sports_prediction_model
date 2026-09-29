@@ -687,3 +687,248 @@ def test_pool_and_flag_sql_are_shipped_constants():
         assert hasattr(features, name), name
     assert "on_il" in features._LINEUP_AGG_SQL
     assert "lineup_il_flag" in features._LINEUP_IL_FLAG_SQL
+
+
+# ── generalized availability taxonomy (2026-09-30 extension) ────────────────
+# Real StatsAPI wording, verified against the cached 2023-2026 feed:
+#   opens  "placed ... on the paternity list" / "on the bereavement list" /
+#          "on the restricted list", "RHP X suspended.",
+#          "optioned RHP X to <minors>", "reassigned ... to <minors>"
+#   closes "activated ... from the paternity list", plain "activated ..."
+#          (suspensions close this way), "recalled ... from <minors>",
+#          "selected the contract ... from <minors>"
+#   NON-events: "sent ... on a rehab assignment" (day-to-day holds file
+#   nothing and stay invisible by design — test_moreno_day_to_day... pins
+#   that). StatsAPI 2023-2026 carries zero family-medical / reinstatement
+#   transaction rows; the regexes keep those vocabularies for other eras.
+# Incidents pinned with real MLBAM ids and dates from the feed:
+#   Isbel 664728 paternity 2023-04-05 -> activated 2023-04-07
+#   Reynolds 668804 bereavement 2023-04-23 -> activated 2023-04-26
+#   Pacheco 681643 optioned 2023-03-14 -> recalled 2023-03-27
+#   Mikolas suspended 2026-07-12 -> activated 2026-07-21
+#   Bellinger 642022 paternity 2023-04-25
+
+P_ISBEL, P_REYNOLDS, P_PACHECO, P_BELLINGER = 664728, 668804, 681643, 642022
+IL_GAME = pd.Timestamp("2023-04-06").date()  # inside the Isbel spell
+
+
+def _pool_flag(il_rows, game_date=IL_GAME, batter=P_ISBEL):
+    """Run the SHIPPED pool SQL with one rating row and the given stints."""
+    c = duckdb.connect(database=":memory:")
+    try:
+        ratings = _ratings({batter: (60.0, 0.300)}).copy()
+        ratings["game_date"] = game_date
+        c.register("batter_ratings", ratings)
+        if il_rows:
+            vals = ",".join(
+                "({}, DATE '{}', {})".format(b, s, f"DATE '{e}'" if e else "NULL")
+                for b, s, e in il_rows)
+            c.execute(f"""CREATE TABLE il_stints AS
+                SELECT CAST(batter AS BIGINT) batter,
+                       CAST(il_start AS DATE) il_start,
+                       CAST(il_end AS DATE) il_end
+                FROM (VALUES {vals}) AS t(batter, il_start, il_end)""")
+        else:
+            c.execute("""CREATE TABLE il_stints AS
+                SELECT CAST(NULL AS BIGINT) AS batter,
+                       CAST(NULL AS DATE) AS il_start,
+                       CAST(NULL AS DATE) AS il_end WHERE false""")
+        c.execute(features._LINEUP_POOL_SQL.format(
+            lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
+            on_il=features._IL_EXISTS_PREDICATE))
+        return dict(c.execute(
+            "SELECT batter, on_il FROM lineup_pool").fetchall())[batter]
+    finally:
+        c.close()
+
+
+def test_paternity_spell_opens_and_closes_across_games():
+    """Isbel 2023-04-05 paternity -> activated 04-07. The spell must flag
+    04-06 (game between filing and activation) and release 04-07+. The
+    availability interval is the same machine as an IL stint: the pool
+    SQL cannot tell the difference, and must not need to."""
+    import build_il_stints as b
+    iv = b.stints_from_events({P_ISBEL: [("2023-04-05", 1), ("2023-04-07", 0)]})
+    assert len(iv) == 1
+    assert iv.iloc[0].il_start == pd.Timestamp("2023-04-05")
+    assert iv.iloc[0].il_end == pd.Timestamp("2023-04-07")
+    rows = [(P_ISBEL, "2023-04-05", "2023-04-07")]
+    assert _pool_flag(rows, game_date=pd.Timestamp("2023-04-06").date()) == 1
+    assert _pool_flag(rows, game_date=pd.Timestamp("2023-04-07").date()) == 0, \
+        "activation date releases the player that same day (closed interval)"
+    assert _pool_flag(rows, game_date=pd.Timestamp("2023-04-04").date()) == 0
+
+
+def test_paternity_rows_classified_by_build_events():
+    """The real wording must classify through build_events: 'placed ... on
+    the paternity list' opens (kind 1); 'activated ... from the paternity
+    list' closes (kind 0)."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_ISBEL}, "date": "2023-04-05",
+         "description": "Kansas City Royals placed OF Kyle Isbel on the "
+                        "paternity list."},
+        {"person": {"id": P_ISBEL}, "date": "2023-04-07",
+         "description": "Kansas City Royals activated OF Kyle Isbel from "
+                        "the paternity list."},
+    ]
+    ev = b.build_events(tx)
+    assert ev[P_ISBEL] == [("2023-04-05", 1), ("2023-04-07", 0)]
+
+
+def test_bereavement_spell_binds_pool():
+    """Reynolds 2023-04-23 bereavement -> activated 04-26. Real second
+    spell 2024-07-25 (recurring category) — both must open intervals."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_REYNOLDS}, "date": "2023-04-23",
+         "description": "Pittsburgh Pirates placed CF Bryan Reynolds on "
+                        "the bereavement list."},
+        {"person": {"id": P_REYNOLDS}, "date": "2023-04-26",
+         "description": "Pittsburgh Pirates activated CF Bryan Reynolds "
+                        "from the bereavement list."},
+        {"person": {"id": P_REYNOLDS}, "date": "2024-07-25",
+         "description": "Pittsburgh Pirates placed CF Bryan Reynolds on "
+                        "the bereavement list."},
+    ]
+    iv = b.stints_from_events(b.build_events(tx))
+    assert len(iv) == 2
+    assert iv.iloc[0].il_start == pd.Timestamp("2023-04-23")
+    assert iv.iloc[0].il_end == pd.Timestamp("2023-04-26")
+    assert iv.iloc[1].il_start == pd.Timestamp("2024-07-25")
+    assert pd.isna(iv.iloc[1].il_end)
+    rows = [(P_REYNOLDS, "2023-04-23", "2023-04-26")]
+    assert _pool_flag(rows, batter=P_REYNOLDS,
+                      game_date=pd.Timestamp("2023-04-24").date()) == 1
+
+
+def test_optioned_recalled_cycle_out_then_back():
+    """Pacheco 2023-03-14 optioned -> 2023-03-27 recalled. Optioned means
+    OUT from the option date; the recall returns him that same date. A
+    game 03-20 must exclude him; a game on/after 03-27 must not."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_PACHECO}, "date": "2023-03-14",
+         "description": "Detroit Tigers optioned RHP Freddy Pacheco to "
+                        "Toledo Mud Hens."},
+        {"person": {"id": P_PACHECO}, "date": "2023-03-27",
+         "description": "Detroit Tigers recalled RHP Freddy Pacheco from "
+                        "Toledo Mud Hens."},
+    ]
+    iv = b.stints_from_events(b.build_events(tx))
+    assert len(iv) == 1
+    assert iv.iloc[0].il_start == pd.Timestamp("2023-03-14")
+    assert iv.iloc[0].il_end == pd.Timestamp("2023-03-27")
+    rows = [(P_PACHECO, "2023-03-14", "2023-03-27")]
+    assert _pool_flag(rows, batter=P_PACHECO,
+                      game_date=pd.Timestamp("2023-03-20").date()) == 1
+    assert _pool_flag(rows, batter=P_PACHECO,
+                      game_date=pd.Timestamp("2023-03-27").date()) == 0
+
+
+def test_suspension_open_at_window_end_excluded():
+    """'RHP X suspended.' opens a stint; the plain 'activated' that ends
+    a real suspension (Mikolas 2026-07-12 -> 07-21) closes it. An
+    UNCLOSED suspension at window end stays flagged — the same
+    open-stint semantics as a NULL il_end IL stint."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": 571945}, "date": "2026-07-12",
+         "description": "RHP Miles Mikolas suspended."},
+        {"person": {"id": 571945}, "date": "2026-07-21",
+         "description": "Washington Nationals activated RHP Miles "
+                        "Mikolas."},
+    ]
+    iv = b.stints_from_events(b.build_events(tx))
+    assert len(iv) == 1
+    assert iv.iloc[0].il_start == pd.Timestamp("2026-07-12")
+    assert iv.iloc[0].il_end == pd.Timestamp("2026-07-21")
+    # open at window end: no close event at all
+    open_iv = b.stints_from_events(
+        b.build_events([tx[0]]))
+    assert len(open_iv) == 1 and pd.isna(open_iv.iloc[0].il_end)
+    rows = [(571945, "2026-07-12", "2026-07-21")]
+    assert _pool_flag(rows, batter=571945,
+                      game_date=pd.Timestamp("2026-07-15").date()) == 1
+    assert _pool_flag(rows, batter=571945,
+                      game_date=pd.Timestamp("2026-07-21").date()) == 0
+
+
+def test_rehab_assignment_is_not_a_stint_event():
+    """'sent ... on a rehab assignment' must classify as NO event: the
+    player is already flagged by his open IL stint, and treating the
+    assignment as a close would release an injured player into the
+    projected nine mid-stint. Verified: 4,534 rehab rows in the cached
+    feed, every one matched by no taxonomy regex."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_BELLINGER}, "date": "2023-05-02",
+         "description": "Chicago Cubs sent 1B Cody Bellinger on a rehab "
+                        "assignment to Iowa Cubs."},
+        {"person": {"id": P_BELLINGER}, "date": "2023-05-05",
+         "description": "Chicago Cubs sent 1B Cody Bellinger and  on a "
+                        "rehab assignment to Iowa Cubs."},
+    ]
+    assert b.build_events(tx) == {}, "rehab rows must be non-events"
+
+
+def test_same_day_option_and_pa_excluded_that_day():
+    """Same-day option + PA: the filing is a pre-game roster move, so the
+    stint binds AT the filing date and the pool excludes him for that
+    game (filing precedes first pitch). The PA-reconciliation far-end
+    rule (announcement, never a return) governs ILLNESS placements
+    filed the evening of an appearance — for an OPTION, the move is a
+    deliberate pre-game transaction, and the player cannot bat after
+    being optioned that morning. One continuous availability interval
+    from the option date."""
+    import build_il_stints as b
+    iv = b.stints_from_events({P_PACHECO: [("2023-03-14", 1)]})
+    assert len(iv) == 1
+    assert iv.iloc[0].il_start == pd.Timestamp("2023-03-14")
+    assert pd.isna(iv.iloc[0].il_end)
+    # a PA on 03-14 (same date) reconciles NOTHING: strict subtraction at
+    # the far end only, so the stint stays open from the option date.
+    pa = pd.DataFrame({"batter": pd.array([P_PACHECO], dtype="int64"),
+                       "game_date": pd.to_datetime(["2023-03-14"])})
+    rec = b.reconcile_with_plate_appearances(iv, pa)
+    assert len(rec) == 1
+    assert pd.isna(rec.iloc[0].il_end), \
+        "a same-date appearance must not close the option stint"
+    # and the serving pool excludes him on the option date itself
+    assert _pool_flag(batter=P_PACHECO,
+                      il_rows=[(P_PACHECO, "2023-03-14", None)],
+                      game_date=pd.Timestamp("2023-03-14").date()) == 1
+
+
+def test_pa_reconciliation_still_subtractive_for_availability_stints():
+    """The generalized stints flow through the SAME reconciliation: a PA
+    strictly after an availability stint's start truncates the far end
+    (a recall that filed no row), never the near end."""
+    import build_il_stints as b
+    iv = b.stints_from_events({P_PACHECO: [("2023-03-14", 1)]})
+    pa = pd.DataFrame({"batter": pd.array([P_PACHECO], dtype="int64"),
+                       "game_date": pd.to_datetime(["2023-03-20"])})
+    rec = b.reconcile_with_plate_appearances(iv, pa)
+    assert len(rec) == 1
+    assert rec.iloc[0].il_end == pd.Timestamp("2023-03-20"), \
+        "observed PA after the option is the truth and truncates the far end"
+
+
+def test_taxonomy_gate_band_constants():
+    """The availability-era gate band (100..900) is pinned: the IL-era
+    ceiling 450 measurably REFUSED the first wider rebuild (median 510).
+    A regression to the old constants must fail here, not in a rebuild."""
+    import build_il_stints as b
+    assert b._MIN_MEDIAN_ON_IL == 100
+    assert b._MAX_MEDIAN_ON_IL == 900
+
+
+def test_definition_recorded_in_meta_contract():
+    """The meta 'definition' provenance key ships in the builder's meta
+    dict — the one place the availability definition is written down for
+    consumers (features.py only consumes the parquet filename)."""
+    import inspect
+    import build_il_stints as b
+    src = inspect.getsource(b.main)
+    assert '"definition"' in src
+    assert "availability stints" in src
