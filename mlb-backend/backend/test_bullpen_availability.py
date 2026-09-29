@@ -261,6 +261,121 @@ def _mk_pbp(tmp_path, name, bulk_days, cameo_days):
     return p
 
 
+# ── readiness likelihood (2026-09-30): budget + ready-share semantics ──────
+
+def _day2_con(arms, ilp):
+    """Register a minimal bp_outing-shaped table; arms = (day_offset, team,
+    pitcher, n_pitches) tuples relative to the reference day 2026-06-10."""
+    import datetime
+    base = datetime.date(2026, 6, 10)
+    con = duckdb.connect(database=":memory:")
+    con.register("bp_outing", pd.DataFrame({
+        "game_date": [base - datetime.timedelta(days=a[0]) for a in arms],
+        "game_pk": [1000 + i for i in range(len(arms))],
+        "team": [a[1] for a in arms],
+        "pitcher": [a[2] for a in arms],
+        "n_pitches": [a[3] for a in arms],
+    }))
+    if ilp is None:
+        ilp = pd.DataFrame({
+            "batter": pd.Series([], dtype="int64"),
+            "il_start": pd.Series([], dtype="datetime64[ns]"),
+            "il_end": pd.Series([], dtype="datetime64[ns]"),
+        })
+    con.register("il_stints_pitchers", ilp)
+    return con
+
+_DAY2_SQL = """
+    WITH d2 AS (
+        SELECT o.team, o.game_date AS day,
+               SUM(o.n_pitches) AS pitches_2d,
+               SUM(o.n_pitches * o.ready_p) AS ready_pitches_2d
+        FROM (
+            SELECT o.game_date, o.team, o.pitcher, o.n_pitches,
+                   CASE
+                     WHEN EXISTS (SELECT 1 FROM il_stints_pitchers i
+                                  WHERE i.batter = o.pitcher
+                                    AND o.game_date > CAST(i.il_start AS DATE)
+                                    AND (i.il_end IS NULL
+                                         OR o.game_date < CAST(i.il_end AS DATE)))
+                         THEN 0.0
+                     WHEN o.n_pitches < 20 THEN 0.25
+                     WHEN o.n_pitches < 35 THEN 0.13
+                     ELSE 0.007 END AS ready_p
+            FROM bp_outing o) o
+        GROUP BY 1, 2)
+    SELECT SUM(pitches_2d) AS budget,
+           SUM(ready_pitches_2d) / NULLIF(SUM(pitches_2d), 0) / 0.25 AS share
+    FROM d2
+    WHERE day < DATE '2026-06-10'
+      AND day >= DATE '2026-06-10' - INTERVAL 2 DAY
+"""
+
+
+def test_budget_2d_sums_the_prior_two_days_only():
+    con = _day2_con([
+        (0, "BOS", 101, 10),   # ref day itself: EXCLUDED (no next-day info)
+        (1, "BOS", 102, 15),   # yesterday: included
+        (2, "BOS", 103, 20),   # two days ago: included
+        (3, "BOS", 104, 99),   # three days ago: EXCLUDED
+    ], ilp=None)
+    row = con.execute(_DAY2_SQL).fetchone()
+    # 15 pitches -> light (0.25), 20 -> medium (0.13): calibrated buckets
+    assert row[0] == 35
+    assert row[1] == pytest.approx((15 * 0.25 + 20 * 0.13) / 35 / 0.25)
+
+
+def test_ready_share_staircase_and_normalization():
+    # all-light (10, 15 pitches) -> share 1.0; all-heavy (40) -> 0.028;
+    # one of each mixes proportionally.
+    light = _day2_con([(1, "BOS", 1, 10), (1, "BOS", 2, 15)], ilp=None)
+    assert light.execute(_DAY2_SQL).fetchone()[1] == pytest.approx(1.0)
+    heavy = _day2_con([(1, "BOS", 1, 40)], ilp=None)
+    assert heavy.execute(_DAY2_SQL).fetchone()[1] == pytest.approx(
+        0.007 / 0.25)
+    mix = _day2_con([(1, "BOS", 1, 10), (1, "BOS", 2, 40)], ilp=None)
+    expected = (10 * 0.25 + 40 * 0.007) / 50 / 0.25
+    assert mix.execute(_DAY2_SQL).fetchone()[1] == pytest.approx(expected)
+
+
+def test_ready_share_ledger_arm_is_zero_only_as_of_outing_date():
+    # arm 7 pitched 06-09 with a stint open 06-01..06-05: HISTORICAL stint
+    # must NOT zero him (any-stint matching was the original defect); an
+    # arm pitching strictly INSIDE his stint dates gets 0 (and should not
+    # exist in reality — the appearance-based reconciliation prevents it).
+    ilp = pd.DataFrame({
+        "batter": [7, 8],
+        "il_start": [pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-02")],
+        "il_end": [pd.Timestamp("2026-06-05"), pd.Timestamp("2026-06-09")],
+    })
+    con = _day2_con([
+        (1, "BOS", 7, 20),   # 06-09: after his stint closed -> full weight
+        (1, "BOS", 8, 20),   # 06-09: strictly after il_end -> full weight
+    ], ilp=ilp)
+    row = con.execute(_DAY2_SQL).fetchone()
+    assert row[1] == pytest.approx(0.13 / 0.25)  # both scored by pitch count
+
+
+def test_exporter_status_labels_and_degradation():
+    ilp = pd.DataFrame({
+        "batter": [9],
+        "il_start": [pd.Timestamp("2026-06-09")],
+        "il_end": [pd.NaT],
+    })
+    con = _day2_con([
+        (1, "BOS", 9, 40),    # inside open stint -> ON_LEDGER
+        (1, "BOS", 10, 40),   # heavy -> UNLIKELY
+        (1, "BOS", 11, 25),   # mid -> DOUBTFUL
+        (1, "BOS", 12, 10),   # light -> LIKELY
+    ], ilp=ilp)
+    import features as f
+    df = f.export_bullpen_availability(con, "2026-06-10")
+    s = df.set_index("pitcher").next_day_status
+    assert s[9] == "ON_LEDGER" and s[10].startswith("UNLIKELY")
+    assert s[11].startswith("DOUBTFUL") and s[12].startswith("LIKELY")
+    assert df.set_index("pitcher").p_available[9] == 0.0
+
+
 def test_pitcher_builder_reconciles_and_splits(tmp_path):
     """The pitcher pipeline: a placed pitcher whose next appearance is a
     real bulk game has his stint closed by that appearance."""

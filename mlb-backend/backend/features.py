@@ -207,6 +207,22 @@ _LINEUP_IL_FLAG_SQL = """
 #
 # Missing ledger degrades LOUDLY to all-pitched-innings semantics (the
 # exact pre-availability behavior) — never a silent identity change.
+# ── Bullpen readiness (2026-09-30) ──────────────────────────────────────
+# Player-level availability LIKELIHOOD, derived from measured rest-usage
+# physics (51,487 reliever outings 2024-2026; P(reliever appears in his
+# team's next game | last-outing pitch count); year-stable within 0.02):
+#   < 20 pitches -> 0.25 | 20-34 -> 0.13 | 35+ -> 0.007 (near-certain sit)
+# a monotone staircase, recomputable from any season's data. Arms on the
+# availability ledger are 0 by definition. bp_ready_share = the pen's
+# last-2-day pitch-weighted readiness, NORMALIZED to [0, 1] by the light
+# ceiling (1.0 = every recent arm threw <20 pitches = fully fresh; ~0.05 =
+# all arms heavy = tomorrow's pen is spent; 0 = all ledgered); a pen with
+# no recent outings has nothing known -> NULL (never a fake 0 or 1).
+_BP_READY_PITCH_BUCKETS = (20, 35)   # (light ceiling, heavy floor)
+_BP_READY_P_LIGHT = 0.25             # P(appear next day) for < 20 pitches
+_BP_READY_P_MEDIUM = 0.13            # 20-34 pitches
+_BP_READY_P_HEAVY = 0.007            # 35+ pitches (sits tomorrow)
+
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
               WHERE i.batter = p.pitcher
@@ -214,6 +230,54 @@ _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
                 AND (i.il_end IS NULL OR CAST(p.game_date AS DATE)
                      < CAST(i.il_end AS DATE)))"""
 
+
+
+def export_bullpen_availability(con, day) -> "pd.DataFrame | None":
+    """Per-pitcher availability card for the upcoming slate (2026-09-30).
+
+    For every arm who pitched in the last 3 days: his next-day appearance
+    likelihood from the measured workload staircase (see _BP_READY_*),
+    ledger status, last-outing workload, and the team's last played date.
+    Runs on the CALLER's connection (reads the bp_outing table the build
+    just produced); returns None when that table is absent (no pitches
+    loaded) — never raises. The pipeline writes the frame as
+    bullpen_availability_<date>.csv next to the other slate artifacts.
+    """
+    try:
+        df = con.execute("""
+            SELECT o.pitcher, o.team, o.game_date AS last_outing,
+                   o.n_pitches AS last_outing_pitches,
+                   CASE WHEN EXISTS (SELECT 1 FROM il_stints_pitchers i
+                                     WHERE i.batter = o.pitcher
+                                       AND CAST(? AS DATE) > CAST(i.il_start AS DATE)
+                                       AND (i.il_end IS NULL
+                                            OR CAST(? AS DATE)
+                                               < CAST(i.il_end AS DATE)))
+                        THEN 'ON_LEDGER'
+                        WHEN o.n_pitches >= 35 THEN 'UNLIKELY (0.007)'
+                        WHEN o.n_pitches >= 20 THEN 'DOUBTFUL (0.13)'
+                        ELSE 'LIKELY (0.25)' END AS next_day_status,
+                   CASE WHEN EXISTS (SELECT 1 FROM il_stints_pitchers i
+                                     WHERE i.batter = o.pitcher
+                                       AND CAST(? AS DATE) > CAST(i.il_start AS DATE)
+                                       AND (i.il_end IS NULL
+                                            OR CAST(? AS DATE)
+                                               < CAST(i.il_end AS DATE)))
+                        THEN 0 WHEN o.n_pitches >= 35 THEN 0.007
+                        WHEN o.n_pitches >= 20 THEN 0.13 ELSE 0.25 END
+                        AS p_available,
+                   MAX(o.game_date) OVER (PARTITION BY o.team)
+                        AS team_last_played
+            FROM bp_outing o
+            WHERE o.game_date >= ?
+            ORDER BY o.team, p_available, o.n_pitches DESC
+        """, [pd.Timestamp(day), pd.Timestamp(day),
+                 pd.Timestamp(day), pd.Timestamp(day),
+                 pd.Timestamp(day) - pd.Timedelta(days=3)]).df()
+        return df if not df.empty else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("export_bullpen_availability unavailable: %s", e)
+        return None
 
 
 def il_stints_freshness() -> dict:
@@ -1148,6 +1212,76 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         FROM reliever_events
         GROUP BY game_date, game_pk, fielding_team
     """)
+    # Per-reliever outing ledger (pitches per reliever-game; starters
+    # excluded by the production starters table, >= 3 pitches to drop
+    # position-player cameos). Backs the readiness likelihood.
+    con.execute("""
+        CREATE TABLE bp_outing AS
+        SELECT CAST(p.game_date AS DATE) AS game_date,
+               p.game_pk,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                    ELSE p.away_team END AS team,
+               p.pitcher,
+               COUNT(*) AS n_pitches
+        FROM pitches p
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+          AND p.pitcher IS NOT NULL
+        GROUP BY 1, 2, 3, 4
+        HAVING COUNT(*) >= 3
+    """)
+
+    # Readiness rollup per team-day: the prior-2-day pitch budget plus the
+    # ready-weighted share of those pitches (0.25/0.13/0.007 staircase by
+    # last-outing length; ledger arms are 0). The team's MOST RECENT game
+    # is included (an arm who threw yesterday is exactly the fatigue case);
+    # the CURRENT day is not (it does not exist yet at prediction time).
+    con.execute("""
+        CREATE TABLE bp_day2 AS
+        WITH d2 AS (
+            SELECT o.team, o.game_date AS day,
+                   SUM(o.n_pitches) AS pitches_2d,
+                   SUM(o.n_pitches * o.ready_p) AS ready_pitches_2d,
+                   COUNT(*) AS n_arms
+            FROM (
+                SELECT o.game_date, o.team, o.pitcher, o.n_pitches,
+                       g.gd AS ref_day,
+                       CASE
+                         -- Ledger as of the REFERENCE game date: an arm
+                         -- placed on the IL AFTER he pitched (the normal
+                         -- reconciliation fact) is unavailable TONIGHT, so
+                         -- his recent pitches carry no ready capacity.
+                         WHEN EXISTS (SELECT 1 FROM il_stints_pitchers i
+                                      WHERE i.batter = o.pitcher
+                                        AND g.gd > CAST(i.il_start AS DATE)
+                                        AND (i.il_end IS NULL
+                                             OR g.gd < CAST(i.il_end AS DATE)))
+                             THEN 0.0
+                         WHEN o.n_pitches < 20 THEN 0.25
+                         WHEN o.n_pitches < 35 THEN 0.13
+                         ELSE 0.007 END AS ready_p
+                FROM bp_outing o
+                JOIN (SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                             home_team, away_team FROM pitches) g
+                  ON (o.team = g.home_team OR o.team = g.away_team)
+                 AND o.game_date < g.gd AND o.game_date >= g.gd - INTERVAL 2 DAY
+            ) o
+            GROUP BY 1, 2
+        )
+        SELECT g2.gd AS ref_day, g2.game_pk, g2.home_team, g2.away_team,
+               hh.pitches_2d AS home_pitches_2d,
+               hh.ready_pitches_2d AS home_ready_2d,
+               aa.pitches_2d AS away_pitches_2d,
+               aa.ready_pitches_2d AS away_ready_2d
+        FROM (SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                     home_team, away_team FROM pitches) g2
+        LEFT JOIN d2 hh ON hh.team = g2.home_team
+                       AND hh.day = g2.gd - INTERVAL 1 DAY
+        LEFT JOIN d2 aa ON aa.team = g2.away_team
+                       AND aa.day = g2.gd - INTERVAL 1 DAY
+    """)
+
     con.execute("""
         CREATE TABLE bp_daily AS
         SELECT CAST(p.game_date AS DATE) AS day,
@@ -1197,10 +1331,24 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                h.pitches_3d AS bullpen_pitches_3d_home,
                h.ip_3d AS bullpen_ip_3d_home,
                a.pitches_3d AS bullpen_pitches_3d_away,
-               a.ip_3d AS bullpen_ip_3d_away
+               a.ip_3d AS bullpen_ip_3d_away,
+               d2h.home_pitches_2d AS bullpen_budget_2d_home,
+               d2a.away_pitches_2d AS bullpen_budget_2d_away,
+               CASE WHEN COALESCE(d2h.home_pitches_2d, 0) > 0
+                    THEN d2h.home_ready_2d / d2h.home_pitches_2d
+                         / 0.25 END
+                    AS bp_ready_share_home,
+               CASE WHEN COALESCE(d2a.away_pitches_2d, 0) > 0
+                    THEN d2a.away_ready_2d / d2a.away_pitches_2d
+                         / 0.25 END
+                    AS bp_ready_share_away
         FROM games g
         LEFT JOIN home_load h ON g.game_pk = h.game_pk
         LEFT JOIN away_load a ON g.game_pk = a.game_pk
+        LEFT JOIN bp_day2 d2h ON d2h.ref_day = g.gd
+                             AND d2h.home_team = g.home_team
+        LEFT JOIN bp_day2 d2a ON d2a.ref_day = g.gd
+                             AND d2a.away_team = g.away_team
     """)
     con.execute("""
         CREATE TABLE bullpen_shifted AS
@@ -1943,6 +2091,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ha.lineup_lefty_share_30g AS opp_lefty_share_away,
             bf.bullpen_pitches_3d_home, bf.bullpen_ip_3d_home,
             bf.bullpen_pitches_3d_away, bf.bullpen_ip_3d_away,
+            bf.bullpen_budget_2d_home, bf.bullpen_budget_2d_away,
+            bf.bp_ready_share_home, bf.bp_ready_share_away,
             loh.lineup_ops_vs_l AS lineup_ops_vs_l_home,
             loh.lineup_ops_vs_r AS lineup_ops_vs_r_home,
             loa.lineup_ops_vs_l AS lineup_ops_vs_l_away,
@@ -2167,6 +2317,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "team_off_season",
         "bullpen_raw", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
         "bp_daily", "bp_fatigue", "il_stints_pitchers",
+        "bp_outing", "bp_day2",
         "pitcher_stuff_raw", "pitcher_stuff",
         "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",

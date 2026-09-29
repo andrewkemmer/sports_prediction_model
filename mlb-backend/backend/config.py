@@ -557,6 +557,13 @@ RFE_CANDIDATE_COLS = [
     "lineup_il_flag_home",
     "lineup_il_flag_away",
     "lineup_il_flag_diff",
+    # Bullpen readiness (2026-09-30): computed + metadata-authored but NOT
+    # in the serving width yet — adoption runs the standard ablation gate
+    # (3-seed walk + seal) before these can be RFE-selected.
+    "bullpen_budget_2d_home",
+    "bullpen_budget_2d_away",
+    "bp_ready_share_home",
+    "bp_ready_share_away",
     "sp_k_pct_cat_fastball_home",
     "sp_k_pct_cat_fastball_away",
     "sp_k_pct_cat_breaking_home",
