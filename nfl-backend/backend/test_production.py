@@ -3710,7 +3710,8 @@ check("both builders thread weekly_injuries into the EPA lineups too",
 # INA row missed the week, and no CUT re-sign is zeroed.
 _ros_cache = Path(ingest_mod.CACHE_DIR)
 if ((_ros_cache / "roster_weekly_v2_2025.parquet").exists()
-        and (_ros_cache / "snaps_v2_2025.parquet").exists()):
+        and (_ros_cache / "snaps_v2_2025.parquet").exists()
+        and (_ros_cache / "inj_weekly_v1_2025.parquet").exists()):
     _ros_raw25 = pd.read_parquet(_ros_cache / "roster_weekly_v2_2025.parquet")
     _ros_r25 = ingest_mod.roster_unavailable_table(_ros_raw25)
     _ros_s25 = pd.read_parquet(_ros_cache / "snaps_v2_2025.parquet")
@@ -3783,6 +3784,113 @@ if ((_ros_cache / "roster_weekly_v2_2025.parquet").exists()
             _ros_bad += 1
     check("2025 guarantee: no CUT->ACT->played re-sign is zeroed",
           _ros_bad == 0, f"{_ros_bad} misfires")
+
+    # ---- Player-availability pressure scenarios (2026-09-28) --------------
+    # Two real 2025 players that stress the POINT-IN-TIME edges of the
+    # removal rule from opposite directions:
+    #   Rashee Rice (KC, 00-0039067): suspended weeks 1-6, active 7-15,
+    #   report Out week 16 (the concussion week), Reserve/Injured weeks
+    #   17-18, carries through 19, and returns to ACT in the week-20
+    #   snapshot. The rule must remove him ONLY from week 16 onward and
+    #   must STOP removing him the week the snapshot says ACT again.
+    #   Kenneth Walker III (SEA, 00-0038134): the week-to-week injury
+    #   class — handled without IR all season. Every snapshot ACT/A01,
+    #   a Questionable report in week 12 he then PLAYED (30 snaps), and
+    #   zero removal rows. A Questionable or a missing IR must never
+    #   remove a player, and a week-to-week absence is the report's job
+    #   (Out/IR/Doubtful that week), never the carried rule's.
+    _rice_id, _walker_id = "00-0039067", "00-0038134"
+    _rice_pfr, _walker_pfr = "RiceRa01", "WalkKe00"
+    _rice_raw = _ros_raw25[_ros_raw25["_pid"].eq(_rice_id)
+                           & _ros_raw25["team"].eq("KC")]
+    _walker_raw = _ros_raw25[_ros_raw25["_pid"].eq(_walker_id)
+                             & _ros_raw25["team"].eq("SEA")]
+    if len(_rice_raw) == 0 or len(_walker_raw) == 0:
+        check("player pressure scenarios: both players present in the 2025 "
+              "snapshot cache", False,
+              "cache schema drift: scenario IDs missing from "
+              "roster_weekly_v2_2025.parquet")
+    else:
+        _ros_wi_all25 = ingest_mod.load_injuries_weekly(
+            seasons=[2025], use_cache=True)
+        _ros_wi_all25 = _ros_wi_all25[_ros_wi_all25["season"].eq(2025)]
+        _ros_wi25 = _ros_wi_all25[_ros_wi_all25["report_status"].map(
+            feat_mod._injured_report_status)]
+
+        def _out_weeks(pid, team):
+            ro = set(_ros_r25[(_ros_r25["player_id"].eq(pid))
+                              & (_ros_r25["team"].eq(team))]["week"]
+                     .astype(int))
+            rep = set(_ros_wi25[_ros_wi25["gsis_id"].astype(str).eq(pid)]
+                      ["week"].astype(int))
+            return ro | rep, ro, rep
+
+        _rice_out, _rice_ro, _rice_rep = _out_weeks(_rice_id, "KC")
+        check("Rice (Out wk16 + Reserve/Injured wk17-18) removed exactly "
+              "weeks 1-6 and 16-19, never before",
+              _rice_out == {1, 2, 3, 4, 5, 6, 16, 17, 18, 19}
+              and {16} <= _rice_rep and {17, 18} <= _rice_ro
+              and not ({7, 8, 9, 10, 11, 12, 13, 14, 15} & _rice_out),
+              f"union={sorted(_rice_out)} roster={sorted(_rice_ro)} "
+              f"report={sorted(_rice_rep)}")
+        # The suspension weeks (1-6) remove via the snapshot ONLY — the
+        # report never lists him — so this union is genuinely two-channel.
+        _rice_pre16 = {w: _ros_sidx.get((w, "KC", _rice_pfr), None)
+                       for w in range(7, 16) if w != 10}  # wk10 = bye
+        check("Rice plays weeks 7-15 (33-60 snaps, bye 10) while removed "
+              "nowhere",
+              all(v is not None and v > 0 for v in _rice_pre16.values()),
+              f"snaps 7-15 = {[_rice_pre16.get(w) for w in range(7, 16)]}")
+        # Reinstatement edge: weeks 1-6 are Reserve/Injured (R40) and the
+        # carried-RES rule removes them; the FIRST ACT snapshot (week 7)
+        # must stop the carry for the rest of the season. The 2025 cache
+        # ends at week 18 (his last row RES/R01), so the season-end carry
+        # is demonstrated on the other side: 19 is removed by carry while
+        # no week-19/20 snapshot exists to contradict it.
+        _rice_res16 = set(_rice_raw[_rice_raw["_week"].isin([1, 2, 3, 4, 5, 6])]
+                          ["status"].astype(str))
+        _rice_wk7 = _rice_raw[_rice_raw["_week"].eq(7)]
+        _rice_tail = _rice_raw[_rice_raw["_week"].isin([19, 20])]
+        _rice_wk18 = _rice_raw[_rice_raw["_week"].eq(18)]
+        check("Rice reinstatement: carried RES weeks 1-6 STOPS at the "
+              "week-7 ACT snapshot (7-15 never removed)",
+              _rice_res16 == {"RES"}
+              and len(_rice_wk7) == 1
+              and str(_rice_wk7.iloc[0]["status"]) == "ACT"
+              and not ({7, 8, 9, 10, 11, 12, 13, 14, 15} & _rice_out),
+              f"wk1-6 statuses={sorted(_rice_res16)}, wk7="
+              f"{_rice_wk7.iloc[0]['status'] if len(_rice_wk7) else 'MISSING'}")
+        check("Rice season-end carry: last snapshot RES (wk18) keeps "
+              "removing him (17-19) while the feed has no later week",
+              len(_rice_wk18) == 1
+              and str(_rice_wk18.iloc[0]["status"]) == "RES"
+              and len(_rice_tail) == 0
+              and {17, 18, 19} <= _rice_out,
+              f"wk18={_rice_wk18.iloc[0]['status'] if len(_rice_wk18) else 'MISSING'}"
+              f", later rows={len(_rice_tail)}, removed={sorted(_rice_out)}")
+
+        _walker_out, _walker_ro, _walker_rep = _out_weeks(_walker_id, "SEA")
+        _walker_wk12 = _ros_wi_all25[
+            _ros_wi_all25["gsis_id"].astype(str).eq(_walker_id)
+            & _ros_wi_all25["week"].eq(12)]
+        _walker_played12 = _ros_sidx.get((12, "SEA", _walker_pfr), 0.0)
+        check("Walker (week-to-week, never IR): zero removal rows all "
+              "season — every snapshot ACT/A01, no report-out week",
+              _walker_out == set() and _walker_ro == set()
+              and _walker_rep == set()
+              and _walker_raw["status"].astype(str).eq("ACT").all()
+              and set(_walker_raw["status_description_abbr"]
+                      .astype(str)) <= {"A01"},
+              f"out={sorted(_walker_out)} roster={sorted(_walker_ro)} "
+              f"report={sorted(_walker_rep)} "
+              f"descs={sorted(set(_walker_raw['status_description_abbr'].astype(str)))}")
+        check("Walker week-12 Questionable did not remove him and he "
+              "played 30 snaps that week",
+              len(_walker_wk12) == 1
+              and str(_walker_wk12.iloc[0]["report_status"]) == "Questionable"
+              and _walker_played12 > 0,
+              f"report={_walker_wk12.iloc[0]['report_status'] if len(_walker_wk12) else 'MISSING'}"
+              f", wk12 snaps={_walker_played12}")
 else:
     print("  (roster real-snapshot probes skipped: 2025 caches not populated)")
 
