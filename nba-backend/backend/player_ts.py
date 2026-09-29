@@ -576,18 +576,27 @@ def build_player_ts(games: pd.DataFrame,
         snapshot["target_date"] = target
         # Recency of the player's actual evidence, carried for the pool's
         # availability gate: days from the player's LAST appearance strictly
-        # at or before the target, within the rated season (the same season
-        # slice the rating reads). A player the season has not started for
-        # stays NaN — "no evidence yet", not an infinitely stale one.
-        known_early = known[known.gameday <= target]
-        if len(known_early):
-            last_seen = (known_early.groupby("player_id").gameday.max()
-                         .rename("_last_seen"))
-            snapshot = snapshot.merge(last_seen, on="player_id", how="left")
-            snapshot["days_since_appearance"] = (
-                (pd.Timestamp(target)
-                 - snapshot["_last_seen"]).dt.days)
-            snapshot = snapshot.drop(columns=["_last_seen"])
+        # at or before the target, within the rated season. The gap is only
+        # defined when the evidence season IS the target's own season; a
+        # fallback-evidence target (the first days of a season, rated from
+        # the last completed one) carries NaN — that is the season-start
+        # carryover case, governed by the min-plays floor, and NOT an
+        # infinitely stale row. (Computing the gap across the fallback made
+        # every carryover member look ~150 days stale on the 2026-27 slate
+        # and the gate emptied every projected lineup; the frame's OOF side
+        # was unaffected and mid-season games never hit this path.)
+        if season and season == _season_of(target):
+            known_early = known[known.gameday <= target]
+            if len(known_early):
+                last_seen = (known_early.groupby("player_id").gameday.max()
+                             .rename("_last_seen"))
+                snapshot = snapshot.merge(last_seen, on="player_id", how="left")
+                snapshot["days_since_appearance"] = (
+                    (pd.Timestamp(target)
+                     - snapshot["_last_seen"]).dt.days)
+                snapshot = snapshot.drop(columns=["_last_seen"])
+            else:
+                snapshot["days_since_appearance"] = np.nan
         else:
             snapshot["days_since_appearance"] = np.nan
         rows.append(snapshot)

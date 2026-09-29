@@ -511,6 +511,37 @@ class TestRecencyGate:
         assert row.lineup_ts_mean == pytest.approx(0.60)
         assert row.lineup_ts_std != row.lineup_ts_std  # one finite member
 
+    def test_a_fallback_evidence_season_carries_nan_not_a_cross_season_gap(
+            self):
+        """Season-start carryover, the real-data face the 2026-09-29 Kaggle
+        run exposed: an October slate target rates from the LAST COMPLETED
+        season (the evidence fallback), so every carryover member's gap
+        computed across the fallback read ~150 days and the recency gate
+        emptied every projected lineup (mean healthy 0.0, all nine pl_ts
+        columns empty on the slate). The gap is only defined within the
+        target's OWN season; a fallback-evidence target carries NaN, which
+        the gate treats as carryover governed by the min-plays floor - the
+        same semantics a mid-season first-game player gets."""
+        import player_ts as ts_mod
+        games = pd.DataFrame({
+            "player_id": ["p1", "p1"],
+            "gameday": pd.to_datetime(["2026-01-10", "2026-01-20"]),
+            "season": ["2025-26", "2025-26"],
+            "team": ["BOS", "BOS"],
+            "points": [20.0, 22.0],
+            "fga": [15.0, 16.0],
+            "fta": [4.0, 5.0],
+            "plays": [19.0, 21.0],
+            "position": ["G", "G"],
+        })
+        ratings = ts_mod.build_player_ts(
+            games, target_dates=pd.Series([pd.Timestamp("2026-10-28")]))
+        assert len(ratings)
+        row = ratings.iloc[0]
+        # The target's own season (2026-27) has no evidence, so the rating
+        # falls back to 2025-26 - and the gap MUST be NaN, not ~292 days.
+        assert pd.isna(row.days_since_appearance)
+
     def test_the_column_is_documented_in_the_emitted_contract(self):
         """The column exists in build_player_ts's declared output set, so a
         caller reading the frame by contract sees it."""
