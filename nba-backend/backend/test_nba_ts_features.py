@@ -667,3 +667,96 @@ class TestRunLineStructuralContract:
         sample = bundle["totals"].get("220") or next(iter(bundle["totals"].values()))
         assert sample["over"] is not None and sample["under"] is not None
         assert sample["over"] != sample["under"] or sample["push"] != sample["over"]
+
+
+class TestFoldEarlyStopIsPointInTime:
+    """The fold-fit mechanics never consult the rows they are graded on.
+
+    Finding-1 remediation pins: xgboost's fold fits early-stop against a
+    chronological tail of the TRAINING fold (never the validation window),
+    ``_fit_member`` has no ``val`` parameter a call site could leak through,
+    and the walk-forward loop's folds still fit strictly-prior rows only.
+    Each test pins one clause.
+    """
+
+    @staticmethod
+    def _decided(n: int = 300, seed: int = 5) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        teams = list(range(30))
+        df = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.date_range("2026-01-01", periods=n, freq="D"),
+            "season": 2026,
+            "home_team": rng.choice(teams, n),
+            "away_team": rng.choice(teams, n),
+            "home_score": rng.integers(95, 125, n).astype(float),
+            "away_score": rng.integers(95, 125, n).astype(float),
+        })
+        df["home_win"] = (df.home_score > df.away_score).astype(float)
+        for col in config.MONEYLINE_FEATURE_COLS:
+            df[col] = rng.normal(0, 1, n)
+        return df
+
+    def test_the_watch_tail_is_a_train_tail_never_the_validation_window(self):
+        import moneyline as ml_mod
+        df = self._decided(n=300)
+        train = df.iloc[:240]
+        X = ml_mod.member_matrix("xgboost", train)
+        y = (train.home_score > train.away_score).astype(int).to_numpy()
+        watch = ml_mod._early_stop_watch(X, y, None)
+        assert watch is not None
+        fit_rows, y_fit, X_watch = watch
+        # 15% of 240 rounds to 36 held-out watch rows, capped well inside
+        # the fold; the fit set is exactly the training frame MINUS that
+        # tail, so no row is both watched and fitted.
+        assert len(X_watch) == 36 and len(y_fit) == 204
+        assert int(np.asarray(fit_rows).max()) == 203
+        assert int(X_watch.index.min()) == 204
+
+    def test_xgboost_early_stops_on_rows_strictly_before_the_validation_window(
+            self, monkeypatch):
+        import moneyline as ml_mod
+        from xgboost import XGBClassifier
+        df = self._decided(n=300)
+        train, val = df.iloc[:240], df.iloc[240:]
+        captured: dict = {}
+        real_fit = XGBClassifier.fit
+
+        def spy(self, *args, **kwargs):
+            captured["eval_set"] = kwargs.get("eval_set")
+            return real_fit(self, *args, **kwargs)
+
+        monkeypatch.setattr(XGBClassifier, "fit", spy)
+        model, _ = ml_mod._fit_member("xgboost", train)
+        assert model is not None and "eval_set" in captured
+        eval_X, eval_y = captured["eval_set"][0]
+        assert eval_y is not None and len(eval_y) == 36
+        # The watch rows map back to training-fold games, every one of them
+        # strictly before the validation window's first game day.
+        watch_positions = list(eval_X.index)
+        watch_games = train.iloc[watch_positions]
+        assert watch_games.gameday.max() < val.gameday.min()
+        assert not (set(watch_games.game_id.astype(str))
+                    & set(val.game_id.astype(str)))
+
+    def test_fit_member_has_no_validation_parameter_to_leak_through(self):
+        import inspect
+        import moneyline as ml_mod
+        params = inspect.signature(ml_mod._fit_member).parameters
+        assert list(params) == ["name", "train"]
+
+    def test_walk_forward_folds_fit_strictly_prior_rows_only(self, monkeypatch):
+        import moneyline as ml_mod
+        monkeypatch.setattr(config, "MIN_VAL_FOLD_GAMES", 2)
+        df = self._decided(n=120)
+        result = ml_mod.walk_forward_oof(df, progress_every=0)
+        oof, ft = result["oof"], result["fold_table"]
+        assert len(oof) and len(ft)
+        for _, row in ft.iterrows():
+            in_fold = oof[oof.fold_id == row.fold_id]
+            assert (pd.to_datetime(in_fold.gameday)
+                    >= pd.Timestamp(row.val_start)).all()
+            # n_train is exactly the strict-prior row count: nothing at or
+            # after val_start ever entered the fold's fit set.
+            n_prior = int((df.gameday < pd.Timestamp(row.val_start)).sum())
+            assert row.n_train == n_prior

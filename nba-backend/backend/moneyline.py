@@ -6,6 +6,11 @@ missing values; the elastic-net member receives median imputation and scaling
 fitted on the training fold only.  Fold ``k`` is blended with weights learned
 from folds strictly before ``k`` and is calibrated with a map fitted only on
 prior OOF blend/outcome pairs.
+
+Early stopping is likewise point-in-time: xgboost's fold fits watch a held-
+out chronological tail OF THE TRAINING FOLD (see ``_early_stop_watch``),
+never the validation window, so no fold's OOF row can influence the round
+count of the model that scored it.
 """
 from __future__ import annotations
 
@@ -143,8 +148,45 @@ def _binary_labels(frame: pd.DataFrame) -> pd.Series:
     return values.where(values.isin([0, 1]), np.nan)
 
 
-def _fit_member(name: str, train: pd.DataFrame, val: pd.DataFrame | None = None):
-    """Fit one member on labeled training rows and optionally early-stop on val."""
+def _early_stop_watch(X_train: pd.DataFrame, y_train: np.ndarray,
+                      pre: TrainFoldPreprocessor | None,
+                      ) -> tuple[np.ndarray, np.ndarray] | None:
+    """The strictly-train chronological tail xgboost early-stops against.
+
+    Structure aligned with MLB's config-driven fold-fit shape
+    (``XGBOOST_FOLD_ROUNDS`` / ``XGBOOST_EARLY_STOP``), with one deliberate
+    divergence: the watch set is a tail of the TRAINING fold, not the
+    validation window. The validation rows are the rows the fold is graded
+    on, and a watch set drawn from them let each fold's OOF metric influence
+    the round count of the model that produced it. A train-tail watch set
+    is held out from the gradient (xgboost excludes the eval set from
+    training) and is strictly before ``val_start`` by fold construction,
+    so the fold's mechanics depend on nothing at or after the boundary.
+    Folds too small to afford the minimum (``XGBOOST_EARLY_STOP_MIN_ROWS``)
+    skip early stopping and fit the configured ceiling - the same fallback
+    MLB's fold path already exercises when its eval frame is unusable.
+    """
+    rows = X_train.index
+    if len(rows) < 2 * int(config.XGBOOST_EARLY_STOP_MIN_ROWS):
+        return None
+    tail_n = max(int(config.XGBOOST_EARLY_STOP_MIN_ROWS),
+                 int(round(config.XGBOOST_EARLY_STOP_FRAC * len(rows))))
+    tail_n = min(tail_n, len(rows) // 2)
+    watch_rows = rows[-tail_n:]
+    fit_rows = rows[:-tail_n]
+    watch = pre.transform(X_train.loc[watch_rows]) if pre is not None \
+        else X_train.loc[watch_rows]
+    return (np.asarray(fit_rows), np.asarray(y_train[: len(fit_rows)]), watch)
+
+
+def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreprocessor | None]:
+    """Fit one member on labeled training rows only.
+
+    The signature deliberately has no ``val`` parameter: the fold loop
+    cannot hand the validation window to any member's fit, so "training
+    stops at the fold's train end" is a property of the type, not a
+    convention a call site can silently break.
+    """
     labels = _binary_labels(train)
     train_mask = labels.notna()
     train = train.loc[train_mask]
@@ -155,60 +197,67 @@ def _fit_member(name: str, train: pd.DataFrame, val: pd.DataFrame | None = None)
     X_train = member_matrix(name, train)
     pre = TrainFoldPreprocessor().fit(X_train) if name in LINEAR_MEMBERS else None
     y_train = labels.to_numpy(dtype=int)
-    X_val = member_matrix(name, val) if val is not None else None
-    val_labels = _binary_labels(val) if val is not None else pd.Series(dtype=float)
-    val_mask = val_labels.notna() if val is not None else pd.Series(dtype=bool)
-    if name == "xgboost" and X_val is not None and val_mask.any():
-
-        model = _make_member(
-            name,
-            config.XGBOOST_FOLD_ROUNDS,
-            config.XGBOOST_EARLY_STOP,
-        )
-        X_train_fit = member_fit_input(name, X_train, pre)
-        X_val_fit = member_fit_input(
-            name, X_val.loc[val_mask], pre
-        )
-        y_val = val_labels.loc[val_mask].astype(int).to_numpy()
-        try:
-            model.fit(
-                X_train_fit,
-                y_train,
-                eval_set=[(X_val_fit, y_val)],
-                verbose=False,
+    if name == "xgboost":
+        # Early stopping watches a chronological tail of the TRAINING fold,
+        # never the validation window - see _early_stop_watch. The tail is
+        # carved out of the fit set, so the gradient never sees it and the
+        # fit rows are strictly prior to the watch rows in game order.
+        watch = _early_stop_watch(X_train, y_train, pre)
+        if watch is not None:
+            fit_rows, y_fit_rows, X_watch = watch
+            model = _make_member(
+                name,
+                config.XGBOOST_FOLD_ROUNDS,
+                config.XGBOOST_EARLY_STOP,
             )
-        except TypeError:
-            # Older sklearn wrappers do not accept ``verbose`` in fit.
-            model.fit(X_train_fit, y_train, eval_set=[(X_val_fit, y_val)])
-        except Exception as exc:  # noqa: BLE001
-            # A few xgboost releases reject constructor-level early stopping
-            # when the eval frame is categorical.  Preserve the configured
-            # ceiling and fit without the optional stopping mechanism rather
-            # than dropping the member.
-            logger.warning("xgboost early stopping unavailable; refitting: %s", exc)
-            fallback = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
-            fallback.fit(member_fit_input(name, X_train, pre), y_train)
-            return fallback, pre
-    else:
-        model = _make_member(name)
-        X_train_fit = member_fit_input(name, X_train, pre)
-        fit_kwargs = {}
-        if name == "lightgbm":
-            categorical = [c for c in config.TREE_CATEGORICAL_COLS
-                           if c in getattr(X_train_fit, "columns", [])]
-            if categorical:
-                fit_kwargs["categorical_feature"] = categorical
-        try:
-            model.fit(X_train_fit, y_train, **fit_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            # LightGBM releases differ on pandas categorical routing.  The
-            # numeric tree view remains valid; retry without the optional
-            # keyword rather than dropping the member.
-            if name == "lightgbm" and fit_kwargs:
-                logger.warning("LightGBM categorical routing unavailable; retrying numerically: %s", exc)
-                model.fit(X_train_fit, y_train)
-            else:
-                raise
+            X_fit_set = member_fit_input(
+                name, X_train.loc[fit_rows], pre)
+            try:
+                model.fit(
+                    X_fit_set,
+                    y_fit_rows,
+                    eval_set=[(X_watch, y_train[len(fit_rows):])],
+                    verbose=False,
+                )
+            except TypeError:
+                # Older sklearn wrappers do not accept ``verbose`` in fit.
+                model.fit(X_fit_set, y_fit_rows,
+                          eval_set=[(X_watch, y_train[len(fit_rows):])])
+            except Exception as exc:  # noqa: BLE001
+                # A few xgboost releases reject constructor-level early
+                # stopping when the eval frame is categorical.  Preserve the
+                # configured ceiling and fit without the optional stopping
+                # mechanism rather than dropping the member.
+                logger.warning("xgboost early stopping unavailable; refitting: %s", exc)
+                fallback = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
+                fallback.fit(member_fit_input(name, X_train, pre), y_train)
+                return fallback, pre
+            return model, pre
+        # Too small for a watch tail: fit the full training fold with the
+        # configured ceiling and no stopping - still strictly train-only.
+        model = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
+        model.fit(member_fit_input(name, X_train, pre), y_train)
+        return model, pre
+    # Every other member: fit on the whole training fold, no early stop.
+    model = _make_member(name)
+    X_train_fit = member_fit_input(name, X_train, pre)
+    fit_kwargs = {}
+    if name == "lightgbm":
+        categorical = [c for c in config.TREE_CATEGORICAL_COLS
+                       if c in getattr(X_train_fit, "columns", [])]
+        if categorical:
+            fit_kwargs["categorical_feature"] = categorical
+    try:
+        model.fit(X_train_fit, y_train, **fit_kwargs)
+    except Exception as exc:  # noqa: BLE001
+        # LightGBM releases differ on pandas categorical routing.  The
+        # numeric tree view remains valid; retry without the optional
+        # keyword rather than dropping the member.
+        if name == "lightgbm" and fit_kwargs:
+            logger.warning("LightGBM categorical routing unavailable; retrying numerically: %s", exc)
+            model.fit(X_train_fit, y_train)
+        else:
+            raise
     return model, pre
 
 
@@ -368,7 +417,7 @@ def walk_forward_oof(
         member_p: dict[str, np.ndarray | None] = {}
         for name in config.ENSEMBLE_MEMBERS:
             try:
-                model, pre = _fit_member(name, train, val)
+                model, pre = _fit_member(name, train)
                 member_p[name] = _predict(model, name, member_matrix(name, val), pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("moneyline fold %s member %s failed: %s",

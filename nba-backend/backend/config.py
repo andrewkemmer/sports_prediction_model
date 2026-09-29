@@ -272,6 +272,17 @@ XGBOOST_PARAMS = {
 }
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
+# Where xgboost's fold fits watch for early stopping: a held-out
+# chronological TAIL OF THE TRAINING FOLD - the last 15% (>= 30 rows when
+# the fold affords one, capped at half) - never the validation window.
+# Those are the rows the fold is scored on, and letting them set the round
+# count meant each fold's OOF metric graded a model whose early-stop
+# decision had consulted that metric's own outcomes. The tail is strictly
+# before val_start by construction, so the mechanic stays point-in-time
+# for every fold. (MLB's fold fits still watch the val window; NBA
+# diverges deliberately - see moneyline._early_stop_watch.)
+XGBOOST_EARLY_STOP_FRAC = 0.15
+XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # NBA-specific re-tune (2026-09-27, offline Optuna study over the production
 # 41-fold walk-forward, 150 trials, .adhoc protocol per MLB's documented
 # provenance): pooled member OOF logloss 0.63260 -> 0.62339 on folds[:-4], and
