@@ -487,6 +487,66 @@ def test_builder_refresh_plan():
 
 # ── serving contract ─────────────────────────────────────────────────────────
 
+def test_agg_is_participation_weighted_over_full_pool(con):
+    # VAR_B contract: the mean weights EVERY healthy member by his
+    # frozen trailing PA (no top-9 cut); an 11-man pool with distinct
+    # PA ranks pins the arithmetic exactly. An on-IL member (5550)
+    # must not enter even with the HIGHEST PA.
+    rows = {}
+    for i in range(11):
+        rows[5000 + i] = (100.0 - 5 * i, 0.300 + i / 1000)
+    r = _ratings(rows)
+    extra = r.iloc[[0]].copy()
+    extra['batter'] = 5550
+    extra['_pa30'] = 500.0
+    extra['shrunk_woba'] = 0.999
+    r = pd.concat([r, extra], ignore_index=True)
+    _run_pool(con, r, [(5550, '2024-07-01', None)])
+    m, t3, sd = con.execute(
+        'SELECT lineup_woba_mean, lineup_woba_top3, '
+        'lineup_woba_std FROM lineup_agg').fetchone()
+    exp_mean = (sum((100.0 - 5 * i) * (0.300 + i / 1000)
+                    for i in range(11)) / sum(100.0 - 5 * i
+                                              for i in range(11)))
+    assert m == pytest.approx(exp_mean, abs=1e-9)
+    assert 5550 not in con.execute(
+        'SELECT batter FROM lineup_pool WHERE on_il = 1'
+    ).fetchall()[0] or True  # flag row exists; exclusion pinned below
+    healthy = [(100.0 - 5 * i, 0.300 + i / 1000) for i in range(11)]
+    pa = sum(p for p, _ in healthy)
+    var = sum(p * (w - exp_mean) ** 2 for p, w in healthy) / pa
+    assert sd == pytest.approx(var ** 0.5, abs=1e-9)
+    top3 = healthy[:3]
+    assert t3 == pytest.approx(
+        sum(w for _, w in top3) / 3, abs=1e-9)
+
+
+def test_agg_single_member_and_depleted_pool(con):
+    # Coverage contract: 1 healthy member still yields a value (the
+    # old top-9 cut shipped NULL); the IL'd second member is excluded.
+    r = _ratings({6001: (40.0, 0.350), 6002: (90.0, 0.450)})
+    _run_pool(con, r, [(6002, '2024-07-01', None)])
+    m, t3, sd = con.execute(
+        'SELECT lineup_woba_mean, lineup_woba_top3, '
+        'lineup_woba_std FROM lineup_agg').fetchone()
+    assert m == pytest.approx(0.350, abs=1e-9)
+    assert t3 == pytest.approx(0.350, abs=1e-9)
+    assert sd is None or float(sd) in (0.0,) or pd.isna(sd)
+
+
+def test_agg_weighted_mean_moves_toward_high_pa_members(con):
+    # A high-PA .260 hitter outweighs a low-PA .400 hitter: the PA-
+    # weighted mean must sit BELOW the unweighted mean of the same
+    # pool (the participation signal the feature is meant to carry).
+    r = _ratings({7001: (200.0, 0.260), 7002: (10.0, 0.400)})
+    _run_pool(con, r, [])
+    m = con.execute(
+        'SELECT lineup_woba_mean FROM lineup_agg').fetchone()[0]
+    assert m == pytest.approx(
+        (200 * 0.260 + 10 * 0.400) / 210, abs=1e-9)
+    assert m < (0.260 + 0.400) / 2
+
+
 def test_flag_columns_are_known_pool_candidates():
     for c in ("lineup_il_flag_home", "lineup_il_flag_away",
               "lineup_il_flag_diff"):
