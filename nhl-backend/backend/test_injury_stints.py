@@ -1051,6 +1051,23 @@ class TestProductionInjuryLoader:
         assert pd.notna(out.loc[0, "pl_il_out_fraction"])
         assert out.loc[0, "pl_il_out_fraction"] > 0
 
+    def test_a_side_past_the_serving_bound_falls_back_to_the_prior(self):
+        """A side whose freshest rating is beyond POOL_LOOKBACK_DAYS (46 days
+        here — longer than the Olympic break, so this is the summer-boundary
+        shape) serves the position prior rather than a stale pool.
+        """
+        ratings = make_ratings([
+            ("mp-1", "CGY", "5on5", "C", 0.060, 9000.0, "2026-02-04"),
+        ])
+        # Production ratings carry pool_date: the strict as-of serving path.
+        ratings["pool_date"] = ratings["game_date"]
+        games = pd.DataFrame([
+            {"game_date": "2026-03-22", "team": "CGY", "season": 2025},
+        ])
+        pool, audit = ist.team_game_rates(ratings, stints=pd.DataFrame(),
+                                          games=games)
+        assert len(pool) == 0  # 46-day-old source rating: out of the bound
+
     def test_post_puckdrop_snapshot_does_not_change_pool_and_coverage_is_unknown(self):
         ratings = make_ratings([
             ("mp-1", "BOS", "5on5", "C", 0.060, 9000.0, "2026-04-15"),
@@ -1070,6 +1087,159 @@ class TestProductionInjuryLoader:
             out = feat.add_player_pool_features(games, player_ratings=ratings)
 
         assert out.loc[0, "pl_evo_c_home"] == pytest.approx(0.040)
+        assert pd.isna(out.loc[0, "pl_il_out_fraction"])
+
+
+# ---------------------------------------------------------------------------
+# The Huberdeau/Hughes availability contracts (2026-09-29 audit): the two
+# user-supplied 2025-26 examples every future change must keep honest.
+# ---------------------------------------------------------------------------
+
+class TestHuberdeauHughesContracts:
+    """Regression contracts for the 2025-26 availability examples.
+
+    Huberdeau (CGY): season-ending IR announced 2026-02-05 (last game 02-04
+    vs EDM), missed the final 26 games through the Olympic-break spring.
+    Jack Hughes (NJD): Out 2025-11-13..2025-12-21 (18 consecutive games,
+    NO IR paperwork), plus 3 more games from 2026-01-30 (minor lower-body).
+
+    The pipeline's contract for both: absence windows are KNOWN only through
+    timestamped snapshots captured before puck drop. A snapshot that proves
+    the absence must remove the player from the pl_evo/pl_ppo pool for every
+    game inside the window (never retroactively), an all-clear snapshot must
+    restore him, and the pre-archive past stays unknown (NaN receipt), never
+    inferred healthy from appearances.
+    """
+
+    @staticmethod
+    def _ratings():
+        ratings = make_ratings([
+            ("mp-hub", "CGY", "5on5", "L", 0.070, 9000.0, "2026-02-04"),
+            ("mp-c1", "CGY", "5on5", "C", 0.050, 9000.0, "2026-02-04"),
+            ("mp-c2", "CGY", "5on5", "C", 0.030, 9000.0, "2026-02-04"),
+            # NJD ratings on two dates so every Hughes game has a fresh-enough
+            # pregame rating (the pool lookback is 45 days of source age).
+            # The middle center is an outlier so the WITH/ WITHOUT-Hughes pool
+            # means differ ((0.06+0.001+0.02)/3 vs (0.06+0.02)/2) — identical
+            # means would make the removal invisible to the assertions.
+            ("mp-jh", "NJD", "5on5", "C", 0.060, 9000.0, "2025-11-13"),
+            ("mp-n1", "NJD", "5on5", "C", 0.001, 9000.0, "2025-11-13"),
+            ("mp-n2", "NJD", "5on5", "C", 0.020, 9000.0, "2025-11-13"),
+            ("mp-jh", "NJD", "5on5", "C", 0.060, 9000.0, "2025-12-20"),
+            ("mp-n1", "NJD", "5on5", "C", 0.001, 9000.0, "2025-12-20"),
+            ("mp-n2", "NJD", "5on5", "C", 0.020, 9000.0, "2025-12-20"),
+        ])
+        ratings["player_name"] = ["Jonathan Huberdeau", "CGY Center One",
+                                  "CGY Center Two"] + ["Jack Hughes",
+                                  "NJD Center One", "NJD Center Two"] * 2
+        # Production ratings carry pool_date — the strict as-of serving path.
+        ratings["pool_date"] = ratings["game_date"]
+        return ratings
+
+    @staticmethod
+    def _snapshot(name, status, captured_at, espn_id):
+        return {"player_id": espn_id, "player_name": name, "team": None,
+                "status": status, "report_date": captured_at[:10],
+                "snapshot_at": captured_at, "snapshot_marker": False}
+
+    def test_huberdeau_ir_snapshot_removes_him_from_every_window_game(self):
+        # Captured 2026-02-05T16:00Z: after his last game (02-04), before his
+        # next (02-06). The exclusion then holds for the whole window.
+        reports = pd.DataFrame([self._snapshot(
+            "Jonathan Huberdeau", "Injured Reserve", "2026-02-05T16:00:00Z",
+            "e-hub")])
+        games = pd.DataFrame([
+            {"game_id": "G1", "season": 2026, "game_date": "2026-02-06",
+             "start_time_utc": "2026-02-06T02:00:00Z",
+             "home_team": "EDM", "away_team": "CGY"},
+            {"game_id": "G26", "season": 2026, "game_date": "2026-03-10",
+             "start_time_utc": "2026-03-10T02:00:00Z",
+             "home_team": "CGY", "away_team": "SJS"},
+        ])
+        with patch.object(feat.ingestion, "load_espn_injuries",
+                          return_value=reports):
+            out = feat.add_player_pool_features(
+                games, player_ratings=self._ratings())
+        # CGY's only L was Huberdeau: with him excluded the L pool is empty
+        # and the side falls back to the measured position PRIOR, never 0.
+        prior_l = feat._POSITION_PRIOR["EVO"]["L"]
+        assert out.loc[0, "pl_evo_l_away"] == pytest.approx(prior_l)
+        assert out.loc[1, "pl_evo_l_home"] == pytest.approx(prior_l)
+        # The C pool survives intact (he was an L): two centers remain.
+        assert out.loc[0, "pl_evo_c_away"] == pytest.approx(0.04)
+        assert out.loc[1, "pl_evo_c_home"] == pytest.approx(0.04)
+        # The receipt names the removal on BOTH window games: known, nonzero.
+        assert (out["pl_il_out_fraction"] > 0).all()
+
+    def test_hughes_out_without_ir_paperwork_is_respected_and_cleared(self):
+        # The Devils never filed IR: the ONLY proof his 18-game absence ever
+        # happened is the captured snapshot state itself. Out at 11-14 15:00Z
+        # (after the 11-14 game he played, before the 11-20 game he missed);
+        # an all-clear marker at 12-20 restores him for the 12-21 return.
+        reports = pd.DataFrame([
+            self._snapshot("Jack Hughes", "Out", "2025-11-14T15:00:00Z", "e-jh"),
+            {"player_id": None, "player_name": None, "team": None,
+             "status": None, "report_date": None,
+             "snapshot_at": "2025-12-20T15:00:00Z", "snapshot_marker": True},
+        ])
+        games = pd.DataFrame([
+            {"game_id": "last_played", "season": 2026, "game_date": "2025-11-14",
+             "start_time_utc": "2025-11-14T02:00:00Z",
+             "home_team": "TOR", "away_team": "NJD"},
+            {"game_id": "missed", "season": 2026, "game_date": "2025-11-20",
+             "start_time_utc": "2025-11-20T23:00:00Z",
+             "home_team": "TOR", "away_team": "NJD"},
+            {"game_id": "return_vs_buf", "season": 2026, "game_date": "2025-12-21",
+             "start_time_utc": "2025-12-21T23:00:00Z",
+             "home_team": "BUF", "away_team": "NJD"},
+            # The January tweak shape: a LATER game with no new capture keeps
+            # serving the all-clear state — the November stint must not haunt
+            # his return (absence is never re-inferred from a stale interval).
+            {"game_id": "jan_tweak_window", "season": 2026,
+             "game_date": "2026-01-30", "start_time_utc": "2026-01-30T23:00:00Z",
+             "home_team": "NJD", "away_team": "TOR"},
+        ])
+        with patch.object(feat.ingestion, "load_espn_injuries",
+                          return_value=reports):
+            out = feat.add_player_pool_features(
+                games, player_ratings=self._ratings())
+        full_pool = pytest.approx((0.060 + 0.001 + 0.020) / 3)
+        short_pool = pytest.approx((0.001 + 0.020) / 2)  # Hughes (0.060) removed
+        # Game 1 (he played, pre-capture): in the pool; coverage unknown -> NaN.
+        assert out.loc[0, "pl_evo_c_away"] == full_pool
+        assert pd.isna(out.loc[0, "pl_il_out_fraction"])
+        # Game 2 (inside the 18-game window): removed from the pool.
+        assert out.loc[1, "pl_evo_c_away"] == short_pool
+        assert out.loc[1, "pl_il_out_fraction"] > 0
+        # Return game (all-clear captured): back in the pool, receipt 0.
+        assert out.loc[2, "pl_evo_c_away"] == full_pool
+        assert out.loc[2, "pl_il_out_fraction"] == pytest.approx(0.0)
+        # January game: the all-clear persists; no re-inferred absence.
+        assert out.loc[3, "pl_evo_c_home"] == full_pool
+        assert out.loc[3, "pl_il_out_fraction"] == pytest.approx(0.0)
+
+    def test_pre_archive_absence_is_unknown_never_inferred_healthy(self):
+        """The audit's PIT verdict for the real 2025-26 season: with no
+        snapshot captured before a game, a proven-later absence must NOT be
+        applied retroactively and must NOT read as confirmed health.
+        """
+        ratings = self._ratings()
+        games = pd.DataFrame([{
+            "game_id": "G1", "season": 2026, "game_date": "2026-02-06",
+            "start_time_utc": "2026-02-06T02:00:00Z",
+            "home_team": "EDM", "away_team": "CGY",
+        }])
+        # The surgery WAS announced 02-05 — but this archive's first capture
+        # is 2026-09-28, so the pipeline knows nothing at decision time.
+        reports = pd.DataFrame([self._snapshot(
+            "Jonathan Huberdeau", "Injured Reserve", "2026-09-28T21:50:57Z",
+            "e-hub")])
+        with patch.object(feat.ingestion, "load_espn_injuries",
+                          return_value=reports):
+            out = feat.add_player_pool_features(games, player_ratings=ratings)
+        # Retroactive exclusion forbidden: his rating is in the Feb pool.
+        assert out.loc[0, "pl_evo_l_away"] == pytest.approx(0.070)
+        # And the receipt refuses to certify health it never observed.
         assert pd.isna(out.loc[0, "pl_il_out_fraction"])
 
 
