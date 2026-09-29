@@ -99,11 +99,26 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "lower = home advantage",
     },
     # RETIRED 2026-09-07 (Experiment #2 E/F replacement — the 6 baseline
-    # S-family features left MONEYLINE_FEATURE_COLS): sp_k9_diff, sp_k9_5g_diff,
+    # S-family features left MONEYLINE_FEATURE_COLS): sp_k9_5g_diff,
     # sp_fbpct_diff, sp_whiff_diff, sp_xwoba_diff, sp_xwoba_vs_l_diff.
-    # Their authored dashboard entries were removed (the dashboard only
-    # renders MONEYLINE_FEATURE_COLS members); the columns remain generated in
+    # (sp_k9_diff READMITTED 2026-09-30 — authored entry restored below —
+    # see training._EXP2_REMOVALS for the revert rationale.) Their authored
+    # dashboard entries were removed (the dashboard only renders
+    # MONEYLINE_FEATURE_COLS members); the columns remain generated in
     # the dataset but are no longer part of the active run-engine contract.
+    "sp_k9_diff": {
+        "summary": "Home SP season-to-date K/9 − away SP",
+        "definition": (
+            "Starting-pitcher strikeout-volume gap. READMITTED 2026-09-30: "
+            "raw twins sp_k9_home/away re-entered serving 2026-09-27, so the "
+            "diff was restored for structural alignment."
+        ),
+        "formula": "sp_k9_home − sp_k9_away",
+        "source": "Statcast pitching aggregates (season to date)",
+        "window": "season to date",
+        "units": "K/9",
+        "direction": "higher = home advantage",
+    },
     # ---- SP trailing-3 stuff diffs ----------------------------------------
     "sp_fbvelo_diff": {
         "summary": "Home SP fastball velo (last 3 starts) − away SP (mph)",
@@ -561,9 +576,9 @@ _RICH: dict[str, dict[str, str]] = {
 }
 
 _PER_SIDE_FAMILIES = {
-    "sp_era": ("Starting-pitcher earned-run average", "ERA runs", "lower = better for that side"),
-    "sp_k9": ("Starting-pitcher strikeouts per 9 innings", "K/9", "higher = better"),
-    "sp_xwoba": ("Expected wOBA allowed by the starter", "xwOBA", "lower = better"),
+    "sp_era": ("Starting-pitcher earned-run average", "ERA runs", "lower = better for that side", "season to date (prior in-season starts; LAG-shifted)"),
+    "sp_k9": ("Starting-pitcher strikeouts per 9 innings", "K/9", "higher = better", "season to date (prior in-season starts; LAG-shifted)"),
+    "sp_xwoba": ("Expected wOBA allowed by the starter", "xwOBA", "lower = better", "last 30 starts"),
     "lineup_woba_mean": ("Projected lineup average wOBA", "wOBA points", "higher = better"),
     "lineup_woba_top3": ("Top-3 hitters' projected wOBA", "wOBA points", "higher = better"),
     "woba_30g": ("Team offensive wOBA", "wOBA points", "higher = better"),
@@ -803,7 +818,12 @@ def _rich_entry(name: str) -> Optional[dict[str, str]]:
             fam = _PER_SIDE_FAMILIES.get(base)
             if not fam:
                 return None
-            label, units, direction = fam
+            # (label, units, direction[, window]) — window is optional;
+            # families that carry one (e.g. the sp_* lookbacks, added
+            # 2026-09-30) pin their artifact label explicitly, the rest
+            # fall back to _family_window's name-suffix inference.
+            label, units, direction = fam[0], fam[1], fam[2]
+            window = fam[3] if len(fam) > 3 else _family_window(base)
             return {
                 "summary": f"{label} — {side} team",
                 "definition": (
@@ -813,7 +833,7 @@ def _rich_entry(name: str) -> Optional[dict[str, str]]:
                 ),
                 "formula": name,
                 "source": "Statcast aggregates via DuckDB feature engineering",
-                "window": _family_window(base),
+                "window": window,
                 "units": units,
                 "direction": f"{direction} for the {side} side (level column)",
             }

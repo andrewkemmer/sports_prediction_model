@@ -47,7 +47,7 @@ def test_contract_carries_the_renamed_bullpen_family():
     assert "bullpen_meltdown_risk" not in cols
     # The availability mechanism is a filter, NOT extra model columns.
     assert not [c for c in cols if "exposed_share" in c or "il_count" in c]
-    assert len(training.MONEYLINE_FEATURE_COLS) == 100
+    assert len(training.MONEYLINE_FEATURE_COLS) == 101
 
 
 def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):

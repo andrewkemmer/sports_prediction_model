@@ -341,8 +341,18 @@ MONEYLINE_FEATURE_COLS = [
 # The raw per-side source columns and every OTHER baseline feature are
 # preserved; the run engine's λ view (run_engine.py RUN_FEATURE_COLS) is a
 # separate list and is untouched — NB pricing behavior unchanged.
+#
+# REVERTED 2026-09-30 (user-directed structural alignment): sp_k9_diff
+# rejoins the universe — its raw per-side twins sp_k9_home/away re-entered
+# serving on 2026-09-27 (adopted state + provenance rework), so serving the
+# raw pair while withholding the diff is no longer coherent. Dropping it
+# here does NOT rewrite the frozen 09-07 experiment registry
+# (exp2_feature_test_20260907.json still records the original 6-name union);
+# sp_k9_5g_diff and the four remaining E/F diffs stay removed. This is a
+# serving-width change made outside an RFE trial: the adopted state
+# (mlb_feature_selection_state.json) was re-issued with the column inserted
+# at its canonical universe position, and the width pins moved 100 -> 101.
 _EXP2_REMOVALS = [
-    "sp_k9_diff",
     "sp_k9_5g_diff",
     "sp_fbpct_diff",
     "sp_whiff_diff",

@@ -495,8 +495,11 @@ RFE_CANDIDATE_COLS = [
     # the model on 2026-08-29 as a train-serve skew fix. Leaving known-leaked,
     # never-scored columns in the addition pool invites an RFE run to select
     # them on post-game-actual signal. The pipeline no longer computes them.
-    # --- diff cols culled from universe, never ablated (S-family cull 2026-09-07) (7) ---
-    "sp_k9_diff",
+    # --- diff cols culled from universe, never ablated (S-family cull 2026-09-07) (6) ---
+    # sp_k9_diff REMOVED from this list 2026-09-30: readmitted to the
+    # MONEYLINE_FEATURE_COLS universe (user-directed structural alignment —
+    # its raw twins sp_k9_home/away serve since 2026-09-27), so it left the
+    # addition pool by the universe-minus rule below.
     "sp_k9_5g_diff",
     "sp_fbpct_diff",
     "sp_whiff_diff",
