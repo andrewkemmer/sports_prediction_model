@@ -1310,9 +1310,14 @@ def export_injury_history_artifact() -> str | None:
     """Persist the local captured history into data_delivery (best effort).
 
     Called by the pipeline's persistence phase so the NEXT run — local or
-    sandbox — inherits every snapshot this run captured. Returns the artifact
-    name when written, None when there is nothing to persist (never fails a
-    run; the artifact simply ages until a healthy fetch repopulates it).
+    sandbox — inherits every snapshot this run captured. The export is
+    snapshot-aware and growing: it unions the machine-local history with
+    whatever the artifact already carries (deduped on the same
+    ``(snapshot_at, player_id)`` identity the history loader uses) so a repo
+    snapshot can never lose older rows to a machine that starts its capture
+    later. Never fails a run; returns the artifact name when written, None
+    when there is nothing to persist (the artifact simply ages until a
+    healthy fetch repopulates it).
     """
     local = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
     if not local.exists():
@@ -1326,6 +1331,21 @@ def export_injury_history_artifact() -> str | None:
         return None
     artifact = config.DATA_DELIVERY_DIR / INJURY_HISTORY_ARTIFACT
     try:
+        if artifact.exists():
+            try:
+                carried = pd.read_parquet(artifact)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ESPN injury history artifact unreadable; replacing it "
+                    "with the local history: %s", exc)
+            else:
+                if len(carried):
+                    combined = pd.concat([carried, df], ignore_index=True, sort=False)
+                    keys = [c for c in ("snapshot_at", "player_id", "player_name")
+                            if c in combined.columns]
+                    if keys:
+                        combined = combined.drop_duplicates(keys, keep="first")
+                    df = combined
         artifact.parent.mkdir(parents=True, exist_ok=True)
         tmp = artifact.with_suffix(".parquet.tmp")
         df.to_parquet(tmp, index=False)
@@ -1333,7 +1353,14 @@ def export_injury_history_artifact() -> str | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("ESPN injury history export failed (run continues): %s", exc)
         return None
-    logger.info("injury history artifact: %d rows -> %s", len(df), artifact.name)
+    stamps = pd.to_datetime(df["snapshot_at"], errors="coerce", utc=True) \
+        if "snapshot_at" in df.columns else pd.Series(dtype="datetime64[ns, UTC]")
+    logger.info(
+        "injury history artifact: %d rows over %d captured snapshot(s) "
+        "(%s .. %s) -> %s",
+        len(df), int(stamps.nunique()) if len(stamps) else 0,
+        stamps.min() if len(stamps) else "-",
+        stamps.max() if len(stamps) else "-", artifact.name)
     return artifact.name
 
 

@@ -154,6 +154,58 @@ def test_export_injury_history_artifact_round_trips(tmp_path, monkeypatch):
     assert restored.iloc[0]["player_id"] == "mp-1"
 
 
+def test_export_grows_the_repo_artifact_never_shrinks_it(tmp_path, monkeypatch):
+    """A machine whose capture starts LATER than the artifact's (exactly the
+    2026-09-29 Kaggle log: the repo artifact never landed, and a bare
+    local-cache overwrite would have let the first exporter erase any older
+    carried snapshots) must union with the carried rows, not replace them.
+    """
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    older = pd.DataFrame([{
+        "player_id": "mp-old", "player_name": "Carried Example", "status": "IR",
+        "report_date": "2026-09-01", "snapshot_at": pd.Timestamp("2026-09-01T12:00:00Z"),
+        "snapshot_marker": False,
+    }])
+    older.to_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    pd.DataFrame([{
+        "player_id": "mp-new", "player_name": "Local Example", "status": "Out",
+        "report_date": "2026-09-25", "snapshot_at": pd.Timestamp("2026-09-25T09:00:00Z"),
+        "snapshot_marker": False,
+    }]).to_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+
+    ing.export_injury_history_artifact()
+
+    restored = pd.read_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    assert sorted(restored["player_id"]) == ["mp-new", "mp-old"]
+
+
+def test_export_logs_the_snapshot_window(tmp_path, monkeypatch, caplog):
+    """The 2026-09-29 log's bare '%d rows' export line hid the archive's real
+    coverage; the export must report how many snapshots it carries and the
+    window they span, so a one-snapshot artifact is visible in the log.
+    """
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    pd.DataFrame([
+        {"player_id": "1", "snapshot_at": pd.Timestamp("2026-09-26T10:00:00Z"),
+         "snapshot_marker": False},
+        {"player_id": "2", "snapshot_at": pd.Timestamp("2026-09-26T10:00:00Z"),
+         "snapshot_marker": False},
+        {"player_id": "1", "snapshot_at": pd.Timestamp("2026-09-27T10:00:00Z"),
+         "snapshot_marker": False},
+    ]).to_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+
+    with caplog.at_level("INFO", logger=ing.__name__):
+        ing.export_injury_history_artifact()
+
+    assert any("2 captured snapshot" in r.message for r in caplog.records)
+    assert any("2026-09-26" in r.message and "2026-09-27" in r.message
+               for r in caplog.records)
+
+
 def test_export_injury_history_artifact_without_history_writes_nothing(
         tmp_path, monkeypatch):
     monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
@@ -166,6 +218,9 @@ def test_export_injury_history_artifact_without_history_writes_nothing(
 def test_persistent_edge_block_still_falls_back_to_captured_history(
         tmp_path, monkeypatch):
     monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    # Isolate the artifact tier too: the repo may genuinely carry captured
+    # history now, and this test pins the LOCAL-cache tier in isolation.
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
     monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
     old = pd.DataFrame([{
         "player_id": "mp-1", "player_name": "Alex Example", "status": "Out",
@@ -276,6 +331,9 @@ def test_stale_legacy_cache_is_refetched_not_given_a_fresh_timestamp(
 def test_fetch_failure_returns_old_archive_without_stamping_it_fresh(
         tmp_path, monkeypatch):
     monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    # Isolate the artifact tier: this test pins the LOCAL-cache fallback.
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
     old = pd.DataFrame([{
         "player_id": "mp-1", "player_name": "Alex Example", "status": "Out",
         "report_date": "2026-09-01", "snapshot_at": pd.Timestamp("2026-09-01T12:00:00Z"),
@@ -296,6 +354,10 @@ def test_fetch_failure_returns_old_archive_without_stamping_it_fresh(
 
 def test_invalid_empty_object_is_fetch_failure_not_an_all_clear_report(
         tmp_path, monkeypatch):
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    # Isolate the artifact tier: with no captured history anywhere, the
+    # failure path must return None — never a fabricated all-clear.
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
     monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
     _set_clock(monkeypatch, ["2026-09-26T10:00:00Z"])
     with patch("requests.get", return_value=_Response({})):

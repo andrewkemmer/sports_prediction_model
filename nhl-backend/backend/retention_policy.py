@@ -39,6 +39,9 @@ EXACT_MASTER_NAMES = frozenset({
     "nhl_pipeline_summary.json",
     "nhl_oof_moneyline.csv",
     "nhl_oof_distribution.csv",
+    # Captured ESPN injury snapshots — health is cumulative: deleting it would
+    # tell every later run that no status was ever known (2026-09-29 log).
+    "nhl_injury_snapshot_history.parquet",
 })
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --

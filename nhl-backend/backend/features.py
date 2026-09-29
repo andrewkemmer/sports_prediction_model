@@ -1001,7 +1001,14 @@ def _load_espn_stints(ratings: pd.DataFrame | None
     except Exception as exc:  # noqa: BLE001
         logger.warning("injury report unavailable (%s)", exc)
         return pd.DataFrame(), None
-    if reports is None or not len(reports) or "snapshot_at" not in reports.columns:
+    if reports is None:
+        logger.warning("ESPN injury archive: no captured history available "
+                       "anywhere (no machine-local snapshots and no repo "
+                       "artifact) — injury exclusions are OFF, not empty")
+        return pd.DataFrame(), None
+    if not len(reports) or "snapshot_at" not in reports.columns:
+        logger.warning("ESPN injury archive: captured history carries no "
+                       "snapshot timestamps — ignoring report-date-only rows")
         return pd.DataFrame(), None
 
     reports = reports.copy()
@@ -1020,6 +1027,12 @@ def _load_espn_stints(ratings: pd.DataFrame | None
     reports["snapshot_marker"] = reports["snapshot_marker"].fillna(False).astype(bool)
 
     snapshot_times = sorted(pd.Timestamp(t) for t in reports["snapshot_at"].dropna().unique())
+    if snapshot_times:
+        logger.info(
+            "ESPN injury archive: %d row(s) over %d captured snapshot(s), "
+            "window %s .. %s — exclusions can bind only on games after the "
+            "first captured snapshot", len(reports), len(snapshot_times),
+            snapshot_times[0], snapshot_times[-1])
     markers = reports[reports["snapshot_marker"]].copy()
     actual = reports[~reports["snapshot_marker"]].copy()
     ratings_by_name = ratings

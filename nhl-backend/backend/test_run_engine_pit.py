@@ -2275,6 +2275,20 @@ def test_retention_keeps_the_current_slate_shap_cards():
         anchor_date=anchor, game_dates=old) == "stale"
 
 
+def test_injury_snapshot_history_artifact_is_never_retention_eligible():
+    """The captured ESPN injury history is cumulative health knowledge (the
+    2026-09-29 Kaggle run's 403 fallback). Deleting it would tell every later
+    run that no status was ever known — it must classify protected on any
+    anchor date, never stale.
+    """
+    import retention_policy as rp
+    rel = "nhl-backend/data_delivery/nhl_injury_snapshot_history.parquet"
+    for anchor in ("20260929", "20270415"):
+        assert rp.classify_artifact(
+            rel, seen=set(), retention_dates=set(), recent_dates=set(),
+            board_dates=set(), anchor_date=anchor, game_dates={}) == "protected"
+
+
 def test_retention_still_dates_the_run_dated_families():
     """The numeric-id guard must not break the normal _YYYYMMDD families."""
     import retention_policy as rp
