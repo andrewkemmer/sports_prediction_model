@@ -239,6 +239,20 @@ def _prior_home_stadiums(games: pd.DataFrame) -> dict[tuple[str, str], str]:
     if "stadium" not in games.columns:
         return {}
     home_rows = games[["game_id", "gameday", "gametime", "home_team", "stadium"]].copy()
+    if "location" in games.columns:
+        # Neutral-site guard (2026-09-29 v9.6): a Neutral row is not a home
+        # game. The 2026 feed labels neutrals with the TRUE venue (LA's
+        # Melbourne opener, NE's Super Bowl LX at Levi's), so without this
+        # guard the ladder treated a foreign stadium as the team's most
+        # recent home venue and priced their next real home game thousands
+        # of miles (LA->SoFi 7929 mi, NE->Gillette 2674 mi — the drift
+        # monitor's travel_miles_home current mean of 136.7 was the
+        # symptom). Earlier vintages label neutrals with the nominal team's
+        # own stadium, which was accidentally harmless here; excluding every
+        # Neutral row is correct for both vintages. NOTE: the location column
+        # is read from ``games`` (the selection above does not carry it).
+        _neutral = games["location"].astype(str).str.strip().str.lower().eq("neutral")
+        home_rows = home_rows[~_neutral.reindex(home_rows.index, fill_value=False)]
     home_rows["_kickoff"] = _kickoff_utc(home_rows)
     home_rows = home_rows.dropna(subset=["_kickoff", "home_team", "stadium"])
     home_rows = home_rows.sort_values(["home_team", "_kickoff", "game_id"])

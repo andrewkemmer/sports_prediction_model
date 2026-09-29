@@ -4030,6 +4030,75 @@ check("a zero-variance baseline grades INSUFFICIENT (cannot judge), not OK",
       f"degenerate is_home={_mon_row[0]['status'] if _mon_row else 'MISSING'}, "
       f"normal temp_f={_mon_row_ok[0]['status'] if _mon_row_ok else 'MISSING'}")
 
+# ---- v9.6: neutral rows never enter the prior-home ladder; drift baseline
+# is season-phase matched (2026-09-29 run-log review #2). Two production
+# defects from the 20260929 log:
+# (1) _prior_home_stadiums treated a Neutral row as a home game — the 2026
+#     feed labels neutrals with the TRUE venue (LA's Melbourne opener, NE's
+#     Super Bowl LX at Levi's), so LA->SoFi priced 7929 mi and
+#     NE->Gillette 2674 mi (travel_miles_home current mean 136.7 was the
+#     symptom; 2025's nominal labels were accidentally harmless here).
+# (2) drift_windows' trailing-tail baseline in an early-September window is
+#     the PRIOR season's Dec/Jan tail, where cumulative-through-season
+#     features (inj_ol_out_home 2.11 Jan vs 1.57 Sep) light a real 3-sigma
+#     WARN that is season-phase, not drift (the 20260929 log's first WARN).
+_lad = pd.DataFrame([
+    {"game_id": "B0", "season": 2026, "week": 1, "gameday": "2026-09-01",
+     "gametime": "13:00", "home_team": "BBB", "away_team": "EEE",
+     "stadium": "Lambeau Field", "location": "Home"},
+    {"game_id": "A0", "season": 2026, "week": 1, "gameday": "2026-09-05",
+     "gametime": "20:15", "home_team": "AAA", "away_team": "BBB",
+     "stadium": "Tottenham Hotspur Stadium", "location": "Neutral"},
+    {"game_id": "A1", "season": 2026, "week": 2, "gameday": "2026-09-12",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "CCC",
+     "stadium": "Gillette Stadium", "location": "Home"},
+    {"game_id": "B1", "season": 2026, "week": 2, "gameday": "2026-09-12",
+     "gametime": "13:00", "home_team": "BBB", "away_team": "DDD",
+     "stadium": "Lambeau Field", "location": "Home"},
+])
+_lad_att = feat_mod._attach_static_team_facts(_lad, venue_timeline=_lad)
+_lad_a1 = _lad_att[_lad_att["game_id"].eq("A1")].iloc[0]
+_lad_b1 = _lad_att[_lad_att["game_id"].eq("B1")].iloc[0]
+check("neutral rows never enter the prior-home venue ladder (LA/NE travel bug)",
+      # BBB's real prior prices 0 (machinery alive), while AAA's first real
+      # home game after the guarded-off neutral row has NO prior (NaN) —
+      # anything finite and large would be the leaked London prior.
+      np.isfinite(_lad_b1["travel_miles_home"])
+      and float(_lad_b1["travel_miles_home"]) <= 1.0
+      and (pd.isna(_lad_a1["travel_miles_home"])
+           or float(_lad_a1["travel_miles_home"]) <= 1.0),
+      f"BBB prior={_lad_b1['travel_miles_home']} (0 required), "
+      f"AAA prior={_lad_a1['travel_miles_home']} (NaN or 0; the leaked "
+      "London prior would price thousands of miles)")
+
+_dw = pd.DataFrame({
+    "gameday": (["2025-12-15"] * 200          # prior season's late-season tail
+                + ["2025-09-08"] * 260        # prior seasons' same-phase pool
+                + ["2026-09-14"] * 310),      # current season (window source)
+    "inj_ol_out_home": ([2.5] * 200 + [1.5] * 260 + [1.5] * 310),
+})
+_dw_base, _dw_cur = monitoring_mod.drift_windows(_dw)
+check("drift baseline is season-phase matched (Sep window judged vs prior "
+      "Septembers, not the prior Dec/Jan tail)",
+      len(_dw_cur) == 60
+      and set(_dw_base["gameday"].astype(str).str[:7]) == {"2025-09"},
+      f"baseline months={sorted(set(_dw_base['gameday'].astype(str).str[:7]))}")
+_dw_thin = pd.DataFrame({
+    "gameday": (["2025-12-15"] * 200 + ["2025-09-08"] * 60
+                + ["2026-09-14"] * 310),
+    "inj_ol_out_home": [2.5] * 200 + [1.5] * 60 + [1.5] * 310,
+})
+_dw_base2, _dw_cur2 = monitoring_mod.drift_windows(_dw_thin)
+# Legacy contract unchanged: with the same-phase prior pool under the
+# minimum size, the baseline is EXACTLY the plain preceding-era tail.
+_dw_prior2 = _dw_thin.iloc[:len(_dw_thin) - 60]
+_legacy_tail = _dw_prior2.tail(250).reset_index(drop=True)
+check("drift baseline falls back to the exact era tail when same-phase "
+      "pool is thin",
+      len(_dw_cur2) == 60
+      and _dw_base2.reset_index(drop=True).equals(_legacy_tail),
+      f"baseline months={sorted(set(_dw_base2['gameday'].astype(str).str[:7]))}")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)

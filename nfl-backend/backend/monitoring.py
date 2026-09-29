@@ -269,6 +269,15 @@ def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     MONITORING ONLY: nothing in the fit or serve path reads these windows —
     training is expanding walk-forward over the full pool regardless.
 
+    Season-phase matching (2026-09-29): the baseline pool is further
+    restricted to the current window's calendar-month phase across prior
+    seasons, so an early-September window is judged against prior
+    Septembers instead of the prior season's December/January tail — a
+    cumulative-through-season feature (inj_ol_out_home) otherwise produces a
+    real 3-sigma location shift that is season-phase, not drift. Falls back
+    to the plain preceding-era tail when same-phase prior seasons are too
+    thin to fill the minimum baseline.
+
     Returns ``(baseline, current)`` in the same order callers pass them to
     :func:`feature_drift`. Falls back to the whole-pool tail when the frame
     is too small to slice both windows disjointly.
@@ -278,7 +287,31 @@ def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     prior = df.head(len(df) - n_cur)
     n_base = min(max(3 * n_cur, int(config.DRIFT_BASELINE_MIN_GAMES)),
                  len(prior))
-    baseline = prior.tail(n_base)
+    # Season-phase matching (2026-09-29 v9.6): a trailing-tail baseline in an
+    # early-September window is the PRIOR season's December/January stretch.
+    # Cumulative-through-season features (injury designations accumulate,
+    # inj_ol_out_home 2.11 in Jan vs 1.57 in Sep) then produce a real 3-sigma
+    # location shift that is a season-phase artifact, not drift — exactly the
+    # season-boundary class this window geometry was built to avoid but only
+    # fixed for era, not phase. The fix: draw the baseline from the same
+    # CALENDAR-MONTH phase as the current window, STRICTLY PRIOR SEASONS only
+    # (the current season's own earlier games are excluded — training camps
+    # and injuries ramp within a season too, so Sep-vs-Sep inside one season
+    # has the same artifact). Falls back to the plain preceding-era tail when
+    # same-phase prior seasons are too thin to fill the minimum baseline.
+    _gd_cur = pd.to_datetime(current["gameday"], errors="coerce")
+    _gd_pri = pd.to_datetime(prior["gameday"], errors="coerce")
+    if len(prior) and _gd_cur.notna().any():
+        _m = int(_gd_cur.dt.month.mode().iloc[0])
+        _cur_years = set(_gd_cur.dt.year.dropna().astype(int))
+        _pool = prior[_gd_pri.dt.month.eq(_m)
+                      & ~_gd_pri.dt.year.isin(_cur_years)]
+        if len(_pool) >= n_base:
+            baseline = _pool.tail(n_base)
+        else:
+            baseline = prior.tail(n_base)
+    else:
+        baseline = prior.tail(n_base)
     return baseline, current
 
 
