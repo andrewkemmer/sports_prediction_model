@@ -77,6 +77,75 @@ def test_transient_edge_block_is_retried_before_history_falls_back(
     assert latest["snapshot_at"] == "2026-09-26T10:05:12+00:00"
 
 
+def test_identity_fallback_rescues_the_snapshot(tmp_path, monkeypatch):
+    """The wave can outlast any retry schedule (2026-09-29 15:01: both runs
+    lost the ESPN fetch for ~9 minutes — every attempt of all 4 retries 403'd
+    in BOTH phases while the same identity tested 200 minutes later). When
+    the browser agent's retries are exhausted, ONE last attempt rides the
+    library-default identity (no User-Agent header at all — requests drops a
+    None value; verified 200 on 2026-09-29 while the browser agent was
+    mid-wave). A second, structurally different profile doubles the chance
+    the day's snapshot is captured at all."""
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    _set_clock(monkeypatch, ["2026-09-29T15:01:00Z", "2026-09-29T15:02:00Z"])
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+
+    seen_ua = []
+
+    def _get(url, timeout=None, headers=None, **_):
+        seen_ua.append((headers or {}).get("User-Agent"))
+        if (headers or {}).get("User-Agent") == "Mozilla/5.0":
+            return _Response(_payload(), status_code=403)
+        return _Response(_payload())  # the library-default identity passes
+
+    with patch("requests.get", side_effect=_get) as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    assert get.call_count == 5  # 4 blocked browser-agent attempts + 1 rescue
+    assert seen_ua[:4] == ["Mozilla/5.0"] * 4
+    assert seen_ua[4] is None, (
+        "the fallback must ride the library-default identity: a None "
+        "User-Agent is dropped by requests, not sent as the string 'None'")
+    assert out.iloc[0]["status"] == "Out"
+    latest = json.loads(
+        (tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_latest.json").read_text())
+    assert latest["snapshot_at"] == "2026-09-29T15:02:00+00:00"
+
+
+def test_persistent_wave_on_both_identities_still_replays_history(
+        tmp_path, monkeypatch):
+    """When BOTH identities are blocked for the whole run, the fallback must
+    stay bounded and history takes over — the extra identity attempt may not
+    turn a transient edge block into an unbounded hang."""
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    artifact = pd.DataFrame([{
+        "player_id": "mp-9", "player_name": "Repo Example", "status": "Out",
+        "report_date": "2026-09-20",
+        "snapshot_at": pd.Timestamp("2026-09-20T09:00:00Z"),
+        "snapshot_marker": False,
+    }])
+    artifact.to_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    _set_clock(monkeypatch, ["2026-09-29T15:01:00Z"])
+    monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+
+    seen_ua = []
+
+    def _get(url, timeout=None, headers=None, **_):
+        seen_ua.append((headers or {}).get("User-Agent"))
+        return _Response(_payload(), status_code=403)
+
+    with patch("requests.get", side_effect=_get) as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    # 4 browser-agent retries + 2 library-default retries, all blocked.
+    assert get.call_count == 6
+    assert seen_ua[:4] == ["Mozilla/5.0"] * 4
+    assert seen_ua[4:] == [None, None]
+    assert len(out) == 1
+    assert out.iloc[0]["player_id"] == "mp-9"
+
+
 def test_history_falls_back_to_repo_artifact_when_local_cache_is_absent(
         tmp_path, monkeypatch):
     """A sandbox whose egress to the injury endpoint is blocked (2026-09-28
@@ -107,7 +176,9 @@ def test_history_falls_back_to_repo_artifact_when_local_cache_is_absent(
     with patch("requests.get",
                return_value=_Response(_payload(), status_code=403)) as get:
         out = ing.load_espn_injuries(use_cache=True, snapshot=True)
-    assert get.call_count == 4
+    # 4 browser-agent retries + 2 library-default identity retries, all
+    # blocked, then history.
+    assert get.call_count == 6
     assert len(out) == 1
     assert out.iloc[0]["player_id"] == "mp-9"
     assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-20T09:00:00Z")
@@ -233,7 +304,9 @@ def test_persistent_edge_block_still_falls_back_to_captured_history(
                return_value=_Response(_payload(), status_code=403)) as get:
         out = ing.load_espn_injuries(use_cache=True, snapshot=True)
 
-    assert get.call_count == 4  # bounded retries, then the history fallback
+    # 4 browser-agent retries + 2 library-default identity retries, then
+    # the history fallback — still bounded.
+    assert get.call_count == 6
     assert len(out) == 1
     # The fallback is the OLD captured state, never re-stamped as fresh.
     assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-01T12:00:00Z")
@@ -345,9 +418,10 @@ def test_fetch_failure_returns_old_archive_without_stamping_it_fresh(
     with patch("requests.get", side_effect=RuntimeError("offline")) as get:
         out = ing.load_espn_injuries(use_cache=True, snapshot=True)
 
-    # Hard network failures are also retried (bounded) before the run
-    # settles for previously captured history.
-    assert get.call_count == 4
+    # Hard network failures are also retried (4 browser-agent + 2
+    # library-default identity attempts, bounded) before the run settles
+    # for previously captured history.
+    assert get.call_count == 6
     assert len(out) == 1
     assert pd.Timestamp(out.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-01T12:00:00Z")
 

@@ -78,9 +78,26 @@ ESPN_NHL_INJURIES_URL = ("https://site.api.espn.com/apis/site/v2/sports/hockey/"
 # exact headers coincided with probes of the same profile testing 200 both
 # minutes before and minutes after — so a 403 here is treated as transient
 # (retried), not as a permanent endpoint ban.
+#
+# 2026-09-29 15:01 update: the wave can outlast any retry schedule — both
+# runs of that day lost the fetch for ~9 minutes each (every attempt of all
+# 4 retries 403'd, both phases), while the same identity tested 200 minutes
+# later. Verified 2026-09-29 ~15:30: the browser agent AND the library-default
+# identity (no User-Agent header at all — requests drops a None value) both
+# test 200, while the product agent and a full Chrome string both 403. So the
+# fetch falls over ONCE to the library-default identity before giving up:
+# a second, structurally different request profile that the wave has not
+# necessarily blocked.
 ESPN_USER_AGENT = "Mozilla/5.0"
 ESPN_HEADERS = {
     "User-Agent": ESPN_USER_AGENT,
+    "Accept": "application/json, text/plain, */*",
+}
+# A None-valued header is DROPPED by requests (verified 2026-09-29): the
+# request goes out with no User-Agent line at all — the library-default
+# identity — which is a different profile from any explicit agent string.
+ESPN_IDENTITY_HEADERS = {
+    "User-Agent": None,
     "Accept": "application/json, text/plain, */*",
 }
 
@@ -1162,10 +1179,29 @@ def load_espn_injuries(use_cache: bool = True,
             # A 403 here is transient like a 5xx: retry it with the verified
             # short browser agent (ESPN_HEADERS) instead of silently serving
             # the slate on stale injury state (unknown is not healthy).
-            fetched = _http_json(
-                ESPN_NHL_INJURIES_URL, retries=4, timeout=45.0,
-                headers=ESPN_HEADERS,
-                retry_statuses=(403, 429, 500, 502, 503, 504))
+            try:
+                fetched = _http_json(
+                    ESPN_NHL_INJURIES_URL, retries=4, timeout=45.0,
+                    headers=ESPN_HEADERS,
+                    retry_statuses=(403, 429, 500, 502, 503, 504))
+            except Exception as wave_exc:  # noqa: BLE001
+                # The wave can outlast any retry schedule (2026-09-29 15:01:
+                # both runs lost the fetch ~9 minutes, every attempt of all
+                # 4 retries 403'd in BOTH phases while the same identity
+                # tested 200 minutes later). Fall over ONCE to the
+                # library-default identity — no User-Agent header at all —
+                # a structurally different request profile the wave has not
+                # necessarily blocked. Still transient-aware, still bounded;
+                # only then does history take over (unknown is not healthy,
+                # but a second identity doubles the chance the snapshot is
+                # captured at all).
+                logger.warning("ESPN injury fetch exhausted the browser-agent "
+                               "retries (%s); falling back to the "
+                               "library-default identity", wave_exc)
+                fetched = _http_json(
+                    ESPN_NHL_INJURIES_URL, retries=2, timeout=45.0,
+                    headers=ESPN_IDENTITY_HEADERS,
+                    retry_statuses=(403, 429, 500, 502, 503, 504))
             if not _valid_espn_injury_payload(fetched):
                 raise ValueError("ESPN injury payload missing a complete injuries list")
             payload = fetched
