@@ -11,6 +11,8 @@ Three things here earn their own tests because each fails quietly:
 """
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -735,6 +737,93 @@ class TestRunLineStructuralContract:
         sample = bundle["totals"].get("220") or next(iter(bundle["totals"].values()))
         assert sample["over"] is not None and sample["under"] is not None
         assert sample["over"] != sample["under"] or sample["push"] != sample["over"]
+
+
+class TestMemberTuningNoiseFloor:
+    """xgboost's own seed moves the member metric more than any gain on record.
+
+    Why this is a test and not a note: the 2026-09-27 XGBoost retune picked
+    the best of 150 trials on pooled OOF logloss, reported "+117 bps", and
+    the gain reversed on its sealed holdout. A from-scratch re-run
+    (.adhoc/nba_xgb_retune/) measured the reason afterwards - the SAME
+    params under five seeds span 40 bps of pooled logloss, and 190 bps
+    within a single fold block. At 150 trials, selecting the argmax on
+    pooled logloss is selecting noise, and the reversal was the correct
+    outcome rather than bad luck.
+
+    So the floor is pinned here. A future study that reports a member gain
+    without clearing it has measured the seed, not the parameters - and
+    the honest comparison is a PAIRED one on the same games, judged across
+    seeds, never two independently-noisy pooled numbers.
+    """
+
+    SEEDS = (42, 7, 123)
+
+    @staticmethod
+    def _oos(seed: int, n: int = 420) -> pd.DataFrame:
+        """A small walk-forward whose members are genuinely seed-sensitive.
+
+        xgboost draws its column/row subsamples from ``random_state``, so
+        two seeds give two different models. The signal is weak and the
+        noise is real, which is the regime the production study lives in.
+        """
+        import moneyline as ml_mod
+        import folds as folds_mod
+        rng = np.random.default_rng(11)
+        df = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.date_range("2025-01-01", periods=n, freq="D"),
+            "season": 2026,
+            "home_team": rng.choice(30, n),
+            "away_team": rng.choice(30, n),
+        })
+        base = rng.normal(0, 1, n)
+        df["home_score"] = 110 + base
+        df["away_score"] = 110 - base
+        df["home_win"] = (df.home_score > df.away_score).astype(float)
+        for col in config.MONEYLINE_FEATURE_COLS:
+            df[col] = rng.normal(0, 1, n)
+        frame = folds_mod.canonical_sort(df)
+        orig = dict(config.XGBOOST_PARAMS)
+        try:
+            config.XGBOOST_PARAMS["random_state"] = int(seed)
+            assert ml_mod.config is config, "config identity drift"
+            oof = ml_mod.walk_forward_oof(frame, progress_every=0)["oof"]
+        finally:
+            config.XGBOOST_PARAMS.clear()
+            config.XGBOOST_PARAMS.update(orig)
+        return oof[["game_id", "home_win", "p_xgboost"]]
+
+    def test_the_same_params_under_different_seeds_are_not_the_same_model(self):
+        """The floor exists. A gain smaller than this is not measurable."""
+        runs = {s: self._oos(s).set_index("game_id").sort_index()
+                for s in self.SEEDS}
+
+        # Paired per-game logloss, seed vs seed - the comparison a study
+        # should actually be making.
+        deltas = []
+        for a, b in itertools.combinations(self.SEEDS, 2):
+            fa, fb = runs[a], runs[b]
+            common = fa.index.intersection(fb.index)
+            y = fa.loc[common, "home_win"].to_numpy(float)
+
+            def per_game(p):
+                p = np.clip(p, 1e-7, 1 - 1e-7)
+                return -(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+            deltas.append((per_game(fa.loc[common, "p_xgboost"].to_numpy(float))
+                           - per_game(fb.loc[common, "p_xgboost"].to_numpy(float)))
+                          .mean() * 10000)
+        spread = max(deltas) - min(deltas)
+        # The production frame measured 40 bps; this synthetic frame is
+        # noisier, so the pin is a floor on the FLOOR, not a measurement of
+        # it. If this ever goes to ~0 the member has become deterministic
+        # and the whole caveat is obsolete - fail loudly rather than let a
+        # future study cite a noise floor that no longer holds.
+        assert spread > 5.0, (
+            f"seed spread collapsed to {spread:.2f} bps; xgboost is no longer "
+            "seed-sensitive, so the tuning caveat no longer applies and the "
+            "2026-09-27 reversal needs a different explanation")
 
 
 class TestFoldEarlyStopIsPointInTime:

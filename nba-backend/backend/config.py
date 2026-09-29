@@ -298,6 +298,40 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # was tuned under the same protocol and REJECTED there: its pooled gain
 # (+117 bps) reversed on the sealed holdout, so XGBOOST_PARAMS stays the MLB
 # copy verbatim.
+#
+# RE-CONFIRMED from scratch on 2026-09-29 (.adhoc/nba_xgb_retune/VERDICT.md)
+# after the member's blend weight collapsed 0.849 -> 0.770 -> 0.033 across
+# three runs. That study measured the noise floor FIRST, which is what the
+# 2026-09-27 protocol was missing: the same params under 5 seeds span
+# 40.3 bps of pooled logloss and 190 bps within a single fold block, so a
+# best-of-150 selection on pooled logloss is guaranteed to pick noise. The
+# "+117 bps" that reversed on its sealed holdout was inside its own noise
+# floor; the reversal was the correct outcome, not bad luck.
+#
+# The from-scratch retune (60 paired TPE trials -> 6 diverse finalists at
+# 5/5 seeds and 4/4 blocks -> forward-chaining replay at 3 cut points) found
+# a real effect: -121 bps paired, 5/5 seeds, all four blocks, and 3/3
+# forward-chain cuts carried the gain onto unseen future folds. In-sample
+# gains shrink to ~1/3 forward, so the honest figure is about -36 bps, not
+# -121. Widening the bounds the first screen pinned against found no further
+# gain, so the region is interior.
+#
+# It is still not adopted, because it does not change anything SERVED: the
+# retuned member is 121 bps better and 2.2 AUC points better, and the
+# production ensemble moves 1.2 bps with the weight still exactly 0.0. The
+# reason is measured, not asserted - xgboost's residuals correlate 0.988
+# with elasticnet's (incumbent 0.976, lightgbm 0.990), the logit-blend
+# frontier is monotonic in elasticnet's favour with the optimum at xgboost
+# weight 0.00, and adding xgboost at ANY weight gains -0.0 bps. A member
+# earns weight for being decorrelated from the incumbent, not for being
+# accurate, and tuning made this one more accurate and slightly MORE
+# redundant. The optimiser is correct.
+#
+# So the defect is not the hyperparameters: it is that a near-duplicate of
+# elasticnet sits in the ensemble at all. No hyperparameter search fixes
+# that. XGBOOST_PARAMS therefore stays the MLB copy verbatim, and the
+# retuned vector is preserved in .adhoc as the right starting point IF the
+# ensemble is ever restructured toward diversity.
 LIGHTGBM_PARAMS = {
     "n_estimators": 61, "max_depth": 4, "num_leaves": 9,
     "min_child_samples": 58, "min_gain_to_split": 2.2171,
