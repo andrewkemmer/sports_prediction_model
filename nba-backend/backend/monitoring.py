@@ -148,7 +148,80 @@ def drift_windows(decided: pd.DataFrame, days: int = 7,
         prior = frame.iloc[:max(len(frame) - len(current), 0)]
     baseline = prior.tail(max(3 * len(current), min_baseline)) \
         if len(prior) else prior
+    baseline = _composition_matched_baseline(baseline, prior, current,
+                                             min_baseline)
     return baseline, current
+
+
+#: The covariate whose composition shift between windows is KNOWN seasonal
+#: structure, not drift: the NBA calendar concentrates postseason games in a
+#: six-week tail, so a Finals current window is 100% playoff games against a
+#: prior that is mostly regular season. Every feature that moves with the
+#: postseason (playoff-team Elo, pace, assists) then reads as ALERT even
+#: though nothing about the model's world changed - the same three pages
+#: three Finals windows running.
+SEASONALITY_COVARIATE = "is_playoffs"
+
+
+def _composition_matched_baseline(baseline: pd.DataFrame, prior: pd.DataFrame,
+                                  current: pd.DataFrame,
+                                  min_baseline: int) -> pd.DataFrame:
+    """Restrict the baseline to the current window's seasonal composition.
+
+    A drift comparison answers "has the world the model sees changed?". When
+    the current window is DOMINATED by one state of a known seasonal
+    covariate (a Finals tail: every game a playoff game) and the prior slice
+    is mostly the other state (the regular season), the raw comparison
+    measures the calendar, not drift - is_playoffs itself pages at PSI 4.2,
+    and every covariate-correlated feature pages with it. The like-for-like
+    comparison restricts the baseline to prior rows in the SAME state
+    (this season's earlier playoff rounds, then the prior postseason),
+    newest first, keeping the time-adjacency the window pair is built on.
+
+    Floors and honesty: the matched baseline must still hold at least
+    ``3 x len(current)`` rows (the same like-for-like floor the window pair
+    uses) or the restriction is refused and the mixed baseline stays -
+    with a loud log, so an under-supplied match degrades to paging rather
+    than to silence. A mixed current window (the regular season's own
+    composition) is left untouched: matching is for the tail seasons, not
+    a new filter on every window.
+    """
+    covariate = SEASONALITY_COVARIATE
+    if (not len(current) or not len(prior)
+            or covariate not in current.columns
+            or covariate not in prior.columns):
+        return baseline
+    cur_share = pd.to_numeric(current[covariate], errors="coerce").mean()
+    base_share = pd.to_numeric(baseline[covariate], errors="coerce").mean()
+    if not (cur_share == cur_share and base_share == base_share):
+        return baseline
+    if not (cur_share >= 0.5 and base_share < cur_share - 0.2):
+        return baseline
+    state = cur_share >= 0.5
+    matched = prior[pd.to_numeric(prior[covariate], errors="coerce")
+                    .ge(0.5) == state]
+    # The floor clears INSUFFICIENT_BASELINE too: a matched baseline below
+    # the judgable-gate constant would trade pages for INSUFFICIENT rows -
+    # quiet, but dishonestly ("cannot judge" instead of "compared like
+    # for like").
+    needed = max(3 * len(current), INSUFFICIENT_BASELINE)
+    if len(matched) < needed:
+        logger.warning("drift window: current window is %.0f%% %s against a "
+                       "%.0f%% prior, but only %d matched prior row(s) exist "
+                       "(floor %d); keeping the mixed baseline - statuses on "
+                       "covariate-correlated features will page as seasonal "
+                       "structure",
+                       100 * cur_share, covariate, 100 * base_share,
+                       len(matched), needed)
+        return baseline
+    matched_baseline = matched.tail(
+        max(needed, min(min_baseline, len(matched))))
+    logger.info("drift window: current window is %.0f%% %s against a %.0f%% "
+                "prior; baseline composition-matched to %d %s row(s) so the "
+                "comparison measures drift, not the calendar",
+                100 * cur_share, covariate, 100 * base_share,
+                len(matched_baseline), covariate)
+    return matched_baseline
 
 
 def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,

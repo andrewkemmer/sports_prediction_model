@@ -407,6 +407,74 @@ class TestFeatureDriftMachinery:
         row = mon.feature_drift(baseline, current)[0]
         assert row["status"] == "INSUFFICIENT"
 
+    def test_a_playoff_tail_baseline_is_composition_matched(self):
+        """The Finals-window fix: a 100%-playoff current window against a
+        mostly-regular-season prior measured the calendar, not drift - the
+        same 16 pages three Finals windows running. The baseline restricts
+        to prior PLAYOFF rows (newest first), so is_playoffs itself and
+        every covariate-correlated feature compare like-for-like."""
+        rng = np.random.default_rng(17)
+        n_reg, n_po = 1000, 220
+        frame = pd.DataFrame({
+            "gameday": pd.date_range("2025-10-01", periods=n_reg + n_po,
+                                     freq="D"),
+            "is_playoffs": np.r_[np.zeros(n_reg), np.ones(n_po)],
+            # Playoff games really do differ: slower pace, sharper Elo.
+            "ewm_pace_home": np.r_[rng.normal(230.0, 2.0, n_reg),
+                                   rng.normal(220.0, 2.0, n_po)],
+            "elo_diff": np.r_[rng.normal(0, 60, n_reg),
+                              rng.normal(0, 120, n_po)],
+        })
+        baseline, current = mon.drift_windows(frame, days=7, min_current=30)
+        assert (pd.to_numeric(current.is_playoffs).mean() == 1.0)
+        # The mixed baseline was mostly regular season; the matched one is
+        # playoff rows only, still time-adjacent and still judgable.
+        assert (pd.to_numeric(baseline.is_playoffs).mean() == 1.0)
+        assert baseline.gameday.max() < current.gameday.min()
+        assert len(baseline) >= 3 * len(current)
+        # And the drift read is now quiet: the pace gap vs the MATCHED
+        # baseline is inside noise, where the mixed baseline paged it.
+        row = mon.feature_drift(baseline, current)[1]
+        assert row["status"] == "OK"
+
+    def test_a_mixed_current_window_is_left_alone(self):
+        """Matching is for tail seasons; the regular season's own mixed
+        composition must not silently become a playoff-only filter. The
+        last 45 days sit INSIDE the regular-season block (the playoff block
+        is mid-history here), so the current window is mixed and untouched."""
+        rng = np.random.default_rng(19)
+        n_reg_early, n_po, n_reg_late = 600, 120, 600
+        frame = pd.DataFrame({
+            "gameday": pd.date_range(
+                "2025-10-01", periods=n_reg_early + n_po + n_reg_late,
+                freq="D"),
+            "is_playoffs": np.r_[np.zeros(n_reg_early), np.ones(n_po),
+                                 np.zeros(n_reg_late)],
+            "ewm_pace_home": rng.normal(230.0, 2.0,
+                                        n_reg_early + n_po + n_reg_late),
+        })
+        baseline, current = mon.drift_windows(frame, days=7, min_current=30)
+        assert (pd.to_numeric(current.is_playoffs).mean() == 0.0)
+        assert (pd.to_numeric(baseline.is_playoffs).mean() == 0.0)
+
+    def test_an_under_supplied_match_degrades_loudly_to_the_mixed_baseline(
+            self, caplog):
+        """When prior playoff rows cannot floor 3x the current window, the
+        restriction is REFUSED - an honest page beats a silently thin
+        baseline."""
+        n_reg, n_po = 1180, 40
+        frame = pd.DataFrame({
+            "gameday": pd.date_range("2025-10-01", periods=n_reg + n_po,
+                                     freq="D"),
+            "is_playoffs": np.r_[np.zeros(n_reg), np.ones(n_po)],
+            "ewm_pace_home": np.r_[np.full(n_reg, 230.0),
+                                   np.full(n_po, 230.0)],
+        })
+        baseline, current = mon.drift_windows(frame, days=7, min_current=30)
+        assert (pd.to_numeric(current.is_playoffs).mean() == 1.0)
+        # Refused: the baseline stays mixed.
+        assert (pd.to_numeric(baseline.is_playoffs).mean() < 1.0)
+
     def test_insufficient_rows_do_not_page_in_the_monitor_json(self, tmp_path):
         drift = [{"feature": "elo_diff", "status": "INSUFFICIENT"},
                  {"feature": "rest_days_diff", "status": "ALERT"}]
