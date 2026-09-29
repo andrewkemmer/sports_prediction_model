@@ -328,6 +328,64 @@ def walk_forward_oof(game_df: pd.DataFrame,
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1, n_folds)
 
     oof = pd.concat(oof_parts, ignore_index=True) if oof_parts else pd.DataFrame()
+
+    # Weight-earning evidence (2026-09-29 19:56 post-adoption review): the
+    # weights line alone cannot explain a zero. Log the pooled per-member
+    # loglosses the SLSQP takeover rule compares, the rolling-blend pooled
+    # logloss, and the causal fold-round budgets this walk measured — then
+    # flag any zero-weight member loudly. Background: on a NEW machine,
+    # xgboost re-buckets histograms in thread-order-dependent float
+    # summation, so the tree member's OOF (and therefore its earned weight)
+    # is machine-sensitive — lightgbm/elasticnet reproduce bit-identically,
+    # xgboost does not (local 0.5942 AUC vs 0.5836 on the 19:56 run). The
+    # 0% corner was the optimizer correctly reading THAT machine's honest
+    # evidence; these lines make every future corner auditable from the
+    # log alone instead of surprising anyone.
+    _y_all = oof["home_win"].to_numpy(dtype=float)
+    _member_ll: dict[str, float] = {}
+    for _m in config.ENSEMBLE_MEMBERS:
+        _p = oof[f"p_{_m}"].to_numpy(dtype=float)
+        _ok = ~np.isnan(_p)
+        if not _ok.any():
+            _member_ll[_m] = float("nan")
+            continue
+        _pc = np.clip(_p[_ok], 1e-9, 1 - 1e-9)
+        _yc = _y_all[_ok]
+        _member_ll[_m] = float(-np.mean(
+            _yc * np.log(_pc) + (1 - _yc) * np.log(1 - _pc)))
+    _pe = oof["p_ensemble"].to_numpy(dtype=float)
+    _ok_e = ~np.isnan(_pe)
+    _blend_ll = float("nan")
+    if _ok_e.any():
+        _pc = np.clip(_pe[_ok_e], 1e-9, 1 - 1e-9)
+        _yc = _y_all[_ok_e]
+        _blend_ll = float(-np.mean(
+            _yc * np.log(_pc) + (1 - _yc) * np.log(1 - _pc)))
+    _budgets = list(_LAST_XGB_BEST_ROUNDS)
+    _budget_note = (
+        f"median {sorted(_budgets)[len(_budgets) // 2]} over "
+        f"{len(_budgets)} fold(s), range {min(_budgets)}-{max(_budgets)}"
+        if _budgets else
+        f"none recorded (fold-0 prior {config.XGBOOST_FOLD0_ROUNDS} only)")
+    logger.info(
+        "moneyline member OOF (weight-earning evidence): %s | "
+        "rolling-blend pooled logloss %.5f | xgb causal fold budgets: %s",
+        ", ".join(f"{m} ll={_member_ll[m]:.5f}"
+                  for m in config.ENSEMBLE_MEMBERS),
+        _blend_ll, _budget_note)
+    for _m in config.ENSEMBLE_MEMBERS:
+        if _last_weights.get(_m, 0.0) > 0.0:
+            continue
+        _others = [v for k, v in _member_ll.items()
+                   if k != _m and np.isfinite(v)]
+        _best_other = min(_others) if _others else float("nan")
+        logger.warning(
+            "moneyline blend: %s earned 0.000 weight (member pooled "
+            "logloss %.5f vs best other %.5f) — no simplex blend of the "
+            "members beats dropping it on this machine's OOF; the evidence "
+            "lines above are the audit trail",
+            _m, _member_ll.get(_m, float("nan")), _best_other)
+
     logger.info("moneyline OOF complete: %d fold(s), %d scored row(s), "
                 "final weights %s", n_folds, len(oof),
                 ", ".join(f"{k}={v:.3f}" for k, v in sorted(_last_weights.items())))
