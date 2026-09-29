@@ -422,6 +422,93 @@ class TestFeatureDriftMachinery:
         row = mon.feature_drift(baseline, current)[0]
         assert row["status"] == "ALERT" and row["location_shift"]
 
+
+class TestCarryProvenance:
+    """A forward-filled value is not a measurement.
+
+    The event family forward-fills each team's last measured profile across
+    games the play-by-play sweep has not reached. Counting those carries as
+    observations is how the 13:29 run on 2026-09-29 published 99.6%
+    frame-wide event coverage that was substantially frozen constants, and
+    how a baseline window can compare a stale snapshot against fresh games
+    as if both were data. The ladder stamps ``_measured_<feature>`` 0/1
+    provenance on the contract; coverage counts observations and carries
+    separately, and drift compares observations only.
+    """
+
+    FEATURE = "event_rim_rate_diff"
+
+    @staticmethod
+    def _frame(values, flags=None, n_extra_cols=True):
+        frame = pd.DataFrame({TestCarryProvenance.FEATURE: values})
+        if flags is not None:
+            frame[f"_measured_{TestCarryProvenance.FEATURE}"] = flags
+        return frame
+
+    def test_a_carried_value_is_not_counted_as_coverage(self, monkeypatch):
+        monkeypatch.setattr(config, "MONEYLINE_FEATURE_COLS", [self.FEATURE])
+        values = [0.4, 0.5, 0.3, 0.3]
+        flags = [1.0, 1.0, 0.0, 0.0]
+        rows = mon.coverage(self._frame(values, flags))
+        row = rows[0]
+        assert row["n_nonnull"] == 4
+        assert row["pct_measured"] == 50.0
+        assert row["n_measured"] == 2 and row["n_carried"] == 2
+
+    def test_no_provenance_means_every_non_null_is_measured(self, monkeypatch):
+        monkeypatch.setattr(config, "MONEYLINE_FEATURE_COLS", [self.FEATURE])
+        rows = mon.coverage(self._frame([0.4, 0.5, 0.3]))
+        assert rows[0]["n_measured"] == 3 and rows[0]["n_carried"] == 0
+
+    def test_drift_compares_observations_not_carries(self, monkeypatch):
+        monkeypatch.setattr(config, "MONEYLINE_FEATURE_COLS", [self.FEATURE])
+        rng = np.random.default_rng(7)
+        # 120 genuinely measured baseline rows, then 60 rows that are the
+        # frozen carry of a profile measured at 3.0 - the exact shape an
+        # unswept stretch produces. The measured count stays above the
+        # INSUFFICIENT floor (100) so the comparison is judgable.
+        baseline_values = np.concatenate([rng.normal(0, 1, 120),
+                                          np.full(60, 3.0)])
+        baseline_flags = np.concatenate([np.ones(120), np.zeros(60)])
+        current_values = rng.normal(0, 1, 40)
+        current_flags = np.ones(40)
+        flagged = mon.feature_drift(
+            self._frame(baseline_values, baseline_flags),
+            self._frame(current_values, current_flags))[0]
+        assert flagged["n_baseline"] == 120 and flagged["n_current"] == 40
+        assert flagged["status"] == "OK"
+        # Without the stamps the same frame invents drift out of the carry.
+        unflagged = mon.feature_drift(
+            self._frame(baseline_values), self._frame(current_values))[0]
+        assert unflagged["status"] == "ALERT"
+        assert unflagged["psi"] > flagged["psi"]
+
+    def test_the_provenance_flags_never_reach_a_model_matrix(self):
+        rng = np.random.default_rng(3)
+        n = 10
+        rows = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.date_range("2026-01-01", periods=n, freq="D"),
+            "season": 2026,
+            "home_team": "BOS", "away_team": "NYK",
+            "home_score": rng.integers(95, 125, n).astype(float),
+            "away_score": rng.integers(95, 125, n).astype(float),
+        })
+        events = pd.DataFrame([
+            {"game_id": f"g{i}", "team": team, "fga": 90,
+             "possessions": 100.0, "rim_attempts": 30, "mid_attempts": 25,
+             "corner_three_attempts": 25, "live_turnovers": 10, "and_in": 1,
+             "shooting_fouls": 18, "shot_distance": 13.5, "q4_points": 25,
+             "ot_points": 0.0}
+            for i in range(4) for team in ("BOS", "NYK")])
+        built = feat_mod.build_game_features(rows, None, events)
+        stamped = [c for c in built.columns if c.startswith("_measured_")]
+        assert stamped, "the fixture should exercise the provenance stamps"
+        for view in (feat_mod.tree_view(built), feat_mod.linear_view(built)):
+            assert not [c for c in view.columns if c.startswith("_measured_")]
+            assert list(view.columns)[:1] == \
+                [config.active_moneyline_feature_cols()[0]]
+
     def test_identical_distributions_sit_at_the_noise_floor_and_report_ok(self):
         rng = np.random.default_rng(3)
         baseline = pd.DataFrame({"elo_diff": rng.normal(0, 1, 300)})

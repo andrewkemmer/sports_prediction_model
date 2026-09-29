@@ -239,8 +239,14 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
     for feature in config.active_moneyline_feature_cols():
         if feature not in baseline_games.columns:
             continue
-        baseline = pd.to_numeric(baseline_games[feature], errors="coerce").dropna()
-        current = (pd.to_numeric(current_games[feature], errors="coerce").dropna()
+        # Observations only. A carried value repeats the team's previous
+        # profile, so letting it into the PSI or the location gate compares a
+        # stale snapshot against fresh ones and invents drift (or hides it);
+        # the 2026-09-29 13:29 vs 15:38 comparison nearly ran on exactly
+        # that. Where the builder stamps no provenance, dropna() is the
+        # whole story and nothing changes.
+        baseline = _measured_values(baseline_games, feature).dropna()
+        current = (_measured_values(current_games, feature).dropna()
                    if feature in current_games.columns else pd.Series(dtype=float))
         n_b, n_c = len(baseline), len(current)
         if n_b == 0 or n_c == 0:
@@ -310,6 +316,25 @@ DEFAULT_ZERO_FEATURES = frozenset({
 })
 
 
+def _measured_values(frame: pd.DataFrame, feature: str) -> pd.Series:
+    """The feature's values restricted to genuine observations.
+
+    The contract carries ``_measured_<feature>`` 0/1 provenance for features
+    whose builder forward-fills (the play-by-play family). A carried value
+    repeats the team's PREVIOUS profile, so counting it as an observation
+    let a cache hole pose as coverage: the 13:29 run on 2026-09-29
+    published 99.6% frame-wide event coverage that was substantially frozen
+    constants. Where no flag exists, every non-null value is an observation
+    and the frame passes through unchanged.
+    """
+    values = pd.to_numeric(frame[feature], errors="coerce")
+    flag_col = f"_measured_{feature}"
+    if flag_col in frame.columns:
+        flag = pd.to_numeric(frame[flag_col], errors="coerce")
+        values = values.where(flag > 0)
+    return values
+
+
 def coverage(baseline_games: pd.DataFrame,
              current_games: pd.DataFrame | None = None) -> list[dict]:
     """Per-feature non-null share, per drift window - MLB's dual-window shape.
@@ -328,7 +353,21 @@ def coverage(baseline_games: pd.DataFrame,
         for feature in config.active_moneyline_feature_cols():
             values = (pd.to_numeric(frame[feature], errors="coerce")
                       if feature in frame else pd.Series(dtype=float))
-            pct = round(100 * float(values.notna().mean()), 2) if len(values) else 0.0
+            # measured vs carried: where the builder stamps forward-fill
+            # provenance, non-null splits into genuine observations (the
+            # basis for every status above) and CARRIES of the team's last
+            # profile. The split is what stops a hole in the play-by-play
+            # sweep from publishing as full coverage. pct_measured is the
+            # observation share; pct_nonnull keeps the old non-null number
+            # so a run with carries shows the gap between the two.
+            n_measured = 0
+            n_carried = 0
+            measured_values = values
+            if len(values):
+                measured_values = _measured_values(frame, feature)
+                n_measured = int(measured_values.notna().sum())
+                n_carried = int(values.notna().sum()) - n_measured
+            pct = round(100 * float(measured_values.notna().mean()), 2) if len(values) else 0.0
             # n_default_zero counts values that arrive DEFAULT-FILLED rather
             # than observed - the back_to_back case, where a team with no
             # prior game in the window has no rest days to compare and the
@@ -345,6 +384,7 @@ def coverage(baseline_games: pd.DataFrame,
                          "n_games": int(len(frame)),
                          "n_nonnull": int(values.notna().sum()) if len(values) else 0,
                          "pct_measured": pct, "pct_nonnull": pct,
+                         "n_measured": n_measured, "n_carried": n_carried,
                          "n_default_zero": n_default,
                          "status": "STARVED" if pct < 25
                                    else "LOW_COVERAGE" if pct < 80 else "OK"})

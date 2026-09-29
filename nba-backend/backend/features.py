@@ -322,8 +322,24 @@ def team_stats_ladder(events: pd.DataFrame,
                               "and_in", "shooting_fouls", "avg_shot_distance",
                               "possessions", "q4_points", "ot_points"}]
     if event_columns:
+        observed = srt[event_columns].notna()
         srt[event_columns] = (srt.groupby("team", sort=False)[event_columns]
                               .ffill())
+        # Provenance: a value that arrived only through the forward fill above
+        # is a CARRY of the team's last measured profile, not an observation
+        # of that game. The 13:29 run on 2026-09-29 published 99.6% frame-wide
+        # "coverage" for the event family that was substantially frozen
+        # constants riding the ffill - the number read as health and was
+        # actually the size of the cache hole. Each event column that carries
+        # at least one value gets a ``_measured_<col>`` 0/1 sidecar (1 = real
+        # observation). The sidecars are diagnostics by name: they are never
+        # copied onto the contract frame, and the model views select strictly
+        # from active_moneyline_feature_cols(), so no flag can reach a
+        # feature matrix. Consumers that find no sidecar may assume every
+        # non-null value is measured - which stays true when nothing carries.
+        for column in event_columns:
+            if (srt[column].notna() & ~observed[column]).any():
+                srt[f"_measured_{column}"] = observed[column].astype("float64")
     srt["elo_entering"] = pd.to_numeric(srt["elo_entering"], errors="coerce")
     srt["win_pct"] = _trailing(srt, "team_win", config.WINPCT_WINDOW)
     prior_date = srt.groupby("team", sort=False)["gameday"].shift()
@@ -356,6 +372,17 @@ def team_stats_ladder(events: pd.DataFrame,
                                      if window == "ewm"
                                      else _trailing(srt, metric,
                                                     config.PBP_ROLL_WINDOW))
+    # Provenance for the published EWM columns. _ewm shifts by one team-game
+    # (the value excludes the current game), so the value a contract row reads
+    # consumed the PREVIOUS team-game's raw input. The flag inherits that
+    # shift: ``_measured_<metric>_ewm`` is 1 only where the published EWM's
+    # newest input was a genuine observation - the honest notion of "this
+    # row's event profile is fresh" rather than a decaying carry.
+    for metric, window in config.EVENT_TRAILING_SPECS.items():
+        raw_flag = f"_measured_{metric}"
+        if raw_flag in srt:
+            srt[f"_measured_{metric}_{window}"] = (
+                srt.groupby("team", sort=False)[raw_flag].shift(1))
     return srt
 
 
@@ -365,6 +392,21 @@ def _side(ladder: pd.DataFrame, ids: pd.Index, col: str, home: bool) -> np.ndarr
     mask = ladder.is_home if home else ~ladder.is_home
     side = ladder.loc[mask, ["game_id", col]].drop_duplicates("game_id").set_index("game_id")[col]
     return side.reindex(ids).to_numpy(dtype=float)
+
+
+def _measured_flag(ladder: pd.DataFrame, ids: pd.Index, col: str,
+                   home: bool) -> np.ndarray | None:
+    """The ladder's 0/1 observation flag for ``col``, on the contract grain.
+
+    Returns None when the column never forward-fills and so has no provenance
+    - consumers then treat every non-null value as measured, which stays true
+    in that case. A diff's flag is the product of its sides' flags: computed
+    where the caller needs one, via ``h * a``.
+    """
+    flag_col = f"_measured_{col}"
+    if flag_col not in ladder:
+        return None
+    return _side(ladder, ids, flag_col, home)
 
 
 def _diff(ladder: pd.DataFrame, ids: pd.Index, col: str) -> np.ndarray:
@@ -444,6 +486,32 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
     # declaration and this line cannot drift apart.
     for metric, window in config.EVENT_TRAILING_SPECS.items():
         new[f"event_{metric}_diff"] = _diff(ladder, ids, f"{metric}_{window}")
+    # Forward-fill provenance, on the contract grain and by the same naming
+    # rule as the ladder: ``_measured_<feature>`` is 1 where the contract's
+    # value is a real observation and 0 where it is a carry of the team's
+    # previous profile. Sides AND their diffs are flagged (a diff counts as
+    # measured only where BOTH sides were), so monitoring can distinguish
+    # "the model saw a fresh measurement" from "the model saw last week's
+    # profile again" - the distinction the 13:29 run's 99.6% frame-wide
+    # coverage flattened away, because a frozen ffill constant is not a
+    # measurement no matter how non-null it looks. No value changes: the
+    # model trains and serves on exactly the numbers it always did. The
+    # flags are names the feature views never select, so they cannot leak
+    # into a matrix (tree_view/linear_view pick strictly from the active
+    # contract columns).
+    for metric, window in config.EVENT_TRAILING_SPECS.items():
+        stem = config.PER_SIDE_SOURCES.get(f"{metric}_ewm")
+        if stem is None:
+            continue
+        h = _measured_flag(ladder, ids, f"{metric}_{window}", True)
+        a = _measured_flag(ladder, ids, f"{metric}_{window}", False)
+        if h is None or a is None:
+            continue
+        new[f"_measured_{stem}_home"] = h
+        new[f"_measured_{stem}_away"] = a
+        # A diff counts as measured only where BOTH sides were; NaN propagates
+        # and reads as unmeasured, which is the safe direction.
+        new[f"_measured_{stem}_diff"] = h * a
     for col in config.MONEYLINE_FEATURE_COLS:
         if col not in out and col not in new:
             new[col] = np.nan
@@ -575,9 +643,15 @@ def feature_coverage_report(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for feature in config.active_moneyline_feature_cols():
         values = pd.to_numeric(df[feature], errors="coerce") if feature in df else pd.Series(dtype=float)
+        flag = (pd.to_numeric(df[f"_measured_{feature}"], errors="coerce")
+                if f"_measured_{feature}" in df else None)
+        notna = values.notna()
+        n_measured = int((notna & (flag > 0)).sum()) if flag is not None else int(notna.sum())
         rows.append({
             "feature": feature, "n_games": int(len(df)),
             "coverage_pct": round(100 * float(values.notna().mean()), 2) if len(values) else 0.0,
+            "n_measured": n_measured,
+            "n_carried": int(notna.sum()) - n_measured,
             "mean": float(values.mean()) if len(values) and values.notna().any() else np.nan,
             "std": float(values.std()) if len(values) and values.notna().sum() > 1 else np.nan,
         })
