@@ -1,0 +1,279 @@
+{
+ "record": "mlb_tune_l7",
+ "created_utc": "2026-09-29T16:02:14+00:00",
+ "what": "L7 from-scratch XGBoost moneyline-member tune: 89-trial seeded random search over ALL SIX XGBOOST_PARAMS dims (depth 1-4 x min_child_weight x gamma x subsample x colsample_bytree x learning_rate), incumbent included as same-harness reference; rounds never searched (probe constants 2000/20; each config's own budget measured from its probe bests).",
+ "harness": {
+  "selection_window": "tuning folds 0-69 of 78 (folds 70-77 sealed)",
+  "rank_key": "tuning-window pooled refit logloss (static at the config's self-median budget); walk ll co-measured",
+  "walk_regime": "causal (probe measures on the fold val window; shipped fit at the median of PRIOR folds' bests; fold 0 at XGBOOST_FOLD0_ROUNDS)",
+  "seed": 42,
+  "n_trials": 89,
+  "frame": "7,378 games / 98 serving features"
+ },
+ "screen": {
+  "incumbent_reference": {
+   "max_depth": 2,
+   "min_child_weight": 12.0,
+   "gamma": 4.0,
+   "subsample": 0.5406,
+   "colsample_bytree": 0.6382,
+   "learning_rate": 0.055,
+   "median_rounds": 22,
+   "refit_ll": 0.6872490380469097,
+   "refit_auc": 0.5527493274450626,
+   "walk_ll": 0.6874346632689963,
+   "walk_auc": 0.5511355330781321
+  },
+  "top8": [
+   {
+    "name": "t50",
+    "max_depth": 3,
+    "min_child_weight": 24.0,
+    "gamma": 8.0,
+    "subsample": 0.54,
+    "colsample_bytree": 0.55,
+    "learning_rate": 0.03,
+    "median_rounds": 42,
+    "refit_ll": 0.6867852623880547,
+    "refit_auc": 0.5542326124058664,
+    "walk_ll": 0.687293607099064,
+    "walk_auc": 0.5512685012872557
+   },
+   {
+    "name": "t85",
+    "max_depth": 2,
+    "min_child_weight": 12.0,
+    "gamma": 4.0,
+    "subsample": 0.45,
+    "colsample_bytree": 0.55,
+    "learning_rate": 0.03,
+    "median_rounds": 32,
+    "refit_ll": 0.6869801922895992,
+    "refit_auc": 0.5557337839531766,
+    "walk_ll": 0.6873538354265954,
+    "walk_auc": 0.5541398046456913
+   },
+   {
+    "name": "t27",
+    "max_depth": 1,
+    "min_child_weight": 24.0,
+    "gamma": 4.0,
+    "subsample": 0.85,
+    "colsample_bytree": 0.8,
+    "learning_rate": 0.11,
+    "median_rounds": 18,
+    "refit_ll": 0.687005855095732,
+    "refit_auc": 0.5543229131512212,
+    "walk_ll": 0.687529047348694,
+    "walk_auc": 0.5512589071343856
+   },
+   {
+    "name": "t24",
+    "max_depth": 2,
+    "min_child_weight": 12.0,
+    "gamma": 8.0,
+    "subsample": 0.45,
+    "colsample_bytree": 0.55,
+    "learning_rate": 0.055,
+    "median_rounds": 26,
+    "refit_ll": 0.6870345632807887,
+    "refit_auc": 0.5553781253314563,
+    "walk_ll": 0.687327831489401,
+    "walk_auc": 0.5537634149398798
+   },
+   {
+    "name": "t74",
+    "max_depth": 1,
+    "min_child_weight": 12.0,
+    "gamma": 8.0,
+    "subsample": 0.54,
+    "colsample_bytree": 0.45,
+    "learning_rate": 0.055,
+    "median_rounds": 32,
+    "refit_ll": 0.6870631431768462,
+    "refit_auc": 0.5545918387025235,
+    "walk_ll": 0.687923813372384,
+    "walk_auc": 0.5491902824248619
+   },
+   {
+    "name": "t71",
+    "max_depth": 4,
+    "min_child_weight": 24.0,
+    "gamma": 8.0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.55,
+    "learning_rate": 0.03,
+    "median_rounds": 34,
+    "refit_ll": 0.6870672140087469,
+    "refit_auc": 0.5530205189520678,
+    "walk_ll": 0.6876372560205227,
+    "walk_auc": 0.5489576603766307
+   },
+   {
+    "name": "t19",
+    "max_depth": 2,
+    "min_child_weight": 24.0,
+    "gamma": 2.4178,
+    "subsample": 0.85,
+    "colsample_bytree": 0.64,
+    "learning_rate": 0.055,
+    "median_rounds": 28,
+    "refit_ll": 0.687162265239271,
+    "refit_auc": 0.5545081429769836,
+    "walk_ll": 0.6878221190919733,
+    "walk_auc": 0.5538035753888283
+   },
+   {
+    "name": "t33",
+    "max_depth": 3,
+    "min_child_weight": 12.0,
+    "gamma": 8.0,
+    "subsample": 0.45,
+    "colsample_bytree": 0.55,
+    "learning_rate": 0.03,
+    "median_rounds": 28,
+    "refit_ll": 0.6872067252148331,
+    "refit_auc": 0.5546589495607903,
+    "walk_ll": 0.6874485433831357,
+    "walk_auc": 0.5528207291556181
+   }
+  ],
+  "observation": "All top-8 margins vs the incumbent are <0.001 tuning refit ll; the search's leading direction is consistently slower lr (0.03) + stronger shrinkage (col ~0.45-0.55, mcw/gamma at the strong end), with depth scattered across 1-4 - depth is not the discriminator once shrinkage is right."
+ },
+ "confirm": {
+  "note": "Depth-1 trials excluded from finalist consideration per owner directive (no depth-1 stump). Three depth-eligible finalists carried to a 3-seed FULL-WALK gate vs the incumbent's 2026-09-30 3-seed full-walk baseline (walk 0.68706/0.5540, refit 0.68662/0.5562).",
+  "t50_d3_mcw24_g8_lr0.03_col0.55": {
+   "walk": {
+    "ll_mean": 0.68731,
+    "auc_mean": 0.5525,
+    "per_seed": {
+     "42": {
+      "ll": 0.68669,
+      "auc": 0.5545
+     },
+     "7": {
+      "ll": 0.68709,
+      "auc": 0.5536
+     },
+     "2026": {
+      "ll": 0.68815,
+      "auc": 0.5493
+     }
+    }
+   },
+   "refit": {
+    "ll_mean": 0.68676,
+    "auc_mean": 0.5554,
+    "per_seed": {
+     "42": {
+      "ll": 0.68611,
+      "auc": 0.5575
+     },
+     "7": {
+      "ll": 0.68679,
+      "auc": 0.5552
+     },
+     "2026": {
+      "ll": 0.68737,
+      "auc": 0.5534
+     }
+    }
+   },
+   "d_walk": "+0.00025",
+   "d_refit": "+0.00014",
+   "verdict": "Tuning-window lead REVERSED on the full walk - same tune-gain-does-not-survive pattern as L6."
+  },
+  "t85_d2_sub0.45_col0.55_lr0.03": {
+   "walk": {
+    "ll_mean": 0.68674,
+    "auc_mean": 0.5567,
+    "per_seed": {
+     "42": {
+      "ll": 0.68685,
+      "auc": 0.557
+     },
+     "7": {
+      "ll": 0.68657,
+      "auc": 0.5572
+     },
+     "2026": {
+      "ll": 0.68681,
+      "auc": 0.556
+     }
+    }
+   },
+   "refit": {
+    "ll_mean": 0.68651,
+    "auc_mean": 0.5574,
+    "per_seed": {
+     "42": {
+      "ll": 0.68652,
+      "auc": 0.5584
+     },
+     "7": {
+      "ll": 0.68621,
+      "auc": 0.5588
+     },
+     "2026": {
+      "ll": 0.68681,
+      "auc": 0.5551
+     }
+    }
+   },
+   "d_walk": "-0.00032",
+   "d_refit": "-0.00011",
+   "verdict": "Closest challenger; below the 0.001 gate."
+  },
+  "t24_d2_sub0.45_col0.55_g8_lr0.055": {
+   "walk": {
+    "ll_mean": 0.68681,
+    "auc_mean": 0.5572,
+    "per_seed": {
+     "42": {
+      "ll": 0.68659,
+      "auc": 0.5574
+     },
+     "7": {
+      "ll": 0.68618,
+      "auc": 0.5591
+     },
+     "2026": {
+      "ll": 0.68766,
+      "auc": 0.5552
+     }
+    }
+   },
+   "refit": {
+    "ll_mean": 0.68645,
+    "auc_mean": 0.5572,
+    "per_seed": {
+     "42": {
+      "ll": 0.68589,
+      "auc": 0.5606
+     },
+     "7": {
+      "ll": 0.68631,
+      "auc": 0.5571
+     },
+     "2026": {
+      "ll": 0.68715,
+      "auc": 0.5539
+     }
+    }
+   },
+   "d_walk": "-0.00025",
+   "d_refit": "-0.00017",
+   "verdict": "Below the 0.001 gate."
+  }
+ },
+ "verdict": {
+  "outcome": "CONFIG CONFIRMED, UNCHANGED",
+  "reason": "No finalist cleared the >=0.001 member logloss gate on the 3-seed full-walk; the seal phase (folds 70-77) was therefore not reached, per protocol - sealing sub-gate challengers would mine noise. Third consecutive retune (L5 0921, L6 0928, L7 0930) in which the production config survives.",
+  "params_changed": false,
+  "auc_note": "t85/t24 tilt AUC-positive (+0.001..+0.003 member) while logloss-neutral; noted, not actionable under the logloss-first member gate."
+ },
+ "context": {
+  "prior_tunes": "L5 2026-09-21 (adopted), L6 2026-09-28 (confirmed), 2026-09-30 AM depth-1->2 owner-directed adoption (seal-confirmed), L7 2026-09-30 PM (this record).",
+  "cost_seconds": 584
+ }
+}

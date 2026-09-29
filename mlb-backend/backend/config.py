@@ -244,6 +244,17 @@ XGBOOST_PARAMS = {
 #   to +0.0034 everywhere) and a neutral-to-positive blend. Rejected on
 #   the seal: plain d2 (0.68155 seal), single-axis winners, and the
 #   NHL-style d2 block (colsample 0.4025 collapses AUC to ~0.54 here).
+# L7 FROM-SCRATCH TUNE (2026-09-30 PM, mlb_tune_l7_2026-09-30.json):
+# 89-trial seeded search over ALL SIX param dims (incumbent included as
+# same-harness reference; rounds never searched — probe constants),
+# selection on folds 0-69 by refit ll. Every top-8 margin <0.001; the
+# three depth-eligible finalists REVERSED or fell below the gate on the
+# 3-seed full walk (best: -0.00011 refit / -0.00032 walk vs the 0.001
+# gate). CONFIG CONFIRMED — third consecutive retune the production
+# block survives (L5 adopted 0921; L6, L7 confirmed). The search's one
+# consistent signal — slower lr + stronger column/row shrinkage — is
+# already the direction this block moved; depth is not the discriminator
+# once shrinkage is right (d1-d4 all appear in the top 8).
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit
