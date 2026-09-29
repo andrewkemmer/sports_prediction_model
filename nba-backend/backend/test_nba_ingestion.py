@@ -2195,3 +2195,73 @@ class TestChunkedSweepBars:
                                   ing.DEFAULT_SCHEDULE_BUDGET_SEC) \
                 == ing.DEFAULT_SCHEDULE_BUDGET_SEC
 
+
+class TestEventRollupArchive:
+    """The per-game play-by-play cache is machine-local and the production
+    host is ephemeral: the 2026-09-29 20:13 run re-fetched the same 1,500
+    newest games as every run before it ("1500 fetched, 0 from cache") while
+    1,962 games from 2024-01-01 to 2025-04-01 stayed forward-filled forever.
+    The rollup archive ships the accumulated team-game counts in the delivery
+    (the way nba_designations.parquet already ships the PIT archive), so one
+    sweep's work is permanent for every run after it, on any machine."""
+
+    @staticmethod
+    def _rows():
+        games = []
+        for day in range(1, 9):
+            games.append({"game_id": f"g{day}", "season": 2024,
+                          "gameday": f"2024-01-{day:02d}", "game_type": 1,
+                          "home_team": "BOS", "away_team": "NYK",
+                          "home_score": 110.0, "away_score": 100.0})
+        return pd.DataFrame(games)
+
+    @staticmethod
+    def _rollup_rows(game_ids, team="BOS"):
+        return pd.DataFrame([{"game_id": gid, "team": team, "rim_attempts": 40,
+                              "possessions": 100.0}
+                             for gid in game_ids])
+
+    def test_an_absent_archive_degrades_to_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        frame, added = ing._absorb_event_rollup_archive(
+            self._rollup_rows(["g1"]), self._rows())
+        assert added == 0 and len(frame) == 1
+
+    def test_the_archive_fills_games_the_sweep_did_not_cover(self, tmp_path,
+                                                            monkeypatch):
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        # g1..g4 were swept this run; the archive carries g5..g8 from a
+        # previous run's sweep of the same window.
+        fresh = self._rollup_rows(["g1", "g2", "g3", "g4"])
+        archive = self._rollup_rows(["g5", "g6", "g7", "g8"])
+        archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        union, added = ing._absorb_event_rollup_archive(fresh, self._rows())
+        assert added == 4
+        assert set(union.game_id) == {f"g{i}" for i in range(1, 9)}
+        assert not union.duplicated(["game_id", "team"]).any()
+
+    def test_fresh_rollups_win_over_archived_ones(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        fresh = self._rollup_rows(["g1"])
+        stale = self._rollup_rows(["g1"]).assign(rim_attempts=99)
+        stale.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        union, added = ing._absorb_event_rollup_archive(fresh, self._rows())
+        assert added == 0
+        assert (union.loc[union.game_id == "g1", "rim_attempts"] == 40).all()
+
+    def test_an_archive_game_outside_the_window_is_dropped(self, tmp_path,
+                                                          monkeypatch):
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        archive = self._rollup_rows(["g99"]).assign(team="X")
+        archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        union, added = ing._absorb_event_rollup_archive(
+            self._rollup_rows(["g1"]), self._rows())
+        assert added == 0 and "g99" not in set(union.game_id)
+
+    def test_a_rollup_dedupes_on_reread(self, tmp_path):
+        frame = pd.concat([self._rollup_rows(["g1"]),
+                           self._rollup_rows(["g1"]).assign(rim_attempts=7)])
+        frame.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        reread = ing.read_event_rollup_archive(tmp_path)
+        assert len(reread) == 1 and reread.rim_attempts.iloc[0] == 7
+

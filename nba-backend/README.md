@@ -221,6 +221,16 @@ the window would fill `team_events` for every training game, at roughly 2.2
 games/s. On a cold Kaggle run that is ~26 minutes added to a ~10 minute run, so
 it is a deliberate trade rather than something to change silently.
 
+**The per-game cache is machine-local, and the production host is ephemeral**
+(which the 2026-09-29 runs made unmistakable: every cloud run re-fetched the
+same 1,500 newest games, `0 from cache`, leaving the 2024 band forward-filled
+forever). Each run therefore ships its accumulated team-game rollups in
+`nba_event_rollups.parquet` inside the delivery, and the next run - wherever
+it executes - absorbs them before the feature frame is built, fresh rollups
+winning over archived ones. One complete sweep makes the event coverage
+permanent; the archive is exempt from retention pruning, because pruning it
+re-opens the very hole it exists to close.
+
 ### 60 days where the endpoint allows it, one day where it does not
 
 The season log is pulled in 60-day slices, which is MLB's number

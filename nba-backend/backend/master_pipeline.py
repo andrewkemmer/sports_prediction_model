@@ -1320,6 +1320,41 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     except Exception as exc:  # noqa: BLE001 - publication is best-effort
         logger.warning("designation archive not published (%s); the PIT "
                        "removal falls back to the machine cache only", exc)
+    # The event rollup archive: the union of every team-game rollup this run
+    # produced plus whatever earlier runs shipped, republished into the
+    # delivery so the next run - on this machine or an ephemeral cloud one -
+    # starts its event features from measurements instead of a cold cache.
+    # Same pattern as the designation archive above, which is what made the
+    # PIT injury removal survive cloud runs. The per-game parquet cache is
+    # machine-local; the sweep budget's work should compound, not evaporate
+    # with the host - which is exactly what the 2026-09-29 runs showed (every
+    # cloud run re-fetched the same 1,500 newest games and the 2024 band
+    # stayed forward-filled forever).
+    try:
+        archive = ingestion.read_event_rollup_archive(
+            Path(config.DATA_DELIVERY_DIR))
+        fresh = facts.team_events
+        base = archive if archive is not None and len(archive) else pd.DataFrame()
+        if fresh is not None and len(fresh):
+            fresh = fresh.copy()
+            fresh["game_id"] = fresh.game_id.astype(str)
+            fresh["team"] = fresh.team.astype(str)
+            if not base.empty:
+                keep = ~fresh.game_id.str.cat(fresh.team, sep="|").isin(
+                    set(base.game_id.str.cat(base.team, sep="|")))
+                fresh = fresh[keep]
+            union = (pd.concat([base, fresh], ignore_index=True)
+                     if not base.empty else fresh)
+        else:
+            union = base
+        if len(union):
+            union.to_parquet(out / ingestion.EVENT_ROLLUP_ARCHIVE, index=False)
+            logger.info("event rollup archive published: %d team-game(s)",
+                        len(union))
+    except Exception as rollup_exc:  # noqa: BLE001 - publication is best-effort
+        logger.warning("event rollup archive not published (%s); the next "
+                       "run's event coverage falls back to this machine's "
+                       "cache alone", rollup_exc)
     _prune(out, date_c, set(artifacts))
     sync = _sync_data_delivery(config.ROOT_DIR.parent)
     summary["sync"] = sync

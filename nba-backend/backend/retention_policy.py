@@ -11,6 +11,10 @@ EXACT_MASTER_NAMES = frozenset({
     "nba_oof_distribution.csv", "nba_feature_selection_state.json",
     "nba_oof_store.csv", "nba_designations.parquet",
     "nba_projected_lineup_status.json",
+    # The shipped play-by-play rollup union: it IS the machine-independent
+    # event coverage. Pruning it re-opens the cache hole it exists to close,
+    # because the production host's machine cache is ephemeral.
+    "nba_event_rollups.parquet",
 })
 SERIES_PREFIXES = ("models/", "nba_run_engine_monitor_")
 

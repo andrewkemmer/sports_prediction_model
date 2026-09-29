@@ -1301,6 +1301,63 @@ def _pbp_path(nba_game_id: str):
     return _cache_dir() / "play_by_play" / f"pbp_{nba_game_id}.parquet"
 
 
+#: The delivered union of every play-by-play rollup prior runs have produced.
+#: The per-game parquet cache lives on the MACHINE, and the production host's
+#: machine is ephemeral: a cloud run starts from an empty cache, re-sweeps the
+#: same newest slice, and the band behind it stays unmeasured forever - which
+#: is exactly what the 2026-09-29 20:13 run showed ("1500 fetched, 0 from
+#: cache" on every run, 1,962 games permanently forward-filled). The injury
+#: designations solved this same problem by shipping the archive in the
+#: delivery; the rollup gets the same treatment.
+EVENT_ROLLUP_ARCHIVE = "nba_event_rollups.parquet"
+
+
+def read_event_rollup_archive(directory) -> pd.DataFrame:
+    """Read the shipped rollup union; empty when absent or malformed.
+
+    Like every cache read, a missing or unreadable archive degrades to empty
+    rather than failing the run - a cold run is the state this only improves.
+    """
+    frame = _read_parquet(Path(directory) / EVENT_ROLLUP_ARCHIVE)
+    if frame.empty or not {"game_id", "team"}.issubset(frame.columns):
+        return pd.DataFrame()
+    out = frame.copy()
+    out["game_id"] = out.game_id.astype(str)
+    out["team"] = out.team.astype(str)
+    return out.drop_duplicates(subset=["game_id", "team"], keep="last")
+
+
+def _absorb_event_rollup_archive(team_events: pd.DataFrame,
+                                 games: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Fold the shipped rollup archive into this run's team_events.
+
+    Fresh rollups win over archived ones for the same (game_id, team); rows
+    for games outside the current window are dropped, so a stale archive can
+    never inject a game the schedule does not know. This runs BEFORE the
+    feature frame is built, so a cold machine's run trains on measured event
+    profiles instead of forward-filled ones - the difference between the
+    62.73% honest baseline coverage of 2026-09-29 and full coverage once the
+    archive has seen one complete sweep.
+    """
+    archive = read_event_rollup_archive(Path(config.DATA_DELIVERY_DIR))
+    if archive.empty or games is None or games.empty or "game_id" not in games.columns:
+        return team_events, 0
+    archive = archive[archive.game_id.isin(games.game_id.astype(str))]
+    if archive.empty:
+        return team_events, 0
+    base = team_events if team_events is not None and len(team_events) else pd.DataFrame()
+    if not base.empty:
+        pair = archive.game_id.str.cat(archive.team, sep="|")
+        fresh = base.game_id.astype(str).str.cat(base.team.astype(str), sep="|")
+        archive = archive[~pair.isin(set(fresh))]
+        if archive.empty:
+            return team_events, 0
+        union = pd.concat([base, archive], ignore_index=True)
+    else:
+        union = archive
+    return union, len(union) - len(base)
+
+
 def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """The action list for the games in the window, one request per game.
 
@@ -1791,6 +1848,16 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
                                 suffixes=("", "_ctx")), games),
                 "team_events", source="stats.nba.com")
             pbp_report = sources.cross_check(team_events, team_stats)
+    # Absorb the shipped rollup archive BEFORE anything downstream builds
+    # features. The per-game cache is machine-local and the production host
+    # is ephemeral, so without this a cloud run re-measures only the newest
+    # slice every day and the band behind it is forward-filled forever. The
+    # archive makes one full sweep permanent for every run after it.
+    team_events, archived = _absorb_event_rollup_archive(team_events, games)
+    if archived:
+        pbp_info["archive_rows"] = archived
+        logger.info("event rollup archive absorbed: %d team-game(s) this "
+                    "run's own sweep did not cover", archived)
     pbp_info["cross_check"] = pbp_report
 
     facts = NBAFacts(
