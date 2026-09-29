@@ -745,6 +745,31 @@ def _impute_median(
 # ENSEMBLE_WEIGHTS priors before that.
 _LAST_ADAPTIVE_WEIGHTS: dict[str, float] = {}
 
+# CAUSAL XGB round measurements (2026-09-30): per-fold best iterations
+# from the early-stopped measurement fits, in fold order. Fold k ships
+# at the median of entries STRICTLY BEFORE k; the deployed refit ships
+# at the median of ALL entries. Cleared at each walk_forward_evaluate
+# start (the OOF-scoring-from-priors rule, same as the weights).
+_LAST_XGB_BEST_ROUNDS: list[int] = []
+
+
+def _causal_xgb_rounds(prior_bests: list[int]) -> int:
+    """Shipped round count for a fold/refit from PRIOR measurements only.
+
+    Median of the given best-iteration list (even length: lower median,
+    matching statistics.median's behaviour of averaging — kept simple and
+    deterministic); falls back to the config priors when no measurements
+    exist. Pure function so the tests pin the selection rule.
+    """
+    from config import XGBOOST_FOLD0_ROUNDS, XGBOOST_REFIT_ROUNDS
+    if not prior_bests:
+        return XGBOOST_FOLD0_ROUNDS
+    s = sorted(int(b) for b in prior_bests if b and int(b) > 0)
+    if not s:
+        return XGBOOST_REFIT_ROUNDS
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) // 2
+
 # Post-hoc Platt calibrator from the most recent walk-forward run. Applied
 # to live blended probabilities in predict_games(); restored from a cached
 # bundle via set_calibration() so cached-model runs stay consistent.
@@ -1459,7 +1484,8 @@ def train_moneyline_ensemble(
     # fit-only refits use XGBOOST_PARAMS directly with no early stopping.
     try:
         from xgboost import XGBClassifier
-        from config import XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP
+        from config import (XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP,
+                            XGBOOST_FOLD0_ROUNDS, XGBOOST_REFIT_ROUNDS)
         # XGBoost: named DataFrame with pd.Categorical team-ID columns.
         # enable_categorical=True (in XGBOOST_PARAMS) picks them up natively.
         # Labels mirror _feature_matrix's guaranteed width/order.
@@ -1467,18 +1493,40 @@ def train_moneyline_ensemble(
         X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, num_cols_in_data)
         if X_val is not None:
             X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, num_cols_in_data)
-            xgb = XGBClassifier(
+            # CAUSAL FOLD ROUNDS (2026-09-30 PIT review): the early-stopped
+            # fit below is a MEASUREMENT ONLY — its best_iteration enters
+            # the causal list and informs STRICTLY LATER folds. The SHIPPED
+            # fold model is refit without any eval_set at the median of
+            # PRIOR folds' measurements, so the fold's own val window never
+            # selects the model that scores it (the build_oof_margin
+            # fixed-rounds pattern).
+            probe = XGBClassifier(
                 **XGBOOST_PARAMS,
                 n_estimators=XGBOOST_FOLD_ROUNDS,
                 early_stopping_rounds=XGBOOST_EARLY_STOP,
             )
-            xgb.fit(
+            probe.fit(
                 X_train_xgb, y_train,
                 eval_set=[(X_val_xgb, y_val)],
                 verbose=False,
             )
+            try:
+                _best = int(getattr(probe, "best_iteration", 0)) + 1
+            except Exception:
+                _best = 0
+            if _best > 0:
+                _LAST_XGB_BEST_ROUNDS.append(_best)
+            causal_n = _causal_xgb_rounds(
+                _LAST_XGB_BEST_ROUNDS[:-1])
+            xgb = XGBClassifier(**XGBOOST_PARAMS, n_estimators=causal_n)
+            xgb.fit(X_train_xgb, y_train, verbose=False)
         else:
-            xgb = XGBClassifier(**XGBOOST_PARAMS)
+            # Fit-only refit (deployed bundle): ship at the median of the
+            # walk's measured fold best rounds (training-side information
+            # only); the static prior covers cache-refit paths with no
+            # walk in the same process.
+            refit_n = _causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
+            xgb = XGBClassifier(**XGBOOST_PARAMS, n_estimators=refit_n)
             xgb.fit(X_train_xgb, y_train, verbose=False)
         models["xgboost"] = xgb
     except ImportError:
@@ -1713,6 +1761,9 @@ def walk_forward_evaluate(
     # OOF scoring must start from the configured priors. Otherwise an earlier
     # run's adaptive weights can change the current run's fold predictions.
     _LAST_ADAPTIVE_WEIGHTS.clear()
+    # Same priors rule for the causal XGB round measurements: a stale list
+    # from a previous run/frame would leak another run's fold geometry.
+    _LAST_XGB_BEST_ROUNDS.clear()
     splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
 
     # Record the canonical training-frame signature even when the optional

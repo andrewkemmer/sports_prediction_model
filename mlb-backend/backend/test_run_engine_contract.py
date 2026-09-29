@@ -479,6 +479,42 @@ def test_upcoming_slate_all_foreign_dates_ships_honest_empty_slate():
     assert slate.empty
 
 
+
+def test_causal_xgb_rounds_prior_median_rule():
+    """2026-09-30 PIT remediation: a fold's SHIPPED XGBoost round count is
+    the median of PRIOR folds' measured best iterations — never the fold's
+    own val-window early-stop result."""
+    from training import _causal_xgb_rounds
+    # no measurements -> fold-0 static prior
+    assert _causal_xgb_rounds([]) == 50
+    # odd count -> middle element
+    assert _causal_xgb_rounds([30, 50, 90]) == 50
+    # even count -> midpoint of the two central elements
+    assert _causal_xgb_rounds([30, 50, 70, 90]) == 60
+    # degenerate entries (0/None-ish) are ignored, not allowed to skew
+    assert _causal_xgb_rounds([0, 40, 60]) == 50
+    # all-degenerate falls back to the refit prior
+    assert _causal_xgb_rounds([0]) == 50
+    # the measurement list must exist and be clearable (walk-start reset)
+    import training
+    assert hasattr(training, "_LAST_XGB_BEST_ROUNDS")
+    training._LAST_XGB_BEST_ROUNDS.clear()
+
+
+def test_causal_xgb_rounds_fold_semantics():
+    """Fold k consumes measurements strictly BEFORE k (the [:-1] slice at
+    the trainer's call site); a refit consumes all of them."""
+    from training import _causal_xgb_rounds
+    meas = [44, 46, 52, 58]
+    # fold 0 ships the prior, fold 1 sees [44], fold 3 sees [44,46,52]...
+    assert _causal_xgb_rounds(meas[:0]) == 50
+    assert _causal_xgb_rounds(meas[:1]) == 44
+    assert _causal_xgb_rounds(meas[:2]) == 45
+    assert _causal_xgb_rounds(meas[:3]) == 46
+    # the deployed refit ships at the all-measurement median
+    assert _causal_xgb_rounds(meas) == 49
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

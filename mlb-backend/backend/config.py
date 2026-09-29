@@ -168,6 +168,16 @@ XGBOOST_PARAMS = {
 # path has no validation window.
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
+# CAUSAL FOLD ROUNDS (2026-09-30 PIT review): fold k's SHIPPED XGBoost
+# model is fit WITHOUT any eval_set at the median of PRIOR folds'
+# measured best iterations — the fold's own val window never selects the
+# shipped model's round count (the early-stopped fit is only a
+# measurement that later folds may consume). Fold 0 (no prior evidence)
+# and any refit without fold measurements use the static priors here.
+# XGBOOST_REFIT_ROUNDS reflects the observed ~50-round median of the
+# 2000/20 fold fits on the production frame.
+XGBOOST_FOLD0_ROUNDS = 50
+XGBOOST_REFIT_ROUNDS = 50
 # Optuna-tuned on 4,159-games/44-fold walk-forward (tune_lightgbm_optuna.py,
 # 50 trials, pooled OOF logloss 0.68066 vs 0.78465 for the old depth-5/300-r
 # config; sealed holdout 2026-08-03→08-23 confirmed: 0.68150/AUC 0.5573 vs
