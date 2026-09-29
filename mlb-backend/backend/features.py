@@ -224,18 +224,21 @@ _BP_READY_P_MEDIUM = 0.13            # 20-34 pitches
 _BP_READY_P_HEAVY = 0.007            # 35+ pitches (sits tomorrow)
 
 # Over-budget exclusion (2026-09-30, same mechanism as the availability
-# filter): an arm whose MOST RECENT outing was 35+ pitches is near-
-# certainly unavailable tonight (P(appear) = 0.007 at 1 day rest, 0.066 at
-# 2 - both below the 0.13 doubtful bar), so his recent innings are EXCLUDED
-# from bullpen_raw before the WHIP/ERA windows form. Every served bullpen
-# quality feature (bullpen_whip_10g home/away/diff, whip_3g, era_10g and
-# the meltdown twins) therefore prices only arms who can actually take
-# tonight's outs. The fatigue channel (bullpen_pitches_3d) stays raw by
-# design: the budget IS its signal. If the most recent outing is in the
-# lookback window, that window refreshes past it (a 10g window at 2d rest
-# reads ~7g, at 4d+ rest the arm is back and nothing is skipped).
-_BP_SPENT_PITCHES = 35               # most-recent-outing ceiling for tonight
-_BP_SPENT_LOOKBACK_DAYS = 4          # P(appear) crosses 0.13 by day 3-4
+# filter): a reliever appearance within 2 days AFTER a 35+ pitch outing is
+# near-certainly an unavailability exception (P(appear) = 0.007 at 1 day
+# rest, 0.066 at 2 - both below the 0.13 doubtful bar), so those rows are
+# EXCLUDED from bullpen_raw before the WHIP/ERA windows form. Every served
+# bullpen quality feature (bullpen_whip_10g home/away/diff, whip_3g,
+# era_10g and the meltdown twins) therefore prices only innings from arms
+# in a tonight-ready state. The fatigue channel (bullpen_pitches_3d) stays
+# raw by design: the budget IS its signal. Window is STRICTLY the
+# availability fact (arms return 18%+ by day 3, so day 3+ is a manager-
+# trust question, not an availability fact); revisit via the member gate.
+_BP_SPENT_LOOKBACK_DAYS = 2          # strict availability rule: P(appear)
+                                     # 0.007 @ 1d / 0.066 @ 2d, both below the
+                                     # 0.13 doubtful bar; arms return 18%+ by
+                                     # day 3, so day 3+ is NOT an availability
+                                     # fact (re-assess via the member gate)
 
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
@@ -1204,9 +1207,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         HAVING COUNT(*) >= 3
     """)
 
-    # Over-budget (spent) arms: most recent outing >= _BP_SPENT_PITCHES and
-    # within the lookback. An arm whose last outing predates the window is
-    # rested and priced normally. Degenerate when bp_outing is empty.
+    # Over-budget (spent) rows: appearances within _BP_SPENT_LOOKBACK_DAYS
+    # of a prior >= _BP_SPENT_PITCHES outing. Degenerate when bp_outing is
+    # empty.
     con.execute(f"""
         CREATE TABLE bp_spent AS
         -- AS-OF heavy outings: (team, pitcher, game_date) rows whose PRIOR

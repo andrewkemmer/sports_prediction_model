@@ -281,7 +281,7 @@ _SPENT_SQL = """
     WHERE h.last_heavy IS NOT NULL
       AND o.game_date > h.last_heavy
       AND o.game_date <= CAST(h.last_heavy AS DATE)
-          + INTERVAL '4 DAY'
+          + INTERVAL '2 DAY'
 """
 
 _SPENT_RAW = """
@@ -296,17 +296,19 @@ _SPENT_RAW = """
 
 
 def test_spent_asof_window_and_rest_refresh():
-    """AS-OF semantics: a game row is excluded when the arm's PRIOR outing
-    (before that row) was >= 35 pitches within 4 days — regardless of what
-    came after. Rows thrown by the heavy outing itself stay; day 5+ is
-    rested again; a team mate is untouched."""
+    """AS-OF semantics, 2-day window: a game row is excluded when the arm's
+    PRIOR outing (before that row) was >= 35 pitches within 2 days —
+    regardless of what came after. Rows thrown by the heavy outing itself
+    stay; day 3+ is rested again (arms return 18%+ by day 3, so the window
+    is the strict availability fact only)."""
     con = duckdb.connect(database=":memory:")
     con.register("bp_outing", pd.DataFrame({
         "game_date": pd.to_datetime([
             "2026-06-02",                  # arm 7 light: kept
             "2026-06-08",                  # arm 7 HEAVY: kept (own outing)
-            "2026-06-10", "2026-06-12",   # within 4d of heavy: excluded
-            "2026-06-14",                  # day 6: rested, kept
+            "2026-06-09",                  # +1d: excluded
+            "2026-06-10",                  # +2d (window edge): excluded
+            "2026-06-11",                  # +3d: rested, kept
         ]),
         "game_pk": [1, 2, 3, 4, 5],
         "team": ["BOS"] * 5,
@@ -315,7 +317,7 @@ def test_spent_asof_window_and_rest_refresh():
     }))
     con.execute(_SPENT_SQL)
     kept = con.execute(_SPENT_RAW).fetchone()[0]
-    assert kept == 3  # 06-02, 06-08, 06-14; arm 8 does not exist in frame
+    assert kept == 3  # 06-02, 06-08, 06-11 (first rested day)
 
 
 def test_spent_boundary_is_35_and_team_scoped():
