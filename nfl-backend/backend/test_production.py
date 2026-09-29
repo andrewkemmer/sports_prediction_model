@@ -1436,6 +1436,73 @@ except Exception as exc:  # noqa: BLE001
 finally:
     folds_mod.make_folds = _orig_make
 
+# ---- PIT integrity of the moneyline ensemble (2026-09-29 audit): the XGB
+# OOF concern, closed structurally and pinned. Two contracts, a hole in
+# either would leak the val window into its own score:
+# (1) The tree members fit with a FIXED round count and NO eval_set -- there
+#     is no early-stopping surface for the val window to select rounds from
+#     (the MLB 2815fb2 class of defect is structurally absent here).
+# (2) Blend weights are earned causally: fold t is blended with the weights
+#     from PRIOR folds only (fold 0 rides the static ENSEMBLE_WEIGHTS
+#     priors), and a fold's outcomes enter the weight window only AFTER it
+#     is scored. Pin 2b replicates the loop's exact update rule.
+try:
+    with open(ml_mod2.__file__, "r", encoding="utf-8") as _fh:
+        _ml_src = _fh.read()
+    check("XGB/LGBM members fit with no eval_set (no val-window early stop)",
+          "eval_set" not in _ml_src and "early_stopping" not in _ml_src
+          and "best_iteration" not in _ml_src)
+    check("XGBOOST_PARAMS carries no early-stopping surface",
+          "early_stopping_rounds" not in config.XGBOOST_PARAMS
+          and "eval_set" not in config.XGBOOST_PARAMS)
+
+    _pit_res = ml_mod2.walk_forward_oof(small, fold_list=small_folds)
+    _pit_oof = _pit_res["oof"]
+    _mcols = [f"p_{n}" for n in config.ENSEMBLE_MEMBERS]
+
+    def _blend_expected(rows: pd.DataFrame, wmap: dict) -> np.ndarray:
+        return ml_mod2._logit_blend_matrix(
+            rows[_mcols].to_numpy(dtype=float),
+            np.array([wmap.get(n, 0.0) for n in config.ENSEMBLE_MEMBERS]))
+
+    _f0 = _pit_oof[_pit_oof["fold_id"] == small_folds[0].fold_id]
+    check("fold 0 blends with the static prior weights (causal start)",
+          np.allclose(_f0["p_ensemble"].to_numpy(dtype=float),
+                      _blend_expected(_f0, config.ENSEMBLE_WEIGHTS),
+                      atol=1e-10),
+          "max dev=%.2e" % np.max(np.abs(
+              _f0["p_ensemble"].to_numpy(dtype=float)
+              - _blend_expected(_f0, config.ENSEMBLE_WEIGHTS))))
+
+    if len(small_folds) > 1:
+        # Replicate the loop's causal update EXACTLY: after fold 0 is
+        # scored, its member predictions + outcomes are the whole weight
+        # window; the weights it earns (or the static priors when the
+        # optimizer declines) are what fold 1 must have been blended with.
+        _w_after0 = ml_mod2.compute_adaptive_weights(
+            {n: _f0[f"p_{n}"].astype(float).tolist()
+             for n in config.ENSEMBLE_MEMBERS},
+            _f0["home_win"].astype(float).to_numpy())
+        # The loop REPLACES its weight state with the optimizer's return
+        # (never merges into the priors), and _blend fills members missing
+        # from that dict with 0.0 — so a member that took the entire weight
+        # (e.g. {'xgboost': 1.0}) leaves the others at exactly 0.
+        if _w_after0:
+            _w1 = {n: float(_w_after0.get(n, 0.0))
+                   for n in config.ENSEMBLE_MEMBERS}
+        else:
+            _w1 = dict(config.ENSEMBLE_WEIGHTS)
+        _f1 = _pit_oof[_pit_oof["fold_id"] == small_folds[1].fold_id]
+        check("fold 1 blends with weights earned on fold 0 only (causal chain)",
+              np.allclose(_f1["p_ensemble"].to_numpy(dtype=float),
+                          _blend_expected(_f1, _w1), atol=1e-10),
+              "max dev=%.2e" % np.max(np.abs(
+                  _f1["p_ensemble"].to_numpy(dtype=float)
+                  - _blend_expected(_f1, _w1))))
+except Exception as _pit_ml_exc:  # noqa: BLE001
+    check("XGB/LGBM members fit with no eval_set (no val-window early stop)",
+          False, str(_pit_ml_exc))
+
 
 # ---- Fold-index ordering contract (label-vs-position hazard) -------------
 # make_folds returns index LABELS; the OOF consumers look those rows up
