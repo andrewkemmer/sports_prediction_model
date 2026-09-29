@@ -1,6 +1,6 @@
 {
   "generated_for": "20260929",
-  "n_features": 98,
+  "n_features": 100,
   "warnings": [],
   "features": {
     "is_home": {
@@ -179,8 +179,8 @@
       ],
       "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "bullpen_whip_diff": {
-      "name": "bullpen_whip_diff",
+    "bullpen_whip_10g_diff": {
+      "name": "bullpen_whip_10g_diff",
       "summary": "Home bullpen 10-game WHIP \u2212 away bullpen (lower = better)",
       "definition": "Relief corps baserunner allowance over the last 10 games.",
       "formula": "bullpen_whip_10g_home \u2212 bullpen_whip_10g_away",
@@ -387,13 +387,13 @@
       ],
       "tooltip": "What: Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.\nFormula: air_density_factor \u00d7 sp_fbvelo_diff\nSource: Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = home advantage (velocity edge amplified)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "bullpen_meltdown_risk": {
-      "name": "bullpen_meltdown_risk",
-      "summary": "Bullpen pitches diff \u00d7 WHIP diff (overworked + low quality = meltdown)",
-      "definition": "Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.",
-      "formula": "bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff",
+    "bullpen_meltdown_risk_diff": {
+      "name": "bullpen_meltdown_risk_diff",
+      "summary": "Bullpen pitches 3d diff \u00d7 WHIP 10g diff (overworked + low quality = meltdown)",
+      "definition": "Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games \u2014 late-inning blowup potential.",
+      "formula": "bullpen_pitches_diff \u00d7 bullpen_whip_10g_diff",
       "source": "DuckDB feature engineering: workload \u00d7 form interaction",
-      "window": "3d \u00d7 3g",
+      "window": "3d \u00d7 10g",
       "units": "index",
       "direction": "higher = home-side meltdown risk (negative for home)",
       "members": [
@@ -401,7 +401,39 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_10g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "bullpen_meltdown_risk_home": {
+      "name": "bullpen_meltdown_risk_home",
+      "summary": "Home bullpen meltdown risk (3-day pitch count \u00d7 10-game WHIP)",
+      "definition": "Within-side fatigue \u00d7 quality product for the home pen.",
+      "formula": "bullpen_pitches_3d_home \u00d7 bullpen_whip_10g_home",
+      "source": "DuckDB feature engineering: workload \u00d7 form interaction",
+      "window": "3d \u00d7 10g",
+      "units": "index",
+      "direction": "higher = home pen more melt-prone",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Within-side fatigue \u00d7 quality product for the home pen.\nFormula: bullpen_pitches_3d_home \u00d7 bullpen_whip_10g_home\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home pen more melt-prone\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "bullpen_meltdown_risk_away": {
+      "name": "bullpen_meltdown_risk_away",
+      "summary": "Away bullpen meltdown risk (3-day pitch count \u00d7 10-game WHIP)",
+      "definition": "Within-side fatigue \u00d7 quality product for the away pen.",
+      "formula": "bullpen_pitches_3d_away \u00d7 bullpen_whip_10g_away",
+      "source": "DuckDB feature engineering: workload \u00d7 form interaction",
+      "window": "3d \u00d7 10g",
+      "units": "index",
+      "direction": "higher = away pen more melt-prone (home advantage)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Within-side fatigue \u00d7 quality product for the away pen.\nFormula: bullpen_pitches_3d_away \u00d7 bullpen_whip_10g_away\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = away pen more melt-prone (home advantage)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "pitcher_regression_indicator_diff": {
       "name": "pitcher_regression_indicator_diff",
