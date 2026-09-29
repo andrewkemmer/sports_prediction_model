@@ -1499,6 +1499,25 @@ try:
               "max dev=%.2e" % np.max(np.abs(
                   _f1["p_ensemble"].to_numpy(dtype=float)
                   - _blend_expected(_f1, _w1))))
+
+    # Run-to-run determinism (2026-09-29 log review): canonical_sort exists
+    # precisely so "a run is reproducible", and the 20260929 twin runs showed
+    # adaptive weights moving 0.087 -> 0.045 on lgbm — legitimately (the code
+    # changed under them, pre-v9.6 vs v9.6), but nothing would have caught a
+    # NON-legitimate mover (hidden module state, RNG order dependence, a
+    # future nondeterministic member). Two consecutive walks over the SAME
+    # frame must produce identical OOF, bit for bit.
+    _pit_res2 = ml_mod2.walk_forward_oof(small, fold_list=small_folds)
+    _o1, _o2 = _pit_res["oof"], _pit_res2["oof"]
+    _cmp = ["game_id", "fold_id", "p_ensemble"] + _mcols
+    check("moneyline OOF is deterministic across consecutive runs "
+          "(no hidden state, no RNG order dependence)",
+          _o1[_cmp].equals(_o2[_cmp])
+          and np.array_equal(_pit_res["member_weights"],
+                             _pit_res2["member_weights"]),
+          "weights run1=%s run2=%s" % (
+              {k: round(v, 4) for k, v in _pit_res["member_weights"].items()},
+              {k: round(v, 4) for k, v in _pit_res2["member_weights"].items()}))
 except Exception as _pit_ml_exc:  # noqa: BLE001
     check("XGB/LGBM members fit with no eval_set (no val-window early stop)",
           False, str(_pit_ml_exc))
