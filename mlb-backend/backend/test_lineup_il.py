@@ -291,6 +291,181 @@ def test_il_freshness_prefers_meta_then_parquet(tmp_path):
     assert fr2["parquet_max_stint_date"] == "2026-09-20"
 
 
+def test_split_fix_recall_return_then_replacement():
+    # The Campero 2026 shape: a stint opened 06-06 whose return files
+    # NO activation (minor-league recall), then a real re-placement
+    # 08-26. The old ignore-if-on guard swallowed the new stint
+    # entirely; the split keeps both, and each reconciles on its own.
+    import build_il_stints as b
+    events = {1: [("2026-06-06", 1), ("2026-08-26", 1)]}
+    iv = b.stints_from_events(events)
+    assert len(iv) == 2
+    assert iv.iloc[0].il_start == pd.Timestamp("2026-06-06")
+    assert iv.iloc[0].il_end == pd.Timestamp("2026-08-26")
+    assert iv.iloc[1].il_start == pd.Timestamp("2026-08-26")
+    assert pd.isna(iv.iloc[1].il_end)
+
+
+def test_split_fix_same_day_activate_place_then_future_placement():
+    # The Meadows shape: same-day activation+placement leaves the walk
+    # on; a placement MONTHS later must still open a new stint.
+    import build_il_stints as b
+    events = {1: [
+        ("2025-07-28", 1), ("2025-09-05", 0), ("2025-09-05", 1),
+        ("2026-04-10", 1), ("2026-04-13", 1),
+    ]}
+    iv = b.stints_from_events(events)
+    starts = list(iv.il_start)
+    assert pd.Timestamp("2026-04-10") in starts
+    assert iv.iloc[-1].il_start == pd.Timestamp("2026-04-13")
+    assert pd.isna(iv.iloc[-1].il_end)
+
+
+def test_split_fix_duplicate_same_day_copy_unchanged():
+    # The pre-existing guard case: a duplicate retroactive copy at the
+    # SAME date must stay byte-identical to the single-placement walk.
+    import build_il_stints as b
+    single = b.stints_from_events({1: [("2026-05-01", 1)]})
+    dup = b.stints_from_events(
+        {1: [("2026-05-01", 1), ("2026-05-01", 1)]})
+    assert len(dup) == 1
+    assert dup.iloc[0].il_start == single.iloc[0].il_start
+    assert pd.isna(dup.iloc[0].il_end) and pd.isna(single.iloc[0].il_end)
+
+
+def test_classify_skips_pitchers():
+    import build_il_stints as b
+    roster = [
+        {"person": {"id": 640448, "fullName": "Reliever"},
+         "status": {"description": "Injured 15-Day"},
+         "position": {"abbreviation": "P"}},
+        {"person": {"id": 673962, "fullName": "Josh Jung"},
+         "status": {"description": "Injured 10-Day"},
+         "position": {"abbreviation": "3B"}},
+    ]
+    cls = b.classify_roster_statuses(roster)
+    assert [r["batter"] for r in cls["injured"]] == [673962]
+
+
+def test_suppressed_ground_truth_is_pa_contradiction():
+    # Roster membership alone over-reports: a player activated after
+    # the PA projection's cut reads Active with no contradicting PA
+    # (status lag, not a defect). Only a PA strictly after the stint's
+    # start is the ground-truth contradiction.
+    import build_il_stints as b
+    iv = pd.DataFrame({
+        "batter": pd.array([40, 41], dtype="int64"),
+        "il_start": pd.to_datetime(["2026-08-30", "2026-09-16"]),
+        "il_end": pd.to_datetime([None, None]),
+    })
+    injured = [{"batter": 40, "name": "Live Injured",
+                "status": "Injured 10-Day"}]
+    pa = pd.DataFrame({
+        "batter": pd.array([40, 41, 41], dtype="int64"),
+        "game_date": pd.to_datetime(
+            ["2026-09-24", "2026-09-20", "2026-09-28"]),
+    })
+    rep = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-29"),
+        active_ids={40, 41}, pa_days=pa)
+    # 41 batted 09-28, AFTER his 09-16 stint start -> contradiction.
+    # 40 has no PA after his 08-30 start (09-24 predates it) -> lag.
+    assert [r["batter"] for r in rep["suppressed"]] == [41]
+
+
+def test_suppressed_scoped_to_live_active():
+    # Without active_ids: legacy behavior (every uncontradicted flag
+    # reported). With active_ids: retired/off-roster open stints are
+    # out of scope; only a verifiably Active player is a smell.
+    import build_il_stints as b
+    iv = pd.DataFrame({
+        "batter": pd.array([30, 31], dtype="int64"),
+        "il_start": pd.to_datetime(["2026-08-30", "2026-09-16"]),
+        "il_end": pd.to_datetime([None, None]),
+    })
+    injured = [{"batter": 30, "name": "Live Injured",
+                "status": "Injured 10-Day"}]
+    rep = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-29"))
+    assert [r["batter"] for r in rep["suppressed"]] == [31]
+    rep2 = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-29"), active_ids={30})
+    assert rep2["suppressed"] == []
+
+
+def _roster(person_id, name, status):
+    return {"person": {"id": person_id, "fullName": name},
+            "status": {"description": status}}
+
+
+def test_status_sweep_classification():
+    import build_il_stints as b
+    roster = [
+        _roster(1, "Healthy Bat", "Active"),
+        _roster(2, "Tenth-Day Ace", "Injured 10-Day"),
+        _roster(3, "Sixty-Day Ace", "Injured 60-Day"),
+        _roster(4, "Sore Wrist", "Day-to-Day"),
+        _roster(5, "Minors Arm", "Reassigned to Minors"),
+    ]
+    cls = b.classify_roster_statuses(roster)
+    assert [r["batter"] for r in cls["injured"]] == [2, 3]
+    assert [r["batter"] for r in cls["day_to_day"]] == [4]
+    assert b.classify_roster_statuses([]) == {
+        "injured": [], "day_to_day": []}
+    assert b.classify_roster_statuses(None) == {
+        "injured": [], "day_to_day": []}
+
+
+def test_status_verify_finds_missed_placement():
+    # The Josh Jung 2026-09-26 shape: live feed says Injured 10-Day,
+    # table has nothing covering that date -> missed placement.
+    import build_il_stints as b
+    iv = pd.DataFrame({
+        "batter": pd.array([10], dtype="int64"),
+        "il_start": pd.to_datetime(["2026-07-01"]),
+        "il_end": pd.to_datetime(["2026-10-01"]),
+    })
+    injured = [{"batter": 673962, "name": "Josh Jung",
+                "status": "Injured 10-Day"},
+               {"batter": 10, "name": "Covered Guy",
+                "status": "Injured 60-Day"}]
+    rep = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-26"))
+    assert [r["batter"] for r in rep["missed_placements"]] == [673962]
+    assert rep["table_flagged"] == 1
+
+
+def test_status_verify_finds_suppressed_batter():
+    # Opposite error: the table flags a stint the live feed calls over
+    # (open stint, player Active) -> suppression risk, reported.
+    import build_il_stints as b
+    iv = pd.DataFrame({
+        "batter": pd.array([20, 21], dtype="int64"),
+        "il_start": pd.to_datetime(["2026-08-30", "2026-09-16"]),
+        "il_end": pd.to_datetime([None, None]),
+    })
+    injured = [{"batter": 20, "name": "Live Injured",
+                "status": "Injured 10-Day"}]
+    rep = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-29"))
+    assert rep["missed_placements"] == []
+    assert [r["batter"] for r in rep["suppressed"]] == [21]
+
+
+def test_status_verify_open_stint_covers_day():
+    import build_il_stints as b
+    iv = pd.DataFrame({
+        "batter": pd.array([673962], dtype="int64"),
+        "il_start": pd.to_datetime(["2026-09-26"]),
+        "il_end": pd.to_datetime([None]),
+    })
+    injured = [{"batter": 673962, "name": "Josh Jung",
+                "status": "Injured 10-Day"}]
+    rep = b.verify_table_against_statuses(
+        iv, injured, pd.Timestamp("2026-09-29"))
+    assert rep["missed_placements"] == []
+
+
 def test_builder_refresh_plan():
     import build_il_stints as b
     from datetime import date as _d

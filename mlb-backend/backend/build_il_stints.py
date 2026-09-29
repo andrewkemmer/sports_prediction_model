@@ -231,8 +231,31 @@ def stints_from_events(events: dict[int, list[tuple[str, int]]]) -> pd.DataFrame
         on = False
         start: str | None = None
         for d, kind in evs:
-            if kind == 1 and not on:
-                on, start = True, d
+            if kind == 1:
+                if not on:
+                    on, start = True, d
+                elif start is not None and d > start:
+                    # A NEW placement while already "on" OPENS A NEW
+                    # STINT, splitting the walk (2026-09-29 audit fix).
+                    # Two real shapes were swallowed by the old
+                    # ignore-if-on guard: (a) a return via minor-league
+                    # RECALL that files no activation (Campero: the
+                    # 08-26 re-placement landed while the 06-06 stint
+                    # walked open) and (b) a same-day activate+place
+                    # pair whose open stint PA-reconciles shut while
+                    # the player is still out (Meadows 2026). Splitting
+                    # keeps continuity (no availability is invented:
+                    # close-at-d/reopen-at-d is injury-contiguous),
+                    # lets reconciliation truncate each segment at the
+                    # player's own appearances, and leaves a same-date
+                    # duplicate copy byte-identical (zero-length head
+                    # stint, dropped downstream).
+                    out.append({"batter": batter,
+                                "il_start": pd.Timestamp(start),
+                                "il_end": pd.Timestamp(d)})
+                    start = d
+                # d <= start: a same/earlier-date duplicate copy — the
+                # pre-existing guard semantics, kept.
             elif kind in (0, 2) and on:
                 out.append({"batter": batter,
                             "il_start": pd.Timestamp(start),
@@ -402,6 +425,194 @@ def season_medians(iv: pd.DataFrame, years: list[int]) -> dict[str, float]:
     return out
 
 
+# ── live roster-status verification sweep (status OUT/IL/DTD channel) ──────
+
+TEAM_IDS = {
+    "BAL": 110, "BOS": 111, "NYY": 147, "TB": 139, "TOR": 141,
+    "CLE": 114, "DET": 116, "KC": 118, "MIN": 142, "CWS": 145,
+    "HOU": 117, "LAA": 108, "ATH": 133, "SEA": 136, "TEX": 140,
+    "ATL": 144, "MIA": 146, "NYM": 121, "PHI": 143, "WSH": 120,
+    "CHC": 112, "CIN": 113, "MIL": 158, "PIT": 134, "STL": 138,
+    "AZ": 109, "COL": 115, "LAD": 119, "SD": 135, "SF": 137,
+}
+
+ROSTER_STATUS_URL = ("https://statsapi.mlb.com/api/v1/teams/{team_id}"
+                     "/roster?rosterType=40Man&date={day}")
+
+
+def fetch_roster_status(team_id: int, day: str,
+                        attempts: int = 3) -> list[dict] | None:
+    """One team's 40-man roster with per-date statuses (None on failure).
+
+    The endpoint honors ``date`` (verified: a player reads Active on the
+    day before his IL placement and Injured N-Day the day after), which
+    makes it a live second evidence channel for the table at window
+    end. Advisory only: a failed fetch is reported, never fatal.
+    """
+    import requests  # late import keeps --offline dependency-free
+    url = ROSTER_STATUS_URL.format(team_id=team_id, day=day)
+    for i in range(attempts):
+        try:
+            r = requests.get(url, timeout=30)
+            if r.status_code in (429, 500, 502, 503):
+                time.sleep(2 ** (i + 1))
+                continue
+            r.raise_for_status()
+            return r.json().get("roster", [])
+        except Exception:
+            if i == attempts - 1:
+                return None
+            time.sleep(2 ** (i + 1))
+    return None
+
+
+def classify_roster_statuses(roster: list[dict] | None) -> dict[str, list[dict]]:
+    """Split one roster into injured / day-to-day players.
+
+    Status vocabulary served by the feed (verified 2026-09-29, 5 teams):
+    Active, Injured 7/10/15/60-Day, Reassigned to Minors, Not Yet
+    Reported, Family Medical Emergency. Day-to-Day historically exists
+    in this field; the sweep reports it separately because it is NOT an
+    IL stint (the player stays on the active roster) and the daily
+    transactions feed carries zero such rows.
+    """
+    out = {"injured": [], "day_to_day": []}
+    for p in roster or []:
+        desc = str((p.get("status") or {}).get("description", ""))
+        low = desc.lower()
+        person = p.get("person") or {}
+        if not person.get("id"):
+            continue
+        pos = str((p.get("position") or {}).get("abbreviation", ""))
+        if pos in ("P", "TWP"):
+            # Pitchers never enter a BATTER's projected nine — the
+            # sweep's missing-placement signal is about position
+            # players (the 2026-09-29 audit: reliever Finnegan read as
+            # a miss with zero career plate appearances).
+            continue
+        rec = {"batter": int(person["id"]),
+               "name": person.get("fullName", ""),
+               "status": desc,
+               "position": pos}
+        if "day-to-day" in low or "day to day" in low:
+            out["day_to_day"].append(rec)
+        elif "injured" in low:
+            out["injured"].append(rec)
+    return out
+
+
+def verify_table_against_statuses(iv: pd.DataFrame,
+                                  injured: list[dict],
+                                  day: pd.Timestamp,
+                                  active_ids: set[int] | None = None,
+                                  pa_days: pd.DataFrame | None = None
+                                  ) -> dict:
+    """Cross-check the built table against live statuses at ``day``.
+
+    missed_placements: players the live feed says are on the IL but the
+    table does not flag on that date — the Josh Jung 2026-09-26 case
+    (a placement filed after the table's transaction window). This is
+    the inclusion failure: the player stays in the projected nine.
+    suppressed: players the table flags but the live feed calls Active
+    — the opposite error (a wrongly-open stint deletes a real hitter
+    from his own nine); the PA reconciliation should prevent it, so a
+    nonzero here is a loud smell, not necessarily a defect (status
+    feeds can lag an activation by a day).
+    """
+    flagged: set[int] = set()
+    if not iv.empty:
+        live = ((iv.il_start <= day)
+                & (iv.il_end.isna() | (iv.il_end > day)))
+        flagged = set(iv.loc[live, "batter"].astype(int))
+    missed, suppressed = [], []
+    live_ids = {r["batter"] for r in injured}
+    for rec in injured:
+        if rec["batter"] not in flagged:
+            missed.append(rec)
+    if not iv.empty:
+        names = {int(r["batter"]): r["name"] for r in injured}
+        over = flagged - live_ids
+        if active_ids is not None:
+            # Only a player on a LIVE roster can be a real
+            # contradiction; open stints for retired/off-roster ids
+            # are out of scope entirely.
+            over &= active_ids
+        if pa_days is not None and over:
+            # GROUND-TRUTH contradiction: the table claims injured on
+            # dates the player demonstrably BATTED. Roster membership
+            # alone over-reports — a player activated after the PA
+            # projection's cut reads Active with no contradicting PA
+            # (status lag, not a defect). A PA strictly after the
+            # stint's start is the same evidence the reconciliation
+            # itself trusts; if one survived, something is broken.
+            pmax = pa_days.groupby("batter").game_date.max()
+            over = {b for b in over
+                    if b in set(pmax.index)
+                    and pmax[b] > iv.loc[iv.batter == b,
+                                         "il_start"].max()}
+        for b in sorted(over):
+            suppressed.append({"batter": b,
+                               "name": names.get(b, str(b))})
+    return {"missed_placements": missed, "suppressed": suppressed,
+            "live_injured": len(injured), "table_flagged": len(flagged)}
+
+
+def run_status_sweep(iv: pd.DataFrame, day: pd.Timestamp,
+                     strict: bool = False,
+                     pa_days: pd.DataFrame | None = None) -> int:
+    """Fetch all 30 rosters at ``day`` and verify the table; return code.
+
+    Advisory by default (exit 0 with a loud report); --strict-status
+    turns missed placements into a hard failure so a scheduled rebuild
+    refuses to publish a table that silently keeps an IL player in a
+    projected nine.
+    """
+    injured: list[dict] = []
+    dtd: list[dict] = []
+    failures = 0
+    active_ids: set[int] = set()
+    pa = pa_days
+    day_str = str(pd.Timestamp(day).date())
+    for abbr, tid in sorted(TEAM_IDS.items()):
+        roster = fetch_roster_status(tid, day_str)
+        if roster is None:
+            failures += 1
+            print(f"  status sweep: {abbr} fetch FAILED (advisory)")
+            continue
+        active_ids |= {int(p["person"]["id"]) for p in roster
+                       if (p.get("person") or {}).get("id")}
+        cls = classify_roster_statuses(roster)
+        injured += cls["injured"]
+        dtd += cls["day_to_day"]
+    print(f"status sweep {day_str}: {len(injured)} live-IL players, "
+          f"{len(dtd)} day-to-day, {failures} fetch failures")
+    rep = verify_table_against_statuses(
+        iv, injured, pd.Timestamp(day), active_ids=active_ids,
+        pa_days=pa)
+    if rep["missed_placements"]:
+        print(f"  MISSED PLACEMENTS ({len(rep['missed_placements'])}) — "
+              "live IL but unflagged in the table (stays in the "
+              "projected nine):")
+        for r in rep["missed_placements"]:
+            print(f"    {r['batter']} {r['name']} [{r['status']}]")
+    else:
+        print("  missed placements: none")
+    if rep["suppressed"]:
+        print(f"  suppressed vs live (table flags, feed says Active): "
+              f"{len(rep['suppressed'])}")
+        for r in rep["suppressed"][:10]:
+            print(f"    {r['batter']} {r['name']}")
+    if dtd:
+        print(f"  day-to-day designations ({len(dtd)}) — reported, NOT "
+              "IL stints; no StatsAPI history exists for them:")
+        for r in dtd[:10]:
+            print(f"    {r['batter']} {r['name']} [{r['status']}]")
+    if strict and rep["missed_placements"]:
+        print("STRICT: refusing to finish with missed placements")
+        return 1
+    return 0
+
+
 # ── entry point ─────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -421,6 +632,14 @@ def main() -> None:
     ap.add_argument("--no-reconcile", action="store_true",
                     help="skip plate-appearance reconciliation; only for "
                          "reproducing the pre-reconciliation table")
+    ap.add_argument("--check-roster-status", action="store_true",
+                     help="sweep all 30 teams 40Man roster statuses "
+                          "at --end and verify the table (advisory "
+                          "report; catches a placement the transactions "
+                          "window missed)")
+    ap.add_argument("--strict-status", action="store_true",
+                     help="with --check-roster-status: exit non-zero on "
+                          "missed placements instead of reporting them")
     args = ap.parse_args()
 
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
@@ -524,6 +743,9 @@ def main() -> None:
     }
     out.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB) + .meta.json")
+    if args.check_roster_status:
+        sys.exit(run_status_sweep(iv, end, strict=args.strict_status,
+                                  pa_days=pa))
 
 
 if __name__ == "__main__":
