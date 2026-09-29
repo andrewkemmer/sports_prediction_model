@@ -1480,8 +1480,10 @@ def train_moneyline_ensemble(
     # The raw NaN matrix that tree members used to consume natively is
     # replaced by the same train-fold-median-imputed matrix that logistic/MLP
     # use (no val leakage). Walk-forward folds get n_estimators=2000 +
-    # early_stopping_rounds=20 on the val window (~50 median rounds at refit);
-    # fit-only refits use XGBOOST_PARAMS directly with no early stopping.
+    # early_stopping_rounds=20 on the val window as a MEASUREMENT probe
+    # (~19-26 median rounds at depth 2 — see config provenance); the SHIPPED
+    # fold model is the causal refit below. Fit-only refits use
+    # XGBOOST_PARAMS directly with no early stopping.
     try:
         from xgboost import XGBClassifier
         from config import (XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP,

@@ -18,6 +18,7 @@ import pandas as pd
 from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
+    DRIFT_PHASE_EXTENSION_MONTHS,
     FEATURE_DRIFT,
     PSI_ALERT_THRESHOLD,
     PSI_WARN_THRESHOLD,
@@ -534,6 +535,7 @@ def compute_feature_drift(
     model_weights: dict | None = None,
     feature_cols: Optional[list[str]] = None,
     out_name: Optional[str] = None,
+    phase_frame: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Compute PSI for each numeric feature and save feature_drift CSV.
 
@@ -543,7 +545,46 @@ def compute_feature_drift(
     enumerates the ACTIVE moneyline serving width (adopted RFE subset,
     else the universe) — SINGLE-LIST RULE: every monitor-facing surface
     reads exactly one list.
+
+    ``phase_frame`` (season-seam guard, 2026-09-30): the frame the
+    prior-season phase windows are pulled from. MUST be the full decided
+    frame — the production baseline is only the trailing ~250 games and
+    contains no prior-season rows, so without this the OK-SEASONAL
+    re-check could never fire. Callers that omit it get the old
+    baseline-only behavior (the re-check simply finds no phase rows).
     """
+    def _phase_matched_baseline(bgames: pd.DataFrame, cgames: pd.DataFrame,
+                                col: str, months_back: tuple[int, ...]) -> list:
+        """Prior-season same-calendar-phase values for one feature.        Current window's span = [min game_date, max game_date] of
+        ``cgames``, padded ±7 calendar days (a one-week phase tolerance:
+        the shifted window must hold enough rows for a stable mean-shift
+        SE — the exact-span window can dip near the 100-row judge floor
+        and flip borderline seasonal features back to ALERT, which the
+        2026-09-29 bullpen_whip_diff replay demonstrated). For each k in
+        ``months_back`` (negative ints), take bgames rows whose game_date
+        falls in the padded same-phase window shifted k years — the
+        season seam moves WITH the calendar instead of across it. Only
+        rows already present in the drift frame qualify (no new data is
+        fetched).
+        """
+        if "game_date" not in bgames.columns or "game_date" not in cgames.columns:
+            return []
+        try:
+            cd = pd.to_datetime(cgames["game_date"])
+        except Exception:
+            return []
+        if cd.notna().sum() == 0:
+            return []
+        lo, hi = cd.min(), cd.max()
+        bd = pd.to_datetime(bgames["game_date"], errors="coerce")
+        out: list = []
+        for k in months_back:
+            lo2 = (lo + pd.DateOffset(years=k) - pd.Timedelta(days=7))
+            hi2 = (hi + pd.DateOffset(years=k) + pd.Timedelta(days=7))
+            win = bgames.loc[(bd >= lo2) & (bd <= hi2), col].dropna()
+            out.extend(win.tolist())
+        return out
+
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
         else list(active_moneyline_feature_cols())
@@ -617,6 +658,30 @@ def compute_feature_drift(
             # not regime change. Raw PSI stays in the CSV for transparency.
             status = psi_status(psi_adjusted) if location_shift else "OK"
 
+        # Season-seam guard (2026-09-30): the ~21-day trailing baseline
+        # spans the season boundary in every season's final week, so
+        # late-September run regularly flags REGULAR seasonal movement
+        # (playoff bullpen usage, eliminated-team call-ups) as drift. When
+        # a location shift survives the trailing baseline, re-check the
+        # same mean shift against the SAME calendar phase of prior
+        # seasons (same months, one and two years back). A clean
+        # re-check means the shift is seasonal, not a 2026 regime break.
+        if status in ("WARN", "ALERT") and n_b >= 100 and n_c >= 30:
+            phase_vals = _phase_matched_baseline(
+                phase_frame if phase_frame is not None else baseline_games,
+                current_games, col, tuple(DRIFT_PHASE_EXTENSION_MONTHS))
+            if len(phase_vals) >= 100:
+                pv = np.asarray(phase_vals, dtype=float)
+                pooled2 = np.sqrt(
+                    ((len(pv) - 1) * pv.var(ddof=1)
+                     + (n_c - 1) * current_vals.var(ddof=1))
+                    / (len(pv) + n_c - 2)) if len(pv) + n_c > 2 else 0.0
+                shift2 = float(current_vals.mean() - pv.mean())
+                se2 = (pooled2 * np.sqrt(1.0 / len(pv) + 1.0 / n_c) * 1.5
+                       if pooled2 > 0 else 0.0)
+                if se2 > 0 and abs(shift2) <= 2.0 * se2:
+                    status = "OK-SEASONAL"
+
         drift_rows.append({
             "feature": col,
             "current_mean": round(float(current_vals.mean()), 4),
@@ -642,9 +707,10 @@ def compute_feature_drift(
     n_warns = (df["status"] == "WARN").sum()
     n_alerts = (df["status"] == "ALERT").sum()
     logger.info(
-        "Feature drift: %d features, %d warnings, %d alerts "
+        "Feature drift: %d features, %d warnings, %d alerts, %d seasonal "
         "(statuses on noise-adjusted PSI; mean noise floor %.3f)",
         len(df), n_warns, n_alerts,
+        int((df["status"] == "OK-SEASONAL").sum()) if "status" in df.columns else 0,
         float(df["noise_floor"].mean()) if "noise_floor" in df.columns else float("nan"),
     )
 
@@ -761,6 +827,7 @@ def compute_run_engine_feature_drift(
     current_games: pd.DataFrame,
     target_date_str: str,
     model_weights: Optional[dict] = None,
+    phase_frame: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """PSI over the run engine's own feature view on the SAME baseline /
     current windows as the moneyline drift — leakage-free.
@@ -782,7 +849,8 @@ def compute_run_engine_feature_drift(
     return compute_feature_drift(
         baseline_games, current_games, target_date_str,
         model_weights=weights, feature_cols=run_engine_feature_cols(),
-        out_name=f"run_engine_feature_drift_{target_date_str}.csv")
+        out_name=f"run_engine_feature_drift_{target_date_str}.csv",
+        phase_frame=phase_frame)
 
 
 def compute_run_engine_feature_coverage(

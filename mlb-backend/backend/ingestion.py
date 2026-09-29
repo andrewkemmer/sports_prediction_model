@@ -94,6 +94,31 @@ def _is_past_dated_core_season_chunk(chunk_start: date, chunk_end: date) -> bool
     return mid.month in _REGULAR_SEASON_CORE_MONTHS
 
 
+#: Fully gameless MLB windows (verified 2026-09-30 against the season
+#: calendars 2024-2026 and the official schedule windows the pipeline
+#: itself pulls: the StatsAPI schedule queries return 0 games in the same
+#: spans). The 2026-09-29 full-history re-pull burned 3 retries + backoff
+#: on each of these before reporting them as possible data loss; they are
+#: provably empty, so the pull skips them BEFORE the first attempt. Kept
+#: as explicit date ranges — a silent "month in {12, 1, 2}" rule would
+#: also skip early-March openers' neighborhoods and late-October
+#: postseason, which DO carry games.
+_KNOWN_GAMELESS_WINDOWS: tuple[tuple[date, date], ...] = (
+    (date(2024, 1, 1), date(2024, 2, 29)),
+    (date(2024, 12, 26), date(2025, 2, 23)),
+    (date(2025, 12, 21), date(2026, 2, 18)),
+)
+
+
+def _is_known_gameless_window(chunk_start: date, chunk_end: date) -> bool:
+    """True when the chunk sits inside a span with zero MLB games in every
+    covered season (deep offseason). Skipping these is the quiet sibling
+    of the pipeline's own 'gameless window' weather/coverage skips — the
+    pull layer just never had one."""
+    return any(chunk_start >= ws and chunk_end <= we
+               for ws, we in _KNOWN_GAMELESS_WINDOWS)
+
+
 def _report_exhausted_chunk(chunk_start: date, chunk_end: date, reason: str) -> None:
     """Emit EXACTLY ONE terminal line for a chunk that exhausted its retries.
 
@@ -117,6 +142,10 @@ def _report_exhausted_chunk(chunk_start: date, chunk_end: date, reason: str) -> 
 
     * past-dated, April–September core season → unreachable; the abort
       helper raises first.
+    * KNOWN GAMELESS (deep offseason, _is_known_gameless_window) → never
+      reaches here at all; the pull skips those windows before the first
+      attempt, so a 2026-09-29-style retry storm (three offseason windows
+      x 3 attempts + backoff on provably empty spans) cannot recur.
     * past-dated, any OTHER month → WARNING. This is the hole the 09-26 run
       fell into. Those windows are usually genuine offseason and truly empty,
       but they are NOT provably empty: October and early March carry
@@ -204,6 +233,13 @@ def _chunked_statcast(
     cursor = start
     while cursor <= end:
         chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
+        if _is_known_gameless_window(cursor, chunk_end):
+            logger.info(
+                "  Chunk: %s → %s — skipped: known gameless window "
+                "(deep offseason; no MLB games in any covered season)",
+                cursor, chunk_end)
+            cursor = chunk_end + timedelta(days=1)
+            continue
         logger.info("  Chunk: %s → %s", cursor, chunk_end)
         outcome: str = "ok"          # "ok" | "error" | "empty"
         last_exc: Exception | None = None

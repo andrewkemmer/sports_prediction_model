@@ -1200,6 +1200,7 @@ def _model_monitor_json(
     # Drift summary
     n_warns = int((drift_df["status"] == "WARN").sum()) if not drift_df.empty else 0
     n_alerts = int((drift_df["status"] == "ALERT").sum()) if not drift_df.empty else 0
+    n_seasonal = int((drift_df["status"] == "OK-SEASONAL").sum()) if not drift_df.empty else 0
     warn_features = drift_df[drift_df["status"].isin(["WARN", "ALERT"])]["feature"].tolist() if not drift_df.empty else []
 
     data = {
@@ -1215,6 +1216,7 @@ def _model_monitor_json(
         "drift_summary": {
             "warnings": n_warns,
             "alerts": n_alerts,
+            "seasonal": n_seasonal,
             "features": warn_features,
         },
         "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],
@@ -2385,6 +2387,7 @@ def run_daily_pipeline(
                 baseline, current, target_date_str,
                 model_weights=feature_importance_weights(best_models),
                 feature_cols=active_moneyline_feature_cols(),
+                phase_frame=decided,
             )
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
             # SINGLE-LIST RULE: explicit active-width enumeration, mirroring
@@ -2401,7 +2404,8 @@ def run_daily_pipeline(
             compute_run_engine_feature_drift(
                 baseline, current, target_date_str,
                 model_weights=(run_engine_block or {}).get("feature_weights")
-                or None)
+                or None,
+                phase_frame=decided)
             summary["artifacts"].append(str(
                 DATA_DELIVERY_DIR
                 / f"run_engine_feature_drift_{target_date_str}.csv"))

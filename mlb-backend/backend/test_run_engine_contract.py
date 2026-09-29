@@ -480,17 +480,25 @@ def test_upcoming_slate_all_foreign_dates_ships_honest_empty_slate():
 
 
 
-def test_xgboost_params_pin_stump_and_causal_priors():
-    """Pin the 2026-09-30 remediation state: the depth-1 stump is the
-    3-seed-confirmed winner at the DEPLOYED refit budget (mean 0.69020 vs
-    depth-3's 0.69818), while the walk regime's causal rounds are the
-    honest-mechanics priors (probe-median ~10-30 rounds; fold0/refit fall
-    back to the static 50). A silent retune that flips max_depth or the
-    round priors must fail here and re-run the two operating-point
-    experiments documented in config.XGBOOST_PARAMS provenance — never
-    re-hobble a baseline to manufacture an adoption."""
+def test_xgboost_params_pin_depth2_and_causal_priors():
+    """Pin the 2026-09-30 PM adoption: the shipped member is the joint
+    depth-2 block (subsample 0.5406, gamma 4.0, lr 0.055) — owner-directed
+    replacement of the depth-1 stump, sealed-holdout confirmed at the
+    member level (seal folds 70-77: 0.68089/0.5861 vs stump 0.68107/0.5842,
+    3 seeds; full-walk 3-seed refit 0.68662/0.5562 vs 0.68755/0.5528)
+    while the walk regime's causal rounds stay the honest-mechanics priors
+    (probe-median ~19-26 rounds; fold0/refit fall back to the static 50).
+    A silent retune that flips max_depth, the shrinkage axes, or the round
+    priors must fail here and re-run BOTH operating-point experiments plus
+    the sealed window documented in config.XGBOOST_PARAMS provenance —
+    never re-hobble a baseline to manufacture an adoption."""
     import config
-    assert config.XGBOOST_PARAMS["max_depth"] == 1
+    assert config.XGBOOST_PARAMS["max_depth"] == 2
+    assert config.XGBOOST_PARAMS["subsample"] == 0.5406
+    assert config.XGBOOST_PARAMS["gamma"] == 4.0
+    assert config.XGBOOST_PARAMS["learning_rate"] == 0.055
+    assert config.XGBOOST_PARAMS["min_child_weight"] == 12
+    assert config.XGBOOST_PARAMS["colsample_bytree"] == 0.6382
     assert config.XGBOOST_FOLD0_ROUNDS == 50
     assert config.XGBOOST_REFIT_ROUNDS == 50
     assert config.XGBOOST_FOLD_ROUNDS == 2000

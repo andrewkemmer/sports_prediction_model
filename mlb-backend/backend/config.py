@@ -78,6 +78,18 @@ NEXT_RUN_HEURISTIC_DAYS = 1
 # adaptive blend weights earned from them.
 MIN_VAL_FOLD_GAMES = 40
 
+# Drift-monitor season-seam guard (2026-09-30): the production drift
+# baseline is a ~21-day trailing window, so every season's final week is
+# compared against mid-September — a cross-season seam. Playoff-roster
+# bullpens and eliminated-team call-ups make that seam REGULARLY look like
+# drift when it is seasonal (2026-09-29: bullpen_whip_diff z=+2.78 and
+# bullpen_whip_10g_away z=-3.37 vs the trailing baseline, BOTH vanishing
+# against the same calendar phase of 2024-25: z=+1.94 / -1.28). When a
+# feature's location_shift survives the trailing baseline, the monitor
+# re-checks against these prior-season same-calendar-month windows and
+# labels a clean re-check OK-SEASONAL instead of paging.
+DRIFT_PHASE_EXTENSION_MONTHS = (-1, -2)
+
 # Run-engine agreement filter: |moneyline_win_prob − derived_win_prob| above
 # this marks a game as a CONFLICT on the dashboard and suppresses it from any
 # future recommendation surface (see run_engine.agreement_stats).
@@ -157,12 +169,12 @@ ELASTICNET_PARAMS = {
 # 3/3 seeds) -> params CONFIRMED, unchanged. Second consecutive retune the
 # production config survives.
 XGBOOST_PARAMS = {
-    "max_depth": 1,
+    "max_depth": 2,
     "min_child_weight": 12,
-    "gamma": 2.4178,
-    "subsample": 0.812,
+    "gamma": 4.0,
+    "subsample": 0.5406,
     "colsample_bytree": 0.6382,
-    "learning_rate": 0.1097,
+    "learning_rate": 0.055,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
@@ -202,6 +214,36 @@ XGBOOST_PARAMS = {
 #   retune must re-measure BOTH operating points (walk-causal and
 #   refit-static) and compare against the honest numbers here —
 #   never against a re-hobbled baseline.
+# RETUNE 2026-09-30 PM (max_depth 1 -> 2; OWNER DIRECTIVE: the shipped
+# member must not be a depth-1 stump). A depth-family sweep under the
+# honest causal walk showed a plain depth flip cannot win: at each
+# depth's own measured budget, refit logloss is monotone in depth
+# (d1@20 0.68755 / d2@12 0.68776 / d3@11 0.68799 / d4@11 0.68852,
+# 3 seeds; the retune commit eecbbd6's "d3 loses ~0.008" compared
+# d3@50 — a rounds mismatch, not a depth verdict). A 32-config
+# one-axis screen (seed 42) then found depth-2 winners, and a JOINT
+# search over the winning axes (subsample x mcw x lr) adopted:
+#   max_depth 2, subsample 0.5406, gamma 4.0, lr 0.055 (other params
+#   unchanged; the config's own walk probe-median is ~19-26 rounds).
+#   Evidence (78 production folds, 7,378 games; seal = folds 70-77,
+#   selection on folds 0-69 only):
+#   * 3-seed full-walk: walk 0.68706/AUC 0.5540, static refit
+#     0.68662/0.5562 — vs depth-1 incumbent 0.68777/0.5506 and
+#     0.68755/0.5528 (better on every seed, both operating points).
+#   * SEALED member (3 seeds, frozen budget @22): 0.68089/0.5861 vs
+#     depth-1 0.68107/0.5842 — the ONLY challenger of five sealed
+#     (mcw24+lr0.055 0.68155, joint mcw24 family, NHL-style 0.68977)
+#     to beat the incumbent on the untouched window.
+#   * Blend: full-walk ens 0.68609/0.5554 vs incumbent 0.68635/0.5547
+#     with weights re-earned toward thirds (en .333/lg .333/xgb .333);
+#     frozen-weight blend seal 0.67896/0.5873 vs incumbent 0.67854/
+#     0.5878 (-0.0004 ll, inside noise; seal AUC 0.5861 vs 0.5842).
+#   Gate accounting: no member logloss gate clears in either direction
+#   (largest honest delta -0.0009 refit); adoption rests on the owner's
+#   no-stump directive plus a consistent member-cell AUC edge (+0.0019
+#   to +0.0034 everywhere) and a neutral-to-positive blend. Rejected on
+#   the seal: plain d2 (0.68155 seal), single-axis winners, and the
+#   NHL-style d2 block (colsample 0.4025 collapses AUC to ~0.54 here).
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit
@@ -214,8 +256,13 @@ XGBOOST_EARLY_STOP = 20
 # shipped model's round count (the early-stopped fit is only a
 # measurement that later folds may consume). Fold 0 (no prior evidence)
 # and any refit without fold measurements use the static priors here.
-# XGBOOST_REFIT_ROUNDS reflects the observed ~50-round median of the
-# 2000/20 fold fits on the production frame.
+# Fold0/refit statics cover cold-start paths only; the production walk's
+# own probe-median is ~20 rounds at depth 1 and ~19-26 under the adopted
+# depth-2 block. The 50-round prior was kept over a 20-round re-pin: the
+# 2026-09-30 sealed-window check split the verdict (d1@50 ll 0.68013 vs
+# d1@20 0.68107 on folds 70-77; AUC the other way), matching the LGBM
+# rounds precedent — a tune-gain must survive the seal, not just the
+# OOF walk.
 XGBOOST_FOLD0_ROUNDS = 50
 XGBOOST_REFIT_ROUNDS = 50
 # Optuna-tuned on 4,159-games/44-fold walk-forward (tune_lightgbm_optuna.py,
