@@ -114,13 +114,25 @@ TX_URL = "https://statsapi.mlb.com/api/v1/transactions"
 # GENERALIZED AVAILABILITY (2026-09-30): the projected nine needs
 # "unavailable as of game date", not merely "hurt". The same
 # wholesale-refetchable transactions feed carries every FORMAL
-# non-IL unavailability move, so the table extends without any new
-# source or incremental state (full rebuild in one pass):
+# non-IL unavailability move (injured, paternity, bereavement and
+# family medical, restricted, administrative leave, suspension,
+# option/reassignment to the minors), so the table extends without
+# any new source or incremental state (full rebuild in one pass):
 #   opens  += paternity / bereavement + family medical / restricted
-#             lists, suspensions, and optioned or reassigned to the
-#             minors (the player cannot take a major-league at-bat)
+#             lists, administrative leave, suspensions, and optioned or
+#             reassigned to the minors (the player cannot take a
+#             major-league at-bat)
 #   closes += recalled / contract selected / purchased -- an
 #             optioned player returns exactly that way
+# Administrative leave (Wander Franco 2024-03-28, Emmanuel Clase
+# 2025-07-28: the only two rows the 2023-2026 feed carries) files
+# NO matching return transaction -- the player returns via the plain
+# "activated" that any roster move emits, and in both real cases the
+# league kept the ROSTER papers open with a restricted-list
+# re-placement (Franco 2024-07-10, Clase same-day 2025-07-28), so the
+# stint closes that way. The split-on-reopen machine handles the
+# restricted re-placement; a leave WITHOUT a restricted co-filing
+# would close on the return activation like any other stint.
 # Day-to-day manager holds (Moreno/Bibee/Gausman class) file NO
 # transaction and stay honestly invisible here; the roster-status
 # sweep is their watchtower. Rehab assignments open nothing: a
@@ -135,6 +147,7 @@ _OPEN = re.compile(r"\b(placed|transferred)\b.*\binjured list\b"
                    r"|\bplaced\b.*\bbereavement list\b"
                    r"|\bplaced\b.*\bfamily medical\b"
                    r"|\bplaced\b.*\brestricted list\b"
+                   r"|\bplaced\b.*\badministrative leave\b"
                    r"|\bsuspended\b"
                    r"|\boptioned\b"
                    r"|\breassigned\b.*\b(minor league|minors)\b", re.I)
@@ -767,9 +780,10 @@ def main() -> None:
         "stint_length_days_median": float(dur.median()),
         "pit_rule": "interval bounds are transaction DATES, not effectiveDate",
         "definition": ("availability stints: IL + paternity + bereavement/family"
-                       " + suspended + restricted + optioned/reassigned to"
-                       " minors; closes: activated/reinstated/recalled/"
-                       "contract-selected/purchased"),
+                       " + suspended + restricted + administrative leave"
+                       " + optioned/reassigned to minors; closes:"
+                       " activated/reinstated/recalled/contract-selected/"
+                       "purchased"),
         "source": "MLB StatsAPI /api/v1/transactions?sportId=1",
         "reconciled_against": None if args.no_reconcile else pbp.name,
         "plate_appearances": int(len(pa)),

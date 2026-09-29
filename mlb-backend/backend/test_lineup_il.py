@@ -932,3 +932,90 @@ def test_definition_recorded_in_meta_contract():
     src = inspect.getsource(b.main)
     assert '"definition"' in src
     assert "availability stints" in src
+
+
+# ── administrative leave (2026-09-30 audit hardening) ───────────────────────
+# Real feed rows (the only two in 2023-2026, both non-medical leave):
+#   Franco 677551: restricted 2023-08-14 -> administrative leave
+#   2024-03-28 -> restricted re-placement 2024-07-10 (papers stayed open)
+#   Clase 661403: administrative leave + restricted SAME DAY 2025-07-28
+#   (co-filed). A leave files no return transaction; the roster papers
+#   close it. The split-on-reopen machine carries the continuity.
+
+P_FRANCO, P_CLASE = 677551, 661403
+
+
+def test_administrative_leave_opens_a_stint():
+    """'placed X on administrative leave' must OPEN a stint: the player
+    cannot take a major-league at-bat while on leave. This is the
+    non-medical-leave category (Wander Franco 2024-03-28)."""
+    import build_il_stints as b
+    tx = [{"person": {"id": P_FRANCO}, "date": "2024-03-28",
+           "description": "Tampa Bay Rays placed SS Wander Franco on "
+                          "administrative leave."}]
+    assert b.build_events(tx) == {P_FRANCO: [("2024-03-28", 1)]}, \
+        "administrative leave must classify as an opening event"
+
+
+def test_franco_leave_continuity_through_restricted_replacement():
+    """Franco's real trail: restricted 2023-08-14, administrative leave
+    2024-03-28 (NO return transaction), restricted re-placement
+    2024-07-10. One continuous availability walk with a split at the
+    re-placement: the leave may not create a second stint (he was never
+    available in between) and the papers close 2024-07-10 onward."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_FRANCO}, "date": "2023-08-14",
+         "description": "Tampa Bay Rays placed SS Wander Franco on the "
+                        "restricted list."},
+        {"person": {"id": P_FRANCO}, "date": "2024-03-28",
+         "description": "Tampa Bay Rays placed SS Wander Franco on "
+                        "administrative leave."},
+        {"person": {"id": P_FRANCO}, "date": "2024-07-10",
+         "description": "Tampa Bay Rays placed SS Wander Franco on the "
+                        "restricted list."},
+    ]
+    iv = b.stints_from_events(b.build_events(tx))
+    # The split-on-reopen machine emits three injury-contiguous
+    # segments (close/reopen at each placement): restricted spell,
+    # leave spell, post-replacement open spell. The COVERAGE UNION is
+    # unchanged -- the leave never makes him available in between --
+    # and the stint count is +1 versus the pre-taxonomy table where
+    # the leave row was a swallowed non-event.
+    assert len(iv) == 3
+    assert [str(s.date()) for s in iv.il_start] == \
+        ["2023-08-14", "2024-03-28", "2024-07-10"]
+    assert [str(e.date()) if pd.notna(e) else "OPEN" for e in iv.il_end] == \
+        ["2024-03-28", "2024-07-10", "OPEN"]
+    # serving contract: a mid-leave game (2024-04-15) must be flagged
+    assert _pool_flag(batter=P_FRANCO,
+                      il_rows=[(P_FRANCO, "2023-08-14", "2024-07-10")],
+                      game_date=pd.Timestamp("2024-04-15").date()) == 1
+
+
+def test_clase_same_day_leave_plus_restricted_co_filing():
+    """Clase 2025-07-28: administrative leave and restricted list filed
+    the SAME day. Same-date duplicate opens collapse to one stint open
+    from that date (the pre-existing duplicate-copy guard)."""
+    import build_il_stints as b
+    tx = [
+        {"person": {"id": P_CLASE}, "date": "2025-07-28",
+         "description": "Cleveland Guardians placed RHP Emmanuel Clase on "
+                        "administrative leave."},
+        {"person": {"id": P_CLASE}, "date": "2025-07-28",
+         "description": "Cleveland Guardians placed RHP Emmanuel Clase on "
+                        "the restricted list."},
+    ]
+    iv = b.stints_from_events(b.build_events(tx))
+    assert len(iv) == 1
+    assert iv.iloc[0].il_start == pd.Timestamp("2025-07-28")
+    assert pd.isna(iv.iloc[0].il_end)
+
+
+def test_administrative_leave_meta_definition():
+    """The meta definition string must name administrative leave so
+    consumers can read what the table covers."""
+    import inspect
+    import build_il_stints as b
+    src = inspect.getsource(b.main)
+    assert "administrative leave" in src
