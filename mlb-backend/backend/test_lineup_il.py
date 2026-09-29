@@ -487,8 +487,128 @@ def test_builder_refresh_plan():
 
 # ── serving contract ─────────────────────────────────────────────────────────
 
-def test_agg_is_participation_weighted_over_full_pool(con):
-    # VAR_B contract: the mean weights EVERY healthy member by his
+# ── real-world PIT pressure cases (2025-09-30 user scenarios) ───────────
+# MLBAM ids verified live against StatsAPI: Moreno 672515, Harper 547180,
+# Bibee 676440, Cole 543037, Gausman 592332, Loáisiga 642528.
+P_MORENO, P_HARPER, P_BIBEE = 672515, 547180, 676440
+P_COLE, P_GAUSMAN, P_LOAISIGA = 543037, 592332, 642528
+
+
+def _pool_frames(team_rows: dict[int, tuple[float, float]]):
+    """One rating row per batter for GAME (the candidate pool shape)."""
+    return _ratings({b: (pa, w) for b, (pa, w) in team_rows.items()})
+
+
+def test_harper_retro_il_binds_at_filing_date_not_effective(con):
+    """Harper: 10-day IL placed 2025-06-07, RETROACTIVE to 06-06. The PIT
+    rule keys on transaction DATES: he stays in the projected nine for a
+    06-06 game (the filing was not yet knowable) and is excluded from
+    06-07 onward. Backdating to effectiveDate would leak the future."""
+    _harper_game = _ratings({P_HARPER: (300.0, 0.380)}).copy()
+    _harper_game["game_date"] = pd.Timestamp("2025-06-07").date()
+    _run_pool(con, _harper_game,
+              [(P_HARPER, "2025-06-07", None)])
+    flags = dict(con.execute(
+        "SELECT batter, on_il FROM lineup_pool").fetchall())
+    assert flags[P_HARPER] == 1  # stint bounds bind at the filing date
+
+    # and a same-roster game the day BEFORE the filing: eligible.
+    con2 = duckdb.connect(database=":memory:")
+    early = _ratings({P_HARPER: (300.0, 0.380)}).copy()
+    early["game_date"] = pd.Timestamp("2025-06-06").date()
+    con2.register("batter_ratings", early)
+    con2.execute("""CREATE TABLE il_stints AS SELECT CAST(batter AS BIGINT) batter,
+        CAST(il_start AS DATE) il_start, CAST(il_end AS DATE) il_end
+        FROM (VALUES (547180, DATE '2025-06-07', NULL))
+             AS t(batter, il_start, il_end)""")
+    con2.execute(features._LINEUP_POOL_SQL.format(
+        lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
+        on_il=features._IL_EXISTS_PREDICATE))
+    flags2 = dict(con2.execute(
+        "SELECT batter, on_il FROM lineup_pool").fetchall())
+    con2.close()
+    assert flags2[P_HARPER] == 0, "retroactive IL must not backdate past its filing"
+
+
+def test_cole_season_il_excluded_all_season(con):
+    """Cole: IL 2025-03-22 (TJ, out for the year). The stint covers the
+    whole season; a mid-September game must still exclude him."""
+    _cole_game = _ratings({P_COLE: (10.0, 0.250)}).copy()
+    _cole_game["game_date"] = pd.Timestamp("2025-09-15").date()
+    _run_pool(con, _cole_game,
+              [(P_COLE, "2025-03-22", "2025-11-06")])
+    flags = dict(con.execute(
+        "SELECT batter, on_il FROM lineup_pool").fetchall())
+    assert flags[P_COLE] == 1
+
+
+def test_loaisiga_stints_never_span_played_games(con):
+    """Loáisiga: 15-day IL retro 08-02 (filed 08-03), after returning from
+    an earlier stint 05-16. The table must hold BOTH stints as separate
+    intervals — the closed one (03-26..05-16) can never suppress the
+    appearances he actually made after it (PA reconciliation contract)."""
+    _loai_game = _ratings({P_LOAISIGA: (5.0, 0.150)}).copy()
+    _loai_game["game_date"] = pd.Timestamp("2025-08-15").date()
+    _run_pool(con, _loai_game,
+              [(P_LOAISIGA, "2025-03-26", "2025-05-16"),
+               (P_LOAISIGA, "2025-08-03", "2025-09-29")])
+    flags = dict(con.execute(
+        "SELECT batter, on_il FROM lineup_pool").fetchall())
+    assert flags[P_LOAISIGA] == 1  # the August stint binds the game date
+
+
+def test_moreno_day_to_day_without_il_filing_stays_in_pool(con):
+    """Moreno 2025-09-25/26: hamstering tightness, held out of the lineup,
+    REMAINED ACTIVE day-to-day with NO IL filing (his real 2025 IL stints
+    ended 08-22). No stint covers the date, so the IL channel — honestly —
+    cannot exclude him: he stays in the projected nine. This pins the
+    KNOWN gap the status OUT/DTD channel (external feed) exists to close,
+    and pins that no code path may fabricate an IL row for him."""
+    _run_pool(con, _pool_frames({P_MORENO: (280.0, 0.320)}), [])
+    flags = dict(con.execute(
+        "SELECT batter, on_il FROM lineup_pool").fetchall())
+    assert flags[P_MORENO] == 0
+
+
+def test_scratched_pitchers_never_enter_a_batter_pool(con):
+    """Bibee / Gausman: rotation/reliever scratches with no IL filing. As
+    PITCHERS they never enter a batter projected nine at all — the pool is
+    batters only — so the lineup features are structurally immune to their
+    availability. The existence of their pitcher slots in the serving
+    vocabulary is covered by the classify_roster_statuses pitcher filter."""
+    import build_il_stints as b
+    roster = [
+        {"person": {"id": P_BIBEE, "fullName": "Tanner Bibee"},
+         "status": {"description": "Active"},
+         "position": {"abbreviation": "P"}},
+        {"person": {"id": P_GAUSMAN, "fullName": "Kevin Gausman"},
+         "status": {"description": "Day-to-Day"},
+         "position": {"abbreviation": "P"}},
+    ]
+    cls = b.classify_roster_statuses(roster)
+    assert cls["injured"] == [] and cls["day_to_day"] == []
+
+
+def test_il_filter_removes_player_from_weighted_pool_and_promotes(con):
+    """Integration of the 09-30 weighted aggregate with the availability
+    contract: with 10 healthy members + 1 IL'd high-PA star, the shipped
+    pool drops the star and the PA-weighted mean covers the remaining 10."""
+    rows = {7000 + i: (100.0 - 5 * i, 0.300 + i / 1000) for i in range(10)}
+    r = _ratings(rows)
+    star = r.iloc[[0]].copy()
+    star["batter"] = P_HARPER
+    star["_pa30"] = 400.0
+    star["shrunk_woba"] = 0.900
+    r = pd.concat([r, star], ignore_index=True)
+    _run_pool(con, r, [(P_HARPER, "2024-07-01", None)])
+    healthy = [(100.0 - 5 * i, 0.300 + i / 1000) for i in range(10)]
+    exp = (sum(p * w for p, w in healthy) / sum(p for p, _ in healthy))
+    m = con.execute("SELECT lineup_woba_mean FROM lineup_agg").fetchone()[0]
+    assert m == pytest.approx(exp, abs=1e-9)
+    assert m < exp + 0.05 * abs(exp)  # sanity: no star leakage into the mean
+
+
+def test_agg_is_participation_weighted_over_full_pool(con):    # VAR_B contract: the mean weights EVERY healthy member by his
     # frozen trailing PA (no top-9 cut); an 11-man pool with distinct
     # PA ranks pins the arithmetic exactly. An on-IL member (5550)
     # must not enter even with the HIGHEST PA.
