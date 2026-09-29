@@ -246,15 +246,26 @@ XGBOOST_PARAMS = {
 #   NHL-style d2 block (colsample 0.4025 collapses AUC to ~0.54 here).
 # L7 FROM-SCRATCH TUNE (2026-09-30 PM, mlb_tune_l7_2026-09-30.json):
 # 89-trial seeded search over ALL SIX param dims (incumbent included as
-# same-harness reference; rounds never searched — probe constants),
-# selection on folds 0-69 by refit ll. Every top-8 margin <0.001; the
-# three depth-eligible finalists REVERSED or fell below the gate on the
-# 3-seed full walk (best: -0.00011 refit / -0.00032 walk vs the 0.001
-# gate). CONFIG CONFIRMED — third consecutive retune the production
-# block survives (L5 adopted 0921; L6, L7 confirmed). The search's one
-# consistent signal — slower lr + stronger column/row shrinkage — is
-# already the direction this block moved; depth is not the discriminator
-# once shrinkage is right (d1-d4 all appear in the top 8).
+# same-harness reference), selection on folds 0-69 by refit ll. Every
+# top-8 margin <0.001; the three depth-eligible finalists REVERSED or
+# fell below the gate on the 3-seed full walk (best: -0.00011 refit /
+# -0.00032 walk vs the 0.001 gate). CONFIG CONFIRMED — third
+# consecutive retune the production block survives (L5 adopted 0921;
+# L6, L7 confirmed). The search's one consistent signal — slower lr +
+# stronger column/row shrinkage — is already the direction this block
+# moved; depth is not the discriminator once shrinkage is right (d1-d4
+# all appear in the top 8).
+# L7 ADDENDUM (owner directive: no parameter off the table): REFIT/
+# FOLD0_ROUNDS re-sealed at the DEPLOYED depth-2 block — @30 beat @50
+# by -0.00127 (3/3) on the full walk but LOST the seal 0/3 (-0.00184
+# the other way): split verdict = window noise, budget stays 50.
+# Overcooking is real (@75/@100 degrade monotonically). EARLY_STOP
+# screened {10,20,40} on the causal walk: 20 confirmed (clear of 10,
+# tied with 40). The early-stopped probe is measurement-only in the
+# causal pipeline (shipped fold model never sees its own val), so the
+# patience is a tunable — but it was kept fixed during the main search
+# and scrutinized only in the addendum so the search never selected
+# its own measurement noise.
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit

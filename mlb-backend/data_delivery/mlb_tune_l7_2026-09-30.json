@@ -275,5 +275,171 @@
  "context": {
   "prior_tunes": "L5 2026-09-21 (adopted), L6 2026-09-28 (confirmed), 2026-09-30 AM depth-1->2 owner-directed adoption (seal-confirmed), L7 2026-09-30 PM (this record).",
   "cost_seconds": 584
+ },
+ "addendum_rounds_and_early_stop": {
+  "trigger": "Owner directive 2026-09-30: no parameter stays off the table from prior tests. The FOLD0/REFIT_ROUNDS 50-vs-20 seal had run at depth 1 only (pre-adoption), and XGBOOST_EARLY_STOP had never been varied.",
+  "A_refit_budget_at_deployed_depth2": {
+   "design": "static refit, full 78 folds, 3 seeds, budgets 20/30/50/75/100",
+   "full_walk": {
+    "@20": {
+     "ll_mean": 0.68669,
+     "auc_mean": 0.5561,
+     "per_seed": {
+      "42": {
+       "ll": 0.68654,
+       "auc": 0.5571
+      },
+      "7": {
+       "ll": 0.68652,
+       "auc": 0.5565
+      },
+      "2026": {
+       "ll": 0.68701,
+       "auc": 0.5546
+      }
+     }
+    },
+    "@30": {
+     "ll_mean": 0.68658,
+     "auc_mean": 0.5572,
+     "per_seed": {
+      "42": {
+       "ll": 0.68638,
+       "auc": 0.5578
+      },
+      "7": {
+       "ll": 0.68646,
+       "auc": 0.5578
+      },
+      "2026": {
+       "ll": 0.68689,
+       "auc": 0.5559
+      }
+     }
+    },
+    "@50": {
+     "ll_mean": 0.68785,
+     "auc_mean": 0.5586,
+     "per_seed": {
+      "42": {
+       "ll": 0.68743,
+       "auc": 0.5586
+      },
+      "7": {
+       "ll": 0.68807,
+       "auc": 0.5582
+      },
+      "2026": {
+       "ll": 0.68804,
+       "auc": 0.559
+      }
+     }
+    },
+    "@75": {
+     "ll_mean": 0.69046,
+     "auc_mean": 0.5576,
+     "per_seed": {
+      "42": {
+       "ll": 0.68995,
+       "auc": 0.5582
+      },
+      "7": {
+       "ll": 0.69111,
+       "auc": 0.5567
+      },
+      "2026": {
+       "ll": 0.69033,
+       "auc": 0.558
+      }
+     }
+    },
+    "@100": {
+     "ll_mean": 0.69256,
+     "auc_mean": 0.5573,
+     "per_seed": {
+      "42": {
+       "ll": 0.69184,
+       "auc": 0.5578
+      },
+      "7": {
+       "ll": 0.69372,
+       "auc": 0.5556
+      },
+      "2026": {
+       "ll": 0.69212,
+       "auc": 0.5586
+      }
+     }
+    }
+   },
+   "gate": "@30 beats shipped @50 by -0.00127 mean (3/3 seeds) - above the 0.001 member gate on the full walk",
+   "seal_folds_70_77": {
+    "@30": {
+     "ll_mean": 0.67967,
+     "auc_mean": 0.5859,
+     "per_seed": {
+      "42": {
+       "ll": 0.67958,
+       "auc": 0.5861
+      },
+      "7": {
+       "ll": 0.67957,
+       "auc": 0.5872
+      },
+      "2026": {
+       "ll": 0.67986,
+       "auc": 0.5845
+      }
+     }
+    },
+    "@50": {
+     "ll_mean": 0.67783,
+     "auc_mean": 0.5881,
+     "per_seed": {
+      "42": {
+       "ll": 0.67848,
+       "auc": 0.5865
+      },
+      "7": {
+       "ll": 0.67822,
+       "auc": 0.5863
+      },
+      "2026": {
+       "ll": 0.67679,
+       "auc": 0.5913
+      }
+     }
+    }
+   },
+   "seal_gate": "@50 beats @30 by -0.00184 mean (3/3 the other way) on the untouched window",
+   "verdict": "SPLIT VERDICT across windows -> window-dependent noise, not a budget effect. UNCHANGED at 50 per the LGBM rounds precedent (tune-gain must survive the seal). Overcooking is real: @75/@100 degrade monotonically."
+  },
+  "B_early_stop_screen": {
+   "design": "probe patience {10, 20, 40} at the deployed block; causal walk + own-median refit, tuning folds 0-69, seed 42",
+   "es10": {
+    "walk_ll": 0.6882196841786005,
+    "walk_auc": 0.5481167979635326,
+    "median_rounds": 16,
+    "refit_ll": 0.6877679671591683,
+    "refit_auc": 0.551905234839792
+   },
+   "es20": {
+    "walk_ll": 0.6874346632689963,
+    "walk_auc": 0.5511355330781321,
+    "median_rounds": 22,
+    "refit_ll": 0.6872490380469097,
+    "refit_auc": 0.5527493274450626
+   },
+   "es40": {
+    "walk_ll": 0.6874601501061087,
+    "walk_auc": 0.5531699756048174,
+    "median_rounds": 26,
+    "refit_ll": 0.6871340843885976,
+    "refit_auc": 0.5543448977427224
+   },
+   "verdict": "es=20 confirmed: clearly better than 10, statistically tied with 40 (refit ll -0.00012, below gate). The shipped patience stands."
+  },
+  "leakage_note": "EARLY_STOP is testable in the causal pipeline: the early-stopped probe is measurement-only, the shipped fold model never sees its own val window, and the round budget ships from PRIOR folds' medians. The instrument was nonetheless kept fixed during the main search and scrutinized only in this addendum, so the search never selected its own measurement noise.",
+  "recorded_utc": "2026-09-29T16:13:34+00:00"
  }
 }
