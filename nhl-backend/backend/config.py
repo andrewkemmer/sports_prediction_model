@@ -371,6 +371,15 @@ XGBOOST_PARAMS = {
 }
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
+# Causal fold-rounds priors (MLB parity, 2026-09-30 PIT remediation): the
+# SHIPPED fold model is refit at the median of PRIOR folds' early-stopped
+# best_iteration measurements (never its own window); these static priors
+# cover fold 0 and degenerate walks with no measurements. MLB's L7 probe
+# measured ~19-26 median rounds at this depth-2 block on comparable
+# geometry, so 50 is a deliberately conservative ceiling above the
+# operating median — the deployed static refit budget.
+XGBOOST_FOLD0_ROUNDS = 50
+XGBOOST_REFIT_ROUNDS = 50
 LIGHTGBM_PARAMS = {
     "n_estimators": 50,
     "max_depth": 6,

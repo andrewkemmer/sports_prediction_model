@@ -628,26 +628,48 @@ def test_moneyline_fold_trainer_runs_all_three_members_with_fold_validation():
 
     fitted = []
 
-    def _fake_member(name, fold=False):
+    def _fake_member(name, fold=False, n_estimators=None, causal=False):
         model = _FakeModel(name)
-        fitted.append((name, fold, model))
+        fitted.append((name, fold, model,
+                       {"fold": fold, "n_estimators": n_estimators,
+                        "causal": causal}))
         return model
 
     with _mock_patch.object(ml_mod, "_make_member", side_effect=_fake_member):
         out = ml_mod.walk_forward_oof(games, fold_list=folds)
 
-    assert len(fitted) == len(folds) * len(config.ENSEMBLE_MEMBERS)
-    assert {name for name, _, _ in fitted} == set(config.ENSEMBLE_MEMBERS)
-    for name, fold, model in fitted:
+    # One SHIPPED model per member per fold, plus one measurement-only
+    # early-stopped xgboost PROBE per fold (causal fold rounds).
+    assert len(fitted) == len(folds) * (len(config.ENSEMBLE_MEMBERS) + 1)
+    assert {name for name, _, _, _ in fitted} == set(config.ENSEMBLE_MEMBERS)
+    for name, fold, model, mk in fitted:
         assert fold is True
         assert len(model.fit_calls) == 1
-        if name == "xgboost":
+        if name == "xgboost" and mk["causal"]:
+            # CAUSAL: the SHIPPED fold model is a FIXED-budget fit with no
+            # eval_set — the window it is scored on never selects it. With
+            # no prior measurements (fakes carry no best_iteration), every
+            # fold ships at the static fold-0 prior.
+            assert "eval_set" not in model.fit_calls[0]
+            assert mk["n_estimators"] == config.XGBOOST_FOLD0_ROUNDS
+        elif name == "xgboost":
+            # The MEASUREMENT probe: early-stopped ON the val window by
+            # design — but it is never scored; only its best_iteration is
+            # read, and that value may only inform STRICTLY LATER folds.
             assert "eval_set" in model.fit_calls[0]
         elif name == "lightgbm":
             assert "eval_set" in model.fit_calls[0]
             assert model.fit_calls[0]["categorical_feature"] == config.TREE_CATEGORICAL_COLS
         else:
             assert "eval_set" not in model.fit_calls[0]
+    shipped_xgb = [mk for name, _, _, mk in fitted
+                   if name == "xgboost" and mk["causal"]]
+    probes = [mk for name, _, _, mk in fitted
+              if name == "xgboost" and not mk["causal"]]
+    assert len(shipped_xgb) == len(folds)
+    assert len(probes) == len(folds), (
+        "exactly one measurement-only early-stopped probe per fold; the "
+        "probe's best_iteration may only inform strictly later folds")
     assert set(f"p_{n}" for n in config.ENSEMBLE_MEMBERS) <= set(out["oof"].columns)
 
 
@@ -670,7 +692,7 @@ def test_moneyline_blend_uses_prior_fold_weights_only():
 
     calls = []
 
-    def _fake_member(name, fold=False):
+    def _fake_member(name, fold=False, n_estimators=None, causal=False):
         return _FixedModel(name)
 
     def _fake_optimizer(members, y):
@@ -688,6 +710,71 @@ def test_moneyline_blend_uses_prior_fold_weights_only():
     second = oof[oof["fold_id"] == folds[1].fold_id]["p_ensemble"].to_numpy()
     np.testing.assert_allclose(first, 0.5, atol=1e-7)
     np.testing.assert_allclose(second, 0.8, atol=1e-7)
+
+
+def test_causal_xgb_rounds_selection_rule():
+    """Shipped round budget comes from PRIOR measurements only: median of
+    the measured best-iterations (even length: averaged, deterministic),
+    static config priors otherwise, zeros/invalids filtered — never the
+    scored window's own best_iteration."""
+    assert ml_mod.causal_xgb_rounds([]) == config.XGBOOST_FOLD0_ROUNDS
+    assert ml_mod.causal_xgb_rounds([21, 19, 26]) == 21
+    assert ml_mod.causal_xgb_rounds([19, 26]) == (19 + 26) // 2
+    assert ml_mod.causal_xgb_rounds([0, 30]) == 30, "invalid measurements filter out"
+    assert ml_mod.causal_xgb_rounds([0, 0]) == config.XGBOOST_REFIT_ROUNDS, (
+        "all-invalid measurements fall to the static refit prior, never 0")
+
+
+def test_causal_rounds_shipped_budget_uses_strictly_prior_folds_only():
+    """Each fold's early-stopped probe MEASURES; the shipped fold model is
+    refit at the median of STRICTLY PRIOR measurements. With probes reading
+    41, 42, 43, ... the shipped budgets must walk [50, 41, 41, 42] — a
+    fold's own val window never selects its own rounds (2a9554b measured
+    the val-selected variant flattering OOF by ~0.011 logloss / ~0.04 AUC
+    on MLB's geometry; this pin keeps the NHL port honest)."""
+    games = feat_mod.build_game_features(_synth_games(n_days=60))
+    folds = folds_mod.make_folds(games, date_col="gameday")[:4]
+
+    shipped_budgets: list[int] = []
+    probe_measurements = iter(range(41, 41 + 64))
+
+    class _ShippedXGB:
+        def fit(self, X, y, **kwargs):
+            return self
+
+        def predict_proba(self, X):
+            p = np.full(len(X), 0.5, dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    class _ProbeXGB:
+        def __init__(self):
+            self.best_iteration = next(probe_measurements) - 1
+
+        def fit(self, X, y, **kwargs):
+            return self
+
+    class _Other:
+        def fit(self, X, y, **kwargs):
+            return self
+
+        def predict_proba(self, X):
+            p = np.full(len(X), 0.5, dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    def _fake_member(name, fold=False, n_estimators=None, causal=False):
+        if name != "xgboost":
+            return _Other()
+        if causal:
+            shipped_budgets.append(int(n_estimators))
+            return _ShippedXGB()
+        return _ProbeXGB()
+
+    with _mock_patch.object(ml_mod, "_make_member", side_effect=_fake_member):
+        ml_mod.walk_forward_oof(games, fold_list=folds)
+
+    assert shipped_budgets == [config.XGBOOST_FOLD0_ROUNDS, 41, 41, 42], (
+        "fold k's shipped budget must be the median of folds 0..k-1's "
+        "measurements — its own window must not appear in that median")
 
 
 # ---------------------------------------------------------------------------

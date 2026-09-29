@@ -69,21 +69,61 @@ class TrainFoldPreprocessor:
 # ---------------------------------------------------------------------------
 # Members
 # ---------------------------------------------------------------------------
-def _make_member(name: str, fold: bool = False):
+# CAUSAL FOLD ROUNDS (ported from MLB's 2026-09-30 PIT remediation):
+# each fold's early-stopped probe is a MEASUREMENT ONLY — its best_iteration
+# enters this list and informs STRICTLY LATER folds. The SHIPPED fold model
+# is refit without any eval_set at the median of PRIOR folds' measurements,
+# so the window that gets scored never selects the model that scores it.
+# 2a9554b measured the alternative on MLB's exact geometry: rounds selected
+# on the scored window flattered the OOF by ~0.011 logloss / ~0.04 AUC.
+_LAST_XGB_BEST_ROUNDS: list[int] = []
+
+
+def causal_xgb_rounds(prior_bests: list[int]) -> int:
+    """Shipped round count for a fold from PRIOR measurements only.
+
+    Median of the given best-iteration list (even length: lower median,
+    kept simple and deterministic); falls back to the config priors when no
+    measurements exist. Pure function so the tests pin the selection rule.
+    """
+    if not prior_bests:
+        return config.XGBOOST_FOLD0_ROUNDS
+    s = sorted(int(b) for b in prior_bests if b and int(b) > 0)
+    if not s:
+        return config.XGBOOST_REFIT_ROUNDS
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) // 2
+
+
+def _make_member(name: str, fold: bool = False,
+                 n_estimators: int | None = None,
+                 causal: bool = False):
     """Construct one configured member, optionally with MLB fold settings.
 
     Fold XGBoost receives the same generous round ceiling and early-stopping
     window as MLB. The fit-only production refit deliberately uses the base
     parameter set and therefore has no validation dependency.
+
+    ``n_estimators`` overrides the xgboost round budget (the causal fold
+    refit ships the prior-folds' median of measured rounds instead of the
+    2000-round early-stop ceiling); ``causal=True`` drops
+    early_stopping_rounds entirely — the shipped fold model is a FIXED-budget
+    fit with no eval_set dependency, so it cannot be steered by its own
+    validation window.
     """
     if name == "xgboost":
         from xgboost import XGBClassifier
         params = dict(config.XGBOOST_PARAMS)
         if fold:
-            params.update(
-                n_estimators=config.XGBOOST_FOLD_ROUNDS,
-                early_stopping_rounds=config.XGBOOST_EARLY_STOP,
-            )
+            params["n_estimators"] = (config.XGBOOST_FOLD_ROUNDS
+                                      if n_estimators is None
+                                      else int(n_estimators))
+            if causal:
+                params.pop("early_stopping_rounds", None)
+            else:
+                params["early_stopping_rounds"] = config.XGBOOST_EARLY_STOP
+        elif n_estimators is not None:
+            params["n_estimators"] = int(n_estimators)
         return XGBClassifier(**params)
     if name == "lightgbm":
         from lightgbm import LGBMClassifier
@@ -171,6 +211,9 @@ def walk_forward_oof(game_df: pd.DataFrame,
     oof_members: dict[str, list[float]] = {n: [] for n in config.ENSEMBLE_MEMBERS}
     oof_y: list[float] = []
     _last_weights: dict[str, float] = dict(prior_weights)
+    # Reset the causal fold-rounds ledger so repeated walks in one process
+    # (tests, dashboards, retunes) never carry measurements across runs.
+    _LAST_XGB_BEST_ROUNDS.clear()
 
     n_folds = len(fold_list)
     # Cadence and the final-fold guarantee live in folds.progress_checkpoints:
@@ -189,29 +232,53 @@ def walk_forward_oof(game_df: pd.DataFrame,
         for name in config.ENSEMBLE_MEMBERS:
             X_tr_raw = member_matrix(name, train)
             X_va_raw = member_matrix(name, val)
+            refit_rounds: int | None = None
             if name in LINEAR_MEMBERS:
                 pre = TrainFoldPreprocessor().fit(X_tr_raw)
             else:
                 pre = None
+                if name == "xgboost":
+                    # CAUSAL FOLD ROUNDS (MLB's 2026-09-30 PIT remediation,
+                    # ported): the fold's own val window must never select
+                    # the model that scores it. The shipped model below is
+                    # refit at the median of PRIOR folds' measured rounds.
+                    refit_rounds = causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
             try:
-                model = _make_member(name, fold=True)
+                model = _make_member(name, fold=True,
+                                     n_estimators=refit_rounds,
+                                     causal=bool(refit_rounds is not None))
                 X_tr = member_fit_input(name, X_tr_raw, pre)
                 X_va = member_fit_input(name, X_va_raw, pre)
                 fit_kwargs = {}
                 if name == "xgboost":
-                    # MLB parity: the validation window selects the boosting
-                    # iteration count only; it is never part of fit rows.
-                    fit_kwargs = {
-                        "eval_set": [(X_va, y_val)],
-                        "verbose": False,
-                    }
+                    # The SHIPPED fold model: FIXED round budget from strictly
+                    # prior folds, no eval_set — it cannot be steered by the
+                    # window it is about to be scored on.
+                    fit_kwargs = {"verbose": False}
                 elif name == "lightgbm":
                     # MLB supplies the same fold evaluation set to LightGBM.
+                    # (Inert for round selection: LIGHTGBM_PARAMS has no
+                    # early stopping, so nothing is tuned on the window.)
                     fit_kwargs = {
                         "eval_set": [(X_va, y_val)],
                         "categorical_feature": config.TREE_CATEGORICAL_COLS,
                     }
                 model.fit(X_tr, y_train, **fit_kwargs)
+                if name == "xgboost":
+                    # The early-stopped probe runs AFTER the shipped fit and
+                    # is a MEASUREMENT ONLY: its best_iteration enters the
+                    # causal list and informs strictly LATER folds (never
+                    # this one). The probe is never scored.
+                    probe = _make_member(name, fold=True)
+                    probe.fit(X_tr, y_train, eval_set=[(X_va, y_val)],
+                              verbose=False)
+                    # Missing best_iteration (a stubbed probe) is NOT a
+                    # measurement: 0+1 would fabricate a 1-round fold and
+                    # poison every later fold's median.
+                    _best = getattr(probe, "best_iteration", None)
+                    if _best is not None and int(_best) >= 0:
+                        _LAST_XGB_BEST_ROUNDS.append(int(_best) + 1)
+                    del probe
                 member_p[name] = _member_predict_proba(model, name, X_va_raw, pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("fold %s member %s failed: %s",
