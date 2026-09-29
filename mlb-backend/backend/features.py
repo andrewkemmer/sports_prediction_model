@@ -247,6 +247,86 @@ _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
                 AND (i.il_end IS NULL OR CAST(p.game_date AS DATE)
                      < CAST(i.il_end AS DATE)))"""
 
+# ── SP staleness gate (2026-09-30) ──────────────────────────────────────
+# Same directive and mechanism as the bullpen availability filter, applied
+# to the STARTING-PITCHER stat chain. The SP family prices each starter's
+# OWN prior appearances (LAG-shifted), so a starter returning from a long
+# availability stint shipped his PRE-STINT cumulative form with nothing
+# marking the interruption. Measured 2024-2026 (appearance-level, ledger
+# reconciled): return appearances after a >=14d stint-crossing gap —
+# K/9 8.49 / WHIP 1.450 / xwOBA .318 vs 8.82 / 1.317 / .301 on normal 3-7d
+# rotation rest; at MATCHED 8-13d rest, stint-returners K/9 7.94 vs 8.70
+# without a stint and WHIP +0.066 vs matched >=14d no-stint controls (the
+# stint, not the rest, drives the drop); 331 of 4,858 2026 starter slots
+# carried a >=14d gap, 201 of them availability returns (in-season long
+# gaps are ~94% returns). Fix: an appearance whose gap to the pitcher's
+# previous appearance is >= _SP_STALE_GAP_DAYS AND overlaps an availability
+# stint is STALE — every SP stat derived from that appearance ships NULL
+# (the model prices that start on team-level evidence); all other rows are
+# byte-identical. Gates the per-pitcher SOURCES (pitcher_season_features,
+# pitcher_features, pitcher_stuff) so the whole served SP family inherits
+# it: sp_era/k9 (season to date), sp_era_5g/k9_5g (last 5),
+# sp_bb9/whip/fip/xwoba (trailing-6-appearance window), sp_fbvelo/fbpct/
+# whiff_3g and sp_xwoba_vs_l/r. The exp2 SP-category chain is date-level
+# ASOF season-to-date feeding candidate-only columns — out of scope.
+# Ledger taxonomy: the SAME generalized availability definition as the
+# bullpen filter (IL + paternity + bereavement/family medical + restricted
+# + administrative leave + suspension + optioned/reassigned) — non-medical
+# leaves included by construction.
+# 10 days: the measured quality jump sits at >=14d gaps; 7-day IL and
+# paternity stints resume within the normal rotation band (5-day turns,
+# 8-13d holds), so 10 separates availability returns from routine turns
+# without gating them.
+# Missing ledger degrades LOUDLY to no-gating (exact pre-gate semantics).
+_SP_STALE_GAP_DAYS = 10
+
+
+def _register_sp_staleness_gate(con) -> bool:
+    """Flag per-appearance rows whose prior-appearance gap crosses an
+    availability stint (see _SP_STALE_GAP_DAYS). Builds the TEMP table
+    ``pitcher_stale`` (game_date, game_pk, pitcher, sp_stale) consumed by
+    the per-pitcher feature tables; False (loudly) when the ledger is
+    absent — consumers then join an EMPTY gate table, i.e. no gating."""
+    ok = _register_il_stints_pitchers(con)
+    if not ok:
+        con.execute("""
+            CREATE OR REPLACE TEMP TABLE pitcher_stale AS
+            SELECT * FROM (SELECT
+                CAST(NULL AS DATE) AS game_date,
+                CAST(NULL AS BIGINT) AS game_pk,
+                CAST(NULL AS BIGINT) AS pitcher,
+                FALSE AS sp_stale) WHERE FALSE
+        """)
+        return False
+    con.execute(f"""
+        CREATE OR REPLACE TEMP TABLE pitcher_stale AS
+        WITH app AS (
+            SELECT game_date, game_pk, pitcher,
+                LAG(game_date) OVER wprev AS prev_date,
+                date_diff('day', LAG(game_date) OVER wprev, game_date)
+                    AS gap_days
+            FROM pitcher_game_stats
+            WINDOW wprev AS (PARTITION BY pitcher
+                             ORDER BY game_date, game_pk)
+        )
+        SELECT game_date, game_pk, pitcher,
+            COALESCE(gap_days >= {_SP_STALE_GAP_DAYS}, FALSE)
+              AND EXISTS (SELECT 1 FROM il_stints_pitchers i
+                          WHERE i.batter = app.pitcher
+                            AND CAST(i.il_start AS DATE) <= app.game_date
+                            AND (i.il_end IS NULL
+                                 OR CAST(i.il_end AS DATE) >= app.prev_date)
+                         ) AS sp_stale
+        FROM app
+    """)
+    n, n_stale = con.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN sp_stale THEN 1 ELSE 0 END) "
+        "FROM pitcher_stale").fetchone()
+    logger.info("SP staleness gate: %d appearance rows, %d flagged stale "
+                "(gap >= %dd overlapping an availability stint)",
+                n, n_stale or 0, _SP_STALE_GAP_DAYS)
+    return True
+
 
 
 def export_bullpen_availability(con, day) -> "pd.DataFrame | None":
@@ -771,10 +851,20 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
     """)
     con.execute("""
         CREATE TABLE pitcher_stuff AS
-        SELECT game_date, game_pk, pitcher,
-            AVG(_s_fb_velo) OVER w3 AS sp_fbvelo_3g,
-            AVG(_s_fb_pct) OVER w3 AS sp_fbpct_3g,
-            SUM(_s_whiffs) OVER w3 / NULLIF(SUM(_s_n) OVER w3, 0) AS sp_whiff_3g,
+        SELECT pitcher_stuff_raw.game_date, pitcher_stuff_raw.game_pk,
+               pitcher_stuff_raw.pitcher,
+            -- SP staleness gate: same NULLing rule as the other SP sources.
+            -- sp_xwoba_vs_l/r (season-partitioned cumulative) and the
+            -- season-to-date *_std stuff baselines are left ungated: they
+            -- feed candidate-only momentum/diff plumbing, not the served
+            -- per-side SP columns.
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE AVG(_s_fb_velo) OVER w3 END AS sp_fbvelo_3g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE AVG(_s_fb_pct) OVER w3 END AS sp_fbpct_3g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE SUM(_s_whiffs) OVER w3
+                      / NULLIF(SUM(_s_n) OVER w3, 0) END AS sp_whiff_3g,
             AVG(_s_xl) OVER wall AS sp_xwoba_vs_l,
             AVG(_s_xr) OVER wall AS sp_xwoba_vs_r,
             -- Season-to-date stuff baselines (season-partitioned LAG twins,
@@ -784,6 +874,10 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
             AVG(_s_fb_pct_s) OVER wall AS sp_fbpct_std,
             SUM(_s_whiffs_s) OVER wall / NULLIF(SUM(_s_n_s) OVER wall, 0) AS sp_whiff_std
         FROM pitcher_stuff_raw
+        LEFT JOIN pitcher_stale st
+               ON pitcher_stuff_raw.game_date = st.game_date
+              AND pitcher_stuff_raw.game_pk = st.game_pk
+              AND pitcher_stuff_raw.pitcher = st.pitcher
         WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
                wall AS (PARTITION BY pitcher, season ORDER BY game_date
@@ -965,6 +1059,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         GROUP BY game_date, game_pk, pitcher
     """)
 
+    # SP staleness gate (see _SP_STALE_GAP_DAYS): flags appearance rows whose
+    # prior-appearance gap crosses an availability stint, BEFORE any SP
+    # window forms. Built from pitcher_game_stats, which is exactly the row
+    # set every SP feature LAGs over.
+    _register_sp_staleness_gate(con)
+
     con.execute("""
         CREATE TABLE pitcher_shifted AS
         SELECT *,
@@ -1044,14 +1144,24 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         SELECT psr.game_date, psr.game_pk, psr.pitcher,
             -- True season-to-date ERA / K/9 (through the prior in-season
             -- starts only; NULL for a season's opening start).
-            psr._s_runs_s / NULLIF(psr._s_ip_s, 0) * 9.0 AS sp_era,
-            psr._s_ks_s / NULLIF(psr._s_ip_s, 0) * 9.0 AS sp_k9,
+            -- SP staleness gate: a row whose prior-appearance gap crossed an
+            -- availability stint ships NULL — pre-stint form must not be
+            -- quoted as tonight's form (2026-09-30, no-new-features).
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE psr._s_runs_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_era,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE psr._s_ks_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_k9,
             -- Last-5-start ERA / K/9 across seasons (no start-count guard).
-            p5._roll5_runs / NULLIF(p5._roll5_ip, 0) * 9.0 AS sp_era_5g,
-            p5._roll5_ks / NULLIF(p5._roll5_ip, 0) * 9.0 AS sp_k9_5g
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE p5._roll5_runs / NULLIF(p5._roll5_ip, 0) * 9.0 END AS sp_era_5g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE p5._roll5_ks / NULLIF(p5._roll5_ip, 0) * 9.0 END AS sp_k9_5g
         FROM pitcher_season_rolling psr
         LEFT JOIN pitcher_5g_rolling p5
                ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
+        LEFT JOIN pitcher_stale st
+               ON psr.game_date = st.game_date AND psr.game_pk = st.game_pk
+              AND psr.pitcher = st.pitcher
     """)
 
     # Season-to-date SP bb9/WHIP/xwOBA baselines — the momentum companion
@@ -1085,13 +1195,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
 
     con.execute("""
         CREATE TABLE pitcher_features AS
-        SELECT game_date, game_pk, pitcher,
-            _roll_bbs / NULLIF(_roll_ip, 0) * 9.0 AS sp_bb9_30g,
-            (_roll_bbs + _roll_hits) / NULLIF(_roll_ip, 0) AS sp_whip_30g,
-            (13 * _roll_hrs + 3 * (_roll_bbs + _roll_hbps) - 2 * _roll_ks)
-                / NULLIF(_roll_ip, 0) AS sp_fip_30g,
-            _roll_xwoba AS sp_xwoba_30g
+        SELECT pitcher_rolling.game_date, pitcher_rolling.game_pk,
+               pitcher_rolling.pitcher,
+            -- SP staleness gate: same NULLing rule as pitcher_season_features.
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE _roll_bbs / NULLIF(_roll_ip, 0) * 9.0 END AS sp_bb9_30g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE (_roll_bbs + _roll_hits) / NULLIF(_roll_ip, 0) END AS sp_whip_30g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE (13 * _roll_hrs + 3 * (_roll_bbs + _roll_hbps) - 2 * _roll_ks)
+                      / NULLIF(_roll_ip, 0) END AS sp_fip_30g,
+            CASE WHEN st.sp_stale THEN NULL
+                 ELSE _roll_xwoba END AS sp_xwoba_30g
         FROM pitcher_rolling
+        LEFT JOIN pitcher_stale st
+               ON pitcher_rolling.game_date = st.game_date
+              AND pitcher_rolling.game_pk = st.game_pk
+              AND pitcher_rolling.pitcher = st.pitcher
     """)
 
     # 6. Team offense rolling features
@@ -2368,7 +2488,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
 
     for tbl in (
         "game_winners", "starters", "venues", "rest_days",
-        "pa_boundary", "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling",
+        "pa_boundary",        "pitcher_game_stats", "pitcher_stale", "pitcher_shifted", "pitcher_rolling",
         "pitcher_shifted_season", "pitcher_season_rolling", "pitcher_5g_rolling",
         "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",

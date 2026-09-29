@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -27,6 +28,24 @@ from config import (
     SP_K9_WINDOW,
     WOBA_WINDOW,
 )
+
+# SP staleness gate (2026-09-30) — the slate half of the features.py
+# per-appearance gate (_SP_STALE_GAP_DAYS): the upcoming slate carries each
+# announced probable starter's LATEST strictly-prior stat line, and that
+# picker SKIPS NULL rows (it must, for TBD/unresolved sides) — so a starter
+# fresh off a long availability stint would fall back to his PRE-STINT line
+# even though the historical build correctly nulled his return-start row.
+# Measured 2024-2026: return appearances after a >=14d stint-crossing gap
+# run ~-0.3 K/9 / +0.13 WHIP / +.017 xwOBA worse than normal rotation, and
+# at MATCHED 8-13d rest stint-returners K/9 7.94 vs 8.70 without a stint.
+# An announced starter whose LATEST pre-slate appearance is >= the gap after
+# his previous one AND overlaps a generalized-availability stint (same
+# ledger taxonomy as the bullpen filter: IL + paternity + bereavement/family
+# + restricted + administrative leave + suspension + optioned/reassigned)
+# has his SP columns LEFT AS NaN for that slot — the model prices that side
+# on team-level evidence, exactly like the per-side unresolved path.
+# Missing inputs degrade LOUDLY to no-gating (never a silent change).
+_SP_SLATE_STALE_GAP_DAYS = 10
 
 logger = logging.getLogger(__name__)
 
@@ -1393,6 +1412,92 @@ def _latest_exp2_team_state(hist: pd.DataFrame,
     return state
 
 
+def _sp_slate_stale_ids(target_date: date,
+                        pbp_df: Optional[pd.DataFrame]) -> set:
+    """Pitcher ids whose LATEST pre-slate appearance is a stale (post-stint)
+    return entering ``target_date`` (see _SP_SLATE_STALE_GAP_DAYS above).
+
+    Uses the SAME two inputs the per-appearance gate in features.py uses —
+    the pbp frame build_upcoming_slate already carries (per-appearance rows)
+    and the pitcher availability ledger — judged per pitcher on his LATEST
+    appearance before the slate date only: an older return followed by
+    normal starts is already healed. pbp_df absent (synthetic-history runs
+    and tests) or any failure degrades LOUDLY to an empty set (no gating) —
+    never raises, so a broken input can never blank the board.
+    """
+    def _empty(reason: str) -> set:
+        logger.warning(
+            "SP slate staleness gate unavailable (%s) — no gating applied "
+            "to the slate's SP features", reason)
+        return set()
+
+    if pbp_df is None or pbp_df.empty:
+        return _empty("no pbp frame available")
+    need = {"game_date", "game_pk", "pitcher", "events"}
+    if not need.issubset(pbp_df.columns):
+        return _empty(f"pbp frame lacks columns {sorted(need)}")
+    try:
+        import duckdb
+        from features import PA_END_EVENTS, _lineup_base_dir, \
+            IL_STINTS_PITCHERS_FILE
+        ledger = _lineup_base_dir() / IL_STINTS_PITCHERS_FILE
+        if not ledger.exists():
+            return _empty("availability ledger missing")
+        con = duckdb.connect()
+        try:
+            con.register("pitches", pbp_df)
+            con.execute(
+                "CREATE TABLE il_stints_pitchers AS "
+                f"SELECT * FROM read_parquet('{ledger}')")
+            rows = con.execute(f"""
+                WITH pgs AS (
+                    SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                           pitcher
+                    FROM pitches
+                    WHERE events IN ({PA_END_EVENTS}) AND pitcher IS NOT NULL
+                    GROUP BY 1, 2, 3
+                ),
+                app AS (
+                    SELECT game_date, game_pk, pitcher,
+                        LAG(game_date) OVER wprev AS prev_date,
+                        date_diff('day', LAG(game_date) OVER wprev,
+                                  game_date) AS gap_days
+                    FROM pgs
+                    WINDOW wprev AS (PARTITION BY pitcher
+                                     ORDER BY game_date, game_pk)
+                ),
+                latest AS (
+                    SELECT *, ROW_NUMBER() OVER (
+                                 PARTITION BY pitcher
+                                 ORDER BY game_date DESC, game_pk DESC) AS rn
+                    FROM app
+                    WHERE game_date < CAST(? AS DATE)
+                )
+                SELECT DISTINCT pitcher
+                FROM latest
+                WHERE rn = 1
+                  AND gap_days >= {_SP_SLATE_STALE_GAP_DAYS}
+                  AND EXISTS (
+                      SELECT 1 FROM il_stints_pitchers i
+                      WHERE i.batter = latest.pitcher
+                        AND CAST(i.il_start AS DATE) <= latest.game_date
+                        AND (i.il_end IS NULL
+                             OR CAST(i.il_end AS DATE) >= latest.prev_date))
+            """, [pd.Timestamp(target_date)]).fetchall()
+        finally:
+            con.close()
+        stale = {int(r[0]) for r in rows}
+        if stale:
+            logger.warning(
+                "SP slate staleness gate: %d pitcher(s) enter %s off a "
+                ">=%dd availability-stint gap — announced starters among "
+                "them have their carried SP lines withheld (pre-stint form)",
+                len(stale), target_date, _SP_SLATE_STALE_GAP_DAYS)
+        return stale
+    except Exception as e:  # noqa: BLE001
+        return _empty(str(e))
+
+
 def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
     """pitcher_id → {sp_* feature base: latest non-null value across starts}.
 
@@ -1598,6 +1703,10 @@ def build_upcoming_slate(
     exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
+    # SP staleness gate: pitchers whose latest pre-slate appearance is a
+    # post-stint return have their carried SP lines withheld below (the
+    # "latest non-null" picker would otherwise serve their pre-stint form).
+    sp_stale_ids = _sp_slate_stale_ids(target_date, pbp_df)
     unresolved_slots: list[tuple[Any, str]] = []
 
     # ESPN name → Statcast pitcher id (latest mapping wins)
@@ -1754,6 +1863,17 @@ def build_upcoming_slate(
             if pid is None:
                 pid = name_to_id.get(_norm_player_name(row[f"sp_name_{side}"]))
             if pid is None:
+                continue
+            if pid in sp_stale_ids:
+                logger.warning(
+                    "SP staleness gate: %s-side probable starter %s (%s) last "
+                    "pitched >=%dd before %s across an availability stint — "
+                    "his carried SP lines are withheld (pre-stint form); that "
+                    "side prices on team-level evidence",
+                    side, row.get(f"sp_name_{side}"), pid,
+                    _SP_SLATE_STALE_GAP_DAYS, target_date)
+                unresolved_slots.append(
+                    (row.get("game_id"), f"{side} (stale return)"))
                 continue
             for base, val in pitcher_state.get(pid, {}).items():
                 row[f"{base}_{side}"] = val

@@ -474,3 +474,179 @@ def test_pitcher_builder_reconciles_and_splits(tmp_path):
                    [], ["2026-06-01", "2026-06-09"])
     iv2, _ = m.build_pitcher_stints(tx, pbp2, pd.Timestamp("2026-06-30"))
     assert iv2.iloc[0]["il_end"] is pd.NaT or pd.isna(iv2.iloc[0]["il_end"])
+
+
+# ── SP staleness gate (2026-09-30): the starting-pitcher analogue ───────────
+# Same directive: availability enters the SP stat chain as an IN-FILTER, not
+# new features. An appearance whose gap to the pitcher's previous appearance
+# is >= _SP_STALE_GAP_DAYS AND overlaps a generalized-availability stint is
+# STALE — every SP stat sourced from that appearance ships NULL, and the
+# upcoming slate withholds a stale return starter's carried line entirely.
+
+
+def _mk_ledger(tmp_path, rows):
+    p = tmp_path / "il_stints_pitchers.parquet"
+    pd.DataFrame(rows).to_parquet(p, index=False)
+    return p
+
+
+def test_sp_gate_flags_post_stint_return_not_normal_turns(tmp_path):
+    # pitcher 101: 06-01 app, stint 06-03..06-25, 06-20 app -> gap 19d
+    # overlapping the stint -> STALE. Pitcher 202: identical calendar, no
+    # stint -> the 19d rest is NOT an availability fact. Pitcher 303: open
+    # stint from 06-05 but only a 5d turn (06-01, 06-06) -> within normal
+    # rotation band, not gated.
+    from datetime import date as _d  # noqa: F401  (symmetry with slate tests)
+    games = pd.DataFrame({
+        "game_date": pd.to_datetime(
+            ["2026-06-01", "2026-06-20", "2026-06-01", "2026-06-20",
+             "2026-06-01", "2026-06-06"]),
+        "game_pk": [1, 2, 3, 4, 5, 6],
+        "pitcher": [101, 101, 202, 202, 303, 303],
+    })
+    ilp = pd.DataFrame({
+        "batter": [101, 303],
+        "il_start": [pd.Timestamp("2026-06-03"), pd.Timestamp("2026-06-05")],
+        "il_end": [pd.Timestamp("2026-06-25"), pd.NaT],
+    })
+    _mk_ledger(tmp_path, ilp)
+    con = duckdb.connect(database=":memory:")
+    with patch_ledger_dir(tmp_path):
+        con.register("pgs_reg", games)
+        con.execute("CREATE TABLE pitcher_game_stats AS "
+                    "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                    "pitcher FROM pgs_reg")
+        assert features._register_sp_staleness_gate(con) is True
+        rows = {r[0]: r[1] for r in con.execute(
+            "SELECT game_pk, sp_stale FROM pitcher_stale").fetchall()}
+    assert rows[2] is True    # 101 return: gap 19d across the stint
+    assert rows[1] is False   # 101 pre-stint start stays available
+    assert rows[3] is False and rows[4] is False  # rest control: no stint
+    assert rows[5] is False and rows[6] is False
+
+
+def test_sp_gate_missing_ledger_degrades_loudly_and_ungated(tmp_path, caplog):
+    import logging
+    games = pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-06-01", "2026-06-20"]),
+        "game_pk": [1, 2], "pitcher": [101, 101],
+    })
+    con = duckdb.connect(database=":memory:")
+    with patch_ledger_dir(tmp_path):  # dir WITHOUT the ledger parquet
+        caplog.set_level(logging.WARNING)
+        con.register("pgs_reg", games)
+        con.execute("CREATE TABLE pitcher_game_stats AS "
+                    "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                    "pitcher FROM pgs_reg")
+        assert features._register_sp_staleness_gate(con) is False
+        assert any("degrades" in r.message or "missing" in r.message
+                   for r in caplog.records)
+        # empty gate table: every consumer LEFT JOIN yields NULL sp_stale,
+        # i.e. the exact pre-gate (ungated) semantics
+        n, stale = con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN sp_stale THEN 1 "
+            "ELSE 0 END), 0) FROM pitcher_stale").fetchone()
+    assert n == 0 and stale == 0
+
+
+def test_slate_withholds_stale_return_starter(tmp_path, caplog):
+    """End-to-end: the upcoming slate must NOT serve a stale return starter's
+    pre-stint carried line (the latest-non-null picker would), while a
+    healthy announced starter carries normally."""
+    import logging
+    from data_ingestion import build_upcoming_slate
+    from datetime import date
+    # pbp frame: 101's latest app is a 16d-gap return inside his stint;
+    # 202's latest app is a normal 6d turn.
+    pbp = pd.DataFrame({
+        "game_date": pd.to_datetime(
+            ["2026-05-20", "2026-06-05", "2026-06-20", "2026-06-26"]),
+        "game_pk": [1, 2, 3, 4],
+        "pitcher": [101, 101, 202, 202],
+        "events": ["strikeout"] * 4,
+    })
+    ilp = pd.DataFrame({
+        "batter": [101],
+        "il_start": [pd.Timestamp("2026-05-22")],
+        "il_end": [pd.NaT],  # returned via paperwork the feed never filed
+    })
+    _mk_ledger(tmp_path, ilp)
+    hist = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-06-26"),
+        "game_id": "20260626_AWAY@HOME", "home_team": "HOME",
+        "away_team": "AWAY", "home_win": 1.0, "home_score": 5,
+        "away_score": 3, "home_starter_id": 101, "away_starter_id": 202,
+        "sp_k9_home": 8.0, "sp_k9_away": 7.0,
+        "sp_era_home": 3.0, "sp_era_away": 4.0,
+    }])
+    schedule = pd.DataFrame([{
+        "game_id": "20260628_AWAY@HOME", "game_date": "2026-06-28",
+        "start_time_utc": "2026-06-28T18:00:00", "home_team": "HOME",
+        "away_team": "AWAY", "venue": "Test Park", "sp_id_home": 101,
+        "sp_id_away": 202, "sp_name_home": "Return Ace",
+        "sp_name_away": "Healthy Arm",
+    }])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+    with patch_ledger_dir(tmp_path):
+        caplog.set_level(logging.WARNING)
+        slate = build_upcoming_slate(hist, date(2026, 6, 28), pbp_df=pbp,
+                                     schedule_df=schedule)
+    assert len(slate) == 1
+    # stale return: SP columns withheld (NaN), team evidence still priced
+    assert pd.isna(slate.loc[0, "sp_k9_home"])
+    assert pd.isna(slate.loc[0, "sp_era_home"])
+    # healthy starter: carried line intact
+    assert slate.loc[0, "sp_k9_away"] == 7.0
+    assert slate.loc[0, "sp_era_away"] == 4.0
+    assert any("stale" in r.message.lower() for r in caplog.records)
+
+
+def test_no_pbp_frame_degrades_slate_gate_inertly(caplog):
+    """Synthetic-history runs and pbp-less tests must keep working with the
+    gate loudly inert (no gating, no exception, slate still built)."""
+    import logging
+    from data_ingestion import build_upcoming_slate
+    from datetime import date
+    hist = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-06-26"),
+        "game_id": "20260626_AWAY@HOME", "home_team": "HOME",
+        "away_team": "AWAY", "home_win": 1.0, "home_score": 5,
+        "away_score": 3, "home_starter_id": 101, "away_starter_id": 202,
+        "sp_k9_home": 8.0, "sp_k9_away": 7.0,
+    }])
+    schedule = pd.DataFrame([{
+        "game_id": "20260628_AWAY@HOME", "game_date": "2026-06-28",
+        "start_time_utc": "2026-06-28T18:00:00", "home_team": "HOME",
+        "away_team": "AWAY", "venue": "Test Park", "sp_id_home": 101,
+        "sp_id_away": 202, "sp_name_home": "H", "sp_name_away": "A",
+    }])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+    caplog.set_level(logging.WARNING)
+    slate = build_upcoming_slate(hist, date(2026, 6, 28),
+                                 schedule_df=schedule)
+    assert len(slate) == 1
+    assert slate.loc[0, "sp_k9_home"] == 8.0  # carried: gate did not fire
+    assert any("SP slate staleness gate unavailable" in r.message
+               for r in caplog.records)
+
+
+def test_sp_gate_is_infilter_only_and_wired_upstream():
+    """No new serving columns; the gate table is built before the first SP
+    window and consumed by all three per-pitcher sources; cleanup drops it."""
+    cols = training.MONEYLINE_FEATURE_COLS
+    assert len(cols) == 101
+    assert not [c for c in cols if "stale" in c or "gap" in c]
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+    # orchestrator: gate built from pitcher_game_stats BEFORE pitcher_shifted
+    assert src.index("_register_sp_staleness_gate(con)") < src.index(
+        "CREATE TABLE pitcher_shifted AS")
+    # all three per-pitcher sources consume the gate
+    for tbl in ("pitcher_season_features", "pitcher_features",
+                "pitcher_stuff"):
+        seg = src[src.index(f"CREATE TABLE {tbl} AS"):]
+        assert "LEFT JOIN pitcher_stale st" in seg[:2000], tbl
+        assert "CASE WHEN st.sp_stale THEN NULL" in seg[:2000], tbl
+    # cleanup list drops the gate table
+    assert '"pitcher_stale"' in src
