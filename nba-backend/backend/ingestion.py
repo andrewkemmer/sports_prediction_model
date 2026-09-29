@@ -107,6 +107,13 @@ SLICE_DAYS_ENV = "NBA_SLICE_DAYS"
 #: timeout costs two minutes of a budget that is itself bounded.
 DEFAULT_TIMEOUT_SEC = 90.0
 DEFAULT_ATTEMPTS = 3
+#: Season-log patience. The LeagueGameLog pull has NO second source - a
+#: missing slice is a stopped run, not a thinner one - so it retries deeper
+#: than the default: 9 attempts x 90s with the 8s-capped backoff is a ~15
+#: minute ceiling per slice before the run concedes, which rides out a
+#: transient brownout that 3 attempts (~4.7 min) turned into a dead run on
+#: 2026-09-29. Still bounded: a genuinely dead endpoint costs ~15 min, once.
+SEASON_LOG_ATTEMPTS = 9
 #: Seconds between play-by-play requests. 3,461 games at 0.1s each is six
 #: minutes of transfer; the pause is what keeps the host from deciding an
 #: unusually fast client is a scraper.
@@ -1157,7 +1164,19 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
                        f"{sources.season_log_query(label, season_type, lo, hi)}")
                 _ensure_probed("stats")
                 try:
-                    payload = http_json(url, STATS_HEADERS, timeout=90.0, attempts=3)
+                    # The season log is the ONE feature source with no
+                    # second source (see the raise below), so it gets the
+                    # deepest patience in the file. The 2026-09-29 Kaggle
+                    # run stopped the whole pipeline because one slice hit
+                    # a slow patch: each 90s attempt itself succeeded with
+                    # 2026-05-29..2026-07-27 in the previous run and the
+                    # neighbors succeeded seconds later, but 3 attempts
+                    # with 2s/4s backoff spent ~4.7 minutes and quit. A
+                    # slow host is not a dead host; the deadline doubles
+                    # and the count triples so a transient brownout costs
+                    # minutes instead of the run.
+                    payload = http_json(url, STATS_HEADERS, timeout=90.0,
+                                        attempts=SEASON_LOG_ATTEMPTS)
                 except HostUnavailable as exc:
                     consecutive += 1
                     failures.append(f"{label} {season_type} {lo}..{hi}: {_short(exc)}")

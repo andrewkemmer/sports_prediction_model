@@ -747,6 +747,50 @@ class TestHttp:
             ing.http_json("https://example.test/x", {}, attempts=3)
         assert len(calls) == 3
 
+    def test_the_season_log_pull_uses_the_deep_retry_budget(self):
+        """The LeagueGameLog pull has no second source - a missing slice is a
+        stopped run - so it must retry deeper than the default 3. The
+        2026-09-29 Kaggle run died because one slice's 3x90s (~4.7 min)
+        expired during a transient brownout; the deeper budget rides those
+        out at a bounded ~15 minute ceiling per slice."""
+        import ast
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parent
+               / "ingestion.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        calls = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and getattr(n.func, "id", "") == "http_json"]
+        season_log = [n for n in calls
+                      if any(kw.arg == "attempts"
+                             and getattr(kw.value, "id", "")
+                             == "SEASON_LOG_ATTEMPTS"
+                             for kw in n.keywords)]
+        assert len(season_log) == 1, \
+            "the season-log call site must use SEASON_LOG_ATTEMPTS"
+        default_attempts = [n for n in calls
+                            if any(kw.arg == "attempts"
+                                   and getattr(kw.value, "id", "")
+                                   == "DEFAULT_ATTEMPTS"
+                                   for kw in n.keywords)]
+        assert not default_attempts, \
+            "no call site should pass the default explicitly"
+
+    def test_the_deep_budget_is_actually_nine_attempts(self, monkeypatch):
+        calls = []
+
+        def boom(request, timeout=None):
+            calls.append(request.full_url)
+            raise TimeoutError("The read operation timed out")
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", boom)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        with pytest.raises(ing.HostUnavailable) as excinfo:
+            ing.http_json("https://example.test/x", {},
+                          attempts=ing.SEASON_LOG_ATTEMPTS)
+        assert len(calls) == 9
+        assert "9 attempt(s)" in str(excinfo.value)
+
     def test_a_timeout_is_retried(self, monkeypatch):
         calls = []
 
