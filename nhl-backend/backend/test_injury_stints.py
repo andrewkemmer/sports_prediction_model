@@ -1091,6 +1091,86 @@ class TestProductionInjuryLoader:
 
 
 # ---------------------------------------------------------------------------
+# Opportunity-weighted aggregation (NFL parity): the pool blend weights each
+# candidate by his own served prior icetime, AFTER the PIT exclusion.
+# ---------------------------------------------------------------------------
+
+class TestOpportunityWeightedPool:
+    def _two(self, r1, ice1, r2, ice2):
+        return make_ratings([
+            ("1", "BOS", ist.SITUATION_EVO, "C", r1, ice1, "2026-01-10"),
+            ("2", "BOS", ist.SITUATION_EVO, "C", r2, ice2, "2026-01-10"),
+        ])
+
+    def test_high_ice_player_moves_the_blend_more_than_the_plain_mean(self):
+        # A 20-minute first-liner at 0.08 plus a 6.7-minute callup at 0.02:
+        # weighted (0.08*12000 + 0.02*4000)/16000 = 0.065, not the plain 0.05.
+        out, audit = ist.team_game_rates(
+            self._two(0.080, 12000.0, 0.020, 4000.0), stints=None)
+        assert out.iloc[0]["rate"] == pytest.approx(0.065)
+        assert audit["weighted_sides"] == 1
+        assert audit["equal_weight_fallback_sides"] == 0
+
+    def test_equal_ice_reduces_to_the_plain_mean(self):
+        # Equal opportunity = the old behaviour, exactly.
+        out, audit = ist.team_game_rates(
+            self._two(0.030, 9000.0, 0.010, 9000.0), stints=None)
+        assert out.iloc[0]["rate"] == pytest.approx(0.020)
+        assert audit["weighted_sides"] == 1
+
+    def test_exclusion_removes_the_weight_with_the_player(self):
+        # THE composition contract: excluding the high-ice star must leave
+        # the callup's small weight as the only weight — the blend is the
+        # survivor's own rate, never the star's rate weighted by nobody.
+        ratings = self._two(0.080, 12000.0, 0.020, 4000.0)
+        stints = pd.DataFrame([{"player_id": "1",
+                                "stint_start": "2026-01-01",
+                                "stint_end": pd.NaT}])
+        out, audit = ist.team_game_rates(ratings, stints=stints)
+        assert out.iloc[0]["rate"] == pytest.approx(0.020)
+        assert out.iloc[0]["n_players"] == 1
+        assert audit["dropped_unavailable"] == 1
+
+    def test_zero_weight_sides_fall_back_to_the_plain_mean(self):
+        # Diagnostic path (no min-ice gate) with zero served icetime: no
+        # opportunity exists to weight by, so the plain mean stands and the
+        # fallback is COUNTED rather than hidden.
+        ratings = self._two(0.030, 0.0, 0.010, 0.0)
+        out, audit = ist.team_game_rates(ratings, stints=None,
+                                         require_pool=False)
+        assert out.iloc[0]["rate"] == pytest.approx(0.020)
+        assert audit["equal_weight_fallback_sides"] == 1
+
+    def test_full_stack_weighted_blend_survives_an_injury(self):
+        # Through add_player_pool_features: unequal-ice pair, the top-ice
+        # man injured via a pre-puck-drop snapshot. The served pl_evo_c is
+        # the weighted blend of the SURVIVORS with renormalized weights.
+        ratings = make_ratings([
+            ("mp-1", "BOS", "5on5", "C", 0.080, 12000.0, "2026-01-10"),
+            ("mp-2", "BOS", "5on5", "C", 0.020, 4000.0, "2026-01-10"),
+            ("mp-3", "TOR", "5on5", "C", 0.050, 9000.0, "2026-01-10"),
+        ])
+        ratings["player_name"] = ["Bo Nix", "Call Up", "Leaf Center"]
+        ratings["pool_date"] = ratings["game_date"]
+        reports = pd.DataFrame([{
+            "player_id": "e-1", "player_name": "Bo Nix", "status": "Out",
+            "snapshot_at": "2026-01-11T14:00:00Z", "snapshot_marker": False,
+        }])
+        games = pd.DataFrame([{
+            "game_id": "G1", "season": 2026, "game_date": "2026-01-11",
+            "start_time_utc": "2026-01-11T23:00:00Z",
+            "home_team": "TOR", "away_team": "BOS",
+        }])
+        with patch.object(feat.ingestion, "load_espn_injuries",
+                          return_value=reports):
+            out = feat.add_player_pool_features(games, player_ratings=ratings)
+        # BOS serves the survivor alone; TOR the single-weight mean.
+        assert out.loc[0, "pl_evo_c_away"] == pytest.approx(0.020)
+        assert out.loc[0, "pl_evo_c_home"] == pytest.approx(0.050)
+        assert out.loc[0, "pl_il_out_fraction"] > 0
+
+
+# ---------------------------------------------------------------------------
 # The Huberdeau/Hughes availability contracts (2026-09-29 audit): the two
 # user-supplied 2025-26 examples every future change must keep honest.
 # ---------------------------------------------------------------------------

@@ -751,7 +751,13 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
                             "trail that gate (the season opener after the "
                             "offseason) serves the position prior, matching "
                             "MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
-                "aggregation": "mean of surviving player-level shrunk rates",
+                "aggregation": "opportunity-weighted mean of surviving "
+                          "player-level shrunk rates (NFL snap-share parity): "
+                          "each candidate's weight is his own served prior "
+                          "icetime, applied AFTER the injury exclusion so an "
+                          "absent star's ice leaves the blend with him; sides "
+                          "with zero served weight fall back to the plain "
+                          "mean (counted in the pool audit)",
                 "point_in_time_rule":
                     "a candidate rating enters a target game's pool only when "
                     "its source game date is STRICTLY earlier than the target "

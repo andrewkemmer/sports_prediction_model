@@ -495,7 +495,18 @@ def team_game_rates(
          to bind at all when ratings are season grain: every rating for a
          season carries the same date, so a player hurt in November and back
          in December is either in the whole season's pool or out of all of it.
-      4. AGGREGATE — the mean rate of the surviving pool.
+      4. AGGREGATE — the OPPORTUNITY-WEIGHTED mean of the surviving pool
+         (NFL parity: the snap-share blend). Each candidate's weight is his
+         own served prior icetime — the ice actually behind the rating —
+         so a 20-minute first-liner moves the side's rate ~3x as much as a
+         6-minute callup instead of counting identically. The weight is
+         decided AFTER the exclusion: an injured star's icetime leaves the
+         pool with him, and his replacement contributes only the callup's
+         own (small) weight — availability reshapes the blend, it never
+         hands a missing player's weight to anyone. Sides whose served
+         weights are all zero (legacy or diagnostic rows without ice) fall
+         back to the plain mean, and the audit counts how often that
+         happened.
 
     MLB then ranks by trailing PA and takes the top 9. Hockey has no such cut:
     every skater who dresses contributes, and there is no ninth-inning
@@ -517,6 +528,7 @@ def team_game_rates(
         "dropped_below_min_ice": 0, "dropped_stale": 0,
         "dropped_unavailable": 0, "teams": 0, "games": 0,
         "il_filter_active": bool(stints is not None and len(stints)),
+        "weighted_sides": 0, "equal_weight_fallback_sides": 0,
     }
     if ratings is None or len(ratings) == 0:
         return pd.DataFrame(), audit
@@ -638,11 +650,25 @@ def team_game_rates(
     if "game_id" in agg.columns:
         group_keys.append("game_id")
     group_keys.extend(["situation", "position"])
+    # Opportunity weighting: ``evidence`` on each served (game, player) row
+    # IS the ice behind that rating, on every path (flat diagnostic, legacy
+    # game merge, and the strict as-of join all carry it).
+    agg = agg.assign(
+        _w=pd.to_numeric(agg["evidence"], errors="coerce").fillna(0.0))
+    agg["_wr"] = agg["rate"] * agg["_w"]
     out = (agg.groupby(group_keys, dropna=False)
              .agg(rate=("rate", "mean"),
+                  rate_wsum=("_wr", "sum"),
+                  weight_sum=("_w", "sum"),
                   n_players=("n_players", "sum"),
                   evidence=("evidence", "sum"))
              .reset_index())
+    use_weight = out["weight_sum"] > 0
+    out.loc[use_weight, "rate"] = (out.loc[use_weight, "rate_wsum"]
+                                   / out.loc[use_weight, "weight_sum"])
+    audit["weighted_sides"] = int(use_weight.sum())
+    audit["equal_weight_fallback_sides"] = int((~use_weight).sum())
+    out = out.drop(columns=["rate_wsum", "weight_sum"])
     if dropped_by_side is not None:
         side_key = ["game_date", "team"]
         if "game_id" in out.columns and "game_id" in dropped_by_side.columns:
