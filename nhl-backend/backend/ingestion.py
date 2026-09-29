@@ -1274,12 +1274,39 @@ def _append_injury_snapshot(today: pd.DataFrame) -> pd.DataFrame:
     today = today.copy()
     today["snapshot_at"] = stamps
     path = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
-    prior: pd.DataFrame | None = None
+
+    # Two tiers, same order and identity as `_injury_history`: the machine-
+    # local history first, then the repo-carried artifact. A run that CAN
+    # fetch must still INHERIT the artifact's older snapshots — the 16:10
+    # run captured a fresh 111-row snapshot on a cold cache, exported 217
+    # rows over 2 snapshots in Phase 12, but Phases 3/11 saw only those 111
+    # (1 snapshot), so the older snapshot was invisible to the exclusion
+    # engine for that entire run. A snapshot the artifact already carries
+    # must never be shadowed by a later cold-cache capture.
+    tier_frames: list[pd.DataFrame] = []
     if path.exists():
         try:
-            prior = pd.read_parquet(path)
+            local_hist = pd.read_parquet(path)
+            if len(local_hist):
+                tier_frames.append(local_hist)
         except Exception as exc:  # noqa: BLE001
             logger.warning("ESPN injury history unreadable (%s)", exc)
+    artifact = config.DATA_DELIVERY_DIR / INJURY_HISTORY_ARTIFACT
+    if artifact.exists() and artifact != path:
+        try:
+            carried = pd.read_parquet(artifact)
+            if len(carried):
+                tier_frames.append(carried)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ESPN injury history artifact unreadable (%s)", exc)
+    prior: pd.DataFrame | None = None
+    if tier_frames:
+        prior = (tier_frames[0] if len(tier_frames) == 1
+                 else pd.concat(tier_frames, ignore_index=True, sort=False))
+        keys = [c for c in ("snapshot_at", "player_id", "player_name")
+                if c in prior.columns]
+        if keys:
+            prior = prior.drop_duplicates(keys, keep="first")
     if prior is None or not len(prior):
         out = today
     else:

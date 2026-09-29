@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 BACKEND = Path(__file__).resolve().parent
 if str(BACKEND) not in sys.path:
@@ -15,6 +16,15 @@ if str(BACKEND) not in sys.path:
 import ingestion as ing  # noqa: E402
 import features as feat  # noqa: E402
 import injury_stints as ist  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_artifact_tier(tmp_path, monkeypatch):
+    """Every test here starts with an ISOLATED repo-artifact tier: the
+    snapshot-append path inherits ``config.DATA_DELIVERY_DIR``'s
+    nhl_injury_snapshot_history.parquet, so the real repo artifact (217
+    rows in production) must never leak into a tmp-cache test."""
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
 
 
 class _Response:
@@ -351,6 +361,78 @@ def test_capture_timestamp_is_local_observation_time_and_preserved_in_history(
     assert not bool(out.iloc[0]["snapshot_marker"])
     history = pd.read_parquet(tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
     assert pd.Timestamp(history.iloc[0]["snapshot_at"]) == pd.Timestamp("2026-09-26T10:05:12Z")
+
+
+def test_successful_capture_on_cold_cache_inherits_the_artifact_tier(
+        tmp_path, monkeypatch):
+    """A run that CAN fetch must still INHERIT the repo artifact's older
+    snapshots. The 2026-09-29 16:10 run captured a fresh 111-row snapshot on
+    a cold machine-local cache, exported 217 rows over 2 snapshots in Phase
+    12 — but Phases 3/11 had already played with only those 111 rows (1
+    snapshot), so the 2026-09-28 snapshot was invisible to the exclusion
+    engine for that entire run. The success path must tier exactly like the
+    failure path's `_injury_history` already does."""
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    old_stamp = pd.Timestamp("2026-09-28T21:50:57Z")
+    pd.DataFrame([{
+        "player_id": "espn-old", "player_name": "Old Example", "team": "BOS",
+        "status": "Out", "status_code": "INJ", "report_date": "2026-09-28",
+        "return_date": None, "injury_type": None, "detail": None,
+        "snapshot_at": old_stamp, "snapshot_marker": False,
+    }]).to_parquet(tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    # Two stamps: the fetch path reads the clock twice (TTL check + capture).
+    _set_clock(monkeypatch, ["2026-09-29T16:00:45Z", "2026-09-29T16:00:45Z"])
+
+    with patch("requests.get", return_value=_Response(_payload())):
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    stamps = pd.to_datetime(out["snapshot_at"], utc=True)
+    assert stamps.nunique() == 2, (
+        "a successful capture on a cold cache must inherit the artifact's "
+        "older snapshot, not shadow it")
+    assert (out["player_name"] == "Old Example").any()
+    history = pd.read_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+    assert pd.to_datetime(history["snapshot_at"], utc=True).nunique() == 2
+
+
+def test_reappending_a_known_capture_is_idempotent_across_tiers(
+        tmp_path, monkeypatch):
+    """Re-capturing a snapshot the history already carries (cache replay,
+    rerun, retry) must not duplicate its rows — and the OTHER tier's
+    snapshots must survive the replace-on-stamp."""
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing.config, "DATA_DELIVERY_DIR", tmp_path)
+    stamp = pd.Timestamp("2026-09-29T16:00:45Z")
+    row = {"player_id": "espn-1", "player_name": "Alex Example",
+           "team": "BOS", "status": "Out", "status_code": "INJ",
+           "report_date": "2026-09-20", "return_date": None,
+           "injury_type": None, "detail": None, "snapshot_marker": False}
+    pd.DataFrame([{**row, "snapshot_at": stamp}]).to_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+    pd.DataFrame([{**row, "player_id": "espn-old",
+                   "player_name": "Old Example",
+                   "snapshot_at": pd.Timestamp("2026-09-28T21:50:57Z")}]).to_parquet(
+        tmp_path / ing.INJURY_HISTORY_ARTIFACT)
+    _set_clock(monkeypatch, ["2026-09-29T16:05:00Z"])
+    (tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_latest.json").write_text(
+        json.dumps({"snapshot_payload": _payload(),
+                    "snapshot_at": stamp.isoformat()}))
+
+    with patch("requests.get") as get:
+        out = ing.load_espn_injuries(use_cache=True, snapshot=True)
+
+    get.assert_not_called()  # cache hit: the known capture is replayed
+    # The inherited prior tier concat'd FIRST; the fresh capture follows.
+    assert bool((pd.to_datetime(out["snapshot_at"], utc=True) == stamp).any())
+    history = pd.read_parquet(
+        tmp_path / f"espn_injuries_{ing.INJURY_VERSION}_history.parquet")
+    assert int((history["snapshot_at"] == stamp).sum()) == 1, (
+        "re-appending a capture the history already carries duplicated rows")
+    assert (history["snapshot_at"]
+            == pd.Timestamp("2026-09-28T21:50:57Z")).any(), (
+        "the artifact tier's older snapshot must survive the re-append")
 
 
 def test_cache_hit_same_day_does_not_refetch_or_restamp(tmp_path, monkeypatch):
