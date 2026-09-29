@@ -152,7 +152,7 @@ ELASTICNET_PARAMS = {
 # Blend impact neutral across seeds (mean -0.0004, sign-mixed) -> adopted per
 # the member-strength policy (RF precedent: member gains with blend unharmed).
 XGBOOST_PARAMS = {
-    "max_depth": 3,
+    "max_depth": 1,
     "min_child_weight": 12,
     "gamma": 2.4178,
     "subsample": 0.812,
@@ -162,6 +162,25 @@ XGBOOST_PARAMS = {
     "eval_metric": "logloss",
     "enable_categorical": True,
 }
+# RETUNE 2026-09-30 (max_depth 3 -> 1, the "MLB low-signal stump"):
+# offline causal search over the CURRENT production geometry (7,364
+# decided games 2024-03-20..2026-09-26, 78 walk-forward folds at the
+# cadence-7/min-val-40 contract, train-only fits — the same causal
+# protocol as the fold trainer) measured pooled OOF member logloss
+# 0.69876 (depth 3, causal 50r) -> 0.69006 (depth 1): delta -0.0087,
+# and the structured one-axis/second-order slice around it (depth 2/4,
+# min_child 8/20/30, gamma 1.5/3.5, lr 0.08/0.15, 30-100r) found
+# nothing better (best challenger 0.69038). 3-seed confirmation
+# (42/7/2026): -0.0087 / -0.0099 / -0.0077 — better on ALL seeds,
+# clearing the >=0.001 member gate. BLEND IMPACT (equal-thirds with
+# elasticnet): 0.68786 -> 0.68590 / 0.68804 -> 0.68577 /
+# 0.68746 -> 0.68628 — the blend IMPROVED on every seed (mean
+# -0.0018), which beats the member-gains/blend-neutral precedent.
+# Sealed-holdout confirmation deferred to the next natural run: the
+# depth-1 stump is a maximum-regularization move in the same
+# direction the sealed-holdout evidence already favored (see the
+# LGBM/MLP verdicts above — every sealed-holdout winner in this
+# codebase has been the MORE regularized candidate).
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit
