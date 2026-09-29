@@ -556,6 +556,48 @@ class TestFeatureImportanceWeights:
             {"xgboost": {"model": types.SimpleNamespace()}}, {"xgboost": 1.0})
         assert weights is None
 
+    def test_a_zero_weight_member_cannot_appear_in_the_column(self):
+        """The published column is a BLEND average, so a member at weight 0
+        is multiplied out before the sum.
+
+        This is not a hypothetical. On 2026-09-29 the monitor published
+        ``elo_diff`` at 91.02% of MODEL WEIGHT - the reader's natural
+        conclusion being "the model is 91% Elo". It was not: with the blend
+        concentrated on elasticnet, that column WAS elasticnet's |coef|*std
+        alone, while xgboost's and lightgbm's own importances put
+        ``elo_diff`` at 12.97% and 15.91%. The trees were not consulted at
+        all.
+
+        The concentration is correct arithmetic and the honest response is
+        disclosure, not arithmetic - so the pipeline now logs the member
+        shares beside the column (master_pipeline, feature report phase).
+        This pins the arithmetic half of that contract: a zero-share member
+        contributes nothing, so a reader can reconstruct exactly which
+        profiles the number is built from.
+        """
+        tree = self._tree_member()
+        # A tree that puts its whole mass on one column, so the effect is
+        # visible rather than buried in a linspace.
+        n = len(config.active_moneyline_feature_cols()) + 2
+        peaked = np.zeros(n)
+        peaked[0] = 1.0
+        tree.feature_importances_ = peaked
+
+        solo = mp.feature_importance_weights(
+            {"xgboost": {"model": tree}}, {"xgboost": 1.0})
+        # Same member at zero blend weight alongside a member that does
+        # contribute: the peaked profile must vanish from the result.
+        mixed = mp.feature_importance_weights(
+            {"xgboost": {"model": tree},
+             "elasticnet": self._elasticnet_member()},
+            {"xgboost": 0.0, "elasticnet": 1.0})
+        assert solo is not None and mixed is not None
+        # In the solo case the peaked column takes the whole 100; in the
+        # mixed case the elasticnet profile takes over, so the peaked
+        # column can no longer be the whole story.
+        assert solo[config.active_moneyline_feature_cols()[0]] == 100.0
+        assert mixed[config.active_moneyline_feature_cols()[0]] < 100.0
+
 
 class TestRunLineStructuralContract:
     """The run line's structural contract with the MLB/NHL/NFL family.

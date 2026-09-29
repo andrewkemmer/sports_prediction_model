@@ -681,10 +681,21 @@ def feature_importance_weights(final_models: dict[str, dict],
 
     Returns None when no member exposes importances - the caller then omits
     the column rather than publishing a fabricated zero.
+
+    One caveat this function cannot fix on its own, and which the caller
+    must surface: the result is a blend-weighted average, so when one member
+    holds ~all the weight the column IS that member's importance profile
+    and the others are absent from it entirely. A reader comparing
+    ``feature_importance_weights`` against a per-member importances table
+    will see a large disagreement on any concentrated blend, and the
+    disagreement is the finding rather than an error. Report the member
+    shares next to the column (see ``imp_contributors``) so the two
+    readings can be told apart.
     """
     cols = config.active_moneyline_feature_cols()
     nfc = len(cols)
     agg = np.zeros(nfc)
+    contributors: dict[str, float] = {}
     raw = {name: max(float(weights.get(name, 0.0)), 0.0) for name in final_models}
     total = sum(raw.values())
     slice_cols = feat_mod.linear_feature_columns()
@@ -729,6 +740,13 @@ def feature_importance_weights(final_models: dict[str, dict],
             continue
         agg += share * (imp / imp.sum())
         contributed = True
+        # Record which members actually reached the published column. A
+        # member at share 0 is multiplied out before the sum, so when the
+        # blend is concentrated the "MODEL WEIGHT" column is one member's
+        # opinion wearing the model's name - measured on 2026-09-29, where
+        # the monitor published elo_diff at 91% while xgboost's and
+        # lightgbm's own importances put it at 13% and 16% respectively.
+        contributors[name] = round(share, 4)
     if not contributed or agg.sum() <= 0:
         return None
     return {c: round(float(w), 4) for c, w in zip(cols, agg / agg.sum() * 100.0)}
@@ -1166,6 +1184,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # importances, not a table of zeros.
     imp_weights = (feature_importance_weights(final_models, ml["member_weights"])
                    if ml else None)
+    # Say out loud which members the MODEL WEIGHT column actually averages.
+    # A concentrated blend means the column is one member's profile, and a
+    # reader comparing it against per-member importances (elasticnet put
+    # elo_diff at 94% while the trees put it at 13%/16% on 2026-09-29) would
+    # otherwise have no way to tell a real concentration from a reporting
+    # artifact.
+    if ml and imp_weights:
+        _shares = {n: max(float(ml["member_weights"].get(n, 0.0)), 0.0)
+                   for n in final_models}
+        _tot = sum(_shares.values()) or 1.0
+        _norm = {n: round(v / _tot, 4) for n, v in _shares.items()}
+        logger.info("feature importance weights are blend-weighted across "
+                    "%d member(s) with shares %s; a concentrated share means "
+                    "the MODEL WEIGHT column is that member's profile",
+                    len(_norm), _norm)
     drift_baseline, drift_current = monitoring.drift_windows(game_df)
     drift_names = monitoring.write_run_engine_feature_artifacts(
         out, date_c, drift_baseline, drift_current, imp_weights)

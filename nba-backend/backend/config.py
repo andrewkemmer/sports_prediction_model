@@ -318,20 +318,40 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 #
 # It is still not adopted, because it does not change anything SERVED: the
 # retuned member is 121 bps better and 2.2 AUC points better, and the
-# production ensemble moves 1.2 bps with the weight still exactly 0.0. The
-# reason is measured, not asserted - xgboost's residuals correlate 0.988
-# with elasticnet's (incumbent 0.976, lightgbm 0.990), the logit-blend
-# frontier is monotonic in elasticnet's favour with the optimum at xgboost
-# weight 0.00, and adding xgboost at ANY weight gains -0.0 bps. A member
-# earns weight for being decorrelated from the incumbent, not for being
-# accurate, and tuning made this one more accurate and slightly MORE
-# redundant. The optimiser is correct.
+# production ensemble moves 1.2 bps with the weight still exactly 0.0.
 #
-# So the defect is not the hyperparameters: it is that a near-duplicate of
-# elasticnet sits in the ensemble at all. No hyperparameter search fixes
-# that. XGBOOST_PARAMS therefore stays the MLB copy verbatim, and the
-# retuned vector is preserved in .adhoc as the right starting point IF the
-# ensemble is ever restructured toward diversity.
+# WHY THE WEIGHT DOES NOT MOVE - measured, not assumed. The blend's optimum
+# is at xgboost weight 0.00 and adding it at ANY weight gains -0.0 bps,
+# because the served model is very nearly a ONE-FEATURE model: a logistic
+# regression on elo_diff ALONE scores ll 0.60858 / AUC 0.7239 against the
+# full 71-feature blend's 0.60762 / 0.7268, so seventy features are worth
+# 9.6 bps over one column, and dropping elo_diff costs 106 bps. The blend
+# is not short of accuracy, it is short of information: retuning made
+# xgboost a BETTER ELO RECONSTRUCTION, and there is nothing for a better
+# Elo reconstruction to add. The optimiser is correct.
+#
+# NOT a scale artifact, which is the obvious objection and is false here.
+# elo_diff is in Elo points (std 126.8) against rates and EWMs elsewhere
+# (std 0.006-11.5), so |coef| could be flattering the widest column. The
+# tree members refute that, being scale-blind: their own importances give
+# elo_diff 12.97% (xgboost) and 15.91% (lightgbm), not 94%. Elasticnet
+# genuinely concentrates 94.39% of its coefficient mass on one column,
+# 16.8x everything else combined.
+#
+# So the 91% elo_diff figure in the monitor's MODEL WEIGHT column is
+# elasticnet's number reported as if it were the model's:
+# feature_importance_weights normalises each member and averages by blend
+# weight, and with both trees at 0.0 they are multiplied out before the
+# sum. The monitor cannot currently distinguish "one member thinks this"
+# from "the model IS this", and that ambiguity is worth its own fix.
+#
+# The real next question is therefore not more tuning: it is where the
+# non-Elo signal is and whether it is being extracted. The best non-Elo
+# feature correlates 0.0799 with the Elo residual, and the top entries are
+# the same signal twice - ewm_net_points/off/def_rating all read |corr|
+# 0.0799 with opposite signs, since net points = off - def. XGBOOST_PARAMS
+# stays the MLB copy verbatim; the retuned vector and the full study are
+# preserved in .adhoc/nba_xgb_retune/.
 LIGHTGBM_PARAMS = {
     "n_estimators": 61, "max_depth": 4, "num_leaves": 9,
     "min_child_samples": 58, "min_gain_to_split": 2.2171,
