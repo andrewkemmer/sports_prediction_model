@@ -344,37 +344,48 @@ ENSEMBLE_WEIGHTS = {
 
 # NHL tree-member blocks — TUNED ON NHL DATA under the CAUSAL protocol
 # (offline harness driving production walk_forward_oof; provenance:
-# tmp_audit/TUNING_VERDICT.md, exercise 2026-09-29, adoption owner-approved).
-# Protocol: Optuna TPE 40 trials/member over folds[:-4] on the causal walk
-# (the shipped fold model is refit at the median of PRIOR folds' measured
-# rounds per 2669d32, so no trial can be flattered by its own scored
-# window); winners gated on seeds 7/42/2026 (gain must hold on ALL), the
-# sealed last-4 windows, and full-46-fold blend survival.
-#   * XGB depth-1: search 0.67600 vs incumbent 0.68068; seed gates
-#     +8.3/+46.8/+34.8 bps; sealed last-4 +42.5 bps; blend −14.1 bps full.
-#   * LGBM: search 0.67695 vs 0.67838; seeds +6.1/+14.3/+2.1; sealed +16.8;
-#     blend −7.3 bps full.
-#   * both-tuned ensemble: pooled OOF 0.67399 vs 0.67554 (−15.5 bps),
-#     brier 0.24065 vs 0.24136, AUC 0.59917 vs 0.59186; weights re-earned
-#     enet .386 / lgbm .210 / xgb .404 (the SLSQP optimum sits in a flat
-#     valley — production re-earns its own deterministic corner each run).
-# The PREVIOUS NHL XGB tune (depth-2: "pooled 0.66509 / sealed 0.64290 /
-# xgb weight 1.000") was measured with val-selected early stopping — the
-# leak 2a9554b quantified at ~+163 bps on this geometry — and is
-# superseded. Elastic-net remains the shared MLB block.
+# tmp_audit/TUNING_VERDICT.md (v1) and TUNING_VERDICT_V2.md (v2), exercises
+# 2026-09-29, adoptions owner-approved).
+#   * v1 (40 trials, causal walk per 2669d32): adopted XGB depth-1 + the
+#     LGBM block below (seeds +6.1/+14.3/+2.1, sealed +16.8). The original
+#     depth-2 "tune" (pooled 0.66509, xgb weight 1.000) was measured under
+#     val-selected early stopping — the leak 2a9554b quantified at ~+163
+#     bps here — and is void.
+#   * v2 (120 trials, MACHINE-STABLE: xgb nthread=1 / lgbm num_threads=1,
+#     no-fence spaces incl. L1/L2 and the protocol knobs): XGB re-tuned
+#     and re-adopted below — search 0.67415 vs pinned 0.67767 (−35.2 bps),
+#     seeds +33.1/+35.2/+16.2 (all hold), member sealed last-4 +6.3,
+#     blend full −5.3 bps with xgb re-earning real weight. The regime is
+#     thread-invariant (lightgbm default-vs-pinned proven bit-identical;
+#     xgb 26.7 bps spread across thread regimes), so these numbers are
+#     THE numbers on every machine — tune-adopt decisions are portable.
+#     LGBM v2 candidate REJECTED: seeds held but sealed reversed −106.4
+#     bps (third documented tune-gain-does-not-survive-the-holdout).
+#   * Elastic-net remains the shared MLB block.
 XGBOOST_PARAMS = {
-    "max_depth": 1,
-    "min_child_weight": 8,
-    "gamma": 0.5461272503332324,
-    "subsample": 0.7303752621128923,
-    "colsample_bytree": 0.47479813523140535,
-    "learning_rate": 0.13609041658072216,
+    "max_depth": 5,
+    "min_child_weight": 3,
+    "gamma": 3.8647024781516848,
+    "subsample": 0.5404961775466538,
+    "colsample_bytree": 0.2523419543290211,
+    "learning_rate": 0.012169578446947962,
+    "reg_lambda": 1.8112200716183435,
+    "reg_alpha": 0.7554847263809663,
+    # Machine-stable regime: single-threaded histogram building removes
+    # thread-order float reductions entirely, so every machine computes
+    # byte-identical trees and the causal budget chain is portable. Also
+    # faster on this geometry (3.0s vs 6.3s per 46-fold walk).
+    "nthread": 1,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
 }
-XGBOOST_FOLD_ROUNDS = 2000
-XGBOOST_EARLY_STOP = 20
+# Trial-selected protocol knobs (v2 searched them as dimensions, no
+# fences): the walk's early-stop patience and rounds ceiling. The causal
+# mechanism still selects each fold's SHIPPED budget from PRIOR folds'
+# measured best-iterations; these bound the probe and the priors.
+XGBOOST_FOLD_ROUNDS = 886
+XGBOOST_EARLY_STOP = 61
 # Causal fold-rounds priors (MLB parity, 2026-09-30 PIT remediation): the
 # SHIPPED fold model is refit at the median of PRIOR folds' early-stopped
 # best_iteration measurements (never its own window); these static priors
