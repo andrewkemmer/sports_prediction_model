@@ -276,7 +276,13 @@ FEATURE_MANIFEST = {
         "lookback": "decaying (halflife=3 starts) over the season's starts",
         "aggregation": "per-goalie EWM of the per-start save fraction",
         "point_in_time_rule": "each goalie's strictly-prior starts only; the expected starter is "
-                              "the team's most-recent-game goalie with the most season starts",
+                              "the highest-prior-workload AVAILABLE goalie — goalies known "
+                              "unavailable strictly before puck drop (Out/IR/Doubtful from the "
+                              "ESPN snapshot replay, or an announced non-medical leave from the "
+                              "versioned nhl_leave_events.json ledger, replayed as intervals) are "
+                              "removed from the workload vote before it runs, and the fallback "
+                              "follows the same opportunity order over the remaining goalies; "
+                              "every candidate excluded -> honest NaN",
         "missing_value_policy": "NaN when the team has no goalie with a prior start this season "
                                 "(e.g. opening-night unknown starter); never fabricated",
         "representation": "difference (all model families)",
@@ -303,7 +309,9 @@ FEATURE_MANIFEST = {
         "source": "official NHL API boxscores (goalie appearances)",
         "lookback": "season to date",
         "aggregation": "per-goalie start count",
-        "point_in_time_rule": "strictly-prior starts only",
+        "point_in_time_rule": "strictly-prior starts only; the expected starter excludes goalies "
+                              "known unavailable strictly before puck drop (injury snapshots or "
+                              "announced non-medical leaves)",
         "missing_value_policy": "NaN when no goalie has a prior start",
         "representation": "difference (all model families)",
         "model_family_availability": ["linear", "tree"],

@@ -1268,6 +1268,84 @@ def _append_injury_snapshot(today: pd.DataFrame) -> pd.DataFrame:
 INJURY_HISTORY_ARTIFACT = "nhl_injury_snapshot_history.parquet"
 
 
+# ---------------------------------------------------------------------------
+# Non-medical leave-of-absence events (PIT-legal by construction)
+# ---------------------------------------------------------------------------
+
+def load_leave_events() -> pd.DataFrame:
+    """Public non-medical leave-of-absence events as a long event frame.
+
+    No free live feed publishes these events (verified 2026-09-29: the
+    official NHL API serves no transactions endpoint — every /v1/transactions
+    variant 404s — and ESPN's injury payload vocabulary is exactly
+    {IR, Day-To-Day, Suspension, Out} with zero leave rows). The reliable
+    channel is therefore a versioned ledger of PUBLIC announcements, each
+    carrying the UTC instant the information became public — the exact PIT
+    boundary. Reproducibility contract: the same ledger version yields the
+    same intervals; the replay is never a static incremental stack (every
+    interval is re-derived from the events on every run).
+
+    Schema: player_name, player_id (nullable MoneyPuck id), team (abbr,
+    nullable), announced_at_utc (ISO-8601), returned_at_utc (nullable — null
+    means the leave is still open and will close on the ledger's next
+    version), source_url, note. A row whose announced_at_utc is null or
+    unparseable is refused loudly, never silently dropped.
+    """
+    path = config.DATA_DELIVERY_DIR / config.LEAVE_EVENTS_LEDGER
+    if not path.exists():
+        logger.info("leave-events ledger absent (%s) — no leave channel, "
+                    "which is honest when no leave is known", path.name)
+        return pd.DataFrame(columns=["player_name", "player_id", "team",
+                                     "announced_at_utc", "returned_at_utc",
+                                     "source_url", "note"])
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("leave-events ledger unreadable (%s) — treated as "
+                       "absent; nothing is inferred", exc)
+        return pd.DataFrame(columns=["player_name", "player_id", "team",
+                                     "announced_at_utc", "returned_at_utc",
+                                     "source_url", "note"])
+    events = payload.get("events") if isinstance(payload, dict) else payload
+    if not isinstance(events, list):
+        logger.warning("leave-events ledger malformed (no events list) — "
+                       "treated as absent")
+        return pd.DataFrame(columns=["player_name", "player_id", "team",
+                                     "announced_at_utc", "returned_at_utc",
+                                     "source_url", "note"])
+    rows, refused = [], 0
+    for ev in events:
+        announced = pd.to_datetime(ev.get("announced_at_utc"), errors="coerce",
+                                   utc=True)
+        if pd.isna(announced):
+            refused += 1
+            logger.warning("leave event refused (no parseable announced_at_utc): "
+                           "%s", ev)
+            continue
+        returned = pd.to_datetime(ev.get("returned_at_utc"), errors="coerce",
+                                  utc=True)
+        rows.append({
+            "player_name": ev.get("player_name"),
+            "player_id": ev.get("player_id"),
+            "team": ev.get("team"),
+            "announced_at_utc": announced,
+            "returned_at_utc": None if pd.isna(returned) else returned,
+            "source_url": ev.get("source_url"),
+            "note": ev.get("note"),
+        })
+    if refused:
+        logger.warning("leave-events ledger: %d event(s) refused", refused)
+    out = pd.DataFrame(rows)
+    if "announced_at_utc" in out.columns:
+        out = out.sort_values("announced_at_utc").reset_index(drop=True)
+    out.attrs["ledger_updated_utc"] = payload.get(
+        "ledger_updated_utc") if isinstance(payload, dict) else None
+    logger.info("leave-events ledger: %d event(s) loaded (%d refused; "
+                "ledger as-of %s)", len(out), refused,
+                out.attrs["ledger_updated_utc"])
+    return out
+
+
 def _injury_history() -> pd.DataFrame | None:
     """The best available captured injury history, never fabricated.
 

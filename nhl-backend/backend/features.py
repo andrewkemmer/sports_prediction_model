@@ -378,9 +378,51 @@ def _per_side(ladder: pd.DataFrame, game_ids: pd.Index, col: str) -> tuple[np.nd
 # Goalie rolling state — per-goalie, per-start, strictly-prior
 # ---------------------------------------------------------------------------
 
+def _combined_exclusions(
+    ratings: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """The combined availability table: the Out/IR/Doubtful injury-snapshot
+    replay plus the non-medical leave-ledger replay, returned WITH the
+    per-source provenance dict so the pool path can gate each layer on its
+    own PIT contract. The ledger's window_end is its reviewed-as-of stamp,
+    not a capture instant, so the two layers must never be freshness-gated
+    as one.
+
+    The goalie family consumes the frame directly: its strict-start
+    predicate (announcement/capture strictly before puck drop) is the PIT
+    protection there, and the snapshot-lag decay already stops stale injury
+    rows from binding while durable leave rows close only on their recorded
+    return. The pool path additionally enforces bind+fresh per source
+    before any candidate is removed.
+    """
+    stints, sources = _load_injury_stints(ratings)
+    events = ingestion.load_leave_events()
+    leaves, laudit = injury_stints.build_leave_stints(events, ratings)
+    if len(leaves):
+        sources["leave_events"] = {
+            "stints": leaves,
+            "window_end": leaves.attrs.get("window_end"),
+            "snapshot_based": True,
+            "snapshot_history": bool(leaves.attrs.get("snapshot_times")),
+            "snapshot_times": list(leaves.attrs.get("snapshot_times", [])),
+        }
+        logger.info("leave channel: %d interval(s) (%d resolved by id, "
+                    "%d by name, %d unresolved; ledger as-of %s)",
+                    laudit.get("intervals", 0),
+                    laudit.get("resolved_by_id", 0),
+                    laudit.get("resolved_by_name", 0),
+                    laudit.get("unresolved", 0),
+                    leaves.attrs.get("window_end"))
+    else:
+        logger.info("leave channel: no intervals (ledger absent/empty — "
+                    "no leave is known, which is not an outage)")
+    return injury_stints.combine_stints(stints, leaves), sources
+
+
 def goalie_state(boxscores: pd.DataFrame | None,
                  games: pd.DataFrame,
-                 team_source: pd.DataFrame | None = None
+                 team_source: pd.DataFrame | None = None,
+                 stints: pd.DataFrame | None = None,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-goalie rolling SV% / GAA state + per-game expected-starter frame.
 
@@ -515,15 +557,19 @@ def goalie_state(boxscores: pd.DataFrame | None,
         lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean())
 
     # ---------------------------------------------------------------------
-    # EXPECTED STARTER, resolved from STRICTLY-PRIOR workload.
+    # EXPECTED STARTER, resolved from STRICTLY-PRIOR workload AND
+    # STRICTLY-PRIOR availability.
     #
-    # The expected starter entering game t is the goalie with the most starts
-    # for that team BEFORE t — nothing else. This is deliberately NOT the
-    # decision goalie recorded in game t's own boxscore: that identity is only
-    # knowable after the game, so selecting on it leaked current-game
-    # information into a pre-game feature, AND it could not resolve at all for
-    # a scheduled game (no boxscore exists yet), which left every goalie
-    # feature 100% null on the slate the model actually predicts.
+    # The expected starter entering game t is the AVAILABLE goalie with the
+    # most starts for that team BEFORE t — availability resolved strictly
+    # prior to ``when`` from the combined Out/IR/Doubtful injury replay and
+    # the non-medical leave ledger, never from game t's own boxscore. This
+    # is deliberately NOT the decision goalie recorded in game t's own
+    # boxscore: that identity is only knowable after the game, so selecting
+    # on it leaked current-game information into a pre-game feature, AND it
+    # could not resolve at all for a scheduled game (no boxscore exists
+    # yet), which left every goalie feature 100% null on the slate the
+    # model actually predicts.
     #
     # Only genuine starts count (TOI >= MIN_GOALIE_TOI_MINUTES): a short
     # relief appearance is not a start and must not win the workload vote.
@@ -548,14 +594,69 @@ def goalie_state(boxscores: pd.DataFrame | None,
         team_goals.setdefault(str(r.team_abbr), []).append(
             (pd.Timestamp(r.gameday).to_datetime64(), str(r.goalie_id)))
 
+    # ---------------------------------------------------------------------
+    # AVAILABILITY GATE — strictly prior, never inferred from appearances.
+    #
+    # ``stints`` is the combined exclusion table (Out/IR/Doubtful injury
+    # snapshot replay + the non-medical leave ledger replay, both carrying
+    # announcement/capture timestamps in ``snapshot_times``). A goalie with
+    # a known-prior exclusion cannot win the workload vote for ``when``;
+    # the vote itself is unchanged and the fallback follows the same
+    # opportunity order over the remaining goalies, so a sidelined
+    # starter's backup is served with HIS OWN strictly-prior form — an
+    # unavailable man's stats are never served. Pre-archive history stays
+    # honestly unresolved (NaN) rather than inferred healthy.
+    # ---------------------------------------------------------------------
+    _ids: list[str] = (list(stints[injury_stints.OUT_PLAYER].astype(str).unique())
+                       if stints is not None and len(stints) else [])
+
+    def _goalie_excluded(gid_: str, cut) -> bool:
+        """Is THIS goalie known unavailable at ``cut`` (strictly prior)?
+
+        Identity resolves by direct goalie id first, then by the boxscore's
+        abbreviated name ("C. Hellebuyck") against the exclusion rows'
+        full names through the same normalised bridge.
+        """
+        if stints is None or not len(stints):
+            return False
+        if gid_ in _ids:
+            return bool(injury_stints.is_unavailable(stints, gid_, pd.Timestamp(cut),
+                                           strict_start=True))
+        nm = g_name.get(gid_, "")
+        if not nm:
+            return False
+        # Collect every exclusion id whose full name matches the boxscore's
+        # abbreviated name. An initial ("C. Hellebuyck") is inherently
+        # ambiguous, so the match must be UNIQUE before any exclusion acts —
+        # the same wrong-person-is-worse-than-no-exclusion rule the bridge
+        # applies to ambiguous names. Two matches on one surname+initial:
+        # nobody is benched on a guess.
+        hits: list[str] = []
+        for pid in _ids:
+            rows = stints[stints[injury_stints.OUT_PLAYER] == pid]
+            if (("player_name" not in rows.columns)
+                    or rows["player_name"].dropna().empty):
+                continue
+            for nm_row in rows["player_name"].dropna().unique():
+                if injury_stints.names_match_player(nm, str(nm_row)):
+                    hits.append(pid)
+                    break
+        if len(hits) != 1:
+            return False
+        return bool(injury_stints.is_unavailable(
+            stints, hits[0], pd.Timestamp(cut), strict_start=True))
+
     def _expected(team: str, when) -> tuple[float, float, float, str]:
-        """(sv_pct, gaa, prior_starts, name) of the expected starter entering
-        ``when`` for ``team`` — from strictly-earlier starts only."""
+        """(sv_pct, gaa, prior_starts, name) of the AVAILABLE expected starter
+        entering ``when`` for ``team`` — strictly-prior workload vote, gated
+        by strictly-prior availability; the fallback follows the same
+        opportunity order (most prior starts, then recency, then id) over
+        the remaining goalies. Every candidate excluded -> honest NaN."""
         entries = team_goals.get(str(team) or "")
         if not entries or when is None or pd.isna(when):
             return np.nan, np.nan, np.nan, ""
         cut = pd.Timestamp(when).to_datetime64()
-        best = None
+        candidates: list[tuple[tuple, str, int]] = []
         for day, gid_ in entries:
             if day >= cut:            # strictly prior only
                 continue
@@ -565,14 +666,17 @@ def goalie_state(boxscores: pd.DataFrame | None,
             n_before = int(np.searchsorted(dates, cut, side="left"))
             if n_before <= 0:
                 continue
-            key = (n_before, day, gid_)
-            if best is None or key > best[0]:
-                best = (key, gid_, n_before)
-        if best is None:
-            return np.nan, np.nan, np.nan, ""
-        _, gid_, n_before = best
-        return (float(g_sv[gid_][n_before - 1]), float(g_gaa[gid_][n_before - 1]),
-                float(n_before), g_name.get(gid_, ""))
+            candidates.append(((n_before, day, gid_), gid_, n_before))
+        # Opportunity order: most prior starts first, then recency, then id.
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        for _, gid_, n_before in candidates:
+            if _goalie_excluded(gid_, cut):
+                continue
+            return (float(g_sv[gid_][n_before - 1]),
+                    float(g_gaa[gid_][n_before - 1]),
+                    float(n_before), g_name.get(gid_, ""))
+        # No available candidate (or none resolvable): honest NaN.
+        return np.nan, np.nan, np.nan, ""
 
     ladder_rows = []
     for side in ("home", "away"):
@@ -684,6 +788,7 @@ def add_player_pool_features(
     *,
     player_ratings: pd.DataFrame | None = None,
     stints: pd.DataFrame | None = None,
+    stints_sources: dict | None = None,
 ) -> pd.DataFrame:
     """Attach the 24 MLB-structural player-pool columns.
 
@@ -747,6 +852,11 @@ def add_player_pool_features(
     sources = None
     if stints is None:
         stints, sources = _load_injury_stints(player_ratings, grid, games)
+    if stints_sources:
+        # A pre-combined availability table (shared with the goalie family)
+        # arrives with per-source provenance: the gate below covers every
+        # layer it carries, each on its own PIT contract.
+        sources = dict(stints_sources)
 
     if sources is None and stints is not None and len(stints):
         # Explicitly supplied intervals still need capture provenance; a
@@ -1087,8 +1197,19 @@ def build_game_features(games: pd.DataFrame,
         df[served] = _home_minus_away(ladder, gids, f"{metric}_roll")
     df = _attach_candidate_features(df, ladder, gids)
 
+    # One availability table for both consumers (goalie family + pl_* pool).
+    # A caller-supplied stints frame keeps its single-source contract.
+    if player_ratings is None:
+        player_ratings = _load_player_ratings()
+    if stints is None:
+        combined_excl, availability_sources = _combined_exclusions(
+            player_ratings)
+    else:
+        combined_excl, availability_sources = stints, None
+
     # Goalie rolling state (per-goalie strictly-prior EWMs).
-    goalie_frame, goalie_ladder = goalie_state(boxscores, df)
+    goalie_frame, goalie_ladder = goalie_state(
+        boxscores, df, stints=combined_excl)
     for c in goalie_frame.columns:
         if c not in df.columns:
             df[c] = goalie_frame[c].to_numpy()
@@ -1142,7 +1263,8 @@ def build_game_features(games: pd.DataFrame,
 
     # Player-pool features (MLB's roster -> injury flag -> healthy-pool mean).
     df = add_player_pool_features(df, player_ratings=player_ratings,
-                                  stints=stints)
+                                  stints=combined_excl,
+                                  stints_sources=availability_sources)
 
     # Targets (kept beside features for OOF assembly; never model inputs).
     df["margin"] = pd.to_numeric(df["home_score"], errors="coerce") \
@@ -1203,8 +1325,17 @@ def build_slate_features(schedule: pd.DataFrame,
     # (the same rule the history path uses); boxscores for pending games do
     # not exist yet, so this is built from the decided timeline. ``sched`` is
     # the team-map source because it covers every boxscored game, not just the
-    # pending rows being emitted.
-    goalie_frame, goalie_ladder = goalie_state(boxscores, df, sched)
+    # pending rows being emitted. Availability table shared with the pool
+    # path below (one replay, one gate).
+    if player_ratings is None:
+        player_ratings = _load_player_ratings()
+    if stints is None:
+        combined_excl, availability_sources = _combined_exclusions(
+            player_ratings)
+    else:
+        combined_excl, availability_sources = stints, None
+    goalie_frame, goalie_ladder = goalie_state(
+        boxscores, df, sched, stints=combined_excl)
     for c in goalie_frame.columns:
         if c not in df.columns:
             df[c] = goalie_frame[c].to_numpy()
@@ -1256,7 +1387,8 @@ def build_slate_features(schedule: pd.DataFrame,
     # produces -- reported as STARVED/absent_column, which is a wiring defect
     # and not a coverage measurement.
     df = add_player_pool_features(df, player_ratings=player_ratings,
-                                  stints=stints)
+                                  stints=combined_excl,
+                                  stints_sources=availability_sources)
     return df
 
 

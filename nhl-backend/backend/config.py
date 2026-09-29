@@ -23,6 +23,16 @@ BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 
+#: Versioned ledger of public non-medical leave-of-absence announcements
+#: (Dahlin/Meier/Winterton shapes). No free live feed publishes these events
+#: (verified 2026-09-29: the official NHL API serves no transactions
+#: endpoint and ESPN carries no leave rows in either its injury or its
+#: transactions payloads), so the ledger is the source of record. Every
+#: event carries the UTC announcement instant — the moment the information
+#: became public, which is exactly the point-in-time boundary the exclusion
+#: replay needs. See ingestion.load_leave_events.
+LEAVE_EVENTS_LEDGER = "nhl_leave_events.json"
+
 SPORT_DIR_NAME = "nhl-backend"
 REPO_SUBDIR = SPORT_DIR_NAME
 

@@ -34,6 +34,7 @@ import pandas as pd
 STINT_START = "stint_start"
 STINT_END = "stint_end"
 OUT_PLAYER = "player_id"
+LEAVE_SOURCE = "leave_events"
 OUT_STATUS = "availability_status"
 
 #: Exact report designations that set the binary injury flag. ``IR`` is the
@@ -306,6 +307,150 @@ def reconcile_against_appearances(
 
 
 # ---------------------------------------------------------------------------
+# Non-medical leave-of-absence intervals (public-announcement ledger)
+# ---------------------------------------------------------------------------
+
+def names_match_player(abbrev_or_full: str, full_name: str) -> bool:
+    """Does a boxscore-style abbreviated name ("C. Hellebuyck") refer to the
+    same person as a ledger/feed full name ("Connor Hellebuyck")?
+
+    Boxscores abbreviate goalies to first-initial + surname; the ledger and
+    the injury feed carry full public names. Match rule: identical
+    normalised names, OR same surname with the abbreviated first token being
+    a single letter equal to the full first name's initial. Conservative by
+    design: two full names must match exactly after normalisation, and an
+    initial never matches a different first name.
+    """
+    a = normalise_player_name(abbrev_or_full)
+    b = normalise_player_name(full_name)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    ta, tb = a.split(), b.split()
+    if len(ta) >= 2 and len(tb) >= 2 and ta[-1] == tb[-1]:
+        fa, fb = ta[0], tb[0]
+        if len(fa) == 1 and fb.startswith(fa):
+            return True
+        if len(fb) == 1 and fa.startswith(fb):
+            return True
+    return False
+
+
+def build_leave_stints(events: pd.DataFrame,
+                       ratings: Optional[pd.DataFrame] = None,
+                       *,
+                       name_col: str = "player_name",
+                       id_col: str = "player_id",
+                       announced_col: str = "announced_at_utc",
+                       returned_col: str = "returned_at_utc",
+                       ) -> tuple[pd.DataFrame, dict]:
+    """Replay leave-of-absence EVENTS into the same interval contract the
+    injury snapshot replay produces.
+
+    Each event is a public announcement: the leave is KNOWN from
+    ``announced_at_utc`` (the instant the information became public — the
+    PIT boundary) until ``returned_at_utc`` (null = still open; the
+    interval closes when a later ledger version records the return). The
+    replay re-derives every interval from the events on every run — it is
+    never a static incremental stack.
+
+    Identity resolution: a direct ``player_id`` matching the rating space
+    wins; otherwise the name resolves through the same normalisation the
+    injury bridge uses. An event that matches NOTHING carries its raw name
+    as the interval key (never binds — visible, never guessed).
+
+    Returns (stints, audit) with the snapshot-replay attrs contract:
+    ``snapshot_times`` = announcement instants (tz-naive UTC),
+    ``snapshot_based`` = True, so ``is_unavailable(strict_start=True)`` and
+    ``assert_pit`` treat announcements exactly like capture timestamps.
+    """
+    audit = {"events": 0, "intervals": 0, "open": 0, "resolved_by_id": 0,
+             "resolved_by_name": 0, "unresolved": 0}
+    empty = pd.DataFrame(columns=[OUT_PLAYER, STINT_START, STINT_END])
+    if events is None or not len(events):
+        return empty, audit
+    id_space: set[str] = set()
+    name_to_id: dict[str, str] = {}
+    if ratings is not None and len(ratings) and OUT_PLAYER in ratings.columns:
+        id_space = set(ratings[OUT_PLAYER].astype(str))
+        rname = "player_name" if "player_name" in ratings.columns else name_col
+        for pid, nm in zip(ratings[OUT_PLAYER].astype(str), ratings[rname]):
+            k = normalise_player_name(nm)
+            if k and k not in name_to_id:
+                name_to_id[k] = str(pid)
+    rows = []
+    for ev in events.itertuples(index=False):
+        start = _utc_naive(getattr(ev, announced_col))
+        if pd.isna(start):
+            continue
+        audit["events"] += 1
+        end = _utc_naive(getattr(ev, returned_col))
+        pid = getattr(ev, id_col, None)
+        nm = getattr(ev, name_col, None)
+        key = None
+        if pid is not None and not pd.isna(pid) and str(pid) in id_space:
+            key = str(pid)
+            audit["resolved_by_id"] += 1
+        else:
+            mapped = name_to_id.get(normalise_player_name(nm))
+            if mapped is not None:
+                key = mapped
+                audit["resolved_by_name"] += 1
+            else:
+                key = str(nm)
+                audit["unresolved"] += 1
+        rows.append({OUT_PLAYER: key, STINT_START: start,
+                     STINT_END: pd.NaT if end is None or pd.isna(end) else end,
+                     "source": LEAVE_SOURCE})
+    out = pd.DataFrame(rows, columns=[OUT_PLAYER, STINT_START, STINT_END,
+                                      "source"])
+    if len(out):
+        out = out.sort_values([OUT_PLAYER, STINT_START],
+                              kind="mergesort").reset_index(drop=True)
+    audit["intervals"] = int(len(out))
+    audit["open"] = int(out[STINT_END].isna().sum()) if len(out) else 0
+    times = sorted({t for t in (_utc_naive(v) for v in events[announced_col])
+                    if pd.notna(t)})
+    out.attrs["snapshot_based"] = True
+    out.attrs["snapshot_times"] = times
+    # The ledger's own "reviewed as-of" stamp is the vouching instant for
+    # replay completeness -- never max(announcement) (a new event after the
+    # last one would silently shrink coverage) and never a return date (a
+    # projected end, which the PIT gate explicitly rejects).
+    out.attrs["window_end"] = _utc_naive(
+        events.attrs.get("ledger_updated_utc") or pd.NaT)
+    if pd.isna(out.attrs["window_end"]):
+        out.attrs["window_end"] = None
+    return out, audit
+
+
+def combine_stints(*frames: pd.DataFrame) -> pd.DataFrame:
+    """Union interval frames (injury replay + leave replay) preserving the
+    attrs contract: snapshot times and window_end extend to the union, and
+    the combined frame stays snapshot-based so the strict-start predicate
+    governs every interval."""
+    frames = [f for f in frames if f is not None and len(f)]
+    if not frames:
+        out = pd.DataFrame(columns=[OUT_PLAYER, STINT_START, STINT_END])
+        out.attrs["snapshot_based"] = True
+        out.attrs["snapshot_times"] = []
+        return out
+    out = pd.concat(frames, ignore_index=True, sort=False)
+    times: list = []
+    window_ends: list = []
+    for f in frames:
+        times.extend(f.attrs.get("snapshot_times", []) or [])
+        if f.attrs.get("window_end") is not None:
+            window_ends.append(_utc_naive(f.attrs["window_end"]))
+    times = sorted({t for t in (_utc_naive(v) for v in times) if pd.notna(t)})
+    out.attrs["snapshot_based"] = True
+    out.attrs["snapshot_times"] = times
+    out.attrs["window_end"] = max(window_ends) if window_ends else None
+    return out
+
+
+# ---------------------------------------------------------------------------
 # The exclusion test
 # ---------------------------------------------------------------------------
 def is_unavailable(
@@ -331,6 +476,7 @@ def is_unavailable(
     d = _utc_naive(game_date)
     if pd.isna(d):
         return False
+    mine_all = stints[stints[OUT_PLAYER] == str(player_id)]
     if strict_start:
         if snapshot_times is None:
             snapshot_times = stints.attrs.get("snapshot_times", ())
@@ -338,22 +484,53 @@ def is_unavailable(
             stamp for stamp in (_utc_naive(value) for value in snapshot_times)
             if pd.notna(stamp) and stamp < d]
         if not prior_snapshots:
+            # Nothing was captured/announced strictly before puck drop: no
+            # interval can be proven pregame, so nothing binds (fail-open).
             return False
         latest_snapshot = max(prior_snapshots)
-        if (d - latest_snapshot).total_seconds() > max_snapshot_lag_days * 86400:
-            return False
-    mine = stints[stints[OUT_PLAYER] == str(player_id)]
-    for _, s in mine.iterrows():
-        start = _utc_naive(s[STINT_START])
-        if pd.isna(start) or (start >= d if strict_start else start > d):
-            continue
-        end = _utc_naive(s[STINT_END])
-        # In snapshot mode the clean state represented by the end is only
-        # usable when captured strictly before puck drop. At equality the
-        # previous Out state remains the latest known pregame state.
-        if pd.isna(end) or (end >= d if strict_start else end > d):
-            return True
-    return False
+        if (d - latest_snapshot).total_seconds() \
+                > max_snapshot_lag_days * 86400:
+            # Stale SNAPSHOT knowledge: an injury state nobody refreshed may
+            # no longer describe the player (he may have cleared with no
+            # newer capture), so transient rows stop binding rather than
+            # silently persisting. Durable rows (source == LEAVE_SOURCE,
+            # stamped by build_leave_stints) are exempt: a leave ends
+            # PUBLICLY — silence means still on leave, never a silent
+            # recovery — and the ledger's reviewed-as-of stamp (its
+            # window_end) is the completeness attestation that makes
+            # replaying its intervals onto earlier games legitimate. The
+            # frame-level PIT gate (assert_pit, per source) enforces that
+            # attestation; the remedy for a stale ledger is re-review and a
+            # new stamp, never a semantic hole.
+            if not ("source" in mine_all.columns
+                    and (mine_all["source"] == LEAVE_SOURCE).any()):
+                return False
+
+    def _covered(frame: pd.DataFrame) -> bool:
+        """Does any of this player's intervals cover the decision instant?
+
+        Each row closes on its OWN end semantics: an interval with a recorded
+        end (injury clear, returned_at_utc) stops binding once that end is
+        strictly-prior known; an open interval (NaT end) binds until a newer
+        state supersedes it. The uniform staleness gate above governs all
+        rows equally — knowledge nobody refreshed cannot distinguish "still
+        out" from "returned unrecorded", for injuries and leaves alike.
+        """
+        for _, s in frame.iterrows():
+            start = _utc_naive(s[STINT_START])
+            if pd.isna(start) or (start >= d if strict_start else start > d):
+                continue
+            end = _utc_naive(s[STINT_END])
+            # In snapshot mode the clean state represented by the end is only
+            # usable when captured strictly before puck drop. At equality the
+            # previous Out state remains the latest known pregame state. For
+            # ledger rows the end is the recorded return instant, under the
+            # same strict rule.
+            if pd.isna(end) or (end >= d if strict_start else end > d):
+                return True
+        return False
+
+    return _covered(mine_all)
 
 
 def build_unavailable_mask(
