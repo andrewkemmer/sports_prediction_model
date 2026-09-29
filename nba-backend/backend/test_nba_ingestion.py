@@ -1322,8 +1322,8 @@ class TestRefusedHost:
         # oldest-first observable. `old` is written newest-first in time, so
         # ids 0..5 are the 6 nearest the recent slice and 6..11 the 6
         # furthest away.
-        monkeypatch.setenv(ing.PBP_MAX_GAMES_ENV, "18")
-        monkeypatch.setenv(ing.PBP_LOOKBACK_ENV, "30")
+        # (The retired NBA_PBP_LOOKBACK_DAYS / NBA_PBP_MAX_GAMES envs no
+        # longer exist; setting them would be a no-op on nothing.)
         recent = self._games(12)
         old = pd.DataFrame({
             "nba_game_id": [f"0012400{i:03d}" for i in range(12)],
@@ -1340,14 +1340,19 @@ class TestRefusedHost:
         monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
         _frame, info = ing._fetch_play_by_play(eligible)
         assert info["tripped"] is False
-        assert info["requested"] == 18, info["requested"]
 
         asked = {url.split("GameID=")[-1].split("&")[0] for url in requested[1:]}
-        # The recent slice plus the six old games NEAREST it. Oldest-first
+
+        # The sweep is UNBOUNDED: all 24 eligible games are requested - the
+        # 12 inside the retired lookback and the 12 old holes the retired
+        # cap used to strand. (Directive 2026-09-29: every game limitation
+        # is removed from ingestion and feature engineering.)
+        assert info["requested"] == 24, info["requested"]
+        assert asked == {str(g) for g in eligible.nba_game_id}, sorted(asked)
         # asked for 6..11 instead, which is what stranded a year of games
         # between the two swept blocks on the 2026-09-29 run.
         assert asked == ({str(g) for g in recent.nba_game_id}
-                         | {f"0012400{i:03d}" for i in range(6)}), sorted(asked)
+                         | {f"0012400{i:03d}" for i in range(12)}), sorted(asked)
 
         # The decisive invariant, stated independently of which ids those
         # are: no unswept game may sit chronologically BETWEEN two swept

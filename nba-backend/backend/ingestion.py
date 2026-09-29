@@ -91,9 +91,7 @@ WINDOW_END_ENV = "NBA_END_DATE"
 CACHE_DIR_ENV = "NBA_CACHE_DIR"
 FULL_REPULL_ENV = "NBA_FULL_REPULL"
 PBP_ENABLED_ENV = "NBA_FETCH_PLAY_BY_PLAY"
-PBP_LOOKBACK_ENV = "NBA_PBP_LOOKBACK_DAYS"
 PBP_BUDGET_ENV = "NBA_PBP_BUDGET_SEC"
-PBP_MAX_GAMES_ENV = "NBA_PBP_MAX_GAMES"
 SCHEDULE_BUDGET_ENV = "NBA_SCHEDULE_BUDGET_SEC"
 REQUEST_TIMEOUT_ENV = "NBA_REQUEST_TIMEOUT_SEC"
 REQUEST_ATTEMPTS_ENV = "NBA_REQUEST_ATTEMPTS"
@@ -118,19 +116,18 @@ SEASON_LOG_ATTEMPTS = 9
 #: minutes of transfer; the pause is what keeps the host from deciding an
 #: unusually fast client is a scraper.
 DEFAULT_PBP_PAUSE_SEC = 0.25
-#: Default ceiling on the play-by-play sweep for one run. A game's event
-#: features are trailing, so they only carry signal where the sweep reaches;
-#: 40 games out of a 1,200-game window leaves 98% of the rows with no event
-#: history at all. The sweep is therefore sized to cover a real share of the
-#: window, and the cache is keyed per game so the cost is paid once rather than
-#: per run.
-DEFAULT_PBP_MAX_GAMES = 1500
+#: The play-by-play sweep is UNBOUNDED: every game the season log identifies
+#: is requested every run. The retired selection limits (a 1,500-game cap and
+#: a 240-day lookback) were what left 1,962 games of the 2024 band forward-
+#: filled forever on the ephemeral production host - a limitation on features,
+#: which is exactly what it must never be. The budget below stays as an
+#: operational backstop against a genuinely dead or throttling endpoint; a
+#: full-window cold sweep measured 18:58 at 1.32 games/s on 2026-09-29, so
+#: the 5,400s default affords the whole history and the delivered rollup
+#: archive (EVENT_ROLLUP_ARCHIVE) makes each sweep permanent for every run
+#: after it, on any machine.
 DEFAULT_PBP_BUDGET_SEC = 5400.0
 DEFAULT_SCHEDULE_BUDGET_SEC = 1800.0
-#: How far back the play-by-play sweep reaches for a cold cache. A team-event
-#: feature needs history behind it to have any trailing value, so the window is
-#: the recent past rather than the whole window.
-DEFAULT_PBP_LOOKBACK_DAYS = 240
 
 #: How wide one request's worth of season log is.  Sixty is MLB's number
 #: (``results.SCHEDULE_CHUNK_DAYS``, ``statcast_chunk_days``) and it is a
@@ -1361,10 +1358,12 @@ def _absorb_event_rollup_archive(team_events: pd.DataFrame,
 def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """The action list for the games in the window, one request per game.
 
-    Cached per game, which is what makes this affordable: a cold run sweeps the
-    most recent slice, and every later run adds the games that have since been
-    played. The budget is a deadline, not a count, so a slow host costs less
-    data rather than the whole run.
+    Cached per game, and the sweep is UNBOUNDED: every game the season log
+    has identified is in the target set, every run. The per-game cache and
+    the delivered rollup archive make that affordable - a warm cache replays
+    the whole history from disk, and one complete sweep is permanent for
+    every later run on any machine. The budget stays only as a backstop
+    against a dead or throttling endpoint, not as a selection mechanism.
 
     Only games the season log has already identified are requested. A game the
     log has not seen has no ``nba_game_id`` because nobody has played it, and a
@@ -1385,78 +1384,22 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                        "no play-by-play to fetch")
         return pd.DataFrame(), info
 
-    lookback = _int_env(PBP_LOOKBACK_ENV, DEFAULT_PBP_LOOKBACK_DAYS)
-    cap = _int_env(PBP_MAX_GAMES_ENV, DEFAULT_PBP_MAX_GAMES)
-    cutoff = pd.Timestamp(date.today() - timedelta(days=lookback))
-    recent = eligible[pd.to_datetime(eligible.gameday) >= cutoff]
-    if recent.empty:
-        # A window that is entirely older than the lookback would otherwise
-        # sweep nothing and report a clean run, which is the worst possible
-        # outcome: the budget is spent and the feature is silently absent.
-        # Falling back to the most recent games in the window keeps a
-        # historical or backtest run populated.
-        logger.info("no game in the window is within %d days of today; "
-                    "sweeping the most recent %d instead", lookback, cap)
-        recent = eligible
-    targets = recent.tail(cap)
-    # Backfill the oldest cache holes. The recent slice only ever moves
-    # forward - a stretch of games that fell outside the lookback before any
-    # run fetched them stays uncached forever, and every first game after
-    # such a hole has no play-by-play history to read (the event features sit
-    # at ~95% coverage instead of 100% because of 22 such holes in spring
-    # 2024). Appending the oldest uncached games spends the same deadline
-    # backward: each download-enabled run extends coverage one stretch at a
-    # time, and a complete cache makes this pass free. Hole detection is a
-    # filesystem probe, not a request - the pass costs nothing unless there
-    # is something to fill.
+    # REACH: every eligible game, always. (Directive 2026-09-29: no game
+    # limitation in ingestion, features, or feature engineering.) The retired
+    # cap/lookback selection is what froze the 2024 band permanently on the
+    # ephemeral production host. There is no selection step left to reason
+    # about: the target set is the whole eligible list, the per-game cache
+    # makes the repeat cost disk-reads, and the delivered rollup archive
+    # makes one sweep permanent across hosts.
     uncached = [str(gid) for gid in eligible.nba_game_id
                 if not _pbp_path(str(gid)).exists()]
     if uncached:
-        # Newest-first, walking back from the recent slice, and NOT the
-        # oldest holes. A hole is not a local blemish: the ladder forward-
-        # fills a team's event profile across it, so one unfetched game
-        # freezes every team's event features until the next covered game.
-        # The cost of a hole is therefore the LENGTH of the stretch it
-        # opens, which makes the oldest holes the cheapest ones to fill and
-        # the holes adjacent to the recent slice the most expensive. Taking
-        # the oldest first spends the whole backfill on the stretch furthest
-        # from the walk-forward window - whose frozen values only ever reach
-        # the training rows the first fold reads - and leaves the band the
-        # model is actually trained and validated on frozen.
-        #
-        # Measured on the 2026-09-29 run, which did exactly that: 2,086 games
-        # swept, 0 from cache, the oldest 1,500 plus the most recent 586, and
-        # the ~1,376 games between them (2025-01-15..2026-01-31) never
-        # fetched. Every event feature in that band was an EWM resting on a
-        # forward-filled constant - BOS carried possessions at 99.36 for 19
-        # straight games - and the coverage report still called the window
-        # 100% measured, because ffill hides a hole by construction. Taking
-        # the holes newest-first instead makes the swept set one contiguous
-        # block ending at the newest game, which is the shape the trailing
-        # features are defined over.
-        holes = (eligible[eligible.nba_game_id.isin(uncached)]
-                 .sort_values("gameday", ascending=False).head(cap)
-                 .sort_values("gameday"))
-        targets = pd.concat([targets, holes],
-                            ignore_index=True).drop_duplicates("nba_game_id")
         logger.info("play-by-play backfill: %d game(s) have no cached "
-                    "rollup; filling %d contiguously back from %s",
-                    len(uncached), len(holes),
-                    pd.Timestamp(targets.gameday.max()).date())
-        # Whatever the cap could not reach is named rather than left to be
-        # discovered as a frozen feature months later. This is the line that
-        # would have caught the band above on the run that made it.
-        swept = set(targets.nba_game_id.astype(str))
-        missed = eligible[~eligible.nba_game_id.astype(str).isin(swept)]
-        if len(missed):
-            logger.warning(
-                "play-by-play: %d eligible game(s) from %s to %s are still "
-                "unswept after the cap; their teams' event features are "
-                "forward-filled rather than measured for that whole stretch",
-                len(missed), pd.Timestamp(missed.gameday.min()).date(),
-                pd.Timestamp(missed.gameday.max()).date())
+                    "rollup; the sweep covers the full window",
+                    len(uncached))
     else:
         logger.info("play-by-play backfill: cache complete, nothing to fill")
+    targets = eligible
     logger.info("play-by-play: %d candidate game(s), sweeping %d",
                 len(eligible), len(targets))
 

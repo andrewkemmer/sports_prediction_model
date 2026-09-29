@@ -128,8 +128,8 @@ Window and sweep controls are environment variables: `NBA_START_DATE` /
 `NBA_END_DATE` bound the window; `NBA_FULL_REPULL=1` ignores every cache;
 `NBA_SLICE_DAYS` sets the season-log slice width (default 60) and the width of
 the windows the schedule sweep reports in;
-`NBA_FETCH_PLAY_BY_PLAY=0` skips the play-by-play sweep; `NBA_PBP_MAX_GAMES`,
-`NBA_PBP_BUDGET_SEC`, `NBA_PBP_PAUSE_SEC` and `NBA_PBP_LOOKBACK_DAYS` size it;
+`NBA_FETCH_PLAY_BY_PLAY=0` skips the play-by-play sweep; `NBA_PBP_BUDGET_SEC`,
+`NBA_PBP_PAUSE_SEC` bound it operationally (no game-count limit exists);
 `NBA_SCHEDULE_BUDGET_SEC` bounds the day-by-day schedule sweep; and
 `NBA_REQUEST_TIMEOUT_SEC` / `NBA_REQUEST_ATTEMPTS` bound a single request.
 `NBA_PROGRESS=0` silences the progress display without changing any result.
@@ -204,22 +204,18 @@ never asked about.
 ### How much play-by-play a run actually gets
 
 The event features — offensive and defensive rebounds, fouls, possessions — are
-counted from per-game play-by-play, and the sweep is deliberately partial. It
-takes the most recent `NBA_PBP_LOOKBACK_DAYS` (240) days of played games, capped
-at `NBA_PBP_MAX_GAMES` (1,500) and bounded by `NBA_PBP_BUDGET_SEC` (5,400).
+counted from per-game play-by-play, and the sweep is UNBOUNDED: every played
+game in the window is requested every run. There is no game-count cap and no
+lookback window (both retired on 2026-09-29: a limitation on features is a
+defect, and the retired 1,500-game cap is precisely what left 1,962 games of
+the 2024 band forward-filled forever on the ephemeral production host). The
+sweep is made affordable by the per-game cache plus the shipped rollup
+archive, which turns one complete pass into permanent coverage.
 
-**The lookback is what binds, not the cap or the budget.** Measured on the
-2026-09-26 window: 2,768 games carry an NBA game id, of which 609 fall inside
-240 days, 1,315 inside 400, and all 2,768 inside 900 — while the 1,500 cap and
-the 5,400s budget are both slack (the whole 609-game sweep took 2.6s warm and
-283s cold). So `team_events` covers roughly 18% of settled games, and the
-event-derived features are forward-filled or absent for the rest.
-
-That is a policy choice rather than a defect, and it is the obvious lever if the
-event features are worth more than the fetch time: raising the lookback to cover
-the window would fill `team_events` for every training game, at roughly 2.2
-games/s. On a cold Kaggle run that is ~26 minutes added to a ~10 minute run, so
-it is a deliberate trade rather than something to change silently.
+**Measured costs of the unbounded sweep** (2026-09-29 production runs): a full
+cold window sweep is 3,462 games at ~1.32 games/s ≈ 19 minutes, comfortably
+inside the 5,400s budget backstop; a warm cache replays the same history from
+disk in seconds.
 
 **The per-game cache is machine-local, and the production host is ephemeral**
 (which the 2026-09-29 runs made unmistakable: every cloud run re-fetched the

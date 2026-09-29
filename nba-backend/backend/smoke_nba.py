@@ -430,8 +430,14 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     if args.pbp_games:
+        # The production sweep is unbounded (directive 2026-09-29: no game
+        # limitation anywhere). This flag survives only as a deliberate
+        # human escape hatch for diagnosing a throttling host; the budget
+        # is lifted so the smoke's own sweep is not truncated either.
         import os
-        os.environ[ing.PBP_MAX_GAMES_ENV] = str(args.pbp_games)
+        os.environ[ing.PBP_BUDGET_ENV] = "999999"
+        print(f"smoke: play-by-play budget lifted to 999999s "
+              f"(the sweep itself is unbounded)")
     if args.diagnose:
         return diagnose(args.timeout)
     return run(args.min_coverage, args.pbp_games, args.out_dir)
