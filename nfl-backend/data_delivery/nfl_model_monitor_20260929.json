@@ -1,0 +1,4833 @@
+{
+ "last_retrained": "2026-09-29",
+ "last_retrained_note": null,
+ "next_retrain": "2026-09-29",
+ "next_retrain_note": null,
+ "upset_note": null,
+ "feature_drift": [
+  {
+   "feature": "elo_diff",
+   "current_mean": 23.62672695547192,
+   "baseline_mean": -2.386602677932947,
+   "psi": 0.0,
+   "psi_raw": 0.1686050250546381,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.1697290166765278,
+   "psi_null_median": 0.14761808760286899,
+   "psi_null_draws": 200,
+   "mean_shift": 26.013329633404865,
+   "shift_se": 23.616384954150018,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 10.64,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_diff",
+   "current_mean": 0.0513888888888889,
+   "baseline_mean": -0.006333333333333339,
+   "psi": 0.10693448534943559,
+   "psi_raw": 0.2862752463932898,
+   "psi_adjusted": 0.10693448534943559,
+   "noise_floor": 0.17934076104385419,
+   "psi_null_median": 0.15168987638805376,
+   "psi_null_draws": 200,
+   "mean_shift": 0.05772222222222224,
+   "shift_se": 0.044736873742668645,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 6.82,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_diff",
+   "current_mean": 0.045454545454545456,
+   "baseline_mean": 0.02459016393442623,
+   "psi": 0.0,
+   "psi_raw": 0.012037571314122402,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.1947619923831985,
+   "psi_null_median": 0.09732099815820046,
+   "psi_null_draws": 200,
+   "mean_shift": 0.020864381520119227,
+   "shift_se": 0.293079426339634,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.11,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "is_dome_home",
+   "current_mean": 0.31666666666666665,
+   "baseline_mean": 0.336,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.01933333333333337,
+   "shift_se": 0.06755448383528923,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.86,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "current_mean": 2.1550310337700864,
+   "baseline_mean": -0.701792743719695,
+   "psi": 0.04391526230859244,
+   "psi_raw": 0.2216112691554053,
+   "psi_adjusted": 0.04391526230859244,
+   "noise_floor": 0.17769600684681286,
+   "psi_null_median": 0.1382902877692513,
+   "psi_null_draws": 200,
+   "mean_shift": 2.8568237774897813,
+   "shift_se": 1.6250110811979885,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 9.76,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "current_mean": 0.017073658492360828,
+   "baseline_mean": -0.03183749078960771,
+   "psi": 0.0,
+   "psi_raw": 0.1622264752623455,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.17119259226268227,
+   "psi_null_median": 0.1426606248199416,
+   "psi_null_draws": 200,
+   "mean_shift": 0.04891114928196853,
+   "shift_se": 0.10661360659403571,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 4.34,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "current_mean": 0.012846680653611768,
+   "baseline_mean": 0.0014297253210331818,
+   "psi": 0.06064360353034143,
+   "psi_raw": 0.24471984722413015,
+   "psi_adjusted": 0.06064360353034143,
+   "noise_floor": 0.18407624369378872,
+   "psi_null_median": 0.14810067800850077,
+   "psi_null_draws": 200,
+   "mean_shift": 0.011416955332578586,
+   "shift_se": 0.015814904945580095,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.75,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_short_diff",
+   "current_mean": 0.05,
+   "baseline_mean": 0.016,
+   "psi": 0.029518299350096325,
+   "psi_raw": 0.06602077240395583,
+   "psi_adjusted": 0.029518299350096325,
+   "noise_floor": 0.03650247305385951,
+   "psi_null_median": 0.0055068509928446275,
+   "psi_null_draws": 200,
+   "mean_shift": 0.034,
+   "shift_se": 0.04412869404069635,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_short_home",
+   "current_mean": 0.1,
+   "baseline_mean": 0.18,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.07999999999999999,
+   "shift_se": 0.046023850481580836,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_short_away",
+   "current_mean": 0.05,
+   "baseline_mean": 0.164,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.114,
+   "shift_se": 0.03681987533463814,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "div_game",
+   "current_mean": 0.4166666666666667,
+   "baseline_mean": 0.32,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": 0.09666666666666668,
+   "shift_se": 0.07066456870109386,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "travel_miles_diff",
+   "current_mean": -746.6101552087259,
+   "baseline_mean": -972.9841445721927,
+   "psi": 1.0217445090357626,
+   "psi_raw": 1.2049109068550858,
+   "psi_adjusted": 1.0217445090357626,
+   "noise_floor": 0.18316639781932323,
+   "psi_null_median": 0.13817868775756076,
+   "psi_null_draws": 200,
+   "mean_shift": 226.37398936346676,
+   "shift_se": 140.68671244856506,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.74,
+   "n_baseline": 244,
+   "n_current": 58
+  },
+  {
+   "feature": "altitude_home",
+   "current_mean": 717.4137931034483,
+   "baseline_mean": 625.2786885245902,
+   "psi": 0.0,
+   "psi_raw": 0.029291583239465742,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.20692418082986527,
+   "psi_null_median": 0.16548079294658374,
+   "psi_null_draws": 200,
+   "mean_shift": 92.13510457885809,
+   "shift_se": 164.74217307832137,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.4,
+   "n_baseline": 244,
+   "n_current": 58
+  },
+  {
+   "feature": "prime_time",
+   "current_mean": 0.16666666666666666,
+   "baseline_mean": 0.232,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.06533333333333335,
+   "shift_se": 0.05540410841515904,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.25,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "is_turf_home",
+   "current_mean": 0.4406779661016949,
+   "baseline_mean": 0.448,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.0073220338983051025,
+   "shift_se": 0.07240737015157744,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 59
+  },
+  {
+   "feature": "temp_f",
+   "current_mean": 67.3780487804878,
+   "baseline_mean": 58.1777108433735,
+   "psi": 2.279269522578894,
+   "psi_raw": 2.678235813285404,
+   "psi_adjusted": 2.279269522578894,
+   "noise_floor": 0.39896629070650974,
+   "psi_null_median": 0.22858433201109446,
+   "psi_null_draws": 200,
+   "mean_shift": 9.200337937114305,
+   "shift_se": 3.0994866142585313,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.63,
+   "n_baseline": 166,
+   "n_current": 41
+  },
+  {
+   "feature": "wind_mph",
+   "current_mean": 6.031707317073171,
+   "baseline_mean": 6.894578313253012,
+   "psi": 0.050997708554956,
+   "psi_raw": 0.4334760711884501,
+   "psi_adjusted": 0.050997708554956,
+   "noise_floor": 0.3824783626334941,
+   "psi_null_median": 0.22793386801170762,
+   "psi_null_draws": 200,
+   "mean_shift": -0.8628709961798409,
+   "shift_se": 0.6350457561360301,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.75,
+   "n_baseline": 166,
+   "n_current": 41
+  },
+  {
+   "feature": "is_precip",
+   "current_mean": 0.0,
+   "baseline_mean": 0.006024096385542169,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.006024096385542169,
+   "shift_se": 0.006024096385542169,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.65,
+   "n_baseline": 166,
+   "n_current": 41
+  },
+  {
+   "feature": "is_snow",
+   "current_mean": 0.0,
+   "baseline_mean": 0.012048192771084338,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.012048192771084338,
+   "shift_se": 0.008493503336163766,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.55,
+   "n_baseline": 166,
+   "n_current": 41
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "current_mean": -0.023446653862153787,
+   "baseline_mean": -0.1302166712521165,
+   "psi": 1.211569404218175,
+   "psi_raw": 1.3795161391003736,
+   "psi_adjusted": 1.211569404218175,
+   "noise_floor": 0.1679467348821985,
+   "psi_null_median": 0.14484343412519052,
+   "psi_null_draws": 200,
+   "mean_shift": 0.10677001738996271,
+   "shift_se": 0.26324154045158243,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.59,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "current_mean": 7.630434340143945,
+   "baseline_mean": 7.65360212259891,
+   "psi": 0.18157427376058685,
+   "psi_raw": 0.373943379165671,
+   "psi_adjusted": 0.18157427376058685,
+   "noise_floor": 0.19236910540508415,
+   "psi_null_median": 0.15700551076237995,
+   "psi_null_draws": 200,
+   "mean_shift": -0.023167782454964758,
+   "shift_se": 0.17699851307276163,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.81,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "current_mean": 7.653880994006099,
+   "baseline_mean": 7.783818793851025,
+   "psi": 0.0,
+   "psi_raw": 0.15911354347662326,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.19651522319099546,
+   "psi_null_median": 0.15834519191689359,
+   "psi_null_draws": 200,
+   "mean_shift": -0.12993779984492626,
+   "shift_se": 0.1699489025276839,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.1,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_diff",
+   "current_mean": -0.007665147823332529,
+   "baseline_mean": 0.0029740966288062626,
+   "psi": 0.030522853430103664,
+   "psi_raw": 0.2016042963253828,
+   "psi_adjusted": 0.030522853430103664,
+   "noise_floor": 0.17108144289527913,
+   "psi_null_median": 0.14634290288247345,
+   "psi_null_draws": 200,
+   "mean_shift": -0.01063924445213879,
+   "shift_se": 0.019251698886111623,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.21,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_home",
+   "current_mean": 0.0012247185943591152,
+   "baseline_mean": 0.01710195097466116,
+   "psi": 0.09979710500966843,
+   "psi_raw": 0.30397197619889377,
+   "psi_adjusted": 0.09979710500966843,
+   "noise_floor": 0.20417487118922534,
+   "psi_null_median": 0.15886904343019592,
+   "psi_null_draws": 200,
+   "mean_shift": -0.015877232380302045,
+   "shift_se": 0.011937171711260137,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.84,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_away",
+   "current_mean": 0.00888986641769165,
+   "baseline_mean": 0.014127854345854897,
+   "psi": 0.16404420341860723,
+   "psi_raw": 0.3321141843359191,
+   "psi_adjusted": 0.16404420341860723,
+   "noise_floor": 0.16806998091731187,
+   "psi_null_median": 0.14503250355545816,
+   "psi_null_draws": 200,
+   "mean_shift": -0.005237987928163247,
+   "shift_se": 0.013815364399948139,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.81,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "travel_miles_home",
+   "current_mean": 136.70192494921798,
+   "baseline_mean": 0.0,
+   "psi": null,
+   "psi_raw": null,
+   "psi_adjusted": null,
+   "noise_floor": 0.0960288298473714,
+   "psi_null_median": null,
+   "psi_null_draws": 0,
+   "mean_shift": 136.70192494921798,
+   "shift_se": 136.70192494921798,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.0,
+   "n_baseline": 244,
+   "n_current": 58
+  },
+  {
+   "feature": "travel_miles_away",
+   "current_mean": 883.3120801579439,
+   "baseline_mean": 972.9841445721927,
+   "psi": 1.012885546149527,
+   "psi_raw": 1.194553396747824,
+   "psi_adjusted": 1.012885546149527,
+   "noise_floor": 0.18166785059829693,
+   "psi_null_median": 0.14228589594233623,
+   "psi_null_draws": 200,
+   "mean_shift": -89.67206441424878,
+   "shift_se": 92.82809122494488,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.82,
+   "n_baseline": 244,
+   "n_current": 58
+  },
+  {
+   "feature": "elo_home",
+   "current_mean": 1515.0431715553595,
+   "baseline_mean": 1503.1127260705223,
+   "psi": 0.0,
+   "psi_raw": 0.1848225094828509,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.20015622999116509,
+   "psi_null_median": 0.15508305125339522,
+   "psi_null_draws": 200,
+   "mean_shift": 11.930445484837264,
+   "shift_se": 16.404246457163133,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.63,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_away",
+   "current_mean": 1491.4164445998879,
+   "baseline_mean": 1505.4993287484554,
+   "psi": 0.0,
+   "psi_raw": 0.15607104090414062,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.18261876866042662,
+   "psi_null_median": 0.1453355672568821,
+   "psi_null_draws": 200,
+   "mean_shift": -14.082884148567473,
+   "shift_se": 16.276286738700104,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.12,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_home",
+   "current_mean": 0.5222222222222223,
+   "baseline_mean": 0.495,
+   "psi": 0.16722893712092127,
+   "psi_raw": 0.3793536369215646,
+   "psi_adjusted": 0.16722893712092127,
+   "noise_floor": 0.21212469980064333,
+   "psi_null_median": 0.1738834057927803,
+   "psi_null_draws": 200,
+   "mean_shift": 0.02722222222222226,
+   "shift_se": 0.03377512892100961,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.55,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_away",
+   "current_mean": 0.4708333333333334,
+   "baseline_mean": 0.5013333333333333,
+   "psi": 0.024256573417066746,
+   "psi_raw": 0.18783831304569482,
+   "psi_adjusted": 0.024256573417066746,
+   "noise_floor": 0.16358173962862807,
+   "psi_null_median": 0.12769370971474328,
+   "psi_null_draws": 200,
+   "mean_shift": -0.030499999999999916,
+   "shift_se": 0.031083730680632846,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.92,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "current_mean": 0.9902195831714611,
+   "baseline_mean": -0.36322208682409496,
+   "psi": 0.08987342741223256,
+   "psi_raw": 0.27535332213572683,
+   "psi_adjusted": 0.08987342741223256,
+   "noise_floor": 0.18547989472349427,
+   "psi_null_median": 0.15332410273454206,
+   "psi_null_draws": 200,
+   "mean_shift": 1.353441669995556,
+   "shift_se": 1.1260954428332512,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.63,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "current_mean": -1.1648114505986256,
+   "baseline_mean": 0.3385706568956,
+   "psi": 0.0,
+   "psi_raw": 0.17226865362704857,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.18858805504201398,
+   "psi_null_median": 0.15142692197952468,
+   "psi_null_draws": 200,
+   "mean_shift": -1.5033821074942255,
+   "shift_se": 1.239300644410876,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "current_mean": 4.097477448887403,
+   "baseline_mean": 4.1325656946335165,
+   "psi": 0.0,
+   "psi_raw": 0.12234465550937358,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.17243203295507825,
+   "psi_null_median": 0.15077721063682303,
+   "psi_null_draws": 200,
+   "mean_shift": -0.035088245746113245,
+   "shift_se": 0.07852178093507982,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.73,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "current_mean": 4.080403790395042,
+   "baseline_mean": 4.164403185423123,
+   "psi": 0.022405549296338118,
+   "psi_raw": 0.2077597306835876,
+   "psi_adjusted": 0.022405549296338118,
+   "noise_floor": 0.1853541813872495,
+   "psi_null_median": 0.15075873469667106,
+   "psi_null_draws": 200,
+   "mean_shift": -0.08399939502808085,
+   "shift_se": 0.07639261851981251,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.45,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_home",
+   "current_mean": 7.340909090909091,
+   "baseline_mean": 7.438524590163935,
+   "psi": 0.0,
+   "psi_raw": 0.044856922280255083,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.13404063795013021,
+   "psi_null_median": 0.07684981391506021,
+   "psi_null_draws": 200,
+   "mean_shift": -0.09761549925484392,
+   "shift_se": 0.26554707909703845,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.71,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "rest_days_away",
+   "current_mean": 7.295454545454546,
+   "baseline_mean": 7.413934426229508,
+   "psi": 0.0,
+   "psi_raw": 0.13723787475470822,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.14672792888227312,
+   "psi_null_median": 0.08349319978157749,
+   "psi_null_draws": 200,
+   "mean_shift": -0.11847988077496208,
+   "shift_se": 0.236601963783019,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.67,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "pace_plays_min_home",
+   "current_mean": 1.3069776019299497,
+   "baseline_mean": 1.326113421431367,
+   "psi": 0.11662816930455783,
+   "psi_raw": 0.29002165681512465,
+   "psi_adjusted": 0.11662816930455783,
+   "noise_floor": 0.17339348751056682,
+   "psi_null_median": 0.15118081050636284,
+   "psi_null_draws": 200,
+   "mean_shift": -0.019135819501417295,
+   "shift_se": 0.013020310587632205,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.81,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pace_plays_min_away",
+   "current_mean": 1.2941309212763379,
+   "baseline_mean": 1.3246836961103339,
+   "psi": 0.22280656489753864,
+   "psi_raw": 0.39901056380588135,
+   "psi_adjusted": 0.22280656489753864,
+   "noise_floor": 0.1762039989083427,
+   "psi_null_median": 0.1563697971433553,
+   "psi_null_draws": 200,
+   "mean_shift": -0.030552774833995988,
+   "shift_se": 0.012441503079512547,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.52,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "epa_qb_home",
+   "current_mean": 0.050934880232759334,
+   "baseline_mean": 0.02741365563545368,
+   "psi": 0.0,
+   "psi_raw": 0.324993504829092,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.3583273440962201,
+   "psi_null_median": 0.21385075290245203,
+   "psi_null_draws": 200,
+   "mean_shift": 0.023521224597305653,
+   "shift_se": 0.017857017741164917,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.93,
+   "n_baseline": 241,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_qb_away",
+   "current_mean": 0.018423181645610062,
+   "baseline_mean": 0.03251278862926987,
+   "psi": 0.0,
+   "psi_raw": 0.3504638762501877,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.3674490072334777,
+   "psi_null_median": 0.23280518293888802,
+   "psi_null_draws": 200,
+   "mean_shift": -0.014089606983659811,
+   "shift_se": 0.017453120195060408,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.75,
+   "n_baseline": 242,
+   "n_current": 42
+  },
+  {
+   "feature": "epa_qb_diff",
+   "current_mean": 0.03044173478069024,
+   "baseline_mean": -0.00447714451817387,
+   "psi": 0.0,
+   "psi_raw": 0.223045047758551,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.4392357042591088,
+   "psi_null_median": 0.24438598490053826,
+   "psi_null_draws": 200,
+   "mean_shift": 0.03491887929886411,
+   "shift_se": 0.025007691092501748,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 8.8,
+   "n_baseline": 239,
+   "n_current": 42
+  },
+  {
+   "feature": "epa_wr_home",
+   "current_mean": 0.2185237929149103,
+   "baseline_mean": 0.21945766765833427,
+   "psi": 0.0,
+   "psi_raw": 0.28345622176927693,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.35221514123429465,
+   "psi_null_median": 0.22225043428903807,
+   "psi_null_draws": 200,
+   "mean_shift": -0.0009338747434239625,
+   "shift_se": 0.023810312154811473,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.77,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_wr_away",
+   "current_mean": 0.2037455018090058,
+   "baseline_mean": 0.21324200378347472,
+   "psi": 0.0,
+   "psi_raw": 0.23651837503856557,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.2935634781193575,
+   "psi_null_median": 0.20004875779074105,
+   "psi_null_draws": 200,
+   "mean_shift": -0.009496501974468913,
+   "shift_se": 0.02529379543504446,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.16,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_wr_diff",
+   "current_mean": 0.014778291105904574,
+   "baseline_mean": 0.006215663874859537,
+   "psi": 0.07759772466398063,
+   "psi_raw": 0.36907817723680175,
+   "psi_adjusted": 0.07759772466398063,
+   "noise_floor": 0.2914804525728211,
+   "psi_null_median": 0.20648636823697702,
+   "psi_null_draws": 200,
+   "mean_shift": 0.008562627231045037,
+   "shift_se": 0.03369994636775802,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.17,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_te_home",
+   "current_mean": 0.2309130765241985,
+   "baseline_mean": 0.22389143794192778,
+   "psi": 1.085319991486497,
+   "psi_raw": 1.3986835149234063,
+   "psi_adjusted": 1.085319991486497,
+   "noise_floor": 0.3133635234369092,
+   "psi_null_median": 0.2114475629690993,
+   "psi_null_draws": 200,
+   "mean_shift": 0.007021638582270728,
+   "shift_se": 0.03768936354837419,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.75,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_te_away",
+   "current_mean": 0.1877509816547301,
+   "baseline_mean": 0.22618233587547926,
+   "psi": 0.14979741519150697,
+   "psi_raw": 0.4611141885719508,
+   "psi_adjusted": 0.14979741519150697,
+   "noise_floor": 0.31131677338044383,
+   "psi_null_median": 0.19175408525178672,
+   "psi_null_draws": 200,
+   "mean_shift": -0.03843135422074917,
+   "shift_se": 0.03777358136057741,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.82,
+   "n_baseline": 243,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_te_diff",
+   "current_mean": 0.04316209486946836,
+   "baseline_mean": -0.002284064553433126,
+   "psi": 0.0,
+   "psi_raw": 0.17094252786945327,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.32000686044787224,
+   "psi_null_median": 0.21281770548043932,
+   "psi_null_draws": 200,
+   "mean_shift": 0.04544615942290149,
+   "shift_se": 0.05177540589908378,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.72,
+   "n_baseline": 243,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_rb_home",
+   "current_mean": -0.03563899854043145,
+   "baseline_mean": -0.043482483510756016,
+   "psi": 0.08013791003388393,
+   "psi_raw": 0.3967089697780588,
+   "psi_adjusted": 0.08013791003388393,
+   "noise_floor": 0.3165710597441749,
+   "psi_null_median": 0.21357809617918586,
+   "psi_null_draws": 200,
+   "mean_shift": 0.007843484970324568,
+   "shift_se": 0.01249444559125393,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.13,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_rb_away",
+   "current_mean": -0.04973166243221902,
+   "baseline_mean": -0.03870491065323654,
+   "psi": 0.0,
+   "psi_raw": 0.10474755633659716,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.33644298388405475,
+   "psi_null_median": 0.2100869526450984,
+   "psi_null_draws": 200,
+   "mean_shift": -0.011026751778982477,
+   "shift_se": 0.013186722628007415,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.66,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "epa_rb_diff",
+   "current_mean": 0.014092663891787583,
+   "baseline_mean": -0.0047775728575194755,
+   "psi": 0.0,
+   "psi_raw": 0.17200754334496027,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.29572427234828874,
+   "psi_null_median": 0.21047604466724754,
+   "psi_null_draws": 200,
+   "mean_shift": 0.01887023674930706,
+   "shift_se": 0.018172486112799025,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.41,
+   "n_baseline": 244,
+   "n_current": 44
+  },
+  {
+   "feature": "inj_ol_out_home",
+   "current_mean": 1.5666666666666667,
+   "baseline_mean": 2.116,
+   "psi": 0.21155452053214283,
+   "psi_raw": 0.2835207915397713,
+   "psi_adjusted": 0.21155452053214283,
+   "noise_floor": 0.07196627100762845,
+   "psi_null_median": 0.05493500193523156,
+   "psi_null_draws": 200,
+   "mean_shift": -0.5493333333333335,
+   "shift_se": 0.1777290067651044,
+   "location_shift": true,
+   "status": "WARN",
+   "weight_pct": 0.45,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_ol_out_away",
+   "current_mean": 1.7833333333333334,
+   "baseline_mean": 2.104,
+   "psi": 0.10984820493947235,
+   "psi_raw": 0.17873753418523358,
+   "psi_adjusted": 0.10984820493947235,
+   "noise_floor": 0.06888932924576123,
+   "psi_null_median": 0.0549797273049219,
+   "psi_null_draws": 200,
+   "mean_shift": -0.32066666666666666,
+   "shift_se": 0.17452068597773396,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.64,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_ol_out_diff",
+   "current_mean": -0.21666666666666667,
+   "baseline_mean": 0.012,
+   "psi": 0.0,
+   "psi_raw": 0.09103745858002853,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.09146821786342428,
+   "psi_null_median": 0.07719930588874385,
+   "psi_null_draws": 200,
+   "mean_shift": -0.22866666666666668,
+   "shift_se": 0.23776927382858906,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.56,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_snaps_lost_share_home",
+   "current_mean": 0.9294253968253969,
+   "baseline_mean": 1.2786901428571427,
+   "psi": 0.1864255022992046,
+   "psi_raw": 0.367235633516572,
+   "psi_adjusted": 0.1864255022992046,
+   "noise_floor": 0.18081013121736741,
+   "psi_null_median": 0.1438085645594993,
+   "psi_null_draws": 200,
+   "mean_shift": -0.34926474603174573,
+   "shift_se": 0.13089938105555596,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.98,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_snaps_lost_share_away",
+   "current_mean": 1.1309541666666665,
+   "baseline_mean": 1.2753697142857146,
+   "psi": 0.16313628767314872,
+   "psi_raw": 0.32616774495909134,
+   "psi_adjusted": 0.16313628767314872,
+   "noise_floor": 0.16303145728594262,
+   "psi_null_median": 0.15018970529703385,
+   "psi_null_draws": 200,
+   "mean_shift": -0.14441554761904807,
+   "shift_se": 0.1386757296203221,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.11,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_snaps_lost_share_diff",
+   "current_mean": -0.20152876984126983,
+   "baseline_mean": 0.003320428571428572,
+   "psi": 0.0,
+   "psi_raw": 0.119240210668827,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.173048876229848,
+   "psi_null_median": 0.1476983111017668,
+   "psi_null_draws": 200,
+   "mean_shift": -0.2048491984126984,
+   "shift_se": 0.18106878161240939,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.89,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_key_out_home",
+   "current_mean": 0.5333333333333333,
+   "baseline_mean": 0.668,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.1346666666666667,
+   "shift_se": 0.07147812539893685,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_key_out_away",
+   "current_mean": 0.6166666666666667,
+   "baseline_mean": 0.684,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.06733333333333336,
+   "shift_se": 0.06981861879091347,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ol_key_out_diff",
+   "current_mean": -0.08333333333333333,
+   "baseline_mean": -0.016,
+   "psi": 0.005292722990763481,
+   "psi_raw": 0.020956039920237243,
+   "psi_adjusted": 0.005292722990763481,
+   "noise_floor": 0.015663316929473762,
+   "psi_null_median": 0.007616101571243281,
+   "psi_null_draws": 200,
+   "mean_shift": -0.06733333333333333,
+   "shift_se": 0.1023213413098008,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_def_out_home",
+   "current_mean": 6.466666666666667,
+   "baseline_mean": 6.896,
+   "psi": 0.260366854820068,
+   "psi_raw": 0.3879278102412349,
+   "psi_adjusted": 0.260366854820068,
+   "noise_floor": 0.1275609554211669,
+   "psi_null_median": 0.10667444807724949,
+   "psi_null_draws": 200,
+   "mean_shift": -0.4293333333333331,
+   "shift_se": 0.3936922839127686,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.65,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_def_out_away",
+   "current_mean": 6.75,
+   "baseline_mean": 6.628,
+   "psi": 0.15581546083373965,
+   "psi_raw": 0.2869716644957775,
+   "psi_adjusted": 0.15581546083373965,
+   "noise_floor": 0.13115620366203784,
+   "psi_null_median": 0.11278850281044453,
+   "psi_null_draws": 200,
+   "mean_shift": 0.12199999999999989,
+   "shift_se": 0.426513796234775,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.8,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_def_out_diff",
+   "current_mean": -0.2833333333333333,
+   "baseline_mean": 0.268,
+   "psi": 0.0026125491180996885,
+   "psi_raw": 0.1900882592939735,
+   "psi_adjusted": 0.0026125491180996885,
+   "noise_floor": 0.1874757101758738,
+   "psi_null_median": 0.12858426566379955,
+   "psi_null_draws": 200,
+   "mean_shift": -0.5513333333333333,
+   "shift_se": 0.5364707944547673,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 3.31,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_snaps_lost_share_home",
+   "current_mean": 2.8391321428571428,
+   "baseline_mean": 3.0205191428571423,
+   "psi": 0.0,
+   "psi_raw": 0.14923904992984824,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.17273702207988018,
+   "psi_null_median": 0.14664596658389745,
+   "psi_null_draws": 200,
+   "mean_shift": -0.18138699999999952,
+   "shift_se": 0.22237134914343212,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.8,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_snaps_lost_share_away",
+   "current_mean": 2.981804761904762,
+   "baseline_mean": 2.920501238095238,
+   "psi": 1.241966998103845,
+   "psi_raw": 1.4235719814294974,
+   "psi_adjusted": 1.241966998103845,
+   "noise_floor": 0.1816049833256524,
+   "psi_null_median": 0.15172998568094867,
+   "psi_null_draws": 200,
+   "mean_shift": 0.06130352380952386,
+   "shift_se": 0.23874675465066805,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.86,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_snaps_lost_share_diff",
+   "current_mean": -0.14267261904761905,
+   "baseline_mean": 0.10001790476190477,
+   "psi": 0.0,
+   "psi_raw": 0.09370230809359482,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.16571667790049066,
+   "psi_null_median": 0.14514406127250207,
+   "psi_null_draws": 200,
+   "mean_shift": -0.24269052380952383,
+   "shift_se": 0.2781964610611316,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.79,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_key_out_home",
+   "current_mean": 0.8166666666666667,
+   "baseline_mean": 0.848,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.031333333333333324,
+   "shift_se": 0.05527494370780844,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_key_out_away",
+   "current_mean": 0.7666666666666667,
+   "baseline_mean": 0.86,
+   "psi": 0.0,
+   "psi_raw": 0.0,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.0,
+   "psi_null_median": 0.0,
+   "psi_null_draws": 200,
+   "mean_shift": -0.09333333333333327,
+   "shift_se": 0.059292066943728274,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "def_key_out_diff",
+   "current_mean": 0.05,
+   "baseline_mean": -0.012,
+   "psi": 0.0,
+   "psi_raw": 0.002757121373581244,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.016087449242909054,
+   "psi_null_median": 0.010073037748867858,
+   "psi_null_draws": 200,
+   "mean_shift": 0.062,
+   "shift_se": 0.07878968574855036,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.88,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "is_home",
+   "current_mean": 1.0,
+   "baseline_mean": 1.0,
+   "psi": null,
+   "psi_raw": null,
+   "psi_adjusted": null,
+   "noise_floor": 0.093,
+   "psi_null_median": null,
+   "psi_null_draws": 0,
+   "mean_shift": 0.0,
+   "shift_se": 0.0,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  }
+ ],
+ "features_metadata": {
+  "elo_diff": {
+   "tooltip": "What: Home minus away pre-game Elo rating\nDefinition: elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie\nSource: nflverse schedules (all decided REG games, 2018 warmup onward)\nWindow: full history (iterative) \u00b7 Built as: iterative state update\nPoint-in-time rule: rating entering kickoff; updated only AFTER a game settles\nMissing values: ELO_PRIOR (1500) for a team\u2019s first-ever game; never NaN\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away pre-game Elo rating",
+   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)"
+  },
+  "win_pct_diff": {
+   "tooltip": "What: Home minus away trailing win percentage\nDefinition: mean(team_win) over the team\u2019s prior 12 games (ties = 0.5)\nSource: decided game outcomes\nWindow: 12 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(12).mean().shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away trailing win percentage",
+   "definition": "mean(team_win) over the team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12
+  },
+  "rest_days_diff": {
+   "tooltip": "What: Home minus away days since each team\u2019s previous game\nDefinition: (gameday_t - gameday_{t-1}).days within the same (team, season)\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game in the same season\nMissing values: NaN for a team\u2019s first game of the season; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away days since each team's previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the same (team, season)",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "is_dome_home": {
+   "tooltip": "What: Home venue roof is a dome (or closed retractable)\nDefinition: 1.0 when the schedule roof is {dome, closed}, or the schedule is silent and the committed venue is roofed (fixed or retractable); 0.0 when the schedule roof is {outdoors, open} or the committed venue has no roof at all; NaN when both are unknown\nSource: nflverse schedule roof field, falling back to the committed nfl_stadiums.csv roof column\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: venue attribute known before kickoff\nMissing values: NaN when the schedule roof and the committed venue classification are both unknown; a roofed venue never implies an open-air game day\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home venue roof is a dome (or closed retractable)",
+   "definition": "1.0 when the schedule roof is {dome, closed}, or the schedule is silent and the committed venue is roofed (fixed or retractable); 0.0 when the schedule roof is {outdoors, open} or the committed venue has no roof at all; NaN when both are unknown",
+   "source": "nflverse schedule roof field, falling back to the committed nfl_stadiums.csv roof column",
+   "lookback": 0
+  },
+  "ewm_net_pts_diff": {
+   "tooltip": "What: Home minus away exponentially-weighted net points per game\nDefinition: ewm(halflife=2).mean() of the team\u2019s net points (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "ewm_ypp_diff": {
+   "tooltip": "What: Home minus away exponentially-weighted net yards per play\nDefinition: ewm(halflife=2).mean() of the team\u2019s game-level yards_gained/n_plays over strictly-prior games\nSource: nflverse play-by-play\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM of per-game yardage efficiency\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when no prior games or PBP unavailable for a season\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pace_plays_min_diff": {
+   "tooltip": "What: Home minus away trailing plays per minute\nDefinition: trailing 4-game mean of n_plays/elapsed_min per game\nSource: nflverse play-by-play clock\nWindow: 4 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(4).mean().shift(1)\nMissing values: NaN when prior games lack clock data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away trailing plays per minute",
+   "definition": "trailing 4-game mean of n_plays/elapsed_min per game",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4
+  },
+  "rest_short_diff": {
+   "tooltip": "What: Home minus away short-rest flag (rest < 7 days)\nDefinition: 1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag; a season opener prices 0.0 on each side (no in-season predecessor is never short rest), so the diff equals 0 at opener-vs-opener\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date in the same season\nMissing values: 0.0 at a season opener (was NaN before the side-twin promotion; the opener flag is definitionally 0)\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away short-rest flag (rest < 7 days)",
+   "definition": "1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag; a season opener prices 0.0 on each side (no in-season predecessor is never short rest), so the diff equals 0 at opener-vs-opener",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "rest_short_home": {
+   "tooltip": "What: Home team\u2019s short-rest flag (rest < 7 days)\nDefinition: 1.0 when the home team\u2019s within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date in the same season\nMissing values: 0.0 at a season opener; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's short-rest flag (rest < 7 days)",
+   "definition": "1.0 when the home team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "rest_short_away": {
+   "tooltip": "What: Away team\u2019s short-rest flag (rest < 7 days)\nDefinition: 1.0 when the away team\u2019s within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: thresholded date difference\nPoint-in-time rule: function of the team\u2019s strictly-prior game date in the same season\nMissing values: 0.0 at a season opener; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's short-rest flag (rest < 7 days)",
+   "definition": "1.0 when the away team's within-season rest_days < 7 else 0.0; a season opener prices 0.0 (no in-season predecessor is never short rest)",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "div_game": {
+   "tooltip": "What: Division matchup flag\nDefinition: 1.0 when home and away share a division else 0.0\nSource: nflverse schedule div_game field\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: known before kickoff\nMissing values: NaN when the source field is missing\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Division matchup flag",
+   "definition": "1.0 when home and away share a division else 0.0",
+   "source": "nflverse schedule div_game field",
+   "lookback": 0
+  },
+  "travel_miles_diff": {
+   "tooltip": "What: Home minus away distance traveled to the venue (miles)\nDefinition: haversine(prior scheduled home stadium, game stadium) home minus away; a team\u2019s first home venue is unavailable rather than inferred from a current team\u2192stadium map\nSource: committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names\nWindow: prior home games \u00b7 Built as: point-in-time static venue fact\nPoint-in-time rule: each side uses its most recent home venue strictly before kickoff; no current/future venue association\nMissing values: NaN until the team has a prior home venue or the venue is unlisted; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away distance traveled to the venue (miles)",
+   "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team\u2192stadium map",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games"
+  },
+  "altitude_home": {
+   "tooltip": "What: Game-venue elevation in feet\nDefinition: altitude_ft of the game stadium\nSource: committed nfl_stadiums.csv (SRTM/Open-Elevation)\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: venue attribute known before kickoff\nMissing values: NaN when the venue is missing from the committed table; every stadium the schedule references is listed\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Game-venue elevation in feet",
+   "definition": "altitude_ft of the game stadium",
+   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+   "lookback": 0
+  },
+  "prime_time": {
+   "tooltip": "What: Evening-kickoff flag\nDefinition: 1.0 when ET kickoff hour >= 17 else 0.0\nSource: nflverse schedule gametime (ET)\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: schedule fact known before kickoff\nMissing values: NaN when gametime is missing\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Evening-kickoff flag",
+   "definition": "1.0 when ET kickoff hour >= 17 else 0.0",
+   "source": "nflverse schedule gametime (ET)",
+   "lookback": 0
+  },
+  "is_turf_home": {
+   "tooltip": "What: Home venue playing surface is artificial turf\nDefinition: 1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted\nSource: nflverse schedule surface field\nWindow: \u2014 \u00b7 Built as: static pre-game fact\nPoint-in-time rule: venue attribute known before kickoff\nMissing values: NaN when surface is unlisted/blank; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home venue playing surface is artificial turf",
+   "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+   "source": "nflverse schedule surface field",
+   "lookback": 0
+  },
+  "temp_f": {
+   "tooltip": "What: Hourly venue temperature immediately before kickoff (F)\nDefinition: Open-Meteo hourly temperature_2m at the committed stadium coordinates, converted to Fahrenheit; latest API timestamp strictly before kickoff\nSource: Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)\nWindow: latest hourly reading before kickoff \u00b7 Built as: single latest strictly-prior hourly value; no daily aggregation\nPoint-in-time rule: weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc; historical archive rows may be retrieved later using the same pre-kickoff observation\nMissing values: NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never use a daily aggregate or raw schedule fallback\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Hourly venue temperature immediately before kickoff (F)",
+   "definition": "Open-Meteo hourly temperature_2m at the committed stadium coordinates, converted to Fahrenheit; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff"
+  },
+  "wind_mph": {
+   "tooltip": "What: Hourly venue wind speed immediately before kickoff (mph)\nDefinition: Open-Meteo hourly wind_speed_10m at the committed stadium coordinates, converted to mph; latest API timestamp strictly before kickoff\nSource: Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)\nWindow: latest hourly reading before kickoff \u00b7 Built as: single latest strictly-prior hourly value; no daily max/gust aggregate\nPoint-in-time rule: weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc\nMissing values: NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Hourly venue wind speed immediately before kickoff (mph)",
+   "definition": "Open-Meteo hourly wind_speed_10m at the committed stadium coordinates, converted to mph; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff"
+  },
+  "is_precip": {
+   "tooltip": "What: Hourly precipitation flag immediately before kickoff\nDefinition: 1.0 when the latest strictly-prior hourly Open-Meteo precipitation is >= PRECIP_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable\nSource: Open-Meteo hourly precipitation archive/forecast (validated PIT cache)\nWindow: latest hourly reading before kickoff \u00b7 Built as: threshold of one hourly precipitation total; never a daily sum\nPoint-in-time rule: weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc\nMissing values: NaN when no strictly-prior hourly precipitation value exists; never inferred from a daily archive or schedule payload\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Hourly precipitation flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo precipitation is >= PRECIP_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly precipitation archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff"
+  },
+  "is_snow": {
+   "tooltip": "What: Hourly snowfall flag immediately before kickoff\nDefinition: 1.0 when the latest strictly-prior hourly Open-Meteo snowfall, converted to inches from the unit the API itself reports, is >= SNOW_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable\nSource: Open-Meteo hourly snowfall archive/forecast (validated PIT cache)\nWindow: latest hourly reading before kickoff \u00b7 Built as: threshold of one hourly snowfall total; never a daily sum\nPoint-in-time rule: weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc\nMissing values: NaN when no strictly-prior hourly snowfall value exists; never inferred from a daily archive or schedule payload\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Hourly snowfall flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo snowfall, converted to inches from the unit the API itself reports, is >= SNOW_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly snowfall archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff"
+  },
+  "pbp_air_yards_att_ewm_diff": {
+   "tooltip": "What: Home minus away trailing air yards per attempt\nDefinition: pbp_air_yards_att_ewm_home - pbp_air_yards_att_ewm_away \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away trailing air yards per attempt",
+   "definition": "pbp_air_yards_att_ewm_home - pbp_air_yards_att_ewm_away \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pbp_air_yards_att_ewm_home": {
+   "tooltip": "What: Home team\u2019s trailing air yards per attempt\nDefinition: The home team\u2019s own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's trailing air yards per attempt",
+   "definition": "The home team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pbp_air_yards_att_ewm_away": {
+   "tooltip": "What: Away team\u2019s trailing air yards per attempt\nDefinition: The away team\u2019s own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's trailing air yards per attempt",
+   "definition": "The away team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pbp_def_epa_play_ewm_diff": {
+   "tooltip": "What: Home minus away trailing epa allowed per play\nDefinition: pbp_def_epa_play_ewm_home - pbp_def_epa_play_ewm_away \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team\u2019s defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away trailing epa allowed per play",
+   "definition": "pbp_def_epa_play_ewm_home - pbp_def_epa_play_ewm_away \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pbp_def_epa_play_ewm_home": {
+   "tooltip": "What: Home team\u2019s trailing epa allowed per play\nDefinition: The home team\u2019s own Per-team EWM/rolling mean of mean EPA allowed per play on the team\u2019s defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team\u2019s defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's trailing epa allowed per play",
+   "definition": "The home team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "pbp_def_epa_play_ewm_away": {
+   "tooltip": "What: Away team\u2019s trailing epa allowed per play\nDefinition: The away team\u2019s own Per-team EWM/rolling mean of mean EPA allowed per play on the team\u2019s defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team\u2019s defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)\nSource: nflverse play-by-play (per-game rollup)\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team trailing mean of the per-game metric\nPoint-in-time rule: per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's trailing epa allowed per play",
+   "definition": "The away team's own Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense) \u2014 Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "travel_miles_home": {
+   "tooltip": "What: Home team\u2019s travel distance to the game venue (miles)\nDefinition: haversine(home team\u2019s prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation\nSource: committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names\nWindow: prior home games \u00b7 Built as: point-in-time static venue fact\nPoint-in-time rule: the home team\u2019s most recent home venue strictly before kickoff; no current/future venue association\nMissing values: NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's travel distance to the game venue (miles)",
+   "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games"
+  },
+  "travel_miles_away": {
+   "tooltip": "What: Away team\u2019s travel distance to the game venue (miles)\nDefinition: haversine(away team\u2019s prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation\nSource: committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names\nWindow: prior home games \u00b7 Built as: point-in-time static venue fact\nPoint-in-time rule: the away team\u2019s most recent home venue strictly before kickoff; no current/future venue association\nMissing values: NaN until the team has a prior home venue or the venue is unlisted; never fabricated; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's travel distance to the game venue (miles)",
+   "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games"
+  },
+  "elo_home": {
+   "tooltip": "What: Home team\u2019s pre-game Elo rating\nDefinition: team Elo entering kickoff (home side of elo_diff)\nSource: nflverse schedules (all decided REG games, 2018 warmup onward)\nWindow: full history (iterative) \u00b7 Built as: iterative state update\nPoint-in-time rule: rating entering kickoff; updated only AFTER a game settles\nMissing values: ELO_PRIOR (1500) for a team\u2019s first-ever game; never NaN\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (home side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)"
+  },
+  "elo_away": {
+   "tooltip": "What: Away team\u2019s pre-game Elo rating\nDefinition: team Elo entering kickoff (away side of elo_diff)\nSource: nflverse schedules (all decided REG games, 2018 warmup onward)\nWindow: full history (iterative) \u00b7 Built as: iterative state update\nPoint-in-time rule: rating entering kickoff; updated only AFTER a game settles\nMissing values: ELO_PRIOR (1500) for a team\u2019s first-ever game; never NaN\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (away side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)"
+  },
+  "win_pct_home": {
+   "tooltip": "What: Home team\u2019s trailing win percentage\nDefinition: mean(team_win) over the home team\u2019s prior 12 games (ties = 0.5)\nSource: decided game outcomes\nWindow: 12 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(12).mean().shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's trailing win percentage",
+   "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12
+  },
+  "win_pct_away": {
+   "tooltip": "What: Away team\u2019s trailing win percentage\nDefinition: mean(team_win) over the away team\u2019s prior 12 games (ties = 0.5)\nSource: decided game outcomes\nWindow: 12 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(12).mean().shift(1) \u2014 current and future games excluded\nMissing values: NaN when the team has no prior games; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's trailing win percentage",
+   "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12
+  },
+  "ewm_net_pts_home": {
+   "tooltip": "What: Home team\u2019s exponentially-weighted net points per game\nDefinition: ewm(halflife=2).mean() of the team\u2019s net points (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "ewm_net_pts_away": {
+   "tooltip": "What: Away team\u2019s exponentially-weighted net points per game\nDefinition: ewm(halflife=2).mean() of the team\u2019s net points (for - against) over strictly-prior games\nSource: decided game scores\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when the team has no prior games\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "ewm_ypp_home": {
+   "tooltip": "What: Home team\u2019s exponentially-weighted net yards per play\nDefinition: ewm(halflife=2).mean() of the team\u2019s game-level yards_gained/n_plays over strictly-prior games\nSource: nflverse play-by-play\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM of per-game yardage efficiency\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when no prior games or PBP unavailable for a season\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "ewm_ypp_away": {
+   "tooltip": "What: Away team\u2019s exponentially-weighted net yards per play\nDefinition: ewm(halflife=2).mean() of the team\u2019s game-level yards_gained/n_plays over strictly-prior games\nSource: nflverse play-by-play\nWindow: decaying (halflife=2 games) \u00b7 Built as: per-team EWM of per-game yardage efficiency\nPoint-in-time rule: per-team ewm over prior games then shift(1)\nMissing values: NaN when no prior games or PBP unavailable for a season\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)"
+  },
+  "rest_days_home": {
+   "tooltip": "What: Home team\u2019s days since its previous game\nDefinition: (gameday_t - gameday_{t-1}).days within the home team\u2019s season\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game in the same season\nMissing values: NaN for a team\u2019s first game of the season; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the home team's season",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "rest_days_away": {
+   "tooltip": "What: Away team\u2019s days since its previous game\nDefinition: (gameday_t - gameday_{t-1}).days within the away team\u2019s season\nSource: nflverse schedules\nWindow: 1 \u00b7 Built as: date difference\nPoint-in-time rule: days since the team\u2019s own strictly-prior game in the same season\nMissing values: NaN for a team\u2019s first game of the season; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days within the away team's season",
+   "source": "nflverse schedules",
+   "lookback": 1
+  },
+  "pace_plays_min_home": {
+   "tooltip": "What: Home team\u2019s trailing plays per minute\nDefinition: team pace entering kickoff (home side of pace_plays_min_diff)\nSource: nflverse play-by-play clock\nWindow: 4 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(4).mean().shift(1) \u2014 current and future games excluded\nMissing values: NaN when prior games lack clock data (early-season openers)\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's trailing plays per minute",
+   "definition": "team pace entering kickoff (home side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4
+  },
+  "pace_plays_min_away": {
+   "tooltip": "What: Away team\u2019s trailing plays per minute\nDefinition: team pace entering kickoff (away side of pace_plays_min_diff)\nSource: nflverse play-by-play clock\nWindow: 4 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(4).mean().shift(1) \u2014 current and future games excluded\nMissing values: NaN when prior games lack clock data (early-season openers)\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's trailing plays per minute",
+   "definition": "team pace entering kickoff (away side of pace_plays_min_diff)",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4
+  },
+  "epa_qb_home": {
+   "tooltip": "What: Home team\u2019s projected-lineup quality\nDefinition: The home team\u2019s mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior\nSource: nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_qb_away": {
+   "tooltip": "What: Away team\u2019s projected-lineup quality\nDefinition: The away team\u2019s mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior\nSource: nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_qb_diff": {
+   "tooltip": "What: Home minus away quarterback quality\nDefinition: epa_qb_home - epa_qb_away\nSource: nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; non-injury statuses (incl. Questionable), missing/unreported status, and missing PIT timestamps do not erase player history; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away quarterback quality",
+   "definition": "epa_qb_home - epa_qb_away",
+   "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_wr_home": {
+   "tooltip": "What: Home team\u2019s projected-lineup quality\nDefinition: The home team\u2019s mean shrunk EPA per opportunity of the projected wide receivers\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_wr_away": {
+   "tooltip": "What: Away team\u2019s projected-lineup quality\nDefinition: The away team\u2019s mean shrunk EPA per opportunity of the projected wide receivers\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_wr_diff": {
+   "tooltip": "What: Home minus away wide receiver quality\nDefinition: epa_wr_home - epa_wr_away\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away wide receiver quality",
+   "definition": "epa_wr_home - epa_wr_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_te_home": {
+   "tooltip": "What: Home team\u2019s projected-lineup quality\nDefinition: The home team\u2019s mean shrunk EPA per opportunity of the projected tight ends\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected tight ends",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_te_away": {
+   "tooltip": "What: Away team\u2019s projected-lineup quality\nDefinition: The away team\u2019s mean shrunk EPA per opportunity of the projected tight ends\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected tight ends",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_te_diff": {
+   "tooltip": "What: Home minus away tight end quality\nDefinition: epa_te_home - epa_te_away\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away tight end quality",
+   "definition": "epa_te_home - epa_te_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_rb_home": {
+   "tooltip": "What: Home team\u2019s projected-lineup quality\nDefinition: The home team\u2019s mean shrunk EPA per opportunity of the projected running backs\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Home team's projected-lineup quality",
+   "definition": "The home team's mean shrunk EPA per opportunity of the projected running backs",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_rb_away": {
+   "tooltip": "What: Away team\u2019s projected-lineup quality\nDefinition: The away team\u2019s mean shrunk EPA per opportunity of the projected running backs\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019tree\u2019]",
+   "description": "Away team's projected-lineup quality",
+   "definition": "The away team's mean shrunk EPA per opportunity of the projected running backs",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "epa_rb_diff": {
+   "tooltip": "What: Home minus away running back quality\nDefinition: epa_rb_home - epa_rb_away\nSource: nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)\nWindow: 8 player-games; 21-calendar-day roster window \u00b7 Built as: opportunity-weighted mean by position among the team\u2019s top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member\u2019s weight is his own rolling-8 opportunity total, so the blend is the projected lineup\u2019s combined shrunk EPA over combined opportunities\nPoint-in-time rule: rolling(8) player rating from games dated before the target date; candidate ratings come from the prior 21 calendar days to span bye weeks; an Out, IR/Injured Reserve, or Doubtful designation excludes a player from the target pool through any of three unioned channels: a strict-PIT report published before kickoff (2016-2024), the weekly report-cycle row for the player\u2019s own team-week (the only channel covering 2025/2026, where the PIT feed lacks timestamps), or a weekly-roster-snapshot unavailability\nMissing values: NaN when no projected player at this position has a prior rating; other/missing statuses (incl. Questionable) and missing PIT timestamps do not exclude the player; exclusion requires an Out/IR/Doubtful designation on one of the three channels; in-model handling\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away running back quality",
+   "definition": "epa_rb_home - epa_rb_away",
+   "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "8 player-games; 21-calendar-day roster window"
+  },
+  "inj_ol_out_home": {
+   "tooltip": "What: The home team\u2019s Out/IR/Doubtful offensive-line report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is an offensive-line position (T/G/C)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "inj_ol_out_away": {
+   "tooltip": "What: The away team\u2019s Out/IR/Doubtful offensive-line report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is an offensive-line position (T/G/C)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "inj_ol_out_diff": {
+   "tooltip": "What: Home minus away Out/IR/Doubtful offensive-line report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is an offensive-line position (T/G/C)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Out/IR/Doubtful offensive-line report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "ol_snaps_lost_share_home": {
+   "tooltip": "What: The home team\u2019s Offensive-line snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "ol_snaps_lost_share_away": {
+   "tooltip": "What: The away team\u2019s Offensive-line snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "ol_snaps_lost_share_diff": {
+   "tooltip": "What: Home minus away Offensive-line snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Offensive-line snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged OL players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "ol_key_out_home": {
+   "tooltip": "What: The home team\u2019s Key offensive lineman unavailable flag\nDefinition: 1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "ol_key_out_away": {
+   "tooltip": "What: The away team\u2019s Key offensive lineman unavailable flag\nDefinition: 1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "ol_key_out_diff": {
+   "tooltip": "What: Home minus away Key offensive lineman unavailable flag\nDefinition: 1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Key offensive lineman unavailable flag",
+   "definition": "1.0 when any OL player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "inj_def_out_home": {
+   "tooltip": "What: The home team\u2019s Out/IR/Doubtful defensive report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "inj_def_out_away": {
+   "tooltip": "What: The away team\u2019s Out/IR/Doubtful defensive report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "inj_def_out_diff": {
+   "tooltip": "What: Home minus away Out/IR/Doubtful defensive report rows\nDefinition: Count of the team\u2019s OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player\u2019s most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)\nWindow: this week\u2019s report cycle \u00b7 Built as: count of Out/IR/Doubtful report rows\nPoint-in-time rule: a (season, week, team) report row is pre-kickoff information for that team-week\u2019s game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team. The roster overlay adds weekly-snapshot designations \u2014 same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP unless back to ACT \u2014 frozen before the week\u2019s games\nMissing values: 0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Out/IR/Doubtful defensive report rows",
+   "definition": "Count of the team's OWN-week Out/IR/Doubtful report rows plus roster-snapshot unavailables (same-week RES/INA/CUT/SUS/PUP and carried RES/SUS/PUP) whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters)",
+   "lookback": "this week's report cycle"
+  },
+  "def_snaps_lost_share_home": {
+   "tooltip": "What: The home team\u2019s Defensive snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "def_snaps_lost_share_away": {
+   "tooltip": "What: The away team\u2019s Defensive snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "def_snaps_lost_share_diff": {
+   "tooltip": "What: Home minus away Defensive snap share lost to Out/IR/Doubtful designations\nDefinition: Sum over the week\u2019s flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player\u2019s mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: sum of per-player rolling(8, min_periods=1) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Defensive snap share lost to Out/IR/Doubtful designations",
+   "definition": "Sum over the week's flagged defensive players (Out/IR/Doubtful report rows plus roster-snapshot unavailables) of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "def_key_out_home": {
+   "tooltip": "What: The home team\u2019s Key defensive player unavailable flag\nDefinition: 1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The home team's Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "def_key_out_away": {
+   "tooltip": "What: The away team\u2019s Key defensive player unavailable flag\nDefinition: 1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019tree\u2019]",
+   "description": "The away team's Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "def_key_out_diff": {
+   "tooltip": "What: Home minus away Key defensive player unavailable flag\nDefinition: 1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0\nSource: nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk\nWindow: each flagged player\u2019s last 8 active games, strictly before the flag week \u00b7 Built as: threshold flag over per-player rolling(8) mean unit-snap shares\nPoint-in-time rule: share history is an as-of join strictly BEFORE the flag week (the flag week\u2019s own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN; roster-snapshot unavailables join by (season, week, team, player)\nMissing values: 0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Home minus away Key defensive player unavailable flag",
+   "definition": "1.0 when any defensive player flagged this week (Out/IR/Doubtful report rows plus roster-snapshot unavailables) carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+   "source": "nflverse weekly injury reports + weekly roster snapshots (nflverse weekly_rosters) + snap counts keyed by the GSIS-PFR player crosswalk",
+   "lookback": "each flagged player's last 8 active games, strictly before the flag week"
+  },
+  "is_home": {
+   "tooltip": "What: Constant 1.0 anchor for the home-field edge\nDefinition: constant 1.0 on every row\nSource: structural constant\nWindow: \u2014 \u00b7 Built as: constant\nPoint-in-time rule: structural \u2014 no data dependency\nMissing values: never missing\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019, \u2019mlp\u2019]",
+   "description": "Constant 1.0 anchor for the home-field edge",
+   "definition": "constant 1.0 on every row",
+   "source": "structural constant",
+   "lookback": 0
+  }
+ },
+ "feature_coverage": [
+  {
+   "feature": "elo_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_dome_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_dome_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "div_game",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "div_game",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 96.67,
+   "pct_nonnull": 96.67,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "altitude_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "altitude_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 96.67,
+   "pct_nonnull": 96.67,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "prime_time",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "prime_time",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_turf_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_turf_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 98.33,
+   "pct_nonnull": 98.33,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "temp_f",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 66.4,
+   "pct_nonnull": 66.4,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "temp_f",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 68.33,
+   "pct_nonnull": 68.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "wind_mph",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 66.4,
+   "pct_nonnull": 66.4,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "wind_mph",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 68.33,
+   "pct_nonnull": 68.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_precip",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 66.4,
+   "pct_nonnull": 66.4,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_precip",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 68.33,
+   "pct_nonnull": 68.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_snow",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 66.4,
+   "pct_nonnull": 66.4,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_snow",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 68.33,
+   "pct_nonnull": 68.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_def_epa_play_ewm_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 96.67,
+   "pct_nonnull": 96.67,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 96.67,
+   "pct_nonnull": 96.67,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "pace_plays_min_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_qb_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 96.4,
+   "pct_nonnull": 96.4,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_qb_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_qb_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 96.8,
+   "pct_nonnull": 96.8,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_qb_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 70.0,
+   "pct_nonnull": 70.0,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_qb_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 95.6,
+   "pct_nonnull": 95.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_qb_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 70.0,
+   "pct_nonnull": 70.0,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_wr_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_wr_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_wr_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_wr_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_wr_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_wr_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_te_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_te_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_te_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.2,
+   "pct_nonnull": 97.2,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_te_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_te_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.2,
+   "pct_nonnull": 97.2,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_te_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_rb_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_rb_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_rb_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_rb_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "epa_rb_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 97.6,
+   "pct_nonnull": 97.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "epa_rb_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 73.33,
+   "pct_nonnull": 73.33,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "inj_ol_out_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_ol_out_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_ol_out_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_ol_out_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_ol_out_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_ol_out_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_snaps_lost_share_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ol_key_out_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_def_out_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_snaps_lost_share_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_away",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_away",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_diff",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "def_key_out_diff",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "baseline",
+   "n_games": 250,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "current",
+   "n_games": 60,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  }
+ ],
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.557,
+   "auc": 0.6975820753492799,
+   "brier": 0.2190271048085346,
+   "logloss": 0.6276935844886213,
+   "n_eval": 1673
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.1292,
+   "auc": 0.6985596262814135,
+   "brier": 0.21926961618377824,
+   "logloss": 0.6285741326361396,
+   "n_eval": 1673
+  },
+  {
+   "name": "elasticnet",
+   "weight": 0.3138,
+   "auc": 0.6966794988249203,
+   "brier": 0.22028619638859498,
+   "logloss": 0.6305042195354025,
+   "n_eval": 1673
+  }
+ ],
+ "rolling_brier": [
+  {
+   "date": "2017-09-07",
+   "brier": 0.400046,
+   "games": 1
+  },
+  {
+   "date": "2017-09-10",
+   "brier": 0.246362,
+   "games": 13
+  },
+  {
+   "date": "2017-09-11",
+   "brier": 0.236185,
+   "games": 15
+  },
+  {
+   "date": "2017-09-14",
+   "brier": 0.239674,
+   "games": 16
+  },
+  {
+   "date": "2017-09-17",
+   "brier": 0.202896,
+   "games": 30
+  },
+  {
+   "date": "2017-09-18",
+   "brier": 0.207811,
+   "games": 31
+  },
+  {
+   "date": "2017-09-21",
+   "brier": 0.209093,
+   "games": 32
+  },
+  {
+   "date": "2017-09-24",
+   "brier": 0.220591,
+   "games": 46
+  },
+  {
+   "date": "2017-09-25",
+   "brier": 0.220233,
+   "games": 47
+  },
+  {
+   "date": "2017-09-28",
+   "brier": 0.216341,
+   "games": 48
+  },
+  {
+   "date": "2017-10-01",
+   "brier": 0.236187,
+   "games": 62
+  },
+  {
+   "date": "2017-10-02",
+   "brier": 0.233246,
+   "games": 63
+  },
+  {
+   "date": "2017-10-19",
+   "brier": 0.260155,
+   "games": 33
+  },
+  {
+   "date": "2017-10-22",
+   "brier": 0.24642,
+   "games": 45
+  },
+  {
+   "date": "2017-10-23",
+   "brier": 0.244254,
+   "games": 46
+  },
+  {
+   "date": "2017-11-23",
+   "brier": 0.226579,
+   "games": 3
+  },
+  {
+   "date": "2017-11-26",
+   "brier": 0.181932,
+   "games": 15
+  },
+  {
+   "date": "2017-11-27",
+   "brier": 0.179206,
+   "games": 16
+  },
+  {
+   "date": "2017-11-30",
+   "brier": 0.180064,
+   "games": 17
+  },
+  {
+   "date": "2017-12-03",
+   "brier": 0.181726,
+   "games": 31
+  },
+  {
+   "date": "2017-12-04",
+   "brier": 0.181256,
+   "games": 32
+  },
+  {
+   "date": "2017-12-07",
+   "brier": 0.17994,
+   "games": 33
+  },
+  {
+   "date": "2017-12-10",
+   "brier": 0.196544,
+   "games": 47
+  },
+  {
+   "date": "2017-12-11",
+   "brier": 0.202257,
+   "games": 48
+  },
+  {
+   "date": "2017-12-14",
+   "brier": 0.202973,
+   "games": 49
+  },
+  {
+   "date": "2017-12-16",
+   "brier": 0.20147,
+   "games": 51
+  },
+  {
+   "date": "2017-12-17",
+   "brier": 0.20069,
+   "games": 63
+  },
+  {
+   "date": "2017-12-18",
+   "brier": 0.199217,
+   "games": 64
+  },
+  {
+   "date": "2017-12-23",
+   "brier": 0.194887,
+   "games": 63
+  },
+  {
+   "date": "2017-12-24",
+   "brier": 0.194412,
+   "games": 75
+  },
+  {
+   "date": "2017-12-25",
+   "brier": 0.191441,
+   "games": 77
+  },
+  {
+   "date": "2017-12-31",
+   "brier": 0.208478,
+   "games": 79
+  },
+  {
+   "date": "2018-09-06",
+   "brier": 0.278316,
+   "games": 1
+  },
+  {
+   "date": "2018-09-09",
+   "brier": 0.200297,
+   "games": 14
+  },
+  {
+   "date": "2018-09-10",
+   "brier": 0.223074,
+   "games": 16
+  },
+  {
+   "date": "2018-09-13",
+   "brier": 0.221558,
+   "games": 17
+  },
+  {
+   "date": "2018-09-16",
+   "brier": 0.217976,
+   "games": 31
+  },
+  {
+   "date": "2018-09-17",
+   "brier": 0.215237,
+   "games": 32
+  },
+  {
+   "date": "2018-09-20",
+   "brier": 0.213666,
+   "games": 33
+  },
+  {
+   "date": "2018-09-23",
+   "brier": 0.236618,
+   "games": 47
+  },
+  {
+   "date": "2018-09-24",
+   "brier": 0.236068,
+   "games": 48
+  },
+  {
+   "date": "2018-09-27",
+   "brier": 0.233575,
+   "games": 49
+  },
+  {
+   "date": "2018-09-30",
+   "brier": 0.232319,
+   "games": 62
+  },
+  {
+   "date": "2018-10-01",
+   "brier": 0.231974,
+   "games": 63
+  },
+  {
+   "date": "2018-10-04",
+   "brier": 0.229019,
+   "games": 64
+  },
+  {
+   "date": "2018-10-07",
+   "brier": 0.227807,
+   "games": 76
+  },
+  {
+   "date": "2018-10-08",
+   "brier": 0.226078,
+   "games": 77
+  },
+  {
+   "date": "2018-10-11",
+   "brier": 0.227835,
+   "games": 63
+  },
+  {
+   "date": "2018-10-14",
+   "brier": 0.221825,
+   "games": 75
+  },
+  {
+   "date": "2018-10-15",
+   "brier": 0.220668,
+   "games": 76
+  },
+  {
+   "date": "2018-11-22",
+   "brier": 0.153956,
+   "games": 3
+  },
+  {
+   "date": "2018-11-25",
+   "brier": 0.208214,
+   "games": 14
+  },
+  {
+   "date": "2018-11-26",
+   "brier": 0.200569,
+   "games": 15
+  },
+  {
+   "date": "2018-11-29",
+   "brier": 0.210903,
+   "games": 16
+  },
+  {
+   "date": "2018-12-02",
+   "brier": 0.221578,
+   "games": 30
+  },
+  {
+   "date": "2018-12-03",
+   "brier": 0.22006,
+   "games": 31
+  },
+  {
+   "date": "2018-12-06",
+   "brier": 0.217541,
+   "games": 32
+  },
+  {
+   "date": "2018-12-09",
+   "brier": 0.235133,
+   "games": 46
+  },
+  {
+   "date": "2018-12-10",
+   "brier": 0.232286,
+   "games": 47
+  },
+  {
+   "date": "2018-12-13",
+   "brier": 0.236835,
+   "games": 48
+  },
+  {
+   "date": "2018-12-15",
+   "brier": 0.238815,
+   "games": 50
+  },
+  {
+   "date": "2018-12-16",
+   "brier": 0.236891,
+   "games": 62
+  },
+  {
+   "date": "2018-12-17",
+   "brier": 0.235474,
+   "games": 63
+  },
+  {
+   "date": "2018-12-22",
+   "brier": 0.242345,
+   "games": 62
+  },
+  {
+   "date": "2018-12-23",
+   "brier": 0.231401,
+   "games": 75
+  },
+  {
+   "date": "2018-12-24",
+   "brier": 0.230884,
+   "games": 76
+  },
+  {
+   "date": "2018-12-30",
+   "brier": 0.225499,
+   "games": 79
+  },
+  {
+   "date": "2019-09-05",
+   "brier": 0.577018,
+   "games": 1
+  },
+  {
+   "date": "2019-09-08",
+   "brier": 0.17613,
+   "games": 14
+  },
+  {
+   "date": "2019-09-09",
+   "brier": 0.174871,
+   "games": 16
+  },
+  {
+   "date": "2019-09-12",
+   "brier": 0.194545,
+   "games": 17
+  },
+  {
+   "date": "2019-09-15",
+   "brier": 0.201249,
+   "games": 31
+  },
+  {
+   "date": "2019-09-16",
+   "brier": 0.200246,
+   "games": 32
+  },
+  {
+   "date": "2019-09-19",
+   "brier": 0.205523,
+   "games": 33
+  },
+  {
+   "date": "2019-09-22",
+   "brier": 0.200439,
+   "games": 47
+  },
+  {
+   "date": "2019-09-23",
+   "brier": 0.198423,
+   "games": 48
+  },
+  {
+   "date": "2019-09-26",
+   "brier": 0.204012,
+   "games": 49
+  },
+  {
+   "date": "2019-09-29",
+   "brier": 0.222153,
+   "games": 62
+  },
+  {
+   "date": "2019-09-30",
+   "brier": 0.219611,
+   "games": 63
+  },
+  {
+   "date": "2019-10-03",
+   "brier": 0.218643,
+   "games": 64
+  },
+  {
+   "date": "2019-10-06",
+   "brier": 0.233666,
+   "games": 76
+  },
+  {
+   "date": "2019-10-07",
+   "brier": 0.232219,
+   "games": 77
+  },
+  {
+   "date": "2019-10-24",
+   "brier": 0.289668,
+   "games": 31
+  },
+  {
+   "date": "2019-10-27",
+   "brier": 0.245164,
+   "games": 43
+  },
+  {
+   "date": "2019-10-28",
+   "brier": 0.24054,
+   "games": 44
+  },
+  {
+   "date": "2019-11-28",
+   "brier": 0.300699,
+   "games": 3
+  },
+  {
+   "date": "2019-12-01",
+   "brier": 0.277194,
+   "games": 15
+  },
+  {
+   "date": "2019-12-02",
+   "brier": 0.271627,
+   "games": 16
+  },
+  {
+   "date": "2019-12-05",
+   "brier": 0.265821,
+   "games": 17
+  },
+  {
+   "date": "2019-12-08",
+   "brier": 0.234487,
+   "games": 31
+  },
+  {
+   "date": "2019-12-09",
+   "brier": 0.229468,
+   "games": 32
+  },
+  {
+   "date": "2019-12-12",
+   "brier": 0.223571,
+   "games": 33
+  },
+  {
+   "date": "2019-12-15",
+   "brier": 0.233886,
+   "games": 47
+  },
+  {
+   "date": "2019-12-16",
+   "brier": 0.230505,
+   "games": 48
+  },
+  {
+   "date": "2019-12-21",
+   "brier": 0.228952,
+   "games": 51
+  },
+  {
+   "date": "2019-12-22",
+   "brier": 0.227449,
+   "games": 63
+  },
+  {
+   "date": "2019-12-23",
+   "brier": 0.231178,
+   "games": 64
+  },
+  {
+   "date": "2019-12-29",
+   "brier": 0.231308,
+   "games": 77
+  },
+  {
+   "date": "2020-09-10",
+   "brier": 0.088768,
+   "games": 1
+  },
+  {
+   "date": "2020-09-13",
+   "brier": 0.206857,
+   "games": 14
+  },
+  {
+   "date": "2020-09-14",
+   "brier": 0.210193,
+   "games": 16
+  },
+  {
+   "date": "2020-09-17",
+   "brier": 0.205965,
+   "games": 17
+  },
+  {
+   "date": "2020-09-20",
+   "brier": 0.176667,
+   "games": 31
+  },
+  {
+   "date": "2020-09-21",
+   "brier": 0.182142,
+   "games": 32
+  },
+  {
+   "date": "2020-09-24",
+   "brier": 0.188368,
+   "games": 33
+  },
+  {
+   "date": "2020-09-27",
+   "brier": 0.218736,
+   "games": 47
+  },
+  {
+   "date": "2020-09-28",
+   "brier": 0.223661,
+   "games": 48
+  },
+  {
+   "date": "2020-10-01",
+   "brier": 0.225444,
+   "games": 49
+  },
+  {
+   "date": "2020-10-04",
+   "brier": 0.229135,
+   "games": 61
+  },
+  {
+   "date": "2020-10-05",
+   "brier": 0.22416,
+   "games": 63
+  },
+  {
+   "date": "2020-11-26",
+   "brier": 0.244831,
+   "games": 2
+  },
+  {
+   "date": "2020-11-29",
+   "brier": 0.177448,
+   "games": 14
+  },
+  {
+   "date": "2020-11-30",
+   "brier": 0.176431,
+   "games": 15
+  },
+  {
+   "date": "2020-12-02",
+   "brier": 0.171734,
+   "games": 16
+  },
+  {
+   "date": "2020-12-06",
+   "brier": 0.201183,
+   "games": 28
+  },
+  {
+   "date": "2020-12-07",
+   "brier": 0.211892,
+   "games": 30
+  },
+  {
+   "date": "2020-12-08",
+   "brier": 0.206811,
+   "games": 31
+  },
+  {
+   "date": "2020-12-10",
+   "brier": 0.205459,
+   "games": 32
+  },
+  {
+   "date": "2020-12-13",
+   "brier": 0.220103,
+   "games": 46
+  },
+  {
+   "date": "2020-12-14",
+   "brier": 0.219901,
+   "games": 47
+  },
+  {
+   "date": "2020-12-17",
+   "brier": 0.2226,
+   "games": 48
+  },
+  {
+   "date": "2020-12-19",
+   "brier": 0.21684,
+   "games": 50
+  },
+  {
+   "date": "2020-12-20",
+   "brier": 0.211949,
+   "games": 62
+  },
+  {
+   "date": "2020-12-21",
+   "brier": 0.217949,
+   "games": 63
+  },
+  {
+   "date": "2020-12-25",
+   "brier": 0.215666,
+   "games": 64
+  },
+  {
+   "date": "2020-12-26",
+   "brier": 0.215409,
+   "games": 65
+  },
+  {
+   "date": "2020-12-27",
+   "brier": 0.216006,
+   "games": 76
+  },
+  {
+   "date": "2020-12-28",
+   "brier": 0.214672,
+   "games": 77
+  },
+  {
+   "date": "2021-01-03",
+   "brier": 0.214825,
+   "games": 79
+  },
+  {
+   "date": "2021-09-09",
+   "brier": 0.15182,
+   "games": 1
+  },
+  {
+   "date": "2021-09-12",
+   "brier": 0.262061,
+   "games": 15
+  },
+  {
+   "date": "2021-09-13",
+   "brier": 0.274858,
+   "games": 16
+  },
+  {
+   "date": "2021-09-16",
+   "brier": 0.266233,
+   "games": 17
+  },
+  {
+   "date": "2021-09-19",
+   "brier": 0.252211,
+   "games": 31
+  },
+  {
+   "date": "2021-09-20",
+   "brier": 0.245438,
+   "games": 32
+  },
+  {
+   "date": "2021-09-23",
+   "brier": 0.244303,
+   "games": 33
+  },
+  {
+   "date": "2021-09-26",
+   "brier": 0.235077,
+   "games": 47
+  },
+  {
+   "date": "2021-09-27",
+   "brier": 0.232061,
+   "games": 48
+  },
+  {
+   "date": "2021-09-30",
+   "brier": 0.228418,
+   "games": 49
+  },
+  {
+   "date": "2021-10-03",
+   "brier": 0.233021,
+   "games": 63
+  },
+  {
+   "date": "2021-10-04",
+   "brier": 0.232284,
+   "games": 64
+  },
+  {
+   "date": "2021-10-07",
+   "brier": 0.233572,
+   "games": 65
+  },
+  {
+   "date": "2021-10-10",
+   "brier": 0.224768,
+   "games": 78
+  },
+  {
+   "date": "2021-10-11",
+   "brier": 0.223008,
+   "games": 79
+  },
+  {
+   "date": "2021-10-28",
+   "brier": 0.206311,
+   "games": 33
+  },
+  {
+   "date": "2021-10-31",
+   "brier": 0.226586,
+   "games": 45
+  },
+  {
+   "date": "2021-11-01",
+   "brier": 0.22257,
+   "games": 46
+  },
+  {
+   "date": "2021-11-18",
+   "brier": 0.234052,
+   "games": 16
+  },
+  {
+   "date": "2021-11-21",
+   "brier": 0.251758,
+   "games": 29
+  },
+  {
+   "date": "2021-11-22",
+   "brier": 0.244807,
+   "games": 30
+  },
+  {
+   "date": "2021-11-25",
+   "brier": 0.245545,
+   "games": 33
+  },
+  {
+   "date": "2021-11-28",
+   "brier": 0.247153,
+   "games": 43
+  },
+  {
+   "date": "2021-11-29",
+   "brier": 0.244835,
+   "games": 44
+  },
+  {
+   "date": "2021-12-16",
+   "brier": 0.238989,
+   "games": 31
+  },
+  {
+   "date": "2021-12-18",
+   "brier": 0.247587,
+   "games": 31
+  },
+  {
+   "date": "2021-12-19",
+   "brier": 0.247326,
+   "games": 41
+  },
+  {
+   "date": "2021-12-20",
+   "brier": 0.246846,
+   "games": 43
+  },
+  {
+   "date": "2021-12-21",
+   "brier": 0.227952,
+   "games": 32
+  },
+  {
+   "date": "2021-12-23",
+   "brier": 0.236631,
+   "games": 32
+  },
+  {
+   "date": "2021-12-25",
+   "brier": 0.227364,
+   "games": 31
+  },
+  {
+   "date": "2021-12-26",
+   "brier": 0.225569,
+   "games": 43
+  },
+  {
+   "date": "2021-12-27",
+   "brier": 0.228223,
+   "games": 44
+  },
+  {
+   "date": "2022-01-02",
+   "brier": 0.204487,
+   "games": 47
+  },
+  {
+   "date": "2022-01-03",
+   "brier": 0.204798,
+   "games": 48
+  },
+  {
+   "date": "2022-01-08",
+   "brier": 0.200967,
+   "games": 50
+  },
+  {
+   "date": "2022-01-09",
+   "brier": 0.219654,
+   "games": 64
+  },
+  {
+   "date": "2022-09-08",
+   "brier": 0.281959,
+   "games": 1
+  },
+  {
+   "date": "2022-09-11",
+   "brier": 0.244876,
+   "games": 15
+  },
+  {
+   "date": "2022-09-12",
+   "brier": 0.237548,
+   "games": 16
+  },
+  {
+   "date": "2022-09-15",
+   "brier": 0.226964,
+   "games": 17
+  },
+  {
+   "date": "2022-09-18",
+   "brier": 0.244074,
+   "games": 30
+  },
+  {
+   "date": "2022-09-19",
+   "brier": 0.237228,
+   "games": 32
+  },
+  {
+   "date": "2022-09-22",
+   "brier": 0.233619,
+   "games": 33
+  },
+  {
+   "date": "2022-09-25",
+   "brier": 0.25441,
+   "games": 47
+  },
+  {
+   "date": "2022-09-26",
+   "brier": 0.251088,
+   "games": 48
+  },
+  {
+   "date": "2022-09-29",
+   "brier": 0.252762,
+   "games": 49
+  },
+  {
+   "date": "2022-10-02",
+   "brier": 0.244664,
+   "games": 63
+  },
+  {
+   "date": "2022-10-03",
+   "brier": 0.243955,
+   "games": 64
+  },
+  {
+   "date": "2022-10-06",
+   "brier": 0.243236,
+   "games": 65
+  },
+  {
+   "date": "2022-10-09",
+   "brier": 0.243298,
+   "games": 78
+  },
+  {
+   "date": "2022-10-10",
+   "brier": 0.240814,
+   "games": 79
+  },
+  {
+   "date": "2022-10-27",
+   "brier": 0.229117,
+   "games": 33
+  },
+  {
+   "date": "2022-10-30",
+   "brier": 0.216605,
+   "games": 45
+  },
+  {
+   "date": "2022-10-31",
+   "brier": 0.220848,
+   "games": 46
+  },
+  {
+   "date": "2022-11-24",
+   "brier": 0.200518,
+   "games": 18
+  },
+  {
+   "date": "2022-11-27",
+   "brier": 0.199322,
+   "games": 29
+  },
+  {
+   "date": "2022-11-28",
+   "brier": 0.204897,
+   "games": 30
+  },
+  {
+   "date": "2022-12-01",
+   "brier": 0.199332,
+   "games": 17
+  },
+  {
+   "date": "2022-12-04",
+   "brier": 0.197715,
+   "games": 30
+  },
+  {
+   "date": "2022-12-05",
+   "brier": 0.194819,
+   "games": 31
+  },
+  {
+   "date": "2022-12-15",
+   "brier": 0.192669,
+   "games": 32
+  },
+  {
+   "date": "2022-12-17",
+   "brier": 0.190864,
+   "games": 35
+  },
+  {
+   "date": "2022-12-18",
+   "brier": 0.199754,
+   "games": 46
+  },
+  {
+   "date": "2022-12-19",
+   "brier": 0.196981,
+   "games": 47
+  },
+  {
+   "date": "2022-12-22",
+   "brier": 0.196485,
+   "games": 48
+  },
+  {
+   "date": "2022-12-24",
+   "brier": 0.198461,
+   "games": 56
+  },
+  {
+   "date": "2022-12-25",
+   "brier": 0.198807,
+   "games": 59
+  },
+  {
+   "date": "2022-12-26",
+   "brier": 0.19737,
+   "games": 60
+  },
+  {
+   "date": "2022-12-29",
+   "brier": 0.189045,
+   "games": 48
+  },
+  {
+   "date": "2023-01-01",
+   "brier": 0.185422,
+   "games": 61
+  },
+  {
+   "date": "2023-01-07",
+   "brier": 0.179135,
+   "games": 49
+  },
+  {
+   "date": "2023-01-08",
+   "brier": 0.190299,
+   "games": 63
+  },
+  {
+   "date": "2023-09-07",
+   "brier": 0.359252,
+   "games": 1
+  },
+  {
+   "date": "2023-09-10",
+   "brier": 0.219553,
+   "games": 15
+  },
+  {
+   "date": "2023-09-11",
+   "brier": 0.233925,
+   "games": 16
+  },
+  {
+   "date": "2023-09-14",
+   "brier": 0.236193,
+   "games": 17
+  },
+  {
+   "date": "2023-09-17",
+   "brier": 0.230711,
+   "games": 30
+  },
+  {
+   "date": "2023-09-18",
+   "brier": 0.224873,
+   "games": 32
+  },
+  {
+   "date": "2023-09-21",
+   "brier": 0.219017,
+   "games": 33
+  },
+  {
+   "date": "2023-09-24",
+   "brier": 0.225165,
+   "games": 46
+  },
+  {
+   "date": "2023-09-25",
+   "brier": 0.221769,
+   "games": 48
+  },
+  {
+   "date": "2023-09-28",
+   "brier": 0.221602,
+   "games": 49
+  },
+  {
+   "date": "2023-10-01",
+   "brier": 0.210109,
+   "games": 63
+  },
+  {
+   "date": "2023-10-02",
+   "brier": 0.209043,
+   "games": 64
+  },
+  {
+   "date": "2023-10-12",
+   "brier": 0.197307,
+   "games": 49
+  },
+  {
+   "date": "2023-10-15",
+   "brier": 0.199413,
+   "games": 61
+  },
+  {
+   "date": "2023-10-16",
+   "brier": 0.203756,
+   "games": 62
+  },
+  {
+   "date": "2023-10-26",
+   "brier": 0.188964,
+   "games": 32
+  },
+  {
+   "date": "2023-10-29",
+   "brier": 0.210586,
+   "games": 45
+  },
+  {
+   "date": "2023-10-30",
+   "brier": 0.208726,
+   "games": 46
+  },
+  {
+   "date": "2023-11-23",
+   "brier": 0.236591,
+   "games": 19
+  },
+  {
+   "date": "2023-11-24",
+   "brier": 0.228631,
+   "games": 20
+  },
+  {
+   "date": "2023-11-26",
+   "brier": 0.229308,
+   "games": 30
+  },
+  {
+   "date": "2023-11-27",
+   "brier": 0.239333,
+   "games": 31
+  },
+  {
+   "date": "2023-12-07",
+   "brier": 0.253938,
+   "games": 17
+  },
+  {
+   "date": "2023-12-10",
+   "brier": 0.246519,
+   "games": 29
+  },
+  {
+   "date": "2023-12-11",
+   "brier": 0.268346,
+   "games": 31
+  },
+  {
+   "date": "2023-12-14",
+   "brier": 0.269323,
+   "games": 32
+  },
+  {
+   "date": "2023-12-16",
+   "brier": 0.260766,
+   "games": 35
+  },
+  {
+   "date": "2023-12-17",
+   "brier": 0.252752,
+   "games": 46
+  },
+  {
+   "date": "2023-12-18",
+   "brier": 0.25605,
+   "games": 47
+  },
+  {
+   "date": "2023-12-21",
+   "brier": 0.252941,
+   "games": 48
+  },
+  {
+   "date": "2023-12-23",
+   "brier": 0.256018,
+   "games": 47
+  },
+  {
+   "date": "2023-12-24",
+   "brier": 0.254956,
+   "games": 56
+  },
+  {
+   "date": "2023-12-25",
+   "brier": 0.259828,
+   "games": 59
+  },
+  {
+   "date": "2023-12-28",
+   "brier": 0.260558,
+   "games": 48
+  },
+  {
+   "date": "2023-12-30",
+   "brier": 0.259141,
+   "games": 49
+  },
+  {
+   "date": "2023-12-31",
+   "brier": 0.249999,
+   "games": 63
+  },
+  {
+   "date": "2024-01-06",
+   "brier": 0.247243,
+   "games": 64
+  },
+  {
+   "date": "2024-01-07",
+   "brier": 0.239498,
+   "games": 78
+  },
+  {
+   "date": "2024-09-05",
+   "brier": 0.283197,
+   "games": 1
+  },
+  {
+   "date": "2024-09-06",
+   "brier": 0.32724,
+   "games": 2
+  },
+  {
+   "date": "2024-09-08",
+   "brier": 0.229413,
+   "games": 15
+  },
+  {
+   "date": "2024-09-09",
+   "brier": 0.224795,
+   "games": 16
+  },
+  {
+   "date": "2024-09-12",
+   "brier": 0.222559,
+   "games": 17
+  },
+  {
+   "date": "2024-09-15",
+   "brier": 0.241041,
+   "games": 31
+  },
+  {
+   "date": "2024-09-16",
+   "brier": 0.249592,
+   "games": 32
+  },
+  {
+   "date": "2024-09-19",
+   "brier": 0.247727,
+   "games": 33
+  },
+  {
+   "date": "2024-09-22",
+   "brier": 0.261748,
+   "games": 46
+  },
+  {
+   "date": "2024-09-23",
+   "brier": 0.261455,
+   "games": 48
+  },
+  {
+   "date": "2024-09-26",
+   "brier": 0.258589,
+   "games": 49
+  },
+  {
+   "date": "2024-09-29",
+   "brier": 0.254306,
+   "games": 62
+  },
+  {
+   "date": "2024-09-30",
+   "brier": 0.256796,
+   "games": 64
+  },
+  {
+   "date": "2024-10-17",
+   "brier": 0.265527,
+   "games": 33
+  },
+  {
+   "date": "2024-10-20",
+   "brier": 0.234118,
+   "games": 44
+  },
+  {
+   "date": "2024-10-21",
+   "brier": 0.231953,
+   "games": 46
+  },
+  {
+   "date": "2024-10-24",
+   "brier": 0.20733,
+   "games": 32
+  },
+  {
+   "date": "2024-10-27",
+   "brier": 0.205817,
+   "games": 45
+  },
+  {
+   "date": "2024-10-28",
+   "brier": 0.202567,
+   "games": 46
+  },
+  {
+   "date": "2024-10-31",
+   "brier": 0.184361,
+   "games": 32
+  },
+  {
+   "date": "2024-11-03",
+   "brier": 0.179582,
+   "games": 45
+  },
+  {
+   "date": "2024-11-04",
+   "brier": 0.178149,
+   "games": 46
+  },
+  {
+   "date": "2024-11-28",
+   "brier": 0.167972,
+   "games": 18
+  },
+  {
+   "date": "2024-11-29",
+   "brier": 0.160647,
+   "games": 19
+  },
+  {
+   "date": "2024-12-01",
+   "brier": 0.17246,
+   "games": 29
+  },
+  {
+   "date": "2024-12-02",
+   "brier": 0.168694,
+   "games": 30
+  },
+  {
+   "date": "2024-12-12",
+   "brier": 0.174989,
+   "games": 17
+  },
+  {
+   "date": "2024-12-15",
+   "brier": 0.175769,
+   "games": 30
+  },
+  {
+   "date": "2024-12-16",
+   "brier": 0.170263,
+   "games": 32
+  },
+  {
+   "date": "2024-12-19",
+   "brier": 0.176516,
+   "games": 33
+  },
+  {
+   "date": "2024-12-21",
+   "brier": 0.170322,
+   "games": 35
+  },
+  {
+   "date": "2024-12-22",
+   "brier": 0.179666,
+   "games": 47
+  },
+  {
+   "date": "2024-12-23",
+   "brier": 0.176485,
+   "games": 48
+  },
+  {
+   "date": "2024-12-25",
+   "brier": 0.174347,
+   "games": 50
+  },
+  {
+   "date": "2025-01-04",
+   "brier": 0.170256,
+   "games": 36
+  },
+  {
+   "date": "2025-01-05",
+   "brier": 0.198455,
+   "games": 50
+  },
+  {
+   "date": "2025-09-04",
+   "brier": 0.066258,
+   "games": 1
+  },
+  {
+   "date": "2025-09-05",
+   "brier": 0.188412,
+   "games": 2
+  },
+  {
+   "date": "2025-09-07",
+   "brier": 0.18493,
+   "games": 15
+  },
+  {
+   "date": "2025-09-08",
+   "brier": 0.179136,
+   "games": 16
+  },
+  {
+   "date": "2025-09-11",
+   "brier": 0.177038,
+   "games": 17
+  },
+  {
+   "date": "2025-09-14",
+   "brier": 0.179658,
+   "games": 30
+  },
+  {
+   "date": "2025-09-15",
+   "brier": 0.174449,
+   "games": 32
+  },
+  {
+   "date": "2025-09-18",
+   "brier": 0.169935,
+   "games": 33
+  },
+  {
+   "date": "2025-09-21",
+   "brier": 0.181112,
+   "games": 47
+  },
+  {
+   "date": "2025-09-22",
+   "brier": 0.181219,
+   "games": 48
+  },
+  {
+   "date": "2025-09-25",
+   "brier": 0.179333,
+   "games": 49
+  },
+  {
+   "date": "2025-09-28",
+   "brier": 0.194571,
+   "games": 62
+  },
+  {
+   "date": "2025-09-29",
+   "brier": 0.191828,
+   "games": 64
+  },
+  {
+   "date": "2025-10-09",
+   "brier": 0.202493,
+   "games": 49
+  },
+  {
+   "date": "2025-10-12",
+   "brier": 0.192322,
+   "games": 60
+  },
+  {
+   "date": "2025-10-13",
+   "brier": 0.203451,
+   "games": 62
+  },
+  {
+   "date": "2025-10-16",
+   "brier": 0.217039,
+   "games": 48
+  },
+  {
+   "date": "2025-10-19",
+   "brier": 0.20814,
+   "games": 59
+  },
+  {
+   "date": "2025-10-20",
+   "brier": 0.207393,
+   "games": 61
+  },
+  {
+   "date": "2025-11-13",
+   "brier": 0.166836,
+   "games": 16
+  },
+  {
+   "date": "2025-11-16",
+   "brier": 0.176008,
+   "games": 28
+  },
+  {
+   "date": "2025-11-17",
+   "brier": 0.174335,
+   "games": 29
+  },
+  {
+   "date": "2025-11-27",
+   "brier": 0.229378,
+   "games": 18
+  },
+  {
+   "date": "2025-11-28",
+   "brier": 0.239723,
+   "games": 19
+  },
+  {
+   "date": "2025-11-30",
+   "brier": 0.22468,
+   "games": 30
+  },
+  {
+   "date": "2025-12-01",
+   "brier": 0.218781,
+   "games": 31
+  },
+  {
+   "date": "2025-12-11",
+   "brier": 0.225862,
+   "games": 32
+  },
+  {
+   "date": "2025-12-14",
+   "brier": 0.228854,
+   "games": 45
+  },
+  {
+   "date": "2025-12-15",
+   "brier": 0.227788,
+   "games": 46
+  },
+  {
+   "date": "2025-12-18",
+   "brier": 0.243096,
+   "games": 33
+  },
+  {
+   "date": "2025-12-20",
+   "brier": 0.237371,
+   "games": 35
+  },
+  {
+   "date": "2025-12-21",
+   "brier": 0.239194,
+   "games": 47
+  },
+  {
+   "date": "2025-12-22",
+   "brier": 0.236684,
+   "games": 48
+  },
+  {
+   "date": "2025-12-25",
+   "brier": 0.233932,
+   "games": 51
+  },
+  {
+   "date": "2025-12-27",
+   "brier": 0.228975,
+   "games": 50
+  },
+  {
+   "date": "2025-12-28",
+   "brier": 0.220364,
+   "games": 59
+  },
+  {
+   "date": "2025-12-29",
+   "brier": 0.22616,
+   "games": 60
+  },
+  {
+   "date": "2026-01-03",
+   "brier": 0.236691,
+   "games": 50
+  },
+  {
+   "date": "2026-01-04",
+   "brier": 0.238383,
+   "games": 64
+  },
+  {
+   "date": "2026-09-10",
+   "brier": 0.344376,
+   "games": 1
+  },
+  {
+   "date": "2026-09-13",
+   "brier": 0.210538,
+   "games": 14
+  },
+  {
+   "date": "2026-09-14",
+   "brier": 0.222401,
+   "games": 15
+  },
+  {
+   "date": "2026-09-17",
+   "brier": 0.214737,
+   "games": 16
+  },
+  {
+   "date": "2026-09-20",
+   "brier": 0.215085,
+   "games": 30
+  },
+  {
+   "date": "2026-09-21",
+   "brier": 0.210955,
+   "games": 31
+  },
+  {
+   "date": "2026-09-24",
+   "brier": 0.217356,
+   "games": 32
+  },
+  {
+   "date": "2026-09-27",
+   "brier": 0.218845,
+   "games": 46
+  },
+  {
+   "date": "2026-09-28",
+   "brier": 0.220035,
+   "games": 47
+  }
+ ],
+ "brier_baseline": 0.45307830245068736,
+ "brier_baseline_label": "Constant home-edge",
+ "rolling_brier_meta": {
+  "window_days": 30,
+  "min_games_per_day": 1,
+  "excluded_sparse_days": 0,
+  "calibrator_is_identity": false,
+  "map_scope_note": "Points use the deployed Platt map (fit on all OOF games) and are not directly comparable to prequential-calibrated metrics."
+ },
+ "version_history": [
+  {
+   "version": "20260929",
+   "date": "2026-09-29",
+   "weights": {
+    "xgboost": 0.557,
+    "lightgbm": 0.1292,
+    "elasticnet": 0.3138
+   },
+   "auc": 0.6966059662326801,
+   "logloss": 0.6286188869425308,
+   "ece_calibrated": 0.025160696040521638,
+   "note": "rebuild run",
+   "calibration": {
+    "a": 1.020154,
+    "b": 0.038568
+   }
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 106,
+  "first_val_start": "2017-09-07",
+  "last_val_end": "2026-09-30",
+  "min_train": 256,
+  "max_train": 2671,
+  "total_val_games": 1673
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v9.5-neutral-venue-repair",
+  "warmup_seasons": [
+   2016
+  ],
+  "oof_first_season": 2017,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.18.0",
+   "sklearn": "1.9.0",
+   "xgboost": "3.4.0",
+   "lightgbm": "4.7.0",
+   "pandas": "3.0.1",
+   "numpy": "2.4.3"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "rest_short_home",
+    "rest_short_away",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+    "pbp_def_epa_play_ewm_diff",
+    "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
+    "travel_miles_home",
+    "travel_miles_away",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "pace_plays_min_home",
+    "pace_plays_min_away",
+    "epa_qb_home",
+    "epa_qb_away",
+    "epa_qb_diff",
+    "epa_wr_home",
+    "epa_wr_away",
+    "epa_wr_diff",
+    "epa_te_home",
+    "epa_te_away",
+    "epa_te_diff",
+    "epa_rb_home",
+    "epa_rb_away",
+    "epa_rb_diff",
+    "inj_ol_out_home",
+    "inj_ol_out_away",
+    "inj_ol_out_diff",
+    "ol_snaps_lost_share_home",
+    "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home",
+    "ol_key_out_away",
+    "ol_key_out_diff",
+    "inj_def_out_home",
+    "inj_def_out_away",
+    "inj_def_out_diff",
+    "def_snaps_lost_share_home",
+    "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home",
+    "def_key_out_away",
+    "def_key_out_diff",
+    "is_home"
+   ],
+   "appended_categorical_cols": [
+    "home_team_id",
+    "away_team_id"
+   ]
+  },
+  "random_seed": 42,
+  "weather": {
+   "provider": "Open-Meteo",
+   "cadence": "hourly",
+   "cutoff": "latest weather_time_utc strictly before kickoff_utc",
+   "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
+   "daily_aggregates_allowed": false
+  },
+  "market_independence": true
+ }
+}

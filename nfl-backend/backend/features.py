@@ -1091,6 +1091,24 @@ def _attach_static_team_facts(df: pd.DataFrame,
     df["travel_miles_home"] = _haversine_miles(home_lat, home_lon, game_lat, game_lon)
     df["travel_miles_away"] = _haversine_miles(away_lat, away_lon, game_lat, game_lon)
     df["altitude_home"] = _game_fact("altitude_ft")
+    # Neutral-site repair (2026-09-29): the nflreadpy schedule carries the
+    # NOMINAL home team's stadium on ``location == "Neutral"" rows for
+    # earlier seasons — the 2025 international games (Dublin 09-28, London
+    # 10-05 and 10-12, Madrid 11-16) are all labeled with the nominal team's
+    # home venue and stadium_id (verified against the real calendar), so the
+    # computation above priced every one of them 0 travel miles (the drift
+    # monitor's travel_miles_home baseline mean of exactly 0.0 was the
+    # symptom). Later vintages do carry true venues (2026: Melbourne), which
+    # cannot be distinguished from a nominal label inside this feed. The only
+    # point-in-time-honest value for a Neutral row is UNKNOWN: blank the
+    # venue-derived quantities and let the serving imputation path handle
+    # them, exactly like any other unmeasurable venue fact.
+    if "location" in df.columns:
+        _neutral = df["location"].astype(str).str.strip().str.lower().eq("neutral")
+        if _neutral.any():
+            for _col in ("travel_miles_diff", "travel_miles_home",
+                         "travel_miles_away", "altitude_home"):
+                df.loc[_neutral, _col] = np.nan
 
     gametime = (df["gametime"].astype(str) if "gametime" in df.columns
                 else pd.Series("", index=df.index))

@@ -375,6 +375,13 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         # sits near the WARN threshold all by itself.
         if n_base_n < PSI_MIN_BASELINE or n_cur_n < PSI_MIN_CURRENT:
             status = "INSUFFICIENT"
+        elif not np.isfinite(psi):
+            # A degenerate baseline (zero variance across the whole window —
+            # e.g. a venue-corruption bug pricing every prior game at the
+            # nominal home stadium, 2026-09-29) yields no quantile edges and
+            # therefore no PSI at all. That is "cannot judge", not "no drift
+            # found": the same logic that grades a too-small window.
+            status = "INSUFFICIENT"
         elif not location_shift:
             status = "OK"
         else:

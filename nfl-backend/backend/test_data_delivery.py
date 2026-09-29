@@ -174,8 +174,21 @@ for pattern in REQUIRED_CSV:
                 "p_home_win_derived", "p_away_win_derived"}
         check("  markets columns superset of frontend reader",
               need.issubset(df.columns), str(sorted(need - set(df.columns))))
-        check("  markets carries slate rows (current-slate delivery)",
-              (df["kind"] == "slate").any())
+        # Slate presence must AGREE between the two serving families of the
+        # SAME run date: both populated on a game day, both empty on an
+        # off-day (the serving window is date-keyed to the run date). An
+        # empty-slate run legitimately writes no moneyline file at all, so a
+        # missing same-date pair agrees vacuously; a mismatch is the bug.
+        _markets_stamp = "".join(ch for ch in path.stem if ch.isdigit())[-8:]
+        _ml_same = DD / f"nfl_moneyline_v1_{_markets_stamp}.json"
+        if _ml_same.exists():
+            _ml_has_games = bool(json.loads(
+                _ml_same.read_text(encoding="utf-8")).get("games"))
+            check("  markets slate rows agree with moneyline slate (same run date)",
+                  bool((df["kind"] == "slate").any()) == _ml_has_games)
+        else:
+            check("  empty-slate run wrote no moneyline file (agreement vacuous)",
+                  not (df["kind"] == "slate").any())
 
 # ---------------------------------------------------------------------------
 print("\n== 4. Current-slate delivery verification ==")
@@ -184,13 +197,21 @@ if ml_files:
     rec = json.loads(ml_files[-1].read_text(encoding="utf-8"))
     games = rec.get("games") or []
     dates = sorted({g.get("game_date") for g in games})
-    check("moneyline record carries a current slate", len(games) > 0)
-    check("slate games have unique game_ids",
-          len({g.get("game_id") for g in games}) == len(games))
-    check("slate game_date values present", bool(dates) and dates[0] is not None)
-    check("model_pick present on every game",
-          all(g.get("model_pick") in (g.get("home_team"), g.get("away_team"))
-              for g in games))
+    if games:
+        check("moneyline record carries a current slate", True)
+        check("slate games have unique game_ids",
+              len({g.get("game_id") for g in games}) == len(games))
+        check("slate game_date values present", bool(dates) and dates[0] is not None)
+        check("model_pick present on every game",
+              all(g.get("model_pick") in (g.get("home_team"), g.get("away_team"))
+                  for g in games))
+    else:
+        # Off-day run: no games inside the date-keyed serving window. The
+        # record must still be coherent: its slate_date equals its own
+        # artifact date stamp (the serving window is keyed to the run date).
+        _stamp = "".join(ch for ch in ml_files[-1].stem if ch.isdigit())[-8:]
+        check("empty slate keyed to the run date (slate_date == artifact stamp)",
+              len(_stamp) == 8 and rec.get("slate_date") == _stamp)
     print(f"    slate: n_games={len(games)}, slate_date={rec.get('slate_date')}, "
           f"first game_date={dates[0] if dates else None}")
 

@@ -3978,6 +3978,58 @@ if ((_ros_cache / "roster_weekly_v2_2025.parquet").exists()
 else:
     print("  (roster real-snapshot probes skipped: 2025 caches not populated)")
 
+# ---- Neutral-site venue repair + degenerate-baseline drift guard ---------
+# (2026-09-29 run-log review). The nflreadpy schedule carries the NOMINAL
+# home team's stadium on location=Neutral rows for earlier seasons — the
+# 2025 international games are labeled with the nominal team's home venue
+# (CLE-MIN 2025-10-05 ships "FirstEnergy Stadium"; the game was played at
+# Tottenham Hotspur Stadium, London) — so travel/altitude priced 0 for every
+# one of them and the drift report showed travel_miles_home with a baseline
+# mean of exactly 0.0. The repair blanks venue-derived quantities on Neutral
+# rows (the only point-in-time-honest value); the pin freezes that contract.
+_ven_games = pd.DataFrame([
+    {"game_id": "V0", "season": 2025, "week": 1, "gameday": "2025-09-01",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "DDD",
+     "stadium": "Lambeau Field", "location": "Home"},
+    {"game_id": "V1", "season": 2025, "week": 2, "gameday": "2025-09-08",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "BBB",
+     "stadium": "Soldier Field", "location": "Home"},
+    {"game_id": "V2", "season": 2025, "week": 3, "gameday": "2025-09-15",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "CCC",
+     "stadium": "Lambeau Field", "location": "Neutral"},
+])
+_ven = feat_mod._attach_static_team_facts(_ven_games, venue_timeline=_ven_games)
+_ven_g2 = _ven[_ven["game_id"].eq("V2")].iloc[0]
+_ven_g1 = _ven[_ven["game_id"].eq("V1")].iloc[0]
+check("neutral-site rows blank their venue-derived features (nominal "
+      "stadium labels must never price 0 travel miles)",
+      all(pd.isna(_ven_g2[c]) for c in ("travel_miles_home",
+                                        "travel_miles_away",
+                                        "travel_miles_diff",
+                                        "altitude_home"))
+      and np.isfinite(_ven_g1["travel_miles_home"]),
+      f"V1 home={_ven_g1['travel_miles_home']}, "
+      f"V2 neutral={_ven_g2['travel_miles_home']} (NaN required)")
+
+# feature_drift iterates the SERVED contract, so the guard is pinned on a
+# real column name: is_home is constant 1.0 (zero variance = degenerate).
+_mon_base = pd.DataFrame({"is_home": [1.0] * 60})
+_mon_cur = pd.DataFrame({"is_home": [1.0] * 20})
+_mon_row = [r for r in monitoring_mod.feature_drift(_mon_base, _mon_cur)
+            if isinstance(r, dict) and r.get("feature") == "is_home"]
+_mon_ok = pd.DataFrame({"is_home": np.ones(120),
+                        "temp_f": np.linspace(30.0, 90.0, 120)})
+_mon_ok_cur = pd.DataFrame({"is_home": np.ones(40),
+                            "temp_f": np.linspace(30.0, 90.0, 40)})
+_mon_row_ok = [r for r in monitoring_mod.feature_drift(_mon_ok, _mon_ok_cur)
+               if isinstance(r, dict) and r.get("feature") == "temp_f"]
+check("a zero-variance baseline grades INSUFFICIENT (cannot judge), not OK",
+      bool(_mon_row) and _mon_row[0]["status"] == "INSUFFICIENT"
+      and not np.isfinite(_mon_row[0]["psi"])
+      and bool(_mon_row_ok) and _mon_row_ok[0]["status"] != "INSUFFICIENT",
+      f"degenerate is_home={_mon_row[0]['status'] if _mon_row else 'MISSING'}, "
+      f"normal temp_f={_mon_row_ok[0]['status'] if _mon_row_ok else 'MISSING'}")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)
