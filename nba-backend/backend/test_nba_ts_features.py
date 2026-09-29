@@ -234,6 +234,41 @@ class TestStatusClassification:
         assert seen == {"Out": 2, "Day-To-Day": 1}
 
 
+class TestBrierHeadline:
+    """The run log's Brier headline must not dress a one-game tail up as an
+    aggregate. The 2026-09-29 logs printed 0.2589 -> 0.2713 as "rolling Brier
+    over 283 day(s)"; both numbers were the single game of 2026-06-13, and the
+    283-day games-weighted mean had IMPROVED 0.2098 -> 0.2091."""
+
+    SERIES = [
+        {"date": "2026-06-10", "brier": 0.1630, "games": 1},
+        {"date": "2026-06-13", "brier": 0.2713, "games": 1},
+    ]
+
+    def test_the_last_day_is_named_and_never_passes_as_the_aggregate(self):
+        head = mon.brier_headline(self.SERIES)
+        # The weighted mean of these two days is 0.21715 - not the 0.2713 the
+        # old headline would have shown.
+        assert head["weighted"] == pytest.approx(0.21715, abs=1e-4)
+        assert "last day" in head["summary"] and "2026-06-13" in head["summary"]
+        assert "games-weighted" in head["summary"]
+        assert "1 game(s)" in head["summary"]
+        assert head["last_day"]["brier"] == pytest.approx(0.2713)
+
+    def test_the_weighted_mean_dominates_the_series_not_the_last_day(self):
+        # 283 lopsided days plus a bad single-game tail: the headline number
+        # must stay near the 0.21 body, never jump to the 0.27 tail.
+        body = [{"date": f"2024-11-{d:02d}", "brier": 0.2100, "games": 7}
+                for d in range(1, 29)]
+        head = mon.brier_headline(body + self.SERIES)
+        assert head["weighted"] < 0.215
+        assert head["summary"].startswith("0.21")
+
+    def test_an_empty_series_degrades_to_n_a(self):
+        head = mon.brier_headline([])
+        assert head["weighted"] is None and head["summary"] == "n/a"
+
+
 class TestPITCutoff:
     def _stint(self, start, end=pd.NaT):
         return pd.DataFrame([{"player_id": "1", "team": "BOS",

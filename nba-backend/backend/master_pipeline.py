@@ -1233,7 +1233,14 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     drift = monitoring.feature_drift(drift_baseline, drift_current, imp_weights)
     cov = monitoring.coverage(drift_baseline, drift_current)
     brier = monitoring.rolling_brier(ml_oof) if ml_oof is not None else []
-    latest_brier = f"{brier[-1]['brier']:.4f}" if brier else "n/a"
+    # The old line printed the LAST DAY's Brier under an aggregate-sounding
+    # label; the two 2026-09-29 runs read 0.2589 -> 0.2713 and looked like a
+    # regression while both numbers were ONE game and the same-window
+    # games-weighted mean had IMPROVED. brier_headline names the last day
+    # separately and leads with the games-weighted mean so the log stops
+    # inviting that false alarm.
+    brier_head = monitoring.brier_headline(brier)
+    latest_brier = brier_head["summary"] if brier else "n/a"
     baseline_brier = (float(1 - ml_oof.home_win.mean())
                       if ml_oof is not None and len(ml_oof) else None)
     monitoring.write_monitor_json(
@@ -1260,7 +1267,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     if len(slate) and len(slate_markets):
         _validate_slate_contract(slate, slate_markets)
-    _step("monitor", f"rolling Brier {latest_brier} over {len(brier)} day(s), "
+    _step("monitor", f"rolling Brier: {latest_brier}, "
                      f"{len(members)} ensemble member(s)")
 
     empty_frame = _empty_contract_columns(game_df)

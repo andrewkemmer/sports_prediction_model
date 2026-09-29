@@ -386,6 +386,35 @@ def ensemble_table(oof: pd.DataFrame, weights: dict[str, float]) -> list[dict]:
     return rows
 
 
+def brier_headline(rolling: list[dict]) -> dict:
+    """Summarize a rolling Brier series for the run log without lying.
+
+    The log used to print only the LAST DAY's value as "rolling Brier
+    <x> over N day(s)". On an NBA calendar the last day is often a single
+    game - the 2026-09-29 runs printed 0.2713 and 0.2589, both of them one
+    game - while the same-window games-weighted mean moved the other way
+    (0.2098 -> 0.2091, improving). Reading the headline as an aggregate
+    invited a false regression alarm on a one-game tail.
+    """
+    if not rolling:
+        return {"summary": "n/a", "weighted": None, "last_day": None}
+    n_games = sum(int(r.get("games", 0)) for r in rolling)
+    total = sum(float(r["brier"]) * int(r.get("games", 0)) for r in rolling)
+    weighted = total / n_games if n_games else None
+    last = rolling[-1]
+    return {
+        "summary": (
+            f"{weighted:.4f} games-weighted over {len(rolling)} day(s) "
+            f"({n_games} game(s)); last day {last['date']} "
+            f"{last['brier']:.4f} over {last.get('games', '?')} game(s)"
+        ),
+        "weighted": None if weighted is None else round(weighted, 6),
+        "last_day": {"date": str(last["date"]),
+                     "brier": float(last["brier"]),
+                     "games": int(last.get("games", 0))},
+    }
+
+
 def rolling_brier(oof: pd.DataFrame, p_col="p_ensemble_calibrated",
                   window_days: int = 30) -> list[dict]:
     if oof is None or p_col not in oof or not len(oof):
