@@ -27,6 +27,16 @@ import config
 import ingestion
 
 BACKEND = Path(__file__).resolve().parent
+DD = BACKEND.parent / "data_delivery"
+
+
+@pytest.fixture(autouse=True)
+def _clean_drift_junk():
+    """The drift smoke calls write _t_*.csv probes into data_delivery;
+    remove them (and any stale ones) around every test."""
+    yield
+    for junk in DD.glob("_t_seam_*.csv"):
+        junk.unlink(missing_ok=True)
 
 # ── D1: known gameless windows are skipped before the first attempt ──────────
 
