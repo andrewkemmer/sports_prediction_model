@@ -3028,7 +3028,7 @@ FEATURE_DESCRIPTIONS = {
     # 15. Team rolling wOBA diff
     "woba_30g_diff": "Home team 30-game wOBA − away team 30-game wOBA",
     # 16–19. Bullpen diffs (workload + quality)
-    "bullpen_whip_diff": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
+    "bullpen_whip_10g_diff": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
     "bullpen_whip_3g_diff": "Home bullpen 3-game WHIP − away bullpen (short-term form)",
     "bullpen_pitches_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
     "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
@@ -3050,7 +3050,9 @@ FEATURE_DESCRIPTIONS = {
     "wind_advantage_flyball_factor": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
     "air_density_velocity_boost": "Stadium air density × SP velo diff (cold/thin air affects velocity)",
     # 29–32. Derived interaction features
-    "bullpen_meltdown_risk": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
+    "bullpen_meltdown_risk_diff": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
+    "bullpen_meltdown_risk_home": "Home bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+    "bullpen_meltdown_risk_away": "Away bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
     "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
     "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
     "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",

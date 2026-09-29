@@ -181,7 +181,7 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage",
     },
     # ---- bullpen ----------------------------------------------------------
-    "bullpen_whip_diff": {
+    "bullpen_whip_10g_diff": {
         "summary": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
         "definition": "Relief corps baserunner allowance over the last 10 games.",
         "formula": "bullpen_whip_10g_home − bullpen_whip_10g_away",
@@ -336,14 +336,32 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage (velocity edge amplified)",
     },
     # ---- engineered interactions -------------------------------------------
-    "bullpen_meltdown_risk": {
+    "bullpen_meltdown_risk_diff": {
         "summary": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
         "definition": "Flags games where a tired pen is also performing poorly — late-inning blowup potential.",
-        "formula": "bullpen_pitches_diff × bullpen_whip_3g_diff",
+        "formula": "bullpen_pitches_diff × bullpen_whip_10g_diff",
         "source": "DuckDB feature engineering: workload × form interaction",
-        "window": "3d × 3g",
+        "window": "3d × 10g",
         "units": "index",
         "direction": "higher = home-side meltdown risk (negative for home)",
+    },
+    "bullpen_meltdown_risk_home": {
+        "summary": "Home bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+        "definition": "Within-side fatigue × quality product for the home pen.",
+        "formula": "bullpen_pitches_3d_home × bullpen_whip_10g_home",
+        "source": "DuckDB feature engineering: workload × form interaction",
+        "window": "3d × 10g",
+        "units": "index",
+        "direction": "higher = home pen more melt-prone",
+    },
+    "bullpen_meltdown_risk_away": {
+        "summary": "Away bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+        "definition": "Within-side fatigue × quality product for the away pen.",
+        "formula": "bullpen_pitches_3d_away × bullpen_whip_10g_away",
+        "source": "DuckDB feature engineering: workload × form interaction",
+        "window": "3d × 10g",
+        "units": "index",
+        "direction": "higher = away pen more melt-prone (home advantage)",
     },
     "pitcher_regression_indicator_diff": {
         "summary": "SP velo diff × ERA diff (physical drop vs surface results = regression)",

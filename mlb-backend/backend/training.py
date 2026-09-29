@@ -148,8 +148,9 @@ MONEYLINE_FEATURE_COLS = [
     "lineup_woba_std_diff",
     # 15. Team rolling wOBA diff
     "woba_30g_diff",
-    # 16–18. Bullpen diffs
-    "bullpen_whip_diff",
+    # 16–18. Bullpen diffs (whip_diff RENAMED 2026-09-30: the name now
+    # carries its window; values unchanged — it was always the 10g form)
+    "bullpen_whip_10g_diff",
     "bullpen_whip_3g_diff",
     "bullpen_pitches_diff",
     # 19–21. Team contact form diffs (trailing 15g)
@@ -171,8 +172,12 @@ MONEYLINE_FEATURE_COLS = [
     # Missing observations stay NULL; dome wind is a valid neutral 0.
     "wind_advantage_flyball_factor",
     "air_density_velocity_boost",
-    # 29–32. Derived interaction features
-    "bullpen_meltdown_risk",
+    # 29–32. Derived interaction features (meltdown_diff RENAMED from
+    # bullpen_meltdown_risk 2026-09-30; per-side twins added — the
+    # within-side product of the family's own factors)
+    "bullpen_meltdown_risk_diff",
+    "bullpen_meltdown_risk_home",
+    "bullpen_meltdown_risk_away",
     # RENAMED 2026-09-27 (structural): every model-side feature ends in
     # _diff. The three interaction composites take their diff names plus
     # per-side twins (the within-side product of their own factors —

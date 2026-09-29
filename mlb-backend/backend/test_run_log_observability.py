@@ -243,7 +243,7 @@ def test_genuinely_orphaned_entry_still_warns(monkeypatch):
 def test_metadata_still_covers_the_full_serving_width():
     """The fix narrows the WARNING, not the metadata itself."""
     meta, _ = feature_metadata.build_features_metadata()
-    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 98
+    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 100
     assert all(row.get("tooltip") for row in meta.values())
 
 
@@ -265,15 +265,16 @@ def _diff_output() -> tuple[set, set, pd.DataFrame]:
     return before, set(out.columns) - before, out
 
 
-def test_diff_pass_creates_fifty_six_columns():
-    """56 on the identity frame: the 36 the pass always created plus the
-    2026-09-27 twin expansion minus the 2 travel twins (renames are
+def test_diff_pass_creates_fifty_eight_columns():
+    """58 on the identity frame: the 36 the pass always created plus the
+    2026-09-27 twin expansion minus the 2 travel twins, PLUS the 2
+    bullpen_meltdown_risk per-side twins added 2026-09-30 (renames are
     in-place; the 12 level twins are absent inputs here, so they are
     created NULL like their diffs; the 6 interaction twins and the 2
     travel twins are new columns; the 16 exp2 twins belong to
     add_exp2_features)."""
     _, created, _ = _diff_output()
-    assert len(created) == 56, sorted(created)
+    assert len(created) == 58, sorted(created)
 
 
 def test_created_set_carries_the_il_flag_diff():
@@ -285,7 +286,7 @@ def test_created_set_carries_the_il_flag_diff():
     extras = {
         "lineup_handedness_matchup_advantage", "dome_is_neutral",
         "wind_advantage_flyball_factor", "air_density_velocity_boost",
-        "bullpen_meltdown_risk", "pitcher_regression_indicator_diff",
+        "bullpen_meltdown_risk_diff", "pitcher_regression_indicator_diff",
         "lineup_depth_multiplier_diff", "ace_efficiency_factor_diff",
         "pitcher_regression_indicator_home", "pitcher_regression_indicator_away",
         "lineup_depth_multiplier_home", "lineup_depth_multiplier_away",

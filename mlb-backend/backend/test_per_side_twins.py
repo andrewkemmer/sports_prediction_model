@@ -329,7 +329,7 @@ def test_run_engine_side_view_carries_every_served_feature():
     # Side-agnostic matchup gaps are shared environment — present in BOTH
     # side views; per-side levels appear in their own side's view.
     for shared in ("win_pct_diff", "elo_diff", "bullpen_whip_3g_diff",
-                   "bullpen_meltdown_risk",
+                   "bullpen_meltdown_risk_diff",
                    "lineup_handedness_matchup_advantage"):
         assert shared in home_cols and shared in away_cols, shared
     for twin in ("pitcher_regression_indicator_home", "exp2_centered_k_home"):

@@ -238,9 +238,9 @@ def test_single_list_no_margin_in_any_enumeration():
     feature_selection.reset_feature_subset()
     active = training.active_moneyline_feature_cols()
     assert MARGIN_COL not in active
-    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 98, (
+    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 100, (
         f"width drift: universe={len(training.MONEYLINE_FEATURE_COLS)} "
-        f"active={len(active)} (expected 98 everywhere)")
+        f"active={len(active)} (expected 100 everywhere)")
 
 def test_drift_default_enumerates_active_width():
     """compute_feature_drift's default enumeration is the ACTIVE serving

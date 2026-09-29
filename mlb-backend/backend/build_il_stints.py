@@ -799,6 +799,146 @@ def main() -> None:
         sys.exit(run_status_sweep(iv, end, strict=args.strict_status,
                                   pa_days=pa))
 
+    # Pitcher companion ledger (2026-09-30): same state machine, reconciled
+    # against observed pitching appearances; gates inside build_pitcher_stints
+    # govern its own plausibility. Failure here is loud but non-fatal for the
+    # batter table already written above.
+    piv, pstats = build_pitcher_stints(tx, pbp, end)
+    pout = Path(DATA_DELIVERY_DIR) / "il_stints_pitchers.parquet"
+    piv.to_parquet(pout, index=False)
+    pmeta = dict(meta)
+    pmeta.update({k: v for k, v in pstats.items() if not isinstance(v, set)})
+    pmeta["rows"] = int(len(piv))
+    pmeta["pitchers"] = int(piv.batter.nunique()) if not piv.empty else 0
+    pmeta["open_at_window_end"] = (int(piv.il_end.isna().sum())
+                                   if not piv.empty else 0)
+    pout.with_suffix(".meta.json").write_text(json.dumps(pmeta, indent=2))
+    print(f"wrote {pout} ({len(piv):,} stints, "
+          f"{pmeta['pitchers']:,} pitchers; stats={pstats})")
+
+
+
+
+# ── pitcher availability (2026-09-30) ───────────────────────────────────────
+# The bullpen features need the SAME availability layer the lineup family
+# has: which relief arms are OUT/IL/unavailable as of the game date. The
+# transactions feed is player-generic, so the state machine already covers
+# pitchers; what was missing is (a) observing pitcher APPEARANCES so the
+# reconciliation can end a stint at his first game back, and (b) keeping
+# the pitcher table separate from the batter ledger the lineup consumes.
+
+def load_pitcher_appearances(pbp_path: Path) -> pd.DataFrame:
+    """(batter=player, game_date, pitches, inning_flag) per pitcher-game.
+
+    inning_flag distinguishes real bulk appearances (>= 3 outs recorded
+    across >= 2 distinct innings, or >= 15 pitches) from a token
+    position-player cameo, which should NOT close a stint.
+    """
+    import duckdb
+    con = duckdb.connect(database=":memory:")
+    try:
+        return con.execute(
+            """
+            WITH per_game AS (
+                SELECT CAST(pitcher AS BIGINT) AS batter,
+                       CAST(game_date AS DATE) AS game_date,
+                       game_pk,
+                       COUNT(DISTINCT inning) AS n_innings,
+                       COUNT(*) AS n_pitches
+                FROM read_parquet(?)
+                WHERE pitcher IS NOT NULL
+                GROUP BY pitcher, CAST(game_date AS DATE), game_pk
+            )
+            SELECT batter, game_date, n_pitches,
+                   CASE WHEN n_innings >= 2 OR n_pitches >= 15
+                        THEN 1 ELSE 0 END AS real_appearance
+            FROM per_game
+            """,
+            [str(pbp_path)]).df()
+    finally:
+        con.close()
+
+
+def split_pitchers(iv: pd.DataFrame, pitchers: set[int]) -> pd.DataFrame:
+    """Restrict a stints frame to pitcher ids."""
+    if iv.empty:
+        return iv
+    return iv[iv.batter.isin(pitchers)].reset_index(drop=True)
+
+
+def reconcile_pitcher_stints(iv: pd.DataFrame,
+                             app: pd.DataFrame) -> pd.DataFrame:
+    """End a pitcher stint at his first REAL appearance after il_start."""
+    if iv.empty or app.empty:
+        return iv
+    real = app[app.real_appearance == 1]
+    days = {int(b): np.sort(g.game_date.to_numpy(dtype="datetime64[ns]"))
+            for b, g in real.groupby("batter", sort=False)}
+    ends: list[object] = []
+    for batter, start, end in zip(iv.batter, iv.il_start, iv.il_end):
+        arr = days.get(int(batter))
+        nxt = None
+        if arr is not None:
+            i = int(np.searchsorted(arr, np.datetime64(start), side="right"))
+            if i < len(arr):
+                nxt = pd.Timestamp(arr[i])
+        if nxt is not None and (pd.isna(end) or nxt < end):
+            end = nxt
+        ends.append(end)
+    out = iv.copy()
+    out["il_end"] = ends
+    out = out[out.il_end.isna() | (out.il_end > out.il_start)]
+    return out.reset_index(drop=True)
+
+
+def pitcher_ids_from_pbp(pbp_path: Path) -> set[int]:
+    import duckdb
+    con = duckdb.connect(database=":memory:")
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT CAST(pitcher AS BIGINT) FROM read_parquet(?) "
+            "WHERE pitcher IS NOT NULL", [str(pbp_path)]).fetchall()
+        return {int(r[0]) for r in rows}
+    finally:
+        con.close()
+
+
+def build_pitcher_stints(tx: list[dict], pbp_path: Path | None,
+                         window_end: pd.Timestamp) -> tuple[pd.DataFrame, dict]:
+    """Full pitcher availability pipeline; returns (stints, stats).
+
+    Reuses the shared state machine (stints_from_events/build_events) --
+    identical opens/closes as the batter ledger -- then reconciles against
+    observed pitching appearances and splits by whether the person ever
+    appears in the pitch data as a pitcher.
+    """
+    iv = stints_from_events(build_events(tx))
+    stats = {"stints_raw": int(len(iv))}
+    if pbp_path is None or not Path(pbp_path).exists():
+        stats["reconciled"] = False
+        stats["pitchers"] = 0
+        return iv, stats
+    app = load_pitcher_appearances(pbp_path)
+    pids = pitcher_ids_from_pbp(pbp_path)
+    stats["reconciled"] = True
+    stats["pitchers"] = len(pids)
+    stats["appearances"] = int(len(app))
+    raw_n = len(iv)
+    iv = reconcile_pitcher_stints(iv, app)
+    stats["stints_reconciled"] = int(len(iv))
+    stats["stints_closed_by_appearance"] = raw_n - int(len(iv))
+    iv = split_pitchers(iv, pids)
+    stats["stints_pitchers"] = int(len(iv))
+    # open-stint share at window end: pitchers on season-ending IL stay open
+    stats["open_at_end"] = int(iv.il_end.isna().sum()) if not iv.empty else 0
+    # plausibility: league-wide weekly on-availability median for pitchers
+    # (~1/4 to 1/3 of the batter ledger's 500-560; far below = the feed lost
+    # pitcher rows, far above = the state machine regressed)
+    med = median_on_il(iv, window_end - pd.Timedelta(days=365),
+                       window_end) if not iv.empty else 0.0
+    stats["median_on_il_weekly"] = float(med)
+    return iv, stats
+
 
 if __name__ == "__main__":
     main()

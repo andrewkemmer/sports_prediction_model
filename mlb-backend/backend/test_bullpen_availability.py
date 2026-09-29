@@ -1,0 +1,283 @@
+"""Bullpen availability (2026-09-30): the bullpen family gets the same
+player-availability layer the lineup family has — as a FILTER, not new
+features (2026-09-30 directive).
+
+Pins:
+  * il_stints_pitchers.parquet registers; a missing ledger degrades LOUDLY
+    to all-pitched-innings semantics (pre-availability behavior)
+  * innings by an unavailable arm are EXCLUDED from bullpen_raw, so every
+    served bullpen feature (bullpen_whip_10g, bullpen_whip_3g, era_10g and
+    everything derived from them) inherits tonight's availability
+  * PIT rule: innings ON the placement date and ON the return date stay
+    available (strictly-between predicate)
+  * bullpen_whip_diff is RENAMED bullpen_whip_10g_diff (values unchanged)
+  * bullpen_meltdown_risk is RENAMED ..._risk_diff; per-side twins exist
+    as the within-side product of the family's own factors
+  * the serving contract carries exactly the family: 100 cols, NO
+    exposed_share / il_count extras
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import duckdb
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import features  # noqa: E402
+import training  # noqa: E402
+
+BACKEND = Path(__file__).resolve().parent
+
+
+# ── contract-level pins ──────────────────────────────────────────────────────
+
+def test_contract_carries_the_renamed_bullpen_family():
+    cols = set(training.MONEYLINE_FEATURE_COLS)
+    for c in ("bullpen_whip_10g_diff", "bullpen_whip_3g_diff",
+              "bullpen_pitches_diff", "bullpen_meltdown_risk_diff",
+              "bullpen_meltdown_risk_home", "bullpen_meltdown_risk_away"):
+        assert c in cols, f"{c} missing from the serving contract"
+    assert "bullpen_whip_diff" not in cols
+    assert "bullpen_meltdown_risk" not in cols
+    # The availability mechanism is a filter, NOT extra model columns.
+    assert not [c for c in cols if "exposed_share" in c or "il_count" in c]
+    assert len(training.MONEYLINE_FEATURE_COLS) == 100
+
+
+def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):
+    """The rename is value-identical: 10g_diff == home - away, always."""
+    rng = np.random.default_rng(5)
+    n = 40
+    df = pd.DataFrame({
+        "home_team": ["BOS"] * n,
+        "away_team": ["NYY"] * n,
+        "game_pk": np.arange(n),
+        "bullpen_whip_10g_home": rng.uniform(0.8, 1.8, n),
+        "bullpen_whip_10g_away": rng.uniform(0.8, 1.8, n),
+        "bullpen_whip_3g_home": rng.uniform(0.8, 1.8, n),
+        "bullpen_whip_3g_away": rng.uniform(0.8, 1.8, n),
+        "bullpen_pitches_3d_home": rng.uniform(0, 300, n),
+        "bullpen_pitches_3d_away": rng.uniform(0, 300, n),
+        "bullpen_ip_3d_home": rng.uniform(0, 12, n),
+        "bullpen_ip_3d_away": rng.uniform(0, 12, n),
+    })
+    out = features.add_diff_features(df.copy())
+    d = out["bullpen_whip_10g_diff"]
+    expected = out["bullpen_whip_10g_home"] - out["bullpen_whip_10g_away"]
+    assert np.allclose(d, expected, equal_nan=True)
+    assert "bullpen_whip_diff" not in out.columns
+    # meltdown twins are within-side products of the family's own factors
+    assert np.allclose(
+        out["bullpen_meltdown_risk_home"],
+        out["bullpen_pitches_3d_home"] * out["bullpen_whip_10g_home"],
+        equal_nan=True)
+    assert np.allclose(
+        out["bullpen_meltdown_risk_away"],
+        out["bullpen_pitches_3d_away"] * out["bullpen_whip_10g_away"],
+        equal_nan=True)
+    assert np.allclose(
+        out["bullpen_meltdown_risk_diff"],
+        out["bullpen_pitches_diff"] * out["bullpen_whip_10g_diff"],
+        equal_nan=True)
+
+
+# ── availability semantics, exercised through real DuckDB SQL ───────────────
+
+# bullpen_raw with the availability predicate bound as production binds it.
+def _bullpen_raw_sql(ledger_ok: bool) -> str:
+    arm_out = (features._BP_ARM_UNAVAILABLE_SQL if ledger_ok else "FALSE")
+    return f"""
+        CREATE TABLE bullpen_raw AS
+        WITH reliever_events AS (
+            SELECT CAST(p.game_date AS DATE) AS game_date,
+                   p.game_pk,
+                   p.pitcher,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                        ELSE p.away_team END AS fielding_team,
+                   p.events
+            FROM pitches p
+            JOIN starters s ON p.game_pk = s.game_pk
+            WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+              AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+              AND p.events IN ('single','double','triple','home_run',
+                  'strikeout','strikeout_double_play','walk','hit_by_pitch',
+                  'field_out','field_error','fielders_choice',
+                  'fielders_choice_out','grounded_into_double_play',
+                  'double_play','triple_play','sac_fly','sac_bunt',
+                  'sac_fly_double_play','catcher_interf',
+                  'batter_interference','force_out',
+                  'sacrifice_bunt_double_play')
+              AND NOT {arm_out}
+        )
+        SELECT game_date, game_pk, fielding_team AS team,
+            SUM(CASE events
+                    WHEN 'field_out' THEN 1
+                    WHEN 'strikeout' THEN 1
+                    WHEN 'strikeout_double_play' THEN 2
+                    WHEN 'grounded_into_double_play' THEN 2
+                    WHEN 'double_play' THEN 2
+                    WHEN 'triple_play' THEN 3
+                    WHEN 'sac_fly' THEN 1
+                    WHEN 'sac_bunt' THEN 1
+                    WHEN 'fielders_choice_out' THEN 1
+                    WHEN 'sac_fly_double_play' THEN 2
+                    WHEN 'sacrifice_bunt_double_play' THEN 2
+                    ELSE 0 END) / 3.0 AS bullpen_ip,
+            SUM(CASE WHEN events IN ('strikeout',
+                    'strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
+            SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
+            SUM(CASE WHEN events IN ('single','double','triple',
+                'home_run') THEN 1 ELSE 0 END) AS bullpen_hits
+        FROM reliever_events
+        GROUP BY game_date, game_pk, fielding_team
+    """
+
+
+def _con_with(relievers: list[dict], ilp: pd.DataFrame | None):
+    con = duckdb.connect(database=":memory:")
+    con.register("pitches", pd.DataFrame({
+        "game_date": pd.to_datetime([r["game_date"] for r in relievers]),
+        "game_pk": [r["game_pk"] for r in relievers],
+        "pitcher": [r["pitcher"] for r in relievers],
+        "inning_topbot": ["Top"] * len(relievers),
+        "home_team": [r["team"] for r in relievers],
+        "away_team": ["OPP"] * len(relievers),
+        "events": ["strikeout"] * len(relievers),
+    }))
+    # ONE starters row per distinct game_pk — a per-reliever row here would
+    # fan the JOIN out and double every arm's innings.
+    gp = sorted({r["game_pk"] for r in relievers})
+    con.register("starters", pd.DataFrame({
+        "game_pk": gp,
+        "home_starter_id": [None] * len(gp),
+        "away_starter_id": [None] * len(gp),
+    }))
+    con.register("games", pd.DataFrame({
+        "game_pk": gp,
+        "home_team": [relievers[0]["team"]] * len(gp),
+        "away_team": ["OPP"] * len(gp),
+    }))
+    if ilp is not None:
+        con.register("il_stints_pitchers", ilp)
+    return con
+
+
+def test_unavailable_arm_innings_excluded_from_family_inputs():
+    # reliever 101: unavailable strictly between 06-08 and 07-01 → his
+    # 06-10..06-14 innings leave bullpen_raw; 202 stays all window.
+    relievers = [
+        *[{ "game_date": f"2026-06-{d:02d}", "game_pk": 1000 + d,
+            "team": "BOS", "pitcher": 101}
+          for d in range(10, 15)],
+        *[{ "game_date": f"2026-06-{d:02d}", "game_pk": 1000 + d,
+            "team": "BOS", "pitcher": 202}
+          for d in range(10, 15)],
+    ]
+    ilp = pd.DataFrame({
+        "batter": [101], "il_start": [pd.Timestamp("2026-06-08")],
+        "il_end": [pd.Timestamp("2026-07-01")],
+    })
+    con = _con_with(relievers, ilp)
+    con.execute(_bullpen_raw_sql(ledger_ok=True))
+    rows = con.execute(
+        "SELECT count(*) n, count(DISTINCT game_pk) games, "
+        "SUM(bullpen_ks) ks FROM bullpen_raw").fetchone()
+    # only the healthy arm survives: 5 games, his 5 Ks, none from 101
+    assert rows[0] == 5 and rows[1] == 5 and rows[2] == 5
+
+    # same data without the ledger → pre-availability semantics
+    con2 = _con_with(relievers, None)
+    con2.execute(_bullpen_raw_sql(ledger_ok=False))
+    rows2 = con2.execute(
+        "SELECT count(*), SUM(bullpen_ks) FROM bullpen_raw").fetchone()
+    assert rows2[0] == 5 and rows2[1] == 10  # both arms' Ks count
+
+
+def test_placement_and_return_day_innings_stay_available():
+    """PIT rule: innings ON the placement date (announcement evening) and
+    ON the return date (the appearance that closes the stint) are an
+    available arm's — unavailable strictly BETWEEN the stint dates."""
+    relievers = [{"game_date": d, "game_pk": i + 1, "team": "BOS",
+                  "pitcher": 101}
+                 for i, d in enumerate(
+                     ["2026-06-08", "2026-06-20", "2026-06-25"])]
+    ilp = pd.DataFrame({
+        "batter": [101], "il_start": [pd.Timestamp("2026-06-08")],
+        "il_end": [pd.Timestamp("2026-06-25")],
+    })
+    con = _con_with(relievers, ilp)
+    con.execute(_bullpen_raw_sql(ledger_ok=True))
+    dates = [pd.Timestamp(r[0]) for r in con.execute(
+        "SELECT game_date FROM bullpen_raw ORDER BY game_date").fetchall()]
+    assert pd.Timestamp("2026-06-08") in dates   # placement day: available
+    assert pd.Timestamp("2026-06-25") in dates   # return day: available
+    assert pd.Timestamp("2026-06-20") not in dates  # strictly between: out
+
+
+def test_helper_registers_and_degrades_loudly(tmp_path, caplog):
+    """_register_il_stints_pitchers: True with the file, False + warning
+    without it — never an exception."""
+    import logging
+    good = tmp_path / "il_stints_pitchers.parquet"
+    pd.DataFrame({"batter": [1], "il_start": [pd.Timestamp("2026-01-01")],
+                  "il_end": [pd.NaT]}).to_parquet(good, index=False)
+    con = duckdb.connect(database=":memory:")
+    with patch_ledger_dir(tmp_path):
+        assert features._register_il_stints_pitchers(con) is True
+        assert con.execute("SELECT count(*) FROM "
+                           "il_stints_pitchers").fetchone()[0] == 1
+    missing = tmp_path / "empty"
+    missing.mkdir()
+    with patch_ledger_dir(missing):
+        caplog.set_level(logging.WARNING)
+        assert features._register_il_stints_pitchers(con) is False
+        assert any("degrades" in r.message for r in caplog.records)
+
+
+def patch_ledger_dir(d):
+    return patch.object(features, "_lineup_base_dir", return_value=d)
+
+
+def _mk_pbp(tmp_path, name, bulk_days, cameo_days):
+    """Pitch-level pbp fixture: a bulk day = 3 innings x 8 pitches (a real
+    appearance under the n_innings>=2 / n_pitches>=15 rule); a cameo day =
+    1 inning x 8 pitches (token, does not close a stint)."""
+    rows = []
+    for d, inn in [*((x, 3) for x in bulk_days),
+                   *((x, 1) for x in cameo_days)]:
+        for i in range(inn):
+            for _ in range(8):
+                rows.append({"game_date": pd.Timestamp(d), "pitcher": 555,
+                             "inning": i + 1, "events": "strikeout",
+                             "game_pk": 1})
+    p = tmp_path / name
+    pd.DataFrame(rows).to_parquet(p, index=False)
+    return p
+
+
+def test_pitcher_builder_reconciles_and_splits(tmp_path):
+    """The pitcher pipeline: a placed pitcher whose next appearance is a
+    real bulk game has his stint closed by that appearance."""
+    import build_il_stints as m
+    pbp = _mk_pbp(tmp_path, "pbp.parquet",
+                  ["2026-06-09"], ["2026-06-01", "2026-06-20"])
+    tx = [
+        {"description": "BOS placed RHP Ace on the 15-day injured list.",
+         "person": {"id": 555}, "date": "2026-06-02"},
+    ]
+    iv, stats = m.build_pitcher_stints(tx, pbp, pd.Timestamp("2026-06-30"))
+    assert stats["reconciled"] is True
+    # the 06-09 bulk appearance (3 innings, 24 pitches) closes the stint
+    assert len(iv) == 1
+    assert iv.iloc[0]["il_end"] == pd.Timestamp("2026-06-09")
+    # a token cameo (1 inning, 8 pitches) does NOT close it
+    pbp2 = _mk_pbp(tmp_path, "pbp2.parquet",
+                   [], ["2026-06-01", "2026-06-09"])
+    iv2, _ = m.build_pitcher_stints(tx, pbp2, pd.Timestamp("2026-06-30"))
+    assert iv2.iloc[0]["il_end"] is pd.NaT or pd.isna(iv2.iloc[0]["il_end"])

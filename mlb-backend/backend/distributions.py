@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # the tree members may use them freely.
 RUN_EXTRA_EXCLUSIONS = {
     "lineup_handedness_matchup_advantage",
-    "bullpen_meltdown_risk",          # pitches_diff × whip_diff
+    "bullpen_meltdown_risk_diff",     # pitches_diff × whip_10g_diff
     # RENAMED 2026-09-27: the three interaction composites take their *_diff
     # names; the run engine never consumed the composites, so the twins ride
     # the same exclusion (matchup signal, not a scoring LEVEL).
@@ -196,7 +196,7 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
     "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
     "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
-    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
+    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_10g_diff",
     "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
     "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
     "closer_availability_diff",

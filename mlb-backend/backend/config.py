@@ -82,7 +82,7 @@ MIN_VAL_FOLD_GAMES = 40
 # baseline is a ~21-day trailing window, so every season's final week is
 # compared against mid-September — a cross-season seam. Playoff-roster
 # bullpens and eliminated-team call-ups make that seam REGULARLY look like
-# drift when it is seasonal (2026-09-29: bullpen_whip_diff z=+2.78 and
+# drift when it is seasonal (2026-09-29: bullpen_whip_10g_diff z=+2.78 and
 # bullpen_whip_10g_away z=-3.37 vs the trailing baseline, BOTH vanishing
 # against the same calendar phase of 2024-25: z=+1.94 / -1.28). When a
 # feature's location_shift survives the trailing baseline, the monitor

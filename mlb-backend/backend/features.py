@@ -68,6 +68,7 @@ PA_END_EVENTS = (
 # The IL table is a CACHE (build_il_stints.py), so absence must degrade
 # loudly to the participant behavior, never silently look correct.
 IL_STINTS_FILE = "il_stints.parquet"
+IL_STINTS_PITCHERS_FILE = "il_stints_pitchers.parquet"
 # A stale IL table is the silent inclusion failure: a player PLACED on
 # the IL after the table's last transaction date stays in the projected
 # nine (his frozen _pa30 keeps him ranked high — the 2026-09-28 Aaron
@@ -178,6 +179,42 @@ _LINEUP_IL_FLAG_SQL = """
     GROUP BY game_date, game_pk, batting_team
 """
 
+# ── Bullpen availability (2026-09-30) ────────────────────────────────────
+# The lineup family prices tonight's ROSTER (unavailable batters are
+# filtered out of lineup_woba_* before the average). The bullpen family
+# priced only INNINGS ALREADY PITCHED: an arm placed on the IL today
+# kept contributing his pre-IL innings to every WHIP/ERA/pitch-count the
+# model reads, and nothing told the model the pen is thinner than its own
+# numbers. Fix (same directive as the lineup pool — NO new features):
+# innings thrown by an unavailable arm are EXCLUDED from bullpen_raw
+# before any window/season aggregate is formed, so the whole served
+# family (bullpen_whip_10g_home/away, bullpen_whip_10g_diff,
+# bullpen_whip_3g_*, bullpen_era_10g_*, bullpen_pitches_3d_* and the
+# meltdown twins) inherits tonight's real availability.
+#
+# Ledger: the generalized availability table (build_il_stints.py →
+# il_stints_pitchers.parquet) — IL, paternity, bereavement/family
+# medical, restricted, administrative leave, suspension,
+# optioned/reassigned — the same taxonomy the lineup filter consumes.
+#
+# PIT rule (pitcher-specific): innings ON the placement date stay
+# available (the appearance is the announcement, thrown before it) and
+# innings ON the return date stay available (the builder closes the
+# stint AT the return appearance). So an arm is unavailable strictly
+# BETWEEN his stint's dates:
+#   unavailable(game_date) = il_start < game_date
+#                            AND (il_end IS NULL OR game_date < il_end)
+#
+# Missing ledger degrades LOUDLY to all-pitched-innings semantics (the
+# exact pre-availability behavior) — never a silent identity change.
+_BP_ARM_UNAVAILABLE_SQL = """EXISTS (
+              SELECT 1 FROM il_stints_pitchers i
+              WHERE i.batter = p.pitcher
+                AND CAST(p.game_date AS DATE) > CAST(i.il_start AS DATE)
+                AND (i.il_end IS NULL OR CAST(p.game_date AS DATE)
+                     < CAST(i.il_end AS DATE)))"""
+
+
 
 def il_stints_freshness() -> dict:
     """Coverage horizon of the committed IL table, for staleness checks.
@@ -212,6 +249,30 @@ def il_stints_freshness() -> dict:
     except Exception:
         pass
     return out
+
+
+def _register_il_stints_pitchers(con) -> bool:
+    """Load the PITCHER availability ledger; False (loudly) when absent."""
+    p = _lineup_base_dir() / IL_STINTS_PITCHERS_FILE
+    if not p.exists():
+        logger.warning(
+            "il_stints_pitchers.parquet missing: bullpen availability "
+            "degrades to exposure 0 / count 0 (pre-availability semantics)")
+        return False
+    try:
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE il_stints_pitchers AS "
+            "SELECT * FROM read_parquet(?)", [str(p)])
+        n = con.execute(
+            "SELECT count(*), count(DISTINCT batter) "
+            "FROM il_stints_pitchers").fetchone()
+        logger.info("pitcher availability ledger: %d stints, %d pitchers",
+                    n[0], n[1])
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("il_stints_pitchers.parquet unreadable (%s); "
+                       "bullpen availability degrades to exposure 0", e)
+        return False
 
 
 def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
@@ -1040,11 +1101,16 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # excluded the home starter, so every join fanned out ~300x (a team's
     # 3-day "bullpen pitch count" read 69,901) and the away starter's warmup-
     # free pitches were billed to the home bullpen.
+    # Bullpen availability ledger (same taxonomy as the lineup's OUT/IR
+    # filter). Missing → loud degradation to all-innings semantics.
+    _pitchers_ok = _register_il_stints_pitchers(con)
+    _arm_out = (_BP_ARM_UNAVAILABLE_SQL if _pitchers_ok else "FALSE")
     con.execute(f"""
         CREATE TABLE bullpen_raw AS
         WITH reliever_events AS (
             SELECT CAST(p.game_date AS DATE) AS game_date,
                    p.game_pk,
+                   p.pitcher,
                    CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
                         ELSE p.away_team END AS fielding_team,
                    p.events
@@ -1059,6 +1125,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                   'sac_fly','sac_bunt','sac_fly_double_play',
                   'catcher_interf','batter_interference',
                   'force_out','sacrifice_bunt_double_play')
+              AND NOT {_arm_out}
         )
         SELECT game_date, game_pk, fielding_team AS team,
             SUM(CASE events
@@ -1158,6 +1225,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                w3 AS (PARTITION BY team ORDER BY game_date
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
     """)
+
+    # NOTE: no separate availability layer — unavailable arms' innings are
+    # already excluded at bullpen_raw (see _BP_ARM_UNAVAILABLE_SQL), so every
+    # served bullpen feature inherits tonight's availability. No extra
+    # columns are emitted (2026-09-30 directive: no new features).
 
     # Season-to-date bullpen baselines (momentum companion for the 10g/3g
     # windows) — season-partitioned cumulative sums; the LAG shift is
@@ -1849,7 +1921,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             th.team_k_rate_30g AS team_k_rate_30g_home, th.team_bb_rate_30g AS team_bb_rate_30g_home,
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
             ta.team_k_rate_30g AS team_k_rate_30g_away, ta.team_bb_rate_30g AS team_bb_rate_30g_away,
-            bh.bullpen_whip_10g AS bullpen_whip_10g_home, bh.bullpen_era_10g AS bullpen_era_10g_home,
+            bh.bullpen_whip_10g AS bullpen_whip_10g_home,
+            bh.bullpen_era_10g AS bullpen_era_10g_home,
+
             ba.bullpen_whip_10g AS bullpen_whip_10g_away, ba.bullpen_era_10g AS bullpen_era_10g_away,
             bh.bullpen_whip_3g AS bullpen_whip_3g_home,
             ba.bullpen_whip_3g AS bullpen_whip_3g_away,
@@ -2092,7 +2166,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
         "team_off_season",
         "bullpen_raw", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
-        "bp_daily", "bp_fatigue",
+        "bp_daily", "bp_fatigue", "il_stints_pitchers",
         "pitcher_stuff_raw", "pitcher_stuff",
         "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
@@ -3171,7 +3245,7 @@ def add_diff_features(
                                (OUT/IR availability signal, one side's
                                projected nine missing a player)
         17. woba_30g_diff      home_woba_30g − away_woba_30g
-        18. bullpen_whip_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
+        18. bullpen_whip_10g_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
         19. bullpen_whip_3g_diff
         20. bullpen_pitches_diff  (home_bullpen_pitches_3d − away_…)
         21. bullpen_ip_diff       (home_bullpen_ip_3d − away_…)
@@ -3193,7 +3267,7 @@ def add_diff_features(
                                wind_direction_multiplier (Out=1, In=-1, Dome=0)
                                × sp_era_diff
         31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
-        32. bullpen_meltdown_risk       bullpen_pitches_diff × bullpen_whip_diff
+        32. bullpen_meltdown_risk_diff  bullpen_pitches_diff × bullpen_whip_10g_diff
         33. pitcher_regression_indicator_diff
                                         sp_fbvelo_diff × sp_era_5g_diff
         34. lineup_depth_multiplier_diff
@@ -3305,7 +3379,7 @@ def add_diff_features(
         ("lineup_woba_std_diff", "lineup_woba_std_home", "lineup_woba_std_away"),     # 16
         ("lineup_il_flag_diff", "lineup_il_flag_home", "lineup_il_flag_away"),        # 16b availability
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
-        ("bullpen_whip_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),      # 18
+        ("bullpen_whip_10g_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),  # 18 (RENAMED 2026-09-30)
         ("bullpen_whip_3g_diff", "bullpen_whip_3g_home", "bullpen_whip_3g_away"),     # 19
         ("bullpen_pitches_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20
         ("bullpen_ip_diff", "bullpen_ip_3d_home", "bullpen_ip_3d_away"),         # 21
@@ -3438,9 +3512,11 @@ def add_diff_features(
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
 
-    # ── 32. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
+    # ── 32. bullpen_meltdown_risk_diff (RENAMED 2026-09-30): the family's
+    # cross-side form, bullpen_pitches_diff × bullpen_whip_10g_diff.
     # Overworked + low quality bullpen = elevated meltdown risk.
-    df["bullpen_meltdown_risk"] = df["bullpen_pitches_diff"] * df["bullpen_whip_diff"]
+    df["bullpen_meltdown_risk_diff"] = (
+        df["bullpen_pitches_diff"] * df["bullpen_whip_10g_diff"])
 
     # Interaction twins: each side's OWN product of the interaction's
     # factors (the within-side form the cross-side gap only summarizes).
@@ -3477,6 +3553,12 @@ def add_diff_features(
         df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"])
     _twin("lineup_depth_multiplier_home", "lineup_woba_mean_home", "lineup_woba_top3_home")
     _twin("lineup_depth_multiplier_away", "lineup_woba_mean_away", "lineup_woba_top3_away")
+    # Bullpen meltdown per-side twins (2026-09-30): the within-side product
+    # of the family's own factors — 3-day pitch count x 10-game WHIP.
+    _twin("bullpen_meltdown_risk_home", "bullpen_pitches_3d_home",
+          "bullpen_whip_10g_home")
+    _twin("bullpen_meltdown_risk_away", "bullpen_pitches_3d_away",
+          "bullpen_whip_10g_away")
 
     # ── 35. ace_efficiency_factor_diff: sp_k9_5g_diff × sp_whiff_diff
     # Last-5-start strikeout volume driven by raw swing-and-miss stuff —

@@ -560,7 +560,7 @@ def compute_feature_drift(
         the shifted window must hold enough rows for a stable mean-shift
         SE — the exact-span window can dip near the 100-row judge floor
         and flip borderline seasonal features back to ALERT, which the
-        2026-09-29 bullpen_whip_diff replay demonstrated). For each k in
+        2026-09-29 bullpen_whip_10g_diff replay demonstrated). For each k in
         ``months_back`` (negative ints), take bgames rows whose game_date
         falls in the padded same-phase window shifted k years — the
         season seam moves WITH the calendar instead of across it. Only
