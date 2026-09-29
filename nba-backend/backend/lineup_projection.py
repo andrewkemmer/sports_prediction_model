@@ -423,6 +423,30 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # different feature wearing this one's name.
     healthy = healthy.sort_values(["prior_plays", "gameday"], ascending=False)
     projected = healthy.head(top_k)
+    # Opportunity-weighted blend (NFL f9d3e00 / MLB e3aa763 family parity):
+    # a member's weight is his OWN prior-opportunity total, so each aggregate
+    # is the projected lineup's combined shrunk TS over combined scoring
+    # plays - exactly the usage-weighted quantity "what does this lineup
+    # produce per play when its actual minutes distribution prices it". The
+    # old plain mean let a 21-play bench piece price equal to a 500-play
+    # starter, so one rotation discard dragged a team's projection by half a
+    # member. Weights are the same strictly-prior per-player totals the pool
+    # ranking already reads; nothing new is fetched and nothing leaks. A NaN
+    # rating contributes no weight and no rating (removal, not zeroing); a
+    # family with no finite-weight member keeps NaN.
+    projected = projected.copy()
+    projected["_w"] = projected["prior_plays"].where(
+        projected.ts_shrunk.notna(), other=0.0).astype(float)
+    w_sum = float(projected["_w"].sum())
+
+    def _blend(frame: pd.DataFrame) -> float:
+        """Opportunity-weighted mean of ts_shrunk over ``frame``."""
+        w = frame["_w"]
+        den = float(w.sum())
+        if not den:
+            return np.nan
+        return float((w * frame.ts_shrunk.fillna(0.0)).sum() / den)
+
     ratings = projected.ts_shrunk.to_numpy(dtype=float)
 
     # The rest count: top-5 regulars by participation who are NOT in the
@@ -432,19 +456,29 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     rest_count = int(len(regulars) - len(
         regulars[regulars.player_id.isin(set(projected.player_id))]))
 
-    mean = float(np.mean(ratings))
-    top3 = float(np.mean(ratings[:3]))
+    mean = _blend(projected)
+    top3 = _blend(projected.head(3))
+    # Weighted dispersion around the weighted mean: the same population form
+    # (ddof=0) the plain std used, with each member's deviation priced by his
+    # share of the lineup's opportunities.
+    std = np.nan
+    finite = projected[projected.ts_shrunk.notna()]
+    if len(finite) >= 2 and w_sum:
+        dev = finite.ts_shrunk.to_numpy(dtype=float) - mean
+        std = float(np.sqrt((finite._w.to_numpy(dtype=float)
+                             * dev ** 2).sum() / w_sum))
     # Position-segmented shooting over the SAME projected lineup, not a second
     # projection. Segmented afterwards rather than projecting one lineup per
     # position keeps a single definition of "who plays tonight"; three separate
     # projections would each pick their own top eight and quietly disagree
-    # about the team.
+    # about the team. Each segment blends by the same opportunity weights.
     segmented: dict = {}
     if "position" in projected.columns:
         for position, group in projected.groupby("position", sort=False):
             if position in config.PLAYER_TS_POSITIONS and len(group):
-                segmented[f"pl_ts_{str(position).lower()}"] = float(
-                    np.mean(group.ts_shrunk.to_numpy(dtype=float)))
+                value = _blend(group)
+                if value == value:
+                    segmented[f"pl_ts_{str(position).lower()}"] = value
     return {
         "gameday": pd.Timestamp(gameday),
         "team": team,
@@ -457,14 +491,14 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "lineup_out_count": int(pool_size - healthy_size),
         "lineup_healthy_frac": (healthy_size / pool_size) if pool_size
         else np.nan,
-        # Star dependency: the top three's share of the pool's average. A high
-        # value means the projection rests on a few players, so losing one of
-        # them costs more than the mean alone suggests.
+        # Star dependency: the top three's opportunity-weighted share of the
+        # lineup's weighted mean. A high value means the projection rests on a
+        # few players, so losing one of them costs more than the mean alone
+        # suggests.
         "lineup_ts_concentration": (top3 / mean) if mean else np.nan,
         "lineup_ts_mean": mean,
         "lineup_ts_top3": top3,
-        "lineup_ts_std": float(np.std(ratings, ddof=0)) if len(ratings) > 1
-        else np.nan,
+        "lineup_ts_std": std if std == std else np.nan,
         "lineup_ts_rest_count": rest_count,
         **segmented,
     }

@@ -284,8 +284,11 @@ class TestProjectedLineup:
         out = proj.projected_lineup(self._ratings())
         row = _bos(out)
         # a, b, c are healthy; d is removed entirely rather than scored 0.0.
+        # Blend weights are each member's own prior_plays (opportunity):
+        # (400*.60 + 380*.58 + 300*.55) / 1080.
         assert row.healthy_size == 3
-        assert row.lineup_ts_mean == pytest.approx((0.60 + 0.58 + 0.55) / 3)
+        assert row.lineup_ts_mean == pytest.approx(
+            (400 * 0.60 + 380 * 0.58 + 300 * 0.55) / 1080)
 
     def test_the_pool_is_widened_before_it_is_filtered(self):
         """The step that makes the filter bind at all.
@@ -343,7 +346,9 @@ class TestProjectedLineup:
         out = proj.projected_lineup(ratings, top_k=2)
         row = _bos(out)
         # top_k=2 takes the two highest prior_plays: a and b, not the 0.70.
-        assert row.lineup_ts_mean == pytest.approx((0.55 + 0.56) / 2)
+        # The blend prices them by opportunity: (500*.55 + 480*.56) / 980.
+        assert row.lineup_ts_mean == pytest.approx(
+            (500 * 0.55 + 480 * 0.56) / 980)
 
     def test_the_stint_table_removes_a_player_the_flag_calls_healthy(self):
         """The table is evaluated PIT and ANDed with the carried flag."""
@@ -449,6 +454,62 @@ class TestRecencyGate:
         row_p2 = ratings[ratings.player_id == "p2"].iloc[0]
         assert row_p1.days_since_appearance == 9    # last app 2026-02-01
         assert row_p2.days_since_appearance == 36   # last app 2026-01-05
+
+    def test_a_low_workload_member_cannot_price_half_the_lineup(self):
+        """The NFL v9.4 guard, NBA face: the blend is combined shrunk TS over
+        combined opportunities, so discarding a 21-play bench piece moves the
+        projection onto the starter's own rating instead of leaving him at
+        half weight. The plain mean kept the absent piece priced equally."""
+        ratings = pd.DataFrame([
+            _rating("starter", "BOS", "2026-03-01", 0.55, 500,
+                    days_since_appearance=1),
+            _rating("bench", "BOS", "2026-03-01", 0.90, 21,
+                    days_since_appearance=1),
+        ])
+        out = proj.projected_lineup(ratings)
+        full = out[out.team == "BOS"].iloc[0]
+        # Weighted: (500*.55 + 21*.90) / 521 - the starter dominates.
+        assert full.lineup_ts_mean == pytest.approx(
+            (500 * 0.55 + 21 * 0.90) / 521)
+        # The plain mean priced the 21-play bench piece at half: 0.725.
+        assert full.lineup_ts_mean < (0.55 + 0.90) / 2
+        # Without him, the blend IS the starter's own rating - not the mean
+        # of the remaining members at equal weight.
+        out2 = proj.projected_lineup(ratings.iloc[[0]])
+        solo = out2[out2.team == "BOS"].iloc[0]
+        assert solo.lineup_ts_mean == pytest.approx(0.55)
+
+    def test_weights_are_the_strictly_prior_opportunity_totals(self):
+        """The weight source is prior_plays - the same PIT quantity the
+        ranking reads - so the blend leaks nothing: it reuses evidence
+        already point-in-time before the game."""
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400,
+                    days_since_appearance=2),
+            _rating("b", "BOS", "2026-03-01", 0.58, 380,
+                    days_since_appearance=1),
+        ])
+        out = proj.projected_lineup(ratings)
+        row = out[out.team == "BOS"].iloc[0]
+        # Ratio identity: equal ratings blend to themselves regardless of
+        # weights, so equal-weight-vs-weighted divergence needs unequal
+        # ratings. Pin the weighted form on both aggregates - top3 blends
+        # the same two members here, so it equals the lineup blend.
+        weighted = (400 * 0.60 + 380 * 0.58) / 780
+        assert row.lineup_ts_top3 == pytest.approx(weighted)
+        assert row.lineup_ts_mean == pytest.approx(weighted)
+
+    def test_a_nan_rating_contributes_no_weight_and_no_rating(self):
+        """Removal, not zeroing: a NaN-rated member's plays vanish from the
+        denominator too, and a family with no finite-weight member is NaN."""
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("nan_guy", "BOS", "2026-03-01", np.nan, 300),
+        ])
+        out = proj.projected_lineup(ratings)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.lineup_ts_mean == pytest.approx(0.60)
+        assert row.lineup_ts_std != row.lineup_ts_std  # one finite member
 
     def test_the_column_is_documented_in_the_emitted_contract(self):
         """The column exists in build_player_ts's declared output set, so a
@@ -574,8 +635,10 @@ class TestPitDesignationFilter:
         row = out[(out.team == "BOS")
                   & (out.gameday == pd.Timestamp("2026-03-05"))].iloc[0]
         # b and c cover the slots; Alice is not zero-weighted into the mean.
+        # Weights are the March-5 rows' own prior_plays (b 400, c 330).
         assert row.healthy_size == 2
-        assert row.lineup_ts_mean == pytest.approx((0.58 + 0.55) / 2)
+        assert row.lineup_ts_mean == pytest.approx(
+            (400 * 0.58 + 330 * 0.55) / 730)
         # And the March 1 projection is unchanged by a March 5 designation.
         early = out[(out.team == "BOS")
                     & (out.gameday == pd.Timestamp("2026-03-01"))].iloc[0]

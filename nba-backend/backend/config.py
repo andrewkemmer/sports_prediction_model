@@ -60,7 +60,11 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
-FEATURE_SET_VERSION = "nba-prod-v2.1-per-side"
+# v2.2: opportunity-weighted pl_ts blend (NFL f9d3e00 / MLB e3aa763 parity).
+# The lineup aggregates blend each member's shrunk TS by his own prior-play
+# total instead of a plain mean; availability inputs are unchanged and
+# strictly point-in-time (designation archive + appearance recency gate).
+FEATURE_SET_VERSION = "nba-prod-v2.2-per-side-opp-weighted"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
