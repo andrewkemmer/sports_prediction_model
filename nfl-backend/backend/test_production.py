@@ -3891,6 +3891,90 @@ if ((_ros_cache / "roster_weekly_v2_2025.parquet").exists()
               and _walker_played12 > 0,
               f"report={_walker_wk12.iloc[0]['report_status'] if len(_walker_wk12) else 'MISSING'}"
               f", wk12 snaps={_walker_played12}")
+
+        # ---- Non-medical leave scenarios (2026-09-28) ----------------------
+        #   Brandon Aiyuk (SF, 00-0036261): NEVER appears on the weekly
+        #   report all season — PUP and Reserve/Left Team are roster
+        #   statuses, not report designations, so the report channel is
+        #   blind to him. The carried-RES rule must remove him every week
+        #   (R04 PUP weeks 1-13, R06 Left Team from 15; the feed omits week
+        #   14 entirely and the carry must bridge that gap). Zero snaps all
+        #   season: removal and reality agree every week.
+        #   Josh Simmons (KC, 00-0040116): the four-week personal leave =
+        #   INA weeks 6-9 (report Out 7-9 corroborates). INA is same-week
+        #   only, so NOTHING may carry past week 9; the week-11 ACT return
+        #   reinstates him and he plays 70/96/46 snaps weeks 11-13. His
+        #   later knee IR (RES 14-18) carries to 19 — a genuinely medical
+        #   episode the leave must not be confused with.
+        _aiyuk_id, _aiyuk_pfr = "00-0036261", "AiyuBr00"
+        _sim_id, _sim_pfr = "00-0040116", "SimmJo01"
+        _aiyuk_raw = _ros_raw25[_ros_raw25["_pid"].eq(_aiyuk_id)
+                                & _ros_raw25["team"].eq("SF")]
+        _sim_raw = _ros_raw25[_ros_raw25["_pid"].eq(_sim_id)
+                              & _ros_raw25["team"].eq("KC")]
+        if len(_aiyuk_raw) == 0 or len(_sim_raw) == 0:
+            check("non-medical leave scenarios: both players present in "
+                  "the 2025 snapshot cache", False,
+                  "cache schema drift: scenario IDs missing")
+        else:
+            _aiyuk_pup = set(_aiyuk_raw[
+                _aiyuk_raw["_week"].isin(range(1, 14))]["status"].astype(str))
+            _aiyuk_lt = set(_aiyuk_raw[
+                _aiyuk_raw["_week"].isin([15, 16, 17, 18])]["status"]
+                .astype(str))
+            _aiyuk_out = set(_ros_r25[
+                (_ros_r25["player_id"].eq(_aiyuk_id))
+                & (_ros_r25["team"].eq("SF"))]["week"].astype(int))
+            _aiyuk_reported = _ros_wi_all25[
+                _ros_wi_all25["gsis_id"].astype(str).eq(_aiyuk_id)]
+            _aiyuk_played = any(
+                _ros_sidx.get((w, "SF", _aiyuk_pfr), 0.0) > 0
+                for w in range(1, 19))
+            check("Aiyuk (PUP then Reserve/Left Team) never appears on the "
+                  "weekly report; the carried-RES rule removes him every "
+                  "week 1-21 across both reserve codes",
+                  len(_aiyuk_reported) == 0
+                  and _aiyuk_pup == {"RES"} and _aiyuk_lt == {"RES"}
+                  and _aiyuk_out == set(range(1, 22))
+                  and not _aiyuk_played,
+                  f"report rows={len(_aiyuk_reported)}, removed={sorted(_aiyuk_out)}"
+                  f", played-any={_aiyuk_played}")
+            _aiyuk_wk13 = _aiyuk_raw[_aiyuk_raw["_week"].eq(13)]
+            _aiyuk_wk15 = _aiyuk_raw[_aiyuk_raw["_week"].eq(15)]
+            _aiyuk_gap = _aiyuk_raw[_aiyuk_raw["_week"].eq(14)]
+            check("Aiyuk December Left Team move is the R04->R06 description "
+                  "switch, and the week-14 cache gap is bridged by the carry",
+                  len(_aiyuk_wk13) == 1 and len(_aiyuk_wk15) == 1
+                  and str(_aiyuk_wk13.iloc[0]["status_description_abbr"]) == "R04"
+                  and str(_aiyuk_wk15.iloc[0]["status_description_abbr"]) == "R06"
+                  and len(_aiyuk_gap) == 0 and 14 in _aiyuk_out,
+                  f"wk13={_aiyuk_wk13.iloc[0]['status_description_abbr'] if len(_aiyuk_wk13) else 'MISSING'}"
+                  f", wk15={_aiyuk_wk15.iloc[0]['status_description_abbr'] if len(_aiyuk_wk15) else 'MISSING'}"
+                  f", wk14 rows={len(_aiyuk_gap)}, wk14 removed={14 in _aiyuk_out}")
+
+            _sim_leave = set(_sim_raw[
+                _sim_raw["_week"].isin([6, 7, 8, 9])]["status"].astype(str))
+            _sim_out = set(_ros_r25[
+                (_ros_r25["player_id"].eq(_sim_id))
+                & (_ros_r25["team"].eq("KC"))]["week"].astype(int))
+            _sim_wk11 = _sim_raw[_sim_raw["_week"].eq(11)]
+            _sim_played_leave = any(
+                _ros_sidx.get((w, "KC", _sim_pfr), 0.0) > 0
+                for w in (6, 7, 8, 9))
+            _sim_played_back = all(
+                _ros_sidx.get((w, "KC", _sim_pfr), 0.0) > 0
+                for w in (11, 12, 13))
+            check("Simmons four-week personal leave: INA weeks 6-9 remove "
+              "same-week only (no carry into 10+), Out reports 7-9 "
+              "corroborate, week-11 ACT return reinstates and he plays",
+                  _sim_leave == {"INA"}
+                  and _sim_out == {6, 7, 8, 9, 14, 15, 16, 17, 18, 19}
+                  and not _sim_played_leave and _sim_played_back
+                  and len(_sim_wk11) == 1
+                  and str(_sim_wk11.iloc[0]["status"]) == "ACT",
+                  f"removed={sorted(_sim_out)}, leave statuses={sorted(_sim_leave)}"
+                  f", played-during-leave={_sim_played_leave}, "
+                  f"played-11-13={_sim_played_back}")
 else:
     print("  (roster real-snapshot probes skipped: 2025 caches not populated)")
 
