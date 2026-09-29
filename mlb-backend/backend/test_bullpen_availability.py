@@ -261,6 +261,82 @@ def _mk_pbp(tmp_path, name, bulk_days, cameo_days):
     return p
 
 
+# ── over-budget (spent-arm) exclusion (2026-09-30) ─────────────────────
+
+_SPENT_SQL = """
+    CREATE OR REPLACE TABLE bp_spent AS
+    SELECT o.team, o.pitcher, o.game_date AS game_date,
+           h.last_heavy AS heavy_outing
+    FROM bp_outing o
+    JOIN (
+        SELECT team, pitcher, game_date,
+               MAX(CASE WHEN n_pitches >= 35 THEN game_date END) OVER (
+                   PARTITION BY team, pitcher ORDER BY game_date
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+                   AS last_heavy
+        FROM bp_outing
+    ) h ON h.team = o.team
+       AND h.pitcher = o.pitcher
+       AND h.game_date = o.game_date
+    WHERE h.last_heavy IS NOT NULL
+      AND o.game_date > h.last_heavy
+      AND o.game_date <= CAST(h.last_heavy AS DATE)
+          + INTERVAL '4 DAY'
+"""
+
+_SPENT_RAW = """
+    SELECT COUNT(*) AS n
+    FROM bp_outing o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM bp_spent sp
+        WHERE sp.team = o.team
+          AND sp.pitcher = o.pitcher
+          AND sp.game_date = CAST(o.game_date AS DATE))
+"""
+
+
+def test_spent_asof_window_and_rest_refresh():
+    """AS-OF semantics: a game row is excluded when the arm's PRIOR outing
+    (before that row) was >= 35 pitches within 4 days — regardless of what
+    came after. Rows thrown by the heavy outing itself stay; day 5+ is
+    rested again; a team mate is untouched."""
+    con = duckdb.connect(database=":memory:")
+    con.register("bp_outing", pd.DataFrame({
+        "game_date": pd.to_datetime([
+            "2026-06-02",                  # arm 7 light: kept
+            "2026-06-08",                  # arm 7 HEAVY: kept (own outing)
+            "2026-06-10", "2026-06-12",   # within 4d of heavy: excluded
+            "2026-06-14",                  # day 6: rested, kept
+        ]),
+        "game_pk": [1, 2, 3, 4, 5],
+        "team": ["BOS"] * 5,
+        "pitcher": [7, 7, 7, 7, 7],
+        "n_pitches": [10, 50, 10, 10, 10],
+    }))
+    con.execute(_SPENT_SQL)
+    kept = con.execute(_SPENT_RAW).fetchone()[0]
+    assert kept == 3  # 06-02, 06-08, 06-14; arm 8 does not exist in frame
+
+
+def test_spent_boundary_is_35_and_team_scoped():
+    con = duckdb.connect(database=":memory:")
+    con.register("bp_outing", pd.DataFrame({
+        "game_date": pd.to_datetime(
+            ["2026-06-01", "2026-06-03", "2026-06-01", "2026-06-03"]),
+        "game_pk": [1, 2, 3, 4],
+        "team": ["BOS", "BOS", "NYY", "NYY"],
+        "pitcher": [9, 9, 9, 9],
+        "n_pitches": [50, 10, 50, 10],
+    }))
+    con.execute(_SPENT_SQL)
+    spent = con.execute("SELECT team, game_date FROM bp_spent ORDER BY team")
+    rows = spent.fetchall()
+    # both teams' 06-03 rows are post-heavy within 4d
+    assert len(rows) == 2 and {r[0] for r in rows} == {"BOS", "NYY"}
+    kept = con.execute(_SPENT_RAW).fetchone()[0]
+    assert kept == 2  # only the two 06-01 heavy outings themselves remain
+
+
 # ── readiness likelihood (2026-09-30): budget + ready-share semantics ──────
 
 def _day2_con(arms, ilp):

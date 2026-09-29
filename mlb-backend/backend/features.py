@@ -223,6 +223,20 @@ _BP_READY_P_LIGHT = 0.25             # P(appear next day) for < 20 pitches
 _BP_READY_P_MEDIUM = 0.13            # 20-34 pitches
 _BP_READY_P_HEAVY = 0.007            # 35+ pitches (sits tomorrow)
 
+# Over-budget exclusion (2026-09-30, same mechanism as the availability
+# filter): an arm whose MOST RECENT outing was 35+ pitches is near-
+# certainly unavailable tonight (P(appear) = 0.007 at 1 day rest, 0.066 at
+# 2 - both below the 0.13 doubtful bar), so his recent innings are EXCLUDED
+# from bullpen_raw before the WHIP/ERA windows form. Every served bullpen
+# quality feature (bullpen_whip_10g home/away/diff, whip_3g, era_10g and
+# the meltdown twins) therefore prices only arms who can actually take
+# tonight's outs. The fatigue channel (bullpen_pitches_3d) stays raw by
+# design: the budget IS its signal. If the most recent outing is in the
+# lookback window, that window refreshes past it (a 10g window at 2d rest
+# reads ~7g, at 4d+ rest the arm is back and nothing is skipped).
+_BP_SPENT_PITCHES = 35               # most-recent-outing ceiling for tonight
+_BP_SPENT_LOOKBACK_DAYS = 4          # P(appear) crosses 0.13 by day 3-4
+
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
               WHERE i.batter = p.pitcher
@@ -1169,6 +1183,61 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # filter). Missing → loud degradation to all-innings semantics.
     _pitchers_ok = _register_il_stints_pitchers(con)
     _arm_out = (_BP_ARM_UNAVAILABLE_SQL if _pitchers_ok else "FALSE")
+    # Per-reliever outing ledger (pitches per reliever-game; starters
+    # excluded by the production starters table, >= 3 pitches to drop
+    # position-player cameos). Built BEFORE bullpen_raw: it backs both the
+    # readiness rollup and the over-budget exclusion below.
+    con.execute("""
+        CREATE TABLE bp_outing AS
+        SELECT CAST(p.game_date AS DATE) AS game_date,
+               p.game_pk,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                    ELSE p.away_team END AS team,
+               p.pitcher,
+               COUNT(*) AS n_pitches
+        FROM pitches p
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+          AND p.pitcher IS NOT NULL
+        GROUP BY 1, 2, 3, 4
+        HAVING COUNT(*) >= 3
+    """)
+
+    # Over-budget (spent) arms: most recent outing >= _BP_SPENT_PITCHES and
+    # within the lookback. An arm whose last outing predates the window is
+    # rested and priced normally. Degenerate when bp_outing is empty.
+    con.execute(f"""
+        CREATE TABLE bp_spent AS
+        -- AS-OF heavy outings: (team, pitcher, game_date) rows whose PRIOR
+        -- outing (same team) was >= _BP_SPENT_PITCHES within the lookback.
+        -- An outing row in this set was thrown by an arm who — per the
+        -- calibration — was near-certainly unavailable that day (P(appear)
+        -- 0.007 at 1d rest, 0.066 at 2d): keeping those rows in the WHIP
+        -- windows would price tonight's pen on innings its overworked arms
+        -- threw against their own fatigue (1,921 rows / 63k = 3.1% of the
+        -- ledger). Latest-only matching was a proven no-op: an arm who
+        -- pitches again supersedes his heavy outing as latest.
+        SELECT o.team, o.pitcher, o.game_date AS game_date,
+               h.last_heavy AS heavy_outing
+        FROM bp_outing o
+        JOIN (
+            SELECT team, pitcher, game_date,
+                   MAX(CASE WHEN n_pitches >= {_BP_SPENT_PITCHES}
+                            THEN game_date END) OVER (
+                       PARTITION BY team, pitcher ORDER BY game_date
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+                       AS last_heavy
+            FROM bp_outing
+        ) h ON h.team = o.team
+           AND h.pitcher = o.pitcher
+           AND h.game_date = o.game_date
+        WHERE h.last_heavy IS NOT NULL
+          AND o.game_date > h.last_heavy
+          AND o.game_date <= CAST(h.last_heavy AS DATE)
+              + INTERVAL '{_BP_SPENT_LOOKBACK_DAYS} DAY'
+    """)
+
     con.execute(f"""
         CREATE TABLE bullpen_raw AS
         WITH reliever_events AS (
@@ -1190,6 +1259,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                   'catcher_interf','batter_interference',
                   'force_out','sacrifice_bunt_double_play')
               AND NOT {_arm_out}
+              AND NOT EXISTS (
+                  SELECT 1 FROM bp_spent sp
+                  WHERE sp.team = (CASE WHEN p.inning_topbot = 'Top'
+                                  THEN p.home_team ELSE p.away_team END)
+                    AND sp.pitcher = p.pitcher
+                    AND sp.game_date = CAST(p.game_date AS DATE))
         )
         SELECT game_date, game_pk, fielding_team AS team,
             SUM(CASE events
@@ -1212,26 +1287,6 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         FROM reliever_events
         GROUP BY game_date, game_pk, fielding_team
     """)
-    # Per-reliever outing ledger (pitches per reliever-game; starters
-    # excluded by the production starters table, >= 3 pitches to drop
-    # position-player cameos). Backs the readiness likelihood.
-    con.execute("""
-        CREATE TABLE bp_outing AS
-        SELECT CAST(p.game_date AS DATE) AS game_date,
-               p.game_pk,
-               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
-                    ELSE p.away_team END AS team,
-               p.pitcher,
-               COUNT(*) AS n_pitches
-        FROM pitches p
-        JOIN starters s ON p.game_pk = s.game_pk
-        WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
-          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
-          AND p.pitcher IS NOT NULL
-        GROUP BY 1, 2, 3, 4
-        HAVING COUNT(*) >= 3
-    """)
-
     # Readiness rollup per team-day: the prior-2-day pitch budget plus the
     # ready-weighted share of those pitches (0.25/0.13/0.007 staircase by
     # last-outing length; ledger arms are 0). The team's MOST RECENT game
@@ -2317,7 +2372,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "team_off_season",
         "bullpen_raw", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
         "bp_daily", "bp_fatigue", "il_stints_pitchers",
-        "bp_outing", "bp_day2",
+        "bp_outing", "bp_day2", "bp_spent",
         "pitcher_stuff_raw", "pitcher_stuff",
         "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
