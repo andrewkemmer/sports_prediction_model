@@ -382,10 +382,12 @@ _STATIC_SIDE_AGGREGATION = {
 }
 _STATIC_SIDE_AGGREGATION_EPA = (
     "8 player-games; 21-calendar-day roster window",
-    "unweighted mean by position among the team's top 11 prior-opportunity "
-    "leaders after excluding players with an Out/IR/Doubtful report published "
-    "strictly before target kickoff or a weekly-roster-snapshot unavailability "
-    "(carried RES/SUS/PUP, same-week INA/CUT)",
+    "opportunity-weighted mean by position among the team's top 11 "
+    "prior-opportunity leaders after excluding players with an Out/IR/Doubtful "
+    "report published strictly before target kickoff or a weekly-roster-"
+    "snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each "
+    "member's weight is his own rolling-8 opportunity total, so the blend is "
+    "the projected lineup's combined shrunk EPA over combined opportunities",
 )
 
 

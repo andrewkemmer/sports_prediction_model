@@ -2913,9 +2913,13 @@ _epa_prior = feat_mod._position_priors_asof(
 _epa_qb_prior = _epa_prior[_epa_prior["position"] == "QB"].iloc[0]
 _epa_p1_q = (5.0 + _epa_mu * _epa_k) / (10.0 + _epa_k)
 _epa_p2_q = (2.0 + _epa_mu * _epa_k) / (20.0 + _epa_k)
-_epa_expected_home = (_epa_p1_q + _epa_p2_q) / 2.0
+_epa_expected_home = (10.0 * _epa_p1_q + 20.0 * _epa_p2_q) / 30.0
 _epa_unfiltered_p3_q = (9.0 + _epa_mu * _epa_k) / (30.0 + _epa_k)
 _epa_expected_away = (_epa_mu * _epa_k) / (10.0 + _epa_k)
+# Opportunity-weighted blend: the HOME family is the projected lineup's
+# combined shrunk EPA over combined rolling-8 opportunities (P1 10 opps,
+# P2 20 opps). The old plain two-player average let a low-workload backup
+# price half the team's QB rate.
 check("Out exclusion changes target lineup membership, not P3's lagged EPA",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "epa"], 9.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "opp"], 30.0)
@@ -2924,14 +2928,15 @@ check("Out exclusion changes target lineup membership, not P3's lagged EPA",
       and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
       and not np.isclose(_epa_target_row["epa_qb_home"],
                          (_epa_p1_q + _epa_p2_q + _epa_unfiltered_p3_q) / 3.0),
-      f"P3 historical rolling total remains 9/30 while home target mean="
+      f"P3 historical rolling total remains 9/30 while home target blend="
       f"{_epa_target_row['epa_qb_home']:.9f}")
 check("all QB/WR/TE/RB lineup aggregates populate both team sides",
       _epa_skill_checks,
       "position-specific aggregates and home-away differences emitted")
 check("FB opportunity history is grouped into the RB lineup family",
       _epa_fb_in_rb)
-check("epa_qb_home follows PIT-qualified player EPA shrinkage and lineup mean",
+check("epa_qb_home follows PIT-qualified player EPA shrinkage and an "
+      "opportunity-weighted lineup blend",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "epa"], 5.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "opp"], 10.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "epa"], 2.0)
@@ -2951,6 +2956,32 @@ print("  EPA worked example (synthetic, production functions): "
       f"mu={_epa_mu:.9f}, k={_epa_k:.3f}, "
       f"P1={_epa_p1_q:.9f}, P2={_epa_p2_q:.9f}, "
       f"epa_qb_home={_epa_expected_home:.9f}")
+
+# Opportunity-weighted blend guard (2026-09-28): a member's blend weight is
+# his own rolling-8 opportunity total, so removing the low-workload backup
+# from the TARGET pool must move the blend onto the starter's own shrunk
+# rating -- the old plain mean kept pricing the absent backup at half weight.
+# The real-data face of this pin: Bagent's 15 rolling dropbacks cannot price
+# half of CHI's epa_qb against Williams' 329. P2 stays in the historical
+# player table (his G2 game still feeds mu/k), exactly like a real report
+# that rules the backup out after he built his rolling rating.
+_epa_solo_inj = pd.concat([_epa_calc_injuries, pd.DataFrame([{
+    "game_id": "EPA_TARGET", "team": "HOME", "player_id": "P2",
+    "status": "out", "availability_weight": 0.0,
+    "published": "2024-09-08T16:30:00Z"}])], ignore_index=True)
+_epa_solo_agg = feat_mod._epa_quality_agg(
+    _epa_calc_games, _epa_calc_pbp, _epa_calc_ps, _epa_solo_inj)
+_epa_solo_home = float(_epa_solo_agg[
+    _epa_solo_agg["game_id"].eq("EPA_TARGET")
+    & _epa_solo_agg["team"].eq("HOME")
+    & _epa_solo_agg["position"].eq("QB")]["epa_q"].iloc[0])
+check("epa_qb blend is opportunity-weighted: a low-workload backup cannot "
+      "price half the team rate",
+      np.isclose(_epa_solo_home, _epa_p1_q)
+      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
+      and not np.isclose(_epa_expected_home, (_epa_p1_q + _epa_p2_q) / 2.0),
+      f"P2 removed from the target pool: home={_epa_solo_home:.9f} "
+      f"(starter={_epa_p1_q:.9f}); blend={_epa_expected_home:.9f}")
 
 
 # ---- The run log must not crash, and must describe what it shipped. ------

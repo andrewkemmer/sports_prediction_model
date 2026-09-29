@@ -1511,9 +1511,13 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     player; other statuses and no admissible report leave him eligible. The
     rolling player rating is computed before current-game membership filtering,
     so a current injury never erases prior-game EPA. Eligible player ratings
-    are averaged unweighted by position (no absent-player padding). This
-    mirrors MLB's lagged player ratings -> candidate roster -> IL membership
-    filter -> team aggregate structure, with NFL positional outputs.
+    are averaged with rolling-opportunity weights by position (a member's
+    weight is his own rolling-8 opportunity total; no absent-player padding),
+    so a 300-dropback starter prices his rate while a 15-dropback backup
+    cannot move the team average off it. A single eligible member prices his
+    own shrunk rating. This mirrors MLB's lagged player ratings -> candidate
+    roster -> IL membership filter -> team aggregate structure, with NFL
+    positional outputs.
     """
     cols = list(EPA_QUALITY_AGG_COLS)
     if history.empty or games is None or games.empty:
@@ -1685,8 +1689,22 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     ok = (top["mu"].notna() & top["k"].notna() & denom.gt(0))
     top["epa_q"] = np.where(
         ok, (top["_num"] + top["mu"] * top["k"]) / denom, np.nan)
+    # Opportunity-weighted blend (2026-09-28): a member's weight is his own
+    # rolling-8 opportunity total, so the aggregate is the projected lineup's
+    # combined shrunk EPA over combined opportunities — exactly the usage
+    # share each member is projected to run. Each row is priced as its share
+    # of that combined total and the group aggregate SUMS the shares (a mean
+    # here would divide by member count a second time). NaN members contribute
+    # no weight and no EPA; a family with no finite-weight member keeps NaN
+    # ratings, which the min_count=1 sum preserves.
+    top["_w"] = top["_den"].where(top["epa_q"].notna(), other=0.0)
+    _ws = top.groupby(["game_id", "team", "position"])["_w"].transform("sum")
+    top["epa_q"] = np.where(
+        _ws.gt(0),
+        top["_w"] * top["epa_q"].fillna(0.0) / _ws.where(_ws.gt(0), other=1.0),
+        top["epa_q"])
     out = (top.groupby(["game_id", "team", "position"], as_index=False)["epa_q"]
-           .mean())
+           .sum(min_count=1))
     return out[cols]
 
 

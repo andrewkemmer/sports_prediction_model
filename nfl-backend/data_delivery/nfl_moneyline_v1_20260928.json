@@ -1,7 +1,7 @@
 {
- "created_utc": "2026-09-28T22:28:14.167144+00:00",
+ "created_utc": "2026-09-29T00:48:12.541723+00:00",
  "config": {
-  "feature_set_version": "nfl-prod-v9.3-report-cycle-epa-lineups",
+  "feature_set_version": "nfl-prod-v9.4-opp-weighted-epa-blend",
   "warmup_seasons": [
    2016
   ],
@@ -25,12 +25,12 @@
    "gates": "none"
   },
   "library_stack": {
-   "scipy": "1.16.3",
-   "sklearn": "1.6.1",
-   "xgboost": "3.2.0",
-   "lightgbm": "4.6.0",
-   "pandas": "2.3.3",
-   "numpy": "2.0.2"
+   "scipy": "1.18.0",
+   "sklearn": "1.9.0",
+   "xgboost": "3.4.0",
+   "lightgbm": "4.7.0",
+   "pandas": "3.0.1",
+   "numpy": "2.4.3"
   },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
@@ -140,11 +140,11 @@
    "home_record": "69-98",
    "away_record": "103-63-1",
    "venue": "Soldier Field",
-   "game_status": "pre",
+   "game_status": "Live",
    "home_score": null,
    "away_score": null,
-   "home_win_prob_model": 0.5,
-   "away_win_prob_model": 0.5,
+   "home_win_prob_model": 0.45513248813064533,
+   "away_win_prob_model": 0.5448675118693547,
    "model_pick": "PHI",
    "model_correct": null
   }
