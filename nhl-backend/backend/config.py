@@ -342,29 +342,33 @@ ENSEMBLE_WEIGHTS = {
     "elasticnet": 1 / 3,
 }
 
-# MLB production values (mlb-backend/backend/config.py, L5 re-tune 2026-09-21)
-# — the NHL ensemble is deliberately the identical ensemble.
-# Optuna-tuned on the 2,792-game/46-fold walk-forward (offline harness,
-# MLB-style protocol; 44 trials, objective = pooled member OOF logloss over
-# the first 42 folds): the depth-2 / colsample~0.40 / gamma 3-5 family
-# converged (top-10 spread 8 bps), pooled OOF logloss 0.66509 vs 0.66776 for
-# the inherited MLB block. Sealed 4-fold holdout (last windows, frozen)
-# confirmed: member 0.64290 vs 0.65673, served ensemble 0.64576 vs 0.66059
-# (+148 bps). Full-population blend-survival check: ensemble raw logloss
-# 0.66379 vs 0.66768, brier 0.23586 vs 0.23768, AUC 0.6261 vs 0.6154 — the
-# rolling SLSQP blend re-earned weights xgboost=1.000 (the tuned member
-# dominates the accumulated OOF pool; weights stay evidence-earned, no
-# floors by design). LIGHTGBM_PARAMS was tuned too (80 trials, pooled OOF
-# 0.67731 vs 0.67933) but its gain REVERSED on the sealed holdout (member
-# -34 bps, ensemble -23 bps) — the same tune-gain-does-not-survive-the-blend
-# failure MLB documented for its rounds test — so that block is unchanged.
+# NHL tree-member blocks — TUNED ON NHL DATA under the CAUSAL protocol
+# (offline harness driving production walk_forward_oof; provenance:
+# tmp_audit/TUNING_VERDICT.md, exercise 2026-09-29, adoption owner-approved).
+# Protocol: Optuna TPE 40 trials/member over folds[:-4] on the causal walk
+# (the shipped fold model is refit at the median of PRIOR folds' measured
+# rounds per 2669d32, so no trial can be flattered by its own scored
+# window); winners gated on seeds 7/42/2026 (gain must hold on ALL), the
+# sealed last-4 windows, and full-46-fold blend survival.
+#   * XGB depth-1: search 0.67600 vs incumbent 0.68068; seed gates
+#     +8.3/+46.8/+34.8 bps; sealed last-4 +42.5 bps; blend −14.1 bps full.
+#   * LGBM: search 0.67695 vs 0.67838; seeds +6.1/+14.3/+2.1; sealed +16.8;
+#     blend −7.3 bps full.
+#   * both-tuned ensemble: pooled OOF 0.67399 vs 0.67554 (−15.5 bps),
+#     brier 0.24065 vs 0.24136, AUC 0.59917 vs 0.59186; weights re-earned
+#     enet .386 / lgbm .210 / xgb .404 (the SLSQP optimum sits in a flat
+#     valley — production re-earns its own deterministic corner each run).
+# The PREVIOUS NHL XGB tune (depth-2: "pooled 0.66509 / sealed 0.64290 /
+# xgb weight 1.000") was measured with val-selected early stopping — the
+# leak 2a9554b quantified at ~+163 bps on this geometry — and is
+# superseded. Elastic-net remains the shared MLB block.
 XGBOOST_PARAMS = {
-    "max_depth": 2,
-    "min_child_weight": 23,
-    "gamma": 2.9109,
-    "subsample": 0.5406,
-    "colsample_bytree": 0.4025,
-    "learning_rate": 0.1864,
+    "max_depth": 1,
+    "min_child_weight": 8,
+    "gamma": 0.5461272503332324,
+    "subsample": 0.7303752621128923,
+    "colsample_bytree": 0.47479813523140535,
+    "learning_rate": 0.13609041658072216,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
@@ -375,21 +379,20 @@ XGBOOST_EARLY_STOP = 20
 # SHIPPED fold model is refit at the median of PRIOR folds' early-stopped
 # best_iteration measurements (never its own window); these static priors
 # cover fold 0 and degenerate walks with no measurements. MLB's L7 probe
-# measured ~19-26 median rounds at this depth-2 block on comparable
-# geometry, so 50 is a deliberately conservative ceiling above the
-# operating median — the deployed static refit budget.
+# measured ~19-26 median rounds on its depth-2 block; this walk measures
+# its own median from fold 1 onward, so 50 is only the fold-0/refit prior.
 XGBOOST_FOLD0_ROUNDS = 50
 XGBOOST_REFIT_ROUNDS = 50
 LIGHTGBM_PARAMS = {
-    "n_estimators": 50,
+    "n_estimators": 89,
     "max_depth": 6,
-    "num_leaves": 6,
-    "min_child_samples": 70,
-    "min_gain_to_split": 1.2224,
-    "bagging_fraction": 0.4518,
+    "num_leaves": 4,
+    "min_child_samples": 46,
+    "min_gain_to_split": 1.8659364383348447,
+    "bagging_fraction": 0.467273888656067,
     "bagging_freq": 1,
-    "feature_fraction": 0.7632,
-    "learning_rate": 0.0332,
+    "feature_fraction": 0.5577715028801845,
+    "learning_rate": 0.022453109860137974,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
