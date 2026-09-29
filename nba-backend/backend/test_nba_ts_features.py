@@ -760,3 +760,105 @@ class TestFoldEarlyStopIsPointInTime:
             # after val_start ever entered the fold's fit set.
             n_prior = int((df.gameday < pd.Timestamp(row.val_start)).sum())
             assert row.n_train == n_prior
+
+
+class TestSealedDispersionHoldout:
+    """The alpha layer never fits the rows it is evaluated against.
+
+    Finding-2 remediation pins (NHL 62d00fd / MLB derive_markets_v3
+    parity): the last HOLDOUT_DAYS of a dated OOF frame are sealed away
+    from the curve fit, the scalars, and the alpha-vector max — and the
+    gate records its own scope so a run cannot silently claim a discipline
+    it did not exercise. An undated frame is ungated, exactly as before.
+    """
+
+    @staticmethod
+    def _oof(n: int = 200, seed: int = 13) -> pd.DataFrame:
+        """Dated OOF frame whose tail is intentionally degenerate: the
+        sealed window's scores are wildly inflated so that any fit that
+        saw them would produce a visibly different alpha."""
+        rng = np.random.default_rng(seed)
+        scores_h = rng.integers(95, 125, n).astype(float)
+        scores_a = rng.integers(95, 125, n).astype(float)
+        oof = pd.DataFrame({
+            "game_id": [f"g{i}" for i in range(n)],
+            "gameday": pd.date_range("2026-01-01", periods=n, freq="D"),
+            "mu_h": scores_h + rng.normal(0, 4, n),
+            "mu_a": scores_a + rng.normal(0, 4, n),
+            "home_score": scores_h, "away_score": scores_a,
+            "fold_id": np.arange(n) // 25,
+        })
+        # The sealed tail: 21 days of absurdly lopsided scores. A fit that
+        # included these rows would read massive over-dispersion.
+        tail = oof.gameday >= (oof.gameday.max().normalize()
+                               - pd.Timedelta(days=21))
+        oof.loc[tail, "home_score"] = 200.0
+        oof.loc[tail, "away_score"] = 80.0
+        oof["margin"] = oof.home_score - oof.away_score
+        oof["total"] = oof.home_score + oof.away_score
+        return oof
+
+    def test_the_gate_fits_pre_holdout_rows_and_records_its_scope(self):
+        import distributions as dist_mod
+        oof = self._oof()
+        sig = dist_mod.calibrate_dispersion(oof)
+        hold = sig["holdout"]
+        cutoff = (oof.gameday.max().normalize() - pd.Timedelta(days=21))
+        assert hold["cutoff"] == str(cutoff.date())
+        # The definition, not a count: sealed rows are dates >= cutoff
+        # (on a daily grid the cutoff day itself is sealed, so 21 days of
+        # separation seals 22 rows).
+        n_sealed = int((oof.gameday >= cutoff).sum())
+        assert hold["n_holdout"] == n_sealed
+        assert hold["n_pre"] == len(oof) - n_sealed
+        assert hold["fitted_on"] == "pre-holdout OOF only"
+        # The degenerate sealed tail did NOT reach the fit: alpha stays in
+        # the sane range the pre-holdout rows support, not the inflated
+        # value the lopsided tail would drag it to.
+        ungated = dist_mod.calibrate_dispersion(
+            oof.drop(columns=["gameday"]))
+        assert sig["alpha_home"] < ungated["alpha_home"]
+
+    def test_an_undated_frame_is_ungated_and_fully_fit(self):
+        import distributions as dist_mod
+        oof = self._oof().drop(columns=["gameday"])
+        sig = dist_mod.calibrate_dispersion(oof)
+        hold = sig["holdout"]
+        assert hold["cutoff"] is None
+        assert hold["fitted_on"] == "full OOF (no gameday on frame)"
+        assert hold["n_holdout"] == 0 and hold["n_pre"] == len(oof)
+
+    def test_the_stamp_marks_exactly_the_sealed_window(self):
+        import master_pipeline as mp
+        oof = self._oof(n=120)
+        oof["frame_view"] = "oof"
+        stamped = mp._stamp_sealed_tail(oof)
+        cutoff = (oof.gameday.max().normalize() - pd.Timedelta(days=21))
+        sealed = stamped[stamped.frame_view == "sealed"]
+        assert len(sealed) == int((oof.gameday >= cutoff).sum())
+        assert (pd.to_datetime(sealed.gameday) >= cutoff).all()
+        assert (stamped.loc[stamped.frame_view != "sealed", "frame_view"]
+                == "oof").all()
+
+    def test_the_stamp_leaves_an_undated_frame_untouched(self):
+        import master_pipeline as mp
+        oof = self._oof(n=60).drop(columns=["gameday"])
+        oof["frame_view"] = "oof"
+        assert mp._stamp_sealed_tail(oof)["frame_view"].eq("oof").all()
+        # And a None frame does not raise.
+        assert mp._stamp_sealed_tail(None) is None
+
+    def test_the_monitor_carries_the_gate_scope(self):
+        import monitoring as mon
+        import distributions as dist_mod
+        sig = dist_mod.calibrate_dispersion(self._oof())
+        import tempfile, pathlib
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "m.json"
+            record = mon.write_run_engine_monitor(
+                out, "20260928", dispersion=sig,
+                config_meta={"sport": "nba"})
+            fit = record["fit"]["holdout"]
+            assert fit["cutoff"] == sig["holdout"]["cutoff"]
+            assert fit["holdout_days"] == dist_mod.HOLDOUT_DAYS
+            assert fit["fitted_on"] == "pre-holdout OOF only"

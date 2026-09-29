@@ -60,6 +60,14 @@ MC_DRAWS = 10_000
 MC_SEED = 42
 MC_DRAWS_TAIL = 50_000
 MC_SE_TARGET = 5e-3
+# Sealed-holdout convention (MLB derive_markets_v3 HOLDOUT_DAYS parity,
+# NHL 62d00fd port): the LAST ``HOLDOUT_DAYS`` of OOF games are SEALED — no
+# α(λ) fitting, no curve binning, and the fitting scalars never see them.
+# The tail scores the market engine honestly instead of validating itself.
+# The shipped serving dispersion (alpha_home/alpha_away scalars in the
+# bundle) rides the same gate here; the gate disciplines what the run
+# engine's evaluation numbers are allowed to have fit on.
+HOLDOUT_DAYS = 21
 # Alpha-machinery parity (run_engine.py 1e-6): the floor under every alpha
 # below which NB degenerates to Poisson. The NBA previously ran 1e-8.
 ALPHA_FLOOR = 1e-6
@@ -197,7 +205,12 @@ def alpha_bins(y: np.ndarray, lam: np.ndarray,
                min_count: int = ALPHA_MIN_BIN) -> list[dict]:
     """Binned method-of-moments points: quantile bins on λ, underfilled bins
     merged into their nearest neighbor until every bin holds ≥ min_count
-    games. Per bin: α = max(0, (Var(y) − mean(λ)) / mean(λ)²)."""
+    games. Per bin: α = max(0, (Var(y) − mean(λ)) / mean(λ)²). The caller
+    (``calibrate_dispersion``) owns the sealed-holdout gate and passes only
+    the rows this fit is allowed to see; edge bins merge with their single
+    adjacent neighbor exactly as the family standard fixes it (first bin
+    right, last bin left), so a shrunken pre-holdout pool cannot trip the
+    latent wraparound the NHL port already repaired."""
     y = np.asarray(y, float)
     lam = np.asarray(lam, float)
     edges = np.unique(np.quantile(lam, np.linspace(0, 1, n_bins + 1)))
@@ -334,7 +347,10 @@ def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
     Two-fold cross-fit (fit half A → score half B, swap); primary metric =
     |P(X≥tail_k) modeled − observed| on the held-out half, tie-break = mean
     NB log-likelihood. The chosen form is then REFIT on all rows passed here
-    by the caller (pre-holdout only). Returns (curve, diagnostics)."""
+    by the caller. PRE-HOLDOUT DISCIPLINE: when the caller holds a dated
+    OOF frame it must pass only the pre-holdout rows (production does —
+    ``calibrate_dispersion``'s sealed-holdout gate); undated test fixtures
+    fit everything they are given. Returns (curve, diagnostics)."""
     rng = np.random.default_rng(seed)
     perm = rng.permutation(len(y))
     halves = [perm[:len(perm) // 2], perm[len(perm) // 2:]]
@@ -375,9 +391,12 @@ def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
 
 def _alpha_vector_for_side(y: np.ndarray, mu: np.ndarray,
                            curve: dict) -> np.ndarray:
-    """Per-game α column for one side under a fitted curve, pre-holdout only
-    (the caller's discipline). Falls back to the pooled scalar estimate when
-    the frame cannot support binning — identical numbers to the old path."""
+    """Per-game α column for one side under a fitted curve. The curve is
+    whatever the caller fitted; the pre-holdout row selection is the
+    caller's discipline (production fits on pre-holdout rows only via
+    ``calibrate_dispersion``'s sealed-holdout gate). Falls back to the pooled
+    scalar estimate when the frame cannot support binning — identical
+    numbers to the old path."""
     lam = np.asarray(mu, float)
     if len(lam) < 2 * ALPHA_MIN_BIN:
         return np.full(len(lam), float(estimate_alpha(y, mu)))
@@ -422,18 +441,25 @@ def calibrate_dispersion(oof: pd.DataFrame | None) -> dict[str, Any]:
     never an exception on the artifact path.
 
     MLB-shaped (run_engine.derive_markets_v3's alpha layer): a per-side
-    α(λ) curve is selected out-of-bag among piecewise/linear/power forms
-    over the OOF frame (every row is leakage-free walk-forward OOF by
-    construction). The shipped ``alpha_home``/``alpha_away`` scalars remain
-    the pooled method-of-moments estimates — the numbers the draw path
-    actually consumes — while the fitted curves ride alongside in
+    α(λ) curve is selected out-of-bag among piecewise/linear/power forms.
+    SEALED-HOLDOUT GATE (NHL 62d00fd port of MLB v3 parity): when the frame
+    carries ``gameday``, the curve and the fitting scalars see only the
+    PRE-HOLDOUT rows (dates strictly before ``max − HOLDOUT_DAYS``); the
+    sealed tail is never fit on. A frame without ``gameday`` (unit-test
+    fixtures, callers that never held a timeline) is ungated and fits the
+    full frame, exactly as before. The shipped ``alpha_home``/``alpha_away``
+    scalars remain the pooled method-of-moments estimates — the numbers the
+    draw path actually consumes — while the fitted curves ride alongside in
     ``alpha_*_curve`` as the diagnostic layer, with the per-row max under
     each curve reported as ``alpha_*_max``. ``poisson_limit`` keeps its
     SCALAR semantics — "the NB term is inactive in scoring" — because
     scoring draws from the scalars; bin-level MoM noise makes a per-row
     verdict hypersensitive (a pure-Poisson sample reads α≈0.005 per bin),
     so the curve's measured verdict lives in ``run_line_fit_check``'s
-    Pearson probe instead.
+    Pearson probe instead. The gate scope is recorded in ``holdout``
+    (cutoff, n_pre, n_holdout, fitted_on); an undersized pre-holdout pool
+    degrades honestly to the full-frame fit (tagged
+    ``full OOF (pre-holdout pool too small)``).
     """
     if oof is None or not len(oof) or "mu_h" not in oof:
         return {"alpha_home": 0.0, "alpha_away": 0.0,
@@ -444,8 +470,33 @@ def calibrate_dispersion(oof: pd.DataFrame | None) -> dict[str, Any]:
     mu_h = oof["mu_h"].to_numpy(float)
     y_a = oof["away_score"].to_numpy(float)
     mu_a = oof["mu_a"].to_numpy(float)
-    ok_h = np.isfinite(y_h) & np.isfinite(mu_h) & (mu_h > 0)
-    ok_a = np.isfinite(y_a) & np.isfinite(mu_a) & (mu_a > 0)
+    # Sealed-holdout mask: only rows with a real timeline can be gated. A
+    # frame without dates (test fixtures, ad-hoc callers) is ungated and
+    # fits everything — identical behavior to the pre-gate path.
+    if "gameday" in oof.columns and len(oof):
+        dates = pd.to_datetime(oof["gameday"], errors="coerce")
+        if dates.notna().any():
+            cutoff = dates.max().normalize() - pd.Timedelta(days=HOLDOUT_DAYS)
+            gate = (dates < cutoff).to_numpy()
+        else:
+            cutoff, gate = None, np.ones(len(oof), dtype=bool)
+    else:
+        cutoff, gate = None, np.ones(len(oof), dtype=bool)
+
+    def _side_mask(y: np.ndarray, mu: np.ndarray) -> tuple[np.ndarray, bool]:
+        """Fit pool for one side: the gated pre-holdout rows when they can
+        support a fit (>=2 valid rows), else every valid row. A timeline
+        entirely inside the holdout window (early-season small samples)
+        must degrade to the full-frame fit, never crash on an empty pool
+        and never fabricate a fit from nothing."""
+        valid = np.isfinite(y) & np.isfinite(mu) & (mu > 0)
+        pre = valid & gate
+        if int(pre.sum()) >= 2:
+            return pre, True
+        return valid, False
+
+    ok_h, pre_h = _side_mask(y_h, mu_h)
+    ok_a, pre_a = _side_mask(y_a, mu_a)
     curve_h, diag_h = select_alpha_curve(y_h[ok_h], mu_h[ok_h])
     curve_a, diag_a = select_alpha_curve(y_a[ok_a], mu_a[ok_a])
     alpha_home_vec = _alpha_vector_for_side(y_h[ok_h], mu_h[ok_h], curve_h)
@@ -463,6 +514,17 @@ def calibrate_dispersion(oof: pd.DataFrame | None) -> dict[str, Any]:
         "mc_draws": MC_DRAWS,
         "mc_draws_tail": MC_DRAWS_TAIL,
         "mc_se_target": MC_SE_TARGET,
+        "holdout": {
+            "cutoff": (str(pd.Timestamp(cutoff).date())
+                       if cutoff is not None else None),
+            "n_pre": int(gate.sum()),
+            "n_holdout": int(len(gate) - gate.sum()),
+            "fitted_on": ("pre-holdout OOF only"
+                          if cutoff is not None and pre_h and pre_a
+                          else ("full OOF (pre-holdout pool too small)"
+                                if cutoff is not None
+                                else "full OOF (no gameday on frame)")),
+        },
     }
 
 

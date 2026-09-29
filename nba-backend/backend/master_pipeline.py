@@ -106,6 +106,31 @@ def _config_meta(facts=None) -> dict:
             "event_rows": int(tables.get("team_events", 0))}
 
 
+def _stamp_sealed_tail(oof_markets: pd.DataFrame) -> pd.DataFrame:
+    """Stamp frame_view='sealed' on the last HOLDOUT_DAYS of OOF rows.
+
+    Sealed-holdout tail (NHL 62d00fd / MLB derive_markets_v3 parity): the
+    sealed window never fit the alpha layer (the pre-holdout-only gate
+    inside ``calibrate_dispersion``), so its market scores are the engine's
+    honest recent-form evaluation instead of the window validating itself.
+    The per-line Platt calibrators are prequential — each fold's map fits
+    prior folds only — so they were already clean for every row including
+    the sealed tail. An undated frame (or absent gameday column) is
+    returned untouched, exactly as the ungated dispersion fit treats it.
+    """
+    if oof_markets is None or not len(oof_markets) \
+            or "gameday" not in oof_markets.columns:
+        return oof_markets
+    dates = pd.to_datetime(oof_markets["gameday"], errors="coerce")
+    if not dates.notna().any():
+        return oof_markets
+    cutoff = (dates.max().normalize()
+              - pd.Timedelta(days=dist_mod.HOLDOUT_DAYS))
+    out = oof_markets.copy()
+    out.loc[dates >= cutoff, "frame_view"] = "sealed"
+    return out
+
+
 def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFrame:
     if oof is None or not len(oof):
         return pd.DataFrame() if oof is None else oof
@@ -987,11 +1012,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     "POISSON LIMIT: no over-dispersion to model, the NB term is "
                     "inactive and scoring is Poisson" if dispersion.get("poisson_limit")
                     else "over-dispersed fit active")
+        # Name the gate scope (NHL 62d00fd / MLB v3 parity): which rows the
+        # alpha layer was allowed to see, and how many recent rows are
+        # sealed away from it.
+        _hg = dispersion.get("holdout") or {}
+        if _hg.get("cutoff"):
+            logger.info("sealed holdout gate: alpha fitted on %s "
+                        "(cutoff %s; %d pre / %d sealed rows)",
+                        _hg.get("fitted_on"), _hg.get("cutoff"),
+                        _hg.get("n_pre", 0), _hg.get("n_holdout", 0))
         # mc_meta rides the markets meta: the derivation records its own MC
         # resolution and whether the SE-guard bumped it (MLB mc_meta parity).
         oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion,
                                  mc_meta_out=_mc_meta)
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        oof_markets = _stamp_sealed_tail(oof_markets)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
 
@@ -1179,7 +1214,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         (evaluation.nb_distribution_metrics(dist_oof, dispersion)
          if dist_oof is not None and dispersion is not None else {}),
         oof_markets if oof_markets is not None else {},
-        market_calibration, _config_meta(facts))
+        market_calibration, _config_meta(facts), dispersion=dispersion)
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):

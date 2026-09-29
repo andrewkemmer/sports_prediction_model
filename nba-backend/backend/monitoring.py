@@ -389,7 +389,7 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
 
 def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
                              calibration=None, config_meta=None,
-                             slate_history=None) -> dict:
+                             slate_history=None, dispersion=None) -> dict:
     # The fit block must report the ENGINE's constants, not a number a
     # refactor forgot: the draw count here used to be hardcoded at 4000 while
     # the derivation itself moved to the MLB pair (10k default, 50k SE-guard
@@ -412,4 +412,13 @@ def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
                 "total_grid": [min(config.TOTAL_GRID), max(config.TOTAL_GRID)],
                 "half_stops": list(config.HALF_STOP_LINES)},
     }
+    # Sealed-holdout transparency (NHL 62d00fd / MLB v3 parity): the
+    # monitor carries the gate scope so the evaluation numbers ship with
+    # the record of what the alpha layer was allowed to fit on.
+    holdout = (dispersion or {}).get("holdout") or {}
+    if holdout:
+        record["fit"]["holdout"] = {
+            **holdout,
+            "holdout_days": _dist_mod.HOLDOUT_DAYS,
+        }
     return _dump(path, record)
