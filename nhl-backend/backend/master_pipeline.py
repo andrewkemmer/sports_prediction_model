@@ -1229,6 +1229,8 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
             continue
         # posix, so the key matches `seen` on Windows as well as posix.
         rel = p.relative_to(out_dir.parent).as_posix()
+        old_name = p.name
+        art_date = rp.artifact_date(rel)
         verdict = rp.classify_artifact(
             rel, seen, retention_dates, recent_dates, board_dates,
             anchor_date=anchor, game_dates=game_dates)
@@ -1240,6 +1242,24 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
         if verdict == "current":
             kept_current += 1
             continue
+        if art_date is None and not old_name.startswith("nhl_shap_game_"):
+            # Tripwire (2026-09-29 13:14 postmortem): a DATELESS file that is
+            # neither seen-run, protected, nor windowed just classified "stale"
+            # by having no parseable date. The leave ledger was one, and the
+            # pruner erased it from disk right after Phases 3/11 had loaded it
+            # — retention silently destroyed its own pipeline's input. Every
+            # future dateless file must be announced loudly here so a master
+            # that misses EXACT_MASTER_NAMES is surfaced the run it appears,
+            # instead of vanishing quietly. Classifying stale is unchanged:
+            # the fix for a dateless master is registering it, not guessing.
+            # (SHAP files are excluded: official numeric game ids carry no
+            # date token by design — they age through the game-date map.)
+            logger.warning(
+                "retention: STALE DATELESS file %s (no date token, not "
+                "protected, not staged this run) — deleting it is correct "
+                "only if this file is neither cumulative state nor a live "
+                "pipeline source; otherwise register it in "
+                "retention_policy.EXACT_MASTER_NAMES", old_name)
         stale.append(p)
     if kept_protected:
         logger.info("retention: kept %d protected file(s)", kept_protected)

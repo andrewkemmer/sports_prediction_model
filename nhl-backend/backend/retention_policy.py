@@ -42,6 +42,13 @@ EXACT_MASTER_NAMES = frozenset({
     # Captured ESPN injury snapshots — health is cumulative: deleting it would
     # tell every later run that no status was ever known (2026-09-29 log).
     "nhl_injury_snapshot_history.parquet",
+    # Non-medical leave ledger — the SOURCE OF RECORD the leave channel replays
+    # into stints on every run. Dateless by design (versioned schema, not
+    # run-dated), which is exactly why it must live here: unregistered and
+    # dateless it classifies "stale", and the 2026-09-29 13:14 run's Phase 14
+    # pruned it mid-run after Phases 3/11 had already loaded it (deleted from
+    # the repo by the artifact-sync commit 16108ed).
+    "nhl_leave_events.json",
 })
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --

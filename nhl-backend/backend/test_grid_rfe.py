@@ -32,6 +32,7 @@ Run:  python nhl-backend/backend/test_grid_rfe.py
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -614,6 +615,99 @@ def test_shap_age_uses_the_embedded_game_date():
     assert rp.shap_game_date(numeric) is None
     assert rp.artifact_date(numeric) is None, \
         "a 10-digit NHL game id must never parse as a truncated date"
+
+
+def test_retention_never_prunes_the_leave_ledger_or_injury_history():
+    """The availability stack's two source-of-record masters are dateless and
+    cumulative, so neither can age through a window: the leave ledger is
+    replayed into stints on every run, and the injury snapshot history is the
+    only record that a status was ever known.
+
+    The 2026-09-29 13:14 run pruned nhl_leave_events.json in Phase 14 — after
+    Phases 3/11 had loaded it fine — and the artifact-sync commit then deleted
+    it from the repo. The ledger was dateless and unregistered, so it fell
+    through classify_artifact's "dateless -> stale" branch. Registering both
+    masters in EXACT_MASTER_NAMES is the whole fix; this pins it.
+    """
+    import retention_policy as rp
+
+    for rel in (
+        "nhl-backend/data_delivery/nhl_leave_events.json",
+        "nhl-backend/data_delivery/nhl_injury_snapshot_history.parquet",
+    ):
+        assert rp.is_never_delete(rel), f"{rel} is not never-delete"
+        verdict = rp.classify_artifact(
+            rel, seen=set(), retention_dates=set(), recent_dates=set(),
+            board_dates=set(), anchor_date="20260929")
+        assert verdict == "protected", (
+            f"{rel} classified {verdict} — retention must never prune a "
+            "source-of-record master, even with an empty window")
+
+
+def test_pruner_warns_loudly_before_deleting_a_dateless_file(caplog):
+    """A dateless file that survives every keep-verdict and is not a SHAP
+    card must trip a loud warning before its unlink — the 13:14 run deleted
+    the ledger silently. The classification stays "stale" (the fix for a
+    dateless master is registering it, not guessing), and a run-dated file
+    going stale must NOT trip the warning."""
+    import logging
+
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        dateless = out_dir / "nhl_some_unregistered_master.json"
+        dateless.write_text("{}", encoding="utf-8")
+        dated = out_dir / "nhl_calibration_20260612.json"
+        dated.write_text("{}", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="nhl_master_pipeline"):
+            mp._prune_old_artifacts(
+                out_dir, "20260614", seen=set(), anchor_iso="2026-09-29")
+
+        assert not dateless.exists(), (
+            "the dateless file must still classify stale and be deleted; "
+            "the tripwire documents, it does not reprieve")
+        assert not dated.exists()
+        dateless_warned = [r for r in caplog.records
+                           if "STALE DATELESS" in r.getMessage()
+                           and "nhl_some_unregistered_master.json"
+                           in r.getMessage()]
+        assert dateless_warned, (
+            "retention deleted a dateless file without the loud "
+            "STALE DATELESS warning")
+        assert not any("nhl_calibration_20260612.json" in r.getMessage()
+                       and "STALE DATELESS" in r.getMessage()
+                       for r in caplog.records), (
+            "a run-DATED stale file must not trip the dateless tripwire")
+
+
+def test_pruner_does_not_warn_for_undated_shap_numeric_ids(caplog):
+    """Official NHL numeric game ids carry no date token by design — SHAP
+    cards age through the game-date map, so they are not "dateless strays"
+    and must not trip the tripwire."""
+    import logging
+
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        shap = out_dir / "nhl_shap_game_2026020001.csv"
+        shap.write_text("a,b\n1,2\n", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="nhl_master_pipeline"):
+            mp._prune_old_artifacts(
+                out_dir, "20260614", seen=set(), anchor_iso="2026-09-29")
+
+        assert shap.exists(), (
+            "an unresolvable SHAP id is protected by classify_artifact — it "
+            "must never be pruned at all")
+        assert not any("STALE DATELESS" in r.getMessage()
+                       for r in caplog.records), (
+            "a SHAP card with a numeric game id is not a dateless stray; "
+            "the tripwire must not fire for it")
 
 
 if __name__ == "__main__":
