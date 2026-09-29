@@ -255,9 +255,11 @@ def _bos(aggregates):
     return rows[rows.gameday == pd.Timestamp("2026-03-01")].iloc[0]
 
 
-def _rating(player, team, day, ts, plays, available=True):
+def _rating(player, team, day, ts, plays, available=True,
+            days_since_appearance=None):
     return {"player_id": player, "team": team, "gameday": day,
-            "ts_shrunk": ts, "prior_plays": plays, "is_available": available}
+            "ts_shrunk": ts, "prior_plays": plays, "is_available": available,
+            "days_since_appearance": days_since_appearance}
 
 
 class TestProjectedLineup:
@@ -325,6 +327,7 @@ class TestProjectedLineup:
         assert row.lineup_ts_mean == pytest.approx(0.60)
         assert row.lineup_ts_std != row.lineup_ts_std  # NaN: one player
 
+
     def test_ranking_is_by_participation_not_by_rating(self):
         """Ordering by rating would answer "who scores" instead of "who plays".
 
@@ -372,6 +375,88 @@ class TestProjectedLineup:
             out = proj.projected_lineup(value)
             assert out is not None and out.empty
             assert "lineup_ts_mean" in out.columns
+
+
+class TestRecencyGate:
+    """A pool member whose evidence has gone stale is a phantom.
+
+    Rows are emitted per target date for every player who EVER appeared in
+    the season, so a player who stopped appearing (injury never filed,
+    quiet shutdown, roster cut) keeps riding the pool on evidence that only
+    LOOKS fresh - no designation will ever remove him. The audit's worst
+    case sat in a pool 217 days after his last game. The gate reads the
+    player's actual last appearance; NaN (season not started for him) is
+    the season-start carryover, not staleness, and stays eligible.
+    """
+
+    def test_a_player_whose_appearance_gap_exceeds_the_gate_is_excluded(self):
+        # "ghost" appeared 40 days before the target: past the 30-day gate.
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400,
+                    days_since_appearance=1),
+            _rating("ghost", "BOS", "2026-03-01", 0.90, 900,
+                    days_since_appearance=40),
+        ])
+        out = proj.projected_lineup(ratings)
+        row = out[out.team == "BOS"].iloc[0]
+        # The ghost is WIDENED into the pool (that step predates the gates)
+        # but excluded from membership, so he cannot enter the lineup or the
+        # mean - exactly the phantom the audit found riding pools for months.
+        assert row.pool_size == 2
+        assert row.healthy_size == 1
+        assert row.lineup_ts_mean == pytest.approx(0.60)
+
+    def test_a_player_inside_the_gate_stays_in_the_pool(self):
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400,
+                    days_since_appearance=30),
+            _rating("b", "BOS", "2026-03-01", 0.55, 300,
+                    days_since_appearance=3),
+        ])
+        out = proj.projected_lineup(ratings)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.pool_size == 2 and row.healthy_size == 2
+
+    def test_a_nan_gap_is_carryover_not_staleness_and_stays_eligible(self):
+        """The season has not started for this player: the min-plays floor
+        governs him, not the recency gate."""
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400,
+                    days_since_appearance=None),
+        ])
+        out = proj.projected_lineup(ratings)
+        assert out[out.team == "BOS"].iloc[0].pool_size == 1
+
+    def test_the_rating_frame_carries_the_appearance_gap(self, monkeypatch):
+        """build_player_ts must compute the gap from the player's actual
+        last appearance in the rated season - the input the gate reads."""
+        import player_ts as ts_mod
+        games = pd.DataFrame({
+            "player_id": ["p1", "p1", "p2"],
+            "gameday": pd.to_datetime(
+                ["2026-01-01", "2026-02-01", "2026-01-05"]),
+            "season": ["2025-26"] * 3,
+            "team": ["BOS", "BOS", "BOS"],
+            "points": [20.0, 22.0, 18.0],
+            "fga": [15.0, 16.0, 14.0],
+            "fta": [4.0, 5.0, 3.0],
+            "plays": [19.0, 21.0, 17.0],
+            "position": ["G", "G", "F"],
+        })
+        ratings = ts_mod.build_player_ts(
+            games, target_dates=pd.Series([pd.Timestamp("2026-02-10")]))
+        row_p1 = ratings[ratings.player_id == "p1"].iloc[0]
+        row_p2 = ratings[ratings.player_id == "p2"].iloc[0]
+        assert row_p1.days_since_appearance == 9    # last app 2026-02-01
+        assert row_p2.days_since_appearance == 36   # last app 2026-01-05
+
+    def test_the_column_is_documented_in_the_emitted_contract(self):
+        """The column exists in build_player_ts's declared output set, so a
+        caller reading the frame by contract sees it."""
+        import inspect
+        import player_ts as ts_mod
+        src = inspect.getsource(ts_mod.build_player_ts)
+        assert "days_since_appearance" in src
 
 
 class TestStaleness:

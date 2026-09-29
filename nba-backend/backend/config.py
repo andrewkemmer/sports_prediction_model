@@ -411,6 +411,16 @@ PLAYER_TS_PRIOR_ROWS = 1
 #: candidate for tonight's starting five no matter how well his rate is
 #: estimated.
 PLAYER_TS_MIN_PLAYS = 20
+# Recency gate for the projected-lineup pool (availability audit 2026-09-28):
+# a rating row whose season evidence is older than this is a PHANTOM - a
+# player who stopped appearing (injury never filed, quietly shut down, or a
+# roster cut) but keeps riding the pool on stale evidence, because rows are
+# emitted per target date for every player who ever appeared in the season.
+# The audit's worst case sat in the Clippers' pool 217 days after his last
+# game (15.13% of rotation pool rows league-wide). A NaN gap (season not
+# started for the player) stays eligible - the season-start carryover the
+# min-plays floor already governs.
+PLAYER_TS_RECENCY_DAYS = 30
 #: How far back a TEAM MEMBER's rating row may sit and still count as a
 #: candidate for the next game, mirroring MLB's LINEUP_POOL_LOOKBACK_DAYS.
 #: This is the WIDENING that makes the injury filter bind at all: a player who

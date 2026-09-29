@@ -494,7 +494,7 @@ def build_player_ts(games: pd.DataFrame,
     # zero-weighting the pool deliberately avoids.
     columns = ["target_date", "player_id", "position", "team", "prior_points",
                "prior_plays", "prior_games", "lg_ts", "k_plays", "ts_raw",
-               "ts_shrunk"]
+               "ts_shrunk", "days_since_appearance"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if games is None or not len(games):
         return empty
@@ -574,6 +574,22 @@ def build_player_ts(games: pd.DataFrame,
             snapshot.prior_points, snapshot.prior_plays,
             snapshot.lg_ts, snapshot.k_plays)
         snapshot["target_date"] = target
+        # Recency of the player's actual evidence, carried for the pool's
+        # availability gate: days from the player's LAST appearance strictly
+        # at or before the target, within the rated season (the same season
+        # slice the rating reads). A player the season has not started for
+        # stays NaN — "no evidence yet", not an infinitely stale one.
+        known_early = known[known.gameday <= target]
+        if len(known_early):
+            last_seen = (known_early.groupby("player_id").gameday.max()
+                         .rename("_last_seen"))
+            snapshot = snapshot.merge(last_seen, on="player_id", how="left")
+            snapshot["days_since_appearance"] = (
+                (pd.Timestamp(target)
+                 - snapshot["_last_seen"]).dt.days)
+            snapshot = snapshot.drop(columns=["_last_seen"])
+        else:
+            snapshot["days_since_appearance"] = np.nan
         rows.append(snapshot)
     if not rows:
         return empty

@@ -376,8 +376,19 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # STEP 2 - ELIGIBILITY. The min-plays floor is about POOL MEMBERSHIP, not
     # about the rating: shrinkage already handles a thin rating, but a player
     # with three career games is not a candidate for tonight's lineup however
-    # well his rate is estimated.
+    # well his rate is estimated. The recency gate is the second membership
+    # clause: a rating row dated after a player stopped appearing is a phantom
+    # (injury never filed, quiet shutdown, roster cut), and no designation
+    # will ever remove him - the row only LOOKS fresh because it is re-emitted
+    # per target date. The gap is the player's actual last appearance strictly
+    # at or before the target within the rated season; NaN means the season
+    # has not started for him yet, which is the season-start carryover the
+    # min-plays floor already governs, not staleness.
     latest = latest[latest.prior_plays >= min_plays]
+    if "days_since_appearance" in latest.columns:
+        recency = latest["days_since_appearance"]
+        latest = latest[recency.isna()
+                        | (recency <= config.PLAYER_TS_RECENCY_DAYS)]
 
     # STEP 3 - FILTER. Injury removes the player from the pool entirely so a
     # replacement inherits the slot. Availability is re-evaluated AS OF the
