@@ -1355,12 +1355,49 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     uncached = [str(gid) for gid in eligible.nba_game_id
                 if not _pbp_path(str(gid)).exists()]
     if uncached:
-        targets = pd.concat([targets, eligible[eligible.nba_game_id.isin(uncached)]
-                             .sort_values("gameday").head(cap)],
+        # Newest-first, walking back from the recent slice, and NOT the
+        # oldest holes. A hole is not a local blemish: the ladder forward-
+        # fills a team's event profile across it, so one unfetched game
+        # freezes every team's event features until the next covered game.
+        # The cost of a hole is therefore the LENGTH of the stretch it
+        # opens, which makes the oldest holes the cheapest ones to fill and
+        # the holes adjacent to the recent slice the most expensive. Taking
+        # the oldest first spends the whole backfill on the stretch furthest
+        # from the walk-forward window - whose frozen values only ever reach
+        # the training rows the first fold reads - and leaves the band the
+        # model is actually trained and validated on frozen.
+        #
+        # Measured on the 2026-09-29 run, which did exactly that: 2,086 games
+        # swept, 0 from cache, the oldest 1,500 plus the most recent 586, and
+        # the ~1,376 games between them (2025-01-15..2026-01-31) never
+        # fetched. Every event feature in that band was an EWM resting on a
+        # forward-filled constant - BOS carried possessions at 99.36 for 19
+        # straight games - and the coverage report still called the window
+        # 100% measured, because ffill hides a hole by construction. Taking
+        # the holes newest-first instead makes the swept set one contiguous
+        # block ending at the newest game, which is the shape the trailing
+        # features are defined over.
+        holes = (eligible[eligible.nba_game_id.isin(uncached)]
+                 .sort_values("gameday", ascending=False).head(cap)
+                 .sort_values("gameday"))
+        targets = pd.concat([targets, holes],
                             ignore_index=True).drop_duplicates("nba_game_id")
         logger.info("play-by-play backfill: %d game(s) have no cached "
-                    "rollup; sweeping the oldest %d after the recent slice",
-                    len(uncached), len(targets) - len(recent.tail(cap)))
+                    "rollup; filling %d contiguously back from %s",
+                    len(uncached), len(holes),
+                    pd.Timestamp(targets.gameday.max()).date())
+        # Whatever the cap could not reach is named rather than left to be
+        # discovered as a frozen feature months later. This is the line that
+        # would have caught the band above on the run that made it.
+        swept = set(targets.nba_game_id.astype(str))
+        missed = eligible[~eligible.nba_game_id.astype(str).isin(swept)]
+        if len(missed):
+            logger.warning(
+                "play-by-play: %d eligible game(s) from %s to %s are still "
+                "unswept after the cap; their teams' event features are "
+                "forward-filled rather than measured for that whole stretch",
+                len(missed), pd.Timestamp(missed.gameday.min()).date(),
+                pd.Timestamp(missed.gameday.max()).date())
     else:
         logger.info("play-by-play backfill: cache complete, nothing to fill")
     logger.info("play-by-play: %d candidate game(s), sweeping %d",

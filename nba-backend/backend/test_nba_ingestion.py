@@ -1274,7 +1274,8 @@ class TestRefusedHost:
         """A stretch of games that fell outside the lookback before any run
         fetched it stays uncached forever, and every first game after the hole
         has no event history to read. The budget is a deadline, not a count,
-        so after the recent slice it is spent backward on the oldest holes."""
+        so after the recent slice it is spent backward on the holes - but
+        walking BACK from the recent slice, not jumping to the far end."""
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
         games = self._games(6)
         old = pd.DataFrame({
@@ -1294,10 +1295,70 @@ class TestRefusedHost:
 
         monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
         _frame, info = ing._fetch_play_by_play(eligible)
-        # The probe plus one attempt per old, uncached game - the recent
-        # games were all cached and never requested.
+        # The recent games were all cached, so every request is one of the
+        # four old uncached ones.
         assert info["requested"] == 4, len(calls)
         assert info["tripped"] is False
+
+    def test_the_backfill_walks_back_from_the_recent_slice(
+            self, monkeypatch, tmp_path):
+        """The holes are filled newest-first, so the swept set is one
+        contiguous block ending at the newest game.
+
+        This is the pin for the 2026-09-29 run, which swept the OLDEST
+        ``cap`` holes: 2,086 games, 0 from cache, the oldest 1,500 plus the
+        most recent 586, and the ~1,376 games between them (2025-01-15 ..
+        2026-01-31) never fetched at all. A hole is not local - the ladder
+        forward-fills each team's event profile across it - so that band was
+        a year of frozen EWMs while the coverage report still read 100%
+        measured. Oldest-first buys the cheapest holes in the window and
+        leaves the expensive band frozen.
+        """
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        # 12 recent games (today back 11 days) and 12 far older ones, all
+        # uncached. The old block sits OUTSIDE a 30-day lookback, so the
+        # recent slice is exactly the 12 recent games and the backfill has to
+        # choose 6 of the 12 old ones - which is what makes newest-first vs
+        # oldest-first observable. `old` is written newest-first in time, so
+        # ids 0..5 are the 6 nearest the recent slice and 6..11 the 6
+        # furthest away.
+        monkeypatch.setenv(ing.PBP_MAX_GAMES_ENV, "18")
+        monkeypatch.setenv(ing.PBP_LOOKBACK_ENV, "30")
+        recent = self._games(12)
+        old = pd.DataFrame({
+            "nba_game_id": [f"0012400{i:03d}" for i in range(12)],
+            "gameday": [pd.Timestamp(date.today() - timedelta(days=200 + i))
+                        for i in range(12)],
+        })
+        eligible = pd.concat([recent, old], ignore_index=True)
+        requested: list = []
+
+        def answer(request, timeout=None):
+            requested.append(request.full_url)
+            return _Response(b'{"game": {"actions": []}}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        _frame, info = ing._fetch_play_by_play(eligible)
+        assert info["tripped"] is False
+        assert info["requested"] == 18, info["requested"]
+
+        asked = {url.split("GameID=")[-1].split("&")[0] for url in requested[1:]}
+        # The recent slice plus the six old games NEAREST it. Oldest-first
+        # asked for 6..11 instead, which is what stranded a year of games
+        # between the two swept blocks on the 2026-09-29 run.
+        assert asked == ({str(g) for g in recent.nba_game_id}
+                         | {f"0012400{i:03d}" for i in range(6)}), sorted(asked)
+
+        # The decisive invariant, stated independently of which ids those
+        # are: no unswept game may sit chronologically BETWEEN two swept
+        # ones. That is precisely the condition that freezes a team's
+        # forward-filled event profile across a band of the window.
+        swept = (eligible[eligible.nba_game_id.astype(str).isin(asked)]
+                 .sort_values("gameday"))
+        lo, hi = swept.gameday.min(), swept.gameday.max()
+        stranded = eligible[(eligible.gameday > lo) & (eligible.gameday < hi)
+                            & ~eligible.nba_game_id.astype(str).isin(asked)]
+        assert stranded.empty, stranded.gameday.tolist()
 
     def test_a_complete_cache_makes_the_backfill_free(
             self, monkeypatch, tmp_path):
