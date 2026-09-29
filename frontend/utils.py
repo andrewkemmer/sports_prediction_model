@@ -3050,7 +3050,7 @@ FEATURE_DESCRIPTIONS = {
     "wind_advantage_flyball_factor": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
     "air_density_velocity_boost": "Stadium air density × SP velo diff (cold/thin air affects velocity)",
     # 29–32. Derived interaction features
-    "bullpen_meltdown_risk_diff": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
+    "bullpen_meltdown_risk_diff": "Bullpen pitches 3d diff × WHIP 10g diff (overworked + low quality = meltdown)",
     "bullpen_meltdown_risk_home": "Home bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
     "bullpen_meltdown_risk_away": "Away bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
     "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",

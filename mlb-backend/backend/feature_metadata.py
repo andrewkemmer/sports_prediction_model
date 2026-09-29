@@ -337,8 +337,8 @@ _RICH: dict[str, dict[str, str]] = {
     },
     # ---- engineered interactions -------------------------------------------
     "bullpen_meltdown_risk_diff": {
-        "summary": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
-        "definition": "Flags games where a tired pen is also performing poorly — late-inning blowup potential.",
+        "summary": "Bullpen pitches 3d diff × WHIP 10g diff (overworked + low quality = meltdown)",
+        "definition": "Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games — late-inning blowup potential.",
         "formula": "bullpen_pitches_diff × bullpen_whip_10g_diff",
         "source": "DuckDB feature engineering: workload × form interaction",
         "window": "3d × 10g",
