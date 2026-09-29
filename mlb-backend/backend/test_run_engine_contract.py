@@ -480,6 +480,23 @@ def test_upcoming_slate_all_foreign_dates_ships_honest_empty_slate():
 
 
 
+def test_xgboost_params_pin_stump_and_causal_priors():
+    """Pin the 2026-09-30 remediation state: the depth-1 stump is the
+    3-seed-confirmed winner at the DEPLOYED refit budget (mean 0.69020 vs
+    depth-3's 0.69818), while the walk regime's causal rounds are the
+    honest-mechanics priors (probe-median ~10-30 rounds; fold0/refit fall
+    back to the static 50). A silent retune that flips max_depth or the
+    round priors must fail here and re-run the two operating-point
+    experiments documented in config.XGBOOST_PARAMS provenance — never
+    re-hobble a baseline to manufacture an adoption."""
+    import config
+    assert config.XGBOOST_PARAMS["max_depth"] == 1
+    assert config.XGBOOST_FOLD0_ROUNDS == 50
+    assert config.XGBOOST_REFIT_ROUNDS == 50
+    assert config.XGBOOST_FOLD_ROUNDS == 2000
+    assert config.XGBOOST_EARLY_STOP == 20
+
+
 def test_causal_xgb_rounds_prior_median_rule():
     """2026-09-30 PIT remediation: a fold's SHIPPED XGBoost round count is
     the median of PRIOR folds' measured best iterations — never the fold's

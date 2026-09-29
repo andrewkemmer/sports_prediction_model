@@ -167,25 +167,41 @@ XGBOOST_PARAMS = {
     "eval_metric": "logloss",
     "enable_categorical": True,
 }
-# RETUNE 2026-09-30 (max_depth 3 -> 1, the "MLB low-signal stump"):
-# offline causal search over the CURRENT production geometry (7,364
-# decided games 2024-03-20..2026-09-26, 78 walk-forward folds at the
-# cadence-7/min-val-40 contract, train-only fits — the same causal
-# protocol as the fold trainer) measured pooled OOF member logloss
-# 0.69876 (depth 3, causal 50r) -> 0.69006 (depth 1): delta -0.0087,
-# and the structured one-axis/second-order slice around it (depth 2/4,
-# min_child 8/20/30, gamma 1.5/3.5, lr 0.08/0.15, 30-100r) found
-# nothing better (best challenger 0.69038). 3-seed confirmation
-# (42/7/2026): -0.0087 / -0.0099 / -0.0077 — better on ALL seeds,
-# clearing the >=0.001 member gate. BLEND IMPACT (equal-thirds with
-# elasticnet): 0.68786 -> 0.68590 / 0.68804 -> 0.68577 /
-# 0.68746 -> 0.68628 — the blend IMPROVED on every seed (mean
-# -0.0018), which beats the member-gains/blend-neutral precedent.
-# Sealed-holdout confirmation deferred to the next natural run: the
-# depth-1 stump is a maximum-regularization move in the same
-# direction the sealed-holdout evidence already favored (see the
-# LGBM/MLP verdicts above — every sealed-holdout winner in this
-# codebase has been the MORE regularized candidate).
+# RETUNE 2026-09-30 (max_depth 3 -> 1) — adopted, then PROVENANCE-
+# CORRECTED 2026-09-30 after the first production run under the new
+# regime zero-weighted the member (ensemble AUC 0.585 -> 0.561):
+#   WHAT WAS ACTUALLY MEASURED: the retune's "incumbent 0.69876" was
+#   depth-3 at the STATIC 50-round refit budget — a strawman the real
+#   production incumbent (early-stopped on 2000/20 at its own
+#   operating point) never ran at; the early-stopped incumbent had
+#   pooled 0.678/AUC 0.586 for nine consecutive production runs
+#   (0921-0928, 100% blend weight). The adoption decision (depth-1
+#   beats depth-3 AT THE 50-ROUND REFIT POINT) was reproduced and
+#   CONFIRMED: 3 seeds, mean 0.69020 vs 0.69818 (AUC 0.5551 vs
+#   0.5521) — the depth-1 stump is genuinely right for the deployed
+#   refit bundle.
+#   WHAT THE PRODUCTION WALK REGIME ACTUALLY SCORES (three-arm
+#   experiment, 78 production folds, 7,378 games; plus 3-seed
+#   reruns): depth3+causal-rounds 0.68762/AUC 0.5511,
+#   depth1+causal-rounds 0.68770/0.5495 (parity, d_ll mean
+#   +0.00055, d3 wins 1/3), depth3+val-selected-early-stop
+#   0.67671/0.5943. The honest causal regime LOSES ~0.011 logloss /
+#   ~0.04 AUC versus the leak-flattered old numbers, at EITHER
+#   depth: the pre-0929 0.678/0.586 was never an honest incumbent,
+#   so the ensemble's headline drop 0.585 -> 0.561 is the leak fix
+#   itself finally measuring honestly — NOT a stump regression.
+#   Honest per-fold adaptivity alternatives were tested and
+#   rejected: fixed-150 0.7207 (early-fold overfit), internal-split
+#   early stop (last-20%/30% of train, min 200/300) selects ~9
+#   rounds with seed-spread AUC 0.544-0.556 — no better than the
+#   causal prior-fold median.
+#   OBLIGATION: the member now legitimately ranks below
+#   elasticnet/lightgbm and earns its weight per fold from the
+#   SLSQP blend; if it stays at/near 0% across future runs that is
+#   the blend telling the truth about the honest regime. Any future
+#   retune must re-measure BOTH operating points (walk-causal and
+#   refit-static) and compare against the honest numbers here —
+#   never against a re-hobbled baseline.
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit
