@@ -186,15 +186,6 @@ st.markdown("### Calibration Curve — Favored Team")
 hist_curve = utils.load_prediction_history(artifact_date)
 pts = mlc.favored_calibration_pts(hist_curve)
 
-# Green curve from the SAME OOF history artifact as the blue curve.
-# The pipeline has already applied the per-fold calibration map and persisted
-# ``home_win_prob_model_calibrated`` for every OOF game. The frontend only
-# groups those published OOF values by their raw favored-probability bin; it
-# never refits Platt, recreates a sigmoid, or applies a separate floor.
-# This makes the chart reproduce the exact calibration behavior that produced
-# the OOF artifacts and the production metrics.
-pts_cal = mlc.favored_oof_calibration_pts(hist_curve)
-
 # Bucketed curve from the artifact (also feeds the reliability table below).
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
 
@@ -207,6 +198,24 @@ if pts.empty:
             "mean_predicted": "prob", "mean_actual": "win_rate", "count": "n",
         })[["prob", "win_rate", "n"]]
 
+# Green reference curve: the DEPLOYED pooled Platt map applied to the same
+# raw favored-probability bins as the blue curve. MLB's three-probability
+# contract marks the per-fold prequential column "honest for scoring/metrics;
+# NEVER display" — beside a raw curve it draws a reference the deployed model
+# never produces (the 2026-09-28 NFL dashboard: green claimed 57-59% where
+# the model shipped 53-56% and actual was ~50-52%). The deployed map is read
+# from the artifact's calibration.params (a, b) — the exact mapping serve
+# time applies; the frontend never refits it. Built AFTER the pts fallback
+# so the bucket-curve path also gets the reference layer.
+_platt = (cal.get("calibration") or {}).get("params") or {}
+pts_cal = mlc.deployed_calibration_pts(pts, _platt)
+if pts_cal.empty and not _platt:
+    # Legacy fallback for artifacts predating the published params (or an
+    # identity calibration with none): group the STORED per-game calibrated
+    # column instead. With no deployed map to draw, the artifact's own
+    # prequential convention is the closest honest reference.
+    pts_cal = mlc.favored_oof_calibration_pts(hist_curve)
+
 if not pts.empty:
     # Merged confidence-vs-accuracy + calibration curve: count bars (LEFT
     # 'Games' axis) + blue actual-rate curve / green Platt map (RIGHT '%'
@@ -218,8 +227,10 @@ if not pts.empty:
     built = mlc.chart_favored_calibration(pts, pts_cal)
     legend_extra = ""
     if not pts_cal.empty:
-        legend_extra = (" · Green dashed: stored prequential OOF calibration from the production run "
-                        "(same OOF rows as the artifact; vertical gap = correction)")
+        legend_extra = (" · Green dashed: the deployed pooled Platt map "
+                        f"(a={_platt.get('a', '—')}, b={_platt.get('b', '—')}) "
+                        "applied to the same raw bins — exactly what serving applies; "
+                        "vertical gap at each bin = the correction the map makes to the raw model")
     utils.show_chart(built["chart"])
     st.caption(
         f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
@@ -227,7 +238,7 @@ if not pts.empty:
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "
         f"Blue: actual win rate at each raw probability · "
-        f"Green: stored prequential OOF calibrated probability at each raw probability · "
+        f"Green: the deployed pooled Platt map at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
         "blue curve binned to the nearest 1% — hover for games per point"

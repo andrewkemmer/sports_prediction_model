@@ -89,6 +89,13 @@ def _monitor_record() -> dict:
         {"feature": "temp_f", "window": "decided pool", "n_games": 1960,
          "pct_measured": 3.0, "pct_nonnull": 3.0, "n_default_zero": 0,
          "status": "STARVED"},
+        # Real 2026-09-29 MLB artifact shape: the offspeed exp2 category
+        # measures ~56% in BOTH windows BY CONSTRUCTION (sparse offspeed
+        # PA vs the category PA floor) — the panel must label it
+        # structural rather than paging it as a fetch regression.
+        {"feature": "exp2_cat_k_offspeed_diff", "window": "current",
+         "n_games": 87, "pct_measured": 56.0, "pct_nonnull": 56.0,
+         "n_default_zero": 0, "status": "LOW_COVERAGE"},
     ]
     ensemble = [
         {"name": "xgboost", "weight": 0.45, "auc": 0.6911, "brier": 0.2040,
@@ -287,6 +294,17 @@ def run() -> int:
         if "WARN" not in text:
             problems.append("drift matrix missing WARN status pill")
 
+        # (3d) the DECISION columns: statuses are assigned on the
+        #      noise-adjusted PSI under a 2-SE location gate — the table must
+        #      show those numbers, or raw PSI reads self-contradictory
+        #      (0.402 OK beside 0.481 ALERT on the 2026-09-29 artifact).
+        if "PSI ADJ." not in text:
+            problems.append("drift matrix missing the PSI ADJ. column header")
+        if "SHIFT SE" not in text:
+            problems.append("drift matrix missing the SHIFT SE column header")
+        if "noise floor" not in text:
+            problems.append("drift caption missing the noise-floor explanation")
+
         # (3c) drift ALERT card breaks out the counts by status — an
         #      ALERT+WARN table must never read "2 Alert" (the union
         #      mislabel the 09-02 artifact showed as "9 Alert").
@@ -323,6 +341,12 @@ def run() -> int:
             problems.append("coverage panel missing STARVED status")
         if "all windows healthy" in text:
             problems.append("coverage reported healthy despite a starved row")
+
+        # (4b) structural sparsity label: exp2 offspeed categories measure
+        #      ~56-80% in BOTH windows by construction (PA floor), so the
+        #      panel must say WHY a row is permanently amber.
+        if "structural: sparse offspeed PA" not in text:
+            problems.append("coverage panel missing the structural sparsity label")
 
         # (5) model ensemble table
         if "Model Ensemble" not in text:

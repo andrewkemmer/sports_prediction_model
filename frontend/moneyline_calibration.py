@@ -51,6 +51,48 @@ def favored_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
             .reset_index())
 
 
+def deployed_probability(raw: np.ndarray, params: Optional[dict]) -> np.ndarray:
+    """Apply the POOLED deployed Platt map: p_cal = sigma(a * logit(p) + b).
+
+    The backend's user-facing quantity (3) in MLB's three-probability
+    contract: the single global map fitted on ALL OOF pairs and published in
+    the calibration artifact's ``calibration.params`` (a, b, n) — exactly the
+    mapping served probabilities go through at deployment. Deliberately NOT
+    the per-fold prequential column, which the contract marks "honest for
+    scoring/metrics; NEVER display" — per-fold maps correct each fold by its
+    own prior-fold history, so beside the raw curve they render a reference
+    the deployed model never produces (the 2026-09-28 NFL dashboard bug:
+    the green curve claimed 57-59% where the model shipped 53-56%).
+    Returns NaN where the params are unusable so callers can drop the layer.
+    """
+    try:
+        a = float((params or {}).get("a"))
+        b = float((params or {}).get("b"))
+    except (TypeError, ValueError):
+        return np.full(np.shape(raw), np.nan, dtype=float)
+    if not (np.isfinite(a) and np.isfinite(b)):
+        return np.full(np.shape(raw), np.nan, dtype=float)
+    p = np.clip(np.asarray(raw, dtype=float), 1e-9, 1.0 - 1e-9)
+    return 1.0 / (1.0 + np.exp(-(a * np.log(p / (1.0 - p)) + b)))
+
+
+def deployed_calibration_pts(pts: pd.DataFrame,
+                             params: Optional[dict]) -> pd.DataFrame:
+    """The deployed-map reference curve on the blue curve's own raw bins.
+
+    One green point per blue point: the pooled deployed Platt map evaluated
+    at each raw favored-probability bin, carrying the same ``n`` so tooltips
+    stay aligned. Empty when the blue curve or the map params are missing —
+    a missing reference layer is honest, a fabricated one is not.
+    """
+    if pts is None or len(pts) == 0 or "prob" not in pts.columns:
+        return pd.DataFrame(columns=["prob", "cal_mean", "n"])
+    out = pts[["prob", "n"]].copy()
+    out["cal_mean"] = deployed_probability(out["prob"].to_numpy(float), params)
+    out = out[out["cal_mean"].notna()]
+    return out.reset_index(drop=True)
+
+
 def favored_oof_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
     """Build the published calibration series from stored OOF outputs.
 
@@ -275,7 +317,19 @@ def chart_favored_calibration(pts: pd.DataFrame,
         series.append({
             "data": pcal,
             "y_field": "cal_mean_pct",
-            "axis": alt.Axis(title=None, orient="right"),
+            # Blue owns the single right axis; the green curve is bound to
+            # the SAME 0-100 % scale (y_scale) and carries axis=None. The
+            # builder resolves y INDEPENDENT, so a series that omits
+            # y_scale gets its own auto-fitted axis: on the 2026-09-29 MLB
+            # dashboard the green auto-domain (~0.78-0.95) rendered a
+            # second set of right-axis ticks INTERLEAVED with the blue
+            # 0-100 ticks (80|30, 60|60, 40|90) and floated the line away
+            # from the raw probability it corrects. Pinning the scale but
+            # keeping an axis still emitted a DUPLICATE identical tick set
+            # (two 0-100 axes overlaid) — only axis=None collapses to one
+            # visible axis, the same pattern the diagonal already uses.
+            "y_scale": y_dom,
+            "axis": None,
             "color": GREEN, "dash": [6, 4], "point_size": 45,
             "stroke_width": 2,
             "tooltips": [

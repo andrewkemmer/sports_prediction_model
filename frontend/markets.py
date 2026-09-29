@@ -1153,6 +1153,19 @@ def _render_run_engine_drift(
             or r.get("feature", "")
         weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
                        if has_weights else "")
+        # Decision columns, mirroring the Model Monitor drift table: the
+        # status is assigned on the NOISE-ADJUSTED PSI under a 2-SE location
+        # gate — show both so raw PSI cannot read self-contradictory.
+        psi_adj = r.get("psi_adjusted")
+        shift_se = r.get("shift_se")
+        try:
+            psi_adj_str = "—" if pd.isna(psi_adj) else f"{float(psi_adj):.3f}"
+        except (TypeError, ValueError):
+            psi_adj_str = "—"
+        try:
+            shift_se_str = "—" if pd.isna(shift_se) else f"{float(shift_se):.3f}"
+        except (TypeError, ValueError):
+            shift_se_str = "—"
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -1161,6 +1174,8 @@ def _render_run_engine_drift(
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
+            f"<td style='color:{psi_color};'>{psi_adj_str}</td>"
+            f"<td style='color:#64748B;'>{shift_se_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
@@ -1170,16 +1185,19 @@ def _render_run_engine_drift(
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th>{weight_header}<th>STATUS</th></tr></thead>
+            <th>PSI</th><th>PSI ADJ.</th><th>SHIFT SE</th>
+            {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the moneyline drift; statuses on noise-adjusted
-          PSI. INSUFFICIENT = window too small to judge drift. MODEL WEIGHT
-          = the run line model's own feature importance (pooled split-gain
-          across its per-side Poisson home/away fits, summing to 100%;
-          '—' = no weight for this feature on this artifact).
+          Same windows as the moneyline drift; STATUS is assigned on
+          PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
+          mean also moved &gt; 2×SHIFT SE (location gate). INSUFFICIENT =
+          window too small to judge drift. MODEL WEIGHT = the run line
+          model's own feature importance (pooled split-gain across its
+          per-side Poisson home/away fits, summing to 100%; '—' = no weight
+          for this feature on this artifact).
         </div>
         """,
         unsafe_allow_html=True,
@@ -1229,13 +1247,23 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         default_cell = (
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
             f"margin-top:1px;'>{n_def} default-zero</div>" if n_def else "")
+        # Structural sparsity, mirroring the Model Monitor coverage panel:
+        # exp2 offspeed categories exist only where the offspeed PA sample
+        # clears the floor, so ~56-80% measured in BOTH windows is the
+        # FEATURE's shape, not a fetch regression.
+        structural = ""
+        if r.get("feature", "").startswith("exp2_cat_") \
+                and "offspeed" in r.get("feature", ""):
+            structural = (
+                "<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
+                "margin-top:1px;'>structural: sparse offspeed PA</div>")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"
             f"<td>{r.get('window','')}</td>"
             f"<td>{r.get('n_games','—')}</td>"
             f"<td style='color:{color};font-weight:700;'>{pct_m:.0f}%</td>"
-            f"<td>{pct_n:.0f}%{default_cell}</td>"
+            f"<td>{pct_n:.0f}%{default_cell}{structural}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
             f"</tr>")
         shown += 1

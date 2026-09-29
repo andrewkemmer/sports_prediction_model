@@ -267,6 +267,88 @@ def _curve_contract_problems() -> list[str]:
     return problems
 
 
+def _deployed_layer_problems(pts: pd.DataFrame, params: dict) -> list[str]:
+    """The rendered green layer must be the DEPLOYED pooled Platt map.
+
+    MLB's three-probability contract: the per-fold prequential column is
+    honest for scoring but NEVER the displayed reference — the deployed map
+    (calibration.params a/b) is what serving applies. The green curve must
+    equal sigma(a*logit(p)+b) at the blue curve's own bins, one point per
+    blue point, sharing its n.
+    """
+    import moneyline_calibration as mlc
+
+    problems: list[str] = []
+    if pts is None or pts.empty:
+        return ["blue curve frame is empty — the deployed layer cannot be "
+                "aligned to it"]
+    try:
+        green = mlc.deployed_calibration_pts(pts, params)
+    except Exception as exc:  # noqa: BLE001
+        return [f"deployed_calibration_pts raised: {exc}"]
+    if green.empty:
+        return ["deployed layer is empty although the artifact carries Platt "
+                f"params {params} — the reference curve would be missing"]
+    if len(green) != len(pts):
+        problems.append(f"deployed layer has {len(green)} points, the blue "
+                        f"curve has {len(pts)} — not one per bin")
+    merged = pts.merge(green, on="prob", how="left", suffixes=("", "_g"))
+    expect = 1.0 / (1.0 + np.exp(-(
+        params["a"] * np.log(merged["prob"] / (1.0 - merged["prob"]))
+        + params["b"])))
+    dev = float(np.nanmax(np.abs(merged["cal_mean"] - expect)))
+    if dev > 1e-9:
+        problems.append(f"green layer deviates from the deployed map by "
+                        f"{dev:.3e} — it is not sigma(a*logit(p)+b)")
+    if "n_g" in merged.columns and float(
+            (merged["n"] - merged["n_g"]).abs().max()) > 0:
+        problems.append("deployed layer game counts differ from the blue "
+                        "curve's bins")
+    # The deployed map must differ from the piecewise prequential column —
+    # if a fixture cannot distinguish them the check is vacuous.
+    preq = mlc.favored_oof_calibration_pts(_prequential_frame(600))
+    mm = green.merge(preq, on="prob", suffixes=("_d", "_p"))
+    if len(mm) and float(np.nanmax(np.abs(
+            mm["cal_mean_d"] - mm["cal_mean_p"]))) < 1e-9:
+        problems.append("fixture is too smooth (the deployed map reproduces "
+                        "the prequential column exactly) — the check cannot "
+                        "detect a prequential-layer regression")
+
+    # Axis contract (the 2026-09-29 MLB dashboard bug, in its two observed
+    # failure shapes): the builder resolves y INDEPENDENT, so (a) a green
+    # series that omits y_scale gets its own auto-fitted axis — a second set
+    # of right-axis ticks INTERLEAVED with the blue 0-100 ticks (80|30,
+    # 60|60, 40|90) and a floating line; (b) pinning the scale but keeping
+    # an axis emits a DUPLICATE identical tick set (two 0-100 axes overlaid).
+    # Contract: both series pin the SAME [0, 100] scale, and exactly ONE
+    # right axis exists (blue's) — green and the diagonal carry axis=None.
+    built = mlc.chart_favored_calibration(pts, green)
+    layers = []
+    for layer in built["chart"].to_dict()["layer"]:
+        mk = layer.get("mark", {})
+        if mk.get("type") == "line" and mk.get("point") is not None:
+            enc = layer["encoding"]["y"]
+            layers.append(((enc.get("scale") or {}).get("domain"),
+                           enc.get("axis")))
+    if len(layers) != 2:
+        problems.append(f"expected 2 series line layers, found {len(layers)}")
+    for dom, axis in layers:
+        if list(dom or []) not in ([0, 100.0], [0.0, 100.0]):
+            problems.append(f"series y-domain {dom} is not the shared 0-100 "
+                            "scale (green got its own auto-fitted axis)")
+    visible_axes = [a for _, a in layers if a is not None]
+    if len(visible_axes) != 1:
+        problems.append(f"{len(visible_axes)} series axes visible — the right "
+                        "axis must be owned by the blue curve alone "
+                        "(duplicate tick sets overlay otherwise)")
+    ax = visible_axes[0] if visible_axes else {}
+    if ax.get("orient") != "right" or ax.get("grid") is not False:
+        problems.append(f"the owning axis (grid={ax.get('grid')}, "
+                        f"orient={ax.get('orient')}) must be a grid-less "
+                        "right axis")
+    return problems
+
+
 def test_calibration_curve_is_the_production_oof_calibration():
     problems = _curve_contract_problems()
     assert not problems, "; ".join(problems)
@@ -349,6 +431,19 @@ def run() -> int:
         #     what production emits and which no global refit reproduces.
         problems.extend(_curve_contract_problems())
 
+        # (7b) the green reference layer must be the DEPLOYED pooled Platt
+        #     map on the blue curve's own bins — never the per-fold
+        #     prequential column (MLB's three-probability contract). Runs on
+        #     the same piecewise fixture so a regression to the prequential
+        #     layer is detectable.
+        import moneyline_calibration as mlc
+        problems.extend(_deployed_layer_problems(
+            mlc.favored_calibration_pts(_prequential_frame(600)),
+            {"a": 2.5, "b": 0.1}))
+        if "deployed pooled Platt map" not in text:
+            problems.append("curve caption does not describe the deployed "
+                            "pooled Platt map (prequential wording regression)")
+
         if problems:
             print("CALIBRATION SMOKE TEST — FAIL (sport=nfl)")
             for p in problems:
@@ -360,8 +455,8 @@ def run() -> int:
         print(f"  - no exceptions; {n_curves} Altair curve chart(s) rendered")
         print("  - record summary + 4 KPIs + Platt banner + reliability table"
               " (w/ TOTAL) + populated history table")
-        print("  - calibration curve is a group-by of the stored prequential "
-              "OOF column (no frontend refit)")
+        print("  - green reference layer is the deployed pooled Platt map "
+              "(no frontend refit; shared 0-100 right axis)")
 
         # sport=mlb must still run the SAME shared path, no exception.
         mlb = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),

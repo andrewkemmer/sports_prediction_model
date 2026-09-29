@@ -139,17 +139,31 @@ def main() -> int:
     print(f"ET today: {ET_TODAY}")
 
     # ---- A: 0928 with NO board file (real remediated state) ----
+    # The recovery TARGET is date-dependent by design: the page recovers to
+    # the most recent VALID board on or before ET-today (0927 while the run
+    # is live on the 28th; the 0929 slate once the calendar rolls over past
+    # midnight). The CONTRACT under test is date-independent: banner +
+    # selected-date disclosure + recovery only to a valid, non-recycled
+    # date — never 0925/0926 content under the 0928 header.
     BOARD_28.unlink(missing_ok=True)
     _clear_caches()
     at, text = _run_page("20260928")
     assert "Recovery view" in text, "expected the honest recovery banner"
     assert "September 28, 2026" in text
-    assert "September 27, 2026" in text
+    import utils as _u
+    _valid = [str(d) for d in _u.valid_dates("mlb") if str(d) != "20260928"]
+    _expected = max((d for d in _valid
+                     if d <= ET_TODAY.strftime("%Y%m%d")), default=None)
+    assert _expected, "no valid recovery candidate exists for this ET day"
+    _exp_long = (datetime.strptime(_expected, "%Y%m%d")
+                 .strftime("%B %d, %Y").replace(" 0", " "))
+    assert _exp_long in text, (
+        f"recovery must land on the most recent valid board ({_expected})")
     assert "20260925" not in text, "recycled 0925 game leaked into 0928 view"
     assert "20260926" not in text, "recycled 0926 game leaked into 0928 view"
     assert "September 25, 2026" not in text
     assert "September 26, 2026" not in text
-    print("A PASS  0928 lands on an honest recovery view of 0927; "
+    print(f"A PASS  0928 lands on an honest recovery view of {_expected}; "
           "no 0925/0926 content anywhere")
 
     # ---- B: direct loader — polluted 0928 file -> zero rows ----

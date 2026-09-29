@@ -213,12 +213,25 @@ if drift:
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{html.escape(label, quote=False)}</div>"
         )
         weight_cell = f"<td>{utils.feature_weight_pct(r)}</td>" if has_weights else ""
+        # The published decision: statuses are assigned on the NOISE-ADJUSTED
+        # PSI (raw PSI minus the sampling-noise floor) gated by a 2-SE mean
+        # location shift — raw PSI alone reads self-contradictory (0.402 OK
+        # beside 0.481 ALERT). Show both adjusted PSI and the shift-SE so the
+        # table carries the same numbers the status pipeline used.
+        psi_adj = r.get("psi_adjusted")
+        shift_se = r.get("shift_se")
+        psi_adj_cell = (_fmt_psi(psi_adj)
+                        if isinstance(psi_adj, (int, float)) else "—")
+        shift_se_cell = (f"{shift_se:.3f}"
+                         if isinstance(shift_se, (int, float)) else "—")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{feature_cell}</td>"
             f"<td>{_fmt_drift_mean(r.get('current_mean'))}</td>"
             f"<td>{_fmt_drift_mean(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{_fmt_psi(psi)}</td>"
+            f"<td style='color:{psi_color};'>{psi_adj_cell}</td>"
+            f"<td style='color:#64748B;'>{shift_se_cell}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>{samples}</span></td></tr>"
@@ -228,6 +241,7 @@ if drift:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th><th>PSI</th>
+            <th>PSI ADJ.</th><th>SHIFT SE</th>
             {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
@@ -236,6 +250,9 @@ if drift:
           MODEL WEIGHT = share of the final blended ensemble riding on this feature
           (blend-weighted importances across members; sums to 100%).
           Status shows the sample sizes behind each comparison as baseline/current.
+          STATUS is assigned on PSI ADJ. = raw PSI − sampling-noise floor,
+          escalated only when the mean also moved &gt; 2×SHIFT SE (location gate) —
+          that is why a raw PSI of 0.40 can read OK beside a 0.48 ALERT.
           INSUFFICIENT = window too small to judge drift; PSI is informational only.
         </div>
         """,
@@ -287,13 +304,23 @@ if coverage:
         default_cell = (
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>"
             f"{n_def} default-zero</div>" if n_def else "")
+        # exp2 offspeed rows: the category exists only for pitchers whose
+        # offspeed sample clears the PA floor, so ~56-80% measured in BOTH
+        # windows is the FEATURE's structure, not a fetch regression. Label
+        # it so permanent amber reads as known, not as a new incident.
+        structural = ""
+        if r.get("feature", "").startswith("exp2_cat_") \
+                and "offspeed" in r.get("feature", ""):
+            structural = (
+                "<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
+                "margin-top:1px;'>structural: sparse offspeed PA</div>")
         cov_rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"
             f"<td>{r.get('window','')}</td>"
             f"<td>{r.get('n_games','—')}</td>"
             f"<td style='color:{color};font-weight:700;'>{pct_m:.0f}%</td>"
-            f"<td>{pct_n:.0f}%{default_cell}</td>"
+            f"<td>{pct_n:.0f}%{default_cell}{structural}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td></tr>"
         )
         shown += 1
