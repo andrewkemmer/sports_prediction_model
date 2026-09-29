@@ -151,6 +151,11 @@ ELASTICNET_PARAMS = {
 # logloss 0.6789 -> 0.6770 mean, better on all three seeds (>=0.001 gate).
 # Blend impact neutral across seeds (mean -0.0004, sign-mixed) -> adopted per
 # the member-strength policy (RF precedent: member gains with blend unharmed).
+# L6 re-tune (2026-09-28): 16-draw screen on the 40 most-recent folds +
+# full-walk 3-seed confirm of the top-3 (record mlb_tune_l6_2026-09-28.json):
+# every screen leader's gain reversed on the 73-fold walk (lightgbm worse on
+# 3/3 seeds) -> params CONFIRMED, unchanged. Second consecutive retune the
+# production config survives.
 XGBOOST_PARAMS = {
     "max_depth": 1,
     "min_child_weight": 12,

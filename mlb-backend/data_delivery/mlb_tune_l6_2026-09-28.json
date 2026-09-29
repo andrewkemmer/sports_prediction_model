@@ -1,0 +1,51 @@
+{
+  "record": "mlb_tune_l6",
+  "created_utc": "2026-09-28T21:55:00-04:00",
+  "what": "L6 causal re-tune of the moneyline XGBoost + LightGBM members",
+  "harness": {
+    "frame": "game_level_features.csv (7,364 games, 2024-03-20..2026-09-26)",
+    "folds": "training.walk_forward_splits, cadence 7, min_val 40 (73 executed folds)",
+    "fidelity": "walk_forward_evaluate mirrored exactly: margin attach on the same folds, rolling adaptive weights, prequential calibration; member scores = pooled OOF member logloss from last_ensemble_info()",
+    "provenance": "scratch tuner (tmp_audit, never committed per check_production_graph convention)"
+  },
+  "screen": {
+    "design": "16 seeded random draws (numpy default_rng 9100+i), both members drawn simultaneously, scored on the 40 most-recent folds, seeds 42/7/2026 rotated",
+    "leaders": ["D09", "D06", "D10"],
+    "note": "screen pooled-fold member logloss ~0.687-0.691; top-5 spread 0.0004"
+  },
+  "confirm": {
+    "design": "top-3 re-scored on the FULL walk x 3 seeds; member gate = beat production mean member logloss; blend gate = not worse than control",
+    "control_mean": {"xgboost": 0.68740, "lightgbm": 0.68763,
+                     "blend": 0.68590, "blend_calibrated": 0.68640},
+    "control_per_seed": {"xgboost": [0.68770, 0.68720, 0.68730],
+                          "lightgbm": [0.68800, 0.68800, 0.68690],
+                          "blend": [0.68610, 0.68590, 0.68570]},
+    "candidates": {
+      "D09": {"xgb_mean": 0.68767, "lgbm_mean": 0.69131,
+               "blend_mean": 0.68600,
+               "lgbm_better_on_seeds": 0,
+               "verdict": "FAIL (lgbm worse on 3/3 seeds)"},
+      "D06": {"xgb_mean": 0.68787, "lgbm_mean": 0.69030,
+               "blend_mean": 0.68603,
+               "lgbm_better_on_seeds": 0,
+               "verdict": "FAIL (lgbm worse on 3/3 seeds)"},
+      "D10": {"xgb_mean": 0.68933, "lgbm_mean": 0.69313,
+               "blend_mean": 0.68623,
+               "lgbm_better_on_seeds": 0,
+               "verdict": "FAIL (both members worse)"}
+    },
+    "best_params_evaluated": {
+      "D09_xgboost": {"max_depth": 3, "min_child_weight": 8.9605,
+                       "gamma": 1.9672, "subsample": 0.8147,
+                       "colsample_bytree": 0.5601, "learning_rate": 0.06},
+      "D09_lightgbm": {"max_depth": 5, "num_leaves": 10,
+                        "min_child_samples": 56, "min_gain_to_split": 0.6594,
+                        "bagging_fraction": 0.3722,
+                        "feature_fraction": 0.7038,
+                        "learning_rate": 0.0227}
+    }
+  },
+  "verdict": "DON'T ADOPT - production L5 params confirmed. Every screen leader's gain reversed on the full 73-fold walk; no candidate beat the control on member logloss or blend, on any seed.",
+  "params_changed": false,
+  "context": "Second consecutive retune (after L5, 2026-09-21) where the production config survives full-walk confirmation; the MLB low-signal regime appears to sit at a local optimum for these members."
+}
