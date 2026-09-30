@@ -4185,6 +4185,97 @@ check("drift baseline falls back to the exact era tail when same-phase "
       and _dw_base2.reset_index(drop=True).equals(_legacy_tail),
       f"baseline months={sorted(set(_dw_base2['gameday'].astype(str).str[:7]))}")
 
+# ---------------------------------------------------------------------------
+# Season-boundary carryover semantics (2026-09-29 audit, MLB-structure parity).
+# Confirmed on the production frame (tmp_audit probe, 2,687 settled games) and
+# pinned here so a future refactor cannot silently change the boundary rules.
+# MLB structural reference (mlb-backend/backend/data_ingestion.py):
+#   Elo CARRIES across the offseason but REVERTS 1/3 toward 1500 (ELO_REVERT
+#   _FACTOR) at each boundary; season records/win% RESET; player ratings roll
+#   a 30-game window across seasons with a CUMULATIVE league-mean prior.
+# NFL deliberately differs on Elo (no revert — see _season_boundary_pins) and
+# matches MLB on rolling ratings spanning seasons. Both contracts are pinned.
+# ---------------------------------------------------------------------------
+_sb_games = pd.DataFrame([
+    {"game_id": "SB-23-1", "season": 2023, "week": 1, "gameday": "2023-09-01",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 30, "away_score": 10, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+    {"game_id": "SB-23-2", "season": 2023, "week": 2, "gameday": "2023-09-08",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 30, "away_score": 10, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+    {"game_id": "SB-24-1", "season": 2024, "week": 1, "gameday": "2024-09-05",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 14, "away_score": 24, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+])
+_sb_feats = feat_mod.build_game_features(_sb_games, pbp=None)
+
+
+def _sb_value(game_id: str, column: str):
+    return _sb_feats.loc[_sb_feats["game_id"] == game_id, column].iloc[0]
+
+
+# Rolling ratings (win_pct, form, EWMs) span the offseason, exactly like
+# MLB's rolling-30 player ratings: the 2024 opener's trailing windows read
+# 2023 games (12-game win_pct window spans two seasons by design).
+check("trailing windows carry prior-season games across the offseason "
+      "(win_pct at the opener = the prior season's tail)",
+      abs(float(_sb_value("SB-24-1", "win_pct_home")) - 1.0) < 1e-9
+      and abs(float(_sb_value("SB-24-1", "win_pct_away")) - 0.0) < 1e-9,
+      f"home={_sb_value('SB-24-1', 'win_pct_home')}, "
+      f"away={_sb_value('SB-24-1', 'win_pct_away')}")
+check("EWM form carries prior-season state across the offseason",
+      float(_sb_value("SB-24-1", "ewm_net_pts_home")) > 0.0
+      and float(_sb_value("SB-24-1", "ewm_net_pts_away")) < 0.0,
+      f"home={_sb_value('SB-24-1', 'ewm_net_pts_home'):.4f}, "
+      f"away={_sb_value('SB-24-1', 'ewm_net_pts_away'):.4f}")
+
+# Elo carries over with NO season-boundary revert (a deliberate divergence
+# from MLB's ELO_REVERT_FACTOR regression): the 2024 opener's entering rating
+# is exactly the post-update rating after the 2023 finale.
+_sb_ev = feat_mod.team_events(_sb_games)
+_sb_elo = feat_mod.compute_elo(_sb_ev)
+_sb_elo_i = _sb_elo.set_index(["game_id", "team"])
+_sb_ra = float(_sb_elo_i.loc[("SB-23-2", "A"), "elo_entering"])
+_sb_rb = float(_sb_elo_i.loc[("SB-23-2", "B"), "elo_entering"])
+_sb_exp_a = 1.0 / (1.0 + 10.0 ** ((_sb_rb - _sb_ra) / config.ELO_SCALE))
+_sb_after_a = _sb_ra + config.ELO_K * (1.0 - _sb_exp_a)   # A won SB-23-2
+check("Elo carries over the offseason with no season-boundary revert "
+      "(opener entering = prior-finale post-update)",
+      abs(float(_sb_elo_i.loc[("SB-24-1", "A"), "elo_entering"])
+          - _sb_after_a) < 1e-9,
+      f"entering={_sb_elo_i.loc[('SB-24-1', 'A'), 'elo_entering']:.6f}, "
+      f"prior-final post-update={_sb_after_a:.6f}")
+
+# Opponent-adjustment shrinkage: the prior-games count n in w = n/(n+8) is
+# the opponent's FULL-timeline prior games (prior seasons included), so an
+# early-season game is still heavily evidence-weighted, not shrunk to the
+# league mean as if the season just started. Pin the n semantics on the
+# ladder itself: the opener row sees the opponent's entire prior history.
+_sb_ladder = feat_mod.team_stats_ladder(_sb_ev)
+_sb_op = _sb_ladder[(_sb_ladder["season"] == 2024)
+                    & (_sb_ladder["team"] == "A")].iloc[0]
+_sb_opp_n = int(((_sb_ladder["team"] == "B")
+                 & (_sb_ladder["kickoff_utc"] < _sb_op["kickoff_utc"])).sum())
+check("opp-adj shrinkage counts the opponent's full-timeline prior games "
+      "(prior seasons included, w = n/(n+OPP_ADJ_SHRINKAGE))",
+      _sb_opp_n == 2,
+      f"opponent prior-games count at the 2024 opener: {_sb_opp_n}")
+
+# Rest stays season-partitioned (already pinned above for NaN semantics);
+# this pin states the positive contract: the opener gap is NEVER the
+# offseason interval, so rest_days cannot leak a 200+ day offseason gap.
+check("rest_days never prices the offseason as rest (opener stays NaN, "
+      "never a 200+ day gap)",
+      pd.isna(_sb_value("SB-24-1", "rest_days_home"))
+      and pd.isna(_sb_value("SB-24-1", "rest_days_away")),
+      f"rest_days_home at opener={_sb_value('SB-24-1', 'rest_days_home')}")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)

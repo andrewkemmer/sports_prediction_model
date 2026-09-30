@@ -51,7 +51,7 @@ def _build_candidate_manifest() -> None:
             "defense"),
         "epa_play_opp_adj": (
             "Trailing opponent-adjusted EPA per play",
-            "Per-game offensive EPA per play rescaled by the PRIOR quality of the defense faced: epa_play + (prior expanding league mean of def EPA allowed − the opponent's shrunk shift(1) halflife-EWM of def EPA allowed, weight n/(n+OPP_ADJ_SHRINKAGE)); production against a good defense counts more, against a bad one less",
+            "Per-game offensive EPA per play rescaled by the PRIOR quality of the defense faced: epa_play + (prior expanding league mean of def EPA allowed − the opponent's shrunk shift(1) halflife-EWM of def EPA allowed, weight n/(n+OPP_ADJ_SHRINKAGE) with n = the opponent's full-timeline prior games — prior seasons included, never season-reset); production against a good defense counts more, against a bad one less",
             "efficiency"),
         "qb_epa_dropback": (
             "Trailing QB EPA per dropback",
