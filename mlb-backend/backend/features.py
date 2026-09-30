@@ -921,9 +921,12 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
                ON pitcher_stuff_raw.game_date = st.game_date
               AND pitcher_stuff_raw.game_pk = st.game_pk
               AND pitcher_stuff_raw.pitcher = st.pitcher
-        WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
+        WINDOW w3 AS (PARTITION BY pitcher_stuff_raw.pitcher
+                      ORDER BY pitcher_stuff_raw.game_date
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
-               wall AS (PARTITION BY pitcher, season ORDER BY game_date
+               wall AS (PARTITION BY pitcher_stuff_raw.pitcher,
+                              pitcher_stuff_raw.season
+                        ORDER BY pitcher_stuff_raw.game_date
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 

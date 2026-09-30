@@ -819,3 +819,102 @@ def test_bp_fstring_constants_resolve():
     # drift (not just a deletion) fails here too
     assert features._BP_SPENT_PITCHES == 35
     assert features._BP_SPENT_LOOKBACK_DAYS == 2
+
+
+def test_gated_sp_tables_execute_end_to_end(tmp_path):
+    """The three gate-consuming SP statements must EXECUTE on DuckDB, not
+    just parse.
+
+    Production failed twice in one day on exactly this class: a build-time
+    NameError (f-string constant deleted) and a Binder ambiguity (the gate
+    join made bare window partitions ambiguous) — both invisible to
+    imports, py_compile, and every fixture-less test because no test ever
+    RAN the SQL. This lifts each statement from features.py verbatim,
+    executes it against minimal fixtures, and asserts the gating behavior
+    survives real compilation: clean rows produce values, stale rows NULL."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+
+    def lift(name):
+        j0 = src.index(f"CREATE TABLE {name} AS")
+        return src[j0:src.index('"""', j0)]
+
+    apps = pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-05-01", "2026-06-20",
+                                     "2026-05-01", "2026-05-20"]),
+        "game_pk": [1, 2, 3, 4],
+        "pitcher": [101, 101, 202, 202],
+    })
+    ilp = pd.DataFrame({
+        "batter": [101], "il_start": [pd.Timestamp("2026-05-03")],
+        "il_end": [pd.Timestamp("2026-06-10")],
+    })
+    _mk_ledger(tmp_path, ilp)
+    con = duckdb.connect(database=":memory:")
+    with patch_ledger_dir(tmp_path):
+        con.register("pgs_reg", apps)
+        con.execute("CREATE TABLE pitcher_game_stats AS "
+                    "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                    "pitcher FROM pgs_reg")
+        assert features._register_sp_staleness_gate(con) is True
+        # pitcher_season_features inputs (minimal shifted aggregates)
+        con.execute("""
+            CREATE TABLE pitcher_season_rolling AS
+            SELECT game_date, game_pk, pitcher,
+                   5.0 AS _s_runs_s, 40.0 AS _s_ks_s, 40.0 AS _s_ip_s
+            FROM pitcher_game_stats
+        """)
+        con.execute("""
+            CREATE TABLE pitcher_5g_rolling AS
+            SELECT game_date, game_pk, pitcher,
+                   5.0 AS _roll5_runs, 40.0 AS _roll5_ks, 40.0 AS _roll5_ip
+            FROM pitcher_game_stats
+        """)
+        # pitcher_features inputs (minimal trailing-window aggregates)
+        con.execute("""
+            CREATE TABLE pitcher_rolling AS
+            SELECT game_date, game_pk, pitcher,
+                   5.0 AS _roll_bbs, 20.0 AS _roll_hits, 2.0 AS _roll_hrs,
+                   1.0 AS _roll_hbps, 40.0 AS _roll_ks, 40.0 AS _roll_ip,
+                   0.310 AS _roll_xwoba
+            FROM pitcher_game_stats
+        """)
+        # pitcher_stuff inputs (minimal shifted per-start aggregates)
+        con.execute("""
+            CREATE TABLE pitcher_stuff_raw AS
+            SELECT game_date, game_pk, pitcher,
+                   EXTRACT(YEAR FROM game_date) AS season,
+                   93.0 AS _s_fb_velo, 0.55 AS _s_fb_pct, 90 AS _s_n,
+                   20.0 AS _s_whiffs, 0.300 AS _s_xl, 0.290 AS _s_xr,
+                   93.0 AS _s_fb_velo_s, 0.55 AS _s_fb_pct_s, 90 AS _s_n_s,
+                   20.0 AS _s_whiffs_s
+            FROM pitcher_game_stats
+        """)
+        con.execute(lift("pitcher_season_features"))
+        con.execute(lift("pitcher_features"))
+        con.execute(lift("pitcher_stuff"))
+
+    # game_pk 2 = 101's stale return start; game_pk 4 = 202's 19d-rest
+    # control start (long gap, NO stint -> must stay ungated)
+    seas = con.execute("""
+        SELECT pitcher, sp_k9, sp_era_5g FROM pitcher_season_features
+        WHERE game_pk IN (2, 4)
+    """).fetchall()
+    feats = con.execute("""
+        SELECT pitcher, sp_whip_30g FROM pitcher_features
+        WHERE game_pk IN (2, 4)
+    """).fetchall()
+    stuff = con.execute("""
+        SELECT pitcher, sp_fbvelo_3g, sp_whiff_3g FROM pitcher_stuff
+        WHERE game_pk IN (2, 4)
+    """).fetchall()
+    seas = {p: (k9, e5) for p, k9, e5 in seas}
+    feats = {p: w for p, w in feats}
+    stuff = {p: (v, wf) for p, v, wf in stuff}
+    # 101 (stale return): NULL everywhere
+    assert seas[101] == (None, None)
+    assert feats[101] is None
+    assert stuff[101] == (None, None)
+    # 202 (clean control, 19d rest but no stint): real values survive
+    assert seas[202] == (9.0, 1.125)  # 40K/40IP*9; 5R/40IP*9
+    assert feats[202] is not None
+    assert stuff[202][0] == 93.0
