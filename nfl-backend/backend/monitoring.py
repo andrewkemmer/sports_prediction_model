@@ -18,9 +18,11 @@ import pandas as pd
 try:
     from backend import config
     from backend import features as feat_mod
+    from backend import manifest
 except ImportError:
     import config
     import features as feat_mod
+    import manifest
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +494,37 @@ def coverage(full_df: pd.DataFrame,
     all-time share of roofed/dome games (a real measurement absent by
     nature, not a broken fetcher) and stays visible for exactly that
     structural read.
+
+    STRUCTURAL status (2026-09-29): a feature whose manifest
+    ``missing_value_policy`` DECLARES the absent slice (indoor/closed
+    weather games, season openers for rest, the week-1 player-rating cold
+    start for the EPA lineup family) cannot "starve" at its own by-design
+    rate. When its measured share is STABLE across the two windows
+    (|baseline − current| <= 15 pts), the row reports STRUCTURAL with the
+    reason — calm, visible, and answerable — while an UNSTABLE drop still
+    escalates to LOW_COVERAGE/STARVED (the 2026 weather-truncation class:
+    a fetcher can die and PSI rows keep showing plausible zeros, so the
+    raw rate itself must keep its alarm). Features with no declared policy
+    keep the raw thresholds at every rate.
     """
+    _STRUCTURAL_MARKERS = (
+        "indoor/closed",                        # weather quartet: no outdoor
+                                                # observation exists by nature
+        "first game of the season",             # rest family: opener is
+                                                # definitionally undefined
+        "no projected player at this position "
+        "has a prior rating",                   # EPA family: week-1 rating
+                                                # cold start
+    )
+
+    def _structural_reason(f: str) -> str | None:
+        pol = manifest.FEATURE_MANIFEST.get(f, {}).get(
+            "missing_value_policy", "")
+        for marker in _STRUCTURAL_MARKERS:
+            if marker in pol:
+                return marker
+        return None
+
     def _row(f: str, frame: pd.DataFrame, window: str) -> dict:
         if f not in frame.columns:
             return {"feature": f, "window": window, "n_games": len(frame),
@@ -509,11 +541,31 @@ def coverage(full_df: pd.DataFrame,
                        else "LOW_COVERAGE" if pct < 80.0 else "OK"),
         }
 
+    def _classified_row(f: str, base_row: dict, pct_base: float,
+                        pct_cur: float | None) -> dict:
+        """Apply the STRUCTURAL override to one raw row when the documented
+        policy declares the absent slice AND the rate is window-stable."""
+        if pct_cur is None:
+            return base_row
+        reason = _structural_reason(f)
+        if reason is None:
+            return base_row
+        if abs(pct_base - pct_cur) > 15.0:
+            return base_row
+        out = dict(base_row)
+        out["status"] = "STRUCTURAL"
+        out["structural_reason"] = reason
+        return out
+
     rows = []
     for f in config.active_moneyline_feature_cols():
         if current_df is not None and len(current_df):
-            rows.append(_row(f, full_df, "baseline"))
-            rows.append(_row(f, current_df, "current"))
+            base = _row(f, full_df, "baseline")
+            cur = _row(f, current_df, "current")
+            rows.append(_classified_row(f, base, base["pct_measured"],
+                                        cur["pct_measured"]))
+            rows.append(_classified_row(f, cur, base["pct_measured"],
+                                        cur["pct_measured"]))
         else:
             rows.append(_row(f, full_df, "decided pool"))
     return rows

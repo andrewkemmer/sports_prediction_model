@@ -96,6 +96,12 @@ def _monitor_record() -> dict:
         {"feature": "exp2_cat_k_offspeed_diff", "window": "current",
          "n_games": 87, "pct_measured": 56.0, "pct_nonnull": 56.0,
          "n_default_zero": 0, "status": "LOW_COVERAGE"},
+        # NFL 2026-09-29: documented-policy absence arrives pre-classified as
+        # STRUCTURAL with the backend-declared reason — the panel must render
+        # it calm (reason text present) while starved/low rows still page.
+        {"feature": "temp_f", "window": "current", "n_games": 60,
+         "pct_measured": 68.33, "pct_nonnull": 68.33, "n_default_zero": 0,
+         "status": "STRUCTURAL", "structural_reason": "indoor/closed"},
     ]
     ensemble = [
         {"name": "xgboost", "weight": 0.45, "auc": 0.6911, "brier": 0.2040,
@@ -347,6 +353,8 @@ def run() -> int:
             problems.append("missing feature-coverage section")
         if "STARVED" not in text:
             problems.append("coverage panel missing STARVED status")
+        if "structural: indoor/closed" not in text:
+            problems.append("coverage panel missing the STRUCTURAL reason label")
         if "all windows healthy" in text:
             problems.append("coverage reported healthy despite a starved row")
 

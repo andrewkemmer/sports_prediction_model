@@ -4276,6 +4276,64 @@ check("rest_days never prices the offseason as rest (opener stays NaN, "
       and pd.isna(_sb_value("SB-24-1", "rest_days_away")),
       f"rest_days_home at opener={_sb_value('SB-24-1', 'rest_days_home')}")
 
+# ---------------------------------------------------------------------------
+# Coverage STRUCTURAL classification (2026-09-29): a feature whose manifest
+# missing_value_policy DECLARES the absent slice (indoor/closed weather
+# games, season openers for rest, the week-1 player-rating cold start for
+# the EPA lineup family) cannot "starve" at its own by-design rate. When
+# the measured share is stable across the two drift windows, coverage()
+# reports STRUCTURAL with the declared reason; an unstable drop still
+# escalates (the 2026 weather-truncation class), and unlisted features
+# keep the raw thresholds at every rate.
+# ---------------------------------------------------------------------------
+_cov_base = pd.DataFrame({
+    "temp_f": [np.nan] * 32 + [70.0] * 68,          # 68%: indoor slice
+    "rest_days_home": [np.nan] * 26 + [7.0] * 74,   # 74%: opener slice
+    "elo_diff": [1.0] * 100,
+})
+_cov_stable = pd.DataFrame({
+    "temp_f": [np.nan] * 19 + [65.0] * 41,          # 68.33% — stable
+    "rest_days_home": [np.nan] * 16 + [6.0] * 44,   # 73.33% — stable
+    "elo_diff": [2.0] * 60,
+})
+_cov_rows = {(r["feature"], r["window"]): r for r in
+             monitoring_mod.coverage(_cov_base, current_df=_cov_stable)}
+check("documented-policy absence classifies STRUCTURAL with the reason, "
+      "not LOW_COVERAGE",
+      _cov_rows[("temp_f", "baseline")]["status"] == "STRUCTURAL"
+      and _cov_rows[("temp_f", "current")]["status"] == "STRUCTURAL"
+      and _cov_rows[("temp_f", "current")].get("structural_reason")
+      == "indoor/closed"
+      and _cov_rows[("rest_days_home", "current")]["status"] == "STRUCTURAL"
+      and _cov_rows[("elo_diff", "current")]["status"] == "OK",
+      f"temp_f={_cov_rows[('temp_f', 'current')]['status']}, "
+      f"rest={_cov_rows[('rest_days_home', 'current')]['status']}, "
+      f"elo={_cov_rows[('elo_diff', 'current')]['status']}")
+
+_cov_drop = pd.DataFrame({
+    "temp_f": [np.nan] * 55 + [65.0] * 5,           # 8.3% — fetch died
+    "rest_days_home": [np.nan] * 16 + [6.0] * 44,
+    "elo_diff": [2.0] * 60,
+})
+_cov_rows2 = {(r["feature"], r["window"]): r for r in
+              monitoring_mod.coverage(_cov_base, current_df=_cov_drop)}
+check("an unstable structural-feature drop still escalates "
+      "(weather-truncation class keeps its alarm)",
+      _cov_rows2[("temp_f", "current")]["status"] == "STARVED"
+      and _cov_rows2[("temp_f", "baseline")]["status"] == "LOW_COVERAGE"
+      and _cov_rows2[("rest_days_home", "current")]["status"] == "STRUCTURAL",
+      f"collapsed temp_f={_cov_rows2[('temp_f', 'current')]['status']}, "
+      f"its baseline={_cov_rows2[('temp_f', 'baseline')]['status']}")
+
+_cov_nopol_base = pd.DataFrame({"elo_diff": [np.nan] * 80 + [1.0] * 20})
+_cov_nopol_cur = pd.DataFrame({"elo_diff": [np.nan] * 48 + [2.0] * 12})
+_rows3 = monitoring_mod.coverage(_cov_nopol_base, current_df=_cov_nopol_cur)
+check("features without a declared policy keep the raw thresholds "
+      "(never STRUCTURAL)",
+      _rows3[0]["status"] == "STARVED" and _rows3[1]["status"] == "STARVED",
+      f"{_rows3[0]['status']}/{_rows3[1]['status']} (20% measured, raw "
+      "threshold: STARVED < 25%)")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)

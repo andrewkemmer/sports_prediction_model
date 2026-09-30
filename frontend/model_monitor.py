@@ -280,12 +280,16 @@ if coverage:
     )
     n_starved = sum(1 for r in coverage if r.get("status") == "STARVED")
     n_low = sum(1 for r in coverage if r.get("status") == "LOW_COVERAGE")
+    n_struct = sum(1 for r in coverage if r.get("status") == "STRUCTURAL")
     sub = (
         f"<span style='color:{utils.RED};font-weight:700;'>{n_starved} starved</span>"
         f" · <span style='color:{utils.AMBER};font-weight:700;'>{n_low} low</span>"
         if (n_starved or n_low) else
         "<span style='color:#4ADE80;font-weight:700;'>all windows healthy</span>"
     )
+    if n_struct:
+        sub += (f" · <span style='color:#64748B;'>{n_struct} structural "
+                "(documented policy)</span>")
     st.markdown(
         f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
         f"Share of games in each drift window with a real observation per feature — {sub}</div>",
@@ -300,9 +304,20 @@ if coverage:
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
-        color = utils.RED if status == "STARVED" else (
-            utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
-        pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn", "STARVED": "alert"}.get(status, "ok")
+        # STRUCTURAL (NFL 2026-09-29): the backend classifies a feature whose
+        # manifest missing_value_policy DECLARES the absent slice (indoor
+        # weather games, season openers, the week-1 player-rating cold start)
+        # as STRUCTURAL when the rate is stable across windows — absence by
+        # documented design, not starvation. Render calm (muted, not amber)
+        # with the declared reason; an unstable drop still arrives as
+        # LOW_COVERAGE/STARVED and keeps its alarm.
+        if status == "STRUCTURAL":
+            color = "#64748B"
+        else:
+            color = utils.RED if status == "STARVED" else (
+                utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
+        pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn", "STARVED": "alert",
+                    "STRUCTURAL": "ok"}.get(status, "ok")
         default_cell = (
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>"
             f"{n_def} default-zero</div>" if n_def else "")
@@ -311,7 +326,12 @@ if coverage:
         # windows is the FEATURE's structure, not a fetch regression. Label
         # it so permanent amber reads as known, not as a new incident.
         structural = ""
-        if r.get("feature", "").startswith("exp2_cat_") \
+        if status == "STRUCTURAL":
+            reason = r.get("structural_reason") or "documented missing-value policy"
+            structural = (
+                f"<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
+                f"margin-top:1px;'>structural: {reason}</div>")
+        elif r.get("feature", "").startswith("exp2_cat_") \
                 and "offspeed" in r.get("feature", ""):
             structural = (
                 "<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
@@ -339,6 +359,8 @@ if coverage:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
+          STRUCTURAL = absent by the feature's documented missing-value policy
+          (rate stable across windows).
           {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
         </div>
         """,

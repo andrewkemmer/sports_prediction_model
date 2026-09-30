@@ -915,9 +915,13 @@ def main(argv: list[str] | None = None) -> int:
     _starved = [c for c in cov_rows
                 if isinstance(c, dict) and c.get("status") in ("STARVED",
                                                                "LOW_COVERAGE")]
+    _structural = [c for c in cov_rows
+                   if isinstance(c, dict) and c.get("status") == "STRUCTURAL"]
     logger.info("monitoring: %d features scored, %d drift (ALERT/WARN), "
-                "%d insufficient-window, %d coverage (STARVED/LOW)",
-                len(drift), len(_verdicts), len(_no_verdict), len(_starved))
+                "%d insufficient-window, %d coverage (STARVED/LOW), "
+                "%d coverage structural (documented policy)",
+                len(drift), len(_verdicts), len(_no_verdict), len(_starved),
+                len(_structural))
     for _d in _verdicts + _no_verdict:
         # Report the value the verdict was actually made on. status is gated on
         # psi_adjusted (and a location gate), so pairing it with raw psi made
