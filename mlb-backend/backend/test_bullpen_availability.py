@@ -921,37 +921,147 @@ def test_pitcher_availability_ledger_is_a_committed_runtime_input():
     con.execute(f"""
         CREATE TABLE bp_day2 AS
         WITH d2 AS (
-            SELECT o.team, o.game_date AS day,
+            SELECT g.game_pk, o.team,
                    SUM(o.n_pitches) AS pitches_2d,
                    SUM(o.n_pitches * o.ready_p) AS ready_pitches_2d
             FROM (
                 SELECT o.game_date, o.team, o.pitcher, o.n_pitches,
-                       g.gd AS ref_day,
                        CASE WHEN {_d2_ledger} THEN 0.0
                             WHEN o.n_pitches < 20 THEN 0.25
                             WHEN o.n_pitches < 35 THEN 0.13
                             ELSE 0.007 END AS ready_p
-                FROM bp_outing o
-                JOIN game_days g
-                  ON (o.team = g.home_team OR o.team = g.away_team)
-                 AND o.game_date < g.gd
-                 AND o.game_date >= g.gd - INTERVAL 2 DAY) o
+                FROM bp_outing o) o
+            JOIN game_days g
+              ON (o.team = g.home_team OR o.team = g.away_team)
+             AND o.game_date = g.gd - INTERVAL 1 DAY
             GROUP BY 1, 2)
         SELECT g2.gd AS ref_day, g2.game_pk, g2.home_team, g2.away_team,
                hh.pitches_2d AS home_pitches_2d,
                hh.ready_pitches_2d AS home_ready_2d
         FROM game_days g2
-        LEFT JOIN d2 hh ON hh.team = g2.home_team
-                       AND hh.day = g2.gd - INTERVAL 1 DAY
+        LEFT JOIN d2 hh ON hh.game_pk = g2.game_pk
+                       AND hh.team = g2.home_team
     """)
     n, pitches, ready = con.execute(
         "SELECT COUNT(*), SUM(home_pitches_2d), SUM(home_ready_2d) "
         "FROM bp_day2").fetchone()
-    # shipped semantics: d2 groups per outing-date and attaches at
-    # gd-1d exactly -> only the 06-09 outing (30 pitches) counts; its
-    # staircase ran UNFILTERED (no ledger -> FALSE predicate, no 0.0
-    # override): 30 * 0.13 = 3.9 ready, mirrored x2 by the two game rows
+    # shipped semantics (corrected 2026-09-30): d2 groups per (game_pk,
+    # side) and each outing joins only its single consuming game-day, so
+    # the 06-09 outing (30 pitches) counts ONCE per game — its staircase
+    # ran UNFILTERED (no ledger -> FALSE predicate, no 0.0 override):
+    # 30 * 0.13 = 3.9 ready. The fixture's two game rows are BOS-home
+    # mirrors, so the per-game budget of 30/3.9 legitimately appears on
+    # both rows (SUM = 60.0/7.8). The OLD per-(team, day) grouping would
+    # have double-counted the outing INTO one 60-pitch group; the
+    # double-count detector lives in
+    # test_bp_day2_no_doubleheader_fan_and_no_double_count.
     assert n == 2 and pitches == 60.0 and abs(ready - 7.8) < 1e-6
+
+
+def test_bp_day2_no_doubleheader_fan_and_no_double_count():
+    """Execution regression for the 2026-09-30 game_level fan (production
+    shipped 164 game_pks x 4 duplicate rows; +0.0059 walk-forward logloss).
+
+    Two stacked bugs, both fixed in bp_day2/bp_fatigue and both asserted
+    here against the LIFTED production SQL on a same-opponent doubleheader
+    fixture (pk 100/101 on 06-10, BOS home both legs):
+      1. FAN: bp_fatigue joined bp_day2 on (ref_day, team) — both DH legs
+         matched both bp_day2 rows per side, fanning game_level x4.
+         Fix: join by game_pk (+ side).
+      2. DOUBLE-COUNT: the inner d2 window joined each outing to EVERY
+         following game in its prior-2-day window and grouped per
+         (team, outing-date), so a 30+20 pitch prior day shipped as 100
+         (x2 here, x3 before a twin bill). Fix: scope each outing to its
+         single consuming game-day (gd-1) and group per (game_pk, team)."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+
+    def lift(name, start):
+        j0 = src.index(f"CREATE TABLE {name} AS", start)
+        return src[j0:src.index('\"\"\"', j0)]
+
+    con = duckdb.connect(database=":memory:")
+    # Same-opponent twin bill 06-10 + a BOS game 06-09 (feeds the DH's
+    # prior-day bullpen state) + a BOS game 06-11 (back-to-back consumer).
+    con.register("p_reg", pd.DataFrame({
+        "game_pk": [90, 100, 101, 110],
+        "game_date": pd.to_datetime(
+            ["2026-06-09", "2026-06-10", "2026-06-10", "2026-06-11"]),
+        "home_team": ["BOS"] * 4, "away_team": ["NYY"] * 4,
+        "inning": [1] * 4, "inning_topbot": ["Top"] * 4,
+        "pitcher": [700] * 4, "events": ["strikeout"] * 4,
+        "at_bat_number": [1] * 4, "pitch_number": [1] * 4,
+    }))
+    con.execute("CREATE TABLE pitches AS SELECT CAST(game_date AS DATE) AS "
+                "game_date, game_pk, home_team, away_team, inning, "
+                "inning_topbot, pitcher, events, at_bat_number, pitch_number "
+                "FROM p_reg")
+    con.execute("CREATE TABLE starters AS SELECT game_pk, 700 AS "
+                "home_starter_id, 800 AS away_starter_id FROM pitches")
+    con.register("bo_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(
+            ["2026-06-09", "2026-06-09", "2026-06-10"]),
+        "game_pk": [90, 90, 100], "team": ["BOS"] * 3,
+        "pitcher": [900, 901, 900], "n_pitches": [30.0, 20.0, 40.0],
+    }))
+    con.execute("CREATE TABLE bp_outing AS SELECT "
+                "CAST(game_date AS DATE) AS game_date, game_pk, team, "
+                "pitcher, n_pitches FROM bo_reg")
+
+    # bp_day2 with the ledger fragment bound FALSE (no ledger table)
+    con.execute(lift("bp_daily", 0).replace("{_BP_SPENT_PITCHES}", "35"))
+    d2_sql = lift("bp_day2", 0).replace("{_d2_ledger}", "FALSE")
+    con.execute(d2_sql)
+    con.execute(lift("bp_fatigue", 0))
+
+    # Fix 2: one row per consuming game_pk (every game, LEFT JOIN from the
+    # games list — pk 90 has no prior-day outing -> NULLs); the 06-09 pair
+    # (30 + 20 pitches) counts ONCE per DH leg. Staircase: 30 -> 0.13,
+    # 20 -> 0.13 (the <20 tier is 0.25), 40 -> 0.007.
+    rows = con.execute("SELECT game_pk, home_pitches_2d, home_ready_2d, "
+                       "away_pitches_2d FROM bp_day2 "
+                       "ORDER BY game_pk").fetchall()
+    assert rows == [
+        (90, None, None, None),
+        (100, 50.0, 30 * 0.13 + 20 * 0.13, None),
+        (101, 50.0, 30 * 0.13 + 20 * 0.13, None),
+        (110, 40.0, 40 * 0.007, None),
+    ], f"bp_day2 fanned or double-counted: {rows}"
+
+    # Fix 1: exactly one bp_fatigue row per game_pk — the two DH legs keep
+    # IDENTICAL prior-day budgets but remain distinct rows (no x4 fan).
+    fat = con.execute(
+        "SELECT game_pk, bullpen_budget_2d_home, bp_ready_share_home, "
+        "bullpen_budget_2d_away FROM bp_fatigue ORDER BY game_pk"
+    ).fetchall()
+    assert [f[0] for f in fat] == [90, 100, 101, 110], \
+        f"bp_fatigue row set fanned: {fat}"
+    by_pk = {f[0]: f for f in fat}
+    assert by_pk[100][1] == 50.0 and by_pk[101][1] == 50.0
+    assert abs(by_pk[100][2] - (6.5 / 50.0 / 0.25)) < 1e-9
+    assert by_pk[100][1] == by_pk[101][1]
+    # back-to-back consumer (06-11) sees ONLY the 06-10 outing (40 pitches)
+    # — the 06-09 pair is outside its single consuming game-day slice.
+    assert by_pk[110][1] == 40.0, f"double-count survived: {by_pk[110]}"
+    # away side stays NULL on this fixture (NYY never consumed a home row)
+    assert all(f[3] is None for f in fat), f"away side leaked: {fat}"
+
+
+def test_decided_frame_dup_tripwire_present():
+    """master_pipeline must refuse to train on a fanned decided frame.
+
+    get_decided_frame's Rule 3 dedups by game_pk (latest game_date wins),
+    which would SILENTLY collapse a fanned frame while keeping whichever
+    duplicate copy sorts last — after the daily Elo/records enrichment
+    that is the leaky post-game-snapshot copy. The tripwire checks the
+    RAW frame instead and raises before training."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "duplicated game_pk rows" in src
+    assert "refusing to train on it" in src
+    tw = src[src.index("_decided_raw = games"):
+             src.index("refusing to train on it")]
+    assert 'games["home_win"].notna()' in tw, (
+        "tripwire must inspect the RAW decided rows, not the "
+        "Rule-3-deduped snapshot")
 
 
 def test_gated_sp_tables_execute_end_to_end(tmp_path):

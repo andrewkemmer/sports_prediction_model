@@ -1584,13 +1584,17 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute(f"""
         CREATE TABLE bp_day2 AS
         WITH d2 AS (
-            SELECT o.team, o.game_date AS day,
+            -- One row per (consuming game_pk, side): each outing feeds
+            -- exactly one game-day (o.game_date = g.gd - 1 DAY, the slice
+            -- the outer attach reads) instead of being counted once per
+            -- EVERY following game in the prior-2-day window. The old
+            -- per-(team, outing-date) grouping multiplied a back-to-back
+            -- team's budget by its following-game count (x2 on every
+            -- two-games-in-three-days stretch, x3 before a twin bill) and
+            -- re-added the same pitches once per doubleheader leg.
+            SELECT g.game_pk, g.gd AS ref_day, o.team,
                    SUM(o.n_pitches) AS pitches_2d,
-                   SUM(o.n_pitches * o.ready_p) AS ready_pitches_2d,
-                   COUNT(*) AS n_arms
-            FROM (
-                SELECT o.game_date, o.team, o.pitcher, o.n_pitches,
-                       g.gd AS ref_day,
+                   SUM(o.n_pitches *
                        CASE
                          -- Ledger as of the REFERENCE game date: an arm
                          -- placed on the IL AFTER he pitched (the normal
@@ -1600,14 +1604,14 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                              THEN 0.0
                          WHEN o.n_pitches < 20 THEN 0.25
                          WHEN o.n_pitches < 35 THEN 0.13
-                         ELSE 0.007 END AS ready_p
-                FROM bp_outing o
-                JOIN (SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
-                             home_team, away_team FROM pitches) g
-                  ON (o.team = g.home_team OR o.team = g.away_team)
-                 AND o.game_date < g.gd AND o.game_date >= g.gd - INTERVAL 2 DAY
-            ) o
-            GROUP BY 1, 2
+                         ELSE 0.007 END) AS ready_pitches_2d,
+                   COUNT(*) AS n_arms
+            FROM bp_outing o
+            JOIN (SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                         home_team, away_team FROM pitches) g
+              ON (o.team = g.home_team OR o.team = g.away_team)
+             AND o.game_date = g.gd - INTERVAL 1 DAY
+            GROUP BY 1, 2, 3
         )
         SELECT g2.gd AS ref_day, g2.game_pk, g2.home_team, g2.away_team,
                hh.pitches_2d AS home_pitches_2d,
@@ -1616,10 +1620,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                aa.ready_pitches_2d AS away_ready_2d
         FROM (SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
                      home_team, away_team FROM pitches) g2
-        LEFT JOIN d2 hh ON hh.team = g2.home_team
-                       AND hh.day = g2.gd - INTERVAL 1 DAY
-        LEFT JOIN d2 aa ON aa.team = g2.away_team
-                       AND aa.day = g2.gd - INTERVAL 1 DAY
+        LEFT JOIN d2 hh ON hh.game_pk = g2.game_pk AND hh.team = g2.home_team
+        LEFT JOIN d2 aa ON aa.game_pk = g2.game_pk AND aa.team = g2.away_team
     """)
 
     con.execute("""
@@ -1672,23 +1674,25 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                h.ip_3d AS bullpen_ip_3d_home,
                a.pitches_3d AS bullpen_pitches_3d_away,
                a.ip_3d AS bullpen_ip_3d_away,
-               d2h.home_pitches_2d AS bullpen_budget_2d_home,
-               d2a.away_pitches_2d AS bullpen_budget_2d_away,
-               CASE WHEN COALESCE(d2h.home_pitches_2d, 0) > 0
-                    THEN d2h.home_ready_2d / d2h.home_pitches_2d
+               d2.home_pitches_2d AS bullpen_budget_2d_home,
+               d2.away_pitches_2d AS bullpen_budget_2d_away,
+               CASE WHEN COALESCE(d2.home_pitches_2d, 0) > 0
+                    THEN d2.home_ready_2d / d2.home_pitches_2d
                          / 0.25 END
                     AS bp_ready_share_home,
-               CASE WHEN COALESCE(d2a.away_pitches_2d, 0) > 0
-                    THEN d2a.away_ready_2d / d2a.away_pitches_2d
+               CASE WHEN COALESCE(d2.away_pitches_2d, 0) > 0
+                    THEN d2.away_ready_2d / d2.away_pitches_2d
                          / 0.25 END
                     AS bp_ready_share_away
         FROM games g
         LEFT JOIN home_load h ON g.game_pk = h.game_pk
         LEFT JOIN away_load a ON g.game_pk = a.game_pk
-        LEFT JOIN bp_day2 d2h ON d2h.ref_day = g.gd
-                             AND d2h.home_team = g.home_team
-        LEFT JOIN bp_day2 d2a ON d2a.ref_day = g.gd
-                             AND d2a.away_team = g.away_team
+        -- bp_day2 is ONE row per game_pk carrying both sides' values
+        -- (home_* / away_*), so a single game_pk join. The old
+        -- (ref_day, team) key matched BOTH legs of a same-opponent
+        -- doubleheader per side and fanned game_level x4 per twin bill
+        -- (164 game_pks x 4 duplicate rows shipped to training).
+        LEFT JOIN bp_day2 d2 ON d2.game_pk = g.game_pk
     """)
     con.execute("""
         CREATE TABLE bullpen_shifted AS

@@ -1990,6 +1990,30 @@ def run_daily_pipeline(
         # official results on target_games) cannot create a fold-signature
         # desync between training and drift.
         _decided_snapshot = get_decided_frame(games)
+        # Training-frame integrity tripwire, checked on the RAW frame:
+        # get_decided_frame dedups by game_pk (Rule 3), so a fanned frame
+        # is silently collapsed there — keeping whichever duplicate copy
+        # sorts last, which after the daily Elo/records enrichment is the
+        # LEAKY copy (its win_pct/elo already carry the game's own outcome;
+        # 2026-09-30: bp_fatigue's bp_day2 join keyed on (ref_day, team)
+        # fanned every same-opponent doubleheader x4 and Rule 3 kept the
+        # post-game-Elo copy, costing ~+0.0059 walk-forward logloss vs the
+        # pre-bundle baseline). Fail loudly at build time instead.
+        _decided_raw = games[games["home_win"].notna()] \
+            if "home_win" in games.columns else games
+        if "game_pk" in _decided_raw.columns:
+            _pk_series = _decided_raw["game_pk"]
+            _dup_pks = _pk_series.notna() & _pk_series.duplicated(keep=False)
+        else:
+            _dup_pks = pd.Series(dtype=bool)
+        if bool(_dup_pks.any()):
+            _fan_n = int(_dup_pks.sum())
+            _fan_pks = (_decided_raw.loc[_dup_pks, "game_pk"]
+                        .drop_duplicates().head(5).tolist())
+            raise RuntimeError(
+                f"decided frame has {_fan_n} duplicated game_pk rows "
+                f"(e.g. {_fan_pks}) — an upstream enrichment join fanned "
+                "the training frame; refusing to train on it")
         import hashlib as _hb
         _snap_pks = _decided_snapshot["game_pk"].tolist() if "game_pk" in _decided_snapshot.columns else []
         _snap_hash = _hb.sha256("|".join(str(p) for p in _snap_pks).encode()).hexdigest()[:12]
