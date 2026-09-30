@@ -18,6 +18,7 @@ Pins:
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -795,3 +796,26 @@ def test_shrinkage_volumes_and_degenerate_prior_paths():
              src.index('"""', src.index("CREATE TABLE bp_shrink_prior AS"))]
     assert "il_stints_pitchers" in pr and "bp_spent" in pr
     assert "COALESCE" in pr and "GREATEST" in pr
+
+
+def test_bp_fstring_constants_resolve():
+    """Every {_BP_*} placeholder in features.py f-strings must exist as a
+    module-level constant, with the production-calibrated values pinned.
+
+    Regression guard for the 2026-09-30 Kaggle failure: the spent-window
+    tighten commit deleted _BP_SPENT_PITCHES while editing the comment
+    block above it. imports and py_compile stayed green (the f-string only
+    evaluates the name when _build_game_level RUNS), and no test executed
+    the SQL (smokes inline constants manually) — so only the production
+    build could catch it. This test catches it locally instead."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+    placeholders = set(re.findall(r"\{_BP_[A-Z_0-9]+\}", src))
+    assert placeholders, "expected _BP_* f-string placeholders in features.py"
+    missing = [p for p in sorted(placeholders)
+               if not hasattr(features, p[1:-1])]
+    assert not missing, (
+        f"f-string placeholders without module constants: {missing}")
+    # the production calibration values themselves, so a silent semantic
+    # drift (not just a deletion) fails here too
+    assert features._BP_SPENT_PITCHES == 35
+    assert features._BP_SPENT_LOOKBACK_DAYS == 2

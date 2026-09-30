@@ -234,6 +234,14 @@ _BP_READY_P_HEAVY = 0.007            # 35+ pitches (sits tomorrow)
 # raw by design: the budget IS its signal. Window is STRICTLY the
 # availability fact (arms return 18%+ by day 3, so day 3+ is a manager-
 # trust question, not an availability fact); revisit via the member gate.
+# REGRESSION NOTE (2026-09-30, Kaggle run): the 4d->2d tighten commit
+# accidentally deleted the _BP_SPENT_PITCHES line below, which only
+# surfaces at build time (the bp_spent f-string evaluates the name when
+# _build_game_level runs) — imports and py_compile stay green. Restored
+# verbatim from e0b5003; test_bp_fstring_constants_resolve now pins every
+# _BP_* placeholder so this class of deletion cannot ship silently again.
+_BP_SPENT_PITCHES = 35               # prior-outing ceiling for the spent
+                                     # exclusion (P(appear) = 0.007 at 1d)
 _BP_SPENT_LOOKBACK_DAYS = 2          # strict availability rule: P(appear)
                                      # 0.007 @ 1d / 0.066 @ 2d, both below the
                                      # 0.13 doubtful bar; arms return 18%+ by
