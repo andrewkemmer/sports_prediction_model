@@ -440,6 +440,18 @@ def test_nba_monitor_tab_uses_nba_config_and_renders_sections(nba_artifacts) -> 
     assert "Model Version History" in text
     assert "config unavailable" not in text
     assert "max depth 3" in text and "lr 0.1097" in text
+    # Member cards derive from the NBA backend's own config, and the
+    # protocol narrative matches the trainer (2026-09-29 remediation: the
+    # old card shipped whichever sport's `config` module won the sys.path
+    # race — MLB's numbers on the NBA lgbm card — plus a backwards
+    # imputation claim; trees receive raw NaN, median imputation is the
+    # linear members' path, and the early-stop watch is the train-fold tail).
+    assert "max depth 4" in text and "lr 0.03" in text and "61 rounds" in text
+    assert "TAIL OF THE TRAINING FOLD" in text
+    assert "Trees receive raw NaN" in text
+    assert ("Train-median imputation replaces the old native-NaN routing"
+            not in text)
+    assert "early-stopped on each fold's validation window" not in text
     assert len(app.get("vega_lite_chart")) >= 1
 
 
@@ -455,25 +467,34 @@ def test_nba_markets_tab_dispatches_to_nba_page(nba_artifacts) -> None:
 
 
 def test_all_nba_tabs_have_honest_missing_artifact_states(monkeypatch) -> None:
-    # The repository currently has no production NBA delivery directory.  If
-    # a developer has one, temporarily hide only the fixture names this suite
-    # owns; this test still asserts the page-level empty states below.
+    # The delivery directory is a real production channel: since 2026-09-26
+    # main carries dated artifacts, and a run's sync can add new prefixes
+    # (shap_game_*.csv etc.) at any time. Hiding only the fixture names went
+    # red the moment real artifacts landed; the honest empty state is
+    # asserted against a TRULY hidden directory — every NBA artifact is
+    # backed up byte-for-byte and restored (never deleted).
+    hidden: list[tuple[Path, bytes]] = []
     with _staged_nba_artifacts(monkeypatch):
-        for name in STAGED_NAMES:
-            path = NBA_DD / name
-            if path.exists():
-                path.unlink()
-        st.cache_data.clear()
-        expectations = {
-            "todays_games.py": "No NBA per-game moneyline rows available.",
-            "power_rankings.py": "No power rankings found",
-            "model_calibration.py": "No calibration artifacts found",
-            "model_monitor.py": "No model monitor artifacts found",
-            "markets.py": "No usable NBA run-engine markets artifact",
-        }
-        for filename, needle in expectations.items():
-            app = _run_page(filename)
-            assert needle in _all_text(app), (filename, _all_text(app))
+        try:
+            for path in sorted(NBA_DD.glob("*")):
+                if path.is_file():
+                    hidden.append((path, path.read_bytes()))
+                    path.unlink()
+            st.cache_data.clear()
+            expectations = {
+                "todays_games.py": "No NBA per-game moneyline rows available.",
+                "power_rankings.py": "No power rankings found",
+                "model_calibration.py": "No calibration artifacts found",
+                "model_monitor.py": "No model monitor artifacts found",
+                "markets.py": "No run-engine markets artifact for",
+            }
+            for filename, needle in expectations.items():
+                app = _run_page(filename)
+                assert needle in _all_text(app), (filename, _all_text(app))
+        finally:
+            for path, data in reversed(hidden):
+                path.write_bytes(data)
+            st.cache_data.clear()
 
 
 class TestCardStartTimeAndMatchup:

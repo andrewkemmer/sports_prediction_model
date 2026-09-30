@@ -203,6 +203,14 @@ def _mlb_monitor_record() -> dict:
         "date": ARTIFACT_DATE,
         "feature_drift": drift,
         "features_metadata": served,
+        # Member-card numbers must derive from EACH sport's own backend
+        # config; the MLB leg pins the per-sport isolation (the 2026-09-29
+        # defect: one process, one `config` module — the first sport
+        # imported mislabeled the second sport's card).
+        "ensemble": [
+            {"name": "xgboost", "weight": 0.6, "auc": 0.585, "brier": 0.21,
+             "logloss": 0.63, "n_eval": 273},
+        ],
     }
 
 
@@ -414,9 +422,26 @@ def run() -> int:
             if not _degenerate_ok:
                 print("  - degenerate served summary (== bare name) not ignored")
             return 1
+        # (8) per-sport member-card derivation: the MLB leg runs AFTER the
+        #     NFL leg in the SAME process, so a sys.modules-borne `config`
+        #     from the first sport would mislabel this card (the exact
+        #     2026-09-29 production defect: the NBA page rendered MLB's
+        #     "max depth 6, lr 0.0332, 50 rounds"). Both sports' xgboost sit
+        #     at max depth 2, so the LEARNING RATE is the discriminator:
+        #     MLB derives lr 0.055; NFL's lr 0.005026... must not leak in.
+        if "lr 0.055" not in mlb_text:
+            print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
+            print("  - MLB member card missing its own config numbers "
+                  "(lr 0.055)")
+            return 1
+        if "lr 0.005026" in mlb_text:
+            print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
+            print("  - cross-sport leak: the NFL card's learning rate "
+                  "reached the MLB member card")
+            return 1
         print("  - sport=mlb path clean (no exception)")
-        print("  - served-metadata labels win; dict fallback + degenerate "
-              "summary guard intact")
+        print("  - member cards derive per sport; served-metadata labels "
+              "win; dict fallback + degenerate summary guard intact")
         return 0
     finally:
         _remove_artifacts()

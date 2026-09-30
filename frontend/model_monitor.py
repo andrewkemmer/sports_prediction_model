@@ -9,7 +9,9 @@ history table.
 from __future__ import annotations
 
 import html
+import importlib.util
 from datetime import date
+from pathlib import Path
 
 import altair as alt
 import pandas as pd
@@ -352,63 +354,101 @@ st.markdown("### Model Ensemble")
 ensemble = mon.get("ensemble") or []
 
 
-def _xgb_desc() -> str:
-    """Derive XGBoost card text from the deployed config so it cannot drift."""
+# ---------------------------------------------------------------------------
+# Member-card texts, derived from the SELECTED sport's backend at render time.
+#
+# 2026-09-29 defect, remediated here: the old builders did ``import config``
+# via sys.path, so in a multi-sport Streamlit process whichever sport's
+# backend landed in sys.modules first silently fed EVERY sport's card its
+# numbers (the NBA lgbm card shipped with MLB's "max depth 6, lr 0.0332, 50
+# rounds"), and the module-level dict froze one sport's narrative at import
+# time. The narrative itself had also drifted from the code: xgboost's fold
+# fits early-stop on a TRAIN-FOLD TAIL (never the scored validation window)
+# and the trees receive raw NaN — median imputation is the linear members'
+# path only (see each backend's moneyline.LINEAR_MEMBERS / manifest
+# missing_value_policy). Numbers below are therefore loaded BY FILE PATH per
+# sport (collision-immune) and every protocol sentence is per-sport true.
+# ---------------------------------------------------------------------------
+_MEMBER_DESC_CACHE: dict[str, dict[str, str]] = {}
+
+
+def _load_sport_config(sport: str):
+    """Exec the selected sport's backend config.py by resolved FILE PATH.
+
+    Never touches sys.path or sys.modules: two sports' configs can coexist
+    without one shadowing the other, and a stale ``config`` in sys.modules
+    can no longer answer for a sport it does not belong to.
+    """
     try:
-        import sys
-        from pathlib import Path
-        sport = utils.get_sport()
         repo_subdir = utils.resolve_sport(sport).get("repo_subdir", "")
-        _backend = Path(__file__).resolve().parents[1] / repo_subdir / "backend"
-        if str(_backend) not in sys.path:
-            sys.path.insert(0, str(_backend))
-        from config import XGBOOST_PARAMS  # type: ignore[import-untyped]
-        p = XGBOOST_PARAMS
+        cfg_path = (Path(__file__).resolve().parents[1] / repo_subdir
+                    / "backend" / "config.py")
+        spec = importlib.util.spec_from_file_location(
+            f"_spsm_member_cfg_{sport}", cfg_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)  # constants-only file; no side effects
+        return module
     except Exception:
-        return "XGBoost — config unavailable."
-    learn = p.get("learning_rate", "?")
-    depth = p.get("max_depth", "?")
+        return None
+
+
+def _num(v) -> str:
+    """Exact repr for a config constant (no silent rounding)."""
+    return str(v) if isinstance(v, (int, float)) else "?"
+
+
+def _xgb_card(sport: str, p: dict) -> str | None:
+    if not p:
+        return None
+    rounds = (f"{_num(p['n_estimators'])} rounds, "
+              if "n_estimators" in p else "")
+    # The early-stop protocol is per-sport fact, verified against each
+    # backend's trainer (nba moneyline train-tail watch; mlb/nhl refit at
+    # prior folds' best rounds; nfl fixed budget, no eval_set at all).
+    protocol = {
+        "nba": ("Early stop watches a chronological TAIL OF THE TRAINING "
+                "FOLD — never the scored validation window."),
+        "mlb": ("The fold fit probes early stopping on the validation "
+                "window, then the SHIPPED model refits at the median of "
+                "prior folds' measured best rounds."),
+        "nhl": ("The shipped fold model refits at the median of prior "
+                "folds' early-stopped best rounds — never its own window."),
+        "nfl": ("Fits a fixed round budget with no validation-window "
+                "early stop."),
+    }.get(sport)
+    protocol_txt = f" {protocol}" if protocol else ""
     return (
-        f"Gradient-boosted decision trees (max depth {depth}, lr {learn}, "
-        "early-stopped on each fold's validation window, logloss eval). "
-        "Train-median imputation replaces the old native-NaN routing — "
-        "the Optuna winner picked it over raw NaN splitting."
+        f"Gradient-boosted decision trees (max depth {_num(p.get('max_depth'))}, "
+        f"lr {_num(p.get('learning_rate'))}, {rounds}logloss eval)."
+        f"{protocol_txt} Trees receive raw NaN — native missing-value routing, "
+        "the Optuna winner over imputation (median imputation is the linear "
+        "members' path)."
     )
 
 
-def _lgbm_desc() -> str:
-    """Derive LightGBM card text from the deployed config."""
-    try:
-        import sys
-        from pathlib import Path
-        sport = utils.get_sport()
-        repo_subdir = utils.resolve_sport(sport).get("repo_subdir", "")
-        _backend = Path(__file__).resolve().parents[1] / repo_subdir / "backend"
-        if str(_backend) not in sys.path:
-            sys.path.insert(0, str(_backend))
-        from config import LIGHTGBM_PARAMS  # type: ignore[import-untyped]
-        p = LIGHTGBM_PARAMS
-    except Exception:
-        return "LightGBM — config unavailable."
-    learn = p.get("learning_rate", "?")
-    depth = p.get("max_depth", "?")
+def _lgbm_card(p: dict) -> str | None:
+    if not p:
+        return None
     return (
-        f"Leaf-wise histogram gradient boosting (max depth {depth}, lr {learn}, "
-        f"{p.get('n_estimators', '?')} rounds, logloss eval). Grows deeper "
-        "loss-guided trees than XGBoost at the same budget; routes missing "
-        "values natively."
+        f"Leaf-wise histogram gradient boosting (max depth {_num(p.get('max_depth'))}, "
+        f"lr {_num(p.get('learning_rate'))}, {_num(p.get('n_estimators'))} "
+        "rounds, logloss eval). Grows deeper loss-guided trees than XGBoost "
+        "at the same budget; routes missing values natively."
     )
 
 
-ENSEMBLE_DESCRIPTIONS = {
-    "xgboost": _xgb_desc(),
-    "lightgbm": _lgbm_desc(),
-    "elasticnet": (
-        "Elastic-net logistic (50/50 L1/L2 mix, C=0.03) over the standardized "
-        "diff-feature slice — the linear-family anchor. The mixed penalty prunes "
-        "redundant correlated features while shrinking the rest; strongly "
-        "regularized after the member-audit program (~6σ better OOF)."
-    ),
+def _enet_card(p: dict) -> str:
+    c = p.get("C", 0.03) if p else 0.03
+    return (
+        f"Elastic-net logistic (50/50 L1/L2 mix, C={_num(c)}) over the "
+        "standardized diff-feature slice — the linear-family anchor. The "
+        "mixed penalty prunes redundant correlated features while shrinking "
+        "the rest; strongly regularized after the member-audit program "
+        "(~6σ better OOF)."
+    )
+
+
+_LEGACY_MEMBER_TEXTS = {
     "randomforest": (
         "(Legacy seat) bagged trees — removed from the 2026-09 roster; kept "
         "routable so cached pre-roster bundles serve until the next retrain."
@@ -419,6 +459,31 @@ ENSEMBLE_DESCRIPTIONS = {
     ),
 }
 
+
+def _member_description(name: str) -> str | None:
+    """Card text for one ensemble member, derived from the selected sport's
+    own backend config (per-sport cache; unknown members fall through)."""
+    try:
+        sport = utils.normalize_sport_key(utils.get_sport())
+    except Exception:
+        return None
+    cards = _MEMBER_DESC_CACHE.get(sport)
+    if cards is None:
+        module = _load_sport_config(sport)
+        if module is None:
+            return None
+        cards = {
+            "xgboost": _xgb_card(sport,
+                                 dict(getattr(module, "XGBOOST_PARAMS", {}) or {})),
+            "lightgbm": _lgbm_card(
+                dict(getattr(module, "LIGHTGBM_PARAMS", {}) or {})),
+            "elasticnet": _enet_card(
+                dict(getattr(module, "ELASTICNET_PARAMS", {}) or {})),
+            **_LEGACY_MEMBER_TEXTS,
+        }
+        _MEMBER_DESC_CACHE[sport] = cards
+    return cards.get(name)
+
 if ensemble:
     ens_rows = []
     total_weight = 0.0
@@ -426,11 +491,10 @@ if ensemble:
         name = m.get("name", "?")
         w = float(m.get("weight", 0.0))
         total_weight += w
-        desc = ENSEMBLE_DESCRIPTIONS.get(
-            name,
+        default_desc = (
             f"Candidate \u201c{name}\u201d registered in the walk-forward roster."
-            if w == 0.0 else f"Deployed candidate \u201c{name}\u201d.",
-        )
+            if w == 0.0 else f"Deployed candidate \u201c{name}\u201d.")
+        desc = _member_description(name) or default_desc
         auc, brier, ll = m.get("auc"), m.get("brier"), m.get("logloss")
         n_eval = m.get("n_eval") or 0
         metric_txt = lambda v: (f"{v:.4f}" if isinstance(v, (int, float)) else "—")  # noqa: E731
