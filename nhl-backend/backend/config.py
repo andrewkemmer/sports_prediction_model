@@ -358,7 +358,14 @@ ENSEMBLE_WEIGHTS = {
 #     blend full −5.3 bps with xgb re-earning real weight. The regime is
 #     thread-invariant (lightgbm default-vs-pinned proven bit-identical;
 #     xgb 26.7 bps spread across thread regimes), so these numbers are
-#     THE numbers on every machine — tune-adopt decisions are portable.
+#     deterministic on every machine — tune-adopt decisions are portable.
+#     Boundary measured on the 2026-09-29 run: thread-invariance removes
+#     RUN-TO-RUN noise everywhere, and lgbm/elasticnet member evidence
+#     reproduced bit-identically across machines AND library versions;
+#     xgb additionally requires the SERVING environment's build (Kaggle
+#     3.2.0: ll=0.67625 vs local 3.4.0 ll=0.67382 on the same frame), so
+#     raw bit-identity is environment-bound — weights are earned where
+#     the model serves, which keeps serving numbers honest regardless.
 #     LGBM v2 candidate REJECTED: seeds held but sealed reversed −106.4
 #     bps (third documented tune-gain-does-not-survive-the-holdout).
 #   * Elastic-net remains the shared MLB block.
@@ -372,9 +379,12 @@ XGBOOST_PARAMS = {
     "reg_lambda": 1.8112200716183435,
     "reg_alpha": 0.7554847263809663,
     # Machine-stable regime: single-threaded histogram building removes
-    # thread-order float reductions entirely, so every machine computes
-    # byte-identical trees and the causal budget chain is portable. Also
-    # faster on this geometry (3.0s vs 6.3s per 46-fold walk).
+    # thread-order float reductions, so the walk is run-to-run deterministic
+    # and the causal budget chain is reproducible within an environment
+    # (also faster on this geometry: 3.0s vs 6.3s per 45-fold walk). Note
+    # the separate cross-machine boundary from the 2026-09-29 review: xgb
+    # member evidence is build-sensitive (xgboost 3.2.0 vs 3.4.0 differ),
+    # so bit-portability additionally requires the serving build.
     "nthread": 1,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",

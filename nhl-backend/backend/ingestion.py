@@ -109,6 +109,16 @@ SCORE_KEEP = [
     "home_sog", "away_sog", "venue", "game_state", "game_outcome",
 ]
 
+# A score is only a RESULT once the game has left its in-flight states.
+# /v1/score and gamecenter payloads carry RUNNING scores for LIVE/CRIT games
+# — the 2026-09-29 slate shipped TOR@MTL 1-1 and BOS@NYR 0-0 mid-game, and a
+# 0-0 running score parses as a *decided* 0.0/0.0 tie that no null-filter can
+# catch. Every admission path keys off this set: non-final rows keep their
+# schedule row (the slate must keep serving them) but lose every score-like
+# field, and neither their score page nor their boxscore is ever cached
+# mid-game.
+FINAL_GAME_STATES = frozenset({"OFF", "FINAL"})
+
 # Cache schema versions: bump whenever the keep-list widens so stale caches
 # are ignored rather than silently serving the old column set.
 # v2 adds start_time_utc, which is required to compare local report capture
@@ -530,6 +540,12 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             prog.tick(cached=False)
             rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
             df = pd.DataFrame(rows, columns=SCORE_KEEP)
+            # RUNNING scores are not results: null them at the door so a
+            # mid-game slate can never enter the decided population.
+            pending = ~df["game_state"].isin(FINAL_GAME_STATES)
+            if pending.any():
+                df.loc[pending, ["home_score", "away_score",
+                                 "home_sog", "away_sog"]] = None
             unplayed = (df[df["home_score"].isna()] if len(df) else df)
             n_unplayed = int(len(unplayed))
             game_day = date.fromisoformat(d)
@@ -546,8 +562,8 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
                                 "games excluded from the decided population",
                                 d, n_unplayed)
             else:
-                logger.info("score page %s carries %d unplayed game(s) — not "
-                            "cached, within the %d-day posting lag",
+                logger.info("score page %s carries %d unplayed or in-progress "
+                            "game(s) — not cached, within the %d-day posting lag",
                             d, n_unplayed, SETTLE_GRACE_DAYS)
             frames.append(df)
             # Progress, so a slow or rate-limited pull is VISIBLE. Without it
@@ -566,6 +582,10 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
         logger.info("games with no result (excluded from the decided "
                     "population): %d — %s", len(no_result),
                     ", ".join(f"{gid}@{day}" for day, gid in no_result[:10]))
+    # Empty frames are dropped before concat: an empty/all-NA entry only
+    # degrades the result dtypes (the pandas FutureWarning this exact call
+    # raised in every full run) and contributes no rows.
+    frames = [f for f in frames if len(f)]
     if not frames:
         return pd.DataFrame(columns=SCORE_KEEP)
     return pd.concat(frames, ignore_index=True)
@@ -594,7 +614,16 @@ def season_dates(season: int) -> list[str]:
 def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
     """Filter a schedule frame to the eligible population: settled
     regular-season or postseason games within the configured season window
-    (2024+), with gameType in config.GAME_TYPES."""
+    (2024+), with gameType in config.GAME_TYPES.
+
+    Settled means the score is FINAL: rows still in an in-flight
+    ``game_state`` (LIVE/CRIT/...) keep their schedule row — the serving
+    slate is built from these survivors — but their running scores are
+    nulled, because master_pipeline derives ``decided_all`` from exactly
+    this frame and a running 1-1 is not a result. The re-null here covers
+    rows that did not come from today's ``load_score_dates`` (fixtures,
+    caches written by pre-guard versions).
+    """
     df = schedule.copy()
     df["season"] = pd.to_numeric(df["season"], errors="coerce")
     df = df[df["season"].isin(config.ALL_SEASONS)]
@@ -603,6 +632,10 @@ def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
     for c in ("home_score", "away_score"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "game_state" in df.columns:
+        pending = ~df["game_state"].isin(FINAL_GAME_STATES)
+        if pending.any():
+            df.loc[pending, ["home_score", "away_score"]] = np.nan
     return df.reset_index(drop=True)
 
 
@@ -867,6 +900,17 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                     logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
             try:
                 bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
+                if str(bs.get("gameState") or "") not in FINAL_GAME_STATES:
+                    # A mid-game boxscore freezes partial player stats into a
+                    # per-game cache nothing ever invalidates; behave exactly
+                    # like an unavailable one — warned, skipped, uncached —
+                    # and the settled game pulls fresh on a later run.
+                    logger.warning("boxscore for game %s is %s (not final) — "
+                                   "skipped and never cached; it will be "
+                                   "pulled once the game settles",
+                                   gid, str(bs.get("gameState") or "unknown"))
+                    prog.tick(failed=True)
+                    continue
                 row = _parse_boxscore(bs)
                 df = pd.DataFrame([row], columns=BOXSCORE_COLS)
             except Exception as exc:  # noqa: BLE001
@@ -884,6 +928,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     logger.info("boxscores resolved: %d requested in %d chunk(s), "
                 "%d cache hits, %d fetched",
                 len(game_ids), len(chunks), hits, fetched)
+    frames = [f for f in frames if len(f)]
     if not frames:
         return pd.DataFrame(columns=BOXSCORE_COLS)
     out = pd.concat(frames, ignore_index=True)

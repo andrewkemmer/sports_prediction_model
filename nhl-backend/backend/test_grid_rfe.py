@@ -423,9 +423,14 @@ def test_member_params_nhl_tuned_xgb_plus_mlb_copies():
     The v2 exercise (tmp_audit/TUNING_VERDICT_V2.md; 120 Optuna trials,
     no-fence spaces incl. L1/L2 and the protocol knobs) ran in the
     MACHINE-STABLE regime — xgb nthread=1, so thread-order float
-    reductions are gone and every machine computes byte-identical walks
+    reductions are gone and every walk is run-to-run deterministic
     (xgb member OOF spread 26.7 bps across thread regimes without the
-    pin; the 19:56 zero-weight surprise was that artifact). XGB v2 gates:
+    pin; the 19:56 zero-weight surprise was that artifact). Cross-machine
+    BIT-identity is a separate boundary, measured on the 2026-09-29 run:
+    lgbm/elasticnet reproduce bit-identically across machines and library
+    versions, while xgb additionally requires the serving environment's
+    build (Kaggle 3.2.0 ll=0.67625 vs local 3.4.0 ll=0.67382 on the same
+    frame) — weights are earned where the model serves. XGB v2 gates:
     seeds +33.1/+35.2/+16.2 (all hold), member sealed last-4 +6.3, blend
     full −5.3. The LGBM v2 candidate REVERSED on the sealed last-4
     (−106.4 bps; third documented tune-gain-does-not-survive-the-holdout)

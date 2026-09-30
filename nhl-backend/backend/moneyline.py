@@ -340,7 +340,12 @@ def walk_forward_oof(game_df: pd.DataFrame,
     # xgboost does not (local 0.5942 AUC vs 0.5836 on the 19:56 run). The
     # 0% corner was the optimizer correctly reading THAT machine's honest
     # evidence; these lines make every future corner auditable from the
-    # log alone instead of surprising anyone.
+    # log alone instead of surprising anyone. (2026-09-29 refinement: the
+    # nthread=1 pin removed the within-environment thread noise; lgbm and
+    # elasticnet then reproduced bit-identically across machines AND library
+    # versions, while xgb still tracks its build — Kaggle 3.2.0 ll=0.67625
+    # vs local 3.4.0 ll=0.67382 on the identical frame. Weights are earned
+    # where the model serves, so serving numbers stay honest either way.)
     _y_all = oof["home_win"].to_numpy(dtype=float)
     _member_ll: dict[str, float] = {}
     for _m in config.ENSEMBLE_MEMBERS:

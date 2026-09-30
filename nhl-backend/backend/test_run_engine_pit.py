@@ -200,9 +200,10 @@ def test_boxscore_pull_is_identical_chunked_or_unchunked():
 
     def _fake_http(url):
         # Echo the id back verbatim: _parse_boxscore stores str(payload["id"]),
-        # so the row's game_id matches the caller's id exactly.
+        # so the row's game_id matches the caller's id exactly. Real payloads
+        # always carry gameState; the settled-state guard needs it non-empty.
         gid = url.rsplit("/", 2)[-2]
-        return {"id": gid, "away": {"abbrev": "AAA", "goals": 1},
+        return {"id": gid, "gameState": "OFF", "away": {"abbrev": "AAA", "goals": 1},
                 "home": {"abbrev": "HHH", "goals": 2}}
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -279,7 +280,7 @@ def test_pull_progress_bar_never_breaks_a_run():
 
     def _fake_http(url):
         gid = url.rsplit("/", 2)[-2]
-        return {"id": gid, "away": {"abbrev": "AAA", "goals": 1},
+        return {"id": gid, "gameState": "OFF", "away": {"abbrev": "AAA", "goals": 1},
                 "home": {"abbrev": "HHH", "goals": 2}}
 
     class _Recorder:
@@ -385,6 +386,122 @@ def test_game_with_no_result_is_accounted_for_in_the_log(caplog=None):
     path.unlink(missing_ok=True)
     text = " ".join(r.getMessage() for r in records)
     assert "2024010044" in text, f"the no-result game was not named: {text[:200]}"
+
+
+def test_running_scores_are_null_and_never_cached_mid_game():
+    """A LIVE game's running score is not a result (2026-09-29 regression).
+
+    That slate shipped TOR@MTL 1-1 and BOS@NYR 0-0 mid-game; a 0-0 running
+    score parses as a DECIDED 0.0/0.0 tie that no null-filter can catch, so
+    the row must lose its scores at fetch time and its page must never be
+    cached while a game is in flight — a page cached with every game either
+    final or live would be poisoned forever (cache hits never re-pull).
+    """
+    day = (date.today() - timedelta(days=1)).isoformat()  # inside the lag
+    stamp = day.replace("-", "")
+    path = BACKEND / f"live_{stamp}.parquet"
+    path.unlink(missing_ok=True)
+
+    def _game(gid, state, home, away):
+        return {"id": gid, "gameDate": day, "season": 2026,
+                "awayTeam": {"id": 1, "name": {"default": "A"}, "abbrev": "AAA",
+                             "score": away, "record": "1-1"},
+                "homeTeam": {"id": 2, "name": {"default": "H"}, "abbrev": "HHH",
+                             "score": home, "record": "1-1"},
+                "venue": {"default": "V"}, "gameState": state, "gameType": 2}
+
+    pages = [
+        # First pull: two finals and one game IN PLAY with a running score.
+        {"games": [_game(1, "OFF", 2, 1), _game(2, "OFF", 4, 3),
+                   _game(3, "LIVE", 0, 0)]},
+        # Second pull, same day: the in-play game has since gone final 3-2.
+        {"games": [_game(1, "OFF", 2, 1), _game(2, "OFF", 4, 3),
+                   _game(3, "OFF", 3, 2)]},
+    ]
+    calls = {"n": 0}
+
+    def _fake_http(url):
+        page = pages[min(calls["n"], len(pages) - 1)]
+        calls["n"] += 1
+        return page
+
+    with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+            _mock_patch.object(ing, "_cache_path", side_effect=lambda n: path):
+        df1 = ing.load_score_dates([day], use_cache=True)
+        assert not path.exists(), "a page with an in-flight game was cached"
+        live = df1[df1["game_id"] == "3"]
+        assert len(live) == 1
+        assert live["home_score"].isna().all() and live["away_score"].isna().all(), (
+            "a running score survived into the schedule frame")
+        finals = df1[df1["game_id"].isin(["1", "2"])]
+        assert finals["home_score"].notna().all()
+
+        df2 = ing.load_score_dates([day], use_cache=True)
+        assert calls["n"] == 2, "the live page was cached instead of re-pulled"
+        after = df2[df2["game_id"] == "3"]
+        assert float(after["home_score"].iloc[0]) == 3.0
+        assert float(after["away_score"].iloc[0]) == 2.0
+    path.unlink(missing_ok=True)
+
+
+def test_eligible_games_renulls_in_flight_scores():
+    """The admission point must not admit a running score as decided.
+
+    master_pipeline derives ``decided_all`` from eligible_games' output, and
+    the serving slate is built from the SAME survivors — so an in-flight row
+    keeps its schedule row but loses every score, covering frames that did
+    not come from today's guarded load_score_dates (caches written by
+    pre-guard versions, test fixtures, hand-built frames).
+    """
+    schedule = pd.DataFrame([
+        {"game_id": "1", "season": 2025, "game_type": 2,
+         "game_state": "OFF", "home_score": 2, "away_score": 1},
+        {"game_id": "2", "season": 2025, "game_type": 2,
+         "game_state": "LIVE", "home_score": 1, "away_score": 1},
+        {"game_id": "3", "season": 2025, "game_type": 2,
+         "game_state": "FUT", "home_score": np.nan, "away_score": np.nan},
+    ])
+    out = ing.eligible_games(schedule)
+    decided = out[out["home_score"].notna() & out["away_score"].notna()]
+    assert list(decided["game_id"]) == ["1"], "an in-flight row counted as decided"
+    assert len(out) == 3, "in-flight rows must SURVIVE for the serving slate"
+    live = out[out["game_id"] == "2"]
+    assert live["home_score"].isna().all() and live["away_score"].isna().all()
+
+
+def test_boxscore_cache_never_frozen_mid_game():
+    """A mid-game boxscore must not freeze partial stats into a per-game
+    cache nothing ever invalidates (2026-09-29 regression: boxscore chunk
+    11/11 fetched the LIVE TOR@MTL game). Behave like an unavailable
+    boxscore — warned, skipped, uncached — and pull it fresh once settled.
+    """
+    gid = "2026020002"
+    bs_live = {"id": int(gid), "gameState": "LIVE",
+               "homeTeam": {"sog": 9}, "awayTeam": {"sog": 7}}
+    bs_final = {"id": int(gid), "gameState": "OFF",
+                "homeTeam": {"sog": 31}, "awayTeam": {"sog": 28}}
+    calls = {"n": 0}
+
+    def _fake_http(url):
+        calls["n"] += 1
+        return bs_live if calls["n"] == 1 else bs_final
+
+    path = BACKEND / "boxscore_livetest.parquet"
+    path.unlink(missing_ok=True)
+    with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+            _mock_patch.object(ing, "_cache_path", side_effect=lambda n: path):
+        df1 = ing.load_boxscores([gid], use_cache=True, chunk_days=0,
+                                 pause_sec=0)
+        assert len(df1) == 0, "a mid-game boxscore was returned as stats"
+        assert not path.exists(), "a mid-game boxscore was cached"
+
+        df2 = ing.load_boxscores([gid], use_cache=True, chunk_days=0,
+                                 pause_sec=0)
+        assert calls["n"] == 2, "the mid-game fetch was not retried when settled"
+        assert len(df2) == 1
+        assert float(df2["home_sog"].iloc[0]) == 31.0
+        assert path.exists(), "the settled boxscore was not cached"
+    path.unlink(missing_ok=True)
 
 
 def test_coverage_verdict_separates_cold_nulls_from_real_defects():
