@@ -650,3 +650,148 @@ def test_sp_gate_is_infilter_only_and_wired_upstream():
         assert "CASE WHEN st.sp_stale THEN NULL" in seg[:2000], tbl
     # cleanup list drops the gate table
     assert '"pitcher_stale"' in src
+
+
+# ── Bullpen opportunity-weighted shrinkage (2026-09-30, adopted by owner) ──
+# NBA player_ts structural alignment: rate windows shrink toward the PIT
+# league reliever prior with k = 20% of the mean reliever-season pitch count
+# (data-derived, floor 20). Volumes never shrink. Degenerate prior ships raw.
+
+
+def _shrink_chain(con, features_src, k_pitches: float | None = None,
+                  k_ip: float | None = None, lg_whip: float | None = None,
+                  lg_era: float | None = None):
+    """Build the production shrink-prior + rolling/season tables on ``con``
+    from the LIFTED shipped SQL. k_pitches None = keep the shipped data-
+    derived prior; pass (k_pitches, k_ip, lg_whip, lg_era) to override the
+    prior row analytically after the shipped derivation runs."""
+    def lift(name):
+        j0 = features_src.index(f"CREATE TABLE {name} AS")
+        return features_src[j0:features_src.index('"""', j0)]
+    # The prior SQL reads bp_outing + the two filters; stub them minimally
+    # (empty ledger/spent = NOT EXISTS trivially true) so the SHIPPED
+    # derivation (population alignment, COALESCE floor, GREATEST) executes.
+    if not con.execute("SELECT COUNT(*) FROM duckdb_tables() "
+                       "WHERE table_name = 'bp_outing'").fetchone()[0]:
+        con.register("bo_reg", pd.DataFrame({
+            "game_date": pd.to_datetime(["2026-04-01"] * 2),
+            "game_pk": [1, 2], "team": ["TB", "LAD"],
+            "pitcher": [11, 22], "n_pitches": [400.0, 500.0],
+        }))
+        con.execute("CREATE TABLE bp_outing AS SELECT "
+                    "CAST(game_date AS DATE) AS game_date, game_pk, team, "
+                    "pitcher, n_pitches FROM bo_reg")
+        con.execute("CREATE TABLE il_stints_pitchers AS SELECT "
+                    "CAST(NULL AS BIGINT) AS batter, "
+                    "CAST(NULL AS TIMESTAMP) AS il_start, "
+                    "CAST(NULL AS TIMESTAMP) AS il_end "
+                    "WHERE FALSE")
+        con.execute("CREATE TABLE bp_spent AS SELECT "
+                    "CAST(NULL AS VARCHAR) AS team, "
+                    "CAST(NULL AS BIGINT) AS pitcher, "
+                    "CAST(NULL AS DATE) AS game_date, "
+                    "CAST(NULL AS DATE) AS heavy_outing WHERE FALSE")
+    con.execute(lift("bp_shrink_prior")
+                 .replace("{_BP_MIN_SEASON_PITCHES}", "30")
+                 .replace("{_BP_K_FLOOR}", "20.0")
+                 .replace("{_BP_SHRINK_FRACTION}", "0.20")
+                 .replace("{_BP_PITCHES_PER_IP}", "15.5"))
+    if k_pitches is not None:
+        con.execute(f"CREATE OR REPLACE TABLE bp_shrink_prior AS SELECT "
+                    f"season, game_date, {k_pitches} AS k_pitches, "
+                    f"{k_ip} AS k_ip, {lg_whip} AS lg_whip, "
+                    f"{lg_era} AS lg_era FROM bp_shrink_prior")
+    con.execute(lift("bullpen_rolling"))
+    con.execute(lift("bullpen_season"))
+
+
+def test_shrinkage_pulls_thin_window_toward_prior_and_leaves_thick_one():
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+    con = duckdb.connect(database=":memory:")
+    # ONE shifted row per team at the prior's date: the w10/w3 window
+    # arithmetic is pre-existing tested code; what is under test is the
+    # BLEND. With a single row each window collapses to that row, so the
+    # expected value is analytic. TB: 2 IP window (thin, raw WHIP 2.50).
+    # LAD: 60 IP window (thick, raw 1.50). Prior: k = 6 IP, lg_whip 1.30.
+    con.register("bs_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-04-03"] * 2),
+        "game_pk": [1, 2], "team": ["TB", "LAD"],
+        "_s_bbs": [2.0, 30.0], "_s_hits": [3.0, 60.0],
+        "_s_ip": [2.0, 60.0], "_s_runs": [1.0, 30.0],
+    }))
+    con.execute("CREATE TABLE bullpen_shifted AS "
+                "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                "team, _s_bbs, _s_hits, _s_ip, _s_runs FROM bs_reg")
+    # bullpen_season re-derives its own LAGs from bullpen_raw: minimal rows.
+    con.register("br_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-04-03"] * 2),
+        "game_pk": [1, 2], "team": ["TB", "LAD"],
+        "bullpen_bbs": [2.0, 30.0], "bullpen_hits": [3.0, 60.0],
+        "bullpen_ip": [2.0, 60.0], "bullpen_runs": [1.0, 30.0],
+    }))
+    con.execute("CREATE TABLE bullpen_raw AS "
+                "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                "team, bullpen_bbs, bullpen_hits, bullpen_ip, bullpen_runs "
+                "FROM br_reg")
+    # analytic prior override after the shipped derivation: k = 6 IP,
+    # lg_whip 1.30, lg_era 4.20
+    _shrink_chain(con, src, k_pitches=93.0, k_ip=6.0,
+                  lg_whip=1.30, lg_era=4.20)
+    out = con.execute("SELECT team, bullpen_whip_3g, bullpen_whip_10g "
+                      "FROM bullpen_rolling ORDER BY team").fetchall()
+    got = {t: (w3, w10) for t, w3, w10 in out}
+    # TB: raw = (2+3)/2 = 2.50; w = 2/(2+6) = 0.25
+    exp_tb = 0.25 * 2.50 + 0.75 * 1.30
+    assert abs(got["TB"][0] - exp_tb) < 1e-9
+    assert abs(got["TB"][1] - exp_tb) < 1e-9
+    # LAD: raw = 90/60 = 1.50; w = 60/66
+    exp_lad = (60.0 / 66.0) * 1.50 + (6.0 / 66.0) * 1.30
+    assert abs(got["LAD"][0] - exp_lad) < 1e-9
+    # direction: the thin window moved toward the prior, the thick barely moved
+    assert got["TB"][0] < 2.50 and abs(exp_lad - 1.50) < 0.02
+
+
+def test_shrinkage_volumes_and_degenerate_prior_paths():
+    """k=NULL/0 ships raw rates (CASE guard); volume columns carry no CASE
+    (never shrunk); cleanup drops bp_shrink_prior; the prior's k derivation
+    is population-aligned and floor-guarded."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+    con = duckdb.connect(database=":memory:")
+    con.register("bs_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-04-03"] * 2),
+        "game_pk": [1, 2], "team": ["TB", "LAD"],
+        "_s_bbs": [2.0, 30.0], "_s_hits": [3.0, 60.0],
+        "_s_ip": [2.0, 60.0], "_s_runs": [1.0, 30.0],
+    }))
+    con.execute("CREATE TABLE bullpen_shifted AS "
+                "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                "team, _s_bbs, _s_hits, _s_ip, _s_runs FROM bs_reg")
+    # degenerate prior override: k_ip = 0 -> the CASE guard ships raw rates
+    con.register("br_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-04-03"] * 2),
+        "game_pk": [1, 2], "team": ["TB", "LAD"],
+        "bullpen_bbs": [2.0, 30.0], "bullpen_hits": [3.0, 60.0],
+        "bullpen_ip": [2.0, 60.0], "bullpen_runs": [1.0, 30.0],
+    }))
+    con.execute("CREATE TABLE bullpen_raw AS "
+                "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
+                "team, bullpen_bbs, bullpen_hits, bullpen_ip, bullpen_runs "
+                "FROM br_reg")
+    _shrink_chain(con, src, k_pitches=0.0, k_ip=0.0,
+                  lg_whip=1.30, lg_era=4.20)
+    row = con.execute("SELECT bullpen_whip_3g, bullpen_whip_10g "
+                      "FROM bullpen_rolling WHERE team = 'TB'").fetchone()
+    # single row: both windows collapse to raw (2+3)/2 = 2.50, and the
+    # k_ip = 0 guard ships them UNSHRUNK despite lg_whip = 1.30
+    assert abs(row[0] - 2.50) < 1e-9 and abs(row[1] - 2.50) < 1e-9
+    # volumes never shrink: no CASE wraps the workload expressions
+    roll = src[src.index("CREATE TABLE bullpen_rolling AS"):
+               src.index('"""', src.index("CREATE TABLE bullpen_rolling AS"))]
+    assert "bullpen_pitches" not in roll and "budget" not in roll
+    # cleanup drops the prior table
+    assert '"bp_shrink_prior"' in src
+    # k derivation: population-aligned (ledger + spent filters) + floor
+    pr = src[src.index("CREATE TABLE bp_shrink_prior AS"):
+             src.index('"""', src.index("CREATE TABLE bp_shrink_prior AS"))]
+    assert "il_stints_pitchers" in pr and "bp_spent" in pr
+    assert "COALESCE" in pr and "GREATEST" in pr

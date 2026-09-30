@@ -582,8 +582,8 @@ _PER_SIDE_FAMILIES = {
     "lineup_woba_mean": ("Projected lineup average wOBA", "wOBA points", "higher = better"),
     "lineup_woba_top3": ("Top-3 hitters' projected wOBA", "wOBA points", "higher = better"),
     "woba_30g": ("Team offensive wOBA", "wOBA points", "higher = better"),
-    "bullpen_whip_10g": ("Bullpen walks+hits per inning", "WHIP", "lower = better"),
-    "bullpen_whip_3g": ("Bullpen walks+hits per inning, short form", "WHIP", "lower = better"),
+    "bullpen_whip_10g": ("Bullpen walks+hits per inning", "WHIP", "lower = better", "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)"),
+    "bullpen_whip_3g": ("Bullpen walks+hits per inning, short form", "WHIP", "lower = better", "3 team games (opportunity-shrunk)"),
     "team_barrel_15g": ("Team barreled-ball rate", "rate (0–1)", "higher = better"),
     "team_exitvelo_15g": ("Team average exit velocity", "mph", "higher = better"),
 }

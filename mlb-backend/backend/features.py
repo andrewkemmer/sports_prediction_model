@@ -240,6 +240,41 @@ _BP_SPENT_LOOKBACK_DAYS = 2          # strict availability rule: P(appear)
                                      # day 3, so day 3+ is NOT an availability
                                      # fact (re-assess via the member gate)
 
+# ── Bullpen opportunity-weighted shrinkage (2026-09-30) ───────────────
+# The NBA player_ts / NHL player-rating convention, structurally aligned:
+# a rate estimated from few opportunities is pulled toward the league
+# reliever prior with prior weight k = 20% of the mean PLAYER-SEASON
+# opportunity (pitches). Measured 2024-2026 on the availability+spent-
+# filtered reliever population: mean ~464 pitches -> k ~= 93 pitches ~=
+# 6.0 IP at 15.5 pitches/IP; ~24% of arm-seasons sit below k, so the
+# prior genuinely bites on thin samples. k is derived from the frame
+# each build (season-stable; derivation logged) with a hard floor — the
+# portable 20% fraction is the point, not any one season's mean. RATES
+# ONLY: bullpen_whip_10g, bullpen_era_10g, bullpen_whip_3g and the
+# *_std season baselines are shrunk as w*rate + (1-w)*prior with
+# w = window_IP/(window_IP + k_IP); workloads (bullpen_pitches_3d/
+# ip_3d, budget_2d, ready_share) are COUNTS, not rate estimates, and
+# stay raw — exactly why the NBA shrinks TS but never point totals.
+# The 10g/3g windows roll across seasons (existing convention, shared
+# with the SP 5g windows), so the blend weight (not a season partition)
+# is what tames thin April windows. The league prior is strictly point-
+# in-time (cumulative over prior CALENDAR dates, season-as-of with an
+# all-history fallback) and drawn from the SAME availability+spent-
+# filtered bullpen_raw population the windows see. Degenerate frames
+# (no bp_outing rows) leave k NULL and the CASE guard ships raw rates —
+# never a silent all-NULL.
+# ADOPTED 2026-09-30 by owner decision (full-family arm): the formal
+# 3-seed member gate on the production walk-forward measured the full
+# arm at -0.00018 selection logloss vs baseline (fallback no-3g arm
+# -0.00013; sealed holdout and the Mar-Apr slice agreed in sign) —
+# below the +0.001 bar, adopted anyway for structural alignment with
+# the NFL epa / NBA ts / NHL rating families. Measurement record:
+# %TEMP%/bp_shrink_gate.py + bp_shrink_gate_results.csv (2026-09-30).
+_BP_SHRINK_FRACTION = 0.20
+_BP_PITCHES_PER_IP = 15.5    # measured pool constant (2024-2026)
+_BP_MIN_SEASON_PITCHES = 30  # cameo player-seasons excluded from k's mean
+_BP_K_FLOOR = 20.0           # pitch floor: k can never collapse to ~0
+
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
               WHERE i.batter = p.pitcher
@@ -1410,6 +1445,99 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         FROM reliever_events
         GROUP BY game_date, game_pk, fielding_team
     """)
+
+    # Opportunity-weighted shrinkage prior (2026-09-30, structural alignment
+    # with the NBA player_ts / NHL player-rating convention; see the
+    # _BP_SHRINK_FRACTION block). Two parts, both strictly PIT:
+    #   k  = 20% of the mean reliever-season pitch count over the SAME
+    #        availability+spent-filtered population, cameo floor 30 pitches
+    #        — the portable fraction is the point, not any one season's mean.
+    #   mu = league reliever rate per (season, event-date): cumulative
+    #        counts over PRIOR dates only, so April blends toward April
+    #        league reality, never the season's own final numbers. Rows
+    #        with no prior-season data fall back to all-history-through-
+    #        prior-date (opening day of the first season).
+    # Degenerate (no reliever rows): k NULL -> every consumer's CASE guard
+    # ships the raw rate; loud log, never a silent all-NULL.
+    con.execute(f"""
+        CREATE TABLE bp_shrink_prior AS
+        WITH arm_season AS (
+            -- Same population the rates see: availability-filtered (ledger)
+            -- and spent-arm-excluded outing rows only.
+            SELECT o.pitcher, EXTRACT(YEAR FROM o.game_date) AS season,
+                   SUM(o.n_pitches) AS pitches
+            FROM bp_outing o
+            WHERE NOT EXISTS (
+                      SELECT 1 FROM il_stints_pitchers i
+                      WHERE i.batter = o.pitcher
+                        AND CAST(o.game_date AS DATE) > CAST(i.il_start AS DATE)
+                        AND (i.il_end IS NULL
+                             OR CAST(o.game_date AS DATE) < CAST(i.il_end AS DATE)))
+              AND NOT EXISTS (
+                      SELECT 1 FROM bp_spent sp
+                      WHERE sp.team = o.team AND sp.pitcher = o.pitcher
+                        AND sp.game_date = o.game_date)
+            GROUP BY 1, 2
+            HAVING SUM(n_pitches) >= {_BP_MIN_SEASON_PITCHES}),
+        k AS (
+            -- COALESCE: an all-cameo frame (every arm under the season
+            -- floor — opening week) still yields the floor k, so the
+            -- prior table is never empty and rates never NULL out.
+            SELECT GREATEST(
+                       {_BP_K_FLOOR},
+                       {_BP_SHRINK_FRACTION} * COALESCE(
+                           (SELECT AVG(pitches) FROM arm_season),
+                           {_BP_K_FLOOR})) AS k_pitches,
+                   GREATEST(
+                       {_BP_K_FLOOR},
+                       {_BP_SHRINK_FRACTION} * COALESCE(
+                           (SELECT AVG(pitches) FROM arm_season),
+                           {_BP_K_FLOOR}))
+                       / {_BP_PITCHES_PER_IP} AS k_ip
+            FROM (SELECT 1) anchor),
+        daily AS (
+            SELECT game_date,
+                   EXTRACT(YEAR FROM game_date) AS season,
+                   SUM(bullpen_bbs) AS bbs, SUM(bullpen_hits) AS hits,
+                   SUM(bullpen_runs) AS runs, SUM(bullpen_ip) AS ip
+            FROM bullpen_raw GROUP BY 1, 2),
+        thru AS (
+            SELECT season, game_date,
+                SUM(bbs) OVER w AS bbs, SUM(hits) OVER w AS hits,
+                SUM(runs) OVER w AS runs, SUM(ip) OVER w AS ip
+            FROM daily
+            WINDOW w AS (PARTITION BY season ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING
+                              AND 1 PRECEDING)),
+        allthru AS (
+            SELECT game_date,
+                SUM(bbs) OVER w AS bbs, SUM(hits) OVER w AS hits,
+                SUM(runs) OVER w AS runs, SUM(ip) OVER w AS ip
+            FROM daily
+            WINDOW w AS (ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING
+                              AND 1 PRECEDING))
+        SELECT t.season, t.game_date, k.k_pitches, k.k_ip,
+            CASE WHEN t.ip > 0
+                 THEN (t.bbs + t.hits) / t.ip
+                 ELSE (a.bbs + a.hits) / NULLIF(a.ip, 0) END AS lg_whip,
+            CASE WHEN t.ip > 0
+                 THEN t.runs / t.ip * 9.0
+                 ELSE a.runs / NULLIF(a.ip, 0) * 9.0 END AS lg_era
+        FROM thru t
+        LEFT JOIN allthru a ON a.game_date = t.game_date
+        CROSS JOIN k
+    """)
+    _krow = con.execute(
+        "SELECT k_pitches, k_ip FROM bp_shrink_prior LIMIT 1").fetchone()
+    if _krow and _krow[0] is not None:
+        logger.info("Bullpen shrinkage: k = %.1f pitches (%.2f IP) = %.0f%% "
+                    "of the mean reliever-season (%.1f pitch floor)",
+                    _krow[0], _krow[1], _BP_SHRINK_FRACTION * 100,
+                    _BP_K_FLOOR)
+    else:
+        logger.warning("Bullpen shrinkage: degenerate (no reliever rows) — "
+                       "raw unshrunk rates ship")
     # Readiness rollup per team-day: the prior-2-day pitch budget plus the
     # ready-weighted share of those pitches (0.25/0.13/0.007 staircase by
     # last-outing length; ledger arms are 0). The team's MOST RECENT game
@@ -1539,16 +1667,44 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     """)
     con.execute("""
         CREATE TABLE bullpen_rolling AS
-        SELECT game_date, game_pk, team,
-            (SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
-                / NULLIF(SUM(_s_ip) OVER w10, 0) AS bullpen_whip_10g,
-            SUM(_s_runs) OVER w10 / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0 AS bullpen_era_10g,
-            (SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
-                / NULLIF(SUM(_s_ip) OVER w3, 0) AS bullpen_whip_3g
+        SELECT bullpen_shifted.game_date, bullpen_shifted.game_pk,
+               bullpen_shifted.team,
+            -- Opportunity-weighted shrinkage (NBA player_ts alignment):
+            -- shrunk = w*rate + (1-w)*league_prior, w = window_IP/(window_IP+k).
+            -- Thin windows (April 3g median ~11 IP) blend hardest toward the
+            -- PIT league reliever prior; k comes from bp_shrink_prior
+            -- (data-derived, see the constants block). Rates only —
+            -- workloads never shrink.
+            CASE WHEN p.k_ip > 0 THEN
+                (SUM(_s_ip) OVER w10 / (SUM(_s_ip) OVER w10 + p.k_ip))
+                * ((SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
+                   / NULLIF(SUM(_s_ip) OVER w10, 0))
+                + (p.k_ip / (SUM(_s_ip) OVER w10 + p.k_ip)) * p.lg_whip
+            ELSE (SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
+                 / NULLIF(SUM(_s_ip) OVER w10, 0) END AS bullpen_whip_10g,
+            CASE WHEN p.k_ip > 0 THEN
+                (SUM(_s_ip) OVER w10 / (SUM(_s_ip) OVER w10 + p.k_ip))
+                * (SUM(_s_runs) OVER w10
+                   / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0)
+                + (p.k_ip / (SUM(_s_ip) OVER w10 + p.k_ip)) * p.lg_era
+            ELSE SUM(_s_runs) OVER w10
+                 / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0 END AS bullpen_era_10g,
+            CASE WHEN p.k_ip > 0 THEN
+                (SUM(_s_ip) OVER w3 / (SUM(_s_ip) OVER w3 + p.k_ip))
+                * ((SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
+                   / NULLIF(SUM(_s_ip) OVER w3, 0))
+                + (p.k_ip / (SUM(_s_ip) OVER w3 + p.k_ip)) * p.lg_whip
+            ELSE (SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
+                 / NULLIF(SUM(_s_ip) OVER w3, 0) END AS bullpen_whip_3g
         FROM bullpen_shifted
-        WINDOW w10 AS (PARTITION BY team ORDER BY game_date
+        JOIN bp_shrink_prior p
+               ON p.season = EXTRACT(YEAR FROM bullpen_shifted.game_date)
+              AND p.game_date = CAST(bullpen_shifted.game_date AS DATE)
+        WINDOW w10 AS (PARTITION BY bullpen_shifted.team
+                       ORDER BY bullpen_shifted.game_date
                        ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
-               w3 AS (PARTITION BY team ORDER BY game_date
+               w3 AS (PARTITION BY bullpen_shifted.team
+                      ORDER BY bullpen_shifted.game_date
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
     """)
 
@@ -1562,10 +1718,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # season-partitioned so a season opener never averages the prior season.
     con.execute("""
         CREATE TABLE bullpen_season AS
-        SELECT game_date, game_pk, team,
-            (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
-                / NULLIF(SUM(_s_ip) OVER w, 0) AS bullpen_whip_std,
-            SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 AS bullpen_era_std
+        SELECT b.game_date, b.game_pk, b.team,
+            -- Opportunity-weighted shrinkage on the season baselines too:
+            -- an April season-to-date WHIP (a handful of IP) is noise-
+            -- dominated; the season-as-of league prior takes the slack.
+            CASE WHEN p.k_ip > 0 THEN
+                (SUM(_s_ip) OVER w / (SUM(_s_ip) OVER w + p.k_ip))
+                * ((SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
+                   / NULLIF(SUM(_s_ip) OVER w, 0))
+                + (p.k_ip / (SUM(_s_ip) OVER w + p.k_ip)) * p.lg_whip
+            ELSE (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
+                 / NULLIF(SUM(_s_ip) OVER w, 0) END AS bullpen_whip_std,
+            CASE WHEN p.k_ip > 0 THEN
+                (SUM(_s_ip) OVER w / (SUM(_s_ip) OVER w + p.k_ip))
+                * (SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0)
+                + (p.k_ip / (SUM(_s_ip) OVER w + p.k_ip)) * p.lg_era
+            ELSE SUM(_s_runs) OVER w
+                 / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 END AS bullpen_era_std
         FROM (SELECT game_date, game_pk, team,
                      EXTRACT(YEAR FROM game_date) AS season,
                      LAG(bullpen_bbs, 1) OVER (
@@ -1580,8 +1749,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                      LAG(bullpen_runs, 1) OVER (
                          PARTITION BY team, EXTRACT(YEAR FROM game_date)
                          ORDER BY game_date) AS _s_runs
-              FROM bullpen_raw)
-        WINDOW w AS (PARTITION BY team, season ORDER BY game_date
+              FROM bullpen_raw) AS b
+        JOIN bp_shrink_prior p
+               ON p.season = b.season
+              AND p.game_date = CAST(b.game_date AS DATE)
+        WINDOW w AS (PARTITION BY b.team, b.season ORDER BY b.game_date
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
@@ -2493,7 +2665,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
         "team_off_season",
-        "bullpen_raw", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
+        "bullpen_raw", "bp_shrink_prior", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
         "bp_daily", "bp_fatigue", "il_stints_pitchers",
         "bp_outing", "bp_day2", "bp_spent",
         "pitcher_stuff_raw", "pitcher_stuff",
