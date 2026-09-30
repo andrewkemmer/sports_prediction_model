@@ -1280,11 +1280,14 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
     Source precedence (2026-09-28 lesson): the frozen-price sources run
     FIRST — the run-date slate, then the dated board ledger (a game that
     settled BETWEEN runs is off the next run's slate but its publication
-    price is preserved in its game-date board snapshot) — and the OOF
-    seed runs last, era-confined. The 2026-09-28 run caught the old order
-    (OOF first, unconfined) pricing week-3 settle-between-runs games at
-    OOF walk-forward re-prices instead of the production prices the board
-    had already published.
+    price is preserved in its game-date board snapshot), then the
+    settle-between-runs reconciliation (1c: a game-date board row frozen at
+    "Live" is priced from that published row while this run's decided OOF
+    pool supplies the authoritative result — the OOF price never touches
+    the store row) — and the OOF seed runs last, era-confined. The
+    2026-09-28 run caught the old order (OOF first, unconfined) pricing
+    week-3 settle-between-runs games at OOF walk-forward re-prices instead
+    of the production prices the board had already published.
     """
     store_path = out_dir / "nfl_production_cards_history.csv"
     meta_path = out_dir / "nfl_production_cards_history.meta.json"
@@ -1412,12 +1415,78 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                     added += len(out)
                     store = pd.concat([store, out], ignore_index=True)
                     known.update(out["game_id"].astype(str))
+        # (1c) Settle-between-runs reconciliation (2026-09-30 defect): a
+        # decided game whose game-date board row froze at "Live" has NO
+        # working collection channel above — (1) skips it (the next run's
+        # horizon starts at the run date), (1b) requires a "Final" board row
+        # that no later run ever writes (past-date boards are never
+        # rewritten), and (2) is era-confined by design. Its PUBLICATION
+        # price is recoverable (the game-date board row carries the frozen
+        # pre-game prediction) and its authoritative RESULT is in this run's
+        # OOF decided pool — reconcile the two while never letting the OOF
+        # price touch the store row. No board price -> the game stays out
+        # (never a re-price); no decided OOF row -> stays out (never a
+        # fabricated grade).
+        _SERVING_ERA_START = pd.Timestamp("2026-09-27")
+        if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
+            _dec = oof_ml.copy()
+            _dec["_gd"] = pd.to_datetime(_dec["gameday"], errors="coerce")
+            _dec = _dec[_dec["_gd"].notna()
+                        & (_dec["_gd"] >= _SERVING_ERA_START)]
+            _dec = _dec[_dec[["home_score", "away_score"]].notna().all(axis=1)] \
+                if {"home_score", "away_score"}.issubset(_dec.columns) \
+                else _dec.iloc[0:0]
+            _dec = _dec[~_dec["game_id"].astype(str)
+                        .isin(set(store["game_id"].astype(str)))] \
+                if len(store) else _dec
+            for _gid, _orow in _dec.set_index("game_id").iterrows():
+                _bday = pd.Timestamp(_orow["_gd"]).strftime("%Y%m%d")
+                _bpath = out_dir / f"nfl_board_{_bday}.csv"
+                if not _bpath.exists():
+                    continue
+                try:
+                    _bdf = pd.read_csv(_bpath, dtype={"game_id": str})
+                except Exception:
+                    continue
+                _brow = _bdf[_bdf["game_id"] == str(_gid)] \
+                    if "game_id" in _bdf.columns else _bdf.iloc[0:0]
+                if _brow.empty or "home_win_prob_model" not in _brow.columns:
+                    continue
+                _bp = pd.to_numeric(_brow["home_win_prob_model"],
+                                    errors="coerce").iloc[0]
+                if pd.isna(_bp):
+                    continue
+                _brow = _brow.iloc[0]
+                _hs = float(pd.to_numeric(_orow["home_score"], errors="coerce"))
+                _asx = float(pd.to_numeric(_orow["away_score"], errors="coerce"))
+                _winner = (_orow["home_team"] if _hs > _asx
+                           else (_orow["away_team"] if _asx > _hs else "TIE"))
+                _pick = _brow.get("model_pick")
+                _pick = (_pick if isinstance(_pick, str) and _pick
+                         else (_orow["home_team"] if _bp >= 0.5
+                               else _orow["away_team"]))
+                out = pd.DataFrame([{
+                    "game_id": str(_gid),
+                    "game_date": pd.Timestamp(_orow["_gd"]).strftime("%Y-%m-%d"),
+                    "home_team": _orow["home_team"],
+                    "away_team": _orow["away_team"],
+                    "p_home_win": round(float(_bp), 6),
+                    "p_away_win": round(1.0 - float(_bp), 6),
+                    "model_pick": _pick,
+                    "correct": _pick == _winner,
+                    "home_score": _hs, "away_score": _asx,
+                    "actual_winner": _winner,
+                    "game_status": "Final",
+                    "source_artifact_date": _bday,
+                }])
+                added += len(out)
+                store = pd.concat([store, out], ignore_index=True)
+                known.update(out["game_id"].astype(str))
         # (2) Legacy seeding append: decided OOF rows the store has never
         # seen — ERA-CONFINED to game dates before the first horizon-serving
         # run (2026-09-27). Post-era games must enter through the frozen-
         # price branches above; letting the OOF seed touch them is exactly
         # the substitution defect this store exists to prevent.
-        _SERVING_ERA_START = pd.Timestamp("2026-09-27")
         if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
             dec = oof_ml[oof_ml["game_id"].astype(str).isin(known) == False].copy()
             dec = dec[pd.to_datetime(dec["gameday"], errors="coerce")

@@ -510,7 +510,57 @@ try:
         s2 = pd.read_csv(out / name, dtype={"game_id": str})
         check("OOF seed is era-confined (post-2026-09-26 games never enter via OOF)",
               int((s2.game_id == "2026_04_PST_NOW").sum()) == 0)
-        # (iii) Pre-era rows still seed through OOF (legacy path intact).
+        # (iii) THE 2026-09-30 DEFECT: the game-date board row froze at
+        # "Live" (LA@DEN / PHI@CHI — no run ever rewrites a past date's
+        # board), so channels (1)/(1b)/(3) all miss it and the archive view
+        # silently fell back to an OOF re-price. The (1c) reconciliation must
+        # freeze the PUBLISHED board price while grading from the decided
+        # OOF row — and the OOF price must never leak into the store.
+        board_live = pd.DataFrame([{
+            "game_id": "2026_03_LA_DEN", "game_date": "2026-09-27",
+            "home_team": "DEN", "away_team": "LA", "game_status": "Live",
+            "home_score": None, "away_score": None,
+            "home_win_prob_model": 0.532943, "model_pick": "DEN",
+        }])
+        board_live.to_csv(out / "nfl_board_20260927.csv", mode="a",
+                          header=False, index=False)
+        oof_live = pd.DataFrame({
+            "game_id": ["2026_03_LA_DEN"], "gameday": ["2026-09-27"],
+            "home_team": ["DEN"], "away_team": ["LA"],
+            "p_ensemble": [0.61], "p_ensemble_calibrated": [0.601],
+            "home_win": [1.0], "home_score": [17.0], "away_score": [13.0],
+        })
+        mp_mod._update_cards_history_store(out, oof_live, pd.DataFrame(),
+                                           "20260928")
+        s_live = pd.read_csv(out / name, dtype={"game_id": str})
+        row_live = s_live[s_live.game_id == "2026_03_LA_DEN"].iloc[0]
+        _live_conds = {
+            "frozen_board_price": abs(float(row_live["p_home_win"])
+                                      - 0.532943) < 1e-6,
+            "not_oof_reprice": abs(float(row_live["p_home_win"]) - 0.601) > 1e-6,
+            "graded_from_oof": row_live["game_status"] == "Final"
+            and row_live["actual_winner"] == "DEN"
+            and row_live["home_score"] == 17.0
+            and bool(row_live["correct"]),
+            "board_as_source": str(row_live["source_artifact_date"]) == "20260927",
+        }
+        check("board row frozen at Live reconciles: published price + "
+              "decided-OOF result, never an OOF re-price",
+              all(_live_conds.values()),
+              f"conds={_live_conds} repr(p)={row_live['p_home_win']!r}")
+        # (iv) No board publication -> the game stays OUT (never a re-price).
+        oof_nopub = pd.DataFrame({
+            "game_id": ["2026_03_NOPUB"], "gameday": ["2026-09-27"],
+            "home_team": ["NOP"], "away_team": ["PUB"],
+            "p_ensemble": [0.7], "p_ensemble_calibrated": [0.7],
+            "home_win": [0.0], "home_score": [10.0], "away_score": [20.0],
+        })
+        mp_mod._update_cards_history_store(out, oof_nopub, pd.DataFrame(),
+                                           "20260929")
+        s_nopub = pd.read_csv(out / name, dtype={"game_id": str})
+        check("post-era game with NO board publication never enters the store",
+              int((s_nopub.game_id == "2026_03_NOPUB").sum()) == 0)
+        # (v) Pre-era rows still seed through OOF (legacy path intact).
         oof_pre = pd.DataFrame({
             "game_id": ["2020_05_OLD_NFW"], "gameday": ["2020-10-11"],
             "home_team": ["OLD"], "away_team": ["NFW"],
