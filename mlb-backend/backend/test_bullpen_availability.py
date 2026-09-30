@@ -844,25 +844,42 @@ def test_bp_fstring_constants_resolve():
     assert features._BP_SPENT_LOOKBACK_DAYS == 2
 
 
-def test_pitcher_availability_ledger_is_a_committed_runtime_input():
-    """The ledger ships in the repo and every consumer degrades LOUDLY
-    without it — never a CatalogException.
+def test_pitcher_availability_ledger_is_a_local_runtime_cache(
+        tmp_path, monkeypatch):
+    """The ledger is a LOCAL runtime cache — rebuilt by Phase 1.5 of every
+    daily run, never shipped as a GitHub artifact — and every consumer
+    degrades LOUDLY without it — never a CatalogException.
 
-    2026-09-30: the retention sweep deleted il_stints_pitchers.parquet;
-    Kaggle cloned HEAD without it, the guarded paths warned as designed,
-    but bp_day2 / bp_shrink_prior carried hard table references and the
-    build crashed. This pins BOTH halves: the file must exist (so a
-    future sweep deletion fails the battery locally, before Kaggle), and
-    the two formerly-unguarded statements must execute on a ledger-less
-    connection (bp_day2's staircase runs unfiltered; the shrink prior's
-    k derives from the unfiltered population; both loudly degraded)."""
-    ledger = BACKEND.parent / "data_delivery" / "il_stints_pitchers.parquet"
-    assert ledger.exists(), (
-        "il_stints_pitchers.parquet is a REQUIRED runtime input committed "
-        "to the repo — a retention sweep deleted it once and broke the "
-        "Kaggle build. Restore it (git show <pre-sweep>:path) before "
-        "shipping; if the availability layer is ever intentionally "
-        "retired, remove its consumers too and update this test.")
+    2026-09-30 (rev 1): the retention sweep deleted the ledger the repo
+    shipped; the guard then pinned the file as a committed runtime input.
+    Same-day (rev 2), the owner moved the ledgers OUT of the repo entirely:
+    master_pipeline Phase 1.5 rebuilds them every run under MLB_IL_STINTS_DIR
+    (outside the git repo), Phase 5 staging skips the four names, and git
+    ignores them. A fresh clone therefore has NO ledger file — and that is
+    correct, because the run rebuilds it before Phase 2-3 consumes it. This
+    test now pins the new contract instead of a committed blob: the rebuild
+    must be wired into the pipeline, staging must skip the names, the env
+    resolver must work, and the two formerly-unguarded statements must still
+    execute on a ledger-less connection (bp_day2's staircase runs unfiltered;
+    the shrink prior's k derives from the unfiltered population; both loudly
+    degraded)."""
+    mp_src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "build_il_stints import main as _build_il_stints" in mp_src, (
+        "Phase 1.5 must rebuild the availability ledgers every run — a clone "
+        "without the file and without the rebuild would ship degraded "
+        "availability features silently")
+    assert "MLB_IL_STINTS_DIR" in mp_src
+    # Phase 5 staging skips the four cache names (belt-and-suspenders; the
+    # env relocation already keeps them out of data_delivery).
+    assert "rel_local in _il_cache_names" in mp_src
+    for _name in ("il_stints.parquet", "il_stints.meta.json",
+                  "il_stints_pitchers.parquet", "il_stints_pitchers.meta.json"):
+        assert f'"{_name}"' in mp_src, _name
+    # the resolver: env wins, legacy data_delivery is the fallback
+    monkeypatch.setenv("MLB_IL_STINTS_DIR", str(tmp_path))
+    assert features.il_stints_dir() == tmp_path
+    monkeypatch.delenv("MLB_IL_STINTS_DIR", raising=False)
+    assert features.il_stints_dir() == BACKEND.parent / "data_delivery"
 
     # every ledger reference must be conditional: with NO ledger table
     # registered, the formerly-unguarded statements still execute

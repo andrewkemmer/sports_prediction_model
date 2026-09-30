@@ -7,6 +7,14 @@ __pycache__/
 # pipeline run, produced by run_rl_bridge.py) — never committed.
 mlb-backend/data_delivery/run_engine_markets_*_rl.csv
 
+# IL / availability ledger caches (build_il_stints.py): rebuilt as Phase 1.5
+# of every daily run under MLB_IL_STINTS_DIR (outside the repo) and consumed
+# from there — runtime inputs, never GitHub artifacts.
+mlb-backend/data_delivery/il_stints.parquet
+mlb-backend/data_delivery/il_stints.meta.json
+mlb-backend/data_delivery/il_stints_pitchers.parquet
+mlb-backend/data_delivery/il_stints_pitchers.meta.json
+
 # Python byte-cache from local imports/test runs — never committed.
 __pycache__/
 *.pyc

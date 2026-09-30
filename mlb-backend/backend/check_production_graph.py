@@ -35,11 +35,13 @@ PRODUCTION_ALLOWLIST: dict[str, str] = {
         "kept as the declared batting order for any future correct "
         "lineup-delta re-implementation; nothing on the daily run reads it"),
     "build_il_stints.py": (
-        "documented regeneration path for data_delivery/il_stints.parquet — "
-        "features._register_il_stints names it in its fallback warning. Like "
-        "the lineup/wOBA caches it is a periodic cache, not a per-run step: "
-        "the OUT/IR eligibility filter degrades to the participant pool with "
-        "a WARNING rather than failing the daily build closed"),
+        "documented regeneration path for the IL/availability ledgers — "
+        "features._register_il_stints names it in its fallback warning. "
+        "Since 2026-09-30 master_pipeline Phase 1.5 also invokes it every "
+        "run (MLB_IL_STINTS_DIR, outside the repo), but the standalone "
+        "entry stays: the OUT/IR eligibility filter degrades to the "
+        "participant pool with a WARNING instead of failing the daily "
+        "build closed"),
 }
 
 

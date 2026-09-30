@@ -1438,9 +1438,9 @@ def _sp_slate_stale_ids(target_date: date,
         return _empty(f"pbp frame lacks columns {sorted(need)}")
     try:
         import duckdb
-        from features import PA_END_EVENTS, _lineup_base_dir, \
+        from features import PA_END_EVENTS, il_stints_dir, \
             IL_STINTS_PITCHERS_FILE
-        ledger = _lineup_base_dir() / IL_STINTS_PITCHERS_FILE
+        ledger = il_stints_dir() / IL_STINTS_PITCHERS_FILE
         if not ledger.exists():
             return _empty("availability ledger missing")
         con = duckdb.connect()

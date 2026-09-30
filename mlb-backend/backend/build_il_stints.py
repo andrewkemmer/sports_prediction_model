@@ -5,7 +5,11 @@ Input:  MLB StatsAPI ``/api/v1/transactions?sportId=1`` — one call per
         the system temp dir) so re-runs are free and no 20MB of raw
         transactions is ever staged to GitHub.
 
-Output: data_delivery/il_stints.parquet   (+ .meta.json provenance)
+Output: il_stints.parquet (+ .meta.json provenance) and
+        il_stints_pitchers.parquet (+ .meta.json) — written to
+        MLB_IL_STINTS_DIR when set (the daily pipeline's Phase 1.5 points it
+        at the run cache outside the repo), else the legacy
+        data_delivery location. Local runtime caches: never committed.
         batter  int64   MLB person id
         il_start date    first transaction date of the stint
         il_end   date    activation date, NULL while the stint is still open
@@ -100,6 +104,21 @@ if str(_BACKEND_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR.parent))
 
 from config import DATA_DELIVERY_DIR  # noqa: E402
+
+
+def output_dir() -> Path:
+    """Where the ledgers are written (and consumers read them).
+
+    ``MLB_IL_STINTS_DIR`` wins: the daily pipeline points it at the run
+    cache (beside pitches.parquet, outside the git repo) so the ledgers
+    are runtime inputs that are REBUILT EVERY RUN and never ship as
+    artifacts. Without the env var the legacy in-repo data_delivery
+    location is used, matching features.il_stints_dir().
+    """
+    env = os.environ.get("MLB_IL_STINTS_DIR", "").strip()
+    if env:
+        return Path(env)
+    return Path(DATA_DELIVERY_DIR)
 
 TX_URL = "https://statsapi.mlb.com/api/v1/transactions"
 
@@ -763,7 +782,7 @@ def main() -> None:
             f"had a plate appearance (budget {_MAX_RESIDUAL_ON_IL_PGAMES}) - "
             f"reconciliation did not run or regressed; refusing to write")
 
-    out = args.out or (Path(DATA_DELIVERY_DIR) / "il_stints.parquet")
+    out = args.out or (output_dir() / "il_stints.parquet")
     out.parent.mkdir(parents=True, exist_ok=True)
     iv.to_parquet(out, index=False)
     meta = {
@@ -804,7 +823,7 @@ def main() -> None:
     # govern its own plausibility. Failure here is loud but non-fatal for the
     # batter table already written above.
     piv, pstats = build_pitcher_stints(tx, pbp, end)
-    pout = Path(DATA_DELIVERY_DIR) / "il_stints_pitchers.parquet"
+    pout = output_dir() / "il_stints_pitchers.parquet"
     piv.to_parquet(pout, index=False)
     pmeta = dict(meta)
     pmeta.update({k: v for k, v in pstats.items() if not isinstance(v, set)})

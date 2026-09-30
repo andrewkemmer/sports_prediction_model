@@ -155,6 +155,10 @@ EXACT_MASTER_NAMES = frozenset({
     # Dateless name, so without this the date-gate classifies it stale on the
     # very next run and git rms it — which does not fail loudly, it silently
     # reverts every expected-lineup feature to the unfiltered pool.
+    # 2026-09-30 rev: il_stints_pitchers.parquet deliberately NOT listed —
+    # that ledger (with its sibling) is now a local runtime cache rebuilt by
+    # master_pipeline Phase 1.5 under MLB_IL_STINTS_DIR, outside the repo;
+    # a stray legacy copy is ignored by git and skipped by Phase 5 staging.
     "il_stints.parquet",
     "il_stints.meta.json",
     # Maintained umpire data access (umpires.py): cumulative map + per-umpire

@@ -153,6 +153,34 @@ pull_statcast(
 )
 print(f"  ✅ Raw pitches: {pitches_path}")
 
+# ── Phase 1.5: IL / availability ledgers (runtime inputs, NEVER pushed) ──────
+# il_stints.parquet / il_stints_pitchers.parquet (+ .meta.json provenance) are
+# rebuilt EVERY run here — they are local runtime caches, not GitHub artifacts.
+# MLB_IL_STINTS_DIR points the builder and every consumer at the run cache
+# (beside pitches.parquet, outside the git repo) so the Phase 5 sync can never
+# stage them and Phase 6 never manages them; features/build_il_stints fall
+# back to the legacy in-repo data_delivery location only when the env var is
+# unset. The reconciliation source is pitches.parquet from Phase 1: the
+# builder's plausibility gates need every 2024+ plate appearance / pitching
+# appearance, which the newest pbp_defense snapshot alone cannot cover on a
+# fresh clone. --start keeps the builder's 2023-01-01 default so the ledger
+# provenance (window_start / gate band) matches every prior build. A failure
+# here is NON-FATAL by design: features degrade loudly (participant-pool /
+# exposure-0 semantics with WARNINGs) and the run continues.
+from build_il_stints import main as _build_il_stints
+_il_dir = out_dir / "il_stints"
+_il_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MLB_IL_STINTS_DIR", str(_il_dir))
+print(f"  📁 IL ledgers → {_il_dir}")
+sys.argv = ["build_il_stints.py",
+            "--end", CONFIG["end_date"],
+            "--pbp", str(pitches_path)]
+try:
+    _build_il_stints()
+except Exception as e:
+    print(f"  ⚠️  IL ledger rebuild failed (non-fatal; features degrade "
+          f"loudly): {e}")
+
 # ── Phase 2-3: Feature Engineering ──────────────────────────────────────────
 _banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL)")
 from features import build_features
@@ -2698,10 +2726,19 @@ else:
         # the pre-run snapshot: files this run didn't touch are stale — they
         # are left out of the push and removed from GitHub by Phase 6.
         data_delivery_local = Path.cwd() / "data_delivery"
+        # IL/availability ledgers are LOCAL-RUNTIME caches (rebuilt by Phase
+        # 1.5 under MLB_IL_STINTS_DIR, outside the repo) — never GitHub
+        # artifacts. The env relocation already keeps them out of this
+        # folder; the name skip is belt-and-suspenders for legacy copies.
+        _il_cache_names = {
+            "il_stints.parquet", "il_stints.meta.json",
+            "il_stints_pitchers.parquet", "il_stints_pitchers.meta.json"}
         if data_delivery_local.exists():
             for artifact in sorted(data_delivery_local.rglob("*")):
                 if artifact.is_file():
                     rel_local = artifact.relative_to(data_delivery_local).as_posix()
+                    if rel_local in _il_cache_names:
+                        continue  # local runtime cache — never pushed
                     pre_mtime = _preexisting_delivery.get(rel_local)
                     if pre_mtime is not None and artifact.stat().st_mtime_ns <= pre_mtime:
                         continue  # repo file untouched by this run -> stale

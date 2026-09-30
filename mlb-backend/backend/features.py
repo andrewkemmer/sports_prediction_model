@@ -65,8 +65,11 @@ PA_END_EVENTS = (
 # An OUT/IR designation removes a player from the game-eligible nine, but
 # his own trailing wOBA rating is untouched: it is built strictly from games
 # he actually played and stays available to any side he is eligible for.
-# The IL table is a CACHE (build_il_stints.py), so absence must degrade
-# loudly to the participant behavior, never silently look correct.
+# The IL tables are LOCAL-RUNTIME CACHES (build_il_stints.py, rebuilt as
+# Phase 1.5 of every daily run) that live OUTSIDE the git repo — the
+# pipeline points MLB_IL_STINTS_DIR at the run cache and this module
+# falls back to data_delivery only for legacy checkouts. Absence must
+# degrade loudly to the participant behavior, never silently look correct.
 IL_STINTS_FILE = "il_stints.parquet"
 IL_STINTS_PITCHERS_FILE = "il_stints_pitchers.parquet"
 # A stale IL table is the silent inclusion failure: a player PLACED on
@@ -451,12 +454,12 @@ def il_stints_freshness() -> dict:
     later knowledge date). Returns {} when neither is readable; the
     tripwire must never break feature building.
     """
-    path = _lineup_base_dir() / IL_STINTS_FILE
+    path = il_stints_dir() / IL_STINTS_FILE
     out: dict = {}
     try:
         import json
         meta = json.loads(
-            (_lineup_base_dir() / IL_STINTS_META_FILE).read_text())
+            (il_stints_dir() / IL_STINTS_META_FILE).read_text())
         if meta.get("window_end"):
             out["window_end"] = str(meta["window_end"])
     except Exception:
@@ -478,7 +481,7 @@ def il_stints_freshness() -> dict:
 
 def _register_il_stints_pitchers(con) -> bool:
     """Load the PITCHER availability ledger; False (loudly) when absent."""
-    p = _lineup_base_dir() / IL_STINTS_PITCHERS_FILE
+    p = il_stints_dir() / IL_STINTS_PITCHERS_FILE
     if not p.exists():
         logger.warning(
             "il_stints_pitchers.parquet missing: bullpen availability "
@@ -506,7 +509,7 @@ def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
     Returns False (never raises) so a missing/stale cache degrades the
     feature to the participant pool instead of failing the whole build.
     """
-    path = _lineup_base_dir() / IL_STINTS_FILE
+    path = il_stints_dir() / IL_STINTS_FILE
     if not path.exists():
         logger.warning(
             "%s not found in %s — expected lineups fall back to the participant "
@@ -3455,6 +3458,21 @@ _lineup_cache: dict = {}
 def _lineup_base_dir():
     from pathlib import Path as _P
     return _P(__file__).resolve().parent.parent / "data_delivery"
+
+
+def il_stints_dir():
+    """Directory holding the IL/availability ledger caches.
+
+    ``MLB_IL_STINTS_DIR`` wins when set — the daily pipeline points it at
+    the run cache (beside pitches.parquet, outside the git repo) so the
+    ledgers are runtime inputs that never ship as artifacts. Without the
+    env var the legacy in-repo data_delivery location is used so older
+    checkouts and existing tests keep working.
+    """
+    env = os.environ.get("MLB_IL_STINTS_DIR", "").strip()
+    if env:
+        return Path(env)
+    return _lineup_base_dir()
 
 
 def _missing_lineup_artifacts() -> list[str]:
