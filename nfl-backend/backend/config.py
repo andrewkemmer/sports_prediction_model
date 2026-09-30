@@ -40,10 +40,14 @@ GAME_TYPES = {"REG", "POST"}       # regular season + postseason; preseason excl
 ELO_PRIOR = 1500.0
 ELO_K = 32.0
 ELO_SCALE = 400.0
-# No season-boundary revert. MLB's ELO_REVERT_FACTOR (1/3 toward 1500) was
-# evaluated and rejected 2026-09-29: paired walk-forward pooled gain 0.33 SE
-# (under the RFE gate) and week-1 logloss -0.0104/game; see features.py
-# _elo_apply for the full audit numbers.
+ELO_SEASON_REVERT = 1 / 3  # toward ELO_PRIOR at each season flip (MLB/NHL/NBA parity)
+# Season-boundary revert toward ELO_PRIOR (owner decision 2026-09-29, for
+# cross-sport alignment): MLB (ELO_REVERT_FACTOR), NHL and NBA all revert
+# 1/3 toward the prior at each season flip; NFL now matches. The gate was
+# measured first (paired walk-forward, identical folds): pooled logloss gain
+# +0.00033 +/- 0.00099 (0.33 SE, under the RFE commit gate) and week-1
+# logloss -0.0104/game vs the no-revert baseline - adopted for structural
+# parity, not gate strength; the audit numbers live on _elo_apply.
 
 # ---------------------------------------------------------------------------
 # Trailing windows (authoritative semantics — unchanged)
@@ -87,7 +91,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v9.6-neutral-ladder-guard"
+FEATURE_SET_VERSION = "nfl-prod-v9.7-elo-season-revert"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)

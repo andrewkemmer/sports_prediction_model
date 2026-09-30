@@ -464,7 +464,7 @@ _build_static_diff_manifest()
 FEATURE_MANIFEST = {
     "elo_diff": {
         "description": "Home minus away pre-game Elo rating",
-        "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie",
+        "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
         "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
         "lookback": "full history (iterative)",
         "aggregation": "iterative state update",
@@ -709,7 +709,7 @@ FEATURE_MANIFEST = {
     # so the tree matrix is a projection of the one list.
     "elo_home": {
         "description": "Home team's pre-game Elo rating",
-        "definition": "team Elo entering kickoff (home side of elo_diff)",
+        "definition": "team Elo entering kickoff (home side of elo_diff); ratings carry across the offseason with a 1/3 revert toward ELO_PRIOR at each season boundary",
         "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
         "lookback": "full history (iterative)",
         "aggregation": "iterative state update",

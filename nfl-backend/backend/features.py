@@ -98,25 +98,41 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Elo — pre-game entering rating, updated only after a game settles
 #
-# Season-boundary semantics (audited 2026-09-29 with MLB's structure as the
-# reference): ratings CARRY across the offseason with NO revert. An
-# MLB-style 1/3 regression toward 1500 was replayed through the production
-# walk-forward (paired counterfactual, identical folds, 1,673 OOF games):
-# pooled logloss gain +0.00033 +/- 0.00099 (0.33 SE, below the RFE commit
-# gate), while WEEK-1 logloss degraded by 0.0104 +/- 0.0034 per game and
-# univariate week-1 elo_diff AUC fell 0.7315 -> 0.7042 (revert) and 0.4925
-# under a full reset. Carried prior-season state is the model's best week-1
-# signal; MLB's revert fits its ~130-day offseason and 30-game PA windows,
-# not a ~250-day NFL offseason.
+# Season-boundary semantics (re-aligned 2026-09-29, owner decision): ratings
+# carry across the offseason but REVERT ELO_SEASON_REVERT (1/3) toward
+# ELO_PRIOR at each season flip — the MLB/NHL/NBA structural contract (MLB
+# data_ingestion.ELO_REVERT_FACTOR; NBA/NHL features._elo_apply revert on
+# the season flip with the same constant). Mechanism mirrors NBA's
+# _elo_apply: the boundary is the row's own season column, so the Dec->Jan
+# span of an NFL season can never fire it; the revert runs before the new
+# season's first game reads its entering rating; a team's first-ever game
+# still enters at ELO_PRIOR. Audit on record (paired walk-forward,
+# identical folds, 1,673 OOF games): pooled logloss gain +0.00033 +/-
+# 0.00099 (0.33 SE, under the RFE commit gate); week-1 logloss -0.0104/game
+# vs no-revert; univariate week-1 elo_diff AUC 0.7315 (no revert) -> 0.7042
+# (1/3 revert) vs 0.4925 under a full reset. Adopted for cross-sport
+# structural parity, not gate strength.
 # ---------------------------------------------------------------------------
 def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    K, prior, scale = config.ELO_K, config.ELO_PRIOR, config.ELO_SCALE
+    K, prior, scale = (config.ELO_K, config.ELO_PRIOR, config.ELO_SCALE)
+    revert = float(getattr(config, "ELO_SEASON_REVERT", 0.0))
     time_col = "kickoff_utc" if "kickoff_utc" in events.columns else "gameday"
     ev = events.sort_values([time_col, "game_id", "is_home"]).reset_index(drop=True)
     rating: dict = {}
     entering: dict = {}
+    last_season = None
     for game_id, rows in ev.groupby("game_id", sort=False):
         a, b = list(rows.itertuples(index=False))[:2]
+        season = getattr(a, "season", None)
+        try:
+            season = int(season)
+        except (TypeError, ValueError):
+            season = None
+        if (last_season is not None and season is not None
+                and season != last_season):
+            rating = {t: v + revert * (prior - v) for t, v in rating.items()}
+        if season is not None:
+            last_season = season
         ra, rb = rating.get(a.team, prior), rating.get(b.team, prior)
         entering[(game_id, a.team)] = ra
         entering[(game_id, b.team)] = rb

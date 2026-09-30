@@ -4193,8 +4193,9 @@ check("drift baseline falls back to the exact era tail when same-phase "
 #   Elo CARRIES across the offseason but REVERTS 1/3 toward 1500 (ELO_REVERT
 #   _FACTOR) at each boundary; season records/win% RESET; player ratings roll
 #   a 30-game window across seasons with a CUMULATIVE league-mean prior.
-# NFL deliberately differs on Elo (no revert — see _season_boundary_pins) and
-# matches MLB on rolling ratings spanning seasons. Both contracts are pinned.
+# NFL now matches MLB/NHL/NBA on the Elo season revert (owner decision
+# 2026-09-29, ELO_SEASON_REVERT = 1/3) and matches MLB on rolling ratings
+# spanning seasons. Both contracts are pinned.
 # ---------------------------------------------------------------------------
 _sb_games = pd.DataFrame([
     {"game_id": "SB-23-1", "season": 2023, "week": 1, "gameday": "2023-09-01",
@@ -4235,9 +4236,11 @@ check("EWM form carries prior-season state across the offseason",
       f"home={_sb_value('SB-24-1', 'ewm_net_pts_home'):.4f}, "
       f"away={_sb_value('SB-24-1', 'ewm_net_pts_away'):.4f}")
 
-# Elo carries over with NO season-boundary revert (a deliberate divergence
-# from MLB's ELO_REVERT_FACTOR regression): the 2024 opener's entering rating
-# is exactly the post-update rating after the 2023 finale.
+# Elo carries over but REVERTS ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at
+# the season flip (MLB/NHL/NBA parity, owner decision 2026-09-29): the 2024
+# opener's entering rating is the reverted post-update rating after the 2023
+# finale. The in-season trajectory is untouched (the v9.7 semantic change is
+# the boundary only).
 _sb_ev = feat_mod.team_events(_sb_games)
 _sb_elo = feat_mod.compute_elo(_sb_ev)
 _sb_elo_i = _sb_elo.set_index(["game_id", "team"])
@@ -4245,12 +4248,19 @@ _sb_ra = float(_sb_elo_i.loc[("SB-23-2", "A"), "elo_entering"])
 _sb_rb = float(_sb_elo_i.loc[("SB-23-2", "B"), "elo_entering"])
 _sb_exp_a = 1.0 / (1.0 + 10.0 ** ((_sb_rb - _sb_ra) / config.ELO_SCALE))
 _sb_after_a = _sb_ra + config.ELO_K * (1.0 - _sb_exp_a)   # A won SB-23-2
-check("Elo carries over the offseason with no season-boundary revert "
-      "(opener entering = prior-finale post-update)",
+_sb_reverted_a = _sb_after_a + config.ELO_SEASON_REVERT * (
+    config.ELO_PRIOR - _sb_after_a)
+check("Elo reverts ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at the season "
+      "boundary (MLB/NHL/NBA parity)",
       abs(float(_sb_elo_i.loc[("SB-24-1", "A"), "elo_entering"])
-          - _sb_after_a) < 1e-9,
+          - _sb_reverted_a) < 1e-9,
       f"entering={_sb_elo_i.loc[('SB-24-1', 'A'), 'elo_entering']:.6f}, "
-      f"prior-final post-update={_sb_after_a:.6f}")
+      f"reverted prior-final={_sb_reverted_a:.6f}")
+check("the season revert touches only the boundary (in-season Elo unchanged)",
+      abs(float(_sb_elo_i.loc[("SB-23-1", "A"), "elo_entering"]) - 1500.0) < 1e-9
+      and abs(float(_sb_elo_i.loc[("SB-23-2", "A"), "elo_entering"]) - _sb_ra)
+      < 1e-9,
+      f"first-game entering={_sb_elo_i.loc[('SB-23-1', 'A'), 'elo_entering']}")
 
 # Opponent-adjustment shrinkage: the prior-games count n in w = n/(n+8) is
 # the opponent's FULL-timeline prior games (prior seasons included), so an
