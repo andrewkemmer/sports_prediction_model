@@ -2478,7 +2478,8 @@ def test_fold_ids_are_contiguous_after_the_min_validation_filter():
     gid = 0
     for day in range(200):
         d = pd.Timestamp("2025-10-01") + pd.Timedelta(days=day)
-        # A sparse stretch whose 7-date windows fall under MIN_VAL_FOLD_GAMES.
+        # A sparse stretch whose 7-date windows fall under MIN_VAL_FOLD_GAMES
+        # (retained and disclosed since 2026-09-30, never dropped).
         per_day = 2 if 90 <= day < 110 else 6
         for _ in range(per_day):
             rows.append({"game_id": f"g{gid}", "season": 2025, "gameday": d,

@@ -6,8 +6,10 @@ Structural mirror of MLB's walk-forward fold generator:
     OBSERVED GAME DATES wide (schedule gaps do not silently create a
     different window cadence)
   - training = all eligible games STRICTLY BEFORE the validation window
-  - training expands over time; the final partial window is retained and
-    explicitly marked
+  - training expands over time; every observed window is retained (since
+    2026-09-30 thin windows are disclosed via ``undersized_windows`` — the
+    old MIN_VAL_FOLD_GAMES skip silently removed playoff and season-ramp
+    stretches from the OOF population)
   - all validation rows are restricted to OOF_FIRST_SEASON and later
   - the first validation index is max(cadence, WARMUP_DAYS), matching MLB's
     min_train_days warm-up contract
@@ -81,7 +83,6 @@ def make_folds(df: pd.DataFrame,
     row strictly before that window's first observed validation date.
     """
     cadence = cadence_days or config.RETRAIN_CADENCE_DAYS
-    min_val_games = getattr(config, "MIN_VAL_FOLD_GAMES", 40)
     warmup_days = int(getattr(config, "WARMUP_DAYS", 0) or 0)
     if date_col not in df.columns:
         raise KeyError(f"make_folds: missing date column {date_col!r}")
@@ -120,10 +121,20 @@ def make_folds(df: pd.DataFrame,
             fold_id += 1
         val_start_idx = val_end_idx
 
-    # Keep ordinary folds only when they meet the minimum validation count;
-    # retain the one final partial tail exactly as MLB does.
-    folds = [f for f in candidates
-             if len(f.val_idx) >= min_val_games or f.is_partial_tail]
+    # 2026-09-30: EVERY observed window with at least one validation game is
+    # retained. The previous contract skipped any 7-date window under
+    # MIN_VAL_FOLD_GAMES — which the NHL calendar guarantees every spring
+    # (playoff weeks run 2-8 games/day) and every fall (season ramp), silently
+    # removing those stretches from the OOF population: the 2026-09-30 run's
+    # OOF covered 2429 of 2795 core games while the data window ran to
+    # 2026-09-29, its last OOF validation ended 2026-04-20, and the final
+    # FULL-length tail (2 games over 7 dates) was dropped as well, because
+    # only a partial tail was kept. MIN_VAL_FOLD_GAMES remains meaningful as
+    # the disclosure threshold (``undersized_windows``) — a thin window is
+    # reported, not hidden. Empty windows still never become folds (the
+    # ``len(val_idx)`` guard above), so a schedule gap cannot manufacture a
+    # validation set out of nothing.
+    folds = candidates
     if max_eval_folds > 0 and len(folds) > max_eval_folds:
         folds = folds[-max_eval_folds:]
     # Renumber contiguously AFTER filtering. The min-validation filter drops
@@ -135,6 +146,24 @@ def make_folds(df: pd.DataFrame,
     # window. Renumbering keeps the prior set exactly the preceding folds.
     folds = [replace(f, fold_id=i) for i, f in enumerate(folds)]
     return folds
+
+
+def undersized_windows(folds: list[Fold],
+                       min_val_games: int | None = None) -> list[Fold]:
+    """Windows whose validation population falls under MIN_VAL_FOLD_GAMES.
+
+    Since 2026-09-30 these windows are RETAINED — every observed date is
+    validation evidence, and a walk that skips them hands the OOF metrics a
+    population that excludes exactly the hardest, least regular-shaped
+    games. The list exists so the run can DISCLOSE thin windows by name;
+    before that date they were silently skipped, which is how the
+    2026-09-30 run's OOF covered only 2429 of 2795 core games with the last
+    validation ending 2026-04-20 while the data window ran to 2026-09-29
+    (playoff springs were thinned out of OOF across the whole history).
+    """
+    threshold = int(min_val_games if min_val_games is not None
+                    else getattr(config, "MIN_VAL_FOLD_GAMES", 40))
+    return [f for f in folds if len(f.val_idx) < threshold]
 
 
 def fold_summary(folds: list[Fold]) -> dict:

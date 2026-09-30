@@ -5,8 +5,9 @@ Mirrors ``mlb-backend/backend/test_grid_rfe.py`` structurally:
   * folds.make_folds   — the MLB-style 30-day warm-up gate (the FIRST
                          validation window cannot start before first core
                          date + WARMUP_DAYS), expanding trains, strict
-                         train<val ordering, MIN_VAL_FOLD_GAMES skipping,
-                         final-partial-window retention;
+                         train<val ordering, MIN_VAL_FOLD_GAMES disclosure,
+                         full observed-window retention, final-partial-window
+                         retention;
   * folds.canonical_sort — the ONE row order the fold labels are valid for
                          (fold indices are POSITIONS): a total order whose
                          result is independent of arrival order, whose fold
@@ -132,23 +133,64 @@ def test_folds_are_expanding_and_strictly_prior():
         assert (b.val_start - a.val_start).days == config.RETRAIN_CADENCE_DAYS
 
 
-def test_min_val_fold_games_skips_sparse_windows_but_keeps_the_final_tail():
+def test_every_observed_window_is_retained_and_thin_ones_disclosed():
+    """2026-09-30 contract: windows are never dropped for thinness.
+
+    The previous MIN_VAL_FOLD_GAMES skip silently removed the playoff weeks
+    and season ramps from the OOF population — the 2026-09-30 production run
+    trained on 366 of 2795 core games it never validated, and dropped the
+    final FULL-length tail too (only a partial tail was kept). Thin windows
+    are now retained and DISCLOSED via undersized_windows, and every eligible
+    game after the warm-up is validation evidence exactly once.
+    """
     # 3 games/day = 21 games per 7-day window < MIN_VAL_FOLD_GAMES (40):
-    # every ordinary window is skipped; the final partial window is retained
-    # so the newest games remain visible.
+    # every window is below the old gate, so under the old contract only the
+    # final partial tail survived.
     df = _synth_games(n_days=60, games_per_day=3, seed=13)
     folds = folds_mod.make_folds(df, date_col="gameday")
-    assert all(len(f.val_idx) >= config.MIN_VAL_FOLD_GAMES
-               for f in folds[:-1]), \
-        "a non-final window below MIN_VAL_FOLD_GAMES was not skipped"
-    assert folds, "the final partial window must be retained"
-    assert len(folds[-1].val_idx) > 0
+    assert folds, "a sparse slate still produces folds"
+    # 60 observed dates, warm-up index 30, 7-date cadence → windows over
+    # dates 30..36, 37..43, 44..50, 51..57, 58..59 (5 windows, last partial).
+    assert len(folds) == 5, \
+        f"expected all 5 observed windows retained, got {len(folds)}"
+    # Every eligible game after the warm-up boundary is validated exactly once.
+    covered = sorted(idx for f in folds for idx in f.val_idx)
+    first_val_start = folds[0].val_start
+    eligible = sorted(df.index[pd.to_datetime(df["gameday"]) >= first_val_start])
+    assert covered == eligible, (
+        "the OOF population no longer covers every eligible game — "
+        "a window was dropped")
+    for a, b in zip(folds, folds[1:]):
+        assert a.val_start < a.val_end < b.val_start
 
-    # Dense slates fill the same windows well past the gate.
+    # Thin windows are disclosed by name, and disclosure never invents folds.
+    thin = folds_mod.undersized_windows(folds)
+    assert thin == [f for f in folds
+                    if len(f.val_idx) < config.MIN_VAL_FOLD_GAMES]
+    assert all(len(f.val_idx) > 0 for f in thin)
+
+    # The geometry is independent of game density: a dense slate yields the
+    # same window count, with its thin windows disclosed rather than filtered.
     dense = _synth_games(n_days=60, games_per_day=6)
     dense_folds = folds_mod.make_folds(dense, date_col="gameday")
-    assert all(len(f.val_idx) >= config.MIN_VAL_FOLD_GAMES
-               for f in dense_folds[:-1])
+    assert len(dense_folds) == len(folds)
+    assert all(len(f.val_idx) > 0 for f in dense_folds)
+
+
+def test_the_final_full_length_tail_is_retained():
+    """The 2026-09-30 run's final window was 7 full observed dates carrying 2
+    games — under the old rule it was NOT a partial tail and was dropped
+    entirely, losing the newest games from OOF. Whatever the tail's length,
+    it is retained."""
+    # 58 observed dates: warm-up consumes 30, leaving windows over dates
+    # 30..36, 37..43, 44..50, 51..57 — four FULL 7-date windows (no partial),
+    # the last one necessarily sparse at 3 games/day.
+    df = _synth_games(n_days=58, games_per_day=3, seed=13)
+    folds = folds_mod.make_folds(df, date_col="gameday")
+    assert len(folds) == 4, \
+        f"expected the full-length final tail retained, got {len(folds)}"
+    assert folds[-1].is_partial_tail is False
+    assert len(folds[-1].val_idx) > 0
 
 
 # ── folds: the ONE row order the fold labels are valid for ────────────────
@@ -483,7 +525,7 @@ def test_config_pins_one_sigma_bar():
 def test_config_geometry_and_contract_pins():
     assert config.NHL_FIRST_SEASON == 2024
     assert config.WARMUP_DAYS == 30
-    assert config.MIN_VAL_FOLD_GAMES == 40
+    assert config.MIN_VAL_FOLD_GAMES == 40  # disclosure threshold, not a filter
     assert config.RETRAIN_CADENCE_DAYS == 7
     assert config.ELO_K == 20.0 and config.ELO_HOME_ADV == 65.0
     assert abs(config.ELO_REVERT_FACTOR - 1 / 3) < 1e-12

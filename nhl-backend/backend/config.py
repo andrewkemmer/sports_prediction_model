@@ -102,8 +102,14 @@ RFE_MAX_STEPS = 120
 # Walk-forward fold geometry (observed-date based, NEVER season-day based)
 # ---------------------------------------------------------------------------
 RETRAIN_CADENCE_DAYS = 7   # validation-window width in observed game dates
-MIN_VAL_FOLD_GAMES = 40    # MLB value (NFL uses 15; NHL's dense slate fills
-                           # 7-day windows well past 40 games)
+# NOT a fold filter anymore (2026-09-30): every observed window is retained —
+# the old skip silently thinned playoff and season-ramp stretches out of the
+# OOF population (the 2026-09-30 run validated 2429 of 2795 core games, its
+# last OOF window ending 2026-04-20 while data ran to 2026-09-29). This is
+# now the disclosure threshold: windows under it are reported by name via
+# folds.undersized_windows so thin validation evidence is visible, not hidden.
+# (NFL's own fold filter uses 15; NHL regular-season weeks fill past 40.)
+MIN_VAL_FOLD_GAMES = 40
 
 # ---------------------------------------------------------------------------
 # Feature set version

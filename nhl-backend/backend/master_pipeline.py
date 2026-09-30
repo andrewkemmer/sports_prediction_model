@@ -335,6 +335,33 @@ def main(argv: list[str] | None = None) -> int:
     fold_tbl.to_csv(out_dir / "nhl_fold_table.csv", index=False)
     logger.info("folds: %s", json.dumps(fold_info))
 
+    # Disclosure (2026-09-30): windows whose validation population falls under
+    # MIN_VAL_FOLD_GAMES are RETAINED, not skipped — the old skip silently
+    # removed the playoff and season-ramp stretches from the OOF population
+    # (366 of 2795 core games trained on but never validated). What cannot
+    # happen is the OLD silent drop: the disclosure and the reach gate below
+    # turn a shrinking population into a loud one.
+    thin = folds_mod.undersized_windows(fold_list)
+    if thin:
+        logger.warning(
+            "OOF validation population is thin on %d of %d window(s) "
+            "(< MIN_VAL_FOLD_GAMES=%d games): %s — retained for evidence, "
+            "not skipped (playoff weeks and season ramps are the usual cause)",
+            len(thin), len(fold_list), config.MIN_VAL_FOLD_GAMES,
+            ", ".join(
+                f"[{f.val_start.date()}..{f.val_end.date()} n={len(f.val_idx)}]"
+                for f in thin[:8]) + (" …" if len(thin) > 8 else ""))
+    reach = (fold_info["total_val_games"] / len(game_df)
+             if len(game_df) else 0.0)
+    logger.info("OOF reach: %d of %d eligible games validated (%.1f%%)",
+                fold_info["total_val_games"], len(game_df), 100.0 * reach)
+    if reach < 0.90:
+        raise RuntimeError(
+            f"OOF reach gate failed: only {fold_info['total_val_games']} of "
+            f"{len(game_df)} eligible games were OOF-validated ({100*reach:.1f}% "
+            f"< 90%). A walk-forward that skips windows hands the metrics a "
+            "population that excludes exactly the games it serves.")
+
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
     _banner("PHASE 5", "moneyline walk-forward OOF")
     ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
@@ -481,6 +508,26 @@ def main(argv: list[str] | None = None) -> int:
     # is a misreading of which number this is.
     logger.info("moneyline OOF calib:  %s (prequential per-fold layer; the "
                 "pooled calibrator is what serves the slate)", json.dumps(cal_m))
+    # Disclosure, not a gate (2026-09-30): the per-fold map is fitted on
+    # strictly-prior evidence, so it cannot be gated on its own fold's outcome
+    # (that would read the window it scores). When the layer measures WORSE
+    # than raw — the 2026-09-30 run moved logloss 0.6747->0.6762 and ECE
+    # 0.0098->0.0137 on the same rows while the pooled serving calibrator sat
+    # near-identity (a=0.968 b=0.026) — say so loudly: favored-space per-fold
+    # Platt adds variance, not signal, when the rolling re-earned blend is
+    # already near-calibrated. Serving is unaffected either way.
+    _worse = [m for m in ("logloss", "brier", "ece")
+              if isinstance(raw_m.get(m), (int, float))
+              and isinstance(cal_m.get(m), (int, float))
+              and cal_m[m] > raw_m[m]]
+    if _worse:
+        logger.warning(
+            "prequential calibration layer measures WORSE than raw on %s "
+            "(%s) — per-fold Platt fit on rolling prior evidence is adding "
+            "variance without signal; the pooled serving calibrator is "
+            "unaffected",
+            " and ".join(_worse),
+            ", ".join(f"{m} {raw_m[m]:.5f}->{cal_m[m]:.5f}" for m in _worse))
     member_rows = monitoring.ensemble_table(oof_ml, weights)
     for r in member_rows:
         logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
@@ -1033,6 +1080,12 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
             "p_away_win_derived"}
     gates["slate_contract_fields"] = need.issubset(slate.columns) if len(slate) else True
     gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
+    # OOF reach (2026-09-30): the validation population must cover the
+    # eligible games. The MIN_VAL_FOLD_GAMES skip once removed 366 of 2795
+    # core games — every playoff stretch — from OOF without a single warning.
+    gates["oof_reach"] = bool(
+        len(game_df)
+        and fold_info.get("total_val_games", 0) >= 0.90 * len(game_df))
     # The dispersion fit must have run under the sealed-holdout gate: a
     # record without a cutoff means the alpha layer saw the whole OOF
     # window (an undated frame reaching production), which is exactly the
