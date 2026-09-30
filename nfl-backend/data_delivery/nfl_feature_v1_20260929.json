@@ -1,10 +1,10 @@
 {
- "created_utc": "2026-09-29T21:33:28.811610+00:00",
- "feature_set_version": "nfl-prod-v9.6-neutral-ladder-guard",
+ "created_utc": "2026-09-30T02:37:16.883675+00:00",
+ "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
-   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie",
+   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
    "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
    "lookback": "full history (iterative)",
    "aggregation": "iterative state update",
@@ -277,7 +277,7 @@
    "lookback": "latest hourly reading before kickoff",
    "aggregation": "threshold of one hourly precipitation total; never a daily sum",
    "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
-   "missing_value_policy": "NaN when no strictly-prior hourly precipitation value exists; never inferred from a daily archive or schedule payload",
+   "missing_value_policy": "NaN for indoor/closed games and when no strictly-prior hourly precipitation value exists; never inferred from a daily archive or schedule payload",
    "representation": "game-level flag (all model families)",
    "model_family_availability": [
     "linear",
@@ -293,7 +293,7 @@
    "lookback": "latest hourly reading before kickoff",
    "aggregation": "threshold of one hourly snowfall total; never a daily sum",
    "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
-   "missing_value_policy": "NaN when no strictly-prior hourly snowfall value exists; never inferred from a daily archive or schedule payload",
+   "missing_value_policy": "NaN for indoor/closed games and when no strictly-prior hourly snowfall value exists; never inferred from a daily archive or schedule payload",
    "representation": "game-level flag (all model families)",
    "model_family_availability": [
     "linear",
@@ -321,7 +321,7 @@
   },
   "elo_home": {
    "description": "Home team's pre-game Elo rating",
-   "definition": "team Elo entering kickoff (home side of elo_diff)",
+   "definition": "team Elo entering kickoff (home side of elo_diff); ratings carry across the offseason with a 1/3 revert toward ELO_PRIOR at each season boundary",
    "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
    "lookback": "full history (iterative)",
    "aggregation": "iterative state update",
@@ -1127,8 +1127,8 @@
    "feature": "elo_diff",
    "n_games": 2687,
    "coverage_pct": 100.0,
-   "mean": -0.923841785047902,
-   "std": 140.07065516122972
+   "mean": -1.029088828150386,
+   "std": 101.25205619287121
   },
   {
    "feature": "win_pct_diff",
@@ -1232,15 +1232,15 @@
    "feature": "temp_f",
    "n_games": 2687,
    "coverage_pct": 71.12,
-   "mean": 58.66745159602303,
-   "std": 16.862389381366853
+   "mean": 58.66771323914181,
+   "std": 16.86246052094246
   },
   {
    "feature": "wind_mph",
    "n_games": 2687,
    "coverage_pct": 71.12,
-   "mean": 7.947880690737834,
-   "std": 4.461230837415915
+   "mean": 7.947619047619048,
+   "std": 4.461535825219912
   },
   {
    "feature": "is_precip",
@@ -1316,15 +1316,15 @@
    "feature": "elo_home",
    "n_games": 2687,
    "coverage_pct": 100.0,
-   "mean": 1503.1309251225837,
-   "std": 99.86323927929355
+   "mean": 1500.286165422494,
+   "std": 72.50008989943443
   },
   {
    "feature": "elo_away",
    "n_games": 2687,
    "coverage_pct": 100.0,
-   "mean": 1504.0547669076316,
-   "std": 99.1743523812073
+   "mean": 1501.3152542506443,
+   "std": 71.97073502655748
   },
   {
    "feature": "win_pct_home",
@@ -1623,7 +1623,7 @@
   "total_val_games": 1673
  },
  "config": {
-  "feature_set_version": "nfl-prod-v9.6-neutral-ladder-guard",
+  "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
   "warmup_seasons": [
    2016
   ],
