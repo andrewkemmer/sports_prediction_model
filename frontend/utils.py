@@ -1116,15 +1116,25 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
         # Dated ``nfl_board_<date>.csv`` snapshots are a date source (MLB
         # parity: the board family defines the navigable window; the
         # backend's board-supported retention families hold these dates).
-        bpath = resolve_sport_artifact("nfl", "nfl_board_csv")
-        if bpath is not None:
-            try:
-                _b = pd.read_csv(bpath, usecols=["game_date"])
-                board_family_dates = {
+        # Fold the WHOLE family, not just the newest file: NFL slates are
+        # sparse (Sun/Mon/Thu), so the newest committed board is routinely
+        # a FUTURE slate while an off-day's retained snapshot is still
+        # inside the retention window — a newest-only read dropped that
+        # date from the rail (2026-09-30 board-render smoke regression).
+        # load_nfl_board_games resolves date-exactly per date, so every
+        # dated member carrying rows is a genuinely navigable day.
+        _pat = artifact_patterns("nfl").get("nfl_board_csv")
+        _sport_dir = (REPO_ROOT / resolve_sport("nfl")["repo_subdir"]
+                      / "data_delivery")
+        if _pat and _sport_dir.is_dir():
+            for _bp in sorted(_sport_dir.glob(_pat)):
+                try:
+                    _b = pd.read_csv(_bp, usecols=["game_date"])
+                except Exception:
+                    continue
+                board_family_dates |= {
                     str(v).replace("-", "")[:8]
                     for v in _b["game_date"].dropna().astype(str)}
-            except Exception:
-                board_family_dates = set()
     return tuple(_valid_dates_impl(
         s, contents, LOCAL_DATA_DIR, board_frame,
         list(history or ()) + list(history_dates),
