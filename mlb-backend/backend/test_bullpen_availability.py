@@ -601,6 +601,18 @@ def test_slate_withholds_stale_return_starter(tmp_path, caplog):
     assert slate.loc[0, "sp_k9_away"] == 7.0
     assert slate.loc[0, "sp_era_away"] == 4.0
     assert any("stale" in r.message.lower() for r in caplog.records)
+    # observability: ONE summary entry for the gated side — the generic
+    # unmapped loop must not double-count a mapped-and-gated starter nor
+    # misreport him as "absent or unmappable" (2026-09-29 run logged
+    # "2 of 8 starter slots" for a single gated side)
+    summary = [r.message for r in caplog.records
+               if "Slate pitcher resolution" in r.message]
+    assert summary == [
+        "Slate pitcher resolution: 1 of 2 starter slots unresolved — those "
+        "sides price without SP/exp2 features "
+        "(20260628_AWAY@HOME:home (stale return))"], summary
+    assert not [r for r in caplog.records
+                if "absent or unmappable" in r.message]
 
 
 def test_no_pbp_frame_degrades_slate_gate_inertly(caplog):

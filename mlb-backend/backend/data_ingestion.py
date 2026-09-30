@@ -1874,6 +1874,12 @@ def build_upcoming_slate(
                     _SP_SLATE_STALE_GAP_DAYS, target_date)
                 unresolved_slots.append(
                     (row.get("game_id"), f"{side} (stale return)"))
+                # Mark the slot HANDLED so the generic unmapped loop below
+                # neither double-counts it in the resolution summary nor
+                # misreports a mapped-and-gated starter as "absent or
+                # unmappable" (2026-09-29 run logged 2 of 8 slots for one
+                # gated side). The SP columns stay NaN either way.
+                resolved[side] = f"gated-stale:{pid}"
                 continue
             for base, val in pitcher_state.get(pid, {}).items():
                 row[f"{base}_{side}"] = val
@@ -1886,6 +1892,8 @@ def build_upcoming_slate(
         # that side on team-level columns alone. Silence here is how a
         # systematic enrichment failure (2026-09-29: all 4 away starters
         # TBD) hid inside a green run log. One line per affected game.
+        # (Sides handled by the staleness gate above are pre-marked and
+        # skipped here — their observability is already emitted.)
         for side in ("home", "away"):
             if resolved[side] is None:
                 unresolved_slots.append((row.get("game_id"), side))
