@@ -1,28 +1,5 @@
 [
   {
-    "version": "v2026.09.10",
-    "date": "2026-09-10",
-    "weights": {
-      "xgboost": 0.45,
-      "lightgbm": 0.1423,
-      "logistic": 0.1972,
-      "randomforest": 0.1367,
-      "mlp": 0.0738
-    },
-    "auc": 0.5709,
-    "brier": 0.2447,
-    "logloss": 0.6823,
-    "ece": 0.0079,
-    "brier_calibrated": 0.2453,
-    "logloss_calibrated": 0.6835,
-    "ece_calibrated": 0.0044,
-    "calibration": {
-      "a": 0.965491,
-      "b": 0.018162,
-      "n": 6649
-    }
-  },
-  {
     "version": "v2026.09.11",
     "date": "2026-09-11",
     "weights": {
@@ -451,6 +428,29 @@
       "a": 1.102158,
       "b": -0.024024,
       "n": 6883,
+      "method": "favored_platt_floor",
+      "floor": 0.5
+    }
+  },
+  {
+    "version": "v2026.09.30",
+    "date": "2026-09-30",
+    "weights": {
+      "xgboost": 0.0082,
+      "lightgbm": 0.4524,
+      "elasticnet": 0.5394
+    },
+    "auc": 0.5607,
+    "brier": 0.2458,
+    "logloss": 0.6847,
+    "ece": 0.0052,
+    "brier_calibrated": 0.246,
+    "logloss_calibrated": 0.6851,
+    "ece_calibrated": 0.0052,
+    "calibration": {
+      "a": 1.059168,
+      "b": -0.015653,
+      "n": 6887,
       "method": "favored_platt_floor",
       "floor": 0.5
     }
