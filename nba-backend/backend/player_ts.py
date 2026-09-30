@@ -388,8 +388,23 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
     league-wide sum sliced by position - is the same arithmetic, but doing it
     per cell keeps a missing cell missing instead of silently borrowing another
     cell's evidence.
+
+    **Season boundary (2026-09-29 audit).** The cell follows the same evidence
+    season the player priors do. When that season has NO plays strictly before
+    the target - the season's first decided game(s) - the cell borrows the most
+    recent prior season's plays through the target and ``lg_season_source``
+    names the borrowed season. Without it, opening night has a zero player
+    prior AND an empty league cell, so the shrink target is NaN and a whole
+    slate's ts_shrunk collapses - all-the-way shrinkage with no prior to shrink
+    TO. The borrow is strictly point-in-time (prior-season rows are, by
+    construction, before the target) and it is the same bridge the player-side
+    fallback already makes for pre-season targets, extended to the league side
+    so game 1 behaves like game 2: the player lands on the league mean, just
+    from last season's cell. A target with no evidence in ANY season keeps the
+    empty cell (lg_ts NaN) - nothing is invented.
     """
-    columns = ["target_date", "position", "lg_points", "lg_plays", "lg_ts"]
+    columns = ["target_date", "position", "lg_points", "lg_plays", "lg_ts",
+               "lg_season_source"]
     if games is None or not len(games):
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if "position" not in games.columns:
@@ -411,6 +426,9 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
 
     rows = []
     season_index = _season_evidence_index(work)
+    # Per (position, season) cumulative scoring-play tables, kept so the
+    # season-boundary borrow below can read a prior season's cell.
+    cum_by_season: dict = {}
     for position, group in work.groupby("position", sort=False):
         # The league mean is also season-partitioned, for the same reason the
         # player's own prior is: a rating dated into the current season is
@@ -429,6 +447,9 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
             daily_plays = part.groupby("gameday").plays.sum().sort_index()
             cum_points = daily_points.cumsum()
             cum_plays = daily_plays.cumsum()
+            if season is not None:
+                cum_by_season.setdefault(position, {})[season] = (
+                    cum_points, cum_plays)
             for target in dates:
                 if season is not None and _evidence_season(
                         work, target, season_index) != season:
@@ -438,9 +459,37 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
                              float(cum_points[earlier].sum())
                              if earlier.any() else 0.0,
                              float(cum_plays[earlier].sum())
-                             if earlier.any() else 0.0))
+                             if earlier.any() else 0.0,
+                             season if (season is not None and earlier.any())
+                             else ""))
     out = pd.DataFrame(rows, columns=["target_date", "position",
-                                      "lg_points", "lg_plays"])
+                                      "lg_points", "lg_plays",
+                                      "lg_season_source"])
+    # Season-boundary borrow. A cell with no in-season evidence strictly
+    # before the target - the season's first decided game(s) - shrinks toward
+    # the most recent season that HAS such evidence, so a zero-prior player on
+    # opening night lands EXACTLY on the prior season's position league mean:
+    # all-the-way shrinkage, the same behavior game 2 already gets. Strictly
+    # point-in-time (prior-season rows are, by construction, before the
+    # target); a target with no evidence in ANY season keeps the empty cell.
+    for idx in out.index[out.lg_plays <= 0]:
+        season_cells = cum_by_season.get(out.at[idx, "position"], {})
+        target = out.at[idx, "target_date"]
+        best_season, best_day = None, None
+        for season, (_cp, _cpl) in season_cells.items():
+            prior_days = _cpl.index[_cpl.index < target]
+            if not len(prior_days):
+                continue
+            latest = prior_days.max()
+            if best_day is None or latest > best_day:
+                best_season, best_day = season, latest
+        if best_season is None:
+            continue
+        cp, cpl = season_cells[best_season]
+        earlier = cp.index < target
+        out.at[idx, "lg_points"] = float(cp[earlier].sum())
+        out.at[idx, "lg_plays"] = float(cpl[earlier].sum())
+        out.at[idx, "lg_season_source"] = best_season
     out["lg_ts"] = out.lg_points / (2.0 * out.lg_plays).where(out.lg_plays > 0)
     return out
 

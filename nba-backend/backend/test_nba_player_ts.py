@@ -733,7 +733,58 @@ class TestEvidenceSeasonFallback:
             games, target_dates=pd.Series(["2025-10-22"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
         assert row.prior_points == 0 and row.prior_plays == 0
+        # With NO prior season to borrow from, the league cell stays empty
+        # and the rating is honestly undefined. With one, opening night now
+        # shrinks all the way to it - see
+        # test_opening_night_shrinks_all_the_way_to_the_prior_seasons_cell.
         assert pd.isna(row.ts_shrunk)
+
+    def test_opening_night_shrinks_all_the_way_to_the_prior_seasons_cell(
+            self):
+        """Game 1 gets the treatment game 2 already had.
+
+        Game 2 leans ~94% on the league prior because a one-game prior is
+        thin. Game 1's player prior is ZERO - thinner still - but until the
+        2026-09-29 fix the league CELL was also empty on opening night, so
+        the shrink target was NaN and the whole slate's ts_shrunk collapsed.
+        The cell now borrows the most recent season with plays strictly
+        before the target, so a zero-prior player lands EXACTLY on the prior
+        season's position league mean: all-the-way shrinkage, strictly
+        point-in-time (prior-season rows are before the target by
+        construction).
+        """
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 10, 5, 0, season="2024-25"),
+            _row("b", "2024-11-01", 30, 15, 0, season="2024-25"),
+            _row("c", "2025-10-22", 20, 10, 0, season="2025-26"),
+        ]))
+        target = pd.Series(["2025-10-22"])
+        league = ts.league_prior_table(games, target)
+        lrow = league[league.position == "G"].iloc[0]
+        # The borrowed cell names its source and carries the 2024-25 mean.
+        assert lrow.lg_season_source == "2024-25"
+        assert lrow.lg_ts == pytest.approx(
+            (10.0 + 30.0) / (2.0 * (5.0 + 15.0)))
+        ratings = ts.build_player_ts(games, target_dates=target)
+        row = ratings[ratings.player_id == "c"].iloc[0]
+        assert row.prior_points == 0 and row.prior_plays == 0
+        # Zero prior + real shrink target = exactly the league mean.
+        assert row.ts_shrunk == pytest.approx(lrow.lg_ts)
+
+    def test_the_borrow_never_touches_a_cell_with_in_season_evidence(self):
+        """Day 2+ reads its OWN season; the borrow is opener-only.
+
+        The season partition is the carryover guard - the borrow widens
+        WHICH season an EMPTY cell reads, never replaces a populated one.
+        """
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2025-10-22", 10, 5, 0, season="2025-26"),
+            _row("b", "2025-10-24", 30, 15, 0, season="2025-26"),
+        ]))
+        league = ts.league_prior_table(games, pd.Series(["2025-10-24"]))
+        lrow = league[league.position == "G"].iloc[0]
+        assert lrow.lg_season_source == "2025-26"
+        assert lrow.lg_plays == pytest.approx(5.0)
 
     def test_season_boundary_day_two_is_in_season_not_carryover(self):
         """Day two+ rates strictly in-season: prior-season form is dropped.
