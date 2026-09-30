@@ -8,6 +8,11 @@ Three things here earn their own tests because each fails quietly:
   can gate;
 * the status classification, where an unrecognised word that defaults to
   "available" would project a player the feed said something about.
+
+The Elo season-boundary class (added with the 2026-09-29 boundary audit)
+pins the revert convention: ratings regress 1/3 toward 1500 at the season
+flip - they are never reset, matching MLB's season-to-season regression;
+the NFL's no-revert divergence is that sport's own deliberate choice.
 """
 from __future__ import annotations
 
@@ -16,6 +21,11 @@ import itertools
 import numpy as np
 import pandas as pd
 import pytest
+
+try:
+    from backend import features as feat_mod
+except ImportError:
+    import features as feat_mod
 
 try:
     # Deliberately the SAME import form every production module uses.
@@ -1183,3 +1193,75 @@ class TestSealedDispersionHoldout:
             assert fit["cutoff"] == sig["holdout"]["cutoff"]
             assert fit["holdout_days"] == dist_mod.HOLDOUT_DAYS
             assert fit["fitted_on"] == "pre-holdout OOF only"
+
+
+class TestEloSeasonBoundary:
+    """Elo never resets at the season flip; it regresses 1/3 toward 1500.
+
+    The 2026-09-29 boundary audit's answer, stated as executable fact. The
+    revert is load-bearing (the drift report's elo_* means are Elo entering
+    means, and the season flip is when a reset would move them most) and
+    until now existed only as code, not as a pin. Expectations are computed
+    against a single-season reference walk of the SAME games - no hand-
+    derived Elo constants.
+    """
+
+    @staticmethod
+    def _game(gid, day, season, home, away, hs, as_):
+        return pd.DataFrame([{
+            "game_id": gid, "gameday": pd.Timestamp(day), "season": season,
+            "home_team": home, "away_team": away,
+            "home_score": float(hs), "away_score": float(as_),
+        }])
+
+    @classmethod
+    def _two_season_events(cls) -> pd.DataFrame:
+        games = pd.concat([
+            cls._game("s1-a", "2025-01-05", 2024, "BOS", "NYK", 118, 104),
+            cls._game("s1-b", "2025-01-07", 2024, "NYK", "BOS", 100, 112),
+            cls._game("s2-a", "2025-10-22", 2025, "BOS", "LAL", 105, 110),
+            cls._game("s2-b", "2025-10-24", 2025, "LAL", "BOS", 108, 101),
+        ], ignore_index=True)
+        return feat_mod.team_events(games)
+
+    def test_ratings_regress_a_third_toward_1500_at_the_season_flip(self):
+        events = self._two_season_events()
+        ev, final = feat_mod._elo_apply(events)
+        # The season-1-only walk's final state is exactly the state the
+        # two-season walk carries INTO the flip (same games, same order,
+        # no flip in the reference). A team playing on BOTH sides enters
+        # season 2 at that state pulled 1/3 toward 1500 - a reset would
+        # enter at ELO_PRIOR, no revert at the raw state.
+        s1 = events[events.game_id.isin(["s1-a", "s1-b"])]
+        _, s1_final = feat_mod._elo_apply(s1)
+        entering = ev[ev.game_id == "s2-a"].set_index("team").elo_entering
+        expected_bos = (s1_final["BOS"] + config.ELO_REVERT_FACTOR
+                        * (config.ELO_PRIOR - s1_final["BOS"]))
+        assert entering["BOS"] == pytest.approx(expected_bos, abs=1e-9)
+        # A team whose season ENDED at the flip keeps the reverted state
+        # rather than vanishing (NYK never plays in season 2).
+        assert final["NYK"] == pytest.approx(
+            s1_final["NYK"] + config.ELO_REVERT_FACTOR
+            * (config.ELO_PRIOR - s1_final["NYK"]), abs=1e-9)
+
+    def test_the_flip_fires_once_not_every_boundary_game(self):
+        """Season 2's second entering rating is the plain one-step K update
+        from the run's own season-2 entering values - pinning that the
+        revert applied exactly once at the flip, never per boundary game.
+        """
+        events = self._two_season_events()
+        ev, _ = feat_mod._elo_apply(events)
+        a = ev[ev.game_id == "s2-a"].set_index("team").elo_entering
+        b = ev[ev.game_id == "s2-b"].set_index("team").elo_entering
+        ra, rb = float(a["BOS"]), float(a["LAL"])
+        exp_home = 1.0 / (1.0 + 10.0 ** (
+            (rb + config.ELO_HOME_ADV - ra) / config.ELO_SCALE))
+        # BOS lost s2-a at home (105-110).
+        assert b["BOS"] == pytest.approx(
+            ra + config.ELO_K * (0.0 - exp_home), abs=1e-9)
+
+    def test_a_never_played_team_enters_at_1500(self):
+        events = self._two_season_events()
+        ev, _ = feat_mod._elo_apply(events)
+        lal = ev[(ev.game_id == "s2-a") & (ev.team == "LAL")].iloc[0]
+        assert lal.elo_entering == pytest.approx(config.ELO_PRIOR)
