@@ -504,6 +504,59 @@ def test_boxscore_cache_never_frozen_mid_game():
     path.unlink(missing_ok=True)
 
 
+def test_score_pages_carry_the_float64_numeric_contract():
+    """Every score page — settled or cancelled — returns float64 score/sog
+    columns (2026-09-30 regression).
+
+    A cancelled-date page parses a column of bare Nones, which pandas types
+    as OBJECT; under pandas 2.x the concat then raises the all-NA-entry
+    FutureWarning (the 02:17 run printed it from ingestion.py:591). The
+    dtype contract is the invariant that makes the concat identical under
+    the old and the new pandas semantics, fetched or cache-loaded.
+    """
+    day = (date.today() - timedelta(days=1)).isoformat()  # inside the lag
+    stamp = day.replace("-", "")
+    path = BACKEND / f"dtype_{stamp}.parquet"
+    path.unlink(missing_ok=True)
+
+    def _game(gid, state, home, away):
+        return {"id": gid, "gameDate": day, "season": 2026,
+                "awayTeam": {"id": 1, "name": {"default": "A"}, "abbrev": "AAA",
+                             "score": away, "record": "1-1"},
+                "homeTeam": {"id": 2, "name": {"default": "H"}, "abbrev": "HHH",
+                             "score": home, "record": "1-1"},
+                "venue": {"default": "V"}, "gameState": state, "gameType": 2}
+
+    with _mock_patch.object(
+            ing, "_http_json",
+            return_value={"games": [_game(1, "OFF", 2, 1),
+                                    _game(2, "FUT", None, None)]}), \
+            _mock_patch.object(ing, "_cache_path", side_effect=lambda n: path):
+        df = ing.load_score_dates([day])
+    path.unlink(missing_ok=True)
+    for col in ("home_score", "away_score", "home_sog", "away_sog"):
+        assert str(df[col].dtype) == "float64", \
+            f"{col} left the float64 contract: {df[col].dtype}"
+
+
+def test_boxscore_dtype_contract_preserves_identity_columns():
+    """The boxscore coercion touches ONLY numeric stats — goalie id/name/
+    decision are identities and must survive as strings, while a game with
+    no recorded stats still yields float64 stat columns."""
+    row = {c: None for c in ing.BOXSCORE_COLS}
+    row["game_id"] = "2026020002"
+    row["home_sog"] = 31
+    row["home_goalie_name"] = "Jeremy Swayman"
+    df = ing._coerce_boxscore_dtypes(pd.DataFrame([row], columns=ing.BOXSCORE_COLS))
+    for col in ing.BOXSCORE_NUMERIC_COLS:
+        assert str(df[col].dtype) == "float64", \
+            f"{col} left the float64 contract: {df[col].dtype}"
+    assert df["home_goalie_name"].iloc[0] == "Jeremy Swayman"
+    assert str(df["home_goalie_name"].dtype) != "float64"
+    assert str(df["home_goalie_decision"].dtype) != "float64"
+    assert str(df["home_goalie_id"].dtype) != "float64"
+
+
 def test_coverage_verdict_separates_cold_nulls_from_real_defects():
     """The console must not report one undifferentiated coverage percentage.
 

@@ -524,7 +524,7 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
             if use_cache and path.exists():
                 try:
-                    frames.append(pd.read_parquet(path))
+                    frames.append(_coerce_score_dtypes(pd.read_parquet(path)))
                     hits += 1
                     prog.tick(cached=True)
                     continue
@@ -540,6 +540,11 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             prog.tick(cached=False)
             rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
             df = pd.DataFrame(rows, columns=SCORE_KEEP)
+            # Numeric contract BEFORE the concat below (why lives on the
+            # helper): every page — fetched OR cached — must carry float64
+            # score columns, or pandas 2.x warns on the all-NA entry a
+            # cancelled-date page produces.
+            df = _coerce_score_dtypes(df)
             # RUNNING scores are not results: null them at the door so a
             # mid-game slate can never enter the decided population.
             pending = ~df["game_state"].isin(FINAL_GAME_STATES)
@@ -842,6 +847,48 @@ BOXSCORE_COLS = [
 
 SKATER_COLS = ["game_id", "side", "team", "player_id", "player_name"]
 
+#: The per-game stats that are NUMBERS by contract. Coercing exactly these
+#: (and never the goalie id/name/decision identity columns) at parse time
+#: keeps every cached parquet float64 even when a game recorded no stats —
+#: the dtype-stability that silences the pandas-2.x all-NA concat warning.
+BOXSCORE_NUMERIC_COLS = (
+    "home_sog", "away_sog", "home_pp_goals", "away_pp_goals",
+    "home_faceoff_pct", "away_faceoff_pct", "home_hits", "away_hits",
+    "home_blocked", "away_blocked", "home_pim", "away_pim",
+    "home_giveaways", "away_giveaways", "home_takeaways", "away_takeaways",
+    "home_pp_opportunities", "away_pp_opportunities",
+    "home_goalie_toi", "away_goalie_toi",
+    "home_goals_against", "away_goals_against",
+    "home_shots_against", "away_shots_against",
+)
+
+
+def _coerce_score_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Float64 contract for the score-page numeric columns, applied to EVERY
+    frame entering the concat — fetched or cache-loaded.
+
+    A page whose every game is cancelled/postponed (2024-10-07) parses a
+    column of bare Nones, which pandas types as OBJECT; at concat time pandas
+    2.x raises the "concatenation with all-NA entries" FutureWarning because
+    that entry's dtype diverges from the float64 result. Coercing to float64
+    makes every page dtype-stable (an all-NaN float64 column is identical
+    under the old and the new concat semantics — the warning cannot fire and
+    the result is unchanged), and covers pre-contract caches that stored the
+    object form.
+    """
+    for c in ("home_score", "away_score", "home_sog", "away_sog"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("float64")
+    return df
+
+
+def _coerce_boxscore_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """The same float64 contract for boxscore stats. ONLY the numeric stats
+    are coerced — the goalie id/name/decision columns are identities and
+    must never see this."""
+    for c in BOXSCORE_NUMERIC_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("float64")
+    return df
+
 
 def _skater_rows(bs: dict, game_id: str) -> list[dict]:
     """One row per skater who DRESSED, from the two per-side arrays."""
@@ -892,7 +939,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
             path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
             if use_cache and path.exists():
                 try:
-                    frames.append(pd.read_parquet(path))
+                    frames.append(_coerce_boxscore_dtypes(pd.read_parquet(path)))
                     hits += 1
                     prog.tick(cached=True)
                     continue
@@ -913,6 +960,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                     continue
                 row = _parse_boxscore(bs)
                 df = pd.DataFrame([row], columns=BOXSCORE_COLS)
+                df = _coerce_boxscore_dtypes(df)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("boxscore unavailable for game %s: %s", gid, exc)
                 prog.tick(failed=True)
