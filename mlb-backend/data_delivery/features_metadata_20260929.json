@@ -1,6 +1,6 @@
 {
   "generated_for": "20260929",
-  "n_features": 100,
+  "n_features": 101,
   "warnings": [],
   "features": {
     "is_home": {
@@ -98,6 +98,22 @@
         "logistic"
       ],
       "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "sp_k9_diff": {
+      "name": "sp_k9_diff",
+      "summary": "Home SP season-to-date K/9 \u2212 away SP",
+      "definition": "Starting-pitcher strikeout-volume gap. READMITTED 2026-09-30: raw twins sp_k9_home/away re-entered serving 2026-09-27, so the diff was restored for structural alignment.",
+      "formula": "sp_k9_home \u2212 sp_k9_away",
+      "source": "Statcast pitching aggregates (season to date)",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Starting-pitcher strikeout-volume gap. READMITTED 2026-09-30: raw twins sp_k9_home/away re-entered serving 2026-09-27, so the diff was restored for structural alignment.\nFormula: sp_k9_home \u2212 sp_k9_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_fbvelo_diff": {
       "name": "sp_fbvelo_diff",
@@ -639,14 +655,14 @@
       "definition": "Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_era_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "season to date (prior in-season starts; LAG-shifted)",
       "units": "ERA runs",
       "direction": "lower = better for that side for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_era_away": {
       "name": "sp_era_away",
@@ -654,14 +670,14 @@
       "definition": "Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_era_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "season to date (prior in-season starts; LAG-shifted)",
       "units": "ERA runs",
       "direction": "lower = better for that side for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_k9_home": {
       "name": "sp_k9_home",
@@ -669,14 +685,14 @@
       "definition": "Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_k9_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "season to date (prior in-season starts; LAG-shifted)",
       "units": "K/9",
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_k9_away": {
       "name": "sp_k9_away",
@@ -684,14 +700,14 @@
       "definition": "Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_k9_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "season to date (prior in-season starts; LAG-shifted)",
       "units": "K/9",
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_xwoba_home": {
       "name": "sp_xwoba_home",
@@ -699,14 +715,14 @@
       "definition": "Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_xwoba_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "last 6 appearances (LAG-shifted; the legacy _30g name)",
       "units": "xwOBA",
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: last 6 appearances (LAG-shifted; the legacy _30g name) \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_xwoba_away": {
       "name": "sp_xwoba_away",
@@ -714,14 +730,14 @@
       "definition": "Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "sp_xwoba_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "last 6 appearances (LAG-shifted; the legacy _30g name)",
       "units": "xwOBA",
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: last 6 appearances (LAG-shifted; the legacy _30g name) \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "lineup_woba_mean_home": {
       "name": "lineup_woba_mean_home",
@@ -819,14 +835,14 @@
       "definition": "Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "bullpen_whip_10g_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)",
       "units": "WHIP",
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_10g_away": {
       "name": "bullpen_whip_10g_away",
@@ -834,14 +850,14 @@
       "definition": "Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "bullpen_whip_10g_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
+      "window": "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)",
       "units": "WHIP",
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_3g_home": {
       "name": "bullpen_whip_3g_home",
@@ -849,14 +865,14 @@
       "definition": "Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "bullpen_whip_3g_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "3g",
+      "window": "3 team games (opportunity-shrunk)",
       "units": "WHIP",
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_3g_away": {
       "name": "bullpen_whip_3g_away",
@@ -864,14 +880,14 @@
       "definition": "Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
       "formula": "bullpen_whip_3g_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "3g",
+      "window": "3 team games (opportunity-shrunk)",
       "units": "WHIP",
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_barrel_15g_home": {
       "name": "team_barrel_15g_home",
