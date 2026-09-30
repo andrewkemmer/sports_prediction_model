@@ -433,6 +433,31 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 # same correction NHL documents: dividing by seasons first weights a 3-game
 # cameo like an 82-game regular and collapses the reference season, which would
 # silently make k several times too small and under-shrink every rating.
+#
+# SEASON BOUNDARY (audit 2026-09-29, against MLB's structural guidance):
+# the shrunk rating is a SEASON-CUMULATIVE quantity, and it follows MLB's
+# season-to-date convention exactly (mlb features.py: season stats are
+# PARTITIONED BY SEASON "so the prior October never leaks into a new
+# season's cumulative"). Concretely:
+#   * A PENDING-slate target before the season's first result rates from the
+#     last completed season (the _evidence_season fallback) - the bridge the
+#     2026-27 opening slate needed.
+#   * From the first DECIDED game the prior is strictly in-season: opening
+#     night itself has a zero prior and no league mean yet (ts_shrunk NaN),
+#     and day 2+ ratings thin in from the league prior as plays accumulate.
+#     That early-season thinness is the shrinkage doing its job, NOT missing
+#     carryover - and it is the pl_ts coverage the drift report reads as
+#     STARVED/LOW for the first weeks (min-plays pool floor on top).
+#   * k and the position prior tables are window-global reference strengths,
+#     not season-partitioned - the same portability MLB's fixed 120-PA
+#     convention has.
+# MLB additionally ships CROSS-SEASON recent-form windows (last-5-start rolls
+# over the prior season's tail - "no gap at the season boundary") and a
+# shrink prior that falls back to all-history-through-window. The NBA has no
+# cross-season recent-form analogue in the pl_ts family: adopting one (or
+# blending the prior-season tail into the first N games' prior) is a rating
+# redefinition and needs its own holdout validation - recorded here so the
+# divergence from MLB's structure is a decision, not an oversight.
 PLAYER_TS_SHRINK_FRACTION = 0.20
 #: Free-throw weight in the scoring-play denominator. 0.44 is the standard
 #: NBA value (an open mid-range shot is worth ~1.16x a rim attempt, and a made

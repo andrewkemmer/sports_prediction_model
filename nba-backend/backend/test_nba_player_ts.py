@@ -715,6 +715,45 @@ class TestEvidenceSeasonFallback:
         assert row.prior_points == 4
         assert row.prior_games == 1
 
+    def test_season_boundary_opening_night_has_no_prior_and_no_league_mean(
+            self):
+        """A decided opening-night game rates from NOTHING.
+
+        The season-boundary audit (2026-09-29, against MLB's structural
+        guidance): the evidence fallback serves PRE-SEASON slate targets;
+        a target on or after the season's first DECIDED game rates
+        in-season from day one, so opening night's own prior is zero by
+        construction and the league mean has no evidence either -
+        ts_shrunk is NaN, not a rating wearing a prior's clothes.
+        """
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2025-10-22", 30, 15, 0, season="2025-26"),
+        ]))
+        ratings = ts.build_player_ts(
+            games, target_dates=pd.Series(["2025-10-22"]))
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        assert row.prior_points == 0 and row.prior_plays == 0
+        assert pd.isna(row.ts_shrunk)
+
+    def test_season_boundary_day_two_is_in_season_not_carryover(self):
+        """Day two+ rates strictly in-season: prior-season form is dropped.
+
+        Pins the carryover answer the drift report's STARVED/LOW pl_ts
+        coverage depends on: early-season thinness is the shrinkage doing
+        its job, not missing evidence. The partition exists so a new
+        season's rating never blends the previous one's tail - the same
+        convention MLB states for its season-to-date ERA/K/9 LAGs.
+        """
+        games = ts.prepare_player_games(_frame([
+            _row("a", "2025-04-01", 40, 20, 0, season="2024-25"),
+            _row("a", "2025-10-21", 10, 5, 0, season="2025-26"),
+        ]))
+        ratings = ts.build_player_ts(
+            games, target_dates=pd.Series(["2025-10-23"]))
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        assert row.prior_points == 10
+        assert row.prior_games == 1
+
     def test_the_fallback_never_reads_a_game_on_or_after_the_target(self):
         """Point-in-time is about WHEN, not about which season."""
         games = ts.prepare_player_games(_frame([
