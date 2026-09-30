@@ -3592,6 +3592,55 @@ def test_monitor_feature_metadata_is_real_documentation_not_a_placeholder():
     assert manifest_mod.feature_tooltips(["not_a_real_feature"]) == {}
 
 
+def test_validate_outputs_is_runnable_without_the_callers_locals():
+    """Phase 13 crashed the 2026-09-30 15:43 production run: the oof_reach
+    gate referenced ``game_df`` — a main() local the helper never receives —
+    so a fully-successful 58-fold run died at validation with NameError after
+    Phase 12 had written its artifacts but before any gate logged. The count
+    is now an ``n_eligible`` parameter the caller passes explicitly; this test
+    builds the real synth pool + fold summary (the shapes main() hands the
+    validator) and calls _validate_outputs directly, which can only pass if no
+    gate reads a name that only exists inside main()."""
+    import master_pipeline as mp
+
+    games = feat_mod.build_game_features(_synth_games(n_days=60,
+                                                      games_per_day=6))
+    fold_info = folds_mod.fold_summary(
+        folds_mod.make_folds(games, date_col="gameday"))
+    oof = pd.DataFrame({"p_ensemble_calibrated": [0.5],
+                        "season": [config.OOF_FIRST_SEASON]})
+    # REGRESSION: on the shipped code this line raised NameError (game_df is
+    # not defined in the helper). Real shapes, real gate run.
+    with tempfile.TemporaryDirectory() as td:
+        gates = mp._validate_outputs(
+            Path(td), "20260930", oof, pd.DataFrame(), fold_info,
+            sig={"holdout": {"cutoff": "2026-05-24"}},
+            n_eligible=len(games))
+    assert isinstance(gates["oof_reach"], bool), gates
+    # The default must fail closed: an unknown eligible population is never
+    # silently certified as fully OOF-covered.
+    with tempfile.TemporaryDirectory() as td:
+        gates0 = mp._validate_outputs(
+            Path(td), "20260930", oof, pd.DataFrame(), fold_info,
+            sig={"holdout": {"cutoff": "2026-05-24"}})
+    assert gates0["oof_reach"] is False, gates0
+    # Controlled arithmetic on the two numbers the gate compares: full reach
+    # passes, a starved OOF record (the pre-fix symptom: silent MIN_VAL_FOLD
+    # skips, here 50%) fails the 90% threshold.
+    def _gate(total_val_games: int, n_eligible: int) -> bool:
+        fi = dict(fold_info)
+        fi["total_val_games"] = total_val_games
+        with tempfile.TemporaryDirectory() as td:
+            return mp._validate_outputs(
+                Path(td), "20260930", oof, pd.DataFrame(), fi,
+                sig={"holdout": {"cutoff": "2026-05-24"}},
+                n_eligible=n_eligible)["oof_reach"]
+    assert _gate(97, 100) is True    # 97% reach — healthy
+    assert _gate(50, 100) is False   # 50% reach — OOF skipped half the pool
+    assert _gate(89, 100) is False   # just under the 0.90 threshold
+    assert _gate(90, 100) is True    # exactly at the threshold passes
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

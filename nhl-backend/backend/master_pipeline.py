@@ -786,7 +786,8 @@ def main(argv: list[str] | None = None) -> int:
     # blocks read only pre-Phase-12 state, so ordering them numerically is
     # free: a failed gate now aborts BEFORE monitoring writes a word.
     _banner("PHASE 13", "schema validation")
-    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info, sig=sig)
+    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info,
+                              sig=sig, n_eligible=len(game_df))
     for name, ok in gates.items():
         logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
     if not all(gates.values()):
@@ -1034,8 +1035,14 @@ def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
 
 def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
                       slate: pd.DataFrame, fold_info: dict,
-                      sig: dict | None = None) -> dict:
-    """Schema/coherence gates over the written artifacts."""
+                      sig: dict | None = None,
+                      n_eligible: int = 0) -> dict:
+    """Schema/coherence gates over the written artifacts.
+
+    ``n_eligible`` is the caller's eligible settled-game count (the 2026-09-30
+    15:43 run crashed with NameError: game_df here — a main()-local name
+    referenced from a helper that never receives it).
+    """
     gates: dict[str, bool] = {}
     p = oof_ml["p_ensemble_calibrated"].to_numpy(float)
     p = p[np.isfinite(p)]
@@ -1084,8 +1091,8 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     # eligible games. The MIN_VAL_FOLD_GAMES skip once removed 366 of 2795
     # core games — every playoff stretch — from OOF without a single warning.
     gates["oof_reach"] = bool(
-        len(game_df)
-        and fold_info.get("total_val_games", 0) >= 0.90 * len(game_df))
+        n_eligible
+        and fold_info.get("total_val_games", 0) >= 0.90 * n_eligible)
     # The dispersion fit must have run under the sealed-holdout gate: a
     # record without a cutoff means the alpha layer saw the whole OOF
     # window (an undated frame reaching production), which is exactly the
