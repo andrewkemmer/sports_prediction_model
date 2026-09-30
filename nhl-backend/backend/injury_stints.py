@@ -51,17 +51,32 @@ STINT_MAX_LAG_DAYS = 45
 #: Maximum source-rating age for a candidate in the target-game pool.
 #: Keeps stale player/team associations (trades, retirements, injuries) out
 #: while covering ordinary rest gaps. MLB-faithful: MLB's own gate is
-#: LINEUP_POOL_LOOKBACK_DAYS = 10, and its documented season-boundary answer
-#: is the same shape -- a slate whose team ratings all trail the gate serves
-#: the position prior for that slate (the NHL offseason is the one such
-#: slate per year), then real ratings resume once the season's first games
-#: decide. Measured in the 2026-09-29 run: 43,616 decided-pool rows, one
-#: 5-game slate on priors.
+#: LINEUP_POOL_LOOKBACK_DAYS = 10. The season boundary is handled by the
+#: separate POOL_SEASON_BOUNDARY_LOOKBACK_DAYS carryover above (MLB/NBA
+#: structural guidance): prior-season ratings carry into opener windows,
+#: same-season gaps past this limit stay expired. Measured in the
+#: 2026-09-29 run: 43,616 decided-pool rows, one 5-game slate on priors —
+#: the slate half of that sentence is what the boundary carryover fixes.
 POOL_LOOKBACK_DAYS = 45
 
 #: Retained for legacy season-grain diagnostics only. Production player-game
 #: serving is strictly by source date < target game date.
 POOL_SERVE_OFFSET_YEARS = 0
+
+#: Season-boundary carryover (2026-09-29 review, MLB/NBA structural guidance).
+#: A candidate whose source rating is from the PREVIOUS season may serve a
+#: season-opener window even when it exceeds POOL_LOOKBACK_DAYS — the frozen
+#: rating is a genuine prior-season estimate and the NHL offseason legitimately
+#: leaves a multi-month gap (the same reasoning behind STINT_MAX_LAG_DAYS
+#: being "not a day"). Mid-season gaps of the same size stay expired: a
+#: rating that old inside a live season is exactly the phantom candidate the
+#: recency gate exists for. The rating's own shrinkage (player_ratings' k
+#: toward the league prior) governs its quality, mirroring the NBA block's
+#: "the season-start carryover the min-plays floor already governs". Note the
+#: Team-trailing family needs no analogue of this: those windows roll over the
+#: prior season's tail with no gap at the boundary (mlb features.py
+#: pitcher_5g_rolling convention), so no side ever goes cold there.
+POOL_SEASON_BOUNDARY_LOOKBACK_DAYS = 200
 
 #: Minimum prior situation ice for an eligible player-game candidate. Applied
 #: only after the rolling rate is computed; it never modifies historical rows.
@@ -555,6 +570,15 @@ def build_unavailable_mask(
 # ---------------------------------------------------------------------------
 # The MLB-shaped pool -> team aggregate
 # ---------------------------------------------------------------------------
+def _nhl_season_id(value: object) -> float:
+    """NHL season start year of a date (2025 for 2025-06-10, 2026 for
+    2026-09-29); NaN-safe so unmatched as-of rows fail every comparison."""
+    ts = pd.Timestamp(value)
+    if pd.isna(ts):
+        return float("nan")
+    return float(ts.year - (1 if ts.month < 7 else 0))
+
+
 def _expand_to_games(
     agg: pd.DataFrame,
     games: pd.DataFrame,
@@ -615,9 +639,48 @@ def _expand_to_games(
             targets, source, left_on="game_date", right_on="_source_date",
             by=by, direction="backward", tolerance=tolerance,
             allow_exact_matches=False)
-        selected = selected.dropna(subset=["_source_date"])
-        return selected.sort_values("_target_order", kind="mergesort") \
-            .drop(columns=["_target_order"]).reset_index(drop=True)
+        # Season-boundary second pass (2026-09-29 review, MLB/NBA structural
+        # guidance): fill ONLY the targets the freshness window could not
+        # cover, from candidates stamped in the immediately previous season.
+        # A prior-season frozen rating is genuine evidence, not staleness —
+        # the NHL offseason legitimately leaves a multi-month gap (the same
+        # reasoning behind STINT_MAX_LAG_DAYS not being "a day"), and the
+        # rating's own shrinkage governs its quality. A same-season rating
+        # past the window stays expired: a mid-season gap that large is
+        # exactly the phantom the recency gate exists for. Fresh matches
+        # always win; the wide pass only fills holes.
+        carry_col = "_boundary_carry"
+        # merge_asof is a LEFT join: unmatched targets survive pass A with a
+        # NaN rate and must be dropped before the wide pass refills them.
+        matched = selected.dropna(subset=["_source_date"])
+        unmatched = targets[~targets["_target_order"].isin(
+            matched["_target_order"].unique())]
+        if tolerance is not None and len(unmatched):
+            wide = pd.merge_asof(
+                unmatched, source, left_on="game_date", right_on="_source_date",
+                by=by, direction="backward",
+                tolerance=pd.Timedelta(
+                    days=int(POOL_SEASON_BOUNDARY_LOOKBACK_DAYS)),
+                allow_exact_matches=False)
+            hit = wide["_source_date"].notna()
+            if hit.any():
+                src_season = pd.to_datetime(
+                    wide.loc[hit, "_source_date"]).map(_nhl_season_id)
+                tgt_season = pd.to_datetime(
+                    wide.loc[hit, "game_date"]).map(_nhl_season_id)
+                hit.loc[hit] = (src_season.to_numpy()
+                                == tgt_season.to_numpy() - 1)
+            wide = wide.loc[hit]
+        else:
+            wide = unmatched.iloc[:0]
+        if len(wide):
+            wide = wide.assign(**{carry_col: True})
+            matched = matched.assign(**{carry_col: False})
+            selected = pd.concat([matched, wide], ignore_index=True)
+        else:
+            selected = matched.assign(**{carry_col: False})
+        return (selected.sort_values("_target_order", kind="mergesort")
+                .drop(columns=["_target_order"]).reset_index(drop=True))
 
     if "season" in g.columns:
         g["_served"] = pd.to_numeric(g["season"], errors="coerce")
@@ -706,6 +769,7 @@ def team_game_rates(
         "dropped_unavailable": 0, "teams": 0, "games": 0,
         "il_filter_active": bool(stints is not None and len(stints)),
         "weighted_sides": 0, "equal_weight_fallback_sides": 0,
+        "season_boundary_carried_rows": 0,
     }
     if ratings is None or len(ratings) == 0:
         return pd.DataFrame(), audit
@@ -833,13 +897,20 @@ def team_game_rates(
     agg = agg.assign(
         _w=pd.to_numeric(agg["evidence"], errors="coerce").fillna(0.0))
     agg["_wr"] = agg["rate"] * agg["_w"]
+    if "_boundary_carry" not in agg.columns:
+        agg = agg.assign(_boundary_carry=0)
     out = (agg.groupby(group_keys, dropna=False)
              .agg(rate=("rate", "mean"),
                   rate_wsum=("_wr", "sum"),
                   weight_sum=("_w", "sum"),
                   n_players=("n_players", "sum"),
-                  evidence=("evidence", "sum"))
+                  evidence=("evidence", "sum"),
+                  carried=("_boundary_carry", "sum"))
              .reset_index())
+    # Measurable season-boundary policy: how many SERVED pool candidates ride
+    # a prior-season frozen rating under the widened boundary window.
+    audit["season_boundary_carried_rows"] = int(out["carried"].sum())
+    out = out.drop(columns=["carried"])
     use_weight = out["weight_sum"] > 0
     out.loc[use_weight, "rate"] = (out.loc[use_weight, "rate_wsum"]
                                    / out.loc[use_weight, "weight_sum"])

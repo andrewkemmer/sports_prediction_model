@@ -1566,6 +1566,79 @@ class TestStrictSourceDatePool:
             ratings, stints=None, games=self._grid())
         assert len(pool) == 1
 
+    # ------------------------------------------------------------------
+    # Season-boundary carryover (2026-09-29 review, MLB/NBA structural
+    # guidance): a PREVIOUS-SEASON rating is genuine evidence, not
+    # staleness — the NHL offseason legitimately leaves a multi-month gap,
+    # and the rating's own shrinkage governs its quality. A same-season
+    # rating past the window stays expired (the phantom case).
+    # ------------------------------------------------------------------
+
+    def test_a_previous_season_rating_carries_into_the_season_opener(self):
+        # June 10, 2026 (season 2025) -> October 10, 2026 (season 2026):
+        # a 122-day gap the 45-day window drops, but the boundary policy
+        # carries because the source is the immediately previous season.
+        ratings = make_pool_ratings(
+            [("1", "BOS", "C", 0.060, "2026-06-10")])
+        pool, audit = ist.team_game_rates(
+            ratings, stints=None, games=self._grid(dates=("2026-10-10",)))
+        assert len(pool) == 1
+        assert pool["rate"].iloc[0] == pytest.approx(0.060)
+        assert audit["season_boundary_carried_rows"] == 1
+
+    def test_a_same_season_gap_stays_expired(self):
+        # August 2026 -> October 2026 spans the SAME season id (2026), so a
+        # 70-day gap remains plain staleness: mid-season, a rating that old
+        # is exactly the phantom the recency gate exists for.
+        ratings = make_pool_ratings(
+            [("1", "BOS", "C", 0.060, "2026-08-01")])
+        pool, audit = ist.team_game_rates(
+            ratings, stints=None, games=self._grid(dates=("2026-10-10",)))
+        assert len(pool) == 0
+        assert audit["season_boundary_carried_rows"] == 0
+
+    def test_a_two_seasons_old_rating_stays_expired(self):
+        # The boundary policy carries the IMMEDIATELY previous season only.
+        ratings = make_pool_ratings(
+            [("1", "BOS", "C", 0.060, "2025-06-10")])
+        pool, audit = ist.team_game_rates(
+            ratings, stints=None, games=self._grid(dates=("2026-10-10",)))
+        assert len(pool) == 0
+        assert audit["season_boundary_carried_rows"] == 0
+
+    def test_a_fresh_in_season_match_never_yields_to_the_carry(self):
+        # Fresh matches win PER PLAYER: the June candidate fills only the
+        # hole the 45-day window leaves, so a fresh October candidate for a
+        # DIFFERENT player coexists with the carried one — the pool mean
+        # blends both rather than letting either monopolize the side.
+        ratings = make_pool_ratings([
+            ("1", "BOS", "C", 0.060, "2026-06-10"),   # prior season
+            ("2", "BOS", "C", 0.020, "2026-10-08"),   # fresh, in season
+        ])
+        pool, audit = ist.team_game_rates(
+            ratings, stints=None, games=self._grid(dates=("2026-10-10",)))
+        assert len(pool) == 1
+        assert pool["rate"].iloc[0] == pytest.approx(0.040)
+        assert audit["season_boundary_carried_rows"] == 1
+
+    def test_the_boundary_carry_serves_the_injury_exclusion(self):
+        # The carried pool must be a REAL pool: the binary IL removal binds
+        # on carried rows exactly as on fresh ones (the season-opener slate
+        # the 22:43 run served on position priors).
+        ratings = make_pool_ratings([
+            ("1", "BOS", "C", 0.030, "2026-06-10"),   # injured all offseason
+            ("2", "BOS", "C", 0.010, "2026-06-10"),
+        ])
+        stints = pd.DataFrame([{"player_id": "1", "stint_start": "2026-07-01",
+                                "stint_end": pd.NaT}])
+        pool, audit = ist.team_game_rates(
+            ratings, stints=stints, games=self._grid(dates=("2026-10-10",)))
+        assert len(pool) == 1
+        assert pool["rate"].iloc[0] == pytest.approx(0.010)
+        assert pool["n_players"].iloc[0] == 1
+        assert audit["season_boundary_carried_rows"] == 1
+        assert audit["dropped_unavailable"] == 1
+
     def test_game_lookback_days_overrides_the_default_window(self):
         ratings = make_pool_ratings(
             [("1", "BOS", "C", 0.060, "2026-10-01")])   # 9 days
