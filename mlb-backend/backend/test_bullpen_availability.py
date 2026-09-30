@@ -705,6 +705,9 @@ def _shrink_chain(con, features_src, k_pitches: float | None = None,
                     "CAST(NULL AS DATE) AS game_date, "
                     "CAST(NULL AS DATE) AS heavy_outing WHERE FALSE")
     con.execute(lift("bp_shrink_prior")
+                 .replace("{_k_arm_out}",
+                          features._BP_LEDGER_EXCLUDE_ROW_SQL.format(
+                              alias="o", date="o.game_date"))
                  .replace("{_BP_MIN_SEASON_PITCHES}", "30")
                  .replace("{_BP_K_FLOOR}", "20.0")
                  .replace("{_BP_SHRINK_FRACTION}", "0.20")
@@ -803,11 +806,19 @@ def test_shrinkage_volumes_and_degenerate_prior_paths():
     assert "bullpen_pitches" not in roll and "budget" not in roll
     # cleanup drops the prior table
     assert '"bp_shrink_prior"' in src
-    # k derivation: population-aligned (ledger + spent filters) + floor
+    # k derivation: population-aligned (ledger + spent filters) + floor —
+    # the ledger predicate is bound via the conditional fragment, never a
+    # hard table reference (the 2026-09-30 sweep deletion turned a hard
+    # reference into a CatalogException)
     pr = src[src.index("CREATE TABLE bp_shrink_prior AS"):
              src.index('"""', src.index("CREATE TABLE bp_shrink_prior AS"))]
-    assert "il_stints_pitchers" in pr and "bp_spent" in pr
+    assert "{_k_arm_out}" in pr and "bp_spent" in pr
     assert "COALESCE" in pr and "GREATEST" in pr
+    assert "il_stints_pitchers" in features._BP_LEDGER_EXCLUDE_ROW_SQL
+    assert "il_stints_pitchers" in features._BP_LEDGER_EXCLUDE_ASOF_SQL
+    d2 = src[src.index("CREATE TABLE bp_day2 AS"):
+             src.index('"""', src.index("CREATE TABLE bp_day2 AS"))]
+    assert "{_d2_ledger}" in d2
 
 
 def test_bp_fstring_constants_resolve():
@@ -831,6 +842,116 @@ def test_bp_fstring_constants_resolve():
     # drift (not just a deletion) fails here too
     assert features._BP_SPENT_PITCHES == 35
     assert features._BP_SPENT_LOOKBACK_DAYS == 2
+
+
+def test_pitcher_availability_ledger_is_a_committed_runtime_input():
+    """The ledger ships in the repo and every consumer degrades LOUDLY
+    without it — never a CatalogException.
+
+    2026-09-30: the retention sweep deleted il_stints_pitchers.parquet;
+    Kaggle cloned HEAD without it, the guarded paths warned as designed,
+    but bp_day2 / bp_shrink_prior carried hard table references and the
+    build crashed. This pins BOTH halves: the file must exist (so a
+    future sweep deletion fails the battery locally, before Kaggle), and
+    the two formerly-unguarded statements must execute on a ledger-less
+    connection (bp_day2's staircase runs unfiltered; the shrink prior's
+    k derives from the unfiltered population; both loudly degraded)."""
+    ledger = BACKEND.parent / "data_delivery" / "il_stints_pitchers.parquet"
+    assert ledger.exists(), (
+        "il_stints_pitchers.parquet is a REQUIRED runtime input committed "
+        "to the repo — a retention sweep deleted it once and broke the "
+        "Kaggle build. Restore it (git show <pre-sweep>:path) before "
+        "shipping; if the availability layer is ever intentionally "
+        "retired, remove its consumers too and update this test.")
+
+    # every ledger reference must be conditional: with NO ledger table
+    # registered, the formerly-unguarded statements still execute
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+
+    def lift(name):
+        j0 = src.index(f"CREATE TABLE {name} AS")
+        return src[j0:src.index('"""', j0)]
+
+    con = duckdb.connect(database=":memory:")
+    con.register("bo_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-06-08", "2026-06-09"]),
+        "game_pk": [1, 2], "team": ["BOS", "BOS"],
+        "pitcher": [101, 101], "n_pitches": [400.0, 30.0],
+    }))
+    con.execute("CREATE TABLE bp_outing AS SELECT "
+                "CAST(game_date AS DATE) AS game_date, game_pk, team, "
+                "pitcher, n_pitches FROM bo_reg")
+    con.register("br_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-06-09"]),
+        "game_pk": [2], "team": ["BOS"],
+        "bullpen_bbs": [2.0], "bullpen_hits": [3.0],
+        "bullpen_ip": [2.0], "bullpen_runs": [1.0],
+    }))
+    con.execute("CREATE TABLE bullpen_raw AS SELECT "
+                "CAST(game_date AS DATE) AS game_date, game_pk, team, "
+                "bullpen_bbs, bullpen_hits, bullpen_ip, bullpen_runs "
+                "FROM br_reg")
+    con.register("g_reg", pd.DataFrame({
+        "game_date": pd.to_datetime(["2026-06-10", "2026-06-10"]),
+        "game_pk": [10, 10],
+        "home_team": ["BOS", "NYY"], "away_team": ["NYY", "BOS"],
+    }))
+    con.execute("CREATE TABLE game_days AS SELECT DISTINCT game_pk, "
+                "CAST(game_date AS DATE) AS gd, home_team, away_team "
+                "FROM g_reg")
+    # the ledger-conditional fragments bind as FALSE when _pitchers_ok is
+    # False — exactly what features.py interpolates without a ledger
+    _k_arm_out = "FALSE"
+    _d2_ledger = "FALSE"
+    con.execute("CREATE OR REPLACE TABLE bp_shrink_prior AS "
+                "WITH arm_season AS ("
+                "  SELECT pitcher, EXTRACT(YEAR FROM game_date) AS season, "
+                "  SUM(n_pitches) AS pitches FROM bp_outing "
+                "  WHERE " + _k_arm_out + " GROUP BY 1,2 "
+                "  HAVING SUM(n_pitches) >= 30), "
+                "k AS (SELECT GREATEST(20.0, 0.20 * COALESCE("
+                "    (SELECT AVG(pitches) FROM arm_season), 20.0)) AS k_pitches, "
+                "  GREATEST(20.0, 0.20 * COALESCE("
+                "    (SELECT AVG(pitches) FROM arm_season), 20.0)) / 15.5 "
+                "  AS k_ip FROM (SELECT 1) anchor) "
+                "SELECT k_pitches, k_ip FROM k")
+    krow = con.execute("SELECT k_pitches, k_ip FROM bp_shrink_prior") \
+        .fetchone()
+    assert krow == (20.0, 20.0 / 15.5)  # floor k via the COALESCE path
+    con.execute(f"""
+        CREATE TABLE bp_day2 AS
+        WITH d2 AS (
+            SELECT o.team, o.game_date AS day,
+                   SUM(o.n_pitches) AS pitches_2d,
+                   SUM(o.n_pitches * o.ready_p) AS ready_pitches_2d
+            FROM (
+                SELECT o.game_date, o.team, o.pitcher, o.n_pitches,
+                       g.gd AS ref_day,
+                       CASE WHEN {_d2_ledger} THEN 0.0
+                            WHEN o.n_pitches < 20 THEN 0.25
+                            WHEN o.n_pitches < 35 THEN 0.13
+                            ELSE 0.007 END AS ready_p
+                FROM bp_outing o
+                JOIN game_days g
+                  ON (o.team = g.home_team OR o.team = g.away_team)
+                 AND o.game_date < g.gd
+                 AND o.game_date >= g.gd - INTERVAL 2 DAY) o
+            GROUP BY 1, 2)
+        SELECT g2.gd AS ref_day, g2.game_pk, g2.home_team, g2.away_team,
+               hh.pitches_2d AS home_pitches_2d,
+               hh.ready_pitches_2d AS home_ready_2d
+        FROM game_days g2
+        LEFT JOIN d2 hh ON hh.team = g2.home_team
+                       AND hh.day = g2.gd - INTERVAL 1 DAY
+    """)
+    n, pitches, ready = con.execute(
+        "SELECT COUNT(*), SUM(home_pitches_2d), SUM(home_ready_2d) "
+        "FROM bp_day2").fetchone()
+    # shipped semantics: d2 groups per outing-date and attaches at
+    # gd-1d exactly -> only the 06-09 outing (30 pitches) counts; its
+    # staircase ran UNFILTERED (no ledger -> FALSE predicate, no 0.0
+    # override): 30 * 0.13 = 3.9 ready, mirrored x2 by the two game rows
+    assert n == 2 and pitches == 60.0 and abs(ready - 7.8) < 1e-6
 
 
 def test_gated_sp_tables_execute_end_to_end(tmp_path):

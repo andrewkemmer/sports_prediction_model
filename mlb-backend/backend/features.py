@@ -290,6 +290,27 @@ _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
                 AND (i.il_end IS NULL OR CAST(p.game_date AS DATE)
                      < CAST(i.il_end AS DATE)))"""
 
+# Parameterized ledger predicates so EVERY consumer binds availability
+# conditionally on the registered ledger. 2026-09-30: the retention sweep
+# deleted il_stints_pitchers.parquet from the repo; the guarded paths
+# degraded loudly as designed, but bp_day2 and bp_shrink_prior carried
+# hard table references and crashed the Kaggle build with a
+# CatalogException. Fragments are interpolated only when _pitchers_ok —
+# absent-ledger builds fall back to pre-availability semantics (loud),
+# never a missing-table error.
+_BP_LEDGER_EXCLUDE_ROW_SQL = """NOT EXISTS (
+              SELECT 1 FROM il_stints_pitchers i
+              WHERE i.batter = {alias}.pitcher
+                AND CAST({date} AS DATE) > CAST(i.il_start AS DATE)
+                AND (i.il_end IS NULL OR CAST({date} AS DATE)
+                     < CAST(i.il_end AS DATE)))"""
+
+_BP_LEDGER_EXCLUDE_ASOF_SQL = """EXISTS (
+              SELECT 1 FROM il_stints_pitchers i
+              WHERE i.batter = {alias}.pitcher
+                AND {ref} > CAST(i.il_start AS DATE)
+                AND (i.il_end IS NULL OR {ref} < CAST(i.il_end AS DATE)))"""
+
 # ── SP staleness gate (2026-09-30) ──────────────────────────────────────
 # Same directive and mechanism as the bullpen availability filter, applied
 # to the STARTING-PITCHER stat chain. The SP family prices each starter's
@@ -1470,6 +1491,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     #        prior-date (opening day of the first season).
     # Degenerate (no reliever rows): k NULL -> every consumer's CASE guard
     # ships the raw rate; loud log, never a silent all-NULL.
+    # Missing ledger: the availability predicate interpolates as FALSE —
+    # the k derivation runs on the unfiltered population (loud degradation
+    # consistent with the rest of the chain), never a missing-table error.
+    _k_arm_out = (_BP_LEDGER_EXCLUDE_ROW_SQL.format(alias="o",
+                                                    date="o.game_date")
+                  if _pitchers_ok else "FALSE")
     con.execute(f"""
         CREATE TABLE bp_shrink_prior AS
         WITH arm_season AS (
@@ -1478,12 +1505,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             SELECT o.pitcher, EXTRACT(YEAR FROM o.game_date) AS season,
                    SUM(o.n_pitches) AS pitches
             FROM bp_outing o
-            WHERE NOT EXISTS (
-                      SELECT 1 FROM il_stints_pitchers i
-                      WHERE i.batter = o.pitcher
-                        AND CAST(o.game_date AS DATE) > CAST(i.il_start AS DATE)
-                        AND (i.il_end IS NULL
-                             OR CAST(o.game_date AS DATE) < CAST(i.il_end AS DATE)))
+            WHERE {_k_arm_out}
               AND NOT EXISTS (
                       SELECT 1 FROM bp_spent sp
                       WHERE sp.team = o.team AND sp.pitcher = o.pitcher
@@ -1554,7 +1576,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # last-outing length; ledger arms are 0). The team's MOST RECENT game
     # is included (an arm who threw yesterday is exactly the fatigue case);
     # the CURRENT day is not (it does not exist yet at prediction time).
-    con.execute("""
+    # Missing ledger: the as-of predicate interpolates as FALSE and the
+    # ready staircase runs on raw workloads (loud degradation, consistent
+    # with the rest of the chain) — never a missing-table error.
+    _d2_ledger = (_BP_LEDGER_EXCLUDE_ASOF_SQL.format(alias="o", ref="g.gd")
+                  if _pitchers_ok else "FALSE")
+    con.execute(f"""
         CREATE TABLE bp_day2 AS
         WITH d2 AS (
             SELECT o.team, o.game_date AS day,
@@ -1569,11 +1596,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                          -- placed on the IL AFTER he pitched (the normal
                          -- reconciliation fact) is unavailable TONIGHT, so
                          -- his recent pitches carry no ready capacity.
-                         WHEN EXISTS (SELECT 1 FROM il_stints_pitchers i
-                                      WHERE i.batter = o.pitcher
-                                        AND g.gd > CAST(i.il_start AS DATE)
-                                        AND (i.il_end IS NULL
-                                             OR g.gd < CAST(i.il_end AS DATE)))
+                         WHEN {_d2_ledger}
                              THEN 0.0
                          WHEN o.n_pitches < 20 THEN 0.25
                          WHEN o.n_pitches < 35 THEN 0.13
