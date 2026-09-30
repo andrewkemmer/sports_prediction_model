@@ -97,6 +97,17 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
 
 # ---------------------------------------------------------------------------
 # Elo — pre-game entering rating, updated only after a game settles
+#
+# Season-boundary semantics (audited 2026-09-29 with MLB's structure as the
+# reference): ratings CARRY across the offseason with NO revert. An
+# MLB-style 1/3 regression toward 1500 was replayed through the production
+# walk-forward (paired counterfactual, identical folds, 1,673 OOF games):
+# pooled logloss gain +0.00033 +/- 0.00099 (0.33 SE, below the RFE commit
+# gate), while WEEK-1 logloss degraded by 0.0104 +/- 0.0034 per game and
+# univariate week-1 elo_diff AUC fell 0.7315 -> 0.7042 (revert) and 0.4925
+# under a full reset. Carried prior-season state is the model's best week-1
+# signal; MLB's revert fits its ~130-day offseason and 30-game PA windows,
+# not a ~250-day NFL offseason.
 # ---------------------------------------------------------------------------
 def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     K, prior, scale = config.ELO_K, config.ELO_PRIOR, config.ELO_SCALE

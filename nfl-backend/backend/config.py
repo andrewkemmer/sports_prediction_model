@@ -40,6 +40,10 @@ GAME_TYPES = {"REG", "POST"}       # regular season + postseason; preseason excl
 ELO_PRIOR = 1500.0
 ELO_K = 32.0
 ELO_SCALE = 400.0
+# No season-boundary revert. MLB's ELO_REVERT_FACTOR (1/3 toward 1500) was
+# evaluated and rejected 2026-09-29: paired walk-forward pooled gain 0.33 SE
+# (under the RFE gate) and week-1 logloss -0.0104/game; see features.py
+# _elo_apply for the full audit numbers.
 
 # ---------------------------------------------------------------------------
 # Trailing windows (authoritative semantics — unchanged)
