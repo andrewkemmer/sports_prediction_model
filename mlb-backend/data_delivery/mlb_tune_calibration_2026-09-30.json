@@ -1,0 +1,3436 @@
+{
+ "calibration": {
+  "screen": {
+   "trials": {
+    "0": {
+     "config": {
+      "family": "temperature",
+      "warmup": 10,
+      "refit_every": 3,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5499,
+       "brier": 0.2479,
+       "logloss": 0.689,
+       "ece": 0.0247
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5972,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5497,
+       "brier": 0.2476,
+       "logloss": 0.6884,
+       "ece": 0.014
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5977,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "blend_sel": {
+       "auc": 0.5507,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0157
+      },
+      "blend_seal": {
+       "auc": 0.5976,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0335
+      },
+      "final_weights": {
+       "lgb": 0.5739,
+       "xgb": 0.4261
+      }
+     },
+     "final_weights": {
+      "lgb": 0.5739,
+      "xgb": 0.4261
+     },
+     "seconds": 2.5
+    },
+    "1": {
+     "config": {
+      "family": "platt",
+      "warmup": 12,
+      "refit_every": 4,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5468,
+       "brier": 0.248,
+       "logloss": 0.6891,
+       "ece": 0.0133
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5971,
+       "brier": 0.243,
+       "logloss": 0.6791,
+       "ece": 0.0552
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5481,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0104
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5975,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0517
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5472,
+       "brier": 0.2475,
+       "logloss": 0.6881,
+       "ece": 0.0154
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2426,
+       "logloss": 0.6782,
+       "ece": 0.0409
+      },
+      "blend_sel": {
+       "auc": 0.5486,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0094
+      },
+      "blend_seal": {
+       "auc": 0.5991,
+       "brier": 0.2426,
+       "logloss": 0.6782,
+       "ece": 0.0487
+      },
+      "final_weights": {
+       "en": 0.5613,
+       "lgb": 0.3144,
+       "xgb": 0.1243
+      }
+     },
+     "final_weights": {
+      "en": 0.5613,
+      "lgb": 0.3144,
+      "xgb": 0.1243
+     },
+     "seconds": 1.1
+    },
+    "2": {
+     "config": {
+      "family": "platt",
+      "warmup": 9,
+      "refit_every": 1,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5463,
+       "brier": 0.248,
+       "logloss": 0.6891,
+       "ece": 0.0103
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5965,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0561
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5478,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.0097
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5975,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0482
+      },
+      "blend_sel": {
+       "auc": 0.5473,
+       "brier": 0.2476,
+       "logloss": 0.6882,
+       "ece": 0.0067
+      },
+      "blend_seal": {
+       "auc": 0.5976,
+       "brier": 0.2429,
+       "logloss": 0.6789,
+       "ece": 0.0545
+      },
+      "final_weights": {
+       "lgb": 0.8133,
+       "xgb": 0.1867
+      }
+     },
+     "final_weights": {
+      "lgb": 0.8133,
+      "xgb": 0.1867
+     },
+     "seconds": 0.9
+    },
+    "3": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 3,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5502,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.027
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5972,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5511,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0168
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5977,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "blend_sel": {
+       "auc": 0.5519,
+       "brier": 0.2475,
+       "logloss": 0.6881,
+       "ece": 0.0188
+      },
+      "blend_seal": {
+       "auc": 0.5977,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0336
+      },
+      "final_weights": {
+       "lgb": 0.5979,
+       "xgb": 0.4021
+      }
+     },
+     "final_weights": {
+      "lgb": 0.5979,
+      "xgb": 0.4021
+     },
+     "seconds": 0.7
+    },
+    "4": {
+     "config": {
+      "family": "platt",
+      "warmup": 10,
+      "refit_every": 2,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5459,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0098
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0532
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5478,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.0093
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5979,
+       "brier": 0.2429,
+       "logloss": 0.6789,
+       "ece": 0.0483
+      },
+      "blend_sel": {
+       "auc": 0.5476,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.0052
+      },
+      "blend_seal": {
+       "auc": 0.598,
+       "brier": 0.2429,
+       "logloss": 0.6789,
+       "ece": 0.0501
+      },
+      "final_weights": {
+       "lgb": 0.8146,
+       "xgb": 0.1854
+      }
+     },
+     "final_weights": {
+      "lgb": 0.8146,
+      "xgb": 0.1854
+     },
+     "seconds": 0.8
+    },
+    "5": {
+     "config": {
+      "family": "platt",
+      "warmup": 8,
+      "refit_every": 3,
+      "scope": "lgb"
+     },
+     "metrics": {
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5463,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0107
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5976,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0483
+      },
+      "blend_sel": {
+       "auc": 0.5464,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0073
+      },
+      "blend_seal": {
+       "auc": 0.5976,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0483
+      },
+      "final_weights": {
+       "lgb": 1.0
+      }
+     },
+     "final_weights": {
+      "lgb": 1.0
+     },
+     "seconds": 0.3
+    },
+    "6": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5505,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0275
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0171
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0254
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5536,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0179
+      },
+      "blend_seal": {
+       "auc": 0.599,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0261
+      },
+      "final_weights": {
+       "en": 0.4962,
+       "lgb": 0.3206,
+       "xgb": 0.1832
+      }
+     },
+     "final_weights": {
+      "en": 0.4962,
+      "lgb": 0.3206,
+      "xgb": 0.1832
+     },
+     "seconds": 1.2
+    },
+    "7": {
+     "config": {
+      "family": "platt",
+      "warmup": 8,
+      "refit_every": 1,
+      "scope": "en"
+     },
+     "metrics": {
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5475,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0169
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5915,
+       "brier": 0.2425,
+       "logloss": 0.6781,
+       "ece": 0.039
+      },
+      "blend_sel": {
+       "auc": 0.5479,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0161
+      },
+      "blend_seal": {
+       "auc": 0.5915,
+       "brier": 0.2425,
+       "logloss": 0.6781,
+       "ece": 0.039
+      },
+      "final_weights": {
+       "en": 1.0
+      }
+     },
+     "final_weights": {
+      "en": 1.0
+     },
+     "seconds": 0.4
+    },
+    "8": {
+     "config": {
+      "family": "temperature",
+      "warmup": 10,
+      "refit_every": 3,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5499,
+       "brier": 0.2479,
+       "logloss": 0.689,
+       "ece": 0.0247
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5972,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5497,
+       "brier": 0.2476,
+       "logloss": 0.6884,
+       "ece": 0.014
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5977,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5496,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0222
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5917,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5521,
+       "brier": 0.2471,
+       "logloss": 0.6874,
+       "ece": 0.0138
+      },
+      "blend_seal": {
+       "auc": 0.5994,
+       "brier": 0.241,
+       "logloss": 0.6749,
+       "ece": 0.0245
+      },
+      "final_weights": {
+       "en": 0.4612,
+       "lgb": 0.3092,
+       "xgb": 0.2296
+      }
+     },
+     "final_weights": {
+      "en": 0.4612,
+      "lgb": 0.3092,
+      "xgb": 0.2296
+     },
+     "seconds": 1.0
+    },
+    "9": {
+     "config": {
+      "family": "platt",
+      "warmup": 4,
+      "refit_every": 2,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5402,
+       "brier": 0.2482,
+       "logloss": 0.6896,
+       "ece": 0.0116
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0532
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5423,
+       "brier": 0.2481,
+       "logloss": 0.6893,
+       "ece": 0.0124
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5979,
+       "brier": 0.2429,
+       "logloss": 0.6789,
+       "ece": 0.0483
+      },
+      "blend_sel": {
+       "auc": 0.5424,
+       "brier": 0.2481,
+       "logloss": 0.6892,
+       "ece": 0.012
+      },
+      "blend_seal": {
+       "auc": 0.5977,
+       "brier": 0.2429,
+       "logloss": 0.6789,
+       "ece": 0.0518
+      },
+      "final_weights": {
+       "lgb": 0.6236,
+       "xgb": 0.3764
+      }
+     },
+     "final_weights": {
+      "lgb": 0.6236,
+      "xgb": 0.3764
+     },
+     "seconds": 0.8
+    },
+    "10": {
+     "config": {
+      "family": "temperature",
+      "warmup": 6,
+      "refit_every": 2,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5493,
+       "brier": 0.248,
+       "logloss": 0.6893,
+       "ece": 0.0273
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5495,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0169
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5976,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5502,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0249
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5522,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0177
+      },
+      "blend_seal": {
+       "auc": 0.5995,
+       "brier": 0.241,
+       "logloss": 0.6749,
+       "ece": 0.0231
+      },
+      "final_weights": {
+       "en": 0.4766,
+       "lgb": 0.3246,
+       "xgb": 0.1988
+      }
+     },
+     "final_weights": {
+      "en": 0.4766,
+      "lgb": 0.3246,
+      "xgb": 0.1988
+     },
+     "seconds": 1.1
+    },
+    "11": {
+     "config": {
+      "family": "temperature",
+      "warmup": 12,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5493,
+       "brier": 0.248,
+       "logloss": 0.6891,
+       "ece": 0.0264
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5489,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0128
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5483,
+       "brier": 0.2476,
+       "logloss": 0.6884,
+       "ece": 0.0227
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5509,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "blend_seal": {
+       "auc": 0.5991,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0245
+      },
+      "final_weights": {
+       "en": 0.457,
+       "lgb": 0.3032,
+       "xgb": 0.2398
+      }
+     },
+     "final_weights": {
+      "en": 0.457,
+      "lgb": 0.3032,
+      "xgb": 0.2398
+     },
+     "seconds": 1.1
+    },
+    "12": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5505,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0275
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0171
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0254
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5536,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0179
+      },
+      "blend_seal": {
+       "auc": 0.599,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0261
+      },
+      "final_weights": {
+       "en": 0.4962,
+       "lgb": 0.3206,
+       "xgb": 0.1832
+      }
+     },
+     "final_weights": {
+      "en": 0.4962,
+      "lgb": 0.3206,
+      "xgb": 0.1832
+     },
+     "seconds": 1.1
+    },
+    "13": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 1,
+      "scope": "en"
+     },
+     "metrics": {
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0254
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5517,
+       "brier": 0.2473,
+       "logloss": 0.6877,
+       "ece": 0.0246
+      },
+      "blend_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "final_weights": {
+       "en": 1.0
+      }
+     },
+     "final_weights": {
+      "en": 1.0
+     },
+     "seconds": 0.3
+    },
+    "14": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5505,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0275
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0171
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0254
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5536,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0179
+      },
+      "blend_seal": {
+       "auc": 0.599,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0261
+      },
+      "final_weights": {
+       "en": 0.4962,
+       "lgb": 0.3206,
+       "xgb": 0.1832
+      }
+     },
+     "final_weights": {
+      "en": 0.4962,
+      "lgb": 0.3206,
+      "xgb": 0.1832
+     },
+     "seconds": 1.1
+    },
+    "15": {
+     "config": {
+      "family": "temperature",
+      "warmup": 6,
+      "refit_every": 1,
+      "scope": "xgb+lgb"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5497,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0271
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5498,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0162
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "blend_sel": {
+       "auc": 0.5507,
+       "brier": 0.2475,
+       "logloss": 0.6881,
+       "ece": 0.0196
+      },
+      "blend_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0351
+      },
+      "final_weights": {
+       "lgb": 0.595,
+       "xgb": 0.405
+      }
+     },
+     "final_weights": {
+      "lgb": 0.595,
+      "xgb": 0.405
+     },
+     "seconds": 0.7
+    },
+    "16": {
+     "config": {
+      "family": "temperature",
+      "warmup": 5,
+      "refit_every": 2,
+      "scope": "lgb"
+     },
+     "metrics": {
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5494,
+       "brier": 0.2478,
+       "logloss": 0.6888,
+       "ece": 0.0185
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0332
+      },
+      "blend_sel": {
+       "auc": 0.5498,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0183
+      },
+      "blend_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0332
+      },
+      "final_weights": {
+       "lgb": 1.0
+      }
+     },
+     "final_weights": {
+      "lgb": 1.0
+     },
+     "seconds": 0.3
+    },
+    "17": {
+     "config": {
+      "family": "platt",
+      "warmup": 5,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5434,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0106
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5965,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0561
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.545,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0103
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5975,
+       "brier": 0.243,
+       "logloss": 0.679,
+       "ece": 0.0482
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5473,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0175
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5915,
+       "brier": 0.2425,
+       "logloss": 0.6781,
+       "ece": 0.039
+      },
+      "blend_sel": {
+       "auc": 0.5486,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0132
+      },
+      "blend_seal": {
+       "auc": 0.5989,
+       "brier": 0.2425,
+       "logloss": 0.6781,
+       "ece": 0.048
+      },
+      "final_weights": {
+       "en": 0.6304,
+       "lgb": 0.3696,
+       "xgb": 0.0
+      }
+     },
+     "final_weights": {
+      "en": 0.6304,
+      "lgb": 0.3696,
+      "xgb": 0.0
+     },
+     "seconds": 1.4
+    },
+    "18": {
+     "config": {
+      "family": "temperature",
+      "warmup": 7,
+      "refit_every": 1,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5493,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0276
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5493,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0162
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5496,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.0269
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5518,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0182
+      },
+      "blend_seal": {
+       "auc": 0.5991,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0231
+      },
+      "final_weights": {
+       "en": 0.4668,
+       "lgb": 0.3203,
+       "xgb": 0.2129
+      }
+     },
+     "final_weights": {
+      "en": 0.4668,
+      "lgb": 0.3203,
+      "xgb": 0.2129
+     },
+     "seconds": 1.1
+    },
+    "19": {
+     "config": {
+      "family": "temperature",
+      "warmup": 4,
+      "refit_every": 2,
+      "scope": "all"
+     },
+     "metrics": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5502,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0276
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0172
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5976,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0238
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5537,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0172
+      },
+      "blend_seal": {
+       "auc": 0.5993,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0231
+      },
+      "final_weights": {
+       "en": 0.4947,
+       "lgb": 0.3185,
+       "xgb": 0.1868
+      }
+     },
+     "final_weights": {
+      "en": 0.4947,
+      "lgb": 0.3185,
+      "xgb": 0.1868
+     },
+     "seconds": 1.1
+    }
+   },
+   "n_trials": 20,
+   "objective": "pooled-OOF blend logloss over selection folds (seed 42)"
+  },
+  "confirm": [
+   {
+    "arm": "status_quo_reference",
+    "config": null,
+    "per_seed": {
+     "42": {
+      "seed": 42,
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "blend_raw_sel": {
+       "auc": 0.5536,
+       "brier": 0.2469,
+       "logloss": 0.6868,
+       "ece": 0.011
+      },
+      "blend_raw_seal": {
+       "auc": 0.5995,
+       "brier": 0.2411,
+       "logloss": 0.6752,
+       "ece": 0.0214
+      }
+     },
+     "7": {
+      "seed": 7,
+      "xgb_raw_sel": {
+       "auc": 0.5482,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0232
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5902,
+       "brier": 0.2424,
+       "logloss": 0.6777,
+       "ece": 0.0195
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5489,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0169
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5973,
+       "brier": 0.2419,
+       "logloss": 0.6768,
+       "ece": 0.0277
+      },
+      "en_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "blend_raw_sel": {
+       "auc": 0.5526,
+       "brier": 0.247,
+       "logloss": 0.687,
+       "ece": 0.0123
+      },
+      "blend_raw_seal": {
+       "auc": 0.5979,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0178
+      }
+     },
+     "2026": {
+      "seed": 2026,
+      "xgb_raw_sel": {
+       "auc": 0.5477,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0204
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5996,
+       "brier": 0.2408,
+       "logloss": 0.6744,
+       "ece": 0.0204
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5495,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0215
+      },
+      "lgb_raw_seal": {
+       "auc": 0.6062,
+       "brier": 0.2409,
+       "logloss": 0.6747,
+       "ece": 0.0437
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "blend_raw_sel": {
+       "auc": 0.5527,
+       "brier": 0.2468,
+       "logloss": 0.6867,
+       "ece": 0.0135
+      },
+      "blend_raw_seal": {
+       "auc": 0.6035,
+       "brier": 0.2407,
+       "logloss": 0.6744,
+       "ece": 0.0279
+      }
+     }
+    },
+    "gate": null
+   },
+   {
+    "arm": "trial_6",
+    "config": {
+     "family": "temperature",
+     "warmup": 4,
+     "refit_every": 1,
+     "scope": "all"
+    },
+    "per_seed": {
+     "42": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5505,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0275
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5968,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0167
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0171
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2416,
+       "logloss": 0.6762,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0254
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5536,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0179
+      },
+      "blend_seal": {
+       "auc": 0.599,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0261
+      },
+      "final_weights": {
+       "en": 0.4962,
+       "lgb": 0.3206,
+       "xgb": 0.1832
+      },
+      "blend_raw_sel": {
+       "auc": 0.5536,
+       "brier": 0.2469,
+       "logloss": 0.6868,
+       "ece": 0.011
+      },
+      "blend_raw_seal": {
+       "auc": 0.5995,
+       "brier": 0.2411,
+       "logloss": 0.6752,
+       "ece": 0.0214
+      }
+     },
+     "7": {
+      "xgb_raw_sel": {
+       "auc": 0.5482,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5482,
+       "brier": 0.2482,
+       "logloss": 0.6896,
+       "ece": 0.0279
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5902,
+       "brier": 0.2424,
+       "logloss": 0.6777,
+       "ece": 0.0195
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5902,
+       "brier": 0.2423,
+       "logloss": 0.6776,
+       "ece": 0.0144
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5489,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0169
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5487,
+       "brier": 0.2478,
+       "logloss": 0.6888,
+       "ece": 0.025
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5973,
+       "brier": 0.2419,
+       "logloss": 0.6768,
+       "ece": 0.0277
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5967,
+       "brier": 0.2419,
+       "logloss": 0.6767,
+       "ece": 0.0257
+      },
+      "en_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2475,
+       "logloss": 0.6881,
+       "ece": 0.0253
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.019
+      },
+      "blend_sel": {
+       "auc": 0.5526,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0196
+      },
+      "blend_seal": {
+       "auc": 0.5977,
+       "brier": 0.2413,
+       "logloss": 0.6755,
+       "ece": 0.0274
+      },
+      "final_weights": {
+       "en": 0.5359,
+       "lgb": 0.3241,
+       "xgb": 0.14
+      },
+      "blend_raw_sel": {
+       "auc": 0.5526,
+       "brier": 0.247,
+       "logloss": 0.687,
+       "ece": 0.0123
+      },
+      "blend_raw_seal": {
+       "auc": 0.5979,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0178
+      }
+     },
+     "2026": {
+      "xgb_raw_sel": {
+       "auc": 0.5477,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0204
+      },
+      "xgb_cal_sel": {
+       "auc": 0.548,
+       "brier": 0.2481,
+       "logloss": 0.6893,
+       "ece": 0.0264
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5996,
+       "brier": 0.2408,
+       "logloss": 0.6744,
+       "ece": 0.0204
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5992,
+       "brier": 0.2407,
+       "logloss": 0.6743,
+       "ece": 0.0131
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5495,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0215
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5488,
+       "brier": 0.2475,
+       "logloss": 0.688,
+       "ece": 0.0177
+      },
+      "lgb_raw_seal": {
+       "auc": 0.6062,
+       "brier": 0.2409,
+       "logloss": 0.6747,
+       "ece": 0.0437
+      },
+      "lgb_cal_seal": {
+       "auc": 0.6057,
+       "brier": 0.2408,
+       "logloss": 0.6746,
+       "ece": 0.0428
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0248
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5912,
+       "brier": 0.2414,
+       "logloss": 0.6757,
+       "ece": 0.0191
+      },
+      "blend_sel": {
+       "auc": 0.5525,
+       "brier": 0.2471,
+       "logloss": 0.6872,
+       "ece": 0.0166
+      },
+      "blend_seal": {
+       "auc": 0.6033,
+       "brier": 0.2407,
+       "logloss": 0.6743,
+       "ece": 0.0311
+      },
+      "final_weights": {
+       "en": 0.4629,
+       "lgb": 0.4294,
+       "xgb": 0.1077
+      },
+      "blend_raw_sel": {
+       "auc": 0.5527,
+       "brier": 0.2468,
+       "logloss": 0.6867,
+       "ece": 0.0135
+      },
+      "blend_raw_seal": {
+       "auc": 0.6035,
+       "brier": 0.2407,
+       "logloss": 0.6744,
+       "ece": 0.0279
+      }
+     }
+    },
+    "gate": {
+     "checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_auc": true,
+      "xgb_sel_ece": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_auc": false,
+      "xgb_seal_ece": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_auc": false,
+      "lgb_sel_ece": false,
+      "lgb_seal_ll": true,
+      "lgb_seal_auc": false,
+      "lgb_seal_ece": false,
+      "en_sel_ll": false,
+      "en_sel_auc": true,
+      "en_sel_ece": false,
+      "en_seal_ll": true,
+      "en_seal_auc": false,
+      "en_seal_ece": true,
+      "blend_sel_auc": true,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "passed": false,
+     "adapted_checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_ece": false,
+      "xgb_sel_auc": true,
+      "xgb_seal_ll": true,
+      "xgb_seal_ece": true,
+      "xgb_seal_auc": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_ece": false,
+      "lgb_sel_auc": true,
+      "lgb_seal_ll": true,
+      "lgb_seal_ece": false,
+      "lgb_seal_auc": true,
+      "en_sel_ll": false,
+      "en_sel_ece": false,
+      "en_sel_auc": true,
+      "en_seal_ll": true,
+      "en_seal_ece": true,
+      "en_seal_auc": false,
+      "blend_sel_auc": true,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "adapted_passed": false,
+     "verdict": "NOT ADOPTED"
+    }
+   },
+   {
+    "arm": "trial_19",
+    "config": {
+     "family": "temperature",
+     "warmup": 4,
+     "refit_every": 2,
+     "scope": "all"
+    },
+    "per_seed": {
+     "42": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5502,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0276
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.551,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0172
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5976,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.0238
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5537,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0172
+      },
+      "blend_seal": {
+       "auc": 0.5993,
+       "brier": 0.241,
+       "logloss": 0.675,
+       "ece": 0.0231
+      },
+      "final_weights": {
+       "en": 0.4947,
+       "lgb": 0.3185,
+       "xgb": 0.1868
+      },
+      "blend_raw_sel": {
+       "auc": 0.5536,
+       "brier": 0.2469,
+       "logloss": 0.6868,
+       "ece": 0.011
+      },
+      "blend_raw_seal": {
+       "auc": 0.5995,
+       "brier": 0.2411,
+       "logloss": 0.6752,
+       "ece": 0.0214
+      }
+     },
+     "7": {
+      "xgb_raw_sel": {
+       "auc": 0.5482,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5481,
+       "brier": 0.2482,
+       "logloss": 0.6896,
+       "ece": 0.0273
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5902,
+       "brier": 0.2424,
+       "logloss": 0.6777,
+       "ece": 0.0195
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5904,
+       "brier": 0.2423,
+       "logloss": 0.6775,
+       "ece": 0.0143
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5489,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0169
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5486,
+       "brier": 0.2478,
+       "logloss": 0.6888,
+       "ece": 0.0239
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5973,
+       "brier": 0.2419,
+       "logloss": 0.6768,
+       "ece": 0.0277
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2418,
+       "logloss": 0.6767,
+       "ece": 0.0257
+      },
+      "en_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "en_cal_sel": {
+       "auc": 0.5513,
+       "brier": 0.2475,
+       "logloss": 0.6881,
+       "ece": 0.0241
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0204
+      },
+      "blend_sel": {
+       "auc": 0.5525,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0184
+      },
+      "blend_seal": {
+       "auc": 0.5977,
+       "brier": 0.2412,
+       "logloss": 0.6754,
+       "ece": 0.0288
+      },
+      "final_weights": {
+       "en": 0.5346,
+       "lgb": 0.3217,
+       "xgb": 0.1437
+      },
+      "blend_raw_sel": {
+       "auc": 0.5526,
+       "brier": 0.247,
+       "logloss": 0.687,
+       "ece": 0.0123
+      },
+      "blend_raw_seal": {
+       "auc": 0.5979,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0178
+      }
+     },
+     "2026": {
+      "xgb_raw_sel": {
+       "auc": 0.5477,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0204
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5479,
+       "brier": 0.2481,
+       "logloss": 0.6893,
+       "ece": 0.0282
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5996,
+       "brier": 0.2408,
+       "logloss": 0.6744,
+       "ece": 0.0204
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5995,
+       "brier": 0.2407,
+       "logloss": 0.6743,
+       "ece": 0.0173
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5495,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0215
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5488,
+       "brier": 0.2475,
+       "logloss": 0.688,
+       "ece": 0.0173
+      },
+      "lgb_raw_seal": {
+       "auc": 0.6062,
+       "brier": 0.2409,
+       "logloss": 0.6747,
+       "ece": 0.0437
+      },
+      "lgb_cal_seal": {
+       "auc": 0.6062,
+       "brier": 0.2408,
+       "logloss": 0.6745,
+       "ece": 0.0443
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5512,
+       "brier": 0.2474,
+       "logloss": 0.688,
+       "ece": 0.023
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5525,
+       "brier": 0.2471,
+       "logloss": 0.6872,
+       "ece": 0.0167
+      },
+      "blend_seal": {
+       "auc": 0.6032,
+       "brier": 0.2406,
+       "logloss": 0.6742,
+       "ece": 0.0326
+      },
+      "final_weights": {
+       "en": 0.4612,
+       "lgb": 0.4266,
+       "xgb": 0.1122
+      },
+      "blend_raw_sel": {
+       "auc": 0.5527,
+       "brier": 0.2468,
+       "logloss": 0.6867,
+       "ece": 0.0135
+      },
+      "blend_raw_seal": {
+       "auc": 0.6035,
+       "brier": 0.2407,
+       "logloss": 0.6744,
+       "ece": 0.0279
+      }
+     }
+    },
+    "gate": {
+     "checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_auc": false,
+      "xgb_sel_ece": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_auc": false,
+      "xgb_seal_ece": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_auc": false,
+      "lgb_sel_ece": false,
+      "lgb_seal_ll": true,
+      "lgb_seal_auc": false,
+      "lgb_seal_ece": false,
+      "en_sel_ll": false,
+      "en_sel_auc": true,
+      "en_sel_ece": false,
+      "en_seal_ll": true,
+      "en_seal_auc": false,
+      "en_seal_ece": true,
+      "blend_sel_auc": true,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "passed": false,
+     "adapted_checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_ece": false,
+      "xgb_sel_auc": true,
+      "xgb_seal_ll": true,
+      "xgb_seal_ece": true,
+      "xgb_seal_auc": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_ece": false,
+      "lgb_sel_auc": true,
+      "lgb_seal_ll": true,
+      "lgb_seal_ece": false,
+      "lgb_seal_auc": true,
+      "en_sel_ll": false,
+      "en_sel_ece": false,
+      "en_sel_auc": true,
+      "en_seal_ll": true,
+      "en_seal_ece": true,
+      "en_seal_auc": true,
+      "blend_sel_auc": true,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "adapted_passed": false,
+     "verdict": "NOT ADOPTED"
+    }
+   },
+   {
+    "arm": "trial_8",
+    "config": {
+     "family": "temperature",
+     "warmup": 10,
+     "refit_every": 3,
+     "scope": "all"
+    },
+    "per_seed": {
+     "42": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5499,
+       "brier": 0.2479,
+       "logloss": 0.689,
+       "ece": 0.0247
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5972,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5497,
+       "brier": 0.2476,
+       "logloss": 0.6884,
+       "ece": 0.014
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5977,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5496,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0222
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5917,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5521,
+       "brier": 0.2471,
+       "logloss": 0.6874,
+       "ece": 0.0138
+      },
+      "blend_seal": {
+       "auc": 0.5994,
+       "brier": 0.241,
+       "logloss": 0.6749,
+       "ece": 0.0245
+      },
+      "final_weights": {
+       "en": 0.4612,
+       "lgb": 0.3092,
+       "xgb": 0.2296
+      },
+      "blend_raw_sel": {
+       "auc": 0.5536,
+       "brier": 0.2469,
+       "logloss": 0.6868,
+       "ece": 0.011
+      },
+      "blend_raw_seal": {
+       "auc": 0.5995,
+       "brier": 0.2411,
+       "logloss": 0.6752,
+       "ece": 0.0214
+      }
+     },
+     "7": {
+      "xgb_raw_sel": {
+       "auc": 0.5482,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5478,
+       "brier": 0.2481,
+       "logloss": 0.6893,
+       "ece": 0.024
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5902,
+       "brier": 0.2424,
+       "logloss": 0.6777,
+       "ece": 0.0195
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5904,
+       "brier": 0.2423,
+       "logloss": 0.6775,
+       "ece": 0.0146
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5489,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0169
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5475,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0195
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5973,
+       "brier": 0.2419,
+       "logloss": 0.6768,
+       "ece": 0.0277
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5972,
+       "brier": 0.2418,
+       "logloss": 0.6766,
+       "ece": 0.0257
+      },
+      "en_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "en_cal_sel": {
+       "auc": 0.5496,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.0221
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5917,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0204
+      },
+      "blend_sel": {
+       "auc": 0.5511,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0164
+      },
+      "blend_seal": {
+       "auc": 0.5977,
+       "brier": 0.2413,
+       "logloss": 0.6755,
+       "ece": 0.0213
+      },
+      "final_weights": {
+       "en": 0.4987,
+       "lgb": 0.3078,
+       "xgb": 0.1935
+      },
+      "blend_raw_sel": {
+       "auc": 0.5526,
+       "brier": 0.247,
+       "logloss": 0.687,
+       "ece": 0.0123
+      },
+      "blend_raw_seal": {
+       "auc": 0.5979,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0178
+      }
+     },
+     "2026": {
+      "xgb_raw_sel": {
+       "auc": 0.5477,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0204
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5473,
+       "brier": 0.248,
+       "logloss": 0.6892,
+       "ece": 0.0286
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5996,
+       "brier": 0.2408,
+       "logloss": 0.6744,
+       "ece": 0.0204
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5995,
+       "brier": 0.2407,
+       "logloss": 0.6743,
+       "ece": 0.0173
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5495,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0215
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5482,
+       "brier": 0.2475,
+       "logloss": 0.688,
+       "ece": 0.0172
+      },
+      "lgb_raw_seal": {
+       "auc": 0.6062,
+       "brier": 0.2409,
+       "logloss": 0.6747,
+       "ece": 0.0437
+      },
+      "lgb_cal_seal": {
+       "auc": 0.6062,
+       "brier": 0.2408,
+       "logloss": 0.6745,
+       "ece": 0.0428
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5496,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.022
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5917,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5511,
+       "brier": 0.2471,
+       "logloss": 0.6873,
+       "ece": 0.0128
+      },
+      "blend_seal": {
+       "auc": 0.6033,
+       "brier": 0.2406,
+       "logloss": 0.6742,
+       "ece": 0.031
+      },
+      "final_weights": {
+       "en": 0.4296,
+       "lgb": 0.4287,
+       "xgb": 0.1417
+      },
+      "blend_raw_sel": {
+       "auc": 0.5527,
+       "brier": 0.2468,
+       "logloss": 0.6867,
+       "ece": 0.0135
+      },
+      "blend_raw_seal": {
+       "auc": 0.6035,
+       "brier": 0.2407,
+       "logloss": 0.6744,
+       "ece": 0.0279
+      }
+     }
+    },
+    "gate": {
+     "checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_auc": false,
+      "xgb_sel_ece": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_auc": false,
+      "xgb_seal_ece": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_auc": false,
+      "lgb_sel_ece": true,
+      "lgb_seal_ll": true,
+      "lgb_seal_auc": false,
+      "lgb_seal_ece": false,
+      "en_sel_ll": false,
+      "en_sel_auc": false,
+      "en_sel_ece": false,
+      "en_seal_ll": true,
+      "en_seal_auc": false,
+      "en_seal_ece": true,
+      "blend_sel_auc": false,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "passed": false,
+     "adapted_checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_ece": false,
+      "xgb_sel_auc": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_ece": true,
+      "xgb_seal_auc": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_ece": true,
+      "lgb_sel_auc": false,
+      "lgb_seal_ll": true,
+      "lgb_seal_ece": false,
+      "lgb_seal_auc": true,
+      "en_sel_ll": false,
+      "en_sel_ece": false,
+      "en_sel_auc": false,
+      "en_seal_ll": true,
+      "en_seal_ece": true,
+      "en_seal_auc": true,
+      "blend_sel_auc": false,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "adapted_passed": false,
+     "verdict": "NOT ADOPTED"
+    }
+   },
+   {
+    "arm": "trial_10",
+    "config": {
+     "family": "temperature",
+     "warmup": 6,
+     "refit_every": 2,
+     "scope": "all"
+    },
+    "per_seed": {
+     "42": {
+      "xgb_raw_sel": {
+       "auc": 0.5507,
+       "brier": 0.2477,
+       "logloss": 0.6886,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5493,
+       "brier": 0.248,
+       "logloss": 0.6893,
+       "ece": 0.0273
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5974,
+       "brier": 0.2414,
+       "logloss": 0.6758,
+       "ece": 0.0155
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0137
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2474,
+       "logloss": 0.6879,
+       "ece": 0.0127
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5495,
+       "brier": 0.2477,
+       "logloss": 0.6885,
+       "ece": 0.0169
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5976,
+       "brier": 0.2417,
+       "logloss": 0.6763,
+       "ece": 0.0285
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5976,
+       "brier": 0.2416,
+       "logloss": 0.6761,
+       "ece": 0.0317
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5502,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0249
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5522,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0177
+      },
+      "blend_seal": {
+       "auc": 0.5995,
+       "brier": 0.241,
+       "logloss": 0.6749,
+       "ece": 0.0231
+      },
+      "final_weights": {
+       "en": 0.4766,
+       "lgb": 0.3246,
+       "xgb": 0.1988
+      },
+      "blend_raw_sel": {
+       "auc": 0.5536,
+       "brier": 0.2469,
+       "logloss": 0.6868,
+       "ece": 0.011
+      },
+      "blend_raw_seal": {
+       "auc": 0.5995,
+       "brier": 0.2411,
+       "logloss": 0.6752,
+       "ece": 0.0214
+      }
+     },
+     "7": {
+      "xgb_raw_sel": {
+       "auc": 0.5482,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0232
+      },
+      "xgb_cal_sel": {
+       "auc": 0.5472,
+       "brier": 0.2482,
+       "logloss": 0.6896,
+       "ece": 0.0273
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5902,
+       "brier": 0.2424,
+       "logloss": 0.6777,
+       "ece": 0.0195
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5904,
+       "brier": 0.2423,
+       "logloss": 0.6775,
+       "ece": 0.0143
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5489,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0169
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5472,
+       "brier": 0.2479,
+       "logloss": 0.6889,
+       "ece": 0.0229
+      },
+      "lgb_raw_seal": {
+       "auc": 0.5973,
+       "brier": 0.2419,
+       "logloss": 0.6768,
+       "ece": 0.0277
+      },
+      "lgb_cal_seal": {
+       "auc": 0.5973,
+       "brier": 0.2418,
+       "logloss": 0.6767,
+       "ece": 0.0257
+      },
+      "en_raw_sel": {
+       "auc": 0.5509,
+       "brier": 0.2473,
+       "logloss": 0.6876,
+       "ece": 0.0134
+      },
+      "en_cal_sel": {
+       "auc": 0.5501,
+       "brier": 0.2476,
+       "logloss": 0.6883,
+       "ece": 0.025
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0204
+      },
+      "blend_sel": {
+       "auc": 0.5513,
+       "brier": 0.2473,
+       "logloss": 0.6877,
+       "ece": 0.0191
+      },
+      "blend_seal": {
+       "auc": 0.5978,
+       "brier": 0.2412,
+       "logloss": 0.6754,
+       "ece": 0.0274
+      },
+      "final_weights": {
+       "en": 0.52,
+       "lgb": 0.325,
+       "xgb": 0.155
+      },
+      "blend_raw_sel": {
+       "auc": 0.5526,
+       "brier": 0.247,
+       "logloss": 0.687,
+       "ece": 0.0123
+      },
+      "blend_raw_seal": {
+       "auc": 0.5979,
+       "brier": 0.2413,
+       "logloss": 0.6756,
+       "ece": 0.0178
+      }
+     },
+     "2026": {
+      "xgb_raw_sel": {
+       "auc": 0.5477,
+       "brier": 0.2478,
+       "logloss": 0.6887,
+       "ece": 0.0204
+      },
+      "xgb_cal_sel": {
+       "auc": 0.547,
+       "brier": 0.2482,
+       "logloss": 0.6895,
+       "ece": 0.0297
+      },
+      "xgb_raw_seal": {
+       "auc": 0.5996,
+       "brier": 0.2408,
+       "logloss": 0.6744,
+       "ece": 0.0204
+      },
+      "xgb_cal_seal": {
+       "auc": 0.5995,
+       "brier": 0.2407,
+       "logloss": 0.6743,
+       "ece": 0.0173
+      },
+      "lgb_raw_sel": {
+       "auc": 0.5495,
+       "brier": 0.2472,
+       "logloss": 0.6875,
+       "ece": 0.0215
+      },
+      "lgb_cal_sel": {
+       "auc": 0.5476,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.017
+      },
+      "lgb_raw_seal": {
+       "auc": 0.6062,
+       "brier": 0.2409,
+       "logloss": 0.6747,
+       "ece": 0.0437
+      },
+      "lgb_cal_seal": {
+       "auc": 0.6062,
+       "brier": 0.2408,
+       "logloss": 0.6745,
+       "ece": 0.0443
+      },
+      "en_raw_sel": {
+       "auc": 0.551,
+       "brier": 0.2472,
+       "logloss": 0.6876,
+       "ece": 0.0133
+      },
+      "en_cal_sel": {
+       "auc": 0.5501,
+       "brier": 0.2475,
+       "logloss": 0.6882,
+       "ece": 0.0242
+      },
+      "en_raw_seal": {
+       "auc": 0.5917,
+       "brier": 0.2415,
+       "logloss": 0.6758,
+       "ece": 0.0249
+      },
+      "en_cal_seal": {
+       "auc": 0.5916,
+       "brier": 0.2414,
+       "logloss": 0.6756,
+       "ece": 0.0205
+      },
+      "blend_sel": {
+       "auc": 0.5512,
+       "brier": 0.2472,
+       "logloss": 0.6874,
+       "ece": 0.0171
+      },
+      "blend_seal": {
+       "auc": 0.6035,
+       "brier": 0.2406,
+       "logloss": 0.6742,
+       "ece": 0.0356
+      },
+      "final_weights": {
+       "en": 0.4518,
+       "lgb": 0.4396,
+       "xgb": 0.1086
+      },
+      "blend_raw_sel": {
+       "auc": 0.5527,
+       "brier": 0.2468,
+       "logloss": 0.6867,
+       "ece": 0.0135
+      },
+      "blend_raw_seal": {
+       "auc": 0.6035,
+       "brier": 0.2407,
+       "logloss": 0.6744,
+       "ece": 0.0279
+      }
+     }
+    },
+    "gate": {
+     "checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_auc": false,
+      "xgb_sel_ece": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_auc": false,
+      "xgb_seal_ece": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_auc": false,
+      "lgb_sel_ece": false,
+      "lgb_seal_ll": true,
+      "lgb_seal_auc": false,
+      "lgb_seal_ece": false,
+      "en_sel_ll": false,
+      "en_sel_auc": false,
+      "en_sel_ece": false,
+      "en_seal_ll": true,
+      "en_seal_auc": false,
+      "en_seal_ece": true,
+      "blend_sel_auc": false,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "passed": false,
+     "adapted_checks": {
+      "xgb_sel_ll": false,
+      "xgb_sel_ece": false,
+      "xgb_sel_auc": false,
+      "xgb_seal_ll": true,
+      "xgb_seal_ece": true,
+      "xgb_seal_auc": true,
+      "lgb_sel_ll": false,
+      "lgb_sel_ece": false,
+      "lgb_sel_auc": false,
+      "lgb_seal_ll": true,
+      "lgb_seal_ece": false,
+      "lgb_seal_auc": true,
+      "en_sel_ll": false,
+      "en_sel_ece": false,
+      "en_sel_auc": false,
+      "en_seal_ll": true,
+      "en_seal_ece": true,
+      "en_seal_auc": true,
+      "blend_sel_auc": false,
+      "blend_sel_ll": true,
+      "blend_sel_ece": false,
+      "blend_seal_auc": true,
+      "blend_seal_ll": true,
+      "blend_seal_ece": false
+     },
+     "adapted_passed": false,
+     "verdict": "NOT ADOPTED"
+    }
+   }
+  ]
+ },
+ "schema": "calibration-layer-search/v1",
+ "date": "2026-09-30",
+ "directives": {
+  "from_scratch": "calibration layer designed from scratch; every parameter (family, warmup, refit cadence, member scope) is a searched dimension",
+  "machine_stable": "num_threads=1 / n_jobs=1 + env pins (tune_xgb_lgbm_full module import)",
+  "seeds": [
+   42,
+   7,
+   2026
+  ],
+  "substrate": "per-fold OOF member probs, production configs, static-50 refit point; within-arm deltas are on identical probabilities",
+  "weights": "blend weights re-earned causally on calibrated probs (production compute_adaptive_weights); fold 0 uses config.ENSEMBLE_WEIGHTS",
+  "gates": "member (ll/auc/ece both views) + blend (\u00b10.001/ece) on 3-seed means; ADOPT only if all pass"
+ },
+ "verdict": {
+  "decision": "NOT ADOPTED",
+  "summary": "Causal member-level calibration layer (from-scratch search: platt/temperature x warmup 4-12 x refit 1-4 x scope xgb/lgb/en/xgb+lgb/all, 20 seeded TPE trials, top-4 confirmed on seeds 42/7/2026) FAILS the member and blend gates on both views. The in-sample Platt recovery (-0.0015, diag [4]) was an artifact of fitting and scoring the same window; under the production causal contract the calibrator fits prior folds miscalibration and applies it forward while the deformation drifts \u2014 degrading pooled selection logloss (+0.0005 best) and ECE (0.0123 -> 0.0180 best). Blend-level status quo stands.",
+  "consequence": "xgboost ~1% blend weight is confirmed correct behavior: starvation of a member with drifting miscalibration, whose raw seal performance (best-tied ll 0.67580, best ECE 0.0155) is already competitive.",
+  "config_changed": false
+ }
+}
