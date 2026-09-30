@@ -1269,6 +1269,31 @@ class TestRefusedHost:
         assert info["tripped"] is False
         assert info["requested"] == 3
 
+    def test_a_missing_game_id_is_not_swept(self, monkeypatch, tmp_path):
+        """A NaN id stringifies as ``nan`` and passes a length filter, so the
+        2026-09-30 cold sweep spent a request on playbyplayv3?GameID=nan,
+        collected a guaranteed HTTP 400, and reported "1 unavailable" every
+        run. A game with no id is not a target: it is dropped by name, never
+        requested, and the games that do carry ids are still swept."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        games = self._games(3)
+        nameless = pd.DataFrame({
+            "nba_game_id": [float("nan")],
+            "gameday": [pd.Timestamp(date.today())],
+        })
+        calls: list = []
+
+        def answer(request, timeout=None):
+            calls.append(request.full_url)
+            return _Response(b'{"game": {"actions": []}}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        _frame, info = ing._fetch_play_by_play(
+            pd.concat([games, nameless], ignore_index=True))
+        assert info["requested"] == 3, len(calls)
+        assert all("GameID=nan" not in url for url in calls)
+        assert info["tripped"] is False
+
     def test_the_sweep_backfills_the_oldest_cache_holes(
             self, monkeypatch, tmp_path):
         """A stretch of games that fell outside the lookback before any run

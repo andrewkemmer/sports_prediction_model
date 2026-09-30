@@ -1367,7 +1367,9 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     Only games the season log has already identified are requested. A game the
     log has not seen has no ``nba_game_id`` because nobody has played it, and a
-    scheduled game has no play-by-play to fetch.
+    scheduled game has no play-by-play to fetch. A row whose id is missing
+    outright (NaN/None/empty) is likewise not a target: stringified it would
+    sail through a length filter and buy a guaranteed 400 from the host.
     """
     info: dict[str, Any] = {"enabled": _flag(PBP_ENABLED_ENV, True),
                             "requested": 0, "cached": 0, "fetched": 0,
@@ -1376,7 +1378,21 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     if not info["enabled"]:
         logger.info("%s is off; play-by-play is not fetched", PBP_ENABLED_ENV)
         return pd.DataFrame(), info
-    eligible = (games.loc[games.get("nba_game_id", pd.Series(dtype=str)).astype(str).str.len() > 0]
+    raw_ids = games.get("nba_game_id", pd.Series(dtype=str)).astype(str)
+    # A missing id stringifies as "nan" (or "none"/"null" further downstream),
+    # which passes a bare length filter. The 2026-09-30 sweep paid for that:
+    # it requested playbyplayv3?GameID=nan, collected a guaranteed HTTP 400,
+    # and reported "1 unavailable" every run. A game with no id has nothing
+    # to fetch - it is not a target, it is a nameless row - so it is dropped
+    # here, by name, instead of being spent against the host.
+    missing_id = (raw_ids.isna()
+                   | raw_ids.str.strip().str.lower().isin(
+                       ["", "nan", "nat", "none", "null"]))
+    if missing_id.any():
+        logger.warning("%d game(s) carry no NBA game id; they have no "
+                       "play-by-play to fetch and are not swept",
+                       int(missing_id.sum()))
+    eligible = (games.loc[~missing_id]
                 .drop_duplicates("nba_game_id")
                 .sort_values("gameday"))
     if eligible.empty:
