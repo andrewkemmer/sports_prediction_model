@@ -281,8 +281,17 @@ def coverage_report(frame: pd.DataFrame, name: str) -> pd.DataFrame:
             pct, populated = 0.0, 0
         elif kind == "str":
             values = frame[column]
-            populated = int(values.notna().sum())
-            pct = 100.0 * float((values.astype(str).str.len() > 0).mean()) if len(values) else 0.0
+            # Measure against the contract's own convention (_coerce): a
+            # missing string is missing, never the literal "nan". Plain
+            # astype(str) turns NaN into "nan" (length 3), so a column the
+            # source did not supply at all reported 100% coverage while the
+            # length filter above it read every row as populated - the
+            # phantom-population failure mode _coerce exists to prevent.
+            # pandas' nullable string dtype keeps a missing value missing.
+            text = values.astype("string")
+            present = text.notna() & (text.fillna("").str.len() > 0)
+            populated = int(present.sum())
+            pct = 100.0 * float(present.mean()) if len(values) else 0.0
         else:
             values = pd.to_numeric(frame[column], errors="coerce")
             populated = int(values.notna().sum())
