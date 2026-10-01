@@ -179,7 +179,11 @@ print(f"  ✅ Raw pitches: {pitches_path}")
 # fresh clone. --start keeps the builder's 2023-01-01 default so the ledger
 # provenance (window_start / gate band) matches every prior build. A failure
 # here is NON-FATAL by design: features degrade loudly (participant-pool /
-# exposure-0 semantics with WARNINGs) and the run continues.
+# exposure-0 semantics with WARNINGs) and the run continues. SystemExit must
+# be caught explicitly: the builder's plausibility gates raise it ("refusing
+# to write"), it is a BaseException that sails past ``except Exception``,
+# and a gate trip unwound __main__ so the 2026-10-01 run silently ended
+# before Phase 5 with exit code 0 — the Kaggle wrapper printed success.
 from build_il_stints import main as _build_il_stints
 _il_dir = out_dir / "il_stints"
 _il_dir.mkdir(parents=True, exist_ok=True)
@@ -190,7 +194,7 @@ sys.argv = ["build_il_stints.py",
             "--pbp", str(pitches_path)]
 try:
     _build_il_stints()
-except Exception as e:
+except (Exception, SystemExit) as e:
     print(f"  ⚠️  IL ledger rebuild failed (non-fatal; features degrade "
           f"loudly): {e}")
 
@@ -245,7 +249,7 @@ sys.argv = ["build_pbp_defense.py",
             "--backfill-2024"]
 try:
     _build_pbp_defense()
-except Exception as e:
+except (Exception, SystemExit) as e:
     print(f"  ⚠️  Defense projection failed (non-fatal): {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────

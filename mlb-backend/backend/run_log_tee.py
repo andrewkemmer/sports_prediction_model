@@ -22,6 +22,7 @@ silently — a failed crash push must never mask the original error.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from datetime import datetime
@@ -39,7 +40,11 @@ class _Tee:
 
     def write(self, data: str) -> int:
         try:
-            self._file.write(data)
+            # The console keeps RAW \r (tqdm's graphical-bar contract —
+            # Kaggle coalesces \r-frames into the black progress widget);
+            # the FILE is line-oriented, so carriage returns become
+            # newlines instead of each frame overwriting the previous one.
+            self._file.write(data.replace("\r", "\n"))
             self._file.flush()
         except (OSError, ValueError):
             pass  # disk full/removed mid-run: console keeps working
@@ -53,7 +58,13 @@ class _Tee:
         self._stream.flush()
 
     def isatty(self) -> bool:
-        return False
+        # Delegate — a hardcoded False flipped tqdm into text mode (the
+        # 2026-10-01 regression: Kaggle's graphical black bar became flat
+        # pink stderr lines). tqdm must see exactly what it saw pre-tee.
+        try:
+            return self._stream.isatty()
+        except (OSError, ValueError):
+            return False
 
     def fileno(self) -> int:
         return self._stream.fileno()
@@ -82,8 +93,20 @@ def install_run_log_tee(data_delivery_dir: Path) -> Path | None:
         return None
     # Tee the CURRENT stream objects (whatever harness replaced them with),
     # preserving their targets; the idempotence check above prevents chains.
-    sys.stdout = _Tee(sys.stdout, log_file)
-    sys.stderr = _Tee(sys.stderr, log_file)
+    orig_stdout, orig_stderr = sys.stdout, sys.stderr
+    sys.stdout = _Tee(orig_stdout, log_file)
+    sys.stderr = _Tee(orig_stderr, log_file)
+    # logging.basicConfig ran BEFORE this install, so its StreamHandler
+    # captured the PRE-tee stderr and every INFO/WARNING record bypassed
+    # the log (the 2026-10-01 push carried banners only — no folds, no
+    # weather, no calibration-gate WARNING). Re-point handlers still
+    # aimed at the captured console streams; handlers owned by an outer
+    # harness (pytest's capture, notebook kernels) hold their own stream
+    # objects and are left alone.
+    for _h in logging.getLogger().handlers:
+        if isinstance(_h, logging.StreamHandler) \
+                and _h.stream in (orig_stdout, orig_stderr):
+            _h.stream = _Tee(_h.stream, log_file)
     import atexit
     atexit.register(log_file.close)
     print(f"  📝 Run log tee: {log_path} (one rolling master file, "

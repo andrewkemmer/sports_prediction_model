@@ -7,6 +7,10 @@ a plain git pull. Each test pins one contract:
 
 * the tee duplicates console output into the file and keeps the console
   return contract (bytes-written passthrough);
+* tty-ness and carriage returns pass through to the CONSOLE untouched
+  (tqdm's graphical black bar), while the FILE stays line-oriented;
+* logging handlers are re-pointed at the tee, so INFO/WARNING records
+  reach the log (basicConfig captures the pre-tee stderr otherwise);
 * installation overwrites the previous run's file (one rolling master);
 * install is idempotent (no tee-over-tee chains) and degrades to
   console-only when the destination is unwritable;
@@ -76,6 +80,95 @@ def test_install_degrades_to_console_on_unwritable_dir(tmp_path, monkeypatch):
     blocked.write_text("this is a file, mkdir will fail")
     assert run_log_tee.install_run_log_tee(blocked) is None
     print("console still works")  # must not raise
+
+
+# ── tty passthrough + \r contract (2026-10-01 loading-bar regression) ──────
+
+def test_tee_isatty_delegates_to_the_console_stream(tmp_path):
+    console = io.StringIO()
+    tee = run_log_tee._Tee(console, open(tmp_path / "a.txt", "w"))
+    assert tee.isatty() == console.isatty()  # False for a StringIO
+
+    class _FakeTTY:
+        def write(self, s):
+            return len(s)
+
+        def flush(self):
+            pass
+
+        def isatty(self):
+            return True
+
+    tty_tee = run_log_tee._Tee(_FakeTTY(), open(tmp_path / "b.txt", "w"))
+    assert tty_tee.isatty() is True  # tqdm must see what it saw pre-tee
+
+
+def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
+    console = io.StringIO()
+    log_file = open(tmp_path / "log.txt", "w")
+    tee = run_log_tee._Tee(console, log_file)
+    tee.write(" 50%|#####     | 3/6 [..]\r 83%|########  | 5/6 [..]\r100%| done\n")
+    tee.flush()
+    tee.close()
+    assert "\r" in console.getvalue()  # console keeps tqdm's raw frames
+    text = (tmp_path / "log.txt").read_text()
+    assert "\r" not in text  # the file stays line-oriented
+    assert " 83%|########  | 5/6 [..]" in text  # every frame is its own line
+
+
+# ── logging rebind (2026-10-01: pushed log was prints-only, no INFO/WARNING) ─
+
+def test_install_rebinds_logging_handlers_so_records_reach_the_log(
+        tmp_path, monkeypatch):
+    import logging
+
+    # Model production: basicConfig's handler holds the SAME pre-tee
+    # stderr object the tee is about to wrap.
+    pre_tee_stderr = io.StringIO()
+    handler = logging.StreamHandler(pre_tee_stderr)
+    root = logging.getLogger()
+    old_handlers = root.handlers[:]
+    old_level = root.level
+    root.setLevel(logging.INFO)  # production runs basicConfig(level=INFO)
+    root.handlers[:] = [handler]
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", pre_tee_stderr)
+    try:
+        log_path = run_log_tee.install_run_log_tee(tmp_path)
+        assert log_path is not None
+        logging.getLogger().info("fold line the tee must capture")
+        logging.getLogger().warning("gate WARNING the tee must capture")
+        for h in root.handlers:
+            if hasattr(h, "flush"):
+                h.flush()
+        text = log_path.read_text()
+        assert "fold line the tee must capture" in text
+        assert "gate WARNING the tee must capture" in text
+        # re-pointed in place, not replaced: the console copy survives
+        assert isinstance(handler.stream, run_log_tee._Tee)
+        assert "fold line the tee must capture" in pre_tee_stderr.getvalue()
+    finally:
+        root.handlers[:] = old_handlers
+        root.setLevel(old_level)
+
+
+def test_install_leaves_harness_owned_handlers_alone(tmp_path, monkeypatch):
+    import logging
+
+    # Handlers owned by an outer harness (pytest's log capture, notebook
+    # kernels) hold their own stream objects and must NOT be re-pointed:
+    # the harness reads them back by identity/attribute after the run.
+    foreign = logging.StreamHandler(io.StringIO())
+    root = logging.getLogger()
+    old_handlers = root.handlers[:]
+    root.handlers[:] = [foreign]
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    try:
+        assert run_log_tee.install_run_log_tee(tmp_path) is not None
+        assert not isinstance(foreign.stream, run_log_tee._Tee)
+    finally:
+        root.handlers[:] = old_handlers
 
 
 # ── Phase 6 retention contract ──────────────────────────────────────────────
