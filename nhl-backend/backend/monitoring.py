@@ -452,10 +452,6 @@ def _grid_col(base: str, x: float) -> str:
     if s.endswith(".0"):
         s = s[:-2]
     return f"{base}_{s.replace('-', 'm').replace('.', '_')}"
-    s = str(float(x))
-    if s.endswith(".0"):
-        s = s[:-2]
-    return f"{base}_{s.replace('-', 'm').replace('.', '_')}"
 
 
 def _reliability_ece(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
@@ -918,8 +914,14 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
             "min_games_per_day": 1,
             "excluded_sparse_days": 0,
             "calibrator_is_identity": False,
-            "map_scope_note": ("Points use the deployed Platt map (fit on all "
-                               "OOF games)."),
+            # The series is p_ensemble_calibrated: the PREQUENTIAL per-fold
+            # layer (fold k's map fitted on folds < k) — the same strictly
+            # prior series the OOF metrics score. The pooled all-OOF Platt
+            # map is the serving layer and never prices this series.
+            "map_scope_note": ("Points use the prequential per-fold "
+                               "calibration layer (fit on prior OOF folds "
+                               "only); the pooled all-OOF Platt map is the "
+                               "serving layer and is not in this series."),
         },
         "version_history": [version_row],
         "fold_geometry": fold_info,

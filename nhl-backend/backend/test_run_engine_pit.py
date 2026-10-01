@@ -1073,6 +1073,38 @@ def test_derived_moneyline_never_rewrites_the_winner():
         1.0 - cal_home - raw["p_tie"].to_numpy(float), atol=1e-9)
 
 
+def test_calibrate_market_frame_derived_moneyline_is_prequential():
+    """The derived-moneyline column is calibrated by the same strictly-prior
+    per-fold map every grid line uses: poisoning the LAST fold's outcomes
+    must not move ANY earlier fold's published probability. (2026-09-30
+    leakage audit: the derived block was the one pooled in-place calibrator,
+    so the sealed-window derived_ml card scored rows its own map had seen.)
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=60, seed=11))
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    oof = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
+    raw = dist_mod.apply_distribution(oof)
+
+    poisoned = raw.copy()
+    last_fold = int(poisoned["fold_id"].max())
+    flip = (poisoned["fold_id"] == last_fold).to_numpy()
+    margin = poisoned["margin"].to_numpy(float)
+    poisoned.loc[flip, "margin"] = np.where(margin[flip] > 0, -1.0, 1.0)
+
+    cal_a, bundle_a = dist_mod.calibrate_market_frame(raw)
+    cal_b, _ = dist_mod.calibrate_market_frame(poisoned)
+    early = cal_a["fold_id"].to_numpy() < last_fold
+    assert early.any(), "synthetic walk produced no prior folds"
+    np.testing.assert_array_equal(
+        cal_a["p_home_win_derived"].to_numpy(float)[early],
+        cal_b["p_home_win_derived"].to_numpy(float)[early],
+        err_msg=("earlier folds' derived moneyline moved by a later fold's "
+                 "outcomes — leakage"))
+    # The pooled all-OOF map still rides the bundle as the serving-layer
+    # record (the derived_ml card reads the prequential column, not this).
+    assert "derived_moneyline" in bundle_a
+
+
 def test_apply_distribution_is_row_aligned_and_additive():
     games = feat_mod.build_game_features(_synth_games(n_days=30))
     base = games.head(10).copy()

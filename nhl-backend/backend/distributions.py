@@ -60,9 +60,12 @@ MC_SE_TARGET = 5e-3
 # Sealed-holdout convention (MLB derive_markets_v3 HOLDOUT_DAYS parity): the
 # LAST ``HOLDOUT_DAYS`` of OOF games are SEALED — no α(λ) fitting, no curve
 # binning, and no final market-line calibrator may see them. The tail scores
-# the market engine honestly instead of validating itself. The shipped
-# serving dispersion (alpha_home/alpha_away scalars in the bundle) is a
-# full-OOF fit and is unaffected — this gate disciplines EVALUATION only.
+# the market engine honestly instead of validating itself. The gate covers
+# the α(λ) curve AND the fitting scalars: alpha_home/alpha_away are the
+# method-of-moments estimates over the PRE-HOLDOUT rows (calibrate_dispersion
+# passes the gated mask to estimate_alpha), and the same sig dict both ships
+# for serving and derives the OOF market rows — one honest, pre-holdout-gated
+# dispersion on both sides of that boundary.
 HOLDOUT_DAYS = 21
 # Alpha-machinery parity (run_engine.py 1e-6): the floor under every alpha
 # below which NB degenerates to Poisson. NHL previously ran 1e-8.
@@ -875,14 +878,24 @@ def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         else:
             out[key] = ch
             bundle["run_lines"][str(line)] = {"home": mh, "push": None, "away": None}
-    # Derived model moneyline uses the same favored-team calibration contract.
+    # Derived model moneyline uses the same favored-team calibration contract
+    # as every published grid line: the IN-FRAME column is calibrated by the
+    # PREQUENTIAL per-fold map (fold k sees only folds < k), so the sealed
+    # tail and the derived_ml winner card score probabilities their own
+    # calibrator never saw. (2026-09-30 leakage audit: this was the one
+    # pooled in-place calibrator — a map fitted on ALL OOF rows, sealed tail
+    # included, was stamped onto the frame and the monitor's sealed-window
+    # derived_moneyline metrics then validated on rows that map had seen.
+    # The pooled all-OOF map below is the serving-layer record, exactly like
+    # the pooled moneyline Platt; apply_market_calibration deliberately does
+    # not apply it to the slate, whose derived ML stays the raw MC value.)
     if "p_home_win_derived" in out:
         p = out["p_home_win_derived"].to_numpy(float)
         fav_home = p >= 0.5
         pf = np.where(fav_home, p, 1.0 - p)
         yf = np.where(fav_home, margin > 0, margin < 0).astype(int)
-        cal = _fit_platt(pf, yf)
-        pc = np.maximum(0.5, _apply_platt(pf, cal)) if cal else pf
+        pc_seq, cal = _prequential_line(pf, yf, folds)
+        pc = np.maximum(0.5, pc_seq)
         out["p_home_win_derived"] = np.where(fav_home, pc, 1.0 - pc)
         out["p_away_win_derived"] = 1.0 - out["p_home_win_derived"] - out.get("p_tie", 0.0)
         bundle["derived_moneyline"] = cal
