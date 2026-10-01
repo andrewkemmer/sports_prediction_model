@@ -286,6 +286,13 @@ _BP_PITCHES_PER_IP = 15.5    # measured pool constant (2024-2026)
 _BP_MIN_SEASON_PITCHES = 30  # cameo player-seasons excluded from k's mean
 _BP_K_FLOOR = 20.0           # pitch floor: k can never collapse to ~0
 
+# Recent pitcher runs/9 is blended toward the same pitcher's non-overlapping
+# older appearance history using 30 pseudo innings. This is an explicit,
+# conservative first-pass regularizer; unlike bullpen shrinkage, it has not yet
+# been selected by a full walk-forward search. Sparse/no older history falls
+# back to a strictly prior league runs/9 rate, then to the raw recent rate.
+_SP_ERA_5G_SHRINK_IP = 30.0
+
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
               WHERE i.batter = p.pitcher
@@ -1167,8 +1174,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
 
     # Season-to-date ERA / K/9 (strictly in-season, via season-partitioned
     # LAGs so the prior October never leaks into a new season's cumulative)
-    # plus last-5-start ERA / K/9 (ACROSS seasons — no season-start gap: an
-    # April start rolls over the prior season's tail). All point-in-time
+    # plus recent runs/9 and K/9 over the prior five appearances (ACROSS
+    # seasons — no season-start gap: an April appearance rolls over the prior
+    # season's tail). All point-in-time
     # safe: the row holds the previous game's stats via LAG, so the current
     # game never enters its own feature.
     con.execute("""        CREATE TABLE pitcher_shifted_season AS
@@ -1194,41 +1202,81 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
-    # Last-5-start window across ALL seasons (no season partition): built on
-    # the cross-season LAGs in pitcher_shifted, so a season's first starts
-    # roll over the prior season's tail — no gap at the season boundary. A
-    # career debut (no prior start at all) yields NULL naturally.
+    # Last-five-appearance window across ALL seasons (no season partition).
+    # The all-history sum minus the recent-five sum is the same pitcher's older
+    # career baseline, with no overlap between baseline and recent sample.
+    # A career debut has NULL recent innings and remains NULL naturally.
     con.execute("""
         CREATE TABLE pitcher_5g_rolling AS
         SELECT game_date, game_pk, pitcher,
             SUM(_s_runs) OVER w5 AS _roll5_runs,
             SUM(_s_ks)  OVER w5 AS _roll5_ks,
-            SUM(_s_ip)  OVER w5 AS _roll5_ip
+            SUM(_s_ip)  OVER w5 AS _roll5_ip,
+            COALESCE(SUM(_s_runs) OVER wall, 0.0)
+                - COALESCE(SUM(_s_runs) OVER w5, 0.0) AS _older_runs,
+            COALESCE(SUM(_s_ip) OVER wall, 0.0)
+                - COALESCE(SUM(_s_ip) OVER w5, 0.0) AS _older_ip
         FROM pitcher_shifted
         WINDOW w5 AS (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)
+                      ROWS BETWEEN 4 PRECEDING AND CURRENT ROW),
+               wall AS (PARTITION BY pitcher ORDER BY game_date
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
+    # A date-level league fallback for pitchers without older personal innings.
+    # Publish only the cumulative value through the PREVIOUS date so none of
+    # today's games, including another game in a doubleheader, affect it.
     con.execute("""
+        CREATE TABLE pitcher_era_league AS
+        WITH daily AS (
+            SELECT CAST(game_date AS DATE) AS game_date,
+                   SUM(runs) AS runs, SUM(ip) AS ip
+            FROM pitcher_game_stats
+            GROUP BY CAST(game_date AS DATE)
+        ), cumulative AS (
+            SELECT game_date,
+                   SUM(runs) OVER w AS runs_thru,
+                   SUM(ip) OVER w AS ip_thru
+            FROM daily
+            WINDOW w AS (ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+        )
+        SELECT game_date,
+               LAG(runs_thru) OVER (ORDER BY game_date)
+                 / NULLIF(LAG(ip_thru) OVER (ORDER BY game_date), 0) * 9.0
+                 AS league_era_prior
+        FROM cumulative
+    """)
+
+    con.execute(f"""
         CREATE TABLE pitcher_season_features AS
         SELECT psr.game_date, psr.game_pk, psr.pitcher,
             -- True season-to-date ERA / K/9 (through the prior in-season
-            -- starts only; NULL for a season's opening start).
-            -- SP staleness gate: a row whose prior-appearance gap crossed an
-            -- availability stint ships NULL — pre-stint form must not be
-            -- quoted as tonight's form (2026-09-30, no-new-features).
+            -- appearances only; NULL for a season's opening appearance).
+            -- SP staleness gate keeps its stronger NULL semantics.
             CASE WHEN st.sp_stale THEN NULL
                  ELSE psr._s_runs_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_era,
             CASE WHEN st.sp_stale THEN NULL
                  ELSE psr._s_ks_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_k9,
-            -- Last-5-start ERA / K/9 across seasons (no start-count guard).
+            -- Recent runs/9 across the prior five appearances, blended with
+            -- non-overlapping older pitcher history. _SP_ERA_5G_SHRINK_IP is
+            -- pseudo prior innings; league prior is only a cold-start fallback.
             CASE WHEN st.sp_stale THEN NULL
-                 ELSE p5._roll5_runs / NULLIF(p5._roll5_ip, 0) * 9.0 END AS sp_era_5g,
+                 WHEN p5._roll5_ip > 0 THEN
+                    (9.0 * p5._roll5_runs
+                     + {_SP_ERA_5G_SHRINK_IP} * COALESCE(
+                         9.0 * p5._older_runs / NULLIF(p5._older_ip, 0),
+                         lg.league_era_prior,
+                         9.0 * p5._roll5_runs / NULLIF(p5._roll5_ip, 0))
+                    ) / (p5._roll5_ip + {_SP_ERA_5G_SHRINK_IP})
+            END AS sp_era_5g,
             CASE WHEN st.sp_stale THEN NULL
                  ELSE p5._roll5_ks / NULLIF(p5._roll5_ip, 0) * 9.0 END AS sp_k9_5g
         FROM pitcher_season_rolling psr
         LEFT JOIN pitcher_5g_rolling p5
                ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
+        LEFT JOIN pitcher_era_league lg
+               ON psr.game_date = lg.game_date
         LEFT JOIN pitcher_stale st
                ON psr.game_date = st.game_date AND psr.game_pk = st.game_pk
               AND psr.pitcher = st.pitcher
@@ -2453,7 +2501,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             sa.sp_era AS sp_era_away, sa.sp_k9 AS sp_k9_away,
             pa.sp_bb9_30g AS sp_bb9_away, pa.sp_whip_30g AS sp_whip_away,
             pa.sp_fip_30g AS sp_fip_away, pa.sp_xwoba_30g AS sp_xwoba_away,
-            -- Last-5-start SP twins under their own names (feature 6/8)
+            -- Recent-form SP twins under their existing model-contract names.
             sh.sp_era_5g AS sp_era_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
             sa.sp_era_5g AS sp_era_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
             th.team_woba_30g AS team_woba_30g_home, th.team_iso_30g AS team_iso_30g_home,
@@ -2703,7 +2751,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "game_winners", "starters", "venues", "rest_days",
         "pa_boundary",        "pitcher_game_stats", "pitcher_stale", "pitcher_shifted", "pitcher_rolling",
         "pitcher_shifted_season", "pitcher_season_rolling", "pitcher_5g_rolling",
-        "pitcher_season_features", "pitcher_features",
+        "pitcher_era_league", "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
         "team_off_season",
         "bullpen_raw", "bp_shrink_prior", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
@@ -4096,8 +4144,8 @@ def add_diff_features(
                        * pd.to_numeric(df[c2], errors="coerce"))
 
     # ── 33. pitcher_regression_indicator_diff: sp_fbvelo_diff × sp_era_5g_diff
-    # Physical velocity drop vs surface-level last-5-start ERA results —
-    # flags regression candidates before the ERA fully catches up to the stuff.
+    # Physical velocity drop vs shrunk recent runs/9 results — flags
+    # regression candidates before the recent results fully catch up to stuff.
     df["pitcher_regression_indicator_diff"] = (
         df["sp_fbvelo_diff"] * df["sp_era_5g_diff"])
     _twin("pitcher_regression_indicator_home", "sp_fbvelo_3g_home", "sp_era_5g_home")

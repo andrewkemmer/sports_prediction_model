@@ -90,12 +90,18 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "lower = home advantage (ERA is a cost)",
     },
     "sp_era_5g_diff": {
-        "summary": "Home SP last-5-start ERA − away SP (recent form)",
-        "definition": "Same ERA gap but only each pitcher's last 5 starts — captures hot/cold streaks.",
-        "formula": "sp_era_5g_home − sp_era_5g_away",
-        "source": "Statcast pitching aggregates (last-5-start window)",
-        "window": "5g",
-        "units": "ERA runs",
+        "summary": "Home SP recent runs allowed per nine − away SP (shrunk recent form)",
+        "definition": (
+            "Recent rate uses up to five prior pitcher appearances, weighted by "
+            "innings and blended toward the same pitcher's older, non-overlapping "
+            "career rate with 30 pseudo innings. A strictly prior league rate is "
+            "the cold-start fallback. This is runs allowed per nine, not official "
+            "earned-run ERA."
+        ),
+        "formula": "shrunk_recent_runs_per_9_home − shrunk_recent_runs_per_9_away",
+        "source": "Statcast pitcher appearance aggregates (LAG-shifted)",
+        "window": "5 prior appearances + older pitcher history (30 pseudo-IP)",
+        "units": "runs / 9 innings",
         "direction": "lower = home advantage",
     },
     # RETIRED 2026-09-07 (Experiment #2 E/F replacement — the 6 baseline
@@ -415,11 +421,15 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = fresher away pen (away advantage)",
     },
     "pitcher_regression_indicator_diff": {
-        "summary": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
-        "definition": "Detects starters whose results outrun their stuff (or vice versa) — regression candidates.",
+        "summary": "SP velo diff × shrunk recent runs/9 diff (stuff vs results)",
+        "definition": (
+            "Detects starters whose recent runs allowed outrun their fastball "
+            "velocity (or vice versa); the recent runs/9 inputs are shrunk "
+            "toward older pitcher history."
+        ),
         "formula": "sp_fbvelo_diff × sp_era_5g_diff",
-        "source": "DuckDB feature engineering: velo × results interaction",
-        "window": "season × 3g",
+        "source": "DuckDB feature engineering: velo × shrunk recent runs/9 interaction",
+        "window": "season × 3g; recent runs/9 uses up to 5 prior appearances",
         "units": "index",
         "direction": "n/a (regression signal)",
     },
@@ -593,7 +603,7 @@ _PER_SIDE_FAMILIES = {
 # diff's input for that side, so home − away reproduces the diff.
 _LEVEL_TWIN_FAMILIES = {
     "rest_days": ("Days of rest entering the game", "days", "more rest = fresher club", "per game (capped 1–6)"),
-    "sp_era_5g": ("SP ERA, last 5 starts", "ERA runs", "lower = better", "5g"),
+    "sp_era_5g": ("SP recent runs allowed per nine", "runs / 9 innings", "lower = better", "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP"),
     "sp_fbvelo_3g": ("SP fastball velocity, last 3 starts", "mph", "higher = better", "3g"),
     "lineup_woba_std": ("Projected lineup wOBA dispersion (std dev)", "wOBA points", "n/a (order-quality spread)", "season to date (shrunk)"),
     "bullpen_pitches_3d": ("Bullpen pitches thrown, last 3 days", "pitches", "more = heavier workload", "3d"),

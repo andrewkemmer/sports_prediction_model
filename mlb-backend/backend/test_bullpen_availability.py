@@ -1081,6 +1081,56 @@ def test_decided_frame_dup_tripwire_present():
         "Rule-3-deduped snapshot")
 
 
+def test_recent_pitcher_era_windows_and_prior_league_are_point_in_time():
+    """Older pitcher evidence excludes the recent five; league prior excludes
+    every game on the current calendar date."""
+    src = (BACKEND / "features.py").read_text(encoding="utf-8")
+
+    def lift(name):
+        j0 = src.index(f"CREATE TABLE {name} AS")
+        statement = src[j0:src.index('"""', j0)]
+        return statement.replace(
+            "{_SP_ERA_5G_SHRINK_IP}", str(features._SP_ERA_5G_SHRINK_IP))
+
+    con = duckdb.connect(database=":memory:")
+    shifted = pd.DataFrame({
+        "game_date": pd.date_range("2026-01-01", periods=7),
+        "game_pk": range(1, 8),
+        "pitcher": [101] * 7,
+        "_s_runs": [None, 2.0, 0.0, 1.0, 3.0, 0.0, 2.0],
+        "_s_ip": [None, 3.0, 6.0, 3.0, 6.0, 3.0, 6.0],
+        "_s_ks": [None, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+    })
+    con.register("shifted_fixture", shifted)
+    con.execute("CREATE TABLE pitcher_shifted AS SELECT * FROM shifted_fixture")
+    con.execute(lift("pitcher_5g_rolling"))
+    recent_runs, recent_ip, older_runs, older_ip = con.execute("""
+        SELECT _roll5_runs, _roll5_ip, _older_runs, _older_ip
+        FROM pitcher_5g_rolling WHERE game_pk = 7
+    """).fetchone()
+    assert (recent_runs, older_runs) == (6.0, 2.0)
+    assert (recent_ip, older_ip) == (24.0, 3.0)
+
+    raw = pd.DataFrame({
+        "game_date": pd.to_datetime([
+            "2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02",
+            "2026-01-03",
+        ]),
+        "runs": [1.0, 2.0, 0.0, 6.0, 2.0],
+        "ip": [3.0, 6.0, 3.0, 6.0, 3.0],
+    })
+    con.register("raw_fixture", raw)
+    con.execute("CREATE TABLE pitcher_game_stats AS SELECT * FROM raw_fixture")
+    con.execute(lift("pitcher_era_league"))
+    league = dict(con.execute("""
+        SELECT game_date, league_era_prior FROM pitcher_era_league
+    """).fetchall())
+    assert league[pd.Timestamp("2026-01-01").date()] is None
+    assert league[pd.Timestamp("2026-01-02").date()] == pytest.approx(3.0)
+    # Jan 2 contributes 6 runs / 9 IP; Jan 3 sees only the prior dates.
+    assert league[pd.Timestamp("2026-01-03").date()] == pytest.approx(4.5)
+
+
 def test_gated_sp_tables_execute_end_to_end(tmp_path):
     """The three gate-consuming SP statements must EXECUTE on DuckDB, not
     just parse.
@@ -1096,13 +1146,16 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
 
     def lift(name):
         j0 = src.index(f"CREATE TABLE {name} AS")
-        return src[j0:src.index('"""', j0)]
+        statement = src[j0:src.index('"""', j0)]
+        return statement.replace(
+            "{_SP_ERA_5G_SHRINK_IP}", str(features._SP_ERA_5G_SHRINK_IP))
 
     apps = pd.DataFrame({
         "game_date": pd.to_datetime(["2026-05-01", "2026-06-20",
-                                     "2026-05-01", "2026-05-20"]),
-        "game_pk": [1, 2, 3, 4],
-        "pitcher": [101, 101, 202, 202],
+                                     "2026-05-01", "2026-05-20",
+                                     "2026-06-30"]),
+        "game_pk": [1, 2, 3, 4, 5],
+        "pitcher": [101, 101, 202, 202, 303],
     })
     ilp = pd.DataFrame({
         "batter": [101], "il_start": [pd.Timestamp("2026-05-03")],
@@ -1126,7 +1179,15 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
         con.execute("""
             CREATE TABLE pitcher_5g_rolling AS
             SELECT game_date, game_pk, pitcher,
-                   5.0 AS _roll5_runs, 40.0 AS _roll5_ks, 40.0 AS _roll5_ip
+                   5.0 AS _roll5_runs, 40.0 AS _roll5_ks, 40.0 AS _roll5_ip,
+                   CASE WHEN pitcher = 202 THEN 10.0 ELSE 0.0 END AS _older_runs,
+                   CASE WHEN pitcher = 202 THEN 20.0 ELSE 0.0 END AS _older_ip
+            FROM pitcher_game_stats
+        """)
+        con.execute("""
+            CREATE TABLE pitcher_era_league AS
+            SELECT game_date,
+                   CASE WHEN pitcher = 303 THEN NULL ELSE 4.0 END AS league_era_prior
             FROM pitcher_game_stats
         """)
         # pitcher_features inputs (minimal trailing-window aggregates)
@@ -1154,10 +1215,11 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
         con.execute(lift("pitcher_stuff"))
 
     # game_pk 2 = 101's stale return start; game_pk 4 = 202's 19d-rest
-    # control start (long gap, NO stint -> must stay ungated)
+    # control start (long gap, NO stint -> must stay ungated). The remaining
+    # clean rows pin league-prior and raw-rate fallback behavior.
     seas = con.execute("""
-        SELECT pitcher, sp_k9, sp_era_5g FROM pitcher_season_features
-        WHERE game_pk IN (2, 4)
+        SELECT game_pk, pitcher, sp_k9, sp_era_5g FROM pitcher_season_features
+        WHERE game_pk IN (1, 2, 4, 5)
     """).fetchall()
     feats = con.execute("""
         SELECT pitcher, sp_whip_30g FROM pitcher_features
@@ -1167,14 +1229,21 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
         SELECT pitcher, sp_fbvelo_3g, sp_whiff_3g FROM pitcher_stuff
         WHERE game_pk IN (2, 4)
     """).fetchall()
-    seas = {p: (k9, e5) for p, k9, e5 in seas}
+    seas = {game_pk: (pitcher, k9, e5)
+            for game_pk, pitcher, k9, e5 in seas}
     feats = {p: w for p, w in feats}
     stuff = {p: (v, wf) for p, v, wf in stuff}
-    # 101 (stale return): NULL everywhere
-    assert seas[101] == (None, None)
+    # 101 clean row: older history absent, so blend the recent 1.125 runs/9
+    # with the league prior 4.0 using 30 pseudo innings.
+    assert seas[1] == (101, 9.0, pytest.approx(33.0 / 14.0))
+    # 101 stale return: every SP metric stays NULL despite available priors.
+    assert seas[2] == (101, None, None)
     assert feats[101] is None
     assert stuff[101] == (None, None)
-    # 202 (clean control, 19d rest but no stint): real values survive
-    assert seas[202] == (9.0, 1.125)  # 40K/40IP*9; 5R/40IP*9
+    # 202: recent 1.125 is blended toward older personal rate 4.5.
+    assert seas[4] == (202, 9.0, pytest.approx(18.0 / 7.0))
     assert feats[202] is not None
     assert stuff[202][0] == 93.0
+    # 303 has neither older personal exposure nor a prior league rate, so
+    # the raw recent estimate is preserved.
+    assert seas[5] == (303, 9.0, pytest.approx(1.125))
