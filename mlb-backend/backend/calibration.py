@@ -37,6 +37,17 @@ and improves ECE-cal (0.0559 -> 0.0455), but pooled OOF ECE-cal DEGRADES
 (0.0047 -> 0.0096 tune-only; 0.0066 -> 0.0083 incl. sealed) — the Platt map
 still helps in-distribution pooled calibration, so the flip fails the gate.
 Full table: data_delivery/calibration_flip_20260827.json.
+
+DYNAMIC DEPLOYED-CALIBRATOR GATE (2026-10-01): the flip-test verdict was a
+static one-frame read, and the v2026.09.29 and v2026.09.30 runs then showed
+the shipped map hurting on the honest prequential view both runs in a row
+(v09.30: ECE 0.0068 -> 0.0088, log-loss 0.6843 -> 0.6847; the 09-30 run
+still shipped the fitted map). walk_forward_evaluate now gates the DEPLOYED
+map through should_gate_calibrator: when the prequential calibrated column
+is worse than the raw blend on BOTH log-loss and ECE, the bundle ships the
+identity map (raw blend) instead; mixed evidence keeps the fitted map. The
+gate is causal (prequential = fit-on-prior-folds only) and self-reversing —
+a later run whose prequential column improves ships the fitted map again.
 """
 
 from __future__ import annotations
@@ -109,6 +120,46 @@ def moneyline_apply(y_prob, calibrator: dict | None) -> np.ndarray:
     if get_calibration_mode() == "identity":
         return np.clip(np.asarray(y_prob, dtype=float), 0.0, 1.0)
     return apply_moneyline_calibration(y_prob, calibrator)
+
+def should_gate_calibrator(
+    raw_metrics: dict, cal_metrics: dict
+) -> tuple[bool, str]:
+    """Should the DEPLOYED moneyline calibrator be withheld this run?
+
+    The shipped Platt map is fitted on ALL pooled OOF pairs, so the only
+    honest rehearsal of how it behaves on unseen games is the PREQUENTIAL
+    calibrated column (fold k corrected only by folds < k — exactly how the
+    deployed map acts on tomorrow's slate). When that column is worse than
+    the raw blend on BOTH log-loss and ECE, the map is hurting every
+    headline metric and the identity map is the safer ship; on mixed
+    evidence the fitted map stands (the 2026-08-27 flip-test status quo,
+    which this gate generalizes into a per-run, self-reversing rule).
+    Missing, empty, or non-finite metrics never fire the gate — it only
+    responds to unambiguous harm, not to measurement gaps.
+
+    Returns ``(gate_out, reason)``: ``gate_out=True`` means withhold the
+    fitted map (ship identity); ``reason`` is a human-readable one-liner
+    quoting both metric pairs for the run log.
+    """
+    if not raw_metrics or not cal_metrics:
+        return False, ""
+    try:
+        raw_ll = float(raw_metrics["logloss"])
+        raw_ece = float(raw_metrics["ece"])
+        cal_ll = float(cal_metrics["logloss"])
+        cal_ece = float(cal_metrics["ece"])
+    except (KeyError, TypeError, ValueError):
+        return False, ""
+    if not all(np.isfinite(v) for v in (raw_ll, raw_ece, cal_ll, cal_ece)):
+        return False, ""
+    ll_worse = cal_ll > raw_ll
+    ece_worse = cal_ece > raw_ece
+    if not (ll_worse and ece_worse):
+        return False, ""
+    return True, (
+        f"ECE {raw_ece:.4f} -> {cal_ece:.4f}, log-loss {raw_ll:.4f} -> "
+        f"{cal_ll:.4f}")
+
 
 _EPS = 1e-6  # clip bound for logit(p); matches compute_metrics clipping spirit
 

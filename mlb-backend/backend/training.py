@@ -26,7 +26,13 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-from calibration import is_identity, MIN_OOF_FOR_FIT, moneyline_apply, moneyline_fit
+from calibration import (
+    is_identity,
+    MIN_OOF_FOR_FIT,
+    moneyline_apply,
+    moneyline_fit,
+    should_gate_calibrator,
+)
 from config import (
     ADAPTIVE_WEIGHT_METRIC,
     BLEND_SPACE,
@@ -1926,6 +1932,7 @@ def walk_forward_evaluate(
     final_calibrator = moneyline_fit(y_oof_all, p_raw_all)
     global _LAST_CALIBRATOR
     _LAST_CALIBRATOR = final_calibrator
+    gated_out = False
     if p_cal_prequential.size == len(y_oof_all) and len(y_oof_all) > 0:
         # Score the PREQUENTIAL column directly. Each point was corrected by
         # a map fitted strictly on PRIOR folds — exactly how the deployed
@@ -1942,6 +1949,23 @@ def walk_forward_evaluate(
             pooled.get("ece", 0.0), m_cal["ece"],
             pooled.get("logloss", 0.0), m_cal["logloss"],
         )
+        # Deployed-calibrator gate (2026-10-01): the shipped map above is
+        # fitted on ALL pooled OOF, so its only honest rehearsal is the
+        # prequential column just scored. When that rehearsal is worse than
+        # the raw blend on BOTH log-loss and ECE, the map demonstrably hurts
+        # every headline metric — ship the raw blend (identity) instead of a
+        # harmful correction. Mixed evidence keeps the fitted map (the
+        # 2026-08-27 flip-test status quo). Fully reversible: a later run
+        # whose prequential column improves ships the fitted map again.
+        gated_out, gate_reason = should_gate_calibrator(pooled, m_cal)
+        pooled["calibrator_gated_out"] = gated_out
+        if gated_out:
+            _LAST_CALIBRATOR = None
+            logger.warning(
+                "Calibration: prequential calibrated metrics worse than raw "
+                "(%s) — shipping the raw blend (identity calibrator)",
+                gate_reason,
+            )
 
     # Fit the deployed bundle on every decided game. The walk-forward folds
     # remain the only source of honest OOF metrics; no final validation holdout
