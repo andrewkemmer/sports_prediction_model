@@ -237,6 +237,18 @@ oof_ignored = subprocess.run(
     capture_output=True, text=True, cwd=str(REPO_ROOT)).returncode == 0
 check("run internals stay ignored (nfl_oof_*.csv)", oof_ignored)
 
+# 2026-09-30 delivery audit: training-eval dumps and the fold table are
+# written to the ingestion cache (.nfl_cache/), never into data_delivery/ —
+# nothing serving or frontend reads them back.
+mp_src = (REPO_ROOT / "nfl-backend" / "backend" / "master_pipeline.py") \
+    .read_text(encoding="utf-8")
+check("oof dumps + fold table are NOT written into data_delivery",
+      'out_dir / "nfl_oof_moneyline.csv"' not in mp_src
+      and 'out_dir / "nfl_oof_distribution.csv"' not in mp_src
+      and 'out_dir / "nfl_fold_table.csv"' not in mp_src
+      and 'ingestion.CACHE_DIR / "nfl_oof_moneyline.csv"' in mp_src
+      and 'ingestion.CACHE_DIR / "nfl_fold_table.csv"' in mp_src)
+
 # The frontend fetch path prefers GitHub raw over local disk; the delivery
 # architecture therefore requires these files to be committable. Assert the
 # resolution order from the frontend source.
@@ -311,6 +323,28 @@ check("dateless non-master is stale",
                            _retention, _recent, set(), anchor_date=_ANCHOR)
       == "stale")
 
+# Anchor rule (2026-09-30 MLB-effective parity): the forward-looking
+# NFL_END_DATE that daily runs set is a DATA-window bound, not a retention
+# directive — today ET anchors unless the end date is a past backfill date.
+try:
+    import master_pipeline as mp_anchor
+    from datetime import datetime as _dt, timedelta as _td
+    from zoneinfo import ZoneInfo as _ZI
+    _today = _dt.now(_ZI("America/New_York")).date()
+    check("anchor: forward data window anchors on today ET (rolling window "
+          "never freezes or shifts)",
+          mp_anchor._retention_anchor(
+              (_today + _td(days=1)).isoformat()) == _today.isoformat())
+    check("anchor: season-tail end date (NFL_END_SEASON -> Feb 28) never "
+          "anchors retention",
+          mp_anchor._retention_anchor("2027-02-28") == _today.isoformat())
+    check("anchor: past end date (explicit backfill) anchors on the end date",
+          mp_anchor._retention_anchor(
+              (_today - _td(days=3)).isoformat())
+          == (_today - _td(days=3)).isoformat())
+except Exception as exc:  # noqa: BLE001
+    check("retention anchor rule probe", False, str(exc))
+
 # Integration: the REAL prune against a temp delivery dir removes exactly
 # the stale set and leaves masters/series/current files untouched.
 try:
@@ -329,6 +363,10 @@ try:
             "models/nfl_ensemble_latest.joblib": "keep",      # master
             "nfl_production_cards_history.csv": "keep",        # master
             "nfl_feature_selection_state.json": "keep",        # master
+            "nfl_board_20260912.csv": "keep",                  # board file
+            "nfl_run_engine_markets_20260912.csv": "keep",     # board-backed
+            "nfl_run_engine_markets_20260910.csv": "prune",    # no board file
+            "nfl_predictions_history_20260910.csv": "prune",   # self-seed regression
             "nfl_shap_game_2026_01_ARI_LAC.csv": "prune",      # aged via map
             "nfl_shap_game_2026_02_CAR_ATL.csv": "keep",       # in window
             "nfl_shap_game_2026_14_BUF_NE.csv": "keep",        # future slate
@@ -337,6 +375,12 @@ try:
             q = out / name
             q.parent.mkdir(parents=True, exist_ok=True)
             q.write_bytes(b"x")
+        # The self-seed regression: a history file whose OWN content carries
+        # its artifact date must still age out — board dates come from board
+        # FILE dates, never from file content (the old content seed kept
+        # every history file and its board-backed companions alive forever).
+        (out / "nfl_predictions_history_20260910.csv").write_text(
+            "game_id,game_date\nx_2026_0910_g1,2026-09-10\n", encoding="utf-8")
         # moneyline record drives board dates + SHAP game-date map
         (out / "nfl_moneyline_v1_20260922.json").write_text(json.dumps({
             "games": [

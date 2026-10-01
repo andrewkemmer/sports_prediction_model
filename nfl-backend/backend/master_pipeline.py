@@ -404,7 +404,11 @@ def main(argv: list[str] | None = None) -> int:
               f"val=[{r['validation_start']} .. {r['validation_end']}]  "
               f"n_train={int(r['n_train']):5d}  n_val={int(r['n_validation'])}")
     # Persist the per-fold table so Phase 4 output is inspectable post-run.
-    fold_tbl.to_csv(out_dir / "nfl_fold_table.csv", index=False)
+    # A TRAINING artifact with no serving reader (2026-09-30 delivery audit):
+    # it goes to the ingestion cache, never data_delivery/ — the delivered
+    # folder holds served artifacts only.
+    ingestion.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    fold_tbl.to_csv(ingestion.CACHE_DIR / "nfl_fold_table.csv", index=False)
     logger.info("folds: %s", json.dumps(fold_info))
 
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
@@ -788,13 +792,14 @@ def main(argv: list[str] | None = None) -> int:
                                           config_meta, ml_reference=ml_ref)
     artifacts.append(p.name)
 
-    # OOF stores (model artifacts under data_delivery/models/)
-    p = out_dir / "nfl_oof_moneyline.csv"
-    oof_ml.to_csv(p, index=False)
-    artifacts.append(p.name)
-    p = out_dir / "nfl_oof_distribution.csv"
-    oof_dist.to_csv(p, index=False)
-    artifacts.append(p.name)
+    # OOF prediction dumps — training-eval artifacts for post-run analysis.
+    # Nothing serving or frontend reads them back and they were never
+    # committed (git-ignored), so they live in the ingestion cache, NOT
+    # data_delivery/ (2026-09-30 delivery audit: nothing model-training-only
+    # is saved in the delivered folder).
+    ingestion.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    oof_ml.to_csv(ingestion.CACHE_DIR / "nfl_oof_moneyline.csv", index=False)
+    oof_dist.to_csv(ingestion.CACHE_DIR / "nfl_oof_distribution.csv", index=False)
 
     # feature manifest record
     p = out_dir / config.FEATURE_JSON.format(date=date_c)
@@ -958,8 +963,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # retention: enforce the rolling-retention policy (retention_policy.py;
     # MLB parity 10-day blanket window). Files staged by THIS run are "seen"
-    # and never touched; the anchor is the run's end date (NFL_END_DATE when
-    # set, else today ET) — identical anchor semantics to MLB's Phase 6.
+    # and never touched; the anchor is today ET unless the run's end date
+    # points into the past (an explicit backfill — MLB's "END_DATE when set"
+    # rule; see _retention_anchor). The forward-looking NFL_END_DATE that
+    # daily runs set to cover the upcoming slate is a DATA-window bound, not
+    # a retention directive — anchoring on it froze/shifted the rolling
+    # window (2026-09-30 audit).
     # Name what was written. A count alone cannot answer "did the slate JSON
     # land?", which is the question this phase exists to answer, and a writer
     # that silently skipped an artifact still produced the right count.
@@ -986,7 +995,7 @@ def main(argv: list[str] | None = None) -> int:
     if _missing:
         logger.error("artifacts listed but absent on disk: %s", _missing)
     _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
-                         anchor_iso=end_date)
+                         anchor_iso=_retention_anchor(end_date))
 
     _banner("DONE", f"{len(artifacts)} artifacts in {time.time() - t0:.0f}s")
     summary = {
@@ -1574,17 +1583,42 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
         return None
 
 
+def _retention_anchor(end_date: str) -> str:
+    """The rolling-retention anchor (MLB rev-2 effective parity).
+
+    Today in America/New_York on every daily run; ``end_date`` anchors only
+    when it points into the PAST — an explicit backfill/rebuild, mirroring
+    MLB's "MLB_END_DATE when set" rule (MLB daily runs never set it). The
+    NFL runner sets NFL_END_DATE on every daily run to cover the forward
+    slate, so anchoring retention on it verbatim would (a) freeze the window
+    whenever the notebook is left at a stale date — nothing ever ages out,
+    and (b) shift it into the future on forward-slate runs — a band prunes
+    one day early, and an NFL_END_SEASON run (end date = the season's
+    calendar tail, Feb 28) would classify EVERY dated artifact stale except
+    seen/protected. Files newer than the anchor stay backfill-safe through
+    classify_artifact's anchor guard regardless.
+    """
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    try:
+        if date.fromisoformat(end_date) < today_et:
+            return end_date
+    except ValueError:
+        pass
+    return today_et.isoformat()
+
+
 def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
                          anchor_iso: str | None = None) -> None:
     """Enforce the rolling-retention policy (retention_policy.py).
 
-    MLB parity: blanket 10-day window anchor..anchor-10 (anchor = the run's
-    end date — NFL_END_DATE when set, else today ET), never-delete masters
-    and series readers untouched, backfill-safe anchor guard, board-backed
-    safety net, and SHAP files aged through the game_id -> game_date map.
-    Replaces the old newest-3-copies count rule. Pure-policy enforcement:
-    every removal flows into the artifact sync's scoped git add as a forward
-    commit, so git history retains every blob.
+    MLB parity: blanket 10-day window anchor..anchor-10 (anchor = today ET
+    unless the run's end date is a past backfill date — _retention_anchor),
+    never-delete masters and series readers untouched, backfill-safe anchor
+    guard, board-backed safety net resolved from nfl_board_ FILE dates, and
+    SHAP files aged through the game_id -> game_date map. Replaces the old
+    newest-3-copies count rule. Pure-policy enforcement: every removal flows
+    into the artifact sync's scoped git add as a forward commit, so git
+    history retains every blob.
     """
     import retention_policy as rp
 
@@ -1596,30 +1630,31 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
     recent_dates = {(anchor_obj - timedelta(days=i)).strftime("%Y%m%d")
                     for i in range(3)}
 
-    # Board dates: every date a navigable board exists (moneyline games[] +
-    # the retained history family) — board-backed families keep those dates.
-    # The moneyline games[] also seed the SHAP game-date map (board games are
-    # authoritative game_id -> game_date rows).
+    # Board dates (MLB parity): every date a navigable board FILE exists
+    # (nfl_board_<date>.csv — the todays_games_ structural twin). FILE dates
+    # only: the previous rule also seeded board dates from moneyline and
+    # predictions-history CONTENT, and a history file always contains a game
+    # on its own artifact date, so the content seed kept every history file
+    # (and its board-backed markets companions) alive forever — 324 dates
+    # back to 2017 on the 2026-09-30 audit disk. The moneyline games[] and
+    # history rows still seed the SHAP game-date map below, their actual
+    # consumer.
     board_dates: set[str] = set()
+    for rec in out_dir.glob("nfl_board_*.csv"):
+        d = rp.artifact_date(str(rec.relative_to(out_dir.parent)))
+        if d:
+            board_dates.add(d)
+    # SHAP game-date map seeds: moneyline games[] (authoritative
+    # game_id -> game_date rows) first.
     game_dates: dict[str, str] = {}
     for rec in out_dir.glob("nfl_moneyline_v1_*.json"):
         try:
             for g in json.loads(rec.read_text(encoding="utf-8")).get("games", []):
                 d = str(g.get("game_date", ""))[:10].replace("-", "")
                 if len(d) == 8 and d.isdigit():
-                    board_dates.add(d)
                     gid = str(g.get("game_id", ""))
                     if gid:
                         game_dates.setdefault(gid, d)
-        except Exception:
-            continue
-    for hist in out_dir.glob("nfl_predictions_history_*.csv"):
-        try:
-            for d in pd.read_csv(hist, usecols=["game_date"])["game_date"] \
-                    .dropna().astype(str):
-                d = d[:10].replace("-", "")
-                if len(d) == 8 and d.isdigit():
-                    board_dates.add(d)
         except Exception:
             continue
 

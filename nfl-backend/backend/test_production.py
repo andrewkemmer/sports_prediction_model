@@ -1371,8 +1371,10 @@ check("master_pipeline passes the same PIT injury rows into history and slate",
       mp_src.count("injuries=injuries") >= 2)
 check("Phase 4 prints a visible fold report",
       "first OOF validation" in mp_src and "validation windows" in mp_src)
-check("Phase 4 persists nfl_fold_table.csv",
-      "nfl_fold_table.csv" in mp_src)
+check("Phase 4 persists the fold table OUTSIDE data_delivery (training "
+      "artifact goes to the ingestion cache; 2026-09-30 delivery audit)",
+      "nfl_fold_table.csv" in mp_src
+      and 'out_dir / "nfl_fold_table.csv"' not in mp_src)
 
 # End-to-end: moneyline OOF over Phase 4 fold objects on a small tail of the
 # history — fold_id coverage and per-fold geometry must match Phase 4.

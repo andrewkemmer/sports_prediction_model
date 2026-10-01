@@ -1,14 +1,40 @@
 """Explicit rolling-retention policy for NFL ``data_delivery`` dated artifacts.
 
-*** Policy: blanket 10-day window, one anchor (MLB parity, 2026-09-23) ***
+*** Policy: blanket 10-day window, one anchor (MLB parity, 2026-09-23;      ***
+*** anchor + board-dates reconciled to MLB's effective behavior 2026-09-30) ***
 
 Every DATED, deletion-allowlisted artifact family keeps the run's anchor date
-and the 10 days before it (anchor = ``NFL_END_DATE`` when the run sets it,
-else today in America/New_York). Anything older is stale: the pipeline's
-artifact sync stages the deletions, so git history retains every blob (MLB
-parity: the "Remove stale data_delivery artifacts" forward-commit pattern).
-Files NEWER than the anchor are never touched (backfill-safe), and the scope
-is exactly ``nfl-backend/data_delivery/``.
+and the 10 days before it. Anything older is stale: the pipeline's artifact
+sync stages the deletions, so git history retains every blob (MLB parity:
+the "Remove stale data_delivery artifacts" forward-commit pattern). Files
+NEWER than the anchor are never touched (backfill-safe), and the scope is
+exactly ``nfl-backend/data_delivery/``.
+
+*** Anchor rule (2026-09-30 reconciliation, MLB effective parity) ***
+
+anchor = ``NFL_END_DATE`` when it points into the PAST (an explicit
+backfill/rebuild run — mirroring MLB's "``MLB_END_DATE`` when set" rule,
+where daily runs never set it), ELSE today in America/New_York. The NFL
+runner sets ``NFL_END_DATE`` on EVERY daily run to cover the forward slate,
+so anchoring retention on it verbatim would freeze the rolling window
+whenever the notebook is left at a stale date (nothing ever ages out) and
+shift it into the future on forward-slate runs (a band prunes one day
+early; an ``NFL_END_SEASON`` run would resolve end date to the season's
+calendar tail — Feb 28 — and classify EVERY dated artifact stale except
+seen/protected). master_pipeline._retention_anchor implements the rule.
+
+*** board_dates are file-dated (2026-09-30 fix, MLB parity) ***
+
+Board-backed keeps resolve from ``nfl_board_<date>.csv`` FILE dates only —
+the exact analog of MLB's tracked-``todays_games_`` seeding. The previous
+NFL rule seeded board dates from moneyline/predictions-history CONTENT,
+and a history file always contains a game on its own artifact date: the
+content seed was self-sustaining (324 dates back to 2017 on the 2026-09-30
+audit disk), so ``nfl_predictions_history_`` and its board-backed
+companions (``nfl_run_engine_markets_``) could never age out — the
+20260920 files survived a run anchored 2026-10-01 as proof. Moneyline
+``games[]`` and history rows still seed the SHAP game_id -> game_date map,
+which is their actual consumer.
 
 This mirrors ``mlb-backend/backend/retention_policy.py`` structurally: one
 ``FamilyPolicy`` config table, one pure ``classify_artifact`` predicate, and
@@ -55,14 +81,17 @@ EXACT_MASTER_NAMES = frozenset({
     # Adopted RFE serving width — written on explicit adopt only, read by
     # every run (MLB parity: deleting it would silently revert the model).
     "nfl_feature_selection_state.json",
-    # Run internals / maintained tables (mostly git-ignored; name-protecting
-    # them is free and keeps the local prune honest about the tracked set).
-    "nfl_fold_table.csv",
+    # Run report (git-ignored local observability; the runner reads it to
+    # verify the push). Never delivered.
     "nfl_pipeline_summary.json",
-    "nfl_oof_store.csv",
-    "nfl_oof_moneyline.csv",
-    "nfl_oof_distribution.csv",
-    "nfl_decided_store_rs_2018_2025.csv",
+    # 2026-09-30 audit: the run-internals that USED to sit here were moved
+    # out of data_delivery entirely — the fold table and the OOF prediction
+    # dumps (nfl_oof_moneyline.csv / nfl_oof_distribution.csv) are training
+    # artifacts now written under .nfl_cache/, and the dateless
+    # nfl_decided_store_rs_2018_2025.csv snapshot had no consumer anywhere
+    # and was deleted. Name-protecting files that no longer live in the
+    # delivered folder is dead config; if a stale copy of one is ever seen
+    # in data_delivery it is dateless non-master -> stale -> pruned.
 })
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --
