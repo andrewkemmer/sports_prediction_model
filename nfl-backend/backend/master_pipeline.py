@@ -939,16 +939,19 @@ def main(argv: list[str] | None = None) -> int:
                  and d.get("status") in ("ALERT", "WARN")]
     _no_verdict = [d for d in drift if isinstance(d, dict)
                    and d.get("status") == "INSUFFICIENT"]
+    _structural_drift = [d for d in drift if isinstance(d, dict)
+                         and d.get("status") == "STRUCTURAL"]
     _starved = [c for c in cov_rows
                 if isinstance(c, dict) and c.get("status") in ("STARVED",
                                                                "LOW_COVERAGE")]
     _structural = [c for c in cov_rows
                    if isinstance(c, dict) and c.get("status") == "STRUCTURAL"]
     logger.info("monitoring: %d features scored, %d drift (ALERT/WARN), "
-                "%d insufficient-window, %d coverage (STARVED/LOW), "
+                "%d insufficient-window, %d drift structural, "
+                "%d coverage (STARVED/LOW), "
                 "%d coverage structural (documented policy)",
-                len(drift), len(_verdicts), len(_no_verdict), len(_starved),
-                len(_structural))
+                len(drift), len(_verdicts), len(_no_verdict),
+                len(_structural_drift), len(_starved), len(_structural))
     for _d in _verdicts + _no_verdict:
         # Report the value the verdict was actually made on. status is gated on
         # psi_adjusted (and a location gate), so pairing it with raw psi made
@@ -963,6 +966,19 @@ def main(argv: list[str] | None = None) -> int:
                        float(_d.get("psi_raw") or 0),
                        float(_d.get("noise_floor") or 0),
                        float(_d.get("psi_null_median") or 0))
+    for _d in _structural_drift:
+        # A feature constant at the SAME value in both windows cannot
+        # drift, so the stable fact is recorded at INFO with its reason
+        # -- not re-emitted as a WARNING with a null psi (the three
+        # permanent INSUFFICIENT rows of the 2026-09-29..10-01 logs,
+        # which a reader had to audit by hand to learn the means were
+        # equal). A constant baseline whose current window MOVED stays
+        # INSUFFICIENT above and still warns: that is the corruption
+        # class the degenerate-baseline guard exists for.
+        logger.info("  drift   %-34s %-12s %s",
+                    _d.get("feature", "?"), _d.get("status", "?"),
+                    _d.get("structural_reason")
+                    or "constant in both windows (cannot drift)")
     for _c in _starved:
         # No [:5] cap: the headline count promises every flagged feature, and
         # the 2026-09-28 run proved the cap lies in practice -- it printed 5

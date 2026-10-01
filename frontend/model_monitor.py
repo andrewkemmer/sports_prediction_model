@@ -187,7 +187,8 @@ if drift:
             utils.RED if status == "ALERT" else utils.TEXT
         )
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
-                    "INSUFFICIENT": "ok"}.get(status, "ok")
+                    "INSUFFICIENT": "ok",
+                    "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
         # served_metadata first (MLB only): the backend-authored per-side
@@ -226,6 +227,15 @@ if drift:
                         if isinstance(psi_adj, (int, float)) else "—")
         shift_se_cell = (f"{shift_se:.3f}"
                          if isinstance(shift_se, (int, float)) else "—")
+        # A STRUCTURAL row's reason is the finding (which constant,
+        # in both windows); render it under the pill so the table
+        # answers "why is this not a verdict" without a caption hunt.
+        reason_cell = (
+            f"<div style='color:#64748B;font-size:0.72rem;"
+            f"font-weight:400;margin-top:1px;'>"
+            f"{html.escape(str(r.get('structural_reason')), quote=False)}"
+            "</div>"
+        ) if r.get("structural_reason") else ""
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{feature_cell}</td>"
@@ -236,6 +246,7 @@ if drift:
             f"<td style='color:#64748B;'>{shift_se_cell}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"{reason_cell}"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>{samples}</span></td></tr>"
         )
     st.markdown(
@@ -256,6 +267,8 @@ if drift:
           escalated only when the mean also moved &gt; 2×SHIFT SE (location gate) —
           that is why a raw PSI of 0.40 can read OK beside a 0.48 ALERT.
           INSUFFICIENT = window too small to judge drift; PSI is informational only.
+          STRUCTURAL = constant at the same value in both windows (cannot drift) —
+          a stable fact with its reason, not a verdict.
         </div>
         """,
         unsafe_allow_html=True,

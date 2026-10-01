@@ -3193,6 +3193,17 @@ try:
           and 'd.get("status") in ("ALERT", "WARN")' in mp_src
           and '%d insufficient-window' in mp_src,
           "INSUFFICIENT is counted separately so the label matches the number")
+    # Same-value-constant features (is_home, is_snow, travel_miles_home
+    # in the 2026-09-29..10-01 logs) cannot drift: they are counted as
+    # STRUCTURAL and logged at INFO with the reason, never WARNING'd
+    # with a null psi.
+    check("the Phase 13 headline counts drift STRUCTURAL rows and logs them at INFO",
+          '_structural_drift = [d for d in drift if isinstance(d, dict)' in mp_src
+          and 'd.get("status") == "STRUCTURAL"' in mp_src
+          and '%d drift structural' in mp_src
+          and 'logger.info("  drift   %-34s %-12s %s"' in mp_src
+          and 'structural_reason' in mp_src,
+          "a stable constant is a fact to record, not a warning")
     check("the per-feature drift line reports the value the verdict was made on",
           'psi_adjusted' in mp_src and 'noise_floor' in mp_src
           and 'psi_raw' in mp_src and "psi_adj=%.3f" in mp_src,
@@ -4101,22 +4112,46 @@ check("neutral-site rows blank their venue-derived features (nominal "
 
 # feature_drift iterates the SERVED contract, so the guard is pinned on a
 # real column name: is_home is constant 1.0 (zero variance = degenerate).
-_mon_base = pd.DataFrame({"is_home": [1.0] * 60})
-_mon_cur = pd.DataFrame({"is_home": [1.0] * 20})
+# Both windows must clear PSI_MIN_BASELINE/CURRENT (100/30) to reach the
+# degenerate-baseline branch at all -- a smaller constant window grades
+# INSUFFICIENT on the size gate first.
+_mon_base = pd.DataFrame({"is_home": [1.0] * 120})
+_mon_cur = pd.DataFrame({"is_home": [1.0] * 40})
 _mon_row = [r for r in monitoring_mod.feature_drift(_mon_base, _mon_cur)
             if isinstance(r, dict) and r.get("feature") == "is_home"]
+# The venue-corruption guard: a constant baseline whose current window
+# MOVED (a different constant) must stay INSUFFICIENT -- never OK, never
+# STRUCTURAL (the 2026-09-29 incident class: a venue bug pricing every
+# prior game at the nominal home stadium while real games show travel).
+_mon_moved = pd.DataFrame({"is_home": [0.0] * 40})
+_mon_moved_row = [r for r in monitoring_mod.feature_drift(_mon_base, _mon_moved)
+                  if isinstance(r, dict) and r.get("feature") == "is_home"]
+# A constant feature inside a too-small window is a size problem, not a
+# structural fact.
+_mon_small = pd.DataFrame({"is_home": [1.0] * 20})
+_mon_small_row = [r for r in monitoring_mod.feature_drift(_mon_base, _mon_small)
+                  if isinstance(r, dict) and r.get("feature") == "is_home"]
 _mon_ok = pd.DataFrame({"is_home": np.ones(120),
                         "temp_f": np.linspace(30.0, 90.0, 120)})
 _mon_ok_cur = pd.DataFrame({"is_home": np.ones(40),
                             "temp_f": np.linspace(30.0, 90.0, 40)})
 _mon_row_ok = [r for r in monitoring_mod.feature_drift(_mon_ok, _mon_ok_cur)
                if isinstance(r, dict) and r.get("feature") == "temp_f"]
-check("a zero-variance baseline grades INSUFFICIENT (cannot judge), not OK",
-      bool(_mon_row) and _mon_row[0]["status"] == "INSUFFICIENT"
+check("a same-value-constant feature grades STRUCTURAL with its reason",
+      bool(_mon_row) and _mon_row[0]["status"] == "STRUCTURAL"
       and not np.isfinite(_mon_row[0]["psi"])
+      and "constant" in str(_mon_row[0].get("structural_reason") or "")
       and bool(_mon_row_ok) and _mon_row_ok[0]["status"] != "INSUFFICIENT",
-      f"degenerate is_home={_mon_row[0]['status'] if _mon_row else 'MISSING'}, "
+      f"constant is_home={_mon_row[0]['status'] if _mon_row else 'MISSING'} "
+      f"reason={_mon_row[0].get('structural_reason') if _mon_row else 'MISSING'}, "
       f"normal temp_f={_mon_row_ok[0]['status'] if _mon_row_ok else 'MISSING'}")
+check("a MOVED constant (venue corruption) stays INSUFFICIENT, never STRUCTURAL",
+      bool(_mon_moved_row) and _mon_moved_row[0]["status"] == "INSUFFICIENT"
+      and _mon_moved_row[0].get("structural_reason") is None,
+      f"moved is_home={_mon_moved_row[0]['status'] if _mon_moved_row else 'MISSING'}")
+check("a constant feature in a too-small window is INSUFFICIENT on the size gate",
+      bool(_mon_small_row) and _mon_small_row[0]["status"] == "INSUFFICIENT",
+      f"small-window is_home={_mon_small_row[0]['status'] if _mon_small_row else 'MISSING'}")
 
 # ---- v9.6: neutral rows never enter the prior-home ladder; drift baseline
 # is season-phase matched (2026-09-29 run-log review #2). Two production

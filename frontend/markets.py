@@ -1137,14 +1137,17 @@ def _render_run_engine_drift(
         psi_str = "—"
         try:
             _p = float(psi)
-            psi_str = "nan" if pd.isna(_p) else f"{_p:.3f}"
+            # A degenerate (constant) feature has no PSI at all;
+            # em-dash keeps an unjudged cell from reading as a 0.
+            psi_str = "—" if pd.isna(_p) else f"{_p:.3f}"
         except (TypeError, ValueError):
             pass  # None/invalid psi (constant feature) renders as em-dash
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
-                    "INSUFFICIENT": "ok"}.get(status, "ok")
+                    "INSUFFICIENT": "ok",
+                    "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
@@ -1166,6 +1169,16 @@ def _render_run_engine_drift(
             shift_se_str = "—" if pd.isna(shift_se) else f"{float(shift_se):.3f}"
         except (TypeError, ValueError):
             shift_se_str = "—"
+        # A STRUCTURAL row's reason is the finding (which constant,
+        # in both windows); render it under the pill so the table
+        # answers "why is this not a verdict" without a caption hunt.
+        # The reason is a backend-generated format string (constant
+        # <value> in both windows), so it carries no markup.
+        reason_cell = (
+            f"<div style='color:#64748B;font-size:0.72rem;"
+            f"font-weight:400;margin-top:1px;'>"
+            f"{r.get('structural_reason')}</div>"
+        ) if r.get("structural_reason") else ""
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -1178,6 +1191,7 @@ def _render_run_engine_drift(
             f"<td style='color:#64748B;'>{shift_se_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"{reason_cell}"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
     st.markdown(
@@ -1194,7 +1208,9 @@ def _render_run_engine_drift(
           Same windows as the moneyline drift; STATUS is assigned on
           PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
           mean also moved &gt; 2×SHIFT SE (location gate). INSUFFICIENT =
-          window too small to judge drift. MODEL WEIGHT = the run line
+          window too small to judge drift. STRUCTURAL = constant at the
+          same value in both windows (cannot drift) — a stable fact,
+          not a verdict. MODEL WEIGHT = the run line
           model's own feature importance (pooled split-gain across its
           per-side Poisson home/away fits, summing to 100%; '—' = no weight
           for this feature on this artifact).

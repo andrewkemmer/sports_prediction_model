@@ -408,15 +408,43 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         # gate, then the noise-adjusted PSI. Raw PSI is reported but never
         # gates, because between two same-distribution samples of this size it
         # sits near the WARN threshold all by itself.
+        structural_reason = None
         if n_base_n < PSI_MIN_BASELINE or n_cur_n < PSI_MIN_CURRENT:
             status = "INSUFFICIENT"
         elif not np.isfinite(psi):
-            # A degenerate baseline (zero variance across the whole window —
-            # e.g. a venue-corruption bug pricing every prior game at the
-            # nominal home stadium, 2026-09-29) yields no quantile edges and
-            # therefore no PSI at all. That is "cannot judge", not "no drift
-            # found": the same logic that grades a too-small window.
-            status = "INSUFFICIENT"
+            # A degenerate baseline (zero variance across the whole window)
+            # yields no quantile edges and therefore no PSI at all. Two very
+            # different causes, and the row must say which one it is:
+            #
+            # * STRUCTURAL -- the current window is constant at the SAME
+            #   value. is_home is 1.0 by construction; is_snow and
+            #   travel_miles_home are 0.0 in both the season-phase-matched
+            #   September baseline and the early-October current window.
+            #   Nothing can have drifted between two identical constants, so
+            #   the honest report is the stable fact with its reason -- not
+            #   a "cannot judge" that every early-season run re-emits as a
+            #   WARNING (the three permanent INSUFFICIENT rows in the
+            #   2026-09-29..10-01 logs, whose 'null psi' format a reader
+            #   had to audit by hand to learn the means were equal).
+            #
+            # * INSUFFICIENT -- the current window MOVED (a different
+            #   constant, or any variance). That is the corruption class the
+            #   guard exists for: a venue bug pricing every prior game at
+            #   the nominal home stadium (2026-09-29) while real games show
+            #   travel. PSI cannot score it, so the verdict stays "cannot
+            #   judge" -- never OK, never STRUCTURAL.
+            base_const = (bool(n_base_n)
+                          and bool(np.all(_base_vals == _base_vals[0])))
+            cur_const = (bool(n_cur_n)
+                         and bool(np.all(_cur_vals == _cur_vals[0])))
+            if (base_const and cur_const
+                    and float(_base_vals[0]) == float(_cur_vals[0])):
+                status = "STRUCTURAL"
+                structural_reason = (
+                    f"constant {_base_vals[0]:g} in both windows "
+                    "(cannot drift)")
+            else:
+                status = "INSUFFICIENT"
         elif not location_shift:
             status = "OK"
         else:
@@ -442,6 +470,7 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             "shift_se": shift_se,
             "location_shift": location_shift,
             "status": status,
+            "structural_reason": structural_reason,
             "weight_pct": (round(100.0 * float(wmap.get(f, 0.0)), 2)
                            if has_weight_map else None),
             "n_baseline": int(full_df[f].notna().sum()),

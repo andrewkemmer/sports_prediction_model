@@ -852,13 +852,16 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
         psi_str = "—" if _judged is None else f"{_judged:.3f}"
         # An INSUFFICIENT row has no verdict to render a number beside: the
         # window was too small to judge, and quoting a PSI there invites the
-        # reader to treat an unjudged number as a judgment.
-        if status == "INSUFFICIENT":
+        # reader to treat an unjudged number as a judgment. A STRUCTURAL
+        # row is the same — no PSI exists for a constant-in-both-windows
+        # feature, only the stable fact and its reason.
+        if status in ("INSUFFICIENT", "STRUCTURAL"):
             psi_str = "n/a"
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
-                    "INSUFFICIENT": "ok"}.get(status, "ok")
+                    "INSUFFICIENT": "ok",
+                    "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
@@ -866,6 +869,16 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             or r.get("feature", "")
         weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
                        if has_weights else "")
+        # A STRUCTURAL row's reason is the finding (which constant,
+        # in both windows); render it under the pill so the table
+        # answers "why is this not a verdict" without a caption hunt.
+        # The reason is a backend-generated format string (constant
+        # <value> in both windows), so it carries no markup.
+        reason_cell = (
+            f"<div style='color:#64748B;font-size:0.72rem;"
+            f"font-weight:400;margin-top:1px;'>"
+            f"{r.get('structural_reason')}</div>"
+        ) if r.get("structural_reason") else ""
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -876,6 +889,7 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"{reason_cell}"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
     st.markdown(
@@ -892,7 +906,9 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
           the raw value minus the sampling-noise floor for these exact sample
           sizes — because raw PSI between two identical distributions at a
           39-60 row window already reads near the WARN threshold. INSUFFICIENT =
-          window too small to judge drift at all.
+          window too small to judge drift at all. STRUCTURAL = constant
+          at the same value in both windows (cannot drift) — a stable
+          fact with its reason, not a verdict.
           MODEL WEIGHT = blend-weighted feature importance from the shared
           feature-drift analysis (run engine has no per-model weight; '—' = no
           weight for this feature).
