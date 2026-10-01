@@ -85,19 +85,19 @@
     },
     "sp_era_5g_diff": {
       "name": "sp_era_5g_diff",
-      "summary": "Home SP last-5-start ERA \u2212 away SP (recent form)",
-      "definition": "Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.",
-      "formula": "sp_era_5g_home \u2212 sp_era_5g_away",
-      "source": "Statcast pitching aggregates (last-5-start window)",
-      "window": "5g",
-      "units": "ERA runs",
+      "summary": "Home SP recent runs allowed per nine \u2212 away SP (shrunk recent form)",
+      "definition": "Recent rate uses up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career rate with 30 pseudo innings. A strictly prior league rate is the cold-start fallback. This is runs allowed per nine, not official earned-run ERA.",
+      "formula": "shrunk_recent_runs_per_9_home \u2212 shrunk_recent_runs_per_9_away",
+      "source": "Statcast pitcher appearance aggregates (LAG-shifted)",
+      "window": "5 prior appearances + older pitcher history (30 pseudo-IP)",
+      "units": "runs / 9 innings",
       "direction": "lower = home advantage",
       "members": [
         "xgboost",
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Recent rate uses up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career rate with 30 pseudo innings. A strictly prior league rate is the cold-start fallback. This is runs allowed per nine, not official earned-run ERA.\nFormula: shrunk_recent_runs_per_9_home \u2212 shrunk_recent_runs_per_9_away\nSource: Statcast pitcher appearance aggregates (LAG-shifted)\nWindow: 5 prior appearances + older pitcher history (30 pseudo-IP) \u00b7 Units: runs / 9 innings\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_k9_diff": {
       "name": "sp_k9_diff",
@@ -453,11 +453,11 @@
     },
     "pitcher_regression_indicator_diff": {
       "name": "pitcher_regression_indicator_diff",
-      "summary": "SP velo diff \u00d7 ERA diff (physical drop vs surface results = regression)",
-      "definition": "Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.",
+      "summary": "SP velo diff \u00d7 shrunk recent runs/9 diff (stuff vs results)",
+      "definition": "Detects starters whose recent runs allowed outrun their fastball velocity (or vice versa); the recent runs/9 inputs are shrunk toward older pitcher history.",
       "formula": "sp_fbvelo_diff \u00d7 sp_era_5g_diff",
-      "source": "DuckDB feature engineering: velo \u00d7 results interaction",
-      "window": "season \u00d7 3g",
+      "source": "DuckDB feature engineering: velo \u00d7 shrunk recent runs/9 interaction",
+      "window": "season \u00d7 3g; recent runs/9 uses up to 5 prior appearances",
       "units": "index",
       "direction": "n/a (regression signal)",
       "members": [
@@ -465,7 +465,7 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_5g_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Detects starters whose recent runs allowed outrun their fastball velocity (or vice versa); the recent runs/9 inputs are shrunk toward older pitcher history.\nFormula: sp_fbvelo_diff \u00d7 sp_era_5g_diff\nSource: DuckDB feature engineering: velo \u00d7 shrunk recent runs/9 interaction\nWindow: season \u00d7 3g; recent runs/9 uses up to 5 prior appearances \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "pitcher_regression_indicator_home": {
       "name": "pitcher_regression_indicator_home",
@@ -1141,33 +1141,33 @@
     },
     "sp_era_5g_home": {
       "name": "sp_era_5g_home",
-      "summary": "SP ERA, last 5 starts \u2014 home team",
-      "definition": "Per-side level column: the home club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "summary": "SP recent runs allowed per nine \u2014 home team",
+      "definition": "Per-side level column: the home club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
       "formula": "sp_era_5g_home",
       "source": "Ingest-layer rolling/team state (same source as the diff)",
-      "window": "5g",
-      "units": "ERA runs",
+      "window": "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP",
+      "units": "runs / 9 innings",
       "direction": "lower = better (home side)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = better (home side)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: runs / 9 innings\nDirection: lower = better (home side)\nConsumed by: xgboost, lightgbm"
     },
     "sp_era_5g_away": {
       "name": "sp_era_5g_away",
-      "summary": "SP ERA, last 5 starts \u2014 away team",
-      "definition": "Per-side level column: the away club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "summary": "SP recent runs allowed per nine \u2014 away team",
+      "definition": "Per-side level column: the away club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
       "formula": "sp_era_5g_away",
       "source": "Ingest-layer rolling/team state (same source as the diff)",
-      "window": "5g",
-      "units": "ERA runs",
+      "window": "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP",
+      "units": "runs / 9 innings",
       "direction": "lower = better (away side)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = better (away side)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: runs / 9 innings\nDirection: lower = better (away side)\nConsumed by: xgboost, lightgbm"
     },
     "sp_fbvelo_3g_home": {
       "name": "sp_fbvelo_3g_home",
