@@ -269,9 +269,11 @@ ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333, "elasticnet": 0.3334}
 ADAPTIVE_WEIGHT_METRIC = "logloss"
 BLEND_SPACE = "logit"
 XGBOOST_PARAMS = {
-    "max_depth": 3, "min_child_weight": 12, "gamma": 2.4178,
-    "subsample": 0.812, "colsample_bytree": 0.6382,
-    "learning_rate": 0.1097, "random_state": RANDOM_SEED,
+    "max_depth": 3, "min_child_weight": 14, "gamma": 0.554715808992905,
+    "subsample": 0.7429126143544483, "colsample_bytree": 0.475281865338598,
+    "learning_rate": 0.03216955918004776,
+    "reg_lambda": 1.6547035205533105, "reg_alpha": 0.002580235939504449,
+    "random_state": RANDOM_SEED,
     "eval_metric": "logloss", "enable_categorical": True,
 }
 XGBOOST_FOLD_ROUNDS = 2000
@@ -349,14 +351,42 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # non-Elo signal is and whether it is being extracted. The best non-Elo
 # feature correlates 0.0799 with the Elo residual, and the top entries are
 # the same signal twice - ewm_net_points/off/def_rating all read |corr|
-# 0.0799 with opposite signs, since net points = off - def. XGBOOST_PARAMS
-# stays the MLB copy verbatim; the retuned vector and the full study are
-# preserved in .adhoc/nba_xgb_retune/.
+# 0.0799 with opposite signs, since net points = off - def. That rejection
+# was REVERSED by the 2026-10-01 full retune documented below: the old
+# +117 bps was single-seed noise inside the 09-29-measured floor, while the
+# retuned vector's gain is paired, seed-consistent and holdout-carried.
+#
+# FULL FROM-SCRATCH RETUNE OF BOTH TREE MEMBERS (2026-10-01, .adhoc protocol
+# per the documented 2026-09-29 noise-floor discipline): every model
+# parameter treated as free, 30-trial TPE screen on folds[:-4] over the
+# production-identical frame (3,461 settled games, 41 folds), then paired
+# seed verification (42/43/44) and the sealed folds[-4:] holdout. Machine
+# stability: every fit ran pinned to a single thread (num_threads=1), so
+# the per-fold logloss arrays are exactly reproducible; production is not
+# pinned. Noise floor measured FIRST on the production params: xgboost
+# spread 47.6 bps across seeds 42-46, lightgbm 14.8 bps - the 09-27 lesson
+# (best-of-N on single-seed pooled logloss picks noise) enforced.
+#
+# Results. XGBoost: tune-set +30.8 bps, sealed holdout +25.8/+60.6/+18.1
+# bps paired - it wins on every seed, reversing the 09-29 rejection
+# (the old +117 bps that reversed then was noise; this +25..61 is paired
+# and holdout-carried). LightGBM: tune-set +42.2 bps, sealed holdout
+# +52.5/+58.0/+29.1 bps, all seeds, 63.4% fold win rate. The combined
+# pair inside the real 3-member blend moves the SERVED numbers +3.9 bps
+# logloss and +2.2 bps Brier (0.60698 -> 0.60659, 0.20970 -> 0.20948 over
+# the full OOF) - the Elo-dominated-blend finding stands; this is member
+# strength plus a small honest served gain, the member-strength policy.
+#
+# The retune harness, ledger (46 recorded runs), study db and verdict are
+# preserved as untracked scratch: tune_full.py / tune_full_verdict.md /
+# tune_full_runs.jsonl / tune_full_study.db.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 61, "max_depth": 4, "num_leaves": 9,
-    "min_child_samples": 58, "min_gain_to_split": 2.2171,
-    "bagging_fraction": 0.8053, "bagging_freq": 1,
-    "feature_fraction": 0.6811, "learning_rate": 0.0300,
+    "n_estimators": 154, "max_depth": 5, "num_leaves": 28,
+    "min_child_samples": 25, "min_gain_to_split": 2.8457874009806865,
+    "bagging_fraction": 0.7561267287071872, "bagging_freq": 1,
+    "feature_fraction": 0.4814166356845213,
+    "learning_rate": 0.015350543425523649,
+    "reg_lambda": 0.3948372446449729, "reg_alpha": 0.08630597597817809,
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 ELASTICNET_PARAMS = {
