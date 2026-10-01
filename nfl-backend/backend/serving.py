@@ -360,6 +360,11 @@ def write_calibration_json(path, moneyline_metrics: dict,
             "auc_calibrated": _r4(calibrated_metrics.get("auc")),
             "brier_calibrated": _r4(calibrated_metrics.get("brier")),
             "logloss_calibrated": _r4(calibrated_metrics.get("logloss")),
+            # Deployed-calibrator gate decision (2026-10-01, MLB parity):
+            # True = the prequential rehearsal was worse than raw on BOTH
+            # log-loss and ECE, so this run served the raw blend (identity).
+            "calibrator_gated_out": bool(
+                moneyline_metrics.get("calibrator_gated_out", False)),
         },
         "calibration": cal_sec,
         "distribution_calibration": distribution_calibration or {},

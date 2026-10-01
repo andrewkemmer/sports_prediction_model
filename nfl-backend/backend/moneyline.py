@@ -446,9 +446,14 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
 #     ranking);
 #   * a CALIBRATION_MODE switch (platt/identity) gates the moneyline path;
 #   * apply-time method-tag enforcement rejects legacy home-space maps.
-#   * map selection is structural, not metric-based: raw and prequential
-#     calibrated metrics remain separate diagnostics, as in MLB.  Identity is
-#     selected only by the explicit mode or a stated fit guardrail.
+#   * DYNAMIC DEPLOYED-CALIBRATOR GATE (2026-10-01, MLB parity 8bc0825):
+#     map selection is no longer structural-only. The deployed pooled map's
+#     honest rehearsal is the PREQUENTIAL calibrated column (each fold
+#     corrected only by a map fitted on strictly prior folds); when that
+#     column is worse than the raw blend on BOTH log-loss and ECE,
+#     should_gate_calibrator fires and the serving layer ships the raw
+#     blend (identity) for that run. Mixed evidence keeps the fitted map,
+#     and the gate self-reverses when the evidence flips back.
 FAVORED_CALIBRATOR_METHOD = "favored_platt_floor"
 FAVORED_PROBABILITY_FLOOR = 0.5
 
@@ -613,3 +618,43 @@ def apply_favored_platt(p_home: np.ndarray, cal: dict | None) -> np.ndarray:
     p_fav = np.where(favored_home, p, 1.0 - p)
     p_fav_cal = np.maximum(FAVORED_PROBABILITY_FLOOR, apply_platt(p_fav, cal))
     return np.where(favored_home, p_fav_cal, 1.0 - p_fav_cal)
+
+
+def should_gate_calibrator(
+    raw_metrics: dict, cal_metrics: dict
+) -> tuple[bool, str]:
+    """Should the DEPLOYED moneyline calibrator be withheld this run?
+
+    The shipped pooled Platt map is fitted on ALL OOF pairs, so the only
+    honest rehearsal of how it behaves on unseen games is the PREQUENTIAL
+    calibrated column (fold k corrected only by folds < k — exactly how the
+    deployed map acts on tomorrow's slate). When that column is worse than
+    the raw blend on BOTH log-loss and ECE, the map is hurting every
+    headline metric and the identity map is the safer ship; on mixed
+    evidence the fitted map stands (the 2026-08-27 flip-test status quo,
+    generalized into a per-run, self-reversing rule; MLB parity 8bc0825).
+    Missing, empty, or non-finite metrics never fire the gate — it only
+    responds to unambiguous harm, not to measurement gaps.
+
+    Returns ``(gate_out, reason)``: ``gate_out=True`` means withhold the
+    fitted map (ship identity); ``reason`` is a human-readable one-liner
+    quoting both metric pairs for the run log.
+    """
+    if not raw_metrics or not cal_metrics:
+        return False, ""
+    try:
+        raw_ll = float(raw_metrics["logloss"])
+        raw_ece = float(raw_metrics["ece"])
+        cal_ll = float(cal_metrics["logloss"])
+        cal_ece = float(cal_metrics["ece"])
+    except (KeyError, TypeError, ValueError):
+        return False, ""
+    if not all(np.isfinite(v) for v in (raw_ll, raw_ece, cal_ll, cal_ece)):
+        return False, ""
+    ll_worse = cal_ll > raw_ll
+    ece_worse = cal_ece > raw_ece
+    if not (ll_worse and ece_worse):
+        return False, ""
+    return True, (
+        f"ECE {raw_ece:.4f} -> {cal_ece:.4f}, log-loss {raw_ll:.4f} -> "
+        f"{cal_ll:.4f}")

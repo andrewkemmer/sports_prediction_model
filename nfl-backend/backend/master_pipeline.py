@@ -545,6 +545,28 @@ def main(argv: list[str] | None = None) -> int:
     # change auc at all, and only ece and logloss are free to move.
     logger.info("moneyline OOF calib:  %s   [PREQUENTIAL per-fold maps, "
                 "pooled: pooled auc is NOT comparable to raw]", json.dumps(cal_m))
+    # Deployed-calibrator gate (2026-10-01, MLB parity 8bc0825): the pooled
+    # map in 8b is fitted on ALL OOF pairs, so its only honest rehearsal is
+    # the PREQUENTIAL calibrated column just scored (each fold corrected only
+    # by a map fitted on strictly prior folds — exactly how the deployed map
+    # acts on tomorrow's slate). When that rehearsal is worse than the raw
+    # blend on BOTH log-loss and ECE, the map hurts every headline metric and
+    # the serving layer ships the raw blend (identity) this run. Mixed
+    # evidence keeps the fitted map (the 2026-08-27 flip-test status quo);
+    # the gate is causal and self-reversing — a later run whose prequential
+    # column improves ships the fitted map again. The evaluation layers (the
+    # prequential column and per-member twins) are never touched.
+    gated_out, gate_reason = ml_mod.should_gate_calibrator(raw_m, cal_m)
+    # MLB parity: the decision rides on the pooled metrics dict so the
+    # calibration artifact records it (serving.write_calibration_json).
+    raw_m["calibrator_gated_out"] = gated_out
+    if gated_out:
+        logger.warning(
+            "Calibration: prequential calibrated metrics worse than raw "
+            "(%s) — shipping the raw blend (identity calibrator)",
+            gate_reason,
+        )
+        platt = None  # serving layer ships identity; bundle persists None
     # The two lines above score the CAUSAL walk-forward blend: every fold was
     # blended with the weights earned from PRIOR folds only. That is the
     # honest evaluation layer and must stay causal, but it is NOT the
