@@ -385,6 +385,17 @@ ENSEMBLE_WEIGHTS = {
 #     LGBM v2 candidate REJECTED: seeds held but sealed reversed −106.4
 #     bps (third documented tune-gain-does-not-survive-the-holdout).
 #   * Elastic-net remains the shared MLB block.
+# 2026-09-30 NHL FULL RETUNE (owner directive: every parameter on the
+#     table, single-threaded): 73 Optuna trials per member over the full
+#     space (budgets included) on the production fold geometry. XGB member
+#     gate found challengers (best screen 0.67533 vs fixed-budget incumbent
+#     0.68218) — but the §4 BLEND GATE REJECTED the adopt: under the
+#     production causal-budget walk the challenger scored WORSE in-walk
+#     (ll 0.67709 vs 0.67654, ECE 0.0149 vs 0.0093) and the ensemble
+#     degraded (AUC −0.0013, ECE +0.0012). Fixed-budget member-gate wins
+#     do not survive the causal walk — fourth documented instance. LGBM:
+#     no challenger passed even the member gate (selection wins reversed
+#     on the seal, same shape as the v2 rejection). Config CONFIRMED.
 XGBOOST_PARAMS = {
     "max_depth": 5,
     "min_child_weight": 3,
