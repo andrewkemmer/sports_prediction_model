@@ -332,6 +332,12 @@ def main(argv: list[str] | None = None) -> int:
         f"{fold_info['max_train']} (last)",
         f"  validation observations: {fold_info['total_val_games']}",
     ]))
+    # Fresh-clone safety (2026-10-01 03:35 Kaggle run): this write happens
+    # in Phase 4, BEFORE the Phase 13 block that mkdirs the diagnostics dir.
+    # run_diagnostics/ is deliberately gitignored (retention audit), so a
+    # fresh clone does not have it and to_csv fails with "Cannot save file
+    # into a non-existent directory" — mid-run, after the full refetch.
+    config.RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
     fold_tbl.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_fold_table.csv",
                     index=False)
     logger.info("folds: %s", json.dumps(fold_info))

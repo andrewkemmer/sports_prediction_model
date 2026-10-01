@@ -3673,6 +3673,58 @@ def test_validate_outputs_is_runnable_without_the_callers_locals():
     assert _gate(90, 100) is True    # exactly at the threshold passes
 
 
+def test_run_diagnostics_writes_are_guaranteed_their_directory():
+    """Phase 4 crashed the 2026-10-01 03:35 Kaggle run: 23f1f0c moved the fold
+    table into the gitignored run_diagnostics/ dir but left the only mkdir in
+    the Phase 13 block — which Phase 4's write reaches FIRST — so a fresh
+    clone died with OSError "Cannot save file into a non-existent directory"
+    mid-run, after the full refetch had already paid for itself. Static pin:
+    every function constructing a path under config.RUN_DIAGNOSTICS_DIR must
+    mkdir it (exist_ok=True) before its first such construction."""
+    import master_pipeline as mp
+
+    src = Path(mp.__file__).read_text()
+    tree = ast.parse(src)
+
+    def _attr_chain(node) -> str:
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+        return ".".join(reversed(parts))
+
+    failures = []
+    for fn in [n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        mkdir_lines, write_lines = [], []
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "mkdir"
+                    and _attr_chain(node.func.value).endswith(
+                        "RUN_DIAGNOSTICS_DIR")):
+                for kw in node.keywords:
+                    if (kw.arg == "exist_ok"
+                            and isinstance(kw.value, ast.Constant)
+                            and kw.value.value is True):
+                        mkdir_lines.append(node.lineno)
+            if (isinstance(node, ast.BinOp)
+                    and isinstance(node.op, ast.Div)
+                    and _attr_chain(node.left).endswith(
+                        "RUN_DIAGNOSTICS_DIR")):
+                # Path construction = the write site's prerequisite
+                # (RUN_DIAGNOSTICS_DIR / "file" feeding to_csv/others).
+                write_lines.append(node.lineno)
+        if write_lines and (not mkdir_lines
+                            or min(write_lines) < min(mkdir_lines)):
+            failures.append(fn.name)
+    assert not failures, (
+        "functions constructing paths under config.RUN_DIAGNOSTICS_DIR "
+        f"without a preceding mkdir(exist_ok=True): {failures}")
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]
