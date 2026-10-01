@@ -12,7 +12,7 @@ player is precisely the one who did not appear. So the pool is WIDENED to every
 team member with a rating row inside a short lookback, and only THEN is the
 injury filter applied. The order is the feature.
 
-Three further properties are inherited deliberately:
+Four further properties are inherited deliberately:
 
 * **LOOKUP-BACK IS MOST-RECENT-AT-OR-BEFORE.** A candidate's rating is the
   latest row on or before the game, never a row after it. MLB additionally
@@ -24,6 +24,16 @@ Three further properties are inherited deliberately:
   the opposite of the intent and produces a quietly wrong number.
 * **NO PADDING.** A short-handed team is averaged over the players it actually
   has. Padding to eight would fabricate full strength from a depleted roster.
+* **POSITION SEGMENTS READ THE ELIGIBLE ROSTER.** The top-k cut answers
+  "who plays tonight" and governs the lineup aggregates only. A position
+  segment asks "how does this team shoot at this position", and the cut is
+  arbitrary there: a team whose centers rank below the eight by participation
+  is centerless in the projected lineup but not on its roster, so a segment cut
+  from the lineup starves pl_ts_c coverage for no evidentiary reason. Each
+  segment therefore blends every eligible member of the position, priced by the
+  same playing-time weights - the population MLB's lineup_agg adopted when it
+  dropped its nine-cut, because opportunity weighting is what makes an
+  arbitrary cut redundant.
 """
 from __future__ import annotations
 
@@ -67,8 +77,12 @@ DIFF_FEATURES = [
     "lineup_ts_concentration_diff",
 ]
 
-#: The nine position-segmented features: each position's projected-lineup
-#: shooting on BOTH sides plus the difference.
+#: The nine position-segmented features: each position's eligible-roster
+#: shooting, opportunity-weighted by playing time, on BOTH sides plus the
+#: difference. The segment blends the team's whole eligible roster at the
+#: position (shrinkage already prices a thin member), not just the
+#: projected eight - the cut that starved pl_ts_c coverage is a lineup
+#: concept, not a position concept.
 #:
 #: The sides are kept rather than differenced away because the two halves of a
 #: position split carry different information. A diff says the home lineup is
@@ -422,21 +436,23 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # redefine the question from "who plays" to "who scores", which is a
     # different feature wearing this one's name.
     healthy = healthy.sort_values(["prior_plays", "gameday"], ascending=False)
-    projected = healthy.head(top_k)
-    # Opportunity-weighted blend (NFL f9d3e00 / MLB e3aa763 family parity):
+    # Opportunity weighting (NFL f9d3e00 / MLB e3aa763 family parity):
     # a member's weight is his OWN prior-opportunity total, so each aggregate
-    # is the projected lineup's combined shrunk TS over combined scoring
-    # plays - exactly the usage-weighted quantity "what does this lineup
+    # is the population's combined shrunk TS over combined scoring
+    # plays - exactly the usage-weighted quantity "what does this roster
     # produce per play when its actual minutes distribution prices it". The
     # old plain mean let a 21-play bench piece price equal to a 500-play
     # starter, so one rotation discard dragged a team's projection by half a
     # member. Weights are the same strictly-prior per-player totals the pool
     # ranking already reads; nothing new is fetched and nothing leaks. A NaN
     # rating contributes no weight and no rating (removal, not zeroing); a
-    # family with no finite-weight member keeps NaN.
-    projected = projected.copy()
-    projected["_w"] = projected["prior_plays"].where(
-        projected.ts_shrunk.notna(), other=0.0).astype(float)
+    # family with no finite-weight member keeps NaN. The weights are assigned
+    # on the whole ELIGIBLE roster before the top-k slice so the lineup
+    # aggregates and the position segments price members identically.
+    healthy = healthy.copy()
+    healthy["_w"] = healthy["prior_plays"].where(
+        healthy.ts_shrunk.notna(), other=0.0).astype(float)
+    projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
     def _blend(frame: pd.DataFrame) -> float:
@@ -467,14 +483,26 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         dev = finite.ts_shrunk.to_numpy(dtype=float) - mean
         std = float(np.sqrt((finite._w.to_numpy(dtype=float)
                              * dev ** 2).sum() / w_sum))
-    # Position-segmented shooting over the SAME projected lineup, not a second
-    # projection. Segmented afterwards rather than projecting one lineup per
-    # position keeps a single definition of "who plays tonight"; three separate
-    # projections would each pick their own top eight and quietly disagree
-    # about the team. Each segment blends by the same opportunity weights.
+    # Position-segmented shooting over the team's ELIGIBLE ROSTER at
+    # each position, not over the projected eight. The lineup aggregates
+    # describe who plays tonight, so they are cut at top_k; a position
+    # segment describes the team's shooting at that position, and the cut
+    # is arbitrary there - a team whose centers all rank below the eight
+    # by participation is centerless in the projected lineup but NOT
+    # centerless on its roster, so its pl_ts_c stayed NaN for no reason
+    # other than the cut. That is the pl_ts_c coverage hole the monitor
+    # flags as STARVED: 3 of 6 team-games in the 2026-10-01 artifact,
+    # each with a 16-17 man healthy roster. So the segment blends every
+    # eligible member of the position, priced by the same opportunity
+    # weights - the population MLB's lineup_agg adopted when it dropped
+    # its nine-cut, because playing-time weighting is what makes an
+    # arbitrary cut redundant. One projection still defines the pool, so
+    # the segments cannot disagree with the lineup about who is eligible,
+    # who is available, or how much evidence each member has; they simply
+    # read all of it.
     segmented: dict = {}
-    if "position" in projected.columns:
-        for position, group in projected.groupby("position", sort=False):
+    if "position" in healthy.columns:
+        for position, group in healthy.groupby("position", sort=False):
             if position in config.PLAYER_TS_POSITIONS and len(group):
                 value = _blend(group)
                 if value == value:

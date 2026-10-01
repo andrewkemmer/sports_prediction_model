@@ -726,6 +726,104 @@ class TestPositionTsFeatures:
         assert out.pl_ts_g_home.iloc[0] == pytest.approx(0.58)
         assert out.pl_ts_g_away.iloc[0] == pytest.approx(0.54)
 
+    def _centerless_roster(self):
+        """Eight guards out-rank every center, so the projected
+        lineup (top-8) is centerless while the roster is not.
+
+        This is the state the 2026-10-01 delivery artifact showed
+        on 3 of 6 team-games: healthy rosters of 16-17 whose
+        centers simply did not crack the top eight by participation,
+        leaving pl_ts_c NaN.
+        """
+        rows = [_rating(f"g{i}", "BOS", "2026-03-01", 0.55, 300 - i)
+                for i in range(8)]
+        rows.append(_rating("c1", "BOS", "2026-03-01", 0.62, 90))
+        rows.append(_rating("c2", "BOS", "2026-03-01", 0.50, 45))
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G"] * 8 + ["C", "C"]
+        return frame
+
+    def test_a_centerless_projected_lineup_still_rates_the_position(self):
+        """The coverage remediation: the cut starves pl_ts_c.
+
+        The segment is the opportunity-weighted mean over the team's
+        ELIGIBLE ROSTER at the position - the same population MLB's
+        lineup_agg adopted when it dropped its nine-cut - so a team
+        whose centers all rank below the projected eight still gets
+        pl_ts_c instead of NaN. The lineup aggregates keep reading
+        the top eight; only the segment's population widens.
+        """
+        out = proj.projected_lineup(self._centerless_roster())
+        row = _bos(out)
+        # (90 * 0.62 + 45 * 0.50) / 135 - both centers, priced by
+        # participation, not the top-8 slice that holds neither.
+        assert row.pl_ts_c == pytest.approx((90 * 0.62 + 45 * 0.50)
+                                            / 135)
+        assert row.pl_ts_g == pytest.approx(0.55)
+        # No eligible forward exists, so that segment stays NaN.
+        assert pd.isna(row.pl_ts_f)
+        # The lineup itself is still the eight highest-participation
+        # players: the widening must not bleed into the aggregates.
+        assert row.lineup_ts_mean == pytest.approx(0.55)
+
+    def test_a_represented_position_blends_the_roster_not_the_eight(self):
+        """A member below the cut still prices the segment.
+
+        The starter center is inside the projected eight and the
+        backup is below it; the OLD top-8-cut segment read only the
+        starter (0.62). The segment now blends both, weighted by
+        playing time - the backup's 45 plays against the starter's
+        200, which is the whole point of opportunity weighting.
+        """
+        rows = [
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("b", "BOS", "2026-03-01", 0.58, 380),
+            _rating("c", "BOS", "2026-03-01", 0.55, 300),
+            _rating("d", "BOS", "2026-03-01", 0.40, 250),
+            _rating("e", "BOS", "2026-03-01", 0.42, 220),
+            _rating("f2", "BOS", "2026-03-01", 0.44, 210),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 200),
+            _rating("x", "BOS", "2026-03-01", 0.50, 100),
+            _rating("c2", "BOS", "2026-03-01", 0.50, 45),
+        ]
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G", "G", "F", "F", "G", "F",
+                              "C", "G", "C"]
+        out = proj.projected_lineup(frame, top_k=8)
+        row = _bos(out)
+        assert row.pl_ts_c == pytest.approx((200 * 0.62 + 45 * 0.50)
+                                            / 245)
+
+    def test_an_unavailable_center_leaves_his_segment(self):
+        """Removal, not zero-weighting, at the position level."""
+        rows = [
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 200,
+                    available=False),
+            _rating("c2", "BOS", "2026-03-01", 0.50, 45),
+        ]
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G", "C", "C"]
+        out = proj.projected_lineup(frame)
+        row = _bos(out)
+        # The out center is gone; the backup inherits the segment.
+        assert row.pl_ts_c == pytest.approx(0.50)
+
+    def test_the_min_plays_floor_gates_segment_membership(self):
+        """The roster is ELIGIBLE players, not every rating row."""
+        rows = [
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 200),
+            _rating("c2", "BOS", "2026-03-01", 0.50, 10),
+        ]
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G", "C", "C"]
+        out = proj.projected_lineup(frame)
+        row = _bos(out)
+        # c2's 10 plays are under the pool floor: he is not a
+        # candidate, so the segment is the starter alone.
+        assert row.pl_ts_c == pytest.approx(0.62)
+
 
 class TestPlayerTsIsStrictlyPriorPerGame:
     def test_a_ratings_target_date_excludes_that_dates_games(self):
