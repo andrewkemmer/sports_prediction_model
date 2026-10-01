@@ -445,31 +445,28 @@ def main(argv: list[str] | None = None) -> int:
     # Two distinct calibration layers (MLB structural parity):
     #   1. PREQUENTIAL per-fold OOF calibration (evaluation layer): fold k's
     #      calibrated predictions come from a favored-space Platt map fitted
-    #      strictly on folds 0..k-1's OOF pairs; fold 0 is identity.
+    #      strictly on folds 0..k-1's OOF pairs, and applied ONLY when a
+    #      nested holdout on that prior evidence beats the raw blend
+    #      out-of-sample (2026-10-01 remediation). Ungated, a 2-parameter
+    #      Platt on rolling near-calibrated evidence adds variance, not
+    #      signal: the ungated layer moved logloss 0.67583->0.67731 and ECE
+    #      0.01036->0.01466 on this same OOF while the pooled calibrator
+    #      sat at a=1.0124 b=-0.0069.
     #   2. POOLED final calibrator (serving layer): one favored-space map fit
     #      on ALL OOF pairs, applied ONLY to tonight's slate.
-    fold_calibrators: dict[int, dict | None] = {}
-    cal_fitted = 0
-    cal_identity = 0
-    cal_identity_ids: list[int] = []
-    p_cal_prequential = np.full(len(oof_ml), np.nan)
     fold_ids = oof_ml["fold_id"].to_numpy()
+    fold_calibrators, cal_audit = ml_mod.prequential_fold_calibrators(
+        p_ens, y_oof, fold_ids)
+    cal_identity_ids = sorted(fid for fid, cal
+                              in fold_calibrators.items() if cal is None)
+    cal_fitted = len(fold_calibrators) - len(cal_identity_ids)
+    cal_identity = len(cal_identity_ids)
+    p_cal_prequential = np.full(len(oof_ml), np.nan)
     for fold in fold_list:
         val_mask = fold_ids == fold.fold_id
-        prior_mask = (fold_ids < fold.fold_id) & okp
-        if prior_mask.sum() >= 2:
-            fold_cal = ml_mod.moneyline_fit(p_ens[prior_mask], y_oof[prior_mask])
-        else:
-            fold_cal = None  # no prior evidence yet — identity for fold 0
-        fold_calibrators[int(fold.fold_id)] = fold_cal
-        if fold_cal is None:
-            cal_identity += 1
-            cal_identity_ids.append(int(fold.fold_id))
-        else:
-            cal_fitted += 1
         if val_mask.any() and okp[val_mask].any():
             p_cal_prequential[val_mask] = ml_mod.moneyline_apply(
-                p_ens[val_mask], fold_cal)
+                p_ens[val_mask], fold_calibrators[int(fold.fold_id)])
     need_cal = okp & np.isnan(p_cal_prequential)
     p_cal_prequential[need_cal] = p_ens[need_cal]  # identity fallback
     oof_ml["p_ensemble_calibrated"] = p_cal_prequential
@@ -489,11 +486,27 @@ def main(argv: list[str] | None = None) -> int:
     # earliest windows hold a handful of games) from calibration failing on
     # folds scattered through the run - which would be a real defect. Their
     # probabilities are served uncalibrated, so the count is part of what
-    # the calibrated OOF metrics below are measured over.
+    # the calibrated OOF metrics below are measured over. Identity now has
+    # two causes: the thin start (no fittable prior evidence) and the
+    # nested-holdout gate below (prior evidence existed, but its most
+    # recent slice said the map adds variance). Name both populations.
+    _gated_ids = sorted(r["fold_id"] for r in cal_audit["folds"]
+                        if r["reason"] == "gated_no_gain")
+    _thin_ids = [f for f in cal_identity_ids if f not in set(_gated_ids)]
     logger.info("prequential per-fold calibration: %d fitted, %d identity%s",
                 cal_fitted, cal_identity,
-                f" (folds {cal_identity_ids}: too few prior OOF rows to fit, "
-                f"left uncalibrated)" if cal_identity_ids else "")
+                f" (folds {cal_identity_ids}: served uncalibrated — thin "
+                f"start {_thin_ids} lacks fittable prior OOF rows; gated "
+                f"{_gated_ids} had prior evidence but no out-of-sample "
+                f"gain)" if cal_identity_ids else "")
+    logger.info("prequential calib gate (nested holdout): %d of %d folds "
+                "kept a map — candidate fitted on the earlier %.0f%% of "
+                "prior OOF evidence, scored against raw on the most recent "
+                "slice (>= %d rows), kept only if out-of-sample logloss "
+                "beat raw by > %.0e nats",
+                cal_audit["n_fitted"], cal_audit["n_folds"],
+                100.0 * (1.0 - config.CAL_GATE_HOLDOUT_FRAC),
+                config.CAL_GATE_MIN_HOLDOUT, config.CAL_GATE_EPS)
 
     platt = ml_mod.moneyline_fit(p_ens[okp], y_oof[okp])
     if platt is not None:
@@ -515,14 +528,18 @@ def main(argv: list[str] | None = None) -> int:
     # is a misreading of which number this is.
     logger.info("moneyline OOF calib:  %s (prequential per-fold layer; the "
                 "pooled calibrator is what serves the slate)", json.dumps(cal_m))
-    # Disclosure, not a gate (2026-09-30): the per-fold map is fitted on
-    # strictly-prior evidence, so it cannot be gated on its own fold's outcome
-    # (that would read the window it scores). When the layer measures WORSE
-    # than raw — the 2026-09-30 run moved logloss 0.6747->0.6762 and ECE
-    # 0.0098->0.0137 on the same rows while the pooled serving calibrator sat
-    # near-identity (a=0.968 b=0.026) — say so loudly: favored-space per-fold
-    # Platt adds variance, not signal, when the rolling re-earned blend is
-    # already near-calibrated. Serving is unaffected either way.
+    # Disclosure, not a gate (2026-09-30; layer gated 2026-10-01): the
+    # per-fold map is fitted on strictly-prior evidence, so it cannot be
+    # gated on its own fold's outcome (that would read the window it scores).
+    # Since 2026-10-01 each fold's map is additionally applied only when a
+    # nested holdout on its prior evidence beat the raw blend out-of-sample,
+    # so this warning firing means the gate's own holdout did not catch a
+    # variance-adding map. When the layer still measures WORSE than raw —
+    # the 2026-09-30 run moved logloss 0.6747->0.6762 and ECE 0.0098->
+    # 0.0137 on the same rows while the pooled serving calibrator sat
+    # near-identity (a=0.968 b=0.026) — say so loudly: favored-space
+    # per-fold Platt adds variance, not signal, when the rolling re-earned
+    # blend is already near-calibrated. Serving is unaffected either way.
     _worse = [m for m in ("logloss", "brier", "ece")
               if isinstance(raw_m.get(m), (int, float))
               and isinstance(cal_m.get(m), (int, float))
@@ -679,7 +696,8 @@ def main(argv: list[str] | None = None) -> int:
         daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
         calibrated_buckets=eval_mod.calibration_buckets_pair(
             oof_ml["p_ensemble"], oof_ml["p_ensemble_calibrated"], y_oof),
-        distribution_calibration=market_calibration)
+        distribution_calibration=market_calibration,
+        prequential_gate=cal_audit)
     artifacts.append(p.name)
 
     p = out_dir / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)

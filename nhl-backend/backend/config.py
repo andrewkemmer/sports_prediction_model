@@ -132,6 +132,27 @@ FEATURE_SET_VERSION = "nhl-prod-v1.1-player-game-ratings"
 CALIBRATION_MODE = "platt"
 MIN_OOF_FOR_FIT = 300
 
+# Prequential per-fold calibration gate (2026-10-01 remediation):
+# fold k's per-fold Platt map is applied only when a candidate
+# fitted on the EARLIER part of the prior evidence beats the raw
+# blend on the MOST RECENT slice of it (a nested prequential
+# holdout — the only out-of-sample evidence that exists before
+# fold k). Without the gate, a 2-parameter map fitted on rolling
+# near-calibrated evidence adds variance, not signal: the 2026-10-01
+# run moved logloss 0.67583->0.67731, brier 0.24148->0.24217 and
+# ECE 0.01036->0.01466 while the pooled serving calibrator sat at
+# a=1.0124 b=-0.0069.
+CAL_GATE_HOLDOUT_FRAC = 0.25   # tail slice of prior evidence held out
+CAL_GATE_MIN_HOLDOUT = 200     # minimum rows in the nested holdout
+# Materiality bar, not a rounding tolerance: on the 2026-10-01
+# population the 48 fittable folds' nested-holdout gains average
+# ~-1.25e-3 nats with SD ~2.7e-3 (best +3.4e-3, ~1.3 sigma), so
+# an eps of 1e-4 admitted noise. ~2 sigma of that noise (~5e-3
+# nats) keeps noise-level maps out; genuine drift-scale gains
+# (>=1e-2 nats, the scale a real regime break produces) still
+# clear the bar.
+CAL_GATE_EPS = 5e-3            # minimum out-of-sample logloss gain (nats)
+
 # ---------------------------------------------------------------------------
 # THE feature contract — ONE master list (MLB/NFL structural parity)
 # ---------------------------------------------------------------------------

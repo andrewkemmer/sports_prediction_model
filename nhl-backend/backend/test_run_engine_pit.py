@@ -1012,6 +1012,163 @@ def test_prequential_calibrate_sees_prior_folds_only():
         "favored-side probability dropped below 0.5"
 
 
+def _gate_synth_folds(n_folds: int, regime_from: int,
+                      seed: int = 5):
+    """Synthetic walk-forward evidence for the nested-calibration gate.
+
+    Fold 0 is a thin start (60 rows); later folds hold 100 rows.
+    Before ``regime_from`` the true favorite win probability q
+    lives in [0.55, 0.95] and the raw blend reports only
+    0.5 + 0.4*(q - 0.5) — shrunk toward the coin flip — so a
+    favored-space Platt recovers a steep positive map that beats
+    the raw blend by ~0.07 nats. From ``regime_from`` on the
+    evidence flips: games are priced as STRONG favorites (p in
+    [0.6, 0.9]) yet win only 35% of the time, a regime the
+    earlier map cannot price — its steep positive map is
+    overconfident and its nested-holdout log loss is far worse
+    than the raw blend's, i.e. exactly the variance-adding case
+    the nested holdout exists to catch.
+    """
+    rng = np.random.default_rng(seed)
+    ps, ys, fids = [], [], []
+    for f in range(n_folds):
+        n = 60 if f == 0 else 100
+        if f < regime_from:
+            q = rng.uniform(0.55, 0.95, n)
+            u = 0.5 + 0.4 * (q - 0.5)
+            rate = q
+        else:
+            u = rng.uniform(0.6, 0.9, n)
+            rate = np.full(n, 0.35)
+        y = (rng.random(n) < rate).astype(float)
+        ps.append(u)
+        ys.append(y)
+        fids.append(np.full(n, f))
+    return (np.concatenate(ps), np.concatenate(ys),
+            np.concatenate(fids))
+
+
+def test_prequential_fold_calibrators_keep_a_map_that_beats_raw():
+    """The gate is not a blanket ban: a map that genuinely beats the
+    raw blend on the most recent slice of prior evidence is kept.
+
+    With a stable shrink regime the favored Platt recovers the steep
+    positive map the shrunk raw blend cannot express, so the
+    nested-holdout log loss wins by ~0.07 nats and every fittable
+    fold (6+: 300+ fit rows and a 200-row holdout) keeps its map.
+    """
+    p, y, fids = _gate_synth_folds(12, regime_from=99)
+    calibrators, audit = ml_mod.prequential_fold_calibrators(p, y, fids)
+    assert audit["n_folds"] == 12
+    assert audit["n_gated"] == 0, audit
+    assert audit["n_fitted"] >= 5, audit
+    assert calibrators[11] is not None
+    assert calibrators[11]["method"] == "favored_platt_floor"
+    rec11 = audit["folds"][11]
+    assert rec11["decision"] == "fitted"
+    assert rec11["nested_holdout_logloss"] < rec11["raw_logloss"]
+
+
+def test_prequential_fold_calibrators_block_a_variance_adding_map():
+    """A map that only fit the OLD regime is blocked, not applied.
+
+    Folds 8+ flip to strong favorites that win like dogs (priced
+    [0.6, 0.9], win 35%), so the most recent slice of fold 11's
+    prior evidence is a regime the map fitted on the earlier part
+    cannot price: its steep positive map is overconfident and its
+    nested-holdout log loss is far worse than the raw blend's, and
+    the fold is served uncalibrated (identity) instead of importing
+    the variance. This is the 2026-10-01 remediation's core
+    property — the ungated layer moved logloss 0.67583->0.67731
+    and ECE 0.01036->0.01466 on the real OOF.
+    """
+    p, y, fids = _gate_synth_folds(12, regime_from=8)
+    calibrators, audit = ml_mod.prequential_fold_calibrators(p, y, fids)
+    rec11 = audit["folds"][11]
+    assert rec11["decision"] == "identity"
+    assert rec11["reason"] == "gated_no_gain"
+    assert rec11["nested_holdout_logloss"] > rec11["raw_logloss"]
+    assert calibrators[11] is None
+    assert audit["n_gated"] >= 2, audit
+    # The stable early folds still earn their maps — the gate blocks
+    # the regime break, not calibration itself.
+    assert audit["n_fitted"] >= 2, audit
+
+
+def test_prequential_fold_calibrators_fold_map_never_sees_its_own_fold():
+    """Poisoning a fold's own validation window cannot move its map.
+
+    Fold k's map is fitted (and gated) on folds < k only, so
+    flipping the labels INSIDE fold k's window leaves fold k's map
+    byte-identical — the prequential contract survives the gate.
+    """
+    p, y, fids = _gate_synth_folds(12, regime_from=99)
+    cal_a, audit_a = ml_mod.prequential_fold_calibrators(p, y, fids)
+    assert cal_a[11] is not None
+    y_poisoned = y.copy()
+    y_poisoned[fids == 11] = 1.0 - y_poisoned[fids == 11]
+    cal_b, _ = ml_mod.prequential_fold_calibrators(
+        p, y_poisoned, fids)
+    assert cal_b[11] is not None
+    assert cal_b[11]["a"] == cal_a[11]["a"]
+    assert cal_b[11]["b"] == cal_a[11]["b"]
+
+
+def test_prequential_fold_calibrators_eps_knob_is_binding():
+    """The accept/reject line is the configured eps, not an accident.
+
+    With eps set impossibly high the same data that earns a map at
+    the default eps is served uncalibrated; with eps negative every
+    fittable fold keeps its map. The gate's threshold is the config.
+    """
+    p, y, fids = _gate_synth_folds(12, regime_from=99)
+    # Patch the config object the module graph resolved, not the
+    # top-level `config` imported above — under pytest those are two
+    # module objects (see the _CFG note at the module graph pin).
+    # Restore the original default (not a hardcoded value) so the
+    # test survives a config change like the 1e-4 -> 5e-3 raise.
+    eps_default = _CFG.CAL_GATE_EPS
+    try:
+        _CFG.CAL_GATE_EPS = 1e9
+        _, audit_strict = ml_mod.prequential_fold_calibrators(p, y, fids)
+        assert audit_strict["n_fitted"] == 0, audit_strict
+        assert audit_strict["n_gated"] >= 5, audit_strict
+        _CFG.CAL_GATE_EPS = -1e9
+        _, audit_loose = ml_mod.prequential_fold_calibrators(p, y, fids)
+        assert audit_loose["n_fitted"] >= 5, audit_loose
+        assert audit_loose["n_gated"] == 0, audit_loose
+    finally:
+        _CFG.CAL_GATE_EPS = eps_default
+
+
+def test_write_calibration_json_carries_the_gate_audit():
+    """The gate's verdict is part of the calibration artifact, not
+    just the run log — a reader of the JSON can see how many folds
+    kept a map and why the rest did not."""
+    gate = {"method": "prequential_platt_gated", "n_folds": 58,
+            "n_fitted": 52, "folds": []}
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "calibration.json"
+        record = serving_mod.write_calibration_json(
+            path, {"auc": 0.59, "logloss": 0.67, "brier": 0.24,
+                   "ece": 0.01},
+            {"auc": 0.59, "logloss": 0.67, "brier": 0.24,
+                   "ece": 0.01},
+            [], [], {}, platt={"a": 1.0, "b": 0.0, "n": 10},
+            run_date="2026-10-01", n_games=10,
+            prequential_gate=gate)
+        assert record["prequential_gate"] == gate
+        on_disk = json.loads(path.read_text(encoding="utf-8"))
+        assert on_disk["prequential_gate"]["n_fitted"] == 52
+    # Absent gate (older callers) still serializes — the key is
+    # always present, just empty.
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "calibration.json"
+        record = serving_mod.write_calibration_json(
+            path, {}, {}, [], [], {})
+        assert record["prequential_gate"] == {}
+
+
 def test_adaptive_weights_are_logloss_simplex_and_logit_optimal():
     """The optimizer contract is pooled binary log loss in logit space."""
     assert config.ADAPTIVE_WEIGHT_METRIC == "logloss"

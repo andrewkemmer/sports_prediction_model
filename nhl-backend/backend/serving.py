@@ -175,7 +175,8 @@ def write_calibration_json(path, moneyline_metrics: dict,
                            config_meta: dict, platt: dict | None = None,
                            run_date: str = "", n_games: int = 0,
                            calibrated_buckets: list[dict] | None = None,
-                           distribution_calibration: dict | None = None) -> dict:
+                           distribution_calibration: dict | None = None,
+                           prequential_gate: dict | None = None) -> dict:
     """MLB-shaped calibration artifact (frontend presentation contract)."""
     cal_sec: dict = {}
     if isinstance(platt, dict) and platt.get("a") is not None \
@@ -216,6 +217,7 @@ def write_calibration_json(path, moneyline_metrics: dict,
         },
         "calibration": cal_sec,
         "distribution_calibration": distribution_calibration or {},
+        "prequential_gate": prequential_gate or {},
         "calibration_buckets": buckets,
         "daily": [
             {**row, "metrics": {k: _r4(v)

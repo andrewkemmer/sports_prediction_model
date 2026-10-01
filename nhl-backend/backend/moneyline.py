@@ -13,6 +13,7 @@ linear members) is fit on training data only.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -711,3 +712,107 @@ def apply_favored_platt(p_home: np.ndarray, cal: dict | None) -> np.ndarray:
     p_fav = np.where(favored_home, p, 1.0 - p)
     p_fav_cal = np.maximum(FAVORED_PROBABILITY_FLOOR, apply_platt(p_fav, cal))
     return np.where(favored_home, p_fav_cal, 1.0 - p_fav_cal)
+
+
+def _logloss(p: np.ndarray, y: np.ndarray) -> float:
+    """Mean binary log loss on finite rows (same clipping as apply)."""
+    p = np.clip(np.asarray(p, dtype=float), CLIP, 1.0 - CLIP)
+    y = np.asarray(y, dtype=float)
+    ok = np.isfinite(p) & np.isfinite(y)
+    p, y = p[ok], y[ok]
+    return float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
+
+
+def prequential_fold_calibrators(
+        p_home: np.ndarray, home_win: np.ndarray,
+        fold_ids: np.ndarray) -> tuple[dict[int, dict | None], dict]:
+    """Per-fold favored-space calibrators, GATED by a nested prequential
+    holdout (2026-10-01 remediation).
+
+    Fold k's map is still fitted strictly on folds < k (the prequential
+    contract is unchanged). What changes is the decision to USE that map:
+    the candidate is fitted on the EARLIER part of the prior evidence and
+    scored against the raw blend on the MOST RECENT slice of it. The OOF
+    frame is walk-forward ordered, so the tail slice of the prior indices
+    is the freshest evidence that exists before fold k — the only
+    out-of-sample test available that cannot read the window it scores.
+    When the candidate cannot beat the raw blend there (by more than
+    CAL_GATE_EPS nats), the fold is served uncalibrated: a 2-parameter
+    Platt on rolling near-calibrated evidence adds variance, not signal
+    (the 2026-10-01 run's per-fold layer moved logloss 0.67583->0.67731
+    and ECE 0.01036->0.01466 while the pooled calibrator sat at
+    a=1.0124 b=-0.0069).
+
+    Returns (calibrators {fold_id: map or None}, audit). The audit
+    carries one record per fold (n_prior, decision, reason, both
+    nested-holdout log losses when a candidate was fitted) plus counts.
+    """
+    p = np.asarray(p_home, dtype=float)
+    y = np.asarray(home_win, dtype=float)
+    folds = np.asarray(fold_ids)
+    ok = np.isfinite(p) & np.isfinite(y) & (p > 0.0) & (p < 1.0)
+
+    calibrators: dict[int, dict | None] = {}
+    fold_records: list[dict] = []
+    for fold in np.unique(folds):
+        fid = int(fold)
+        prior_idx = np.flatnonzero(ok & (folds < fold))
+        rec: dict[str, Any] = {
+            "fold_id": fid, "n_prior": int(len(prior_idx)),
+            "decision": "identity", "reason": "no_prior_evidence",
+            "nested_holdout_logloss": None, "raw_logloss": None,
+            "params": None,
+        }
+        if len(prior_idx) >= 2:
+            # Temporal split of the strictly-prior evidence.
+            n_prior = len(prior_idx)
+            hold = max(config.CAL_GATE_MIN_HOLDOUT,
+                       int(round(config.CAL_GATE_HOLDOUT_FRAC * n_prior)))
+            fit_idx = prior_idx[:n_prior - hold] if n_prior > hold else []
+            hold_idx = prior_idx[-hold:] if hold else prior_idx
+            if (not len(fit_idx)
+                    or len(fit_idx) < config.MIN_OOF_FOR_FIT
+                    or len(hold_idx) < 2):
+                rec["reason"] = "insufficient_prior_evidence"
+            else:
+                cand = moneyline_fit(p[fit_idx], y[fit_idx])
+                if cand is None:
+                    rec["reason"] = "candidate_declined"
+                else:
+                    ll_cal = _logloss(
+                        apply_favored_platt(p[hold_idx], cand), y[hold_idx])
+                    ll_raw = _logloss(p[hold_idx], y[hold_idx])
+                    rec["nested_holdout_logloss"] = round(ll_cal, 6)
+                    rec["raw_logloss"] = round(ll_raw, 6)
+                    if ll_cal < ll_raw - config.CAL_GATE_EPS:
+                        final = moneyline_fit(p[prior_idx], y[prior_idx])
+                        if final is not None:
+                            calibrators[fid] = final
+                            rec.update(decision="fitted", reason="accepted",
+                                       params={"a": final["a"],
+                                               "b": final["b"]})
+                        else:
+                            rec["reason"] = "final_fit_declined"
+                    else:
+                        rec["reason"] = "gated_no_gain"
+        fold_records.append(rec)
+        calibrators.setdefault(fid, None)
+
+    audit: dict[str, Any] = {
+        "method": "prequential_platt_gated",
+        "n_folds": len(fold_records),
+        "n_fitted": sum(1 for r in fold_records if r["decision"] == "fitted"),
+        "n_identity": sum(1 for r in fold_records if r["decision"] == "identity"),
+        "n_gated": sum(1 for r in fold_records
+                        if r["reason"] == "gated_no_gain"),
+        "n_insufficient": sum(1 for r in fold_records
+                               if r["reason"] == "insufficient_prior_evidence"),
+        "n_declined": sum(1 for r in fold_records
+                           if r["reason"] in ("candidate_declined",
+                                               "final_fit_declined")),
+        "holdout_frac": config.CAL_GATE_HOLDOUT_FRAC,
+        "min_holdout": config.CAL_GATE_MIN_HOLDOUT,
+        "eps": config.CAL_GATE_EPS,
+        "folds": fold_records,
+    }
+    return calibrators, audit
