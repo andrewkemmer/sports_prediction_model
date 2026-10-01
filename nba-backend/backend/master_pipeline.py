@@ -1356,10 +1356,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                        "run's event coverage falls back to this machine's "
                        "cache alone", rollup_exc)
     _prune(out, date_c, set(artifacts))
-    sync = _sync_data_delivery(config.ROOT_DIR.parent)
-    summary["sync"] = sync
+    # Write the summary BEFORE the sync, the order NFL and NHL already use.
+    # _prune has just deleted every artifact this run did not regenerate -
+    # the previous run's summary with it - so a summary written after the
+    # sync never ships: the ephemeral Kaggle session drops it at session end
+    # and main keeps serving the stale copy from the last run whose summary
+    # happened to be committed (the 2026-10-01 run exposed main frozen at
+    # 2026-09-27 while five later runs pushed fresh artifacts around it).
+    # Written here, the summary ships with this run's own delivery; the sync
+    # result is attached to the in-memory summary for stdout only.
     (out / "nba_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))
+    sync = _sync_data_delivery(config.ROOT_DIR.parent)
+    summary["sync"] = sync
     _step("publish", f"status {summary['status']}, "
                      f"{summary['elapsed_seconds']}s, sync "
                      f"{sync.get('pushed', sync.get('status', 'n/a'))}")

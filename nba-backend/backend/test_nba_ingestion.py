@@ -973,6 +973,27 @@ class TestDeliverySync:
         assert out["pushed"] is False
         assert "NBA_PUSH" in out["skipped"]
 
+    def test_summary_write_precedes_the_delivery_sync(self):
+        """Pin the write-before-sync order in run()'s publish tail.
+
+        The sync result is attached to the summary under either order, so no
+        mocked-sync behavioral test can tell them apart - but only the
+        write-first order ships this run's summary: written after the sync it
+        dies with the ephemeral session and main keeps serving the stale copy
+        _prune left behind (2026-10-01: main's summary was frozen at
+        2026-09-27 while five later runs pushed fresh artifacts around it).
+        """
+        import inspect
+        import master_pipeline as mp
+
+        source = inspect.getsource(mp.run)
+        write_at = source.index('nba_pipeline_summary.json").write_text')
+        sync_at = source.index("sync = _sync_data_delivery(")
+        assert write_at < sync_at, (
+            "run() writes nba_pipeline_summary.json AFTER _sync_data_delivery,"
+            " so the pushed delivery never contains this run's summary; "
+            "write it before the sync, the order NFL and NHL already use")
+
     def test_a_push_that_delivers_nothing_is_a_failure(self):
         """The run reports success off the same signal as the push, so an
         unverified push turns a delivery failure into a silent one."""
