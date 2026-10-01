@@ -168,6 +168,10 @@ EXACT_MASTER_NAMES = frozenset({
     # Dashboard reads game_level_features.csv for final scores; regenerated
     # and staged every run (seen-protected anyway) — name-protect as a master.
     "game_level_features.csv",
+    # Rolling master run log (run_log_tee.py): overwritten in place by every
+    # pipeline run, so Phase 5 always stages it — but the dateless name would
+    # otherwise read as stale to Phase 6 on any run that didn't produce it.
+    "mlb_pipeline_run_log.txt",
 })
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --

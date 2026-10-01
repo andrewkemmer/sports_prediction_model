@@ -129,6 +129,12 @@ for mod in list(sys.modules.keys()):
 # ── Phase 1: Ingestion ──────────────────────────────────────────────────────
 import logging
 logging.basicConfig(level=logging.INFO, format="  %(levelname)s %(message)s")
+# Run-log tee (2026-10-01): capture the whole run into ONE rolling master
+# file in data_delivery/ — Phase 5 pushes it like any artifact and Phase 6
+# never evicts it (protected name), so the latest run's full log is always
+# reviewable from a plain git pull. Degrades to console-only on failure.
+from run_log_tee import install_run_log_tee, RUN_LOG_NAME
+install_run_log_tee(Path.cwd() / "data_delivery")
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast
 
