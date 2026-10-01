@@ -6,8 +6,11 @@ __pycache__/
 # The production serving families ARE repository-delivered: the pipeline
 # writes them to data_delivery/, commits/pushes them, and the frontend's
 # readers resolve the newest dated artifact from GitHub first (local disk is
-# the fallback). Negate ONLY these exact families; every other generated
-# file stays ignored (regenerated per run — OOF stores, caches, research).
+# the fallback). There is deliberately NO broad data_delivery/ ignore rule —
+# every tracked delivery family must ship — so the negations below document
+# the full serving contract (2026-09-30 retention audit: drift/coverage
+# CSVs, the injury archive, the leave ledger, and the RFE trace/workbook
+# were tracked but missing here; listed now so the contract matches reality).
 !data_delivery/models/
 !data_delivery/models/*.joblib
 !data_delivery/nhl_moneyline_v1_*.json
@@ -23,9 +26,24 @@ __pycache__/
 !data_delivery/nhl_shap_game_*.csv
 !data_delivery/nhl_production_cards_history.csv
 !data_delivery/nhl_production_cards_history.meta.json
+!data_delivery/run_engine_feature_drift_*.csv
+!data_delivery/run_engine_feature_coverage_*.csv
+!data_delivery/nhl_injury_snapshot_history.parquet
+!data_delivery/nhl_leave_events.json
+!data_delivery/nhl_feature_selection_*.json
+!data_delivery/nhl_feature_workbook_*.xlsx
 
-# Generated per-run internals — re-created by the pipeline, never committed.
+# Generated per-run internals — never committed.
+#   nhl_pipeline_summary.json / nhl_feature_selection_state.json are still
+#   written into data_delivery/ every run (local operational records; the
+#   retention policy protects them from the pruner).
+#   nhl_oof_*.csv / nhl_fold_table.csv moved OUT of data_delivery entirely
+#   (2026-09-30 retention audit: training residue → backend/run_diagnostics/);
+#   these rules stay only as guards against a stale runner re-creating them.
 data_delivery/nhl_oof_*.csv
 data_delivery/nhl_pipeline_summary.json
 data_delivery/nhl_fold_table.csv
 data_delivery/nhl_feature_selection_state.json
+
+# Training/diagnostic dump dir — model-training residue, local-only.
+run_diagnostics/

@@ -19,6 +19,18 @@ pipeline builds from the moneyline artifacts).
 This mirrors ``mlb-backend/backend/retention_policy.py`` structurally: one
 ``FamilyPolicy`` config table, one pure ``classify_artifact`` predicate, and
 the same never-delete classes.
+
+*** Training-process data never enters data_delivery (2026-09-30 audit) ***
+
+The delivery tree carries SERVING artifacts and cumulative serving state
+only. The model-training dumps (the OOF member/distribution stores and the
+fold table) write to ``nhl-backend/run_diagnostics/`` — local, gitignored,
+outside this policy's scope entirely. MLB ships a run_engine_oof_ store the
+NHL frontend has never consumed; the NHL keeps that residue out of the
+delivery instead. The run summary (nhl_pipeline_summary.json) stays a
+delivery-local operational record: dateless, rewritten every run, and
+registered above so the pruner cannot eat it mid-run the way it ate the
+leave ledger on 2026-09-29.
 """
 from __future__ import annotations
 
@@ -34,11 +46,9 @@ EXACT_MASTER_NAMES = frozenset({
     "nhl_production_cards_history.meta.json",
     # Adopted RFE serving width — written on explicit adopt only.
     "nhl_feature_selection_state.json",
-    # Run internals / maintained tables.
-    "nhl_fold_table.csv",
+    # Run record (rewritten every run before the pruner sees it; the NBA
+    # runner's wait-for-push contract reads its sport's own summary).
     "nhl_pipeline_summary.json",
-    "nhl_oof_moneyline.csv",
-    "nhl_oof_distribution.csv",
     # Captured ESPN injury snapshots — health is cumulative: deleting it would
     # tell every later run that no status was ever known (2026-09-29 log).
     "nhl_injury_snapshot_history.parquet",
@@ -50,6 +60,13 @@ EXACT_MASTER_NAMES = frozenset({
     # the repo by the artifact-sync commit 16108ed).
     "nhl_leave_events.json",
 })
+# 2026-09-30 retention audit: nhl_oof_moneyline.csv, nhl_oof_distribution.csv
+# and nhl_fold_table.csv are model-TRAINING residue nothing reads back. They
+# no longer belong in data_delivery at all (the pipeline writes them to the
+# local gitignored run_diagnostics/ dir), so they left this table — if a
+# future change ever writes one here again it is DATELESS and NOT a master,
+# so classify_artifact returns "stale" and the Phase 14 tripwire names it
+# loudly instead of silently protecting it forever like this table used to.
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --
 # -- reset rolling history.                                                --
@@ -85,9 +102,13 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  notes="newest-only (Calibration page _pick_artifact_date); "
                        "10-day blanket window"),
     FamilyPolicy("predictions_history", "nhl_predictions_history_",
-                 retention_days=10, allowlisted=True, board_supported=True,
+                 retention_days=None, allowlisted=True, board_supported=True,
                  notes="newest-only consumers (calibration curve/table, "
-                       "store fallback); 10-day blanket window"),
+                       "store fallback); board-backed companion exactly like "
+                       "MLB's — kept while its board date is tracked, and the "
+                       "board (nhl_run_engine_markets_) itself rides the "
+                       "blanket 10-day window, so the companion ages out with "
+                       "it"),
     FamilyPolicy("model_monitor", "nhl_model_monitor_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (monitor page); 10-day blanket window"),

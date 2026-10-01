@@ -37,9 +37,18 @@ python3 backend/master_pipeline.py --skip-pull  # use the .nhl_cache/ pulls
 `nhl_run_engine_monitor_<date>.json`, `nhl_goalie_matchup_<date>.json`,
 `nhl_feature_v1_<date>.json`, `nhl_model_monitor_<date>.json`,
 `nhl_shap_game_<game_id>.csv`, `models/nhl_ensemble_latest.joblib`,
-`nhl_production_cards_history.csv`, `nhl_oof_moneyline.csv`,
-`nhl_oof_distribution.csv`, `nhl_pipeline_summary.json`, `nhl_fold_table.csv`,
+`nhl_production_cards_history.csv` (+ `.meta.json`),
+`nhl_injury_snapshot_history.parquet`, `nhl_leave_events.json`,
+`nhl_feature_selection_<date>.json` (+ workbook),
+`nhl_pipeline_summary.json`,
 `run_engine_feature_drift_/coverage_<date>.csv`.
+
+Rolling retention (MLB parity): every dated family keeps the anchor date and
+the 10 days before it (anchor = `NHL_END_DATE` else today ET); the run-engine
+monitor series, `models/`, and the dateless cumulative stores (cards history,
+injury archive, leave ledger, RFE state) are never pruned. Model-training
+dumps (OOF member/distribution stores, the fold table) are NOT delivery
+artifacts — they write to the local gitignored `run_diagnostics/` dir.
 
 Game ids embed the date (`YYYYMMDD_AWAY@HOME` — the MLB convention), so SHAP
 files age by filename.

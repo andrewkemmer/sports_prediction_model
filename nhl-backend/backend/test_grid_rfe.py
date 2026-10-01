@@ -649,12 +649,38 @@ def test_retention_board_families_age_out_on_the_10_day_window():
         "nhl-backend/data_delivery/nhl_production_cards_history.meta.json",
         "nhl-backend/data_delivery/nhl_feature_selection_state.json",
         "nhl-backend/data_delivery/nhl_pipeline_summary.json",
-        "nhl-backend/data_delivery/nhl_oof_moneyline.csv",
+        "nhl-backend/data_delivery/nhl_injury_snapshot_history.parquet",
+        "nhl-backend/data_delivery/nhl_leave_events.json",
     ):
         verdict = rp.classify_artifact(
             rel, seen=set(), retention_dates=set(), recent_dates=set(),
             board_dates=set(), anchor_date="20260923")
         assert verdict == "protected", f"{rel} classified {verdict} — must be protected"
+
+    # Training-process dumps are NOT masters (2026-09-30 retention audit):
+    # they no longer belong in data_delivery at all (the pipeline writes them
+    # to backend/run_diagnostics/). If a stale runner ever re-creates one
+    # here it is DATELESS and UNREGISTERED — classify "stale" so the Phase 14
+    # tripwire names it loudly instead of the old table silently protecting
+    # it forever.
+    for rel in (
+        "nhl-backend/data_delivery/nhl_oof_moneyline.csv",
+        "nhl-backend/data_delivery/nhl_oof_distribution.csv",
+        "nhl-backend/data_delivery/nhl_fold_table.csv",
+    ):
+        assert not rp.is_never_delete(rel), f"{rel} must not be a master"
+        verdict = rp.classify_artifact(
+            rel, seen=set(), retention_dates=set(), recent_dates=set(),
+            board_dates=set(), anchor_date="20260923")
+        assert verdict == "stale", f"{rel} classified {verdict} — training dump back in delivery"
+
+    # predictions_history is MLB's board-backed COMPANION contract: no
+    # retention window of its own, kept while its board date is tracked
+    # (the board family itself rides the blanket 10-day window, so the
+    # companion ages out with it).
+    fam = {f.family: f for f in rp.FAMILY_POLICY}["predictions_history"]
+    assert fam.retention_days is None and fam.board_supported
+    assert fam.allowlisted
 
     # An unresolvable SHAP id is never guessed — protected.
     unresolvable = rp.classify_artifact(
@@ -676,6 +702,21 @@ def test_shap_age_uses_the_embedded_game_date():
     assert rp.shap_game_date(numeric) is None
     assert rp.artifact_date(numeric) is None, \
         "a 10-digit NHL game id must never parse as a truncated date"
+
+
+def test_training_diagnostics_live_outside_the_delivery_tree():
+    """The training-process dump dir must sit OUTSIDE data_delivery/ (the
+    2026-09-30 retention audit): delivery carries serving artifacts and
+    cumulative serving state only, so the OOF stores and the fold table
+    write to config.RUN_DIAGNOSTICS_DIR — local, gitignored, untouched by
+    the delivery retention policy and the artifact sync."""
+    import config
+
+    diag = config.RUN_DIAGNOSTICS_DIR.resolve()
+    delivery = config.DATA_DELIVERY_DIR.resolve()
+    assert delivery not in diag.parents, \
+        f"{diag} must not live inside the delivery tree {delivery}"
+    assert diag != delivery
 
 
 def test_retention_never_prunes_the_leave_ledger_or_injury_history():

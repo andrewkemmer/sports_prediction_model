@@ -23,6 +23,16 @@ BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 
+#: Local-only diagnostic dump dir for TRAINING-process residue (OOF member
+#: stores, the fold table) — deliberately OUTSIDE data_delivery/: the
+#: delivery tree carries serving artifacts and cumulative serving state
+#: only (2026-09-30 retention audit, MLB parity). Nothing on the frontend
+#: or in any later pipeline stage reads these files back; they exist so a
+#: finished run can be inspected offline. Never committed, never shipped,
+#: never prune-protected — data_delivery's retention policy does not apply
+#: here, and the dir is gitignored.
+RUN_DIAGNOSTICS_DIR = ROOT_DIR / "run_diagnostics"
+
 #: Versioned ledger of public non-medical leave-of-absence announcements
 #: (Dahlin/Meier/Winterton shapes). No free live feed publishes these events
 #: (verified 2026-09-29: the official NHL API serves no transactions

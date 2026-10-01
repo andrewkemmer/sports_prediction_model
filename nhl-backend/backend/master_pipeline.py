@@ -332,7 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         f"{fold_info['max_train']} (last)",
         f"  validation observations: {fold_info['total_val_games']}",
     ]))
-    fold_tbl.to_csv(out_dir / "nhl_fold_table.csv", index=False)
+    fold_tbl.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_fold_table.csv",
+                    index=False)
     logger.info("folds: %s", json.dumps(fold_info))
 
     # Disclosure (2026-09-30): windows whose validation population falls under
@@ -720,12 +721,17 @@ def main(argv: list[str] | None = None) -> int:
                                           config_meta, ml_reference=ml_ref)
     artifacts.append(p.name)
 
-    p = out_dir / "nhl_oof_moneyline.csv"
-    oof_ml.to_csv(p, index=False)
-    artifacts.append(p.name)
-    p = out_dir / "nhl_oof_distribution.csv"
-    oof_dist.to_csv(p, index=False)
-    artifacts.append(p.name)
+    # Training/diagnostic residue is NOT delivery (2026-09-30 retention
+    # audit): the OOF member/distribution stores and the fold table are
+    # model-training dumps nothing reads back, so they write to the local
+    # gitignored run_diagnostics/ dir instead of data_delivery/ — the
+    # delivery tree carries serving artifacts and cumulative serving state
+    # only. (The run summary below stays a delivery-local operational record.)
+    config.RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    oof_ml.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_oof_moneyline.csv",
+                  index=False)
+    oof_dist.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_oof_distribution.csv",
+                    index=False)
 
     p = out_dir / config.FEATURE_JSON.format(date=date_c)
     _write_feature_json(p, cov, config_meta, fold_info)
