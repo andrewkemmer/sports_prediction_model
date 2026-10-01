@@ -1,0 +1,48 @@
+{
+ "variant": "fallback",
+ "frame": "/home/daytona/codebase/mlb-backend/data_delivery/game_level_features.csv",
+ "n_games": 7382,
+ "pooled": {
+  "auc": 0.5573,
+  "brier": 0.2463,
+  "logloss": 0.6856,
+  "ece": 0.0096,
+  "brier_calibrated": 0.2465,
+  "logloss_calibrated": 0.6861,
+  "ece_calibrated": 0.0122,
+  "calibrator_gated_out": 1.0
+ },
+ "seal_n": 294,
+ "seal_fold_idx": [
+  82,
+  83,
+  84,
+  85
+ ],
+ "seal_raw": {
+  "auc": 0.6407,
+  "brier": 0.2353,
+  "logloss": 0.6633,
+  "ece": 0.0493
+ },
+ "seal_cal": {
+  "auc": 0.6425,
+  "brier": 0.236,
+  "logloss": 0.6647,
+  "ece": 0.0512
+ },
+ "last_weights": {
+  "elasticnet": 0.655,
+  "lightgbm": 0.345,
+  "xgboost": 0.0
+ },
+ "exp2_offspeed_nan_after": {
+  "exp2_cat_k_offspeed_diff": 49,
+  "exp2_cat_k_offspeed_home": 48,
+  "exp2_cat_k_offspeed_away": 46
+ },
+ "config": {
+  "seed": 42,
+  "metric": "logloss"
+ }
+}

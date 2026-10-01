@@ -1,0 +1,39 @@
+{
+  "schema": "feature-remediation-evidence/v1",
+  "date": "2026-10-01",
+  "topic": "exp2_cat coverage-gap root cause and SP-side zero-prior fallback",
+  "trigger": "User directive: identify what causes the exp2_cat coverage gap (run-log WARNING: exp2_cat_k_offspeed_diff / exp2_cat_xwoba_offspeed_diff at 57% measured vs 64% baseline) and remediate toward full coverage.",
+  "root_cause": {
+    "method": "Gap-row attribution over the full 7,382-game frame (scratch tune_exp2_coverage.py output, 2026-09-30 frame): every NaN in the served diffs decomposed to its missing formula input.",
+    "finding": "100% of gap rows have at least one starter with ZERO prior tracked PAs of that pitch category this season (the season-to-date ASOF prior is legitimately NULL). Team-side category inputs are NaN in only 1.4% of gap rows (offspeed). Offspeed is worst because it is ~11% of league PA usage (fastball/breaking ~89%), so a starter much more often has no prior offspeed sample; 197 season-opening March games are structurally unfillable from personal history.",
+    "old_behavior": "Zero-prior SP cells shipped NaN and rode per-fold median imputation inside the members — fabricating 'league-average offspeed' for the matchup product on ~43% of offspeed rows. For the served LEVEL twins, imputation additionally asserted a usage the pitcher has never shown."
+  },
+  "remediation": {
+    "change": "SP-side zero-prior cells collapse to no-edge (features.py, mirroring the 6b3b3e2 shrinkage philosophy): rate cells (sp_k_pct_cat / sp_xwoba_cat / sp_k_pct_fb_vs) fall back to the strictly-prior league rate for that date (SP deviation-from-league exactly 0 = no information); usage cells ship 0.0 (a KNOWN ZERO of tracked usage, per the user's reasoning). Team-side gaps still propagate NaN (never fabricate the opponent). Day-1 rows (no league prior anywhere) stay NaN via 0*NaN propagation — the only residual, 0.7% of rows.",
+    "tests": "test_exp2_no_history_fallback.py (8 tests on the emitted SQL templates with in-memory DuckDB): league fallback, known-zero usage, personal cells untouched, day-1 NULL, strictly-prior semantics (own-game exclusion, LAG-shifted league publication), fbhand fallback, team-side propagation. Battery 191 passed."
+  },
+  "gate": {
+    "design": "A/B on the production-identical exported frame (game_level_features.csv, 7,382 games, identical folds/seed/blend mechanics; scratch tune_exp2_gate.py): baseline = current NaN->imputation arithmetic; fallback = SP sources filled then all 24 exp2 columns recomputed via features.add_exp2_features (exactly what the next DuckDB build does). Both JSONs: mlb_exp2_fallback_gate_{baseline,fallback}_20261001.json.",
+    "pooled": {
+      "baseline": {"logloss": 0.6857, "auc": 0.5576, "brier": 0.2463, "ece": 0.0106},
+      "fallback": {"logloss": 0.6856, "auc": 0.5573, "brier": 0.2463, "ece": 0.0096}
+    },
+    "seal_last4_folds_n294": {
+      "baseline": {"logloss": 0.6640, "auc": 0.6400, "brier": 0.2356, "ece": 0.0566},
+      "fallback": {"logloss": 0.6633, "auc": 0.6407, "brier": 0.2353, "ece": 0.0493}
+    },
+    "coverage": {"offspeed_diff_nan": [3195, 49], "measured": ["56.7%", "99.3%"]},
+    "verdict": "ADOPT — pooled logloss better (-1 bp), pooled AUC -3 bp (inside the documented +/-0.001 not-measurably-worse band, model_tuning_policy SS4), pooled ECE better (-10 bp); the recent-form seal window (the folds the blend actually earns from) improves on ALL FOUR metrics, ECE by -73 bp. Beyond the numbers, the old behavior was semantically wrong: median imputation asserted league-average offspeed ability from zero evidence. The 49-row residue is day-1-no-league-prior, not remediable without leaking."
+  },
+  "scope_notes": [
+    "Runs are multi-threaded (production is not thread-pinned): 1e-4-scale deltas carry thread noise; the verdict rests on the seal sign-consistency, the ECE improvements, and the coverage/semantics correction.",
+    "Served level twins now express the known-zero usage semantics (0.0 instead of imputed) — part of the same correction, covered by the same gate.",
+    "exp2_cat_platoon_k_fastball_diff gains the same fbhand fallback (94.7% -> ~100%)."
+  ],
+  "artifacts": [
+    "mlb-backend/data_delivery/mlb_exp2_fallback_gate_baseline_20261001.json",
+    "mlb-backend/data_delivery/mlb_exp2_fallback_gate_fallback_20261001.json",
+    "mlb-backend/backend/features.py (_EXP2_SP_CAT_RATE_SQL / _EXP2_SP_USAGE_SQL templates + wiring)",
+    "mlb-backend/backend/test_exp2_no_history_fallback.py"
+  ]
+}

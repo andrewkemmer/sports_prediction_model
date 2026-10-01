@@ -293,6 +293,87 @@ _BP_K_FLOOR = 20.0           # pitch floor: k can never collapse to ~0
 # back to a strictly prior league runs/9 rate, then to the raw recent rate.
 _SP_ERA_5G_SHRINK_IP = 30.0
 
+# Zero-prior fallback for SP pitch-category cells (2026-10-01 exp2 coverage
+# remediation; mirrors the 6b3b3e2 shrinkage philosophy at the feature layer).
+# The exp2 matchup products multiply SP deviation-from-league factors, so a
+# category with zero prior tracked PAs renders as league-average rate (SP
+# deviation exactly 0 = no information) and zero tracked usage — the honest
+# "no matchup edge" — instead of NaN riding per-fold median imputation, which
+# fabricated "league-average offspeed" for ~43% of offspeed rows. Team-side
+# gaps are NOT backfilled here: the opponent's history is real information,
+# never fabricated. Templates so unit tests can assert the exact emitted SQL.
+_EXP2_SP_CAT_RATE_SQL = "COALESCE(%s, %s)"
+_EXP2_SP_USAGE_SQL = "COALESCE(%s, 0.0)"
+
+# Zero-prior SP category priors (module constants so the emitted SQL is
+# unit-testable against tiny fabricated inputs — see
+# test_exp2_no_history_fallback.py).
+_EXP2_SP_CAT_PRELIM_SQL = f"""
+        CREATE TABLE exp2_sp_cat_prelim AS
+        SELECT g.game_date, g.pitcher, g.season, g.pitch_cat,
+            {_EXP2_SP_CAT_RATE_SQL % ("c.k_thru / NULLIF(c.pa_thru, 0)",
+                                      "lg.league_k_pct_cat")}
+                AS sp_k_pct_cat,
+            {_EXP2_SP_CAT_RATE_SQL % ("c.xwo_thru / NULLIF(c.xwon_thru, 0)",
+                                      "lg.league_xwoba_cat")}
+                AS sp_xwoba_cat,
+            c.pa_thru AS sp_pa_cat_cum
+        FROM (
+            SELECT d.game_date, d.pitcher, d.season, cats.pitch_cat
+            FROM (SELECT DISTINCT game_date, pitcher, season
+                  FROM exp2_sp_cat_daily) d
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed'))
+                   AS cats(pitch_cat)
+        ) g
+        ASOF LEFT JOIN exp2_sp_cat_cum c
+          ON g.pitcher = c.pitcher AND g.season = c.season
+         AND g.pitch_cat = c.pitch_cat AND g.game_date > c.game_date
+        ASOF LEFT JOIN exp2_league_cat lg
+          ON g.pitch_cat = lg.pitch_cat AND g.game_date >= lg.game_date
+    """
+
+_EXP2_SP_CAT_SQL = f"""
+        CREATE TABLE exp2_sp_cat AS
+        SELECT g.game_date, g.pitcher, g.pitch_cat,
+            g.sp_k_pct_cat,
+            g.sp_xwoba_cat,
+            -- Usage: prior PAs of this category / prior PAs across all three
+            -- tracked categories (sums to 1 across categories, same as-of
+            -- date). A zero-prior category is a KNOWN ZERO of tracked usage,
+            -- not a missing measurement: ships 0.0 so the exp2 product
+            -- collapses to no-edge (2026-10-01) instead of NaN→imputation
+            -- which told the model the pitcher throws league-average
+            -- offspeed. Day-1 rows stay NaN via 0 * NULL rate propagation.
+            {_EXP2_SP_USAGE_SQL % "g.sp_pa_cat_cum / NULLIF(t.pa_thru, 0)"}
+                AS sp_usage_cat
+        FROM exp2_sp_cat_prelim g
+        ASOF LEFT JOIN exp2_sp_cat_tot_cum t
+          ON g.pitcher = t.pitcher AND g.season = t.season
+         AND g.game_date > t.game_date
+    """
+
+_EXP2_SP_FBHAND_SQL = f"""
+        CREATE TABLE exp2_sp_fbhand AS
+        SELECT g.game_date, g.pitcher, g.stand,
+            -- Zero-prior handedness cell: the strictly-prior league rate for
+            -- that stand (same no-edge fallback as exp2_sp_cat above).
+            {_EXP2_SP_CAT_RATE_SQL % ("c.k_thru / NULLIF(c.pa_thru, 0)",
+                                      "lg.league_k_pct_fb_vs")}
+                AS sp_k_pct_fb_vs,
+            c.pa_thru AS sp_pa_fb_vs
+        FROM (
+            SELECT d.game_date, d.pitcher, d.season, h.st AS stand
+            FROM (SELECT DISTINCT game_date, pitcher, season
+                  FROM exp2_sp_fbhand_daily) d
+            CROSS JOIN (VALUES ('L'), ('R')) AS h(st)
+        ) g
+        ASOF LEFT JOIN exp2_sp_fbhand_cum c
+          ON g.pitcher = c.pitcher AND g.season = c.season
+         AND g.stand = c.stand AND g.game_date > c.game_date
+        ASOF LEFT JOIN exp2_league_fbhand lg
+          ON g.stand = lg.stand AND g.game_date >= lg.game_date
+    """
+
 _BP_ARM_UNAVAILABLE_SQL = """EXISTS (
               SELECT 1 FROM il_stints_pitchers i
               WHERE i.batter = p.pitcher
@@ -2285,36 +2366,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WINDOW w AS (PARTITION BY pitcher, season ORDER BY game_date
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
-    con.execute(f"""
-        CREATE TABLE exp2_sp_cat_prelim AS
-        SELECT g.game_date, g.pitcher, g.season, g.pitch_cat,
-            c.k_thru / NULLIF(c.pa_thru, 0) AS sp_k_pct_cat,
-            c.xwo_thru / NULLIF(c.xwon_thru, 0) AS sp_xwoba_cat,
-            c.pa_thru AS sp_pa_cat_cum
-        FROM (
-            SELECT d.game_date, d.pitcher, d.season, cats.pitch_cat
-            FROM (SELECT DISTINCT game_date, pitcher, season
-                  FROM exp2_sp_cat_daily) d
-            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed'))
-                   AS cats(pitch_cat)
-        ) g
-        ASOF LEFT JOIN exp2_sp_cat_cum c
-          ON g.pitcher = c.pitcher AND g.season = c.season
-         AND g.pitch_cat = c.pitch_cat AND g.game_date > c.game_date
-    """)
-    con.execute(f"""
-        CREATE TABLE exp2_sp_cat AS
-        SELECT g.game_date, g.pitcher, g.pitch_cat,
-            g.sp_k_pct_cat,
-            g.sp_xwoba_cat,
-            -- Usage: prior PAs of this category / prior PAs across all three
-            -- tracked categories (sums to 1 across categories, same as-of date).
-            g.sp_pa_cat_cum / NULLIF(t.pa_thru, 0) AS sp_usage_cat
-        FROM exp2_sp_cat_prelim g
-        ASOF LEFT JOIN exp2_sp_cat_tot_cum t
-          ON g.pitcher = t.pitcher AND g.season = t.season
-         AND g.game_date > t.game_date
-    """)
+    con.execute(_EXP2_SP_CAT_PRELIM_SQL)
+    con.execute(_EXP2_SP_CAT_SQL)
 
     # Starter fastball K% by opposing-batter handedness — DATE-LEVEL
     # season-to-date priors (same daily + ASOF construction as exp2_sp_cat).
@@ -2335,21 +2388,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WINDOW w AS (PARTITION BY pitcher, season, stand ORDER BY game_date
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
-    con.execute(f"""
-        CREATE TABLE exp2_sp_fbhand AS
-        SELECT g.game_date, g.pitcher, g.stand,
-            c.k_thru / NULLIF(c.pa_thru, 0) AS sp_k_pct_fb_vs,
-            c.pa_thru AS sp_pa_fb_vs
-        FROM (
-            SELECT d.game_date, d.pitcher, d.season, h.st AS stand
-            FROM (SELECT DISTINCT game_date, pitcher, season
-                  FROM exp2_sp_fbhand_daily) d
-            CROSS JOIN (VALUES ('L'), ('R')) AS h(st)
-        ) g
-        ASOF LEFT JOIN exp2_sp_fbhand_cum c
-          ON g.pitcher = c.pitcher AND g.season = c.season
-         AND g.stand = c.stand AND g.game_date > c.game_date
-    """)
+    con.execute(_EXP2_SP_FBHAND_SQL)
 
     # Offense per-category raw per-game counts (team-aggregated).
     con.execute(f"""
