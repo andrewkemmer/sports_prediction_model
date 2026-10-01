@@ -2309,6 +2309,30 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WINDOW wp AS (PARTITION BY pitch_cat ORDER BY game_date)
     """)
 
+    # League fastball K% by batter handedness (per-date cumulative published
+    # as-of the previous date — strictly prior, same as exp2_league_k).
+    # 2026-10-01: hoisted ABOVE the exp2_sp_cat/_fbhand builders — the
+    # zero-prior fallback joins this table there, and creation order must
+    # match dependency order (the nightly run died on exactly that).
+    con.execute(f"""
+        CREATE TABLE exp2_league_fbhand AS
+        WITH daily AS (
+            SELECT game_date, stand,
+                SUM(_k) OVER w / NULLIF(SUM(_pa) OVER w, 0) AS k_thru
+            FROM (
+                SELECT game_date, stand, SUM(k_flag) AS _k, SUM(n_flag) AS _pa
+                FROM exp2_pa WHERE pitch_cat = 'fastball'
+                GROUP BY game_date, stand
+            )
+            WINDOW w AS (PARTITION BY stand ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+        )
+        SELECT game_date, stand,
+               LAG(k_thru) OVER wp AS league_k_pct_fb_vs
+        FROM daily
+        WINDOW wp AS (PARTITION BY stand ORDER BY game_date)
+    """)
+
     # Starter per-category raw per-game counts (PAs ending on each category).
     con.execute(f"""
         CREATE TABLE exp2_sp_cat_game AS
@@ -2499,27 +2523,6 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         ASOF LEFT JOIN exp2_team_fbhand_cum c
           ON g.batting_team = c.batting_team AND g.season = c.season
          AND g.stand = c.stand AND g.game_date > c.game_date
-    """)
-
-    # League fastball K% by batter handedness (per-date cumulative published
-    # as-of the previous date — strictly prior, same as exp2_league_k).
-    con.execute(f"""
-        CREATE TABLE exp2_league_fbhand AS
-        WITH daily AS (
-            SELECT game_date, stand,
-                SUM(_k) OVER w / NULLIF(SUM(_pa) OVER w, 0) AS k_thru
-            FROM (
-                SELECT game_date, stand, SUM(k_flag) AS _k, SUM(n_flag) AS _pa
-                FROM exp2_pa WHERE pitch_cat = 'fastball'
-                GROUP BY game_date, stand
-            )
-            WINDOW w AS (PARTITION BY stand ORDER BY game_date
-                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
-        )
-        SELECT game_date, stand,
-               LAG(k_thru) OVER wp AS league_k_pct_fb_vs
-        FROM daily
-        WINDOW wp AS (PARTITION BY stand ORDER BY game_date)
     """)
 
     # 7g/7h — travel fatigue + closer availability (helpers above).

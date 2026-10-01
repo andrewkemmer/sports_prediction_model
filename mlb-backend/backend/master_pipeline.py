@@ -133,8 +133,15 @@ logging.basicConfig(level=logging.INFO, format="  %(levelname)s %(message)s")
 # file in data_delivery/ — Phase 5 pushes it like any artifact and Phase 6
 # never evicts it (protected name), so the latest run's full log is always
 # reviewable from a plain git pull. Degrades to console-only on failure.
-from run_log_tee import install_run_log_tee, RUN_LOG_NAME
-install_run_log_tee(Path.cwd() / "data_delivery")
+from run_log_tee import (
+    install_crash_log_pusher,
+    install_run_log_tee,
+    RUN_LOG_NAME,
+)
+_log_path = install_run_log_tee(Path.cwd() / "data_delivery")
+install_crash_log_pusher(
+    _log_path, CONFIG["github_username"], CONFIG["github_repo"],
+    CONFIG["github_branch"])
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast
 

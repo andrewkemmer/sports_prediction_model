@@ -13,12 +13,18 @@ like any other regenerated artifact (its mtime always moves) and Phase 6
 keeps it because the name is protected in retention_policy
 (EXACT_MASTER_NAMES, dateless master file).
 
-The tee is intentionally forgiving: every failure mode degrades to plain
-console logging (never raises into the pipeline).
+CRASH DELIVERY: a run that dies BEFORE Phase 5 would never push the log —
+the traceback would sit on the VM with everything else. install_crash_log_pusher
+registers a sys.excepthook that, on any uncaught exception AFTER the default
+traceback printer runs, clones the remote tip and pushes just the log file
+(subject: 'crash delivery'). Like the tee, every failure mode degrades
+silently — a failed crash push must never mask the original error.
 """
 from __future__ import annotations
 
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 RUN_LOG_NAME = "mlb_pipeline_run_log.txt"
@@ -83,3 +89,56 @@ def install_run_log_tee(data_delivery_dir: Path) -> Path | None:
     print(f"  📝 Run log tee: {log_path} (one rolling master file, "
           f"overwritten every run)")
     return log_path
+
+
+def push_log_on_crash(log_path: Path, username: str, repo_name: str,
+                      branch: str = "main") -> bool:
+    """Push ONLY the run log to data_delivery (crash delivery).
+
+    Self-contained so it works no matter how early the pipeline died:
+    fresh depth-1 clone of the remote tip, copy the log over the protected
+    master name, commit, push_with_retry. Returns True on a confirmed push.
+    """
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token or not log_path or not Path(log_path).exists():
+        return False
+    import shutil
+    import tempfile
+    import git
+    from github_sync import push_with_retry
+    with tempfile.TemporaryDirectory(prefix="mlb_crash_log_") as td:
+        auth_url = (f"https://{token}@github.com/{username}/{repo_name}.git")
+        repo = git.Repo.clone_from(auth_url, td, branch=branch, depth=1)
+        rel = f"mlb-backend/data_delivery/{RUN_LOG_NAME}"
+        dest = Path(td) / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(log_path, dest)
+        repo.index.add([rel])
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        repo.index.commit(f"Pipeline run log (crash delivery, {stamp})")
+        push_with_retry(repo, branch, restage=None, attempts=2, log=print)
+    return True
+
+
+def install_crash_log_pusher(log_path: Path | None, username: str,
+                             repo_name: str, branch: str = "main") -> None:
+    """On any uncaught exception, print the traceback (the ORIGINAL hook's
+    job — never skipped), then best-effort push the captured log."""
+    if not log_path:
+        return
+    previous = sys.excepthook
+
+    def _hook(exc_type, exc, tb) -> None:
+        previous(exc_type, exc, tb)  # traceback to console (and tee) first
+        if isinstance(exc, SystemExit):
+            return  # deliberate exits are not crashes
+        try:
+            if push_log_on_crash(log_path, username, repo_name, branch):
+                print("  📝 Crash log pushed to "
+                      f"mlb-backend/data_delivery/{RUN_LOG_NAME}")
+            else:
+                print("  ⚠️  Crash log NOT pushed (no token or no log file)")
+        except Exception as push_exc:  # never mask the original error
+            print(f"  ⚠️  Crash log push failed: {push_exc}")
+
+    sys.excepthook = _hook

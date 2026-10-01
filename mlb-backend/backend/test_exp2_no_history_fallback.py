@@ -257,3 +257,56 @@ def test_team_side_gaps_still_propagate_in_add_exp2():
     df.loc[0, "team_k_pct_cat_offspeed_away"] = float("nan")
     out = features.add_exp2_features(df)
     assert out["exp2_cat_k_offspeed_diff"].isna().tolist() == [True, False]
+
+
+# ── creation-order regression (2026-10-01 nightly failure) ────────────────
+
+def _statement_execution_order() -> list[tuple[int, str]]:
+    """(lineno, sql-first-line) for every con.execute(CREATE TABLE ...) and
+    every con.execute(MODULE_CONSTANT) statement inside
+    features._build_game_level, in source order — the execution order."""
+    import ast
+    tree = ast.parse(Path(features.__file__).read_text())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef)
+              and n.name == "_build_game_level")
+    out: list[tuple[int, str]] = []
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute"):
+            continue
+        arg = node.args[0] if node.args else None
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            sql = arg.value
+        elif isinstance(arg, ast.JoinedStr):
+            # f-string statement: the CREATE TABLE header lives in the first
+            # constant segment(s); interpolations come later in the body.
+            sql = "".join(v.value for v in arg.values
+                          if isinstance(v, ast.Constant)
+                          and isinstance(v.value, str))
+        elif isinstance(arg, ast.Name):
+            sql = getattr(features, arg.id, "")
+        else:
+            continue
+        for line in sql.splitlines():
+            s = line.strip()
+            if s.upper().startswith("CREATE TABLE "):
+                out.append((node.lineno, s.split()[2]))
+                break
+    return sorted(out)
+
+
+def test_league_fbhand_created_before_its_consumers():
+    """The 2026-10-01 nightly run died with CatalogException: the
+    zero-prior fallback made _EXP2_SP_FBHAND_SQL consume exp2_league_fbhand
+    while its CREATE lived LATER in the build. Pinned by simulated
+    execution order (module-constant statements resolve to their SQL),
+    not raw text offsets."""
+    order = _statement_execution_order()
+    created = {name: i for i, (_, name) in enumerate(order)}
+    assert "exp2_league_fbhand" in created
+    for consumer in ("exp2_sp_fbhand", "game_level"):
+        assert consumer in created, f"{consumer} not found in order scan"
+        assert created[consumer] > created["exp2_league_fbhand"], (
+            f"{consumer} executes before exp2_league_fbhand is created")

@@ -98,3 +98,44 @@ def test_dated_artifacts_outside_windows_still_classify_stale():
         seen=set(), retention_dates=set(), recent_dates=set(),
         board_dates=set())
     assert verdict == "stale"
+
+
+# ── crash delivery (2026-10-01 nightly failure: the log must outlive the VM) ─
+
+def test_push_log_on_crash_noop_without_token_or_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert run_log_tee.push_log_on_crash(tmp_path / "x.txt", "u", "r") is False
+    monkeypatch.setenv("GITHUB_TOKEN", "dummy")
+    assert run_log_tee.push_log_on_crash(
+        tmp_path / "missing.txt", "u", "r") is False
+
+
+def test_crash_hook_runs_previous_hook_first_and_skips_systemexit(
+        tmp_path, monkeypatch):
+    log = tmp_path / run_log_tee.RUN_LOG_NAME
+    log.write_text("traceback would be here")
+    calls: list = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: calls.append(a))
+    monkeypatch.setattr(run_log_tee, "push_log_on_crash",
+                        lambda *a, **k: calls.append("push") or True)
+    run_log_tee.install_crash_log_pusher(log, "u", "r")
+    err = ValueError("boom")
+    sys.excepthook(type(err), err, None)
+    assert calls[0] is not "push" and calls[0][1] is err  # original hook ran
+    assert calls[1] == "push"                              # then delivery
+    # SystemExit = deliberate shutdown, not a crash: no push
+    calls.clear()
+    sys.excepthook(SystemExit, SystemExit(1), None)
+    assert "push" not in calls
+
+
+def test_crash_hook_never_masks_the_original_error(tmp_path, monkeypatch):
+    log = tmp_path / run_log_tee.RUN_LOG_NAME
+    log.write_text("x")
+    monkeypatch.setattr(sys, "excepthook", lambda *a: None)
+    monkeypatch.setattr(run_log_tee, "push_log_on_crash",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            RuntimeError("network down")))
+    run_log_tee.install_crash_log_pusher(log, "u", "r")
+    err = ValueError("original")
+    sys.excepthook(type(err), err, None)  # must NOT raise despite push failure
