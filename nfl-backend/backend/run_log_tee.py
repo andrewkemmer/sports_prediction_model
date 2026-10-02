@@ -119,18 +119,31 @@ def install_run_log_tee(data_delivery_dir: Path) -> Path | None:
     # Tee the CURRENT stream objects (whatever harness replaced them with),
     # preserving their targets; the idempotence check above prevents chains.
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
-    sys.stdout = _Tee(orig_stdout, log_file)
-    sys.stderr = _Tee(orig_stderr, log_file)
+    tee_stdout = _Tee(orig_stdout, log_file)
+    tee_stderr = _Tee(orig_stderr, log_file)
+    sys.stdout = tee_stdout
+    sys.stderr = tee_stderr
     # logging.basicConfig ran BEFORE this install (module import time),
     # so its StreamHandler captured the PRE-tee stderr and every
     # INFO/WARNING record bypassed the log. Re-point handlers still
     # aimed at the captured console streams; handlers owned by an outer
     # harness (pytest's capture, notebook kernels) hold their own stream
     # objects and are left alone.
+    #
+    # The handler receives the SAME _Tee object as sys.stdout/sys.stderr,
+    # not a fresh wrapper of the same console. tqdm recognises a stream
+    # by identity (external_write_mode's ``f in (sys.stdout, sys.stderr)``),
+    # so a second _Tee around the same console would leave every console
+    # handler invisible to it — and a log record would paint itself into
+    # the middle of the live bar's row instead of above the bar. One
+    # wrapper per stream keeps the identity the clear/write/repaint dance
+    # in ingestion.StageProgress depends on.
     for _h in logging.getLogger().handlers:
-        if isinstance(_h, logging.StreamHandler) \
-                and _h.stream in (orig_stdout, orig_stderr):
-            _h.stream = _Tee(_h.stream, log_file)
+        if isinstance(_h, logging.StreamHandler):
+            if _h.stream is orig_stdout:
+                _h.stream = tee_stdout
+            elif _h.stream is orig_stderr:
+                _h.stream = tee_stderr
     import atexit
     atexit.register(log_file.close)
     print(f"  📝 Run log tee: {log_path} (one rolling master file, "

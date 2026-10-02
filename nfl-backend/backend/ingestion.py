@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -1026,6 +1027,77 @@ def _hms(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _install_log_record_bridge() -> None:
+    """Route log records around live bars, the way ``tqdm.write`` does.
+
+    ``StreamHandler.emit`` writes straight to its stream. While a bar
+    is live that stream sits at the end of the bar's row, so a record
+    paints itself over the tail of the bar, its newline drops the
+    cursor onto the next row, and the bar's next repaint starts a NEW
+    row — one bar split across two rows with a record in the seam.
+    ``tqdm`` solves this for its own writes with ``tqdm.write``: clear
+    every bar sharing the stream, write the line, repaint the bars. A
+    logging record needs the same treatment, so the emit path borrows
+    it while any bar is live.
+
+    Installed once, lazily, when the first real bar is made: a run
+    without ``tqdm`` (or with ``NFL_PROGRESS=0``) never has a live bar
+    and never gets the patch at all. Gated the same way at emit time, so
+    with no bars live the write is byte-for-byte the stock
+    ``StreamHandler.emit`` path. Handlers that override ``emit``
+    (pytest's capture, live logging) are untouched, and a handler
+    writing anywhere but the console streams keeps the stock path —
+    only a console handler can collide with a bar.
+
+    Display only: a failure inside the dance is reported through
+    ``handleError`` like any emit failure and never reaches the caller.
+    """
+    original = logging.StreamHandler.emit
+    if getattr(original, "_nfl_progress_bar_bridge", False):
+        return
+
+    def _emit(self, record):
+        try:
+            msg = self.format(record)
+        except RecursionError:
+            raise
+        except Exception:  # noqa: BLE001 - emit must never raise
+            self.handleError(record)
+            return
+        terminator = self.terminator
+        if not (isinstance(terminator, str)
+                and self.stream in (sys.stdout, sys.stderr)):
+            # Not a console handler: nothing a bar can collide with.
+            self.stream.write(msg + terminator)
+            self.flush()
+            return
+        try:
+            from tqdm import tqdm  # type: ignore[import-not-found]
+        except Exception:  # noqa: BLE001 - absence is a supported state
+            self.stream.write(msg + terminator)
+            self.flush()
+            return
+        instances = getattr(tqdm, "_instances", None)
+        if not instances:
+            # No live bar: the stock write, byte for byte.
+            self.stream.write(msg + terminator)
+            self.flush()
+            return
+        # A console handler with bars live: let tqdm clear the bar row,
+        # write the line, and repaint, so the bar stays on one row for
+        # its whole life and the record lands above it.
+        try:
+            tqdm.write(msg, file=self.stream, end=terminator)
+            self.flush()
+        except RecursionError:
+            raise
+        except Exception:  # noqa: BLE001 - never break logging
+            self.handleError(record)
+
+    _emit._nfl_progress_bar_bridge = True  # type: ignore[attr-defined]
+    logging.StreamHandler.emit = _emit
+
+
 class StageProgress:
     """MLB-statcast-style progress bar: tqdm when importable, else a counter.
 
@@ -1096,7 +1168,12 @@ class StageProgress:
             # computed off one or two samples read as a measurement and are
             # nothing of the kind. Default tqdm format minus the rate.
             kwargs["bar_format"] = "{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}"
-        return tqdm(total=self.total, desc=self.label, leave=True, **kwargs)
+        bar = tqdm(total=self.total, desc=self.label, leave=True, **kwargs)
+        # A live bar is the one state in which a logging record can
+        # tear the bar across two rows, so from the first bar on,
+        # records are written around bars instead of through them.
+        _install_log_record_bridge()
+        return bar
 
     def advance(self, n: int = 1) -> "StageProgress":
         """Move the bar forward. Callable, so it can be a bare callback."""
