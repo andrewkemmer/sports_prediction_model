@@ -1356,12 +1356,15 @@ def ensemble_predict(
                 else:
                     Xuse = Xu  # legacy mlp: full matrix
             elif name == "xgboost":
-                Xi, _ = _impute_median(X, medians)
-                # _feature_matrix guarantees full MONEYLINE_FEATURE_COLS width/order.
+                # Raw NaN frame — the SAME representation the member is
+                # fit with (NHL member_matrix parity: both tree members
+                # share one frame; XGBoost routes missing values
+                # natively). _feature_matrix guarantees full
+                # MONEYLINE_FEATURE_COLS width/order.
                 # Clamp to the fit-time vocabulary so predict-time newcomers
                 # (callup starters etc.) route to UNK instead of crashing
                 # XGBoost's "category not in the training set" check.
-                Xuse = _tree_dataframe(Xi, X_cat, active_moneyline_feature_cols(),
+                Xuse = _tree_dataframe(X, X_cat, active_moneyline_feature_cols(),
                                        vocabs=ml_models.get("categorical_vocab"))
             elif name == "lightgbm":
                 import pandas as pd
@@ -1497,10 +1500,11 @@ def train_moneyline_ensemble(
 
     models = {}
 
-    # XGBoost — tuned config: train-median imputation + early stopping.
-    # The raw NaN matrix that tree members used to consume natively is
-    # replaced by the same train-fold-median-imputed matrix that logistic/MLP
-    # use (no val leakage). Walk-forward folds get n_estimators=2000 +
+    # XGBoost — tuned config: raw NaN frame + early stopping. The XGB
+    # member consumes the SAME raw feature matrix LightGBM does (NaN routed
+    # natively — the missing-value direction is learned, not imputed),
+    # matching the NHL member_matrix routing where both tree members share
+    # one frame. Walk-forward folds get n_estimators=2000 +
     # early_stopping_rounds=20 on the val window as a MEASUREMENT probe
     # (~19-26 median rounds at depth 2 — see config provenance); the SHIPPED
     # fold model is the causal refit below. Fit-only refits use
@@ -1513,9 +1517,9 @@ def train_moneyline_ensemble(
         # enable_categorical=True (in XGBOOST_PARAMS) picks them up natively.
         # Labels mirror _feature_matrix's guaranteed width/order.
         num_cols_in_data = active_moneyline_feature_cols()
-        X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, num_cols_in_data)
+        X_train_xgb = _tree_dataframe(X_train, X_cat_train, num_cols_in_data)
         if X_val is not None:
-            X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, num_cols_in_data)
+            X_val_xgb = _tree_dataframe(X_val, X_cat_val, num_cols_in_data)
             # CAUSAL FOLD ROUNDS (2026-09-30 PIT review): the early-stopped
             # fit below is a MEASUREMENT ONLY — its best_iteration enters
             # the causal list and informs STRICTLY LATER folds. The SHIPPED

@@ -156,8 +156,12 @@ ELASTICNET_PARAMS = {
 # MLB low-signal regime. The fold trainer adds early_stopping_rounds=20
 # and n_estimators=2000 (generous ceiling ~50 median rounds at refit) when
 # a validation window is available; fit-only refits use the params below
-# directly with no early stopping. Train-median imputation is now applied
-# alongside logistic/MLP (the Optuna winner consistently preferred it).
+# directly with no early stopping. The member consumes the RAW NaN
+# feature matrix (B2a, 2026-10-01): the same frame LightGBM gets,
+# routed natively like the NHL tree members — XGB-only median
+# imputation was a detour that made the two tree members see
+# different data. Optuna tuned on the imputed matrix; the raw
+# frame is the parity-correct representation, re-measured below.
 # L5 re-tune (2026-09-21): causal 73-fold random search (seeded, 32 draws) on
 # the 7,288-game frame + 3-seed confirmation (42/7/2026): pooled OOF member
 # logloss 0.6789 -> 0.6770 mean, better on all three seeds (>=0.001 gate).

@@ -31,7 +31,6 @@ from training import (
     UNK_TEAM_ID,
     _add_team_ids,
     _categorical_matrix,
-    _impute_median,
     _tree_dataframe,
 )
 
@@ -238,7 +237,6 @@ def compute_shap_per_game(
     if not {"home_team_id", "away_team_id"} <= set(games.columns):
         games = _add_team_ids(games)
     X_cat = _categorical_matrix(games)
-    medians = models.get("impute_median")
     n_full = X.shape[1] + len(TREE_CATEGORICAL_COLS)
 
     def _model_input(name: str, i: int):
@@ -246,8 +244,11 @@ def compute_shap_per_game(
         xn = X[i:i + 1]
         xc = X_cat[i:i + 1]
         if name == "xgboost":
-            Xi = _impute_median(xn, medians)[0] if medians is not None else xn
-            return _tree_dataframe(Xi, xc, cols)
+            # Raw NaN row — the representation the XGB member is
+            # fit AND served with (training.py routes the raw
+            # frame to xgboost, NHL member_matrix parity); the
+            # imputed row would misattribute the imputed cells.
+            return _tree_dataframe(xn, xc, cols)
         if name == "lightgbm":
             dfp = pd.DataFrame(xn, columns=cols)
             for j, c in enumerate(TREE_CATEGORICAL_COLS):
