@@ -128,6 +128,25 @@ def _library_stack() -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Run-log tee (2026-10-01, MLB parity — run_log_tee.py):
+    # capture the whole run into ONE rolling master file in
+    # data_delivery/. The end-of-run _sync_data_delivery stages
+    # the complete delivery tree (git add -A), so the log rides
+    # along like any artifact, and retention_policy protects the
+    # dateless master name from the prune — the latest run's full
+    # log is reviewable from a plain git pull. A run that dies
+    # before the sync pushes just the log (crash delivery).
+    # Degrades to console-only on failure. Installed before
+    # argparse so EVERYTHING the run prints lands in the file.
+    from run_log_tee import (
+        install_crash_log_pusher,
+        install_run_log_tee,
+    )
+    _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+    # Same hardcoded coordinates _sync_data_delivery pushes to.
+    install_crash_log_pusher(
+        _log_path, "andrewkemmer", "sports_prediction_model")
+
     ap = argparse.ArgumentParser(description="NFL production master pipeline")
     ap.add_argument("--skip-pull", action="store_true",
                     help="use cached nflverse pulls (no network)")

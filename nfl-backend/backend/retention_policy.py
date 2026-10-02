@@ -84,6 +84,12 @@ EXACT_MASTER_NAMES = frozenset({
     # Run report (git-ignored local observability; the runner reads it to
     # verify the push). Never delivered.
     "nfl_pipeline_summary.json",
+    # Rolling master run log (run_log_tee.py): overwritten in place by
+    # every run and delivered with the sync tree. Dateless, so the
+    # blanket policy would otherwise call it stale and the run's own
+    # prune would evict the latest log (MLB parity:
+    # mlb_pipeline_run_log.txt).
+    "nfl_pipeline_run_log.txt",
     # 2026-09-30 audit: the run-internals that USED to sit here were moved
     # out of data_delivery entirely — the fold table and the OOF prediction
     # dumps (nfl_oof_moneyline.csv / nfl_oof_distribution.csv) are training
