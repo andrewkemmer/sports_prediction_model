@@ -27,6 +27,7 @@ frontend's "no file" state - nothing fabricated.
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -96,7 +97,17 @@ def compute_nba_shap_per_game(bundle: dict, games: pd.DataFrame,
             try:
                 pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
                 X = ml_mod.member_matrix_ndarray(name, one, pre)
-                raw = ex.shap_values(X)
+                # shap's TreeExplainer warns on every LightGBM binary
+                # call that its output "has changed to a list of ndarray"
+                # - a version note the normalization just below already
+                # handles, so the message is filtered here instead of
+                # printing once per game per run.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*LightGBM binary classifier with "
+                                "TreeExplainer.*")
+                    raw = ex.shap_values(X)
                 # Binary output shapes vary by explainer version and member:
                 # normalize to the log-odds view (class 1 minus class 0).
                 if isinstance(raw, list):

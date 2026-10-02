@@ -1389,9 +1389,23 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                    | raw_ids.str.strip().str.lower().isin(
                        ["", "nan", "nat", "none", "null"]))
     if missing_id.any():
-        logger.warning("%d game(s) carry no NBA game id; they have no "
-                       "play-by-play to fetch and are not swept",
-                       int(missing_id.sum()))
+        # A nameless row is invisible in every downstream table, so the
+        # warning names each one (day + matchup); the count alone told
+        # the 2026-10-01 run "16" and nothing about WHICH 16.
+        _nameless = games.loc[missing_id]
+        _labeled = []
+        for _, row in _nameless.iterrows():
+            _day = pd.to_datetime(row.get("gameday"), errors="coerce")
+            _when = _day.date().isoformat() if pd.notna(_day) else "?"
+            _labeled.append(
+                f"{row.get('game_id', '?')} ({_when} "
+                f"{row.get('home_team', '?')}@{row.get('away_team', '?')})")
+        logger.warning(
+            "%d game(s) carry no NBA game id; they have no play-by-play "
+            "to fetch and are not swept: %s",
+            int(missing_id.sum()), ", ".join(_labeled[:25])
+            + (f" (+{len(_labeled) - 25} more)" if len(_labeled) > 25
+               else ""))
     eligible = (games.loc[~missing_id]
                 .drop_duplicates("nba_game_id")
                 .sort_values("gameday"))
@@ -1557,8 +1571,23 @@ def _attach_game_ids(games: pd.DataFrame, log: pd.DataFrame) -> pd.DataFrame:
     merged = out.merge(keys, on="pair_key", how="left", validate="one_to_one")
     missing = int((merged.nba_game_id.fillna("") == "").sum())
     if missing:
+        # The count alone cannot tell a neutral-site exhibition from a
+        # broken join, so each unmatched game is named by day and
+        # matchup - the 2026-10-01 run logged "16" with no way to see
+        # which 16.
+        _unmatched = merged.loc[merged.nba_game_id.fillna("") == ""]
+        _labeled = []
+        for _, row in _unmatched.iterrows():
+            _day = pd.to_datetime(row.get("gameday"), errors="coerce")
+            _when = _day.date().isoformat() if pd.notna(_day) else "?"
+            _labeled.append(
+                f"{row.get('game_id', '?')} ({_when} "
+                f"{row.get('home_team', '?')}@{row.get('away_team', '?')})")
         logger.warning("%d scheduled game(s) have no season-log match; they "
-                       "have no player lines and no play-by-play", missing)
+                       "have no player lines and no play-by-play: %s",
+                       missing, ", ".join(_labeled[:25])
+                       + (f" (+{len(_labeled) - 25} more)"
+                          if len(_labeled) > 25 else ""))
     known = set(merged.nba_game_id.dropna().astype(str)) - {""}
     orphaned = log_games[~log_games.nba_game_id.astype(str).isin(known)]
     if len(orphaned):

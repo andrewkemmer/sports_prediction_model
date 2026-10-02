@@ -266,6 +266,26 @@ def reset_feature_subset() -> None:
 # Exact MLB-tuned member parameters and cold-start priors.
 ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333, "elasticnet": 0.3334}
+# Blend-policy governance (2026-10-01, .adhoc/nba_elo_deepdive). The
+# adaptive optimiser is free to put every point of blend weight on the
+# best member, and on the delivered OOF it did: elastic net 0.8256,
+# whose own scaled-coefficient mass is 94.4% elo_diff - so the served
+# model reads as ~79% one column. A cap is a diversity/robustness
+# policy, not a tuning knob: it is fixed here, before any OOF evidence
+# is seen, and its served cost is measured, not assumed. Fold-faithful
+# replay of the delivered OOF (step4 tier 1): pooled logloss
+# 0.60626 -> 0.60623 (essentially free) with elo_diff model weight
+# 78.97% -> 67.86%. A lower cap trades bps for a lower percentage:
+# 0.60 costs +3.2 bps (59.0%), 0.50 costs +8.0 bps (50.4%). The cap
+# moves the reported percentage; it does not create information - only
+# new features do that (deep-dive report section 7).
+ENSEMBLE_MEMBER_CAPS = {"elasticnet": 0.70}
+# No floors today: the optimiser may still zero a member
+# (xgboost earned exactly 0.0000 on the delivered OOF). A
+# floor is the same kind of policy as a cap - fixed here,
+# before any OOF evidence is seen - and is honoured by the
+# same box in moneyline.compute_adaptive_weights.
+ENSEMBLE_MEMBER_FLOORS: dict = {}
 ADAPTIVE_WEIGHT_METRIC = "logloss"
 BLEND_SPACE = "logit"
 XGBOOST_PARAMS = {

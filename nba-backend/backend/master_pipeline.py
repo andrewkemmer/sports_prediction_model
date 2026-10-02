@@ -63,6 +63,28 @@ logger = logging.getLogger("nba_master_pipeline")
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(message)s")
 
+# Run-log tee (2026-10-01): capture the whole run into ONE rolling master
+# file in data_delivery/ — the publish phase stages the whole delivery
+# directory so the log ships like any artifact, and retention_policy
+# protects the dateless name from eviction, so the latest run's full log
+# is always reviewable from a plain git pull. A run that dies before the
+# publish phase gets a crash-delivery push of just the log. Degrades to
+# console-only on failure.
+try:
+    from backend.run_log_tee import (
+        install_crash_log_pusher,
+        install_run_log_tee,
+        RUN_LOG_NAME,
+    )
+except ImportError:
+    from run_log_tee import (
+        install_crash_log_pusher,
+        install_run_log_tee,
+        RUN_LOG_NAME,
+    )
+_log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+install_crash_log_pusher(_log_path)
+
 
 # The steps of a run, in order, for the phase bar.  Named once here so the bar
 # and the log agree, and so a run that dies halfway says which half it reached.
@@ -664,9 +686,10 @@ def _remote_url(repo_root: Path) -> str:
     return ""
 
 
-def feature_importance_weights(final_models: dict[str, dict],
-                               weights: dict[str, float]) -> dict[str, float] | None:
-    """Blend-weighted feature importance across the ensemble (sums to 100).
+def feature_importance_decomposition(
+        final_models: dict[str, dict],
+        weights: dict[str, float]) -> dict | None:
+    """Blend-weighted feature importance, with the blend taken apart.
 
     The drift table's MODEL WEIGHT column used to publish an explicit
     ``{feature: 0.0}`` - a correct sum wearing a wrong answer, which every
@@ -679,23 +702,33 @@ def feature_importance_weights(final_models: dict[str, dict],
     preprocessor's own stds so a zero-variance column can never smuggle its
     importance up to an unrelated feature.
 
+    The MODEL WEIGHT column is a blend-weighted average, so when one member
+    holds ~all the weight the column IS that member's importance profile
+    and the others are absent from it entirely - measured on 2026-10-01, the
+    drift table published ``elo_diff`` at 78.627% while the elastic net held
+    82.56% of the blend with 94.4% of its own mass on that column and the
+    trees' own profiles put it at 9-16%. A reader could only reconstruct
+    that arithmetic by rerunning the pipeline, so the decomposition ships
+    beside the column instead:
+
+    * ``model_weight`` - the published column itself (percentages, sums
+      to 100), exactly what ``feature_importance_weights`` returns;
+    * ``member_shares`` - each contributing member's normalised share of
+      the served blend (a member at share 0 IS recorded: being multiplied
+      out of the column is the finding, not a reason to disappear);
+    * ``member_profiles`` - each contributing member's OWN importance
+      profile (percentages, sums to 100), so
+      ``model_weight[f] = sum(member_shares[m] * member_profiles[m][f])``
+      can be verified by hand.
+
     Returns None when no member exposes importances - the caller then omits
     the column rather than publishing a fabricated zero.
-
-    One caveat this function cannot fix on its own, and which the caller
-    must surface: the result is a blend-weighted average, so when one member
-    holds ~all the weight the column IS that member's importance profile
-    and the others are absent from it entirely. A reader comparing
-    ``feature_importance_weights`` against a per-member importances table
-    will see a large disagreement on any concentrated blend, and the
-    disagreement is the finding rather than an error. Report the member
-    shares next to the column (see ``imp_contributors``) so the two
-    readings can be told apart.
     """
     cols = config.active_moneyline_feature_cols()
     nfc = len(cols)
     agg = np.zeros(nfc)
     contributors: dict[str, float] = {}
+    profiles: dict[str, dict[str, float]] = {}
     raw = {name: max(float(weights.get(name, 0.0)), 0.0) for name in final_models}
     total = sum(raw.values())
     slice_cols = feat_mod.linear_feature_columns()
@@ -738,7 +771,8 @@ def feature_importance_weights(final_models: dict[str, dict],
                 continue
         except Exception:  # noqa: BLE001 - one opaque member cannot kill the report
             continue
-        agg += share * (imp / imp.sum())
+        profile = imp / imp.sum()
+        agg += share * profile
         contributed = True
         # Record which members actually reached the published column. A
         # member at share 0 is multiplied out before the sum, so when the
@@ -746,10 +780,32 @@ def feature_importance_weights(final_models: dict[str, dict],
         # opinion wearing the model's name - measured on 2026-09-29, where
         # the monitor published elo_diff at 91% while xgboost's and
         # lightgbm's own importances put it at 13% and 16% respectively.
+        # The zero-share member keeps its own profile in the disclosure:
+        # the trees' 9-16% is precisely the evidence that the column is
+        # the elastic net's opinion, not the ensemble's.
         contributors[name] = round(share, 4)
+        profiles[name] = {c: round(float(v), 4)
+                          for c, v in zip(cols, profile * 100.0)}
     if not contributed or agg.sum() <= 0:
         return None
-    return {c: round(float(w), 4) for c, w in zip(cols, agg / agg.sum() * 100.0)}
+    model_weight = {c: round(float(w), 4)
+                    for c, w in zip(cols, agg / agg.sum() * 100.0)}
+    return {"model_weight": model_weight,
+            "member_shares": contributors,
+            "member_profiles": profiles}
+
+
+def feature_importance_weights(final_models: dict[str, dict],
+                               weights: dict[str, float]) -> dict[str, float] | None:
+    """The MODEL WEIGHT column: the blended view of the decomposition.
+
+    Thin wrapper over :func:`feature_importance_decomposition` for callers
+    that want only the published column; the drift table and every existing
+    consumer keep this exact contract (percentages summing to 100, None when
+    no member exposes importances).
+    """
+    decomp = feature_importance_decomposition(final_models, weights)
+    return decomp["model_weight"] if decomp else None
 
 
 def _sync_data_delivery(repo_root: Path) -> dict:
@@ -902,10 +958,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         postponed = pending.game_status_detail.astype(str).map(
             ingestion.sources.is_postponed_detail)
         if postponed.any():
+            # The count and the id list have to agree: a head(5) here
+            # once reported "11 postponed games" against five ids, which
+            # reads as six games vanishing into a truncated log line.
+            # Every id is listed, bounded so a pathological slate cannot
+            # write an unbounded line.
+            ids = sorted(pending.loc[postponed, "game_id"].astype(str))
+            shown = ", ".join(ids[:25])
+            if len(ids) > 25:
+                shown += f" (+{len(ids) - 25} more)"
             logger.info("excluding %d postponed game(s) from the slate: %s",
-                        int(postponed.sum()),
-                        ", ".join(sorted(pending.loc[postponed, "game_id"]
-                                         .astype(str).head(5))))
+                        len(ids), shown)
             pending = pending[~postponed].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
@@ -939,9 +1002,45 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         game_df = game_df.merge(
             _pl_frame[["game_id"] + config.PLAYER_TS_POSITION_FEATURE_COLS],
             on="game_id", how="left")
+        _pl_attached = int(
+            game_df[config.PLAYER_TS_POSITION_FEATURE_COLS[0]]
+            .notna().sum())
         logger.info("pl_ts features attached: %d/%d decided rows carry them",
-                    int(game_df[config.PLAYER_TS_POSITION_FEATURE_COLS[0]]
-                        .notna().sum()), len(game_df))
+                    _pl_attached, len(game_df))
+        if _pl_attached < len(game_df):
+            # An unattached row is NaN on all nine position columns, and
+            # a bare fraction does not say WHY. The pool gates
+            # (PLAYER_TS_POOL_LOOKBACK_DAYS / RECENCY_DAYS / MIN_PLAYS)
+            # have no in-season evidence at the start of a season - a
+            # player's last appearances live in the PRIOR season,
+            # outside the lookback - so bucketing the gap by days into
+            # its season separates that structural hole from a genuine
+            # build regression.
+            _gaps = game_df[game_df[
+                config.PLAYER_TS_POSITION_FEATURE_COLS[0]].isna()]
+            _gap_days = pd.to_datetime(_gaps.gameday, errors="coerce")
+            _all_days = pd.to_datetime(game_df.gameday, errors="coerce")
+            _labels = pd.Series(
+                [ingestion.season_label(d.date()) if pd.notna(d) else "?"
+                 for d in _all_days], index=game_df.index)
+            _season_start = _all_days.groupby(_labels).min()
+            _gap_age = (_gap_days - pd.to_datetime(
+                _labels.loc[_gaps.index].map(_season_start),
+                errors="coerce")).dt.days
+            _lookback = int(config.PLAYER_TS_POOL_LOOKBACK_DAYS)
+            _recency = int(config.PLAYER_TS_RECENCY_DAYS)
+            _n_look = int((_gap_age < _lookback).sum())
+            _n_rec = int(((_gap_age >= _lookback)
+                          & (_gap_age < _recency)).sum())
+            _n_rest = int(len(_gaps) - _n_look - _n_rec)
+            logger.info(
+                "pl_ts coverage gap: %d/%d decided rows lack position-ts "
+                "features; by days into their season: %d within the "
+                "%d-day pool lookback, %d more within the %d-day "
+                "recency window, %d beyond it - early-season rows are "
+                "structural, not a build failure",
+                len(_gaps), len(game_df), _n_look, _lookback,
+                _n_rec, _recency, _n_rest)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional, and the tree members are
@@ -1013,7 +1112,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # either confirms adequate Poisson variance or names the
         # over-dispersion the NB term should absorb.
         _fit_check = dist_mod.run_line_fit_check(dist_oof)
-        logger.info("run-line fit check (MLB diagnostics shape): "
+        logger.info("run-line fit check: "
                     "home pearson %.4f dev %.5f (baseline %.5f) | away pearson %.4f "
                     "dev %.5f (baseline %.5f)",
                     _fit_check["home"]["pearson"], _fit_check["home"]["deviance_model"],
@@ -1182,23 +1281,26 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # playoff-heavy 60-row tail to a full season paged eleven features whose
     # means had not moved.  Weights are the members' real blend-weighted
     # importances, not a table of zeros.
-    imp_weights = (feature_importance_weights(final_models, ml["member_weights"])
-                   if ml else None)
+    imp_decomp = (feature_importance_decomposition(
+        final_models, ml["member_weights"]) if ml else None)
+    imp_weights = imp_decomp["model_weight"] if imp_decomp else None
     # Say out loud which members the MODEL WEIGHT column actually averages.
     # A concentrated blend means the column is one member's profile, and a
     # reader comparing it against per-member importances (elasticnet put
-    # elo_diff at 94% while the trees put it at 13%/16% on 2026-09-29) would
-    # otherwise have no way to tell a real concentration from a reporting
-    # artifact.
-    if ml and imp_weights:
-        _shares = {n: max(float(ml["member_weights"].get(n, 0.0)), 0.0)
-                   for n in final_models}
-        _tot = sum(_shares.values()) or 1.0
-        _norm = {n: round(v / _tot, 4) for n, v in _shares.items()}
+    # elo_diff at 94% while the trees put it at 13%/16% on 2026-09-29, and
+    # 94.4% against the trees' 9%/6% on 2026-10-01) would otherwise have no
+    # way to tell a real concentration from a reporting artifact. The
+    # per-member elo_diff importance rides the log line so the decomposition
+    # is visible without opening the artifact.
+    if ml and imp_decomp:
+        _shares = imp_decomp["member_shares"]
+        _profiles = imp_decomp["member_profiles"]
+        _elo = {n: p.get("elo_diff") for n, p in _profiles.items()}
         logger.info("feature importance weights are blend-weighted across "
-                    "%d member(s) with shares %s; a concentrated share means "
+                    "%d member(s) with shares %s; each member's own "
+                    "elo_diff importance %s - a concentrated share means "
                     "the MODEL WEIGHT column is that member's profile",
-                    len(_norm), _norm)
+                    len(_shares), _shares, _elo)
     drift_baseline, drift_current = monitoring.drift_windows(game_df)
     drift_names = monitoring.write_run_engine_feature_artifacts(
         out, date_c, drift_baseline, drift_current, imp_weights)
@@ -1247,7 +1349,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
         members, brier,
         baseline_brier, _config_meta(facts), fold_info,
-        cal_metrics, platt)
+        cal_metrics, platt, feature_importance=imp_decomp)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,

@@ -15,6 +15,12 @@ EXACT_MASTER_NAMES = frozenset({
     # event coverage. Pruning it re-opens the cache hole it exists to close,
     # because the production host's machine cache is ephemeral.
     "nba_event_rollups.parquet",
+    # Rolling master run log (run_log_tee.py): overwritten in place by every
+    # pipeline run, so the publish phase always stages it — but the dateless
+    # name would otherwise read as stale to _prune on any run that did not
+    # produce it (the tee writes it before the phase banners, but a crashed
+    # or console-only run leaves the previous copy behind).
+    "nba_pipeline_run_log.txt",
 })
 SERIES_PREFIXES = ("models/", "nba_run_engine_monitor_")
 

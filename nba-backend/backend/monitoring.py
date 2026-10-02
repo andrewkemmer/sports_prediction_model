@@ -300,9 +300,24 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
                     "n_baseline": int(n_b), "n_current": int(n_c)})
     n_warns = sum(r["status"] == "WARN" for r in out)
     n_alerts = sum(r["status"] == "ALERT" for r in out)
+    # A bare count is not actionable: "8 alert(s)" names nothing, and
+    # the drift table is a file nobody opens mid-run. The features
+    # behind each non-OK status ride on the log line itself (bounded,
+    # so a frame-wide alert cannot write an unbounded line).
+    _alerted = [r["feature"] for r in out if r["status"] == "ALERT"]
+    _warned = [r["feature"] for r in out if r["status"] == "WARN"]
+    _named = []
+    for _label, _names in (("alerts", _alerted), ("warnings", _warned)):
+        if not _names:
+            continue
+        _shown = ", ".join(_names[:25])
+        if len(_names) > 25:
+            _shown += f" (+{len(_names) - 25} more)"
+        _named.append(f"{_label}: {_shown}")
+    _detail = f" [{'; '.join(_named)}]" if _named else ""
     logger.info("feature drift: %d features, %d warning(s), %d alert(s); "
-                "statuses on noise-adjusted PSI with a location gate",
-                len(out), n_warns, n_alerts)
+                "statuses on noise-adjusted PSI with a location gate%s",
+                len(out), n_warns, n_alerts, _detail)
     return out
 
 
@@ -493,9 +508,34 @@ def _dump(path, record: dict) -> dict:
     return record
 
 
+def _feature_importance_block(decomp) -> dict:
+    """The MODEL WEIGHT decomposition, with its reading attached.
+
+    The block itself is data - ``model_weight`` (the published
+    column), ``member_shares`` (the served blend) and
+    ``member_profiles`` (each member's own importances). The note
+    is the one-line arithmetic a dashboard consumer needs: the
+    column is a blend-weighted average, so a concentrated member
+    share means the column is that member's own profile, not the
+    ensemble's - the difference between "the model is 79% Elo"
+    and "the elastic net is 83% of the blend and 94% of the
+    elastic net is Elo".
+    """
+    if not decomp:
+        return {}
+    block = dict(decomp)
+    block.setdefault("reading", (
+        "model_weight[f] = sum(member_shares[m] * "
+        "member_profiles[m][f]) over members m; all percentages. "
+        "A concentrated member share means the MODEL WEIGHT column "
+        "is that member's own importance profile"))
+    return block
+
+
 def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
                        baseline, config_meta=None, fold_info=None,
-                       metrics=None, platt=None) -> dict:
+                       metrics=None, platt=None,
+                       feature_importance=None) -> dict:
     drift = list(drift or [])
     cov = list(cov or [])
     # INSUFFICIENT is a window-size statement, not a problem statement - it
@@ -524,6 +564,13 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
         "ensemble": members or [], "rolling_brier": rolling or [],
         "feature_drift": drift, "coverage": cov,
         "feature_coverage": cov, "folds": fold_info or {},
+        # The MODEL WEIGHT column taken apart: member blend shares
+        # and each member's own importance profile, so the column's
+        # headline number (a concentrated blend IS one member's
+        # profile - elo_diff at 78.627% on 2026-10-01) can be
+        # decomposed by hand instead of rerunning the pipeline.
+        "feature_importance": _feature_importance_block(
+            feature_importance),
         "version_history": [], "features_metadata": {},
     }
     return _dump(path, record)

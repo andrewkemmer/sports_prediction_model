@@ -1053,12 +1053,29 @@ def cross_check(events: pd.DataFrame, team_stats: pd.DataFrame) -> dict:
         if not both.any():
             continue
         diff = (a[both] - b[both]).abs()
-        report[event_col] = {
+        entry = {
             "compared": int(both.sum()),
             "exact": int((diff == 0).sum()),
             "max_abs_diff": float(diff.max()),
             "mean_abs_diff": round(float(diff.mean()), 4),
         }
+        # The summary stats say HOW FAR the two counts diverge but not
+        # WHERE: a max_abs_diff of 22 on assists is unfalsifiable until
+        # the games carrying it are named. The worst three rows per
+        # column make the advisory check pointable - the 2026-10-01 run
+        # reported oreb/dreb/pf/assists gaps with no game to inspect.
+        if (diff > 0).any():
+            _bad = diff[diff > 0]
+            _worst = (pd.DataFrame({
+                "game_id": merged.loc[_bad.index, "game_id"].astype(str),
+                "team": merged.loc[_bad.index, "team"].astype(str),
+                "abs_diff": _bad,
+            }).sort_values("abs_diff", ascending=False).head(3))
+            entry["worst_offenders"] = [
+                {"game_id": str(r.game_id), "team": str(r.team),
+                 "abs_diff": float(r.abs_diff)}
+                for r in _worst.itertuples(index=False)]
+        report[event_col] = entry
     return report
 
 

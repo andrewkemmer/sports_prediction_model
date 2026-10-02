@@ -730,6 +730,203 @@ class TestFeatureImportanceWeights:
         assert solo[config.active_moneyline_feature_cols()[0]] == 100.0
         assert mixed[config.active_moneyline_feature_cols()[0]] < 100.0
 
+    def test_the_decomposition_takes_the_blend_apart(self):
+        """The monitor JSON must let a reader reconstruct the MODEL
+        WEIGHT column without rerunning the pipeline.
+
+        The 2026-10-01 drift table published ``elo_diff`` at 78.627%
+        while the elastic net held 82.56% of the blend with 94.4% of
+        its own mass on that column - arithmetic a reader could
+        previously only verify by rerunning the pipeline. The
+        decomposition is the disclosure: the blended column, the
+        member shares, and each member's own profile, with the
+        column rebuildable by hand from the other two.
+        """
+        members = {"xgboost": {"model": self._tree_member()},
+                   "elasticnet": self._elasticnet_member()}
+        blend = {"xgboost": 0.7034, "elasticnet": 0.2966}
+        decomp = mp.feature_importance_decomposition(members, blend)
+        assert decomp is not None
+        assert decomp["model_weight"] == mp.feature_importance_weights(
+            members, blend)
+        shares = decomp["member_shares"]
+        profiles = decomp["member_profiles"]
+        assert abs(sum(shares.values()) - 1.0) < 1e-3
+        assert set(profiles) == set(shares)
+        for profile in profiles.values():
+            assert abs(sum(profile.values()) - 100.0) < 1e-2
+        # The published column is the share-weighted mean of the
+        # member profiles - the arithmetic the disclosure exists for.
+        for col in config.active_moneyline_feature_cols():
+            rebuilt = sum(shares[n] * profiles[n][col] for n in shares)
+            assert abs(rebuilt - decomp["model_weight"][col]) < 0.05
+
+    def test_a_zero_share_member_keeps_its_own_profile(self):
+        """Disclosure, not erasure: a member the blend zeroed still
+        shows its own profile.
+
+        The trees' single-digit Elo share is exactly the evidence that
+        a concentrated MODEL WEIGHT column is the elastic net's
+        opinion rather than the ensemble's - so a zero-share member
+        must appear in the decomposition with its own profile, not
+        vanish from the disclosure the way it vanishes from the
+        column.
+        """
+        import types
+        n = len(config.active_moneyline_feature_cols()) + 2
+        peaked = np.zeros(n)
+        peaked[0] = 1.0
+        tree = types.SimpleNamespace(feature_importances_=peaked)
+        decomp = mp.feature_importance_decomposition(
+            {"xgboost": {"model": tree},
+             "elasticnet": self._elasticnet_member()},
+            {"xgboost": 0.0, "elasticnet": 1.0})
+        assert decomp is not None
+        first = config.active_moneyline_feature_cols()[0]
+        assert decomp["member_shares"]["xgboost"] == 0.0
+        assert decomp["member_profiles"]["xgboost"][first] == 100.0
+        # Zero share means zero contribution to the published column.
+        assert decomp["model_weight"][first] < 100.0
+
+    def test_the_monitor_json_carries_the_decomposition(self, tmp_path):
+        """The disclosure must reach the delivered artifact: the
+        monitor JSON carries the decomposition beside the served
+        weights, with a one-line reading attached.
+        """
+        members = {"xgboost": {"model": self._tree_member()},
+                   "elasticnet": self._elasticnet_member()}
+        blend = {"xgboost": 0.4, "elasticnet": 0.6}
+        decomp = mp.feature_importance_decomposition(members, blend)
+        record = mon.write_monitor_json(
+            tmp_path / "m.json", "20260927", [], [], [], [],
+            None, {}, None, None, feature_importance=decomp)
+        block = record["feature_importance"]
+        assert block["model_weight"] == decomp["model_weight"]
+        assert block["member_shares"] == decomp["member_shares"]
+        assert block["member_profiles"] == decomp["member_profiles"]
+        assert "member_shares" in block["reading"]
+        # Absent decomposition ships an empty block, never a crash.
+        bare = mon.write_monitor_json(
+            tmp_path / "m2.json", "20260927", [], [], [], [],
+            None, {}, None, None)
+        assert bare["feature_importance"] == {}
+
+
+class TestAdaptiveBlendPolicy:
+    """Caps/floors are blend policy, fixed before any OOF evidence.
+
+    The adaptive optimiser minimises pooled OOF logloss on the plain
+    simplex, so it is free to put every point of weight on the best
+    member - and on the delivered OOF it did (elastic net 0.8256,
+    whose own scaled-coefficient mass is 94.4% ``elo_diff``, making
+    the served model read as ~79% one column). The
+    ``ENSEMBLE_MEMBER_CAPS`` / ``_FLOORS`` in config are
+    diversity/robustness policy, not tuning knobs: they are
+    constants fixed before the OOF frame is seen, and these tests pin
+    that the optimiser honours the box, that an infeasible policy is
+    refused back to the plain simplex, and that rounding can never
+    push a published weight outside the box.
+    """
+
+    @staticmethod
+    def _oof(seed: int = 0, n: int = 600):
+        """Three members of deliberately unequal quality."""
+        rng = np.random.default_rng(seed)
+        y = rng.integers(0, 2, n).astype(float)
+        enet = np.clip(
+            np.where(y > 0.5, 0.9, 0.1) + rng.normal(0.0, 0.02, n),
+            0.01, 0.99)
+        lgbm = np.clip(
+            np.where(y > 0.5, 0.7, 0.3) + rng.normal(0.0, 0.06, n),
+            0.01, 0.99)
+        xgb = np.clip(
+            np.where(y > 0.5, 0.6, 0.4) + rng.normal(0.0, 0.10, n),
+            0.01, 0.99)
+        return {"elasticnet": enet, "lightgbm": lgbm,
+                "xgboost": xgb}, y
+
+    def test_a_cap_bounds_the_best_member(self, monkeypatch):
+        # Unconstrained, the optimiser wants the (near-)pure elastic
+        # net - the one-hot fallback included. A 0.70 cap must hold it
+        # AT the cap, not beneath it and not above it.
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS",
+                            {"elasticnet": 0.70})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS", {})
+        members, y = self._oof()
+        w = ml_mod.compute_adaptive_weights(members, y)
+        assert abs(sum(w.values()) - 1.0) < 1e-3
+        assert w["elasticnet"] <= 0.70 + 1e-4
+        assert w["elasticnet"] >= 0.70 - 0.01
+
+    def test_a_floor_keeps_a_worst_member_in_the_blend(self, monkeypatch):
+        # xgboost is the weakest member and earns exactly 0.0 without
+        # a floor; the policy must put its floor share back.
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS", {})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS",
+                            {"xgboost": 0.15})
+        members, y = self._oof()
+        w = ml_mod.compute_adaptive_weights(members, y)
+        assert abs(sum(w.values()) - 1.0) < 1e-3
+        assert w["xgboost"] >= 0.15 - 1e-4
+
+    def test_an_infeasible_policy_is_refused_to_the_plain_simplex(
+            self, monkeypatch):
+        # Floors that cannot sum to one describe no blend at all; the
+        # policy must be refused and the ungoverned optimum served,
+        # never an impossible weight vector.
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS", {})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS",
+                            {"elasticnet": 0.5, "lightgbm": 0.5,
+                             "xgboost": 0.5})
+        members, y = self._oof()
+        governed = ml_mod.compute_adaptive_weights(members, y)
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS", {})
+        plain = ml_mod.compute_adaptive_weights(members, y)
+        for name, value in plain.items():
+            assert abs(governed[name] - value) < 1e-6
+
+    def test_caps_that_cannot_reach_one_are_also_refused(
+            self, monkeypatch):
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS",
+                            {"elasticnet": 0.3, "lightgbm": 0.3,
+                             "xgboost": 0.3})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS", {})
+        members, y = self._oof()
+        governed = ml_mod.compute_adaptive_weights(members, y)
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS", {})
+        plain = ml_mod.compute_adaptive_weights(members, y)
+        for name, value in plain.items():
+            assert abs(governed[name] - value) < 1e-6
+
+    def test_the_published_vector_never_leaves_the_policy_box(
+            self, monkeypatch):
+        # Cap and floor together: the rounded, residue-fixed vector
+        # the pipeline publishes must still be feasible, for every
+        # draw of the OOF frame.
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS",
+                            {"elasticnet": 0.60})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS",
+                            {"xgboost": 0.05})
+        for seed in range(4):
+            members, y = self._oof(seed=seed)
+            w = ml_mod.compute_adaptive_weights(members, y)
+            assert abs(sum(w.values()) - 1.0) < 1e-3
+            assert w["elasticnet"] <= 0.60 + 1e-3
+            assert w["xgboost"] >= 0.05 - 1e-3
+
+    def test_a_cap_on_a_lone_member_is_refused_not_honoured(
+            self, monkeypatch):
+        # A single member's only feasible blend is itself; a cap below
+        # 1.0 makes the policy infeasible, and the refusal - not the
+        # cap - governs what is published.
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_CAPS",
+                            {"elasticnet": 0.70})
+        monkeypatch.setattr(config, "ENSEMBLE_MEMBER_FLOORS", {})
+        members, y = self._oof()
+        w = ml_mod.compute_adaptive_weights(
+            {"elasticnet": members["elasticnet"]}, y)
+        assert w == {"elasticnet": 1.0}
+
 
 class TestRunLineStructuralContract:
     """The run line's structural contract with the MLB/NHL/NFL family.

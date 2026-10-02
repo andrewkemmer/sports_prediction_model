@@ -352,32 +352,100 @@ def compute_adaptive_weights(
         return loss(blend(w))
 
     w0 = np.full(len(names), 1.0 / len(names))
+    # Blend-policy bounds (diversity/robustness governance, see
+    # config.ENSEMBLE_MEMBER_CAPS / _FLOORS).  Without a policy
+    # these are the plain simplex bounds; with one, the optimiser
+    # searches only the feasible slice.  The bounds are constants
+    # fixed here, never tuned on the OOF frame, so a policy is
+    # set before any out-of-fold evidence is seen.
+    caps = dict(getattr(config, "ENSEMBLE_MEMBER_CAPS", None) or {})
+    floors = dict(getattr(config, "ENSEMBLE_MEMBER_FLOORS", None) or {})
+    lo = np.array([float(floors.get(name, 0.0)) for name in names])
+    hi = np.array([min(float(caps.get(name, 1.0)), 1.0)
+                   for name in names])
+    # A policy whose floors cannot sum to one (or whose caps
+    # cannot reach one), or that floors a member above its own
+    # cap, has no feasible blend at all: honouring it would mean
+    # returning an impossible weight vector.  The policy is
+    # refused loudly and the plain simplex governs.
+    if (lo.sum() > 1.0 + 1e-9 or hi.sum() < 1.0 - 1e-9
+            or (lo > hi + 1e-9).any()):
+        logger.warning(
+            "ensemble blend policy infeasible (floors sum %.4f, "
+            "caps sum %.4f); ignoring caps/floors for this fit",
+            lo.sum(), hi.sum())
+        lo = np.zeros(len(names))
+        hi = np.ones(len(names))
     if len(names) == 1:
+        # The only feasible blend is the member itself.  A cap
+        # below 1.0 on a lone member made the policy infeasible
+        # and was refused above, so this can never publish an
+        # infeasible 1.0.
         return {names[0]: 1.0}
+
+    solo = {name: loss(P[:, i]) for i, name in enumerate(names)}
+    best = min(solo, key=solo.get)
+    # The solo-best (one-hot) fallback is only valid when the
+    # one-hot solution is itself feasible under the policy: a
+    # cap of 0.70 on the elastic net must not be defeated by
+    # returning the pure elastic net, and tree floors must not
+    # be defeated by returning zero weight for the trees.  Check
+    # every member's bound against its one-hot value (1.0 for
+    # the solo best, 0.0 for the rest).
+    one_hot_feasible = all(
+        lo[i] <= (1.0 if name == best else 0.0) <= hi[i]
+        for i, name in enumerate(names))
 
     from scipy.optimize import minimize
     result = minimize(
         objective,
         w0,
         method="SLSQP",
-        bounds=[(0.0, 1.0)] * len(names),
-        constraints=({"type": "eq", "fun": lambda w: float(w.sum() - 1.0)},),
+        bounds=list(zip(lo.tolist(), hi.tolist())),
+        constraints=({"type": "eq",
+                      "fun": lambda w: float(w.sum() - 1.0)},),
         options={"maxiter": 300, "ftol": 1e-9},
     )
-    solo = {name: loss(P[:, i]) for i, name in enumerate(names)}
-    best = min(solo, key=solo.get)
     if not result.success or not np.all(np.isfinite(result.x)):
-        return {name: float(name == best) for name in names}
+        if one_hot_feasible:
+            return {name: float(name == best) for name in names}
+        # The optimiser failed AND the pure best member violates
+        # the policy: return the deterministic feasible point
+        # (equal weights projected onto the policy box) rather
+        # than an infeasible one-hot.
+        fallback = np.full(len(names), 1.0 / len(names))
+        for _ in range(100):
+            fallback = np.clip(fallback, lo, hi)
+            fallback = fallback / fallback.sum()
+        return {name: round(float(value), 4)
+                for name, value in zip(names, fallback)}
 
     weights = np.clip(np.asarray(result.x, dtype=float), 0.0, None)
     weights = weights / weights.sum() if weights.sum() else w0
-    if solo[best] < objective(weights) - 1e-12:
+    if one_hot_feasible and solo[best] < objective(weights) - 1e-12:
         return {name: float(name == best) for name in names}
-    rounded = {name: round(float(value), 4)
-               for name, value in zip(names, weights)}
+    rounded = {}
+    for name, value in zip(names, weights):
+        bound = (float(lo[names.index(name)]),
+                 float(hi[names.index(name)]))
+        # Clamp before rounding so the published vector can never
+        # leave the policy box by a rounding step; the residue
+        # fix below then redistributes at most ~1e-4.
+        rounded[name] = round(
+            min(max(float(value), bound[0]), bound[1]), 4)
     drift = round(1.0 - sum(rounded.values()), 4)
     if drift:
-        top = max(rounded, key=rounded.get)
+        # Put the rounding residue on a member with headroom
+        # under its cap (the largest such member, preserving the
+        # no-policy choice), so the fix that keeps the weights
+        # summing to one cannot push a capped member over its
+        # bound.
+        at_cap = {name for name in names
+                  if rounded[name] >= float(hi[names.index(name)])
+                  - 1e-9}
+        candidates = [name for name in names
+                      if name not in at_cap] or list(names)
+        top = max(candidates, key=rounded.get)
         rounded[top] = round(rounded[top] + drift, 4)
     return rounded
 
