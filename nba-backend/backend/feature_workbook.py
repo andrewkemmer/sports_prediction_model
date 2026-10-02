@@ -51,7 +51,7 @@ HEADER_ROW = ["Feature", "In Production", "Type", "Category", "Side",
 # Taxonomy: category / type / side (NBA name grammar)
 # --------------------------------------------------------------------------- #
 CATEGORY_RULES: list[tuple[str, str]] = [
-    (r"^pl_ts_|lineup_ts|lineup_", "Projected Lineups"),
+    (r"^pl_epm_|lineup_epm|lineup_", "Projected Lineups"),
     (r"^event_|possessions|shooting_fouls|live_tov|rim_|three_rate|"
      r"and_in|shot_distance|q4_points", "Play-by-Play"),
     (r"rest_days|back_to_back", "Schedule & Rest"),
@@ -115,8 +115,8 @@ STAT_WORDS: dict[str, str] = {
     "possessions": "estimated possessions (FGA + 0.44·FTA − OREB + TOV)",
     "shooting_fouls": "shooting fouls drawn per game",
     "q4_points": "fourth-quarter points per game",
-    "pl_ts": "position-segmented shrunk true-shooting rating of the "
-             "projected lineup",
+    "pl_epm": "position-segmented shrunk estimated plus-minus of "
+             "the projected lineup",
 }
 
 WINDOW_WORDS: dict[str, str] = {
@@ -394,7 +394,7 @@ NBA_API_SOURCES = [
      "Per player-game per season: points, FGA/FGM/3PA/3PM/FTA/FTM, OREB/"
      "DREB, TOV, PF, AST, MIN, plus team and opponent rollups.",
      "Team features (the trailing-state ladder) and player lines (the "
-     "position-segmented shrunk TS ratings); assists/rebounds cross-checks "
+     "position-segmented shrunk EPM ratings); assists/rebounds cross-checks "
      "against play-by-play.",
      "Advanced box columns the ladder does not read (e.g. PlusMinus)."),
     ("stats.nba.com playbyplayv3",
@@ -409,7 +409,7 @@ NBA_API_SOURCES = [
      "Per game per player: the six official designations at the latest "
      "pre-tipoff report.",
      "Point-in-time exclusion from the projected lineup pool for the "
-     "pl_ts_* family (Out/Doubtful/Recovery removed from that game only).",
+     "pl_epm_* family (Out/Doubtful/Recovery removed from that game only).",
      "Nothing beyond the designation state."),
 ]
 
@@ -418,8 +418,9 @@ NBA_LOW_VALUE_FIELDS = [
      "Never read; the model prices its own lines and broadcast data has no "
      "predictive role pre-game."),
     ("LeagueGameLog", "per-player advanced splits (PlusMinus, etc.)",
-     "Team trailing states and shrunk TS carry the signal; per-player "
-     "plus-minus is noise-dominated at lineup granularity."),
+     "Team trailing states and shrunk EPM carry the signal; raw "
+     "per-player plus-minus is noise-dominated until the EPM family "
+     "shrinks it per 100 possessions."),
     ("playbyplayv3", "per-action player attribution",
      "One action among ~490 per game; the team rollup is the served form."),
 ]

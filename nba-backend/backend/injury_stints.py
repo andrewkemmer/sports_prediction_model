@@ -94,7 +94,7 @@ def treatment_of(status: object) -> str:
     ``play_rates`` reports any ``unknown`` bucket it finds, which is how a new
     vocabulary entry gets noticed before it starts mattering.
     """
-    return config.PLAYER_TS_STATUS_TREATMENT.get(
+    return config.PLAYER_EPM_STATUS_TREATMENT.get(
         availability_status_of(status), "unknown")
 
 
@@ -369,7 +369,7 @@ def cutoff_for(tipoff) -> pd.Timestamp:
     status became true.
     """
     moment = _as_timestamp(tipoff)
-    if config.PLAYER_TS_INJURY_CUTOFF == "prior_end_of_day":
+    if config.PLAYER_EPM_INJURY_CUTOFF == "prior_end_of_day":
         return (moment.normalize() - pd.Timedelta(days=1)
                 + pd.Timedelta(hours=23, minutes=59, seconds=59))
     return moment

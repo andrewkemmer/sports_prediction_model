@@ -595,7 +595,7 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
         if len(cached):
             return cached
     by_position: dict = {}
-    for position in config.PLAYER_TS_POSITIONS:
+    for position in config.PLAYER_EPM_POSITIONS:
         url = (f"{sources.PLAYER_POSITIONS_URL}?"
                f"{sources.position_query(season, position)}")
         for attempt in range(3):
@@ -1235,7 +1235,7 @@ def _dedupe_player_games(log: pd.DataFrame) -> pd.DataFrame:
     with no shared day and the seasons do not overlap, so a duplicate can only
     come from upstream returning a player twice inside one window. That has not
     happened, and the invariant is cheap to keep true: a doubled row silently
-    doubles ``prior_plays`` and ``prior_points`` in the player rating, which
+    doubles ``prior_plays`` and ``prior_pm`` in the player rating, which
     overstates a player's sample without any error anywhere.
 
     Note the cache directory deliberately holds several granularities at once -

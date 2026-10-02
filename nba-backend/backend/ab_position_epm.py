@@ -1,7 +1,7 @@
-"""Holdout A/B: baseline contract vs baseline + position-segmented TS.
+"""Holdout A/B: baseline contract vs baseline + position-segmented EPM.
 
 Runs the identical walk-forward over the identical games with one difference -
-whether the nine ``pl_ts_*`` columns are in the contract - and reports the
+whether the nine ``pl_epm_*`` columns are in the contract - and reports the
 out-of-fold metrics side by side.
 
 What makes this an honest comparison rather than two numbers:
@@ -17,7 +17,7 @@ What makes this an honest comparison rather than two numbers:
   only to games it covers.
 
 Run:
-    python ab_position_ts.py
+    python ab_position_epm.py
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ logger = logging.getLogger("ab")
 
 CACHE = Path(os.path.expanduser("~/.cache/sports_prediction_model/nba"))
 
-POSITION_FEATURES = [f"pl_ts_{p}_{side}" for p in ("c", "f", "g")
+POSITION_FEATURES = [f"pl_epm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
 
 
@@ -54,7 +54,7 @@ def build_player_games():
     while the rating frame identifies them by id, and the designation filter
     has to reach the player rather than the team.
     """
-    import player_ts as ts_mod
+    import player_epm as epm_mod
     frames = [pd.read_parquet(f)
               for f in sorted(CACHE.glob("season_logs/log_*_Regular_Season.parquet"))]
     log = pd.concat(frames, ignore_index=True)
@@ -63,7 +63,7 @@ def build_player_games():
     log["gameday"] = pd.to_datetime(log["gameday"], errors="coerce")
     id_by_name: dict = {}
     name_by_id: dict = {}
-    for pid, pname, team in zip(ts_mod._player_id_str(log.player_id),
+    for pid, pname, team in zip(epm_mod._player_id_str(log.player_id),
                                 log.player_name.astype(str), log.team.astype(str)):
         id_by_name.setdefault((team, pname), pid)
         name_by_id.setdefault(pid, pname)
@@ -76,7 +76,7 @@ def build_player_games():
             frame = pd.read_parquet(path)
             frame["season"] = season
             positions.append(frame)
-    frame = ts_mod.prepare_player_games(
+    frame = epm_mod.prepare_player_games(
         log, pd.concat(positions, ignore_index=True))
     return frame, name_by_id
 
@@ -99,12 +99,12 @@ def build_position_features(games: pd.DataFrame,
     column the model cannot learn from, and that was the blocker.
     """
     import lineup_projection as proj
-    import player_ts as ts_mod
+    import player_epm as epm_mod
     games_frame, name_by_id = build_player_games()
     dates = pd.Series(sorted(pd.to_datetime(games.gameday).dropna().unique()))
     logger.info("building ratings for %d target dates", len(dates))
     started = time.time()
-    ratings = ts_mod.build_player_ts(games_frame, target_dates=dates)
+    ratings = epm_mod.build_player_epm(games_frame, target_dates=dates)
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:
@@ -125,7 +125,7 @@ def build_position_features(games: pd.DataFrame,
     aggregates = proj.projected_lineup(ratings, games=games)
     logger.info("aggregates: %d team-games in %.0fs", len(aggregates),
                 time.time() - started)
-    return proj.attach_position_ts(games, aggregates), aggregates
+    return proj.attach_position_epm(games, aggregates), aggregates
 
 
 def score(p: np.ndarray, y: np.ndarray) -> dict:

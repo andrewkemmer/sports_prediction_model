@@ -258,7 +258,7 @@ def _bos(aggregates):
 def _rating(player, team, day, ts, plays, available=True,
             days_since_appearance=None):
     return {"player_id": player, "team": team, "gameday": day,
-            "ts_shrunk": ts, "prior_plays": plays, "is_available": available,
+            "epm_shrunk": ts, "prior_plays": plays, "is_available": available,
             "days_since_appearance": days_since_appearance}
 
 
@@ -287,7 +287,7 @@ class TestProjectedLineup:
         # Blend weights are each member's own prior_plays (opportunity):
         # (400*.60 + 380*.58 + 300*.55) / 1080.
         assert row.healthy_size == 3
-        assert row.lineup_ts_mean == pytest.approx(
+        assert row.lineup_epm_mean == pytest.approx(
             (400 * 0.60 + 380 * 0.58 + 300 * 0.55) / 1080)
 
     def test_the_pool_is_widened_before_it_is_filtered(self):
@@ -327,8 +327,8 @@ class TestProjectedLineup:
         out = proj.projected_lineup(ratings)
         row = out[out.team == "BOS"].iloc[0]
         assert row.healthy_size == 1
-        assert row.lineup_ts_mean == pytest.approx(0.60)
-        assert row.lineup_ts_std != row.lineup_ts_std  # NaN: one player
+        assert row.lineup_epm_mean == pytest.approx(0.60)
+        assert row.lineup_epm_std != row.lineup_epm_std  # NaN: one player
 
 
     def test_ranking_is_by_participation_not_by_rating(self):
@@ -347,7 +347,7 @@ class TestProjectedLineup:
         row = _bos(out)
         # top_k=2 takes the two highest prior_plays: a and b, not the 0.70.
         # The blend prices them by opportunity: (500*.55 + 480*.56) / 980.
-        assert row.lineup_ts_mean == pytest.approx(
+        assert row.lineup_epm_mean == pytest.approx(
             (500 * 0.55 + 480 * 0.56) / 980)
 
     def test_the_stint_table_removes_a_player_the_flag_calls_healthy(self):
@@ -379,7 +379,7 @@ class TestProjectedLineup:
         for value in (None, pd.DataFrame()):
             out = proj.projected_lineup(value)
             assert out is not None and out.empty
-            assert "lineup_ts_mean" in out.columns
+            assert "lineup_epm_mean" in out.columns
 
 
 class TestRecencyGate:
@@ -409,7 +409,7 @@ class TestRecencyGate:
         # mean - exactly the phantom the audit found riding pools for months.
         assert row.pool_size == 2
         assert row.healthy_size == 1
-        assert row.lineup_ts_mean == pytest.approx(0.60)
+        assert row.lineup_epm_mean == pytest.approx(0.60)
 
     def test_a_player_inside_the_gate_stays_in_the_pool(self):
         ratings = pd.DataFrame([
@@ -433,22 +433,22 @@ class TestRecencyGate:
         assert out[out.team == "BOS"].iloc[0].pool_size == 1
 
     def test_the_rating_frame_carries_the_appearance_gap(self, monkeypatch):
-        """build_player_ts must compute the gap from the player's actual
+        """build_player_epm must compute the gap from the player's actual
         last appearance in the rated season - the input the gate reads."""
-        import player_ts as ts_mod
+        import player_epm as epm_mod
         games = pd.DataFrame({
             "player_id": ["p1", "p1", "p2"],
             "gameday": pd.to_datetime(
                 ["2026-01-01", "2026-02-01", "2026-01-05"]),
             "season": ["2025-26"] * 3,
             "team": ["BOS", "BOS", "BOS"],
-            "points": [20.0, 22.0, 18.0],
+            "plus_minus": [20.0, 22.0, 18.0],
             "fga": [15.0, 16.0, 14.0],
             "fta": [4.0, 5.0, 3.0],
             "plays": [19.0, 21.0, 17.0],
             "position": ["G", "G", "F"],
         })
-        ratings = ts_mod.build_player_ts(
+        ratings = epm_mod.build_player_epm(
             games, target_dates=pd.Series([pd.Timestamp("2026-02-10")]))
         row_p1 = ratings[ratings.player_id == "p1"].iloc[0]
         row_p2 = ratings[ratings.player_id == "p2"].iloc[0]
@@ -456,28 +456,29 @@ class TestRecencyGate:
         assert row_p2.days_since_appearance == 36   # last app 2026-01-05
 
     def test_a_low_workload_member_cannot_price_half_the_lineup(self):
-        """The NFL v9.4 guard, NBA face: the blend is combined shrunk TS over
-        combined opportunities, so discarding a 21-play bench piece moves the
-        projection onto the starter's own rating instead of leaving him at
-        half weight. The plain mean kept the absent piece priced equally."""
+        """The NFL v9.4 guard, NBA face: the blend is combined shrunk EPM over
+        combined opportunities, so discarding a 130-possession bench piece
+        moves the projection onto the starter's own rating instead of leaving
+        him at half weight. The plain mean kept the absent piece priced
+        equally."""
         ratings = pd.DataFrame([
             _rating("starter", "BOS", "2026-03-01", 0.55, 500,
                     days_since_appearance=1),
-            _rating("bench", "BOS", "2026-03-01", 0.90, 21,
+            _rating("bench", "BOS", "2026-03-01", 0.90, 130,
                     days_since_appearance=1),
         ])
         out = proj.projected_lineup(ratings)
         full = out[out.team == "BOS"].iloc[0]
-        # Weighted: (500*.55 + 21*.90) / 521 - the starter dominates.
-        assert full.lineup_ts_mean == pytest.approx(
-            (500 * 0.55 + 21 * 0.90) / 521)
-        # The plain mean priced the 21-play bench piece at half: 0.725.
-        assert full.lineup_ts_mean < (0.55 + 0.90) / 2
+        # Weighted: (500*.55 + 130*.90) / 630 - the starter dominates.
+        assert full.lineup_epm_mean == pytest.approx(
+            (500 * 0.55 + 130 * 0.90) / 630)
+        # The plain mean priced the bench piece at half: 0.725.
+        assert full.lineup_epm_mean < (0.55 + 0.90) / 2
         # Without him, the blend IS the starter's own rating - not the mean
         # of the remaining members at equal weight.
         out2 = proj.projected_lineup(ratings.iloc[[0]])
         solo = out2[out2.team == "BOS"].iloc[0]
-        assert solo.lineup_ts_mean == pytest.approx(0.55)
+        assert solo.lineup_epm_mean == pytest.approx(0.55)
 
     def test_weights_are_the_strictly_prior_opportunity_totals(self):
         """The weight source is prior_plays - the same PIT quantity the
@@ -496,8 +497,8 @@ class TestRecencyGate:
         # ratings. Pin the weighted form on both aggregates - top3 blends
         # the same two members here, so it equals the lineup blend.
         weighted = (400 * 0.60 + 380 * 0.58) / 780
-        assert row.lineup_ts_top3 == pytest.approx(weighted)
-        assert row.lineup_ts_mean == pytest.approx(weighted)
+        assert row.lineup_epm_top3 == pytest.approx(weighted)
+        assert row.lineup_epm_mean == pytest.approx(weighted)
 
     def test_a_nan_rating_contributes_no_weight_and_no_rating(self):
         """Removal, not zeroing: a NaN-rated member's plays vanish from the
@@ -508,8 +509,8 @@ class TestRecencyGate:
         ])
         out = proj.projected_lineup(ratings)
         row = out[out.team == "BOS"].iloc[0]
-        assert row.lineup_ts_mean == pytest.approx(0.60)
-        assert row.lineup_ts_std != row.lineup_ts_std  # one finite member
+        assert row.lineup_epm_mean == pytest.approx(0.60)
+        assert row.lineup_epm_std != row.lineup_epm_std  # one finite member
 
     def test_a_fallback_evidence_season_carries_nan_not_a_cross_season_gap(
             self):
@@ -517,24 +518,24 @@ class TestRecencyGate:
         run exposed: an October slate target rates from the LAST COMPLETED
         season (the evidence fallback), so every carryover member's gap
         computed across the fallback read ~150 days and the recency gate
-        emptied every projected lineup (mean healthy 0.0, all nine pl_ts
+        emptied every projected lineup (mean healthy 0.0, all nine pl_epm
         columns empty on the slate). The gap is only defined within the
         target's OWN season; a fallback-evidence target carries NaN, which
         the gate treats as carryover governed by the min-plays floor - the
         same semantics a mid-season first-game player gets."""
-        import player_ts as ts_mod
+        import player_epm as epm_mod
         games = pd.DataFrame({
             "player_id": ["p1", "p1"],
             "gameday": pd.to_datetime(["2026-01-10", "2026-01-20"]),
             "season": ["2025-26", "2025-26"],
             "team": ["BOS", "BOS"],
-            "points": [20.0, 22.0],
+            "plus_minus": [20.0, 22.0],
             "fga": [15.0, 16.0],
             "fta": [4.0, 5.0],
             "plays": [19.0, 21.0],
             "position": ["G", "G"],
         })
-        ratings = ts_mod.build_player_ts(
+        ratings = epm_mod.build_player_epm(
             games, target_dates=pd.Series([pd.Timestamp("2026-10-28")]))
         assert len(ratings)
         row = ratings.iloc[0]
@@ -543,11 +544,11 @@ class TestRecencyGate:
         assert pd.isna(row.days_since_appearance)
 
     def test_the_column_is_documented_in_the_emitted_contract(self):
-        """The column exists in build_player_ts's declared output set, so a
+        """The column exists in build_player_epm's declared output set, so a
         caller reading the frame by contract sees it."""
         import inspect
-        import player_ts as ts_mod
-        src = inspect.getsource(ts_mod.build_player_ts)
+        import player_epm as epm_mod
+        src = inspect.getsource(epm_mod.build_player_epm)
         assert "days_since_appearance" in src
 
 
@@ -572,14 +573,20 @@ class TestStaleness:
 
 class TestConfigMirrorsMlb:
     @pytest.mark.parametrize("nba,mlb,why", [
-        (config.PLAYER_TS_MIN_PLAYS, 20, "LINEUP_MIN_PA"),
-        (config.PLAYER_TS_POOL_LOOKBACK_DAYS, 10, "LINEUP_POOL_LOOKBACK_DAYS"),
-        (config.PLAYER_TS_REST_PLAYS, 50, "LINEUP_REST_PA"),
-        (config.PLAYER_TS_TOP5_K, 5, "LINEUP_TOP5_K"),
-        (config.PLAYER_TS_MAX_LAG_DAYS, 45, "IL_STINT_MAX_LAG_DAYS"),
+        (config.PLAYER_EPM_MIN_PLAYS, 120, "LINEUP_MIN_PA at the possession scale"),
+        (config.PLAYER_EPM_POOL_LOOKBACK_DAYS, 10, "LINEUP_POOL_LOOKBACK_DAYS"),
+        (config.PLAYER_EPM_REST_PLAYS, 300, "LINEUP_REST_PA at the possession scale"),
+        (config.PLAYER_EPM_TOP5_K, 5, "LINEUP_TOP5_K"),
+        (config.PLAYER_EPM_MAX_LAG_DAYS, 45, "IL_STINT_MAX_LAG_DAYS"),
     ])
     def test_the_guards_match_their_mlb_namesakes(self, nba, mlb, why):
-        """Pinned so a change here is a deliberate edit, not a drift."""
+        """Pinned so a change here is a deliberate edit, not a drift.
+
+        MIN_PLAYS and REST_PLAYS are the MLB scoring-play floors rescaled
+        to possessions: the cache's median participated-per-scoring-play
+        ratio is ~6.10, so 20 plays -> 120 possessions and 50 -> 300.
+        The day- and count-based guards transfer unchanged.
+        """
         assert nba == mlb, f"{why} analogue has drifted"
 
 
@@ -631,7 +638,7 @@ class TestPitDesignationFilter:
         # His 2026-03-01 row is untouched AND his rating value is untouched.
         row = out[(out.gameday == pd.Timestamp("2026-03-01"))
                   & (out.player_id == "a")].iloc[0]
-        assert bool(row.is_available) and row.ts_shrunk == 0.60
+        assert bool(row.is_available) and row.epm_shrunk == 0.60
 
     def test_doubtful_and_recovery_remove_questionable_does_not(self):
         designations = self._designations(
@@ -668,7 +675,7 @@ class TestPitDesignationFilter:
         # b and c cover the slots; Alice is not zero-weighted into the mean.
         # Weights are the March-5 rows' own prior_plays (b 400, c 330).
         assert row.healthy_size == 2
-        assert row.lineup_ts_mean == pytest.approx(
+        assert row.lineup_epm_mean == pytest.approx(
             (400 * 0.58 + 330 * 0.55) / 730)
         # And the March 1 projection is unchanged by a March 5 designation.
         early = out[(out.team == "BOS")
@@ -676,22 +683,22 @@ class TestPitDesignationFilter:
         assert early.healthy_size == 3
 
 
-class TestPositionTsFeatures:
+class TestPositionEpmFeatures:
     """The nine published columns and their MLB alignment."""
 
     def test_the_nine_columns_exist_in_the_contract(self):
-        expected = [f"pl_ts_{p}_{s}" for p in ("c", "f", "g")
+        expected = [f"pl_epm_{p}_{s}" for p in ("c", "f", "g")
                     for s in ("away", "home", "diff")]
         for col in expected:
             assert col in config.MONEYLINE_FEATURE_COLS, col
-        assert config.PLAYER_TS_POSITION_FEATURE_COLS == expected
+        assert config.PLAYER_EPM_POSITION_FEATURE_COLS == expected
 
     def test_sides_are_retained_not_diffed_away(self):
         """MLB keeps lineup_woba_mean_home AND _away; so does the NBA mirror."""
-        assert proj.POSITION_TS_FEATURES == [
-            "pl_ts_c_away", "pl_ts_c_home", "pl_ts_c_diff",
-            "pl_ts_f_away", "pl_ts_f_home", "pl_ts_f_diff",
-            "pl_ts_g_away", "pl_ts_g_home", "pl_ts_g_diff",
+        assert proj.POSITION_EPM_FEATURES == [
+            "pl_epm_c_away", "pl_epm_c_home", "pl_epm_c_diff",
+            "pl_epm_f_away", "pl_epm_f_home", "pl_epm_f_diff",
+            "pl_epm_g_away", "pl_epm_g_home", "pl_epm_g_diff",
         ]
 
     def test_attach_produces_all_nine_columns_even_when_empty(self):
@@ -704,8 +711,8 @@ class TestPositionTsFeatures:
                                   for c in proj.AGG_COLUMNS})
         empty_agg["gameday"] = pd.Series(dtype="datetime64[ns]")
         empty_agg["team"] = pd.Series(dtype="str")
-        out = proj.attach_position_ts(slate, empty_agg)
-        for col in proj.POSITION_TS_FEATURES:
+        out = proj.attach_position_epm(slate, empty_agg)
+        for col in proj.POSITION_EPM_FEATURES:
             assert col in out.columns and out[col].isna().all()
 
     def test_diff_is_home_minus_away(self):
@@ -716,15 +723,15 @@ class TestPositionTsFeatures:
         })
         aggregates = pd.DataFrame([{
             "gameday": pd.Timestamp("2026-03-05"), "team": "BOS",
-            "pl_ts_c": 0.62, "pl_ts_f": 0.55, "pl_ts_g": 0.58,
+            "pl_epm_c": 0.62, "pl_epm_f": 0.55, "pl_epm_g": 0.58,
         }, {
             "gameday": pd.Timestamp("2026-03-05"), "team": "NYK",
-            "pl_ts_c": 0.60, "pl_ts_f": 0.57, "pl_ts_g": 0.54,
+            "pl_epm_c": 0.60, "pl_epm_f": 0.57, "pl_epm_g": 0.54,
         }])
-        out = proj.attach_position_ts(slate, aggregates)
-        assert out.pl_ts_c_diff.iloc[0] == pytest.approx(0.62 - 0.60)
-        assert out.pl_ts_g_home.iloc[0] == pytest.approx(0.58)
-        assert out.pl_ts_g_away.iloc[0] == pytest.approx(0.54)
+        out = proj.attach_position_epm(slate, aggregates)
+        assert out.pl_epm_c_diff.iloc[0] == pytest.approx(0.62 - 0.60)
+        assert out.pl_epm_g_home.iloc[0] == pytest.approx(0.58)
+        assert out.pl_epm_g_away.iloc[0] == pytest.approx(0.54)
 
     def _centerless_roster(self):
         """Eight guards out-rank every center, so the projected
@@ -733,38 +740,38 @@ class TestPositionTsFeatures:
         This is the state the 2026-10-01 delivery artifact showed
         on 3 of 6 team-games: healthy rosters of 16-17 whose
         centers simply did not crack the top eight by participation,
-        leaving pl_ts_c NaN.
+        leaving pl_epm_c NaN.
         """
         rows = [_rating(f"g{i}", "BOS", "2026-03-01", 0.55, 300 - i)
                 for i in range(8)]
-        rows.append(_rating("c1", "BOS", "2026-03-01", 0.62, 90))
-        rows.append(_rating("c2", "BOS", "2026-03-01", 0.50, 45))
+        rows.append(_rating("c1", "BOS", "2026-03-01", 0.62, 240))
+        rows.append(_rating("c2", "BOS", "2026-03-01", 0.50, 120))
         frame = pd.DataFrame(rows)
         frame["position"] = ["G"] * 8 + ["C", "C"]
         return frame
 
     def test_a_centerless_projected_lineup_still_rates_the_position(self):
-        """The coverage remediation: the cut starves pl_ts_c.
+        """The coverage remediation: the cut starves pl_epm_c.
 
         The segment is the opportunity-weighted mean over the team's
         ELIGIBLE ROSTER at the position - the same population MLB's
         lineup_agg adopted when it dropped its nine-cut - so a team
         whose centers all rank below the projected eight still gets
-        pl_ts_c instead of NaN. The lineup aggregates keep reading
+        pl_epm_c instead of NaN. The lineup aggregates keep reading
         the top eight; only the segment's population widens.
         """
         out = proj.projected_lineup(self._centerless_roster())
         row = _bos(out)
-        # (90 * 0.62 + 45 * 0.50) / 135 - both centers, priced by
+        # (240 * 0.62 + 120 * 0.50) / 360 - both centers, priced by
         # participation, not the top-8 slice that holds neither.
-        assert row.pl_ts_c == pytest.approx((90 * 0.62 + 45 * 0.50)
-                                            / 135)
-        assert row.pl_ts_g == pytest.approx(0.55)
+        assert row.pl_epm_c == pytest.approx((240 * 0.62 + 120 * 0.50)
+                                            / 360)
+        assert row.pl_epm_g == pytest.approx(0.55)
         # No eligible forward exists, so that segment stays NaN.
-        assert pd.isna(row.pl_ts_f)
+        assert pd.isna(row.pl_epm_f)
         # The lineup itself is still the eight highest-participation
         # players: the widening must not bleed into the aggregates.
-        assert row.lineup_ts_mean == pytest.approx(0.55)
+        assert row.lineup_epm_mean == pytest.approx(0.55)
 
     def test_a_represented_position_blends_the_roster_not_the_eight(self):
         """A member below the cut still prices the segment.
@@ -772,8 +779,9 @@ class TestPositionTsFeatures:
         The starter center is inside the projected eight and the
         backup is below it; the OLD top-8-cut segment read only the
         starter (0.62). The segment now blends both, weighted by
-        playing time - the backup's 45 plays against the starter's
-        200, which is the whole point of opportunity weighting.
+        playing time - the backup's 130 possessions against the
+        starter's 200, which is the whole point of opportunity
+        weighting.
         """
         rows = [
             _rating("a", "BOS", "2026-03-01", 0.60, 400),
@@ -783,16 +791,16 @@ class TestPositionTsFeatures:
             _rating("e", "BOS", "2026-03-01", 0.42, 220),
             _rating("f2", "BOS", "2026-03-01", 0.44, 210),
             _rating("c1", "BOS", "2026-03-01", 0.62, 200),
-            _rating("x", "BOS", "2026-03-01", 0.50, 100),
-            _rating("c2", "BOS", "2026-03-01", 0.50, 45),
+            _rating("x", "BOS", "2026-03-01", 0.50, 150),
+            _rating("c2", "BOS", "2026-03-01", 0.50, 130),
         ]
         frame = pd.DataFrame(rows)
         frame["position"] = ["G", "G", "F", "F", "G", "F",
                               "C", "G", "C"]
         out = proj.projected_lineup(frame, top_k=8)
         row = _bos(out)
-        assert row.pl_ts_c == pytest.approx((200 * 0.62 + 45 * 0.50)
-                                            / 245)
+        assert row.pl_epm_c == pytest.approx((200 * 0.62 + 130 * 0.50)
+                                            / 330)
 
     def test_an_unavailable_center_leaves_his_segment(self):
         """Removal, not zero-weighting, at the position level."""
@@ -800,14 +808,14 @@ class TestPositionTsFeatures:
             _rating("a", "BOS", "2026-03-01", 0.60, 400),
             _rating("c1", "BOS", "2026-03-01", 0.62, 200,
                     available=False),
-            _rating("c2", "BOS", "2026-03-01", 0.50, 45),
+            _rating("c2", "BOS", "2026-03-01", 0.50, 130),
         ]
         frame = pd.DataFrame(rows)
         frame["position"] = ["G", "C", "C"]
         out = proj.projected_lineup(frame)
         row = _bos(out)
         # The out center is gone; the backup inherits the segment.
-        assert row.pl_ts_c == pytest.approx(0.50)
+        assert row.pl_epm_c == pytest.approx(0.50)
 
     def test_the_min_plays_floor_gates_segment_membership(self):
         """The roster is ELIGIBLE players, not every rating row."""
@@ -822,37 +830,47 @@ class TestPositionTsFeatures:
         row = _bos(out)
         # c2's 10 plays are under the pool floor: he is not a
         # candidate, so the segment is the starter alone.
-        assert row.pl_ts_c == pytest.approx(0.62)
+        assert row.pl_epm_c == pytest.approx(0.62)
 
 
-class TestPlayerTsIsStrictlyPriorPerGame:
+class TestPlayerEpmIsStrictlyPriorPerGame:
     def test_a_ratings_target_date_excludes_that_dates_games(self):
         """The core PIT edge: the rated game never rates itself.
 
         Verified independently: recompute the prior from raw rows with a
         strict ``<`` and compare to what the rating published.
         """
-        import player_ts as ts_mod
+        import player_epm as epm_mod
+        # Each player is his OWN team and plays 48 minutes, so a
+        # game's possessions are the player's own box-score
+        # possessions and his participated possessions equal
+        # fga + 0.44*fta + tov - the same quantity the old
+        # scoring-play denominator measured.
         log = pd.DataFrame([
-            {"player_id": 1.0, "gameday": "2026-03-01", "points": 20,
-             "fga": 12, "fta": 4, "player_name": "A", "team": "BOS"},
-            {"player_id": 1.0, "gameday": "2026-03-05", "points": 30,
-             "fga": 15, "fta": 2, "player_name": "A", "team": "BOS"},
-            {"player_id": 2.0, "gameday": "2026-03-01", "points": 10,
-             "fga": 8, "fta": 0, "player_name": "B", "team": "BOS"},
-            {"player_id": 2.0, "gameday": "2026-03-05", "points": 12,
-             "fga": 9, "fta": 1, "player_name": "B", "team": "BOS"},
+            {"player_id": 1.0, "gameday": "2026-03-01", "plus_minus": 20,
+             "fga": 12, "fta": 4, "tov": 0, "minutes": 48,
+             "player_name": "A", "team": "BOS"},
+            {"player_id": 1.0, "gameday": "2026-03-05", "plus_minus": 30,
+             "fga": 15, "fta": 2, "tov": 0, "minutes": 48,
+             "player_name": "A", "team": "BOS"},
+            {"player_id": 2.0, "gameday": "2026-03-01", "plus_minus": 10,
+             "fga": 8, "fta": 0, "tov": 0, "minutes": 48,
+             "player_name": "B", "team": "NYK"},
+            {"player_id": 2.0, "gameday": "2026-03-05", "plus_minus": 12,
+             "fga": 9, "fta": 1, "tov": 0, "minutes": 48,
+             "player_name": "B", "team": "NYK"},
         ])
         positions = pd.DataFrame([
             {"player_id": 1.0, "season": "2025-26", "position": "G"},
             {"player_id": 2.0, "season": "2025-26", "position": "F"},
         ])
-        games = ts_mod.prepare_player_games(log, positions)
-        ratings = ts_mod.build_player_ts(
+        games = epm_mod.prepare_player_games(log, positions)
+        ratings = epm_mod.build_player_epm(
             games, target_dates=pd.Series(["2026-03-05"]))
         row = ratings[ratings.player_id == "1"].iloc[0]
-        # Strictly the 03-01 game: 20 points / (2*(12 + 0.44*4)) plays.
-        assert row.prior_points == 20
+        # Strictly the 03-01 game: 20 PM / (12 + 0.44*4) participated
+        # possessions - player 1's own box score, his team being just him.
+        assert row.prior_pm == 20
         assert row.prior_plays == pytest.approx(12 + 0.44 * 4)
         assert row.prior_games == 1
 
@@ -910,7 +928,7 @@ class TestDesignationShardUnion:
         assert "unreadable" in caplog.text
 
 
-class TestPositionTsBuildSurvivesAColdCache:
+class TestPositionEpmBuildSurvivesAColdCache:
     """The production run's failure, reproduced and fixed.
 
     A fresh cache - every full repull, every new Kaggle kernel - left this
@@ -923,7 +941,7 @@ class TestPositionTsBuildSurvivesAColdCache:
     @staticmethod
     def _facts():
         """Two games of history before the targets, because the pool's
-        membership floor is 20 prior plays and a fixture with no history is
+        membership floor is 120 prior possessions and a fixture with no history is
         honestly unrateable rather than a failure of the build."""
         import ingestion
         days = ["2026-02-24", "2026-02-26", "2026-03-01", "2026-03-02"]
@@ -936,12 +954,19 @@ class TestPositionTsBuildSurvivesAColdCache:
             "away_score": [100.0] * len(days) + [None],
         })
         rows = []
-        for day, (b_pts, n_pts) in zip(days, ((20, 10), (30, 12), (24, 11),
+        # Box scores are sized so one game clears ~44 participated
+        # possessions: three of them (133) is what gets a player over
+        # the 120-possession pool floor on the 2026-03-02 target, the
+        # last DECIDED game - the fixture must rate on a served game,
+        # not only on the pending one.
+        for day, (b_pm, n_pm) in zip(days, ((20, 10), (30, 12), (24, 11),
                                               (30, 12))):
-            rows.append({"player_id": 1.0, "gameday": day, "points": b_pts,
-                         "fga": 12, "fta": 4, "player_name": "A", "team": "BOS"})
-            rows.append({"player_id": 2.0, "gameday": day, "points": n_pts,
-                         "fga": 9, "fta": 1, "player_name": "B", "team": "NYK"})
+            rows.append({"player_id": 1.0, "gameday": day, "plus_minus": b_pm,
+                         "fga": 40, "fta": 10, "tov": 0, "minutes": 48,
+                         "player_name": "A", "team": "BOS"})
+            rows.append({"player_id": 2.0, "gameday": day, "plus_minus": n_pm,
+                         "fga": 40, "fta": 10, "tov": 0, "minutes": 48,
+                         "player_name": "B", "team": "NYK"})
         log = pd.DataFrame(rows)
         return ingestion.NBAFacts(
             games=games, team_stats=pd.DataFrame(), player_stats=log,
@@ -973,15 +998,15 @@ class TestPositionTsBuildSurvivesAColdCache:
         import master_pipeline as mp
         self._positions(monkeypatch)
         facts, games = self._facts()
-        frame, slate = mp._build_position_ts_features(facts, games, cache_dir=tmp_path)
+        frame, slate = mp._build_position_epm_features(facts, games, cache_dir=tmp_path)
         assert frame is not None and len(frame)
-        for col in config.PLAYER_TS_POSITION_FEATURE_COLS:
+        for col in config.PLAYER_EPM_POSITION_FEATURE_COLS:
             assert col in frame.columns
-        assert frame[config.PLAYER_TS_POSITION_FEATURE_COLS].notna().any().any()
+        assert frame[config.PLAYER_EPM_POSITION_FEATURE_COLS].notna().any().any()
         assert slate is not None and len(slate) == 1   # the unplayed game
         # The slate is the case the production run lost: the nine columns have
         # to be present AND valued on the game being served, not merely there.
-        assert slate[config.PLAYER_TS_POSITION_FEATURE_COLS].notna().any().any()
+        assert slate[config.PLAYER_EPM_POSITION_FEATURE_COLS].notna().any().any()
 
     def test_no_concat_of_nothing_is_a_frame_not_an_exception(self):
         import master_pipeline as mp
@@ -1010,14 +1035,14 @@ class TestPositionTsBuildSurvivesAColdCache:
 
         monkeypatch.setattr(proj, "load_designations", _scoped_loader)
         with caplog.at_level("WARNING"):
-            mp._build_position_ts_features(facts, games, cache_dir=tmp_path)
+            mp._build_position_epm_features(facts, games, cache_dir=tmp_path)
         assert "UNFILTERED" in caplog.text
 
     def test_a_contract_column_no_row_carries_is_named(self):
         import master_pipeline as mp
         frame = pd.DataFrame({
-            "pl_ts_c_away": [0.5, None], "pl_ts_f_away": [None, None],
+            "pl_epm_c_away": [0.5, None], "pl_epm_f_away": [None, None],
             "rest": [1, 2]})
-        assert mp._empty_contract_columns(frame) == ["pl_ts_f_away"]
+        assert mp._empty_contract_columns(frame) == ["pl_epm_f_away"]
         assert mp._empty_contract_columns(None) == []
         assert mp._empty_contract_columns(pd.DataFrame()) == []

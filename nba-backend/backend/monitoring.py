@@ -354,7 +354,7 @@ def coverage(baseline_games: pd.DataFrame,
              current_games: pd.DataFrame | None = None) -> list[dict]:
     """Per-feature non-null share, per drift window - MLB's dual-window shape.
 
-    This is the visual backstop for the empty-pl_ts incident: a feature that
+    This is the visual backstop for the empty-pl_epm incident: a feature that
     failed to build shows plausible means in no table at all, but its coverage
     row says 0% measured in plain numbers.  Both windows are reported, so a
     feature that starved only recently cannot hide behind a healthy baseline.

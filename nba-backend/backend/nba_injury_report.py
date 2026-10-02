@@ -123,7 +123,7 @@ AVAILABLE = "available"
 UNKNOWN = "unknown"
 
 #: Official designation -> state. Mirrored into
-#: ``config.PLAYER_TS_STATUS_TREATMENT``; kept here because this is the module
+#: ``config.PLAYER_EPM_STATUS_TREATMENT``; kept here because this is the module
 #: that defines the vocabulary, and a mapping living only in config invites it
 #: to drift away from the source it describes.
 DESIGNATION_STATE = {

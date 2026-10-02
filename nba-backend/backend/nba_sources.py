@@ -243,7 +243,7 @@ def assign_positions(by_position: dict) -> dict:
     at both F and C, so this branch runs on roughly a fifth of the league and
     is not a formality.
     """
-    priority = tuple(config.PLAYER_TS_POSITION_PRIORITY)
+    priority = tuple(config.PLAYER_EPM_POSITION_PRIORITY)
     assigned: dict = {}
     for position in priority:
         for player_id in by_position.get(position) or ():
@@ -287,7 +287,7 @@ _OFFICIAL_STATUSES = ("out", "doubtful", "recovery", "questionable",
 #: ESPN's roster vocabulary, which is not the league's. Kept so an ESPN
 #: snapshot is still readable, and kept SEPARATE so the two vocabularies are
 #: never silently merged - ``day_to_day`` maps to nothing in
-#: ``config.PLAYER_TS_STATUS_TREATMENT`` and therefore to ``unknown``, which
+#: ``config.PLAYER_EPM_STATUS_TREATMENT`` and therefore to ``unknown``, which
 #: suppresses nobody and shows up in the vocabulary report.
 _ESPN_STATUSES = {"injur": "out", "injured": "out", "suspended": "out",
                   "suspension": "out", "day-to-day": "day_to_day",
@@ -331,7 +331,7 @@ def availability_status(status: object) -> str:
 #: decided to treat unavailability as a binary REMOVAL (``lineup_projection``
 #: projects from the surviving pool, so a replacement inherits the slot) and
 #: the weighted form stopped having a caller. The measured rates themselves
-#: live on in ``config.PLAYER_TS_DESIGNATION_PLAY_RATE`` - the audit program
+#: live on in ``config.PLAYER_EPM_DESIGNATION_PLAY_RATE`` - the audit program
 #: prints them - and this comment keeps the numbers where the next reader
 #: can find them without resurrecting a function whose only remaining work
 #: was to be a documented trap.

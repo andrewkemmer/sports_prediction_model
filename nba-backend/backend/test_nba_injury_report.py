@@ -127,7 +127,7 @@ def test_doubtful_is_an_absence_even_though_it_is_not_will_not_play():
     of ``WILL_NOT_PLAY``. The two lists answer different questions and are not
     expected to agree."""
     import config
-    assert config.PLAYER_TS_STATUS_TREATMENT["doubtful"] == "absent"
+    assert config.PLAYER_EPM_STATUS_TREATMENT["doubtful"] == "absent"
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_the_pooled_rate_is_not_the_thin_questionable_rate():
     """If this ever reads 0.654 the pooling has been undone by a well-meaning
     edit, and the 0.4%-sample estimate is back."""
     import config
-    rates = config.PLAYER_TS_DESIGNATION_PLAY_RATE
+    rates = config.PLAYER_EPM_DESIGNATION_PLAY_RATE
     assert rates["questionable"] == rates["available"] == rates["probable"]
     assert rates["questionable"] != 0.654
 
@@ -185,7 +185,7 @@ def test_the_pooled_rate_is_actually_the_pooled_rate():
     played = 2006 + 34 + 23        # Available, Questionable, Probable
     total = 2448 + 52 + 24
     pooled = round(played / total, 3)
-    assert config.PLAYER_TS_DESIGNATION_PLAY_RATE["available"] == pooled
+    assert config.PLAYER_EPM_DESIGNATION_PLAY_RATE["available"] == pooled
     assert pooled == 0.817
 
 
@@ -205,31 +205,31 @@ def test_espn_day_to_day_is_not_nba_vocabulary():
 def test_config_mirrors_the_module_mapping():
     import config
     for designation, state in ir.DESIGNATION_STATE.items():
-        assert config.PLAYER_TS_STATUS_TREATMENT[designation] == state
+        assert config.PLAYER_EPM_STATUS_TREATMENT[designation] == state
 
 
 def test_measured_play_rates_are_between_zero_and_one():
     import config
     assert {d.lower() for d in ir.DESIGNATIONS} == \
-        set(config.PLAYER_TS_DESIGNATION_PLAY_RATE)
-    for rate in config.PLAYER_TS_DESIGNATION_PLAY_RATE.values():
+        set(config.PLAYER_EPM_DESIGNATION_PLAY_RATE)
+    for rate in config.PLAYER_EPM_DESIGNATION_PLAY_RATE.values():
         assert 0.0 <= rate <= 1.0
 
 
 def test_play_rates_are_ordered_as_the_states_suggest():
     import config
-    rates = config.PLAYER_TS_DESIGNATION_PLAY_RATE
+    rates = config.PLAYER_EPM_DESIGNATION_PLAY_RATE
     assert rates["out"] < rates["questionable"]
     assert rates["questionable"] <= 1.0
 
 
 def test_the_partial_placeholder_constant_is_gone():
-    """``PLAYER_TS_DAY_TO_DAY_PLAY_RATE`` described a partial bucket that no
+    """``PLAYER_EPM_DAY_TO_DAY_PLAY_RATE`` described a partial bucket that no
     designation produces any more. Keeping a number named after a retired
     state is how an obsolete assumption outlives the decision that killed it.
     """
     import config
-    assert not hasattr(config, "PLAYER_TS_DAY_TO_DAY_PLAY_RATE")
+    assert not hasattr(config, "PLAYER_EPM_DAY_TO_DAY_PLAY_RATE")
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ def test_the_partial_placeholder_constant_is_gone():
 
 def test_every_table_agrees_about_every_designation():
     """Three places describe the same vocabulary: the module's state map,
-    ``config.PLAYER_TS_STATUS_TREATMENT``, and the measured play rates.
+    ``config.PLAYER_EPM_STATUS_TREATMENT``, and the measured play rates.
     Nothing forces them to agree, so nothing would notice when they stop -
     which is how a rating ends up halving a player the config calls absent
     and the source calls available. (The source's old weighted multiplier
@@ -252,9 +252,9 @@ def test_every_table_agrees_about_every_designation():
         normalized = sources.availability_status(designation)
         assert normalized == key
         assert ir.availability_state(designation) == \
-            config.PLAYER_TS_STATUS_TREATMENT[key]
+            config.PLAYER_EPM_STATUS_TREATMENT[key]
         assert sources.availability_status(designation) in \
-            config.PLAYER_TS_DESIGNATION_PLAY_RATE
+            config.PLAYER_EPM_DESIGNATION_PLAY_RATE
 
 
 def test_a_state_implies_the_right_weight_ordering():
@@ -262,7 +262,7 @@ def test_a_state_implies_the_right_weight_ordering():
     identically. This is the property the whole mapping exists to express, so
     it is asserted as ordering rather than as six separate constants."""
     import config
-    rates = config.PLAYER_TS_DESIGNATION_PLAY_RATE
+    rates = config.PLAYER_EPM_DESIGNATION_PLAY_RATE
     absent = [rates[d] for d in ("out", "doubtful", "recovery")]
     available = [rates[d] for d in ("questionable", "available", "probable")]
     assert max(absent) < min(available)

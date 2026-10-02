@@ -401,53 +401,68 @@ Two things are deliberately **not** done here:
   OOF CSV is still the last resort — MLB keeps that same ladder, and MLB's
   invariant rests on the window rather than on removing the fallback.
 
-### Player-level True Shooting, shrunk to a position-segmented prior
+### Player-level Estimated Plus-Minus, shrunk to a position-segmented prior
 
-`backend/player_ts.py` rates every player on true shooting, the way MLB rates a
-batter on wOBA and NHL rates a skater:
+`backend/player_epm.py` rates every player on Estimated Plus-Minus — the NBA
+analogue of NFL's EPA-per-target — the way MLB rates a batter on wOBA and NHL
+rates a skater:
 
 ```
-TS = points / (2 * (FGA + 0.44 * FTA))
+EPM = 100 * plus_minus / participated_possessions
 ```
+
+A player's participated possessions are his minutes share of the game's
+possessions, `game_possessions * minutes / 48`, where a team's game
+possessions are Dean Oliver's estimate `FGA + 0.44 * FTA + TOV` summed over
+both teams. Every input is already in the player frame, so the rating adds no
+new source.
 
 The rate is arithmetic and uninteresting. What makes it a rating is that each
-player's accumulated scoring plays are pulled toward a league prior before use:
+player's accumulated plus-minus is pulled toward a league prior before use:
 
 ```
-TS_shrunk = (prior_points + 2 * lg_ts[pos] * k[pos]) / (2 * (prior_plays + k[pos]))
+EPM_shrunk = (100 * prior_pm + lg_epm[pos] * k[pos]) / (prior_plays + k[pos])
 ```
 
 **The prior is position-segmented.** One league mean would be wrong here for the
 same reason NHL segments by position: a centre and a guard do not share an
-opportunity. On the 2024-25 league the split is real and large — league TS is
-about .618 for centres, .588 for forwards and .574 for guards — so a single mean
-would rate every centre as a below-average guard.
+opportunity. On the 2024-25 league the split is real, and it is stable across
+the three seasons in the frame — league EPM is about +0.38 per 100 possessions
+for guards, −0.39 for forwards and −0.64 for centres — so a single mean would
+rate every centre as a below-average guard. The ordering is the opposite of true
+shooting's (league TS runs .618 centres / .588 forwards / .574 guards): centres
+are the most efficient shooters per attempt and the worst plus-minus performers
+per possession they share the floor for, which is exactly the distinction an
+impact rating exists to capture.
 
 **Prior strength follows the MLB convention carried across by its fraction.**
 MLB's fixed prior is 120 plate appearances, which is 20% of a 600-PA season. The
 fraction is the portable part; the season length is sport-specific. So:
 
 ```
-k[position] = 0.20 * mean plays per PLAYER-SEASON at that position
+k[position] = 0.20 * mean PARTICIPATED POSSESSIONS per PLAYER-SEASON at that position
 ```
 
-Measured on 2025-26 that gives roughly 213 plays for guards, 170 for forwards
-and 163 for centres — guards shoot more, so a guard's reference season is
-longer, so their prior is stronger. The unit is a **player-season**, not a
-player: averaging per player divides each career by its season count and weights
-a three-game cameo like a full season, which collapses the reference season and
-makes `k` several times too small. That is the correction NHL documents at
-length, and the test asserts the two units disagree rather than only that the
-chosen one runs.
+Measured on the cached 2023-24 through 2025-26 frame that gives k of about 490
+for guards, 422 for forwards and 445 for centres — reference player-seasons of
+roughly 2,450, 2,110 and 2,225 participated possessions. The unit is a
+**player-season**, not a player: averaging per player divides each career by its
+season count and weights a three-game cameo like a full season, which collapses
+the reference season and makes `k` several times too small. That is the
+correction NHL documents at length, and the test asserts the two units disagree
+rather than only that the chosen one runs.
 
 **The prior is strictly point-in-time.** The player's numerator and denominator,
 and the league mean, are summed over rows *strictly before* the target date and
 partitioned by season. Both properties are invisible in the output — a player
 with a full season of evidence looks equally well-rated whether or not the
-boundary holds — so both are pinned by tests.
+boundary holds — so both are pinned by tests. The same discipline governs the
+prior *strength*: `k` is derived per target season from completed prior seasons
+only, so a season never tunes its own shrinkage, and the frame's earliest
+season (no completed prior to measure against) keeps the whole-frame mean.
 
 **Availability is a separate column, never folded into the rate.** An injured
-player still has a true shooting percentage; what changes is how much a lineup
+player still has an EPM; what changes is how much a lineup
 projection should lean on it. `out` carries a 0.0 multiplier, `day_to_day` 0.5,
 `healthy` 1.0. Note that this is a *current* input, like MLB's IL: it describes
 today's roster, so it is only meaningful for a live slate. A rating dated to a
@@ -484,14 +499,19 @@ than only for the injured ones. ESPN sends `status` as a bare string
 reads nothing off it and reports the whole league healthy while every check
 still passes; the real shape is pinned by a test.
 
-#### Published, not yet a model input
+#### Published, and promoted only as a lineup aggregate
 
-The ratings are written to `nba_player_ts_{date}.csv` alongside the feature
-contract and are **deliberately not** added to `MONEYLINE_FEATURE_COLS`. Adding
-a column there changes the model and needs its own holdout validation, which is
-a separate decision from building the rating. This mirrors NHL, whose player
-ratings are published for the same reason. The rating is PIT and season-safe, so
-it is safe to publish now and to promote later behind a gate.
+The ratings are written to `nba_player_epm_{date}.csv` (and the projected
+lineups to `nba_player_epm_lineups_{date}.csv`) alongside the feature
+contract. The model never consumes a single player's rating directly: what
+enters `MONEYLINE_FEATURE_COLS` is the projected lineup's per-position
+aggregate — `pl_epm_{pos}_home/_away/_diff`, built by
+`backend/ab_position_epm.py` from these ratings — so one player's rating moves
+a prediction only through the projected roster he is part of. That aggregate
+form is the one that was holdout-validated; adding a raw per-player column
+there changes the model and needs its own validation, which is a separate
+decision from building the rating. The rating is PIT and season-safe, so it is
+safe to publish now and to re-project later behind a gate.
 
 If the ratings cannot be built the run continues without them and says so in
 the log. A silently absent ratings file is indistinguishable from a league where
@@ -503,13 +523,13 @@ nobody played, so the failure is logged loudly even though it is not fatal.
 counterparts of MLB's `build_il_stints.py` and `_LINEUP_AGG_ROSTER`. Four
 things are inherited deliberately, and each is a bug MLB already paid for:
 
-* **RATING FIRST, INJURY SECOND.** The shrunk TS is computed for every player
+* **RATING FIRST, INJURY SECOND.** The shrunk EPM is computed for every player
   regardless of injury. The removal happens at pool construction, where a
   replacement inherits the vacated slot. Multiplying a rating by zero instead —
   the obvious shortcut — leaves the player *in* the pool dragging the mean
   toward zero, which is the opposite of the intent.
 * **WIDEN, THEN FILTER.** The candidate pool is every team member with a
-  rating row in the last `PLAYER_TS_POOL_LOOKBACK_DAYS` (10), not only players
+  rating row in the last `PLAYER_EPM_POOL_LOOKBACK_DAYS` (10), not only players
   who appeared recently. MLB's comment is the whole argument: *"Without this
   the IL filter cannot bind AT ALL: an injured player is absent from the
   participant pool by construction, so subtracting him is a no-op."* Being
@@ -523,7 +543,7 @@ things are inherited deliberately, and each is a bug MLB already paid for:
 * **NO PADDING.** A short-handed team is averaged over the players it has.
   Padding to eight would fabricate full strength from a depleted roster.
 
-`PLAYER_TS_MIN_PLAYS` (20) gates **pool membership**, not the rating.
+`PLAYER_EPM_MIN_PLAYS` (120) gates **pool membership**, not the rating.
 Shrinkage already handles a thin rating; the floor answers a different
 question — whether a player with three career games is a candidate for
 tonight's lineup at all.

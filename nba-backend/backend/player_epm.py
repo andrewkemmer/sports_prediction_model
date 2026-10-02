@@ -1,40 +1,58 @@
-"""Player-level True Shooting ratings, shrunk to a position-segmented prior.
+"""Player-level Estimated Plus-Minus ratings, shrunk to a position prior.
 
-The NBA analogue of MLB's shrunk wOBA and NHL's shrunk player ratings. The rate
-itself is arithmetic and exact::
+The NBA analogue of NFL's EPA-per-target and MLB's shrunk wOBA: a
+player's impact expressed per 100 possessions he participated in.
+The rate itself is arithmetic and exact::
 
-    TS  = points / (2 * (FGA + 0.44 * FTA))
+    EPM  = 100 * plus_minus / participated_possessions
 
-What makes it a RATING rather than a rate is the shrinkage. A raw season TS is
-noise-dominated for a player who has taken 30 shots, so each player's
-accumulated scoring plays are pulled toward a league prior before use::
+where a player's participated possessions are his share of his
+team's game possessions - ``minutes / 48`` of them, the standard
+pro-rata estimate - and a team's game possessions are Dean
+Oliver's ``FGA + 0.44 * FTA + TOV`` summed over its box scores.
 
-    TS_shrunk = (points_prior + TS_league[pos] * k[pos]) / (plays_prior + k[pos])
+What makes it a RATING rather than a rate is the shrinkage. A raw
+season EPM is noise-dominated for a player with 200 possessions of
+evidence, so each player's accumulated plus-minus is pulled toward
+a position-segmented league prior before use::
 
-Two properties of this construction are load-bearing and are asserted by tests
-rather than left to convention.
+    EPM_shrunk = (100 * pm_prior + EPM_league[pos] * k[pos])
+                 / (poss_prior + k[pos])
 
-**The prior is POSITION-SEGMENTED.** A centre and a guard do not share an
-opportunity, so one league mean would over-rate every big - the same reason
-NHL segments by position. ``k`` is itself per position: 20% of the mean
-PLAYER-SEASON of scoring plays at that position, carrying MLB's fixed 120-PA
-prior convention across by its fraction (120 is 20% of a 600-PA season, so the
+Two properties of this construction are load-bearing and are asserted
+by tests rather than left to convention.
+
+**The prior is POSITION-SEGMENTED.** A centre and a guard do not
+share an opportunity, so one league mean would over-rate every big -
+the same reason NHL segments by position. ``k`` is itself per
+position: 20% of the mean PLAYER-SEASON of participated possessions
+at that position, carrying MLB's fixed 120-PA prior convention
+across by its fraction (120 is 20% of a 600-PA season, so the
 fraction is the portable part and the season length is sport-specific).
 
-**The prior is strictly point-in-time.** Both the player's own numerator and
-denominator, and the league mean, are summed over rows STRICTLY BEFORE the
-target date, per season. A rating that included the target game would be a
-leak, and because the target game's contribution is small relative to a season
-the leak is invisible in the output - it looks like a slightly better number,
-not like a bug.
+**The prior is strictly point-in-time.** Both the player's own
+numerator and denominator, and the league mean, are summed over rows
+STRICTLY BEFORE the target date, per season. A rating that included
+the target game would be a leak, and because the target game's
+contribution is small relative to a season the leak is invisible in
+the output - it looks like a slightly better number, not like a bug.
 
-The averaging unit for ``k`` is a PLAYER-SEASON, not a player, and that is the
-correction NHL documents at length: dividing by seasons first weights a 3-game
-cameo exactly like an 82-game regular and collapses the reference season, which
-would make ``k`` several times too small and under-shrink every rating.
+The averaging unit for ``k`` is a PLAYER-SEASON, not a player, and
+that is the correction NHL documents at length: dividing by seasons
+first weights a 3-game cameo exactly like an 82-game regular and
+collapses the reference season, which would make ``k`` several times
+too small and under-shrink every rating.
 
-Availability is applied as a separate multiplier on the rating's weight, never
-folded into the rate. An injured player still has a true shooting percentage;
+A player who did not play has no plus-minus to rate. The feed can
+carry a stale nonzero PM on a DNP row (120 such rows exist in the
+2023-24..2025-26 logs), so participation is gated on MINUTES, not
+on the PM column: a zero-minute row contributes nothing to either
+side of the rate. Coding it as an observation would drag every
+rating the player is part of toward a number he never earned on the
+court.
+
+Availability is applied as a separate removal at pool construction,
+never folded into the rate. An injured player still has an EPM;
 what changes is how much the lineup projection should lean on it.
 """
 from __future__ import annotations
@@ -49,10 +67,12 @@ try:
 except ImportError:
     import config
 
-#: Columns this module reads out of the player-level season log. The contract
-#: spells assists ``ast`` and this does not need assists at all, so the set is
-#: the shooting triple plus the keys.
-_REQUIRED_COLS = ("player_id", "points", "fga", "fta")
+#: Columns this module reads out of the player-level season log. The
+#: rating needs the box-score triple that estimates possessions
+#: (attempts, free throws, turnovers), the participation measure
+#: (minutes) and the impact measure (plus-minus), plus the keys.
+_REQUIRED_COLS = ("player_id", "plus_minus", "fga", "fta", "tov",
+                  "minutes")
 
 
 def _player_id_str(values) -> pd.Series:
@@ -76,41 +96,78 @@ def _player_id_str(values) -> pd.Series:
     return out
 
 
-def scoring_plays(fga, fta) -> pd.Series:
-    """Scoring plays = ``FGA + 0.44 * FTA`` for one player-game.
+def team_game_possessions(frame: pd.DataFrame) -> pd.Series:
+    """Possessions per (game, team): ``FGA + 0.44*FTA + TOV``.
 
-    The 0.44 is the standard NBA free-throw weight and lives in config so the
-    number is changed in exactly one place.
+    Dean Oliver's possession estimate, summed over the team's box
+    scores in one game. A team plays at most one game a day, so
+    ``(gameday, team)`` keys a game exactly - and it is always
+    present, where ``game_id`` is not (unit fixtures, hand-built
+    frames). Computed on a DEDUPED frame: a box score counted twice
+    would double the game's possessions and halve every player's
+    participation in it.
     """
-    return (pd.to_numeric(fga, errors="coerce").fillna(0.0)
-            + config.PLAYER_TS_FTA_WEIGHT
-            * pd.to_numeric(fta, errors="coerce").fillna(0.0))
+    fga = pd.to_numeric(frame.get("fga"), errors="coerce").fillna(0.0)
+    fta = pd.to_numeric(frame.get("fta"), errors="coerce").fillna(0.0)
+    tov = pd.to_numeric(frame.get("tov"), errors="coerce").fillna(0.0)
+    poss = fga + config.PLAYER_EPM_FTA_WEIGHT * fta + tov
+    keys = ["gameday", "team"]
+    work = frame[keys].copy()
+    work["_poss"] = poss
+    totals = work.groupby(keys, dropna=False).agg(
+        _game_poss=("_poss", "sum"))
+    merged = frame[keys].merge(totals, on=keys, how="left")
+    return merged["_game_poss"].to_numpy()
 
 
-def true_shooting(points, fga, fta) -> pd.Series:
-    """Raw TS for one player-game. NaN where there were no scoring plays.
+def participated_possessions(game_possessions, minutes) -> pd.Series:
+    """Possessions a player participated in, for one player-game.
 
-    A game with zero attempts is genuinely undefined rather than zero, so it is
-    NaN and is excluded from both the numerator and the denominator sums. Coding
-    it 0.0 would drag every rate the player is part of toward zero.
+    ``game_possessions * minutes / 48``: the pro-rata share of his
+    team's possessions that ran while he was on the floor, the same
+    estimate every per-100-possessions rate in basketball uses. A
+    player who did not play participated in nothing, so the share is
+    exactly zero when ``minutes`` is missing or zero - not NaN,
+    because a DNP row is a defined observation of zero opportunity,
+    and the rate it feeds must be undefined (see
+    :func:`estimated_plus_minus`), not missing.
     """
-    plays = scoring_plays(fga, fta)
-    pts = pd.to_numeric(points, errors="coerce")
-    return pts / (2.0 * plays).where(plays > 0)
+    # ``game_possessions`` arrives as a numpy array (aligned to the
+    # frame's rows) from :func:`team_game_possessions`, so it is
+    # wrapped before the numeric coercion - an ndarray has no
+    # ``fillna``.
+    poss = pd.to_numeric(
+        pd.Series(game_possessions), errors="coerce").fillna(0.0)
+    mins = pd.to_numeric(pd.Series(minutes), errors="coerce").fillna(0.0)
+    return (poss * mins / 48.0).where(mins > 0, 0.0)
+
+
+def estimated_plus_minus(plus_minus, plays) -> pd.Series:
+    """Raw EPM for one player-game: ``100 * PM / participated``.
+
+    NaN where there were no participated possessions. A game with
+    zero participation is genuinely undefined rather than zero, so it
+    is NaN and is excluded from both the numerator and the denominator
+    sums. Coding it 0.0 would drag every rating the player is part of
+    toward zero.
+    """
+    pm = pd.to_numeric(plus_minus, errors="coerce")
+    plays = pd.to_numeric(plays, errors="coerce")
+    return (100.0 * pm / plays).where(plays > 0)
 
 
 def prepare_player_games(stats: pd.DataFrame | None,
                          positions: pd.DataFrame | None = None,
                          ) -> pd.DataFrame:
-    """One row per player-game with plays, points, TS and position attached.
+    """One row per player-game with possessions, PM, EPM and position.
 
     Returns an EMPTY frame with the full column set when the input cannot
     support a rating, rather than None. A caller that gets None has to guess
     whether the pull failed or the league played no games; an empty frame with
     the right columns is a state it can count and report.
     """
-    columns = ["player_id", "gameday", "season", "team", "points", "fga",
-               "fta", "plays", "ts"]
+    columns = ["player_id", "gameday", "season", "team", "plus_minus",
+               "minutes", "fga", "fta", "tov", "plays", "epm"]
     if positions is not None and len(positions):
         columns = columns + ["position"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
@@ -121,10 +178,8 @@ def prepare_player_games(stats: pd.DataFrame | None,
 
     frame = stats.copy()
     frame["player_id"] = _player_id_str(frame.player_id).values
-    for col in ("points", "fga", "fta"):
+    for col in ("plus_minus", "fga", "fta", "tov", "minutes"):
         frame[col] = pd.to_numeric(frame.get(col), errors="coerce")
-    frame["plays"] = scoring_plays(frame.fga, frame.fta)
-    frame["ts"] = true_shooting(frame.points, frame.fga, frame.fta)
 
     # The season partition is what keeps the prior honest across a season
     # boundary. Without it a rating dated 2024-10-22 would be shrunk toward a
@@ -208,33 +263,59 @@ def prepare_player_games(stats: pd.DataFrame | None,
         # with NaN would turn a correctly-labelled frame into one that rates
         # nobody, and the only symptom would be an empty result.
         frame["position"] = np.nan
+
+    # Possessions, participation and the rate itself are computed LAST, on the
+    # deduped frame: the game's possession total is a sum over the team's box
+    # scores, so it is only correct once each box score is counted once.
+    frame["plays"] = participated_possessions(
+        team_game_possessions(frame), frame.minutes)
+    # A player who did not participate has no plus-minus to rate. The feed can
+    # carry a stale nonzero PM on a DNP row (120 such rows in the 2023-24
+    # through 2025-26 logs, against 305 zero-minute rows), and those points
+    # were never earned on the court - leaving them in the numerator would
+    # rate a player for impact he did not have while paying him for the
+    # possessions in the denominator. Zeroed, the row contributes nothing to
+    # either side of the rate, exactly like a zero-attempt game did under the
+    # old scoring-play denominator.
+    frame["plus_minus"] = frame.plus_minus.where(frame.plays > 0, 0.0)
+    frame["epm"] = estimated_plus_minus(frame.plus_minus, frame.plays)
     return frame
 
 
 def season_plays_table(games: pd.DataFrame,
-                       shrink_fraction: float = config.PLAYER_TS_SHRINK_FRACTION,
+                       shrink_fraction: float = config.PLAYER_EPM_SHRINK_FRACTION,
                        participation_floor_plays: float = 0.0,
+                       through_season: str | None = None,
                        ) -> dict:
-    """``k[position] = shrink_fraction * mean plays per PLAYER-SEASON``.
+    """``k[position] = shrink_fraction * mean possessions per PLAYER-SEASON``.
 
     The averaging unit is a player-season, not a player: a player appearing in
     two seasons contributes two player-seasons of evidence, each carrying that
-    season's own total. Averaging per player instead (total plays / seasons,
-    then mean across players) weights a 3-game cameo like a full season and
-    collapses the reference season to roughly 40% of its true length, making
-    ``k`` several times too small and under-shrinking every rating.
+    season's own total. Averaging per player instead (total possessions /
+    seasons, then mean across players) weights a 3-game cameo like a full
+    season and collapses the reference season to roughly 40% of its true
+    length, making ``k`` several times too small and under-shrinking every
+    rating.
 
     ``participation_floor_plays`` optionally drops player-seasons below a
     threshold, moving the reference from "a season of any participation" toward
     "a full-time season". It defaults to 0.0 so the table stays comparable with
     the measured reference figures.
 
-    Any cell with no evidence keeps ``config.PLAYER_TS_FALLBACK_K_PLAYS``, so a
+    ``through_season`` applies the NHL discipline (``season_ice_time_table``'s
+    ``as_of``): only player-seasons from seasons STRICTLY BEFORE it enter the
+    mean, so a season cannot tune its own shrinkage strength. Without it the
+    whole-frame mean also absorbs the season in progress - and an in-progress
+    season holds PARTIAL player-seasons, which drags the mean down as the
+    season accumulates and silently weakens every rating's prior weight game by
+    game. ``None`` keeps the whole-frame mean (the pre-2026-10-01 behavior).
+
+    Any cell with no evidence keeps ``config.PLAYER_EPM_FALLBACK_K_PLAYS``, so a
     partially populated frame yields a COMPLETE prior table instead of one that
     raises at lookup time.
     """
-    table = {pos: float(config.PLAYER_TS_FALLBACK_K_PLAYS)
-             for pos in config.PLAYER_TS_POSITIONS}
+    table = {pos: float(config.PLAYER_EPM_FALLBACK_K_PLAYS)
+             for pos in config.PLAYER_EPM_POSITIONS}
     if games is None or not len(games):
         return table
     if not {"player_id", "season", "plays", "position"}.issubset(games.columns):
@@ -242,6 +323,9 @@ def season_plays_table(games: pd.DataFrame,
 
     work = games[["player_id", "season", "plays", "position"]].copy()
     work = work[work.position.isin(table)]
+    if through_season is not None:
+        cutoff = _season_key(through_season)
+        work = work[work["season"].map(_season_key) < cutoff]
     if work.empty:
         return table
     per_season = (work.groupby(["player_id", "season", "position"],
@@ -274,11 +358,44 @@ def _season_of(when) -> str:
     return season_label(stamp.date())
 
 
+def _season_key(label) -> tuple:
+    """Sort key for season labels: the calendar year the season opens.
+
+    Labels are ``"2024-25"``-shaped, so the leading year orders them. A
+    label that does not parse still sorts - deterministically, after every
+    real season - rather than raising mid-build.
+    """
+    text = str(label)
+    try:
+        return (0, int(text[:4]))
+    except ValueError:
+        return (1, text)
+
+
+def _k_table_for_season(k_by_season: dict, full_frame_table: dict,
+                        season: str) -> dict:
+    """The shrinkage-strength table for a target in ``season``.
+
+    Exact season first; else the most recent table built from an earlier
+    season (a target in a season the frame has no rows for - a preseason
+    date, say - still rates on a completed-season scale); else the
+    whole-frame table, the only scale the frame knows.
+    """
+    if season in k_by_season:
+        return k_by_season[season]
+    key = _season_key(season)
+    earlier = [label for label in k_by_season
+               if _season_key(label) < key]
+    if earlier:
+        return k_by_season[max(earlier, key=_season_key)]
+    return full_frame_table
+
+
 def _season_evidence_index(games: pd.DataFrame) -> dict:
     """``season -> sorted gamedays``, so "has this season any row yet?" is a
     ``searchsorted`` rather than a scan of the whole frame.
 
-    Built once per call to ``build_player_ts`` because the answer is asked once
+    Built once per call to ``build_player_epm`` because the answer is asked once
     per target date per position, and the whole-frame build asks it thousands of
     times. A filter per question turns a 40-second build into minutes.
     """
@@ -364,24 +481,28 @@ def _prior_for(games: pd.DataFrame, target, season: str | None = None
     earlier = games[games.gameday < target]
     if earlier.empty:
         return pd.DataFrame(columns=["player_id", "position", "season",
-                                     "prior_points", "prior_plays",
+                                     "prior_pm", "prior_plays",
                                      "prior_games"])
     keys = ["player_id", "position"] + (["season"] if "season" in earlier.columns
                                        else [])
     # ``size`` not ``sum``: prior_games counts the games that contributed
     # evidence, and a sum of a count column would be its square.
     return (earlier.groupby(keys, as_index=False)
-            .agg(prior_points=("points", "sum"),
+            .agg(prior_pm=("plus_minus", "sum"),
                  prior_plays=("plays", "sum"),
-                 prior_games=("points", "size")))
+                 prior_games=("plus_minus", "size")))
 
 
 def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
-    """Position-segmented league TS through each target date, PIT-safe.
+    """Position-segmented league EPM through each target date, PIT-safe.
 
-    One row per (target date, position). The numerator and denominator are
-    accumulated from player-games strictly before the date, which is what makes
-    the prior usable at bet time rather than only retrospectively.
+    One row per (target date, position). The numerator (plus-minus) and the
+    denominator (participated possessions) are accumulated from player-games
+    strictly before the date, which is what makes the prior usable at bet time
+    rather than only retrospectively. The league cell's rate is carried in
+    per-100-possession units, ``100 * lg_pm / lg_plays`` - the same scale the
+    player rate lives on, so the shrinkage mixes the two without a unit
+    conversion.
 
     Position cells are independent: each is its own sum, so a date where only
     guards have played still yields a guard row. The alternative - a single
@@ -395,22 +516,22 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
     recent prior season's plays through the target and ``lg_season_source``
     names the borrowed season. Without it, opening night has a zero player
     prior AND an empty league cell, so the shrink target is NaN and a whole
-    slate's ts_shrunk collapses - all-the-way shrinkage with no prior to shrink
+    slate's epm_shrunk collapses - all-the-way shrinkage with no prior to shrink
     TO. The borrow is strictly point-in-time (prior-season rows are, by
     construction, before the target) and it is the same bridge the player-side
     fallback already makes for pre-season targets, extended to the league side
     so game 1 behaves like game 2: the player lands on the league mean, just
     from last season's cell. A target with no evidence in ANY season keeps the
-    empty cell (lg_ts NaN) - nothing is invented.
+    empty cell (lg_epm NaN) - nothing is invented.
     """
-    columns = ["target_date", "position", "lg_points", "lg_plays", "lg_ts",
+    columns = ["target_date", "position", "lg_pm", "lg_plays", "lg_epm",
                "lg_season_source"]
     if games is None or not len(games):
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if "position" not in games.columns:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
 
-    work = games[games.position.isin(config.PLAYER_TS_POSITIONS)].copy()
+    work = games[games.position.isin(config.PLAYER_EPM_POSITIONS)].copy()
     if work.empty:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     work = work.sort_values(["position", "season", "gameday"])
@@ -426,7 +547,7 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
 
     rows = []
     season_index = _season_evidence_index(work)
-    # Per (position, season) cumulative scoring-play tables, kept so the
+    # Per (position, season) cumulative possession tables, kept so the
     # season-boundary borrow below can read a prior season's cell.
     cum_by_season: dict = {}
     for position, group in work.groupby("position", sort=False):
@@ -443,27 +564,27 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
         else:
             parts = [(None, group)]
         for season, part in parts:
-            daily_points = part.groupby("gameday").points.sum().sort_index()
+            daily_pm = part.groupby("gameday").plus_minus.sum().sort_index()
             daily_plays = part.groupby("gameday").plays.sum().sort_index()
-            cum_points = daily_points.cumsum()
+            cum_pm = daily_pm.cumsum()
             cum_plays = daily_plays.cumsum()
             if season is not None:
                 cum_by_season.setdefault(position, {})[season] = (
-                    cum_points, cum_plays)
+                    cum_pm, cum_plays)
             for target in dates:
                 if season is not None and _evidence_season(
                         work, target, season_index) != season:
                     continue
-                earlier = cum_points.index < target
+                earlier = cum_pm.index < target
                 rows.append((target, position,
-                             float(cum_points[earlier].sum())
+                             float(cum_pm[earlier].sum())
                              if earlier.any() else 0.0,
                              float(cum_plays[earlier].sum())
                              if earlier.any() else 0.0,
                              season if (season is not None and earlier.any())
                              else ""))
     out = pd.DataFrame(rows, columns=["target_date", "position",
-                                      "lg_points", "lg_plays",
+                                      "lg_pm", "lg_plays",
                                       "lg_season_source"])
     # Season-boundary borrow. A cell with no in-season evidence strictly
     # before the target - the season's first decided game(s) - shrinks toward
@@ -487,44 +608,45 @@ def league_prior_table(games: pd.DataFrame, target_dates=None) -> pd.DataFrame:
             continue
         cp, cpl = season_cells[best_season]
         earlier = cp.index < target
-        out.at[idx, "lg_points"] = float(cp[earlier].sum())
+        out.at[idx, "lg_pm"] = float(cp[earlier].sum())
         out.at[idx, "lg_plays"] = float(cpl[earlier].sum())
         out.at[idx, "lg_season_source"] = best_season
-    out["lg_ts"] = out.lg_points / (2.0 * out.lg_plays).where(out.lg_plays > 0)
+    out["lg_epm"] = (100.0 * out.lg_pm
+                     / out.lg_plays.where(out.lg_plays > 0))
     return out
 
 
-def shrunk_ts(prior_points, prior_plays, league_ts, k) -> pd.Series:
-    """The shrinkage itself, in TS units.
+def shrunk_epm(prior_pm, prior_plays, league_epm, k) -> pd.Series:
+    """The shrinkage itself, in EPM units.
 
-    TS carries a factor of TWO in its denominator - one scoring play is worth
-    two points - so the prior has to be carried in the same units or the answer
-    comes out at roughly double the truth::
+    EPM's numerator is ``100 * plus_minus`` and its denominator is
+    participated possessions, so the prior is carried in those units and the
+    algebra is the generic one - prior plus k pseudo-observations of the league
+    mean::
 
-        TS = (prior_points + 2 * lg_ts * k) / (2 * (prior_plays + k))
+        EPM = (100 * prior_pm + league_epm * k) / (prior_plays + k)
 
-    The prior contributes ``2 * lg_ts * k`` points because ``k`` is expressed
-    in SCORING PLAYS and the observed points are compared against a denominator
-    of ``2 * plays``. Dropping either factor of two does not raise an error, it
-    returns a plausible number near 0.93 where the truth is near 0.56 - which
+    A zero-prior player lands exactly on ``league_epm``: with no evidence the
+    rating IS the prior. Dropping the ``100`` does not raise an error, it
+    returns a plausible number near 0.01 where the truth is near 1.4 - which
     is why this is one named function instead of inlined arithmetic at the
     call site.
 
-    ``k`` is per-position, so ``league_ts`` and ``k`` are both series here.
+    ``k`` is per-position, so ``league_epm`` and ``k`` are both series here.
     """
-    pts = pd.to_numeric(pd.Series(prior_points), errors="coerce")
+    pm = pd.to_numeric(pd.Series(prior_pm), errors="coerce")
     plays = pd.to_numeric(pd.Series(prior_plays), errors="coerce")
-    lg = pd.to_numeric(pd.Series(league_ts), errors="coerce")
+    lg = pd.to_numeric(pd.Series(league_epm), errors="coerce")
     weight = pd.to_numeric(pd.Series(k), errors="coerce")
-    return (pts + 2.0 * lg * weight) / (2.0 * (plays + weight))
+    return (100.0 * pm + lg * weight) / (plays + weight)
 
 
-def build_player_ts(games: pd.DataFrame,
-                    target_dates=None,
-                    shrink_fraction: float = config.PLAYER_TS_SHRINK_FRACTION,
-                    availability: pd.DataFrame | None = None,
-                    ) -> pd.DataFrame:
-    """Player-level TS ratings as of each target date.
+def build_player_epm(games: pd.DataFrame,
+                     target_dates=None,
+                     shrink_fraction: float = config.PLAYER_EPM_SHRINK_FRACTION,
+                     availability: pd.DataFrame | None = None,
+                     ) -> pd.DataFrame:
+    """Player-level EPM ratings as of each target date.
 
     Returns one row per (target date, player) with the raw prior, the league
     prior it was shrunk toward, the strength used, and the resulting rating.
@@ -541,20 +663,46 @@ def build_player_ts(games: pd.DataFrame,
     # a column that looks populated and carries no information, and a
     # multiplier that invites a future caller to reintroduce exactly the
     # zero-weighting the pool deliberately avoids.
-    columns = ["target_date", "player_id", "position", "team", "prior_points",
-               "prior_plays", "prior_games", "lg_ts", "k_plays", "ts_raw",
-               "ts_shrunk", "days_since_appearance"]
+    columns = ["target_date", "player_id", "position", "team", "prior_pm",
+               "prior_plays", "prior_games", "lg_epm", "k_plays", "epm_raw",
+               "epm_shrunk", "days_since_appearance"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if games is None or not len(games):
         return empty
     if "position" not in games.columns or not games.position.notna().any():
         return empty
 
-    work = games[games.position.isin(config.PLAYER_TS_POSITIONS)].copy()
+    work = games[games.position.isin(config.PLAYER_EPM_POSITIONS)].copy()
     if work.empty:
         return empty
 
+    # Shrinkage strength is per TARGET SEASON, derived from completed prior
+    # seasons only (NHL's season_ice_time_table discipline): a season cannot
+    # tune its own k, and an in-progress season - whose player-seasons are
+    # partial - would otherwise drag the mean down as the season accumulates
+    # and silently weaken every rating's prior weight game by game. The
+    # whole-frame table stays as the fallback for a target whose season
+    # predates every season the frame knows, where no prior-season scale
+    # exists at all. A frame of completed seasons only (the opening-slate
+    # build) is numerically identical to the old single global table.
     k_table = season_plays_table(games, shrink_fraction=shrink_fraction)
+    k_by_season: dict = {}
+    if "season" in games.columns:
+        frame_seasons = sorted(
+            {s for s in games["season"].dropna().unique()},
+            key=_season_key)
+        for index, season in enumerate(frame_seasons):
+            if index == 0:
+                # The frame's earliest season has no completed prior
+                # season to measure against, so it keeps the
+                # whole-frame mean - the pre-2026-10-01 behavior -
+                # rather than a constant that ignores the frame's own
+                # season scale.
+                k_by_season[season] = k_table
+            else:
+                k_by_season[season] = season_plays_table(
+                    games, shrink_fraction=shrink_fraction,
+                    through_season=season)
 
     if target_dates is None:
         dates = pd.Series(sorted(work.gameday.dropna().unique()))
@@ -599,41 +747,45 @@ def build_player_ts(games: pd.DataFrame,
             roster = roster.merge(latest_team, on="player_id", how="left")
         if snapshot.empty:
             snapshot = roster.copy()
-            for col in ("prior_points", "prior_plays", "prior_games"):
+            for col in ("prior_pm", "prior_plays", "prior_games"):
                 snapshot[col] = 0.0
         else:
             keys = ["player_id", "position"]
             snapshot = roster.merge(snapshot, on=keys, how="left")
-            for col in ("prior_points", "prior_plays", "prior_games"):
+            for col in ("prior_pm", "prior_plays", "prior_games"):
                 snapshot[col] = snapshot[col].fillna(0.0)
         lg = league[league.target_date == target]
         snapshot = snapshot.merge(
-            lg[["position", "lg_ts"]], on="position", how="left")
-        snapshot["k_plays"] = snapshot.position.map(k_table).astype(float)
+            lg[["position", "lg_epm"]], on="position", how="left")
+        k_for_target = _k_table_for_season(
+            k_by_season, k_table, _season_of(target))
+        snapshot["k_plays"] = snapshot.position.map(
+            k_for_target).astype(float)
         # The unshrunk rate, for auditing. Recomputed from the snapshot's own
         # prior rather than carried down from the per-row frame, because the
         # per-row value belongs to a single game, not to the accumulated prior.
-        snapshot["ts_raw"] = snapshot.prior_points / (
-            2.0 * snapshot.prior_plays).where(snapshot.prior_plays > 0)
+        snapshot["epm_raw"] = (100.0 * snapshot.prior_pm
+                               / snapshot.prior_plays).where(
+                                   snapshot.prior_plays > 0)
         # A player at a position with no league evidence falls back to the
         # position's OWN reference rather than to nothing: the prior strength
         # is defined for every position, so a NaN league mean leaves the
         # rating undefined instead of collapsing it to the player's raw rate.
-        snapshot["ts_shrunk"] = shrunk_ts(
-            snapshot.prior_points, snapshot.prior_plays,
-            snapshot.lg_ts, snapshot.k_plays)
+        snapshot["epm_shrunk"] = shrunk_epm(
+            snapshot.prior_pm, snapshot.prior_plays,
+            snapshot.lg_epm, snapshot.k_plays)
         snapshot["target_date"] = target
         # Recency of the player's actual evidence, carried for the pool's
         # availability gate: days from the player's LAST appearance strictly
         # at or before the target, within the rated season. The gap is only
         # defined when the evidence season IS the target's own season; a
         # fallback-evidence target (the first days of a season, rated from
-        # the last completed one) carries NaN — that is the season-start
-        # carryover case, governed by the min-plays floor, and NOT an
-        # infinitely stale row. (Computing the gap across the fallback made
-        # every carryover member look ~150 days stale on the 2026-27 slate
-        # and the gate emptied every projected lineup; the frame's OOF side
-        # was unaffected and mid-season games never hit this path.)
+        # the prior one) carries NaN — that is the season-start carryover case,
+        # governed by the min-plays floor, and NOT an infinitely stale row.
+        # (Computing the gap across the fallback made every carryover member
+        # look ~150 days stale on the 2026-27 slate and the gate emptied
+        # every projected lineup; the frame's OOF side was unaffected and
+        # mid-season games never hit this path.)
         if season and season == _season_of(target):
             known_early = known[known.gameday <= target]
             if len(known_early):

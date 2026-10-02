@@ -60,11 +60,14 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
-# v2.2: opportunity-weighted pl_ts blend (NFL f9d3e00 / MLB e3aa763 parity).
-# The lineup aggregates blend each member's shrunk TS by his own prior-play
-# total instead of a plain mean; availability inputs are unchanged and
-# strictly point-in-time (designation archive + appearance recency gate).
-FEATURE_SET_VERSION = "nba-prod-v2.2-per-side-opp-weighted"
+# v2.3: pl_epm replaces the TS family - Estimated Plus-Minus per 100
+# participated possessions (NFL EPA-per-target analogue), same shrinkage,
+# availability and opportunity-weighting structure (NFL f9d3e00 / MLB
+# e3aa763 parity). The lineup aggregates blend each member's shrunk EPM
+# by his own prior-possession total instead of a plain mean; availability
+# inputs are unchanged and strictly point-in-time (designation archive +
+# appearance recency gate).
+FEATURE_SET_VERSION = "nba-prod-v2.3-epm"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -135,19 +138,19 @@ MONEYLINE_FEATURE_COLS = [
     "event_live_tov_rate_diff", "event_and_in_rate_diff",
     "event_shot_distance_diff", "event_possessions_diff",
     "event_shooting_fouls_diff", "event_q4_points_diff",
-    # Position-segmented projected-lineup shooting - the NBA mirror of MLB's
-    # lineup_woba_* trio, one per position, with sides retained:
-    #   pl_ts_{pos}_home / _away : the projected lineup's shrunk TS at that
-    #                              position, home side / away side
-    #   pl_ts_{pos}_diff         : home minus away
+    # Position-segmented projected-lineup impact - the NBA mirror of
+    # MLB's lineup_woba_* trio, one per position, with sides retained:
+    #   pl_epm_{pos}_home / _away : the projected lineup's shrunk EPM
+    #                              at that position, home side / away side
+    #   pl_epm_{pos}_diff         : home minus away
     # Built over the WHOLE decided frame (MLB's lineup_agg construction),
     # strictly point-in-time on both axes: ratings sum only games STRICTLY
     # BEFORE each target, and a player designated Out/Doubtful/Recovery in
     # the last pre-tipoff report is removed from THAT game's pool only - his
     # rating survives on every prior game he actually played.
-    "pl_ts_c_away", "pl_ts_c_home", "pl_ts_c_diff",
-    "pl_ts_f_away", "pl_ts_f_home", "pl_ts_f_diff",
-    "pl_ts_g_away", "pl_ts_g_home", "pl_ts_g_diff",
+    "pl_epm_c_away", "pl_epm_c_home", "pl_epm_c_diff",
+    "pl_epm_f_away", "pl_epm_f_home", "pl_epm_f_diff",
+    "pl_epm_g_away", "pl_epm_g_home", "pl_epm_g_diff",
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -266,25 +269,31 @@ def reset_feature_subset() -> None:
 # Exact MLB-tuned member parameters and cold-start priors.
 ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333, "elasticnet": 0.3334}
-# Blend-policy governance (2026-10-01, .adhoc/nba_elo_deepdive). The
-# adaptive optimiser is free to put every point of blend weight on the
-# best member, and on the delivered OOF it did: elastic net 0.8256,
-# whose own scaled-coefficient mass is 94.4% elo_diff - so the served
-# model reads as ~79% one column. A cap is a diversity/robustness
-# policy, not a tuning knob: it is fixed here, before any OOF evidence
-# is seen, and its served cost is measured, not assumed. Fold-faithful
-# replay of the delivered OOF (step4 tier 1): pooled logloss
-# 0.60626 -> 0.60623 (essentially free) with elo_diff model weight
-# 78.97% -> 67.86%. A lower cap trades bps for a lower percentage:
-# 0.60 costs +3.2 bps (59.0%), 0.50 costs +8.0 bps (50.4%). The cap
-# moves the reported percentage; it does not create information - only
-# new features do that (deep-dive report section 7).
-ENSEMBLE_MEMBER_CAPS = {"elasticnet": 0.70}
+# Blend-policy governance (2026-10-01). NO min/max weights: the
+# adaptive optimiser earns the plain simplex (w >= 0, sum = 1)
+# exactly as MLB (training.compute_adaptive_weights), NHL and NFL
+# (moneyline) do - "no floor, no cap: a member may earn 0% or 100%
+# of the weight". NBA briefly diverged: the deepdive cap of 0.70 on
+# the elastic net (adopted 2026-10-01) was removed the same day
+# after the structural comparison showed NBA was the only backend
+# with a policy box, and the cap made the served bundle stale
+# (0.8256 served vs the 0.70 ceiling). Its measured cost was
+# +1.53 bps pooled OOF logloss on the delivered frame (fold-faithful
+# replay: 0.60626 -> 0.60623, essentially free; lower caps cost
+# more: 0.60 +3.2 bps, 0.50 +8.0 bps). With the box empty the
+# optimiser is free to put every point of weight on the best member
+# (delivered OOF: elastic net 0.8256, lightgbm 0.1744, xgboost
+# 0.0000) and the served weights are policy-consistent again. The
+# box machinery in moneyline.compute_adaptive_weights stays dormant
+# and tested (test_nba_ts_features.TestAdaptiveBlendPolicy) so a
+# future cap/floor can be re-adopted through the same governance
+# path: a constant fixed here, before any OOF evidence is seen, with
+# its served cost measured, not assumed. The cap moves the reported
+# percentage; it does not create information - only new features do
+# that (deep-dive report section 7).
+ENSEMBLE_MEMBER_CAPS: dict = {}
 # No floors today: the optimiser may still zero a member
-# (xgboost earned exactly 0.0000 on the delivered OOF). A
-# floor is the same kind of policy as a cap - fixed here,
-# before any OOF evidence is seen - and is honoured by the
-# same box in moneyline.compute_adaptive_weights.
+# (xgboost earned exactly 0.0000 on the delivered OOF).
 ENSEMBLE_MEMBER_FLOORS: dict = {}
 ADAPTIVE_WEIGHT_METRIC = "logloss"
 BLEND_SPACE = "logit"
@@ -449,8 +458,8 @@ MARKETS_CSV = "nba_run_engine_markets_{date}.csv"
 MARKETS_META_JSON = "nba_run_engine_markets_{date}.meta.json"
 MARKETS_MONITOR_JSON = "nba_run_engine_monitor_{date}.json"
 PLAYER_MATCHUP_JSON = "nba_player_leader_matchup_{date}.json"
-PLAYER_TS_CSV = "nba_player_ts_{date}.csv"
-PLAYER_TS_AGG_CSV = "nba_player_ts_lineups_{date}.csv"
+PLAYER_EPM_CSV = "nba_player_epm_{date}.csv"
+PLAYER_EPM_AGG_CSV = "nba_player_epm_lineups_{date}.csv"
 FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nba_shap_game"
@@ -462,23 +471,27 @@ RUN_ENGINE_FEATURE_DRIFT_PREFIX = "nba_run_engine_feature_drift_"
 RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 
 # ---------------------------------------------------------------------------
-# Player-level True Shooting (TS) ratings
+# Player-level Estimated Plus-Minus (EPM) ratings
 # ---------------------------------------------------------------------------
-# The NBA analogue of MLB's shrunk wOBA and NHL's shrunk player ratings. The
-# rate is exact; what makes it a *rating* is that each player's raw TS is
-# pulled toward a POSITION-SEGMENTED league prior before it is used.
+# Player-level Estimated Plus-Minus (EPM) ratings.
+#
+# The NBA analogue of NFL's EPA-per-target, MLB's shrunk wOBA and
+# NHL's shrunk player ratings: a player's impact per 100 possessions
+# he participated in. The rate is exact; what makes it a *rating* is
+# that each player's raw EPM is pulled toward a POSITION-SEGMENTED
+# league prior before it is used.
 #
 # A single league mean would be wrong here for the same reason NHL documents
 # (nhl-backend/backend/config.py, PLAYER_RATING_SHRINK_FRACTION): a centre's
-# scoring volume and a guard's do not share an opportunity, so one prior would
+# court time and a guard's do not share an opportunity, so one prior would
 # over-rate every big exactly as it over-rates every defenceman in hockey.
 #
 # Prior strength follows the SAME convention NHL carries over from MLB's fixed
 # 120-PA prior. MLB's 120 is 20% of a 600-PA season, so the fraction is the
 # portable part and the season length is sport-specific. The NBA reference
-# season is one full player-SEASON of scoring plays, and the prior is 20% of
-# the mean player-season of plays at that position:
-#     k[position] = PLAYER_TS_SHRINK_FRACTION * mean season plays at position
+# season is one full player-SEASON of PARTICIPATED POSSESSIONS, and the
+# prior is 20% of the mean player-season of possessions at that position:
+#     k[position] = PLAYER_EPM_SHRINK_FRACTION * mean season possessions at position
 # Averaging per PLAYER-SEASON rather than per player is deliberate and is the
 # same correction NHL documents: dividing by seasons first weights a 3-game
 # cameo like an 82-game regular and collapses the reference season, which would
@@ -493,57 +506,73 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 #     last completed season (the _evidence_season fallback) - the bridge the
 #     2026-27 opening slate needed.
 #   * From the first DECIDED game the prior is strictly in-season: opening
-#     night itself has a zero prior and no league mean yet (ts_shrunk NaN),
-#     and day 2+ ratings thin in from the league prior as plays accumulate.
+#     night itself has a zero prior and no league mean yet (epm_shrunk NaN),
+#     and day 2+ ratings thin in from the league prior as possessions accumulate.
 #     That early-season thinness is the shrinkage doing its job, NOT missing
-#     carryover - and it is the pl_ts coverage the drift report reads as
+#     carryover - and it is the pl_epm coverage the drift report reads as
 #     STARVED/LOW for the first weeks (min-plays pool floor on top).
-#   * k and the position prior tables are window-global reference strengths,
-#     not season-partitioned - the same portability MLB's fixed 120-PA
-#     convention has.
+#   * k is per TARGET SEASON, derived from completed prior seasons only -
+#     NHL's season_ice_time_table as_of discipline (adopted 2026-10-01).
+#     A season cannot tune its own shrinkage strength, and an in-progress
+#     season holds PARTIAL player-seasons, so a whole-frame mean drags k
+#     down as the season accumulates and silently weakens every rating's
+#     prior weight game by game. A frame of completed seasons only (the
+#     opening-slate build) is numerically identical to the old whole-frame
+#     mean; the difference appears in-season and when rating a season the
+#     frame itself contains. The frame's EARLIEST season has no completed
+#     prior to measure against, so it keeps the whole-frame mean - the
+#     pre-2026-10-01 behavior - rather than a constant that ignores the
+#     frame's own season scale; PLAYER_EPM_FALLBACK_K_PLAYS remains only
+#     for cells with no evidence at all. The position prior tables
+#     remain per-date PIT cumulative, unchanged.
 # MLB additionally ships CROSS-SEASON recent-form windows (last-5-start rolls
 # over the prior season's tail - "no gap at the season boundary") and a
 # shrink prior that falls back to all-history-through-window. The NBA has no
-# cross-season recent-form analogue in the pl_ts family: adopting one (or
+# cross-season recent-form analogue in the pl_epm family: adopting one (or
 # blending the prior-season tail into the first N games' prior) is a rating
 # redefinition and needs its own holdout validation - recorded here so the
 # divergence from MLB's structure is a decision, not an oversight.
-PLAYER_TS_SHRINK_FRACTION = 0.20
-#: Free-throw weight in the scoring-play denominator. 0.44 is the standard
-#: NBA value (an open mid-range shot is worth ~1.16x a rim attempt, and a made
-#: free throw ~0.44 of a possession), so TSA = 2 * (FGA + 0.44 * FTA).
-PLAYER_TS_FTA_WEIGHT = 0.44
+PLAYER_EPM_SHRINK_FRACTION = 0.20
+#: Free-throw weight in Dean Oliver's possession estimate. 0.44 is the
+#: standard NBA value (a made free throw is worth ~0.44 of a possession),
+#: so a team's game possessions are ``FGA + 0.44 * FTA + TOV``.
+PLAYER_EPM_FTA_WEIGHT = 0.44
 #: The three positions stats.nba.com will actually answer for. Measured against
 #: the live endpoint: the ``PlayerPosition`` filter accepts G, F and C, and
 #: returns HTTP 400 for PG/SG/SF/PF and for compound codes like ``G-F``. The
 #: five-way split is NOT available from this source, so the position prior is
 #: carried at this granularity and the league averages are per G/F/C.
-PLAYER_TS_POSITIONS = ("G", "F", "C")
+PLAYER_EPM_POSITIONS = ("G", "F", "C")
 #: A player the feed lists at more than one position is assigned exactly one,
 #: so every player belongs to exactly one prior cell and no rating is counted
 #: twice in the league mean. Guards-and-forwards are real and common (52 of 569
 #: players in 2024-25), so this tie-break is load-bearing rather than
 #: theoretical. Most-specific-first, then narrowest-position-first, is the
 #: order the enumeration is walked in.
-PLAYER_TS_POSITION_PRIORITY = ("G", "F", "C")
-#: Fallback prior strength (plays) for a position cell with no evidence at all.
-#: A cell with no data must still yield a complete prior table rather than
-#: raising at lookup time, so an empty frame degrades to the league-wide
-#: reference instead of crashing the build.
-PLAYER_TS_FALLBACK_K_PLAYS = 200.0
+PLAYER_EPM_POSITION_PRIORITY = ("G", "F", "C")
+#: Fallback prior strength (possessions) for a position cell with no evidence
+#: at all. Measured 2026-10-02 on the full cached frame: the whole-frame
+#: mean player-season is 2,292 possessions, so 20% is ~458 (per position:
+#: G 490, F 422, C 445); 450 is the rounded common value. A cell with no data
+#: must still yield a complete prior table rather than raising at lookup time,
+#: so an empty frame degrades to the league-wide reference instead of crashing
+#: the build.
+PLAYER_EPM_FALLBACK_K_PLAYS = 450.0
 #: Prior rows summed per player. 1 == "all strictly prior rows", the correct
 #: setting at the game grain the season log provides. Mirrors NHL's
 #: PLAYER_RATING_PRIOR_ROWS.
-PLAYER_TS_PRIOR_ROWS = 1
-#: Minimum accumulated scoring plays before a player may be PROJECTED into a
-#: lineup, mirroring MLB's LINEUP_MIN_PA = 20. MLB's comment is "never a 3-PA
-#: wOBA swing"; the number is the same because the reasoning is the same, and
-#: because the shrinkage already handles the RATING - a 20-play player is still
+PLAYER_EPM_PRIOR_ROWS = 1
+#: Minimum accumulated PARTICIPATED POSSESSIONS before a player may be
+#: PROJECTED into a lineup, mirroring MLB's LINEUP_MIN_PA discipline. The NBA
+#: number is 120: a player's possessions run ~6.10x his scoring plays
+#: (measured median ratio), so MLB's 20-PA floor scales to ~122 possessions -
+#: about two player-games of rotation. The reasoning is the same, and because
+#: the shrinkage already handles the RATING - a 120-possession player is still
 #: pulled most of the way to the prior. This floor is about POOL MEMBERSHIP,
 #: which shrinkage does not touch: a player with three career games is not a
 #: candidate for tonight's starting five no matter how well his rate is
 #: estimated.
-PLAYER_TS_MIN_PLAYS = 20
+PLAYER_EPM_MIN_PLAYS = 120
 # Recency gate for the projected-lineup pool (availability audit 2026-09-28):
 # a rating row whose season evidence is older than this is a PHANTOM - a
 # player who stopped appearing (injury never filed, quietly shut down, or a
@@ -553,7 +582,7 @@ PLAYER_TS_MIN_PLAYS = 20
 # game (15.13% of rotation pool rows league-wide). A NaN gap (season not
 # started for the player) stays eligible - the season-start carryover the
 # min-plays floor already governs.
-PLAYER_TS_RECENCY_DAYS = 30
+PLAYER_EPM_RECENCY_DAYS = 30
 #: How far back a TEAM MEMBER's rating row may sit and still count as a
 #: candidate for the next game, mirroring MLB's LINEUP_POOL_LOOKBACK_DAYS.
 #: This is the WIDENING that makes the injury filter bind at all: a player who
@@ -562,16 +591,18 @@ PLAYER_TS_RECENCY_DAYS = 30
 #: "the IL filter cannot bind AT ALL". Both the rating rows and the games live
 #: on dates the team played, so ten days spans one skipped game plus a
 #: postponement.
-PLAYER_TS_POOL_LOOKBACK_DAYS = 10
+PLAYER_EPM_POOL_LOOKBACK_DAYS = 10
 #: Size of the projected lineup, mirroring MLB's top-9. A depleted roster is
 #: NOT padded: the mean of the best 5-7 healthy players is the correct quantity
 #: for a short-handed team, and padding would fabricate full strength.
-PLAYER_TS_TOP_K = 8
+PLAYER_EPM_TOP_K = 8
 #: The "regular" floor for a top-5 rest count, mirroring MLB's
-#: LINEUP_REST_PA. A player below it is not a rotation regular, so his absence
-#: is not news.
-PLAYER_TS_REST_PLAYS = 50
-PLAYER_TS_TOP5_K = 5
+#: LINEUP_REST_PA discipline. NBA rotation possessions run ~6.10x the
+#: scoring plays the MLB floor was written in, so MLB's 50-PA regular floor
+#: scales to ~305 possessions - about five player-games. A player below it
+#: is not a rotation regular, so his absence is not news.
+PLAYER_EPM_REST_PLAYS = 300
+PLAYER_EPM_TOP5_K = 5
 #: Raw status vocabulary -> treatment, and nothing else. A status the feed
 #: invents that is not listed here is reported as UNKNOWN rather than guessed,
 #: because guessing silently decides whether a player dresses.
@@ -583,7 +614,7 @@ PLAYER_TS_TOP5_K = 5
 #: have ends up encoded as if we did. They are listed below only so that IF one
 #: ever appears it is handled deliberately rather than falling through to
 #: healthy, and so the play-rate reporter can measure it once it does.
-PLAYER_TS_STATUS_TREATMENT: dict = {
+PLAYER_EPM_STATUS_TREATMENT: dict = {
     # Measured against the 2025-26 box scores, 13,168 designations taken from
     # the last filing before each tipoff. The grouping is the play rate, not
     # the word: Doubtful went 0-for-5 and belongs with Out.
@@ -622,7 +653,7 @@ PLAYER_TS_STATUS_TREATMENT: dict = {
 #: observations and Recovery on none, so neither is a rate so much as an
 #: assumption that happens to be written as a float. Out and Available, which
 #: carry 98% of the mass, are solid.
-PLAYER_TS_DESIGNATION_PLAY_RATE: dict = {
+PLAYER_EPM_DESIGNATION_PLAY_RATE: dict = {
     "out": 0.000,            # 0 / 10,639
     "doubtful": 0.000,       # 0 / 5
     "recovery": 0.000,       # no observations at tipoff
@@ -641,43 +672,43 @@ PLAYER_TS_DESIGNATION_PLAY_RATE: dict = {
 #: the SAME comparison with a tighter bound rather than a different mechanism.
 #: The coarser mode is one constant away for anyone who would rather not have
 #: a same-day 18:00 report gate a 19:30 game.
-PLAYER_TS_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
+PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 
 #: The nine position-segmented projected-lineup features - per position, the
 #: away side, the home side and the difference. Registered as CANDIDATES, not
 #: as contract columns: they are gated behind their own holdout A/B, which is
-#: ``ab_position_ts.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
+#: ``ab_position_epm.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
 #: decision about the model, and the candidate list is where a feature waits
 #: until that decision has evidence behind it.
 #:
 #: Defined HERE rather than beside RFE_CANDIDATE_COLS because it is derived
-#: from PLAYER_TS_POSITIONS, which is declared further down. Building the list
+#: from PLAYER_EPM_POSITIONS, which is declared further down. Building the list
 #: at the top of the module raised NameError on import.
 #: Published contract order is per-POSITION grouped - ``c_away, c_home,
 #: c_diff``, then ``f_*``, then ``g_*`` - C first, matching the user-facing
-#: feature list. ``PLAYER_TS_POSITIONS`` stays G/F/C for the prior tables;
+#: feature list. ``PLAYER_EPM_POSITIONS`` stays G/F/C for the prior tables;
 #: the published column order deliberately does not inherit that internal
 #: ordering.
-PLAYER_TS_POSITION_FEATURE_COLS: list[str] = [
-    f"pl_ts_{position}_{side}"
+PLAYER_EPM_POSITION_FEATURE_COLS: list[str] = [
+    f"pl_epm_{position}_{side}"
     for position in ("c", "f", "g")
     for side in ("away", "home", "diff")]
 
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
-    + PLAYER_TS_POSITION_FEATURE_COLS))
+    + PLAYER_EPM_POSITION_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is
 #: generous rather than a day.
-PLAYER_TS_MAX_LAG_DAYS = 45
+PLAYER_EPM_MAX_LAG_DAYS = 45
 #: Team-level projected-lineup aggregates, mirroring MLB's lineup_woba_* trio
 #: plus its rest count.
-PLAYER_TS_FEATURE_COLS: list[str] = [
-    "lineup_ts_mean_home", "lineup_ts_mean_away",
-    "lineup_ts_top3_home", "lineup_ts_top3_away",
-    "lineup_ts_std_home", "lineup_ts_std_away",
-    "lineup_ts_rest_count_home", "lineup_ts_rest_count_away",
+PLAYER_EPM_FEATURE_COLS: list[str] = [
+    "lineup_epm_mean_home", "lineup_epm_mean_away",
+    "lineup_epm_top3_home", "lineup_epm_top3_away",
+    "lineup_epm_std_home", "lineup_epm_std_away",
+    "lineup_epm_rest_count_home", "lineup_epm_rest_count_away",
 ]
 
 PLAYER_FIELDS = [

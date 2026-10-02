@@ -32,7 +32,7 @@ def main() -> None:
     import features as feat_mod
     import ingestion
     import lineup_projection as proj
-    import player_ts as ts_mod
+    import player_epm as epm_mod
 
     print("=" * 78)
     print("1. POINT-IN-TIME")
@@ -49,12 +49,12 @@ def main() -> None:
         [pd.read_parquet(p).assign(season=p.stem.split("_")[1])
          for p in sorted(CACHE.glob("positions/positions_*.parquet"))],
         ignore_index=True)
-    games_frame = ts_mod.prepare_player_games(log, positions)
+    games_frame = epm_mod.prepare_player_games(log, positions)
 
     # (a) Recompute every prior independently and compare. A leak of even one
     # row would move these numbers, so this is the real test of the guarantee.
     sample_dates = pd.Series(sorted(games_frame.gameday.dropna().unique())[::40])
-    ratings = ts_mod.build_player_ts(games_frame, target_dates=sample_dates)
+    ratings = epm_mod.build_player_epm(games_frame, target_dates=sample_dates)
     print(f"  rating rows audited: {len(ratings)} across {len(sample_dates)} dates")
 
     mismatches = 0
@@ -63,11 +63,11 @@ def main() -> None:
     for row in ratings.itertuples(index=False):
         target = pd.Timestamp(row.target_date)
         earlier = games_frame[games_frame.gameday < target]
-        earlier = earlier[earlier.season == ts_mod._season_of(target)]
+        earlier = earlier[earlier.season == epm_mod._season_of(target)]
         mine = earlier[earlier.player_id == row.player_id]
         checked += 1
         if (abs(mine.plays.sum() - row.prior_plays) > 1e-6
-                or abs(mine.points.sum() - row.prior_points) > 1e-6
+                or abs(mine.plus_minus.sum() - row.prior_pm) > 1e-6
                 or len(mine) != row.prior_games):
             mismatches += 1
     print(f"  prior recomputed from strictly-earlier rows: {checked} checked, "
@@ -82,7 +82,7 @@ def main() -> None:
     probe = games_frame[games_frame.player_id == games_frame.player_id.iloc[0]]
     d0 = pd.Timestamp(probe.gameday.iloc[1])
     same_day = probe[probe.gameday == d0]
-    contributors = ts_mod._prior_for(games_frame, d0)
+    contributors = epm_mod._prior_for(games_frame, d0)
     contributors = contributors[
         contributors.player_id == same_day.player_id.iloc[0]]
     same_day_in_prior = len(games_frame[(games_frame.gameday == d0)
@@ -106,7 +106,7 @@ def main() -> None:
     game_df = feat_mod.build_game_features(settled, facts.team_stats,
                                            facts.team_events)
     all_dates = pd.Series(sorted(pd.to_datetime(game_df.gameday).dropna().unique()))
-    full = ts_mod.build_player_ts(games_frame, target_dates=all_dates)
+    full = epm_mod.build_player_epm(games_frame, target_dates=all_dates)
     full = full.rename(columns={"target_date": "gameday"})
     full["gameday"] = pd.to_datetime(full["gameday"])
     full["report_name"] = ""
@@ -183,11 +183,11 @@ def main() -> None:
     print("  mapping (nba_injury_report.availability_state):")
     for designation in ir.DESIGNATIONS:
         print(f"    {designation:<14} -> {ir.availability_state(designation):<10}"
-              f" play rate {config.PLAYER_TS_DESIGNATION_PLAY_RATE[designation.lower()]:.3f}")
+              f" play rate {config.PLAYER_EPM_DESIGNATION_PLAY_RATE[designation.lower()]:.3f}")
     print("\n  the source's old weighted multiplier (availability_multiplier) was")
     print("  REMOVED: unavailability is binary removal (the projected lineup is")
     print("  the top_k of the SURVIVORS, so a replacement inherits the slot); the")
-    print("  measured rates live on in config.PLAYER_TS_DESIGNATION_PLAY_RATE.")
+    print("  measured rates live on in config.PLAYER_EPM_DESIGNATION_PLAY_RATE.")
     import nba_sources as sources
     print(f"    availability_multiplier present: "
           f"{hasattr(sources, 'availability_multiplier')}")

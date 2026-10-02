@@ -44,9 +44,9 @@ import lineup_projection as proj
 def _agg(day, team, **kw):
     row = {"gameday": pd.Timestamp(day), "team": team, "pool_size": 18,
            "healthy_size": 17, "lineup_out_count": 1,
-           "lineup_healthy_frac": 17 / 18, "lineup_ts_concentration": 1.02,
-           "lineup_ts_mean": 0.58, "lineup_ts_top3": 0.60,
-           "lineup_ts_std": 0.03, "lineup_ts_rest_count": 0}
+           "lineup_healthy_frac": 17 / 18, "lineup_epm_concentration": 1.02,
+           "lineup_epm_mean": 0.58, "lineup_epm_top3": 0.60,
+           "lineup_epm_std": 0.03, "lineup_epm_rest_count": 0}
     row.update(kw)
     return row
 
@@ -67,45 +67,45 @@ class TestDiffFeatures:
                                             "home_team": "BOS",
                                             "away_team": "MIA"}]), None)
         assert list(proj.DIFF_FEATURES) == [
-            "lineup_ts_mean_diff", "lineup_ts_top3_diff",
-            "lineup_ts_std_diff", "lineup_ts_rest_count_diff",
+            "lineup_epm_mean_diff", "lineup_epm_top3_diff",
+            "lineup_epm_std_diff", "lineup_epm_rest_count_diff",
             "lineup_out_count_diff", "lineup_healthy_frac_diff",
-            "lineup_ts_concentration_diff"]
+            "lineup_epm_concentration_diff"]
         for column in proj.DIFF_FEATURES:
             assert column in out.columns
             assert out[column].isna().all()
 
     def test_a_diff_is_home_minus_away(self):
-        aggs = pd.DataFrame([_agg("2026-03-01", "BOS", lineup_ts_mean=0.60),
-                             _agg("2026-03-01", "MIA", lineup_ts_mean=0.55)])
+        aggs = pd.DataFrame([_agg("2026-03-01", "BOS", lineup_epm_mean=0.60),
+                             _agg("2026-03-01", "MIA", lineup_epm_mean=0.55)])
         out = proj.attach_to_slate(
             _slate([{"gameday": "2026-03-01", "home_team": "BOS",
                      "away_team": "MIA"}]), aggs)
-        assert out.iloc[0].lineup_ts_mean_diff == pytest.approx(0.05)
+        assert out.iloc[0].lineup_epm_mean_diff == pytest.approx(0.05)
 
     def test_every_diff_is_computed_not_just_the_first(self):
         """A dict-iteration bug that filled one column and left six NaN would
         pass any single-feature test, so all seven are checked at once."""
         aggs = pd.DataFrame([
-            _agg("2026-03-01", "BOS", lineup_ts_mean=0.60, lineup_ts_top3=0.62,
-                 lineup_ts_std=0.05, lineup_ts_rest_count=2,
+            _agg("2026-03-01", "BOS", lineup_epm_mean=0.60, lineup_epm_top3=0.62,
+                 lineup_epm_std=0.05, lineup_epm_rest_count=2,
                  lineup_out_count=3, lineup_healthy_frac=0.8,
-                 lineup_ts_concentration=1.10),
-            _agg("2026-03-01", "MIA", lineup_ts_mean=0.55, lineup_ts_top3=0.57,
-                 lineup_ts_std=0.02, lineup_ts_rest_count=1,
+                 lineup_epm_concentration=1.10),
+            _agg("2026-03-01", "MIA", lineup_epm_mean=0.55, lineup_epm_top3=0.57,
+                 lineup_epm_std=0.02, lineup_epm_rest_count=1,
                  lineup_out_count=1, lineup_healthy_frac=0.9,
-                 lineup_ts_concentration=1.01)])
+                 lineup_epm_concentration=1.01)])
         out = proj.attach_to_slate(
             _slate([{"gameday": "2026-03-01", "home_team": "BOS",
                      "away_team": "MIA"}]), aggs)
         row = out.iloc[0]
-        assert row.lineup_ts_mean_diff == pytest.approx(0.05)
-        assert row.lineup_ts_top3_diff == pytest.approx(0.05)
-        assert row.lineup_ts_std_diff == pytest.approx(0.03)
-        assert row.lineup_ts_rest_count_diff == pytest.approx(1)
+        assert row.lineup_epm_mean_diff == pytest.approx(0.05)
+        assert row.lineup_epm_top3_diff == pytest.approx(0.05)
+        assert row.lineup_epm_std_diff == pytest.approx(0.03)
+        assert row.lineup_epm_rest_count_diff == pytest.approx(1)
         assert row.lineup_out_count_diff == pytest.approx(2)
         assert row.lineup_healthy_frac_diff == pytest.approx(-0.1)
-        assert row.lineup_ts_concentration_diff == pytest.approx(0.09)
+        assert row.lineup_epm_concentration_diff == pytest.approx(0.09)
         for column in proj.DIFF_FEATURES:
             assert pd.notna(row[column]), f"{column} was not populated"
 
@@ -115,7 +115,7 @@ class TestDiffFeatures:
         out = proj.attach_to_slate(
             _slate([{"gameday": "2026-03-01", "home_team": "BOS",
                      "away_team": "MIA"}]), aggs)
-        assert pd.isna(out.iloc[0].lineup_ts_mean_diff)
+        assert pd.isna(out.iloc[0].lineup_epm_mean_diff)
 
     def test_the_scratch_side_columns_are_dropped(self):
         aggs = pd.DataFrame([_agg("2026-03-01", "BOS")])
@@ -135,7 +135,7 @@ class TestAvailabilityFeatures:
         """
         ratings = pd.DataFrame([
             {"player_id": p, "team": "BOS", "gameday": "2026-03-01",
-             "ts_shrunk": 0.5 + 0.01 * i, "prior_plays": 300,
+             "epm_shrunk": 0.5 + 0.01 * i, "prior_plays": 300,
              "is_available": available}
             for i, (p, available) in enumerate(
                 [("a", True), ("b", True), ("c", False), ("d", False)])])
@@ -149,20 +149,20 @@ class TestAvailabilityFeatures:
     def test_concentration_is_the_top3_share_of_the_mean(self):
         ratings = pd.DataFrame([
             {"player_id": "a", "team": "BOS", "gameday": "2026-03-01",
-             "ts_shrunk": 0.60, "prior_plays": 500, "is_available": True},
+             "epm_shrunk": 0.60, "prior_plays": 500, "is_available": True},
             {"player_id": "b", "team": "BOS", "gameday": "2026-03-01",
-             "ts_shrunk": 0.50, "prior_plays": 400, "is_available": True},
+             "epm_shrunk": 0.50, "prior_plays": 400, "is_available": True},
             {"player_id": "c", "team": "BOS", "gameday": "2026-03-01",
-             "ts_shrunk": 0.50, "prior_plays": 300, "is_available": True}])
+             "epm_shrunk": 0.50, "prior_plays": 300, "is_available": True}])
         out = proj.projected_lineup(ratings)
         row = out[out.team == "BOS"].iloc[0]
-        assert row.lineup_ts_concentration == pytest.approx(
-            row.lineup_ts_top3 / row.lineup_ts_mean)
+        assert row.lineup_epm_concentration == pytest.approx(
+            row.lineup_epm_top3 / row.lineup_epm_mean)
 
     def test_an_empty_pool_does_not_divide_by_zero(self):
         ratings = pd.DataFrame([
             {"player_id": "a", "team": "BOS", "gameday": "2026-03-01",
-             "ts_shrunk": 0.5, "prior_plays": 1, "is_available": True}])
+             "epm_shrunk": 0.5, "prior_plays": 1, "is_available": True}])
         out = proj.projected_lineup(ratings)
         row = out[out.team == "BOS"].iloc[0]
         assert row.healthy_size == 0
@@ -172,18 +172,18 @@ class TestAvailabilityFeatures:
 class TestFeatureCoverage:
     def test_a_constant_feature_is_flagged(self):
         """The other failure a slot-consuming column can have."""
-        slate = _slate([{"lineup_ts_mean_diff": 0.0},
-                        {"lineup_ts_mean_diff": 0.0}])
+        slate = _slate([{"lineup_epm_mean_diff": 0.0},
+                        {"lineup_epm_mean_diff": 0.0}])
         report = proj.feature_coverage(slate)
-        row = report[report.feature == "lineup_ts_mean_diff"].iloc[0]
+        row = report[report.feature == "lineup_epm_mean_diff"].iloc[0]
         assert bool(row.constant) is True
         assert row.distinct_values == 1
         assert row.coverage == 1.0
 
     def test_an_unpopulated_feature_shows_zero_coverage(self):
-        slate = _slate([{"lineup_ts_mean_diff": np.nan}] * 4)
+        slate = _slate([{"lineup_epm_mean_diff": np.nan}] * 4)
         report = proj.feature_coverage(slate)
-        row = report[report.feature == "lineup_ts_mean_diff"].iloc[0]
+        row = report[report.feature == "lineup_epm_mean_diff"].iloc[0]
         assert row.coverage == 0.0
         assert row.populated == 0
 
@@ -208,7 +208,7 @@ class TestStatusClassification:
         league, and keeping it would let a mapper treat a two-status snapshot
         and a six-status official filing as the same thing.
         """
-        treatment = config.PLAYER_TS_STATUS_TREATMENT
+        treatment = config.PLAYER_EPM_STATUS_TREATMENT
         for designation in ("out", "doubtful", "recovery", "questionable",
                             "available", "probable"):
             assert designation in treatment
@@ -287,7 +287,7 @@ class TestPITCutoff:
                               else pd.NaT, "status": "out"}])
 
     def test_tipoff_mode_reads_at_the_game(self, monkeypatch):
-        monkeypatch.setattr(config, "PLAYER_TS_INJURY_CUTOFF", "tipoff")
+        monkeypatch.setattr(config, "PLAYER_EPM_INJURY_CUTOFF", "tipoff")
         assert stints.cutoff_for("2026-03-05T19:30Z") == pd.Timestamp(
             "2026-03-05T19:30")
         # Published the morning of the game: it CAN gate tonight.
@@ -297,7 +297,7 @@ class TestPITCutoff:
     def test_prior_end_of_day_mode_cannot_be_gated_by_game_day_news(
             self, monkeypatch):
         """The conservative reading: nothing published on game day counts."""
-        monkeypatch.setattr(config, "PLAYER_TS_INJURY_CUTOFF",
+        monkeypatch.setattr(config, "PLAYER_EPM_INJURY_CUTOFF",
                             "prior_end_of_day")
         assert stints.out_at(self._stint("2026-03-05T09:00Z"),
                              "1", "2026-03-05T19:30Z") is False
@@ -308,11 +308,11 @@ class TestPITCutoff:
     def test_both_modes_agree_on_an_absence_days_old(self, monkeypatch):
         frame = self._stint("2026-03-01T09:00Z")
         for mode in ("tipoff", "prior_end_of_day"):
-            monkeypatch.setattr(config, "PLAYER_TS_INJURY_CUTOFF", mode)
+            monkeypatch.setattr(config, "PLAYER_EPM_INJURY_CUTOFF", mode)
             assert stints.out_at(frame, "1", "2026-03-05T19:30Z") is True
 
     def test_the_default_is_the_finest_granularity(self):
-        assert config.PLAYER_TS_INJURY_CUTOFF == "tipoff"
+        assert config.PLAYER_EPM_INJURY_CUTOFF == "tipoff"
 
 
 class TestPlayRateReporter:
@@ -819,13 +819,15 @@ class TestAdaptiveBlendPolicy:
     simplex, so it is free to put every point of weight on the best
     member - and on the delivered OOF it did (elastic net 0.8256,
     whose own scaled-coefficient mass is 94.4% ``elo_diff``, making
-    the served model read as ~79% one column). The
-    ``ENSEMBLE_MEMBER_CAPS`` / ``_FLOORS`` in config are
-    diversity/robustness policy, not tuning knobs: they are
-    constants fixed before the OOF frame is seen, and these tests pin
-    that the optimiser honours the box, that an infeasible policy is
-    refused back to the plain simplex, and that rounding can never
-    push a published weight outside the box.
+    the served model read as ~79% one column). The production
+    default is the EMPTY box (``ENSEMBLE_MEMBER_CAPS`` /
+    ``_FLOORS`` both {} in config): NBA runs the plain simplex for
+    MLB/NHL/NFL parity since 2026-10-01. The box machinery stays
+    dormant, and these tests pin that any future policy - a constant
+    fixed before the OOF frame is seen - is honoured by the
+    optimiser, that an infeasible policy is refused back to the
+    plain simplex, and that rounding can never push a published
+    weight outside the box.
     """
 
     @staticmethod
