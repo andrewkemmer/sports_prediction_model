@@ -685,8 +685,12 @@ def _pick_artifact_date(date_str: str, prefix: str) -> str:
 
     Resolution order — the first date whose artifact ACTUALLY fetches wins:
       1. the requested date;
-      2. the last few CALENDAR days ending today (ET) — the pipeline's own
-         dated naming, healing a stale/lagging union date set;
+      2. the few calendar days AROUND today (ET) — +2..-3, newest first —
+         the pipeline's own dated naming (artifacts carry the run's
+         TARGET/slate date, normally TOMORROW, while retention keeps ~10
+         days of older snapshots), healing a stale/lagging union date set
+         without ever preferring a retained older snapshot over the
+         current production files;
       3. the union set, newest first (bounded probes — retention keeps
          ~1-3 days per family, so a real hit sits near the top);
       4. the family's own enumerated dates (``_family_dated_dates``), for
@@ -702,14 +706,22 @@ def _pick_artifact_date(date_str: str, prefix: str) -> str:
             if _fetch_bytes(f"{prefix}_{date_str}{ext}", **cfg)[0] is not None:
                 return date_str
 
-    # 2) Calendar days: today (ET) .. today-3 — the retention / CDN-lag
-    # window. Independent of any enumeration, so a stale union can never
-    # hide a family artifact that raw.githubusercontent still serves.
+    # 2) Calendar days around today (ET), NEWEST FIRST: +2..-3. The
+    # pipeline dates artifacts by its target/slate date — normally TOMORROW
+    # (an Oct 2 ET run ships *_20261003.*) — while retention keeps ~10 days
+    # of older snapshots. The old walk only looked BACKWARD from today, so
+    # on 2026-10-02 it hit the retained pre-change 20261001 snapshot before
+    # ever probing the current 20261003 files (Model Monitor rendered the
+    # superseded lineup_woba rows a day after the RE24 swap shipped).
+    # Newest-first inside the window = current production always wins over
+    # a stale same-week hit. Independent of any enumeration, so a stale
+    # union can never hide a family artifact that raw.githubusercontent
+    # still serves.
     today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
     try:
         base = datetime.strptime(today, "%Y%m%d").date()
-        calendar_dates = [(base - timedelta(days=i)).strftime("%Y%m%d")
-                          for i in range(4)]
+        calendar_dates = [(base + timedelta(days=off)).strftime("%Y%m%d")
+                          for off in (2, 1, 0, -1, -2, -3)]
     except ValueError:
         calendar_dates = []
     for cand in calendar_dates:
@@ -1145,8 +1157,13 @@ def nearest_valid_date(valid: list[str] | tuple[str, ...],
                        target: str | None = None) -> Optional[str]:
     """The valid date closest to ``target`` (default: today in America/New_York).
 
-    Ties break to the earlier date. Returns None when ``valid`` is empty or
-    has no parseable dates — callers fall back to a placeholder / empty state."""
+    Ties break to the LATER date: when today sits exactly between two
+    artifacts (2026-10-02 ET, between the Oct 1 and Oct 3 snapshots), the
+    default landing must be current production — the newest artifact —
+    never a retained older snapshot. Returns None when ``valid`` is empty
+    or has no parseable dates — callers fall back to a placeholder / empty
+    state.
+    """
     vs = sorted({d for d in valid if len(str(d)) == 8 and str(d).isdigit()})
     if not vs:
         return None
@@ -1159,7 +1176,7 @@ def nearest_valid_date(valid: list[str] | tuple[str, ...],
     for d in vs:
         dt = datetime.strptime(d, "%Y%m%d")
         gap = abs((dt - base).days)
-        if best_gap is None or gap < best_gap or (gap == best_gap and d < best):
+        if best_gap is None or gap < best_gap or (gap == best_gap and d > best):
             best, best_gap = d, gap
     return best
 
@@ -3031,10 +3048,18 @@ FEATURE_DESCRIPTIONS = {
     # 10–11. SP xwOBA diffs (contact quality allowed)
     "sp_xwoba_diff": "Home SP last-6-start xwOBA allowed − away SP",
     "sp_xwoba_vs_l_diff": "Home SP xwOBA vs LHB (season to date) − away SP",
-    # 12–14. Lineup wOBA diffs (projected top-9, shrunk toward league mean)
+    # 12–14. Lineup wOBA diffs (projected top-9, shrunk toward league mean).
+    # Kept for the retained pre-swap snapshots (20260923–20261001) that still
+    # carry lineup_woba rows; current artifacts serve lineup_re24_* entries.
     "lineup_woba_mean_diff": "Home lineup avg wOBA − away lineup avg wOBA",
     "lineup_woba_top3_diff": "Home top-3 hitter wOBA − away top-3 hitter wOBA",
     "lineup_woba_std_diff": "Home lineup wOBA dispersion − away lineup dispersion",
+    # 12–14 (2026-10-02 swap). lineup_woba_* became lineup_re24_* in the
+    # production feature set — RE24 (runs above run expectancy over the 24
+    # base-out states), same lineup structure/weighting/shrinkage.
+    "lineup_re24_mean_diff": "Home lineup avg RE24 − away lineup avg RE24",
+    "lineup_re24_top3_diff": "Home top-3 hitter RE24 − away top-3 hitter RE24",
+    "lineup_re24_std_diff": "Home lineup RE24 dispersion − away lineup dispersion",
     # 15. Team rolling wOBA diff
     "woba_30g_diff": "Home team 30-game wOBA − away team 30-game wOBA",
     # 16–19. Bullpen diffs (workload + quality)
