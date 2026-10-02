@@ -2368,3 +2368,69 @@ class TestEventRollupArchive:
         reread = ing.read_event_rollup_archive(tmp_path)
         assert len(reread) == 1 and reread.rim_attempts.iloc[0] == 7
 
+
+class TestPositionsCacheVersioning:
+    """The positions table gained ``positions`` - the feed's full listing,
+    which is what the team segments read. The file is versioned in its NAME
+    rather than keyed on the shape (the roster precedent): a v1 table silently
+    read as v2 would starve every F-C segment back to NaN while every other
+    check passed, because the single-label frame is perfectly well-formed.
+
+    Everything here runs offline - the point is the versioning and the
+    outage fallback, not the feed.
+    """
+
+    def test_the_cache_key_carries_the_version(self):
+        assert ing._positions_path("2025-26").name == "positions_v2_2025-26.parquet"
+        # The single-label table stays readable under its old name, which is
+        # what makes it usable as the outage fallback.
+        assert ing._positions_path_v1("2025-26").name == "positions_2025-26.parquet"
+
+    def test_a_live_pull_writes_the_versioned_file_with_the_listing(
+            self, tmp_path, monkeypatch):
+        import urllib.parse
+
+        def payload(url, *_args, **_kwargs):
+            which = urllib.parse.parse_qs(
+                urllib.parse.urlparse(url).query)["PlayerPosition"][0]
+            ids = {"G": [10], "F": [10, 20], "C": [20]}[which]
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[i] for i in ids]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", payload)
+        frame = ing._fetch_positions("2025-26")
+        # Player 20 is listed F-C: one collapsed cell for the prior...
+        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
+        # ...and the full listing for the segments.
+        assert dict(zip(frame.player_id, frame.positions)) == {
+            10: "G|F", 20: "F|C"}
+        assert ing._positions_path("2025-26").exists()
+        # A warm cache reads the same shape back without touching the feed.
+        again = ing._fetch_positions("2025-26")
+        assert dict(zip(again.player_id, again.positions)) == {
+            10: "G|F", 20: "F|C"}
+
+    def test_a_feed_outage_falls_back_to_the_single_label_table(
+            self, tmp_path, monkeypatch):
+        """A dead stats.nba.com degrades the segments to today's coverage
+        instead of dropping the whole ``pl_epm_*`` family to NaN."""
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        pd.DataFrame({"player_id": [1], "position": ["C"]}).to_parquet(
+            cached / ing._positions_path_v1("2025-26").name, index=False)
+
+        def dead(*_args, **_kwargs):
+            raise TimeoutError("the read operation timed out")
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", dead)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26")
+        # Single-label shape: the caller cannot tell which cache served it,
+        # and does not need to - the segment code reads the listing when
+        # it exists and the collapsed cell when it does not.
+        assert list(frame.columns) == ["player_id", "position"]
+        assert list(frame.position) == ["C"]
+        assert not ing._positions_path("2025-26").exists()
+

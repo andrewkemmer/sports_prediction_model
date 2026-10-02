@@ -284,6 +284,33 @@ def apply_pit_designations(ratings: pd.DataFrame, designations,
     return out
 
 
+def _position_segments(frame: pd.DataFrame):
+    """Yield ``(position, members)`` for every position the FEED lists.
+
+    The rating's ``position`` is one collapsed cell - the league prior's
+    denominator, exactly one per player (``nba_sources.assign_positions``) -
+    but a team segment answers a different question: what is this club's EPM
+    at centre? Collapsing every forward-centre into F answers that with NaN
+    for whole rosters: ORL's centers are both listed F-C, and 140 of the 626
+    team-games missing ``pl_epm_c`` in the OOF frame are that labeling
+    artifact rather than an injury. ``positions`` is the feed's full listing,
+    so one player may price two segments - which is NOT the prior's
+    double-count: each segment is its own weighted mean and nothing is summed
+    ACROSS segments.
+
+    A frame without the listing (a v1 fallback cache, a test fixture) yields
+    exactly the previous behaviour: one group per collapsed cell.
+    """
+    labels = frame["positions"] if "positions" in frame.columns else frame["position"]
+    if "positions" in frame.columns:
+        # Rows from a single-label (v1) cache keep their collapsed cell.
+        labels = labels.where(labels.notna(), frame["position"])
+    exploded = frame.assign(
+        position=labels.astype("object").str.split("|", regex=False)
+    ).explode("position")
+    yield from exploded.groupby("position", sort=False)
+
+
 def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
     out = ratings.copy()
     out["player_id"] = out.player_id.astype(str)
@@ -499,10 +526,15 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # arbitrary cut redundant. One projection still defines the pool, so
     # the segments cannot disagree with the lineup about who is eligible,
     # who is available, or how much evidence each member has; they simply
-    # read all of it.
+    # read all of it. The membership itself is the FEED's listing, not the
+    # collapsed cell: the prior may put a forward-centre in exactly one
+    # denominator, but a segment asks which players THIS club plays at
+    # centre, and collapsing every F-C to F left whole rosters (ORL:
+    # Wendell Carter Jr., Goga Bitadze) with no C segment at all - most
+    # of the 62% pl_epm_c coverage the monitor flags.
     segmented: dict = {}
     if "position" in healthy.columns:
-        for position, group in healthy.groupby("position", sort=False):
+        for position, group in _position_segments(healthy):
             if position in config.PLAYER_EPM_POSITIONS and len(group):
                 value = _blend(group)
                 if value == value:

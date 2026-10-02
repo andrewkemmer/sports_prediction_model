@@ -252,16 +252,37 @@ def assign_positions(by_position: dict) -> dict:
 
 
 def positions_frame(by_position: dict) -> "pd.DataFrame":
-    """``player_id``/``position`` frame, or an empty one with the same columns.
+    """``player_id``/``position``/``positions`` frame, or an empty one like it.
+
+    Two label columns, deliberately. ``position`` is the SINGLE collapsed cell
+    from :func:`assign_positions` - it is the denominator of the league prior,
+    so a player may live in exactly one of them. ``positions`` is the feed's
+    FULL listing, pipe-joined in config order (``"F|C"`` for a forward-centre),
+    and it is what the team-level position segments read: "what is this club's
+    EPM at centre" is answered by every player the league lists at centre, and
+    collapsing the 47 F-C players of 2025-26 into F left whole rosters with no
+    C segment at all (ORL starts Wendell Carter Jr. and Goga Bitadze - both
+    listed F-C - which is most of the 62% ``pl_epm_c_diff`` baseline coverage
+    the monitor flags). The prior keeps its single cell; the segment keeps the
+    whole listing; neither can double-count in the other's arithmetic.
 
     An empty result is returned as a well-formed empty frame rather than None so
     a caller can audit "no positions resolved" without a special case, and so
     the rating build can tell an empty position table apart from a missing one.
     """
     assigned = assign_positions(by_position)
-    return pd.DataFrame(
-        {"player_id": list(assigned.keys()), "position": list(assigned.values())}
-    ) if assigned else pd.DataFrame({"player_id": [], "position": []})
+    if not assigned:
+        return pd.DataFrame({"player_id": [], "position": [], "positions": []})
+    listed: dict = {}
+    for position in tuple(config.PLAYER_EPM_POSITIONS):
+        for player_id in by_position.get(position) or ():
+            listed.setdefault(player_id, []).append(position)
+    return pd.DataFrame({
+        "player_id": list(assigned.keys()),
+        "position": list(assigned.values()),
+        "positions": ["|".join(listed.get(pid, [position]))
+                      for pid, position in assigned.items()],
+    })
 
 
 # ---------------------------------------------------------------------------

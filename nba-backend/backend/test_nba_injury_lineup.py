@@ -832,6 +832,50 @@ class TestPositionEpmFeatures:
         # candidate, so the segment is the starter alone.
         assert row.pl_epm_c == pytest.approx(0.62)
 
+    def test_a_forward_centre_prices_both_position_segments(self):
+        """The labeling remediation: an F-C roster is NOT centerless.
+
+        ORL's centers (Wendell Carter Jr., Goga Bitadze) are both listed
+        F-C, so the collapsed cell put them in F and every ORL game
+        shipped pl_epm_c as NaN - 140 team-games, the largest slice of
+        the 62% baseline coverage the monitor flags LOW_COVERAGE. The
+        rating row carries the feed's FULL listing, so the segment prices
+        the same player in both groups while the collapsed cell that
+        feeds the league prior never moves.
+        """
+        rows = [
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 200),
+        ]
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G", "F"]
+        frame["positions"] = ["G", "F|C"]
+        row = _bos(proj.projected_lineup(frame))
+        # The forward-centre is the ONLY member of the C segment - the
+        # exact state that used to publish NaN - and he still prices F.
+        assert row.pl_epm_c == pytest.approx(0.62)
+        assert row.pl_epm_f == pytest.approx(0.62)
+        assert row.pl_epm_g == pytest.approx(0.60)
+
+    def test_a_single_label_row_keeps_its_collapsed_cell(self):
+        """A v1-cache row in a v2 frame must not fall out of its segment.
+
+        The two cache shapes meet in one concatenated frame whenever a
+        season falls back to the single-label table during a feed outage,
+        so a missing listing degrades to the collapsed cell rather than
+        to NaN - today's coverage, not nothing.
+        """
+        rows = [
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 200),
+        ]
+        frame = pd.DataFrame(rows)
+        frame["position"] = ["G", "C"]
+        frame["positions"] = [np.nan, np.nan]
+        row = _bos(proj.projected_lineup(frame))
+        assert row.pl_epm_c == pytest.approx(0.62)
+        assert row.pl_epm_g == pytest.approx(0.60)
+
 
 class TestPlayerEpmIsStrictlyPriorPerGame:
     def test_a_ratings_target_date_excludes_that_dates_games(self):

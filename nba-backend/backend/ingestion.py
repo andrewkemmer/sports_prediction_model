@@ -558,6 +558,27 @@ def _read_parquet(path) -> pd.DataFrame:
 # changes within a day.
 
 def _positions_path(season: str):
+    """Cache key for one season's position table.
+
+    Versioned in the filename rather than keyed on the shape (the roster
+    precedent): v1 cached only the collapsed G/F/C cell, while the position
+    segments need the feed's full listing (``positions``) to answer "what is
+    this club's EPM at centre" for a roster whose centers are all listed F-C.
+    A v1 file read back as if it were v2 would silently starve every segment
+    that depends on the listing, which is exactly the stale-shape bug the
+    roster versioning exists to prevent.
+    """
+    return _cache_dir() / "positions" / f"positions_v2_{season}.parquet"
+
+
+def _positions_path_v1(season: str):
+    """The pre-listing cache file: single collapsed label per player.
+
+    Kept as the read fallback for a feed outage - single-label is the behavior
+    the pipeline ran with before the listing existed, so an unreachable
+    stats.nba.com degrades the segments to today's coverage instead of
+    dropping all nine ``pl_epm_*`` features.
+    """
     return _cache_dir() / "positions" / f"positions_{season}.parquet"
 
 
@@ -576,7 +597,14 @@ def _roster_path(team: str):
 
 
 def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
-    """``player_id``/``position`` for one season, one request per position.
+    """``player_id``/``position``/``positions`` for one season, one request each.
+
+    ``positions`` carries the feed's full listing (a forward-centre is both),
+    which is what the team position segments read; ``position`` stays the
+    single collapsed cell the league prior divides by. When the pull cannot
+    resolve at all, the v1 single-label cache is returned instead of nothing:
+    a thinner segment beats a missing feature family, and the caller cannot
+    tell the difference without the log saying so.
 
     stats.nba.com publishes no POSITION column, so position is obtained by
     asking the ``PlayerPosition`` filter for G, F and C in turn. That is three
@@ -617,6 +645,19 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
             frame.to_parquet(path, index=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not cache %s (%s)", path.name, exc)
+    if not len(frame):
+        # Feed outage, not an empty league: the v1 single-label table still
+        # knows who plays what. Reading it keeps every ``pl_epm_*`` feature
+        # building at today's coverage instead of degrading the whole family
+        # to NaN - and it can only ever be the OLDER shape, never a wrong one,
+        # because v2 is only written from a live pull.
+        legacy = _read_parquet(_positions_path_v1(season))
+        if len(legacy):
+            logger.warning("positions for %s unresolved; falling back to the "
+                           "v1 single-label cache (%d players) - the position "
+                           "segments read the collapsed cell until the feed "
+                           "answers", season, len(legacy))
+            return legacy
     return frame
 
 

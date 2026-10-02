@@ -67,11 +67,16 @@ def build_player_games():
                                 log.player_name.astype(str), log.team.astype(str)):
         id_by_name.setdefault((team, pname), pid)
         name_by_id.setdefault(pid, pname)
-    seasons = sorted({f.stem.split("_")[1] for f in
+    seasons = sorted({f.stem.rsplit("_", 1)[-1] for f in
                       CACHE.glob("positions/positions_*.parquet")})
     positions = []
     for season in seasons:
-        path = CACHE / "positions" / f"positions_{season}.parquet"
+        # v2 carries the feed's full listing (what the segments read); the
+        # single-label v1 file - still on disk from before the listing
+        # existed - is the outage fallback, so it wins only when v2 is absent.
+        path = CACHE / "positions" / f"positions_v2_{season}.parquet"
+        if not path.exists():
+            path = CACHE / "positions" / f"positions_{season}.parquet"
         if path.exists():
             frame = pd.read_parquet(path)
             frame["season"] = season

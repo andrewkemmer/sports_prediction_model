@@ -60,6 +60,13 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
+# v2.4: the position SEGMENTS read the feed's full position listing - a
+# forward-centre prices both the F and C segments, while the league prior
+# keeps exactly one cell per player (the v2 positions cache). Columns are
+# unchanged; the values of pl_epm_f_* and pl_epm_c_* move by design:
+# collapsing every F-C into F had left whole rosters with no center segment
+# (ORL starts two of them) and drove the monitor's 62% pl_epm_c_diff
+# baseline LOW_COVERAGE. pl_epm_g_* is bit-identical to v2.3.
 # v2.3: pl_epm replaces the TS family - Estimated Plus-Minus per 100
 # participated possessions (NFL EPA-per-target analogue), same shrinkage,
 # availability and opportunity-weighting structure (NFL f9d3e00 / MLB
@@ -67,7 +74,7 @@ RFE_MAX_STEPS = 120
 # by his own prior-possession total instead of a plain mean; availability
 # inputs are unchanged and strictly point-in-time (designation archive +
 # appearance recency gate).
-FEATURE_SET_VERSION = "nba-prod-v2.3-epm"
+FEATURE_SET_VERSION = "nba-prod-v2.4-epm"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the

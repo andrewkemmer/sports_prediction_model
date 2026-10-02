@@ -298,13 +298,53 @@ class TestPositionAssignment:
 
     def test_a_position_the_feed_never_lists_is_simply_absent(self):
         frame = src.positions_frame({"G": {"1"}})
-        assert list(frame.columns) == ["player_id", "position"]
+        assert list(frame.columns) == ["player_id", "position", "positions"]
         assert list(frame.player_id) == ["1"]
+        assert list(frame.positions) == ["G"]
 
     def test_no_positions_yields_a_well_formed_empty_frame(self):
         frame = src.positions_frame({})
         assert frame.empty
-        assert list(frame.columns) == ["player_id", "position"]
+        assert list(frame.columns) == ["player_id", "position", "positions"]
+
+    def test_the_full_listing_rides_beside_the_collapsed_cell(self):
+        """One label for the prior, every label for the segments.
+
+        The forward-centre ("2") is the whole point: the prior divides by
+        exactly one cell so no player is counted twice, while the team
+        segments need him in BOTH the F and C groups or a roster whose
+        centers are all listed F-C ships pl_epm_c as NaN - the 62%
+        baseline coverage the monitor flags LOW_COVERAGE.
+        """
+        frame = src.positions_frame({"G": {"1"}, "F": {"1", "2"},
+                                     "C": {"2", "3"}})
+        assert dict(zip(frame.player_id, frame.position)) == {
+            "1": "G", "2": "F", "3": "C"}
+        assert dict(zip(frame.player_id, frame.positions)) == {
+            "1": "G|F", "2": "F|C", "3": "C"}
+
+    def test_the_listing_survives_prepare_and_build(self):
+        """The segment reads ``positions`` off the RATING row, so both stages
+        must carry it: prepare joins the labels per (player, season), build
+        rebuilds the roster from raw columns. A drop anywhere upstream is
+        invisible except as NaN ``pl_epm_c`` at serve time, so the whole path
+        is pinned together rather than each hop alone.
+        """
+        stats = _frame([
+            _row("a", "2024-11-01", 20, 10, 4, position="F"),
+            _row("b", "2024-11-01", 10, 10, 4, position="F"),
+        ]).drop(columns=["position"])  # production player_stats has no label
+        positions = src.positions_frame({"F": {"a", "b"}, "C": {"b"}})
+        games = epm.prepare_player_games(stats, positions)
+        assert dict(zip(games.player_id, games.position)) == {"a": "F", "b": "F"}
+        assert dict(zip(games.player_id, games.positions)) == {
+            "a": "F", "b": "F|C"}
+
+        ratings = epm.build_player_epm(games, target_dates=["2024-11-02"])
+        listed = dict(zip(ratings.player_id, ratings.positions))
+        assert listed["b"] == "F|C"
+        # The collapsed cell the prior divided by never moved.
+        assert dict(zip(ratings.player_id, ratings.position))["b"] == "F"
 
 
 class TestPositionSource:

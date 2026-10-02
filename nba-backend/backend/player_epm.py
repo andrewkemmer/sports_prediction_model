@@ -170,6 +170,12 @@ def prepare_player_games(stats: pd.DataFrame | None,
                "minutes", "fga", "fta", "tov", "plays", "epm"]
     if positions is not None and len(positions):
         columns = columns + ["position"]
+        if "positions" in positions.columns:
+            # The feed's full listing rides along beside the collapsed cell:
+            # the rating is still computed against one cell (the prior's
+            # denominator), but the team segments need "F|C" to know a roster
+            # whose centers are all listed forward-centre HAS a center.
+            columns = columns + ["positions"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if stats is None or not len(stats):
         return empty
@@ -249,12 +255,18 @@ def prepare_player_games(stats: pd.DataFrame | None,
         if "season" in pos.columns and "season" in frame.columns:
             pos = pos.drop_duplicates(subset=["player_id", "season"],
                                       keep="first")
-            frame = frame.merge(pos[["player_id", "season", "position"]],
+            join = ["player_id", "season", "position"]
+            if "positions" in pos.columns:
+                join.append("positions")
+            frame = frame.merge(pos[join],
                                 on=["player_id", "season"], how="left",
                                 suffixes=("", "_resolved"))
         else:
             pos = pos.drop_duplicates(subset=["player_id"], keep="first")
-            frame = frame.merge(pos[["player_id", "position"]], on="player_id",
+            join = ["player_id", "position"]
+            if "positions" in pos.columns:
+                join.append("positions")
+            frame = frame.merge(pos[join], on="player_id",
                                 how="left", suffixes=("", "_resolved"))
     elif "position" not in frame.columns:
         # Absent position means every player falls out of every prior cell, so
@@ -663,9 +675,9 @@ def build_player_epm(games: pd.DataFrame,
     # a column that looks populated and carries no information, and a
     # multiplier that invites a future caller to reintroduce exactly the
     # zero-weighting the pool deliberately avoids.
-    columns = ["target_date", "player_id", "position", "team", "prior_pm",
-               "prior_plays", "prior_games", "lg_epm", "k_plays", "epm_raw",
-               "epm_shrunk", "days_since_appearance"]
+    columns = ["target_date", "player_id", "position", "positions", "team",
+               "prior_pm", "prior_plays", "prior_games", "lg_epm", "k_plays",
+               "epm_raw", "epm_shrunk", "days_since_appearance"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if games is None or not len(games):
         return empty
@@ -736,7 +748,13 @@ def build_player_epm(games: pd.DataFrame,
         # rating yet" and "this player was never in the data" are different
         # facts, and a projection that cannot tell them apart will happily
         # project a player who does not exist.
-        roster = known[["player_id", "position"]].drop_duplicates(
+        roster_cols = ["player_id", "position"]
+        if "positions" in known.columns:
+            # The full listing rides along for the team segments; it is a
+            # player-level attribute like the collapsed cell, so it comes from
+            # the roster side of every merge below and never becomes a key.
+            roster_cols.append("positions")
+        roster = known[roster_cols].drop_duplicates(
             subset=["player_id", "position"])
         if "team" in known.columns:
             # The team as of the most recent row the player appears in, which
