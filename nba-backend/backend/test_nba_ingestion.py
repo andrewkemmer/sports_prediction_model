@@ -791,6 +791,37 @@ class TestHttp:
         assert len(calls) == 9
         assert "9 attempt(s)" in str(excinfo.value)
 
+    def test_the_play_by_play_pull_retries_past_a_flaky_gateway(self):
+        """The play-by-play sweep pins its own retry budget at three.
+
+        It has no second source either, and two attempts demonstrably lost:
+        the 2026-10-02 run hit a stats.nba.com 502 burst and three games
+        (0022501121/1131/1133) failed the sweep while retries on neighbouring
+        games succeeded seconds later. The literal is pinned here so a future
+        DEFAULT_ATTEMPTS change cannot quietly thin the sweep back down.
+        """
+        import ast
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parent
+               / "ingestion.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "_fetch_play_by_play")
+        calls = [n for n in ast.walk(fn)
+                 if isinstance(n, ast.Call)
+                 and getattr(n.func, "id", "") == "http_json"]
+        assert len(calls) == 1, \
+            "the sweep has exactly one http_json call site"
+        kw = {k.arg: k.value for k in calls[0].keywords}
+        attempts = kw.get("attempts")
+        assert (isinstance(attempts, ast.Constant)
+                and isinstance(attempts.value, int)
+                and attempts.value >= 3), (
+            "the play-by-play sweep must retry at least three times; two "
+            "attempts lost three games to a transient 502 burst on "
+            "2026-10-02")
+
     def test_a_timeout_is_retried(self, monkeypatch):
         calls = []
 
@@ -993,6 +1024,27 @@ class TestDeliverySync:
             "run() writes nba_pipeline_summary.json AFTER _sync_data_delivery,"
             " so the pushed delivery never contains this run's summary; "
             "write it before the sync, the order NFL and NHL already use")
+
+    def test_the_publish_step_lands_in_the_pushed_log(self):
+        """run() must announce publish BEFORE the sync stages the log.
+
+        The sync commits the delivery directory - the run log included - so
+        anything printed after it exists only on this machine: both
+        2026-10-02 delivered logs end mid-bar at \"monitor 9/10\" with no
+        completion line, and a reviewer cannot tell from the log alone that
+        the run finished or what status it finished with.
+        """
+        import inspect
+        import master_pipeline as mp
+
+        source = inspect.getsource(mp.run)
+        step_at = source.index('_step("publish"')
+        sync_at = source.index("sync = _sync_data_delivery(")
+        assert step_at < sync_at, (
+            "run() announces publish AFTER the sync stages the log file, so "
+            "the pushed log can never contain the run's completion line; "
+            "print the publish step before the sync, the way the summary "
+            "write already precedes it")
 
     def test_a_push_that_delivers_nothing_is_a_failure(self):
         """The run reports success off the same signal as the push, so an

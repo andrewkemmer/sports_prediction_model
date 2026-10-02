@@ -1469,11 +1469,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # result is attached to the in-memory summary for stdout only.
     (out / "nba_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))
+    # The publish step prints BEFORE the sync stages the delivery, because
+    # the sync commits the log file itself: anything printed after it exists
+    # only on this machine, which is why every delivered log ended mid-bar at
+    # "monitor 9/10" with no completion line (both 2026-10-02 runs - the
+    # banner, the final tick, and this result line all landed after the
+    # staged snapshot). The sync RESULT stays stdout-only under the same
+    # rule the summary's "sync" key already accepts.
+    _step("publish", f"status {summary['status']}, "
+                     f"{summary['elapsed_seconds']}s")
     sync = _sync_data_delivery(config.ROOT_DIR.parent)
     summary["sync"] = sync
-    _step("publish", f"status {summary['status']}, "
-                     f"{summary['elapsed_seconds']}s, sync "
-                     f"{sync.get('pushed', sync.get('status', 'n/a'))}")
     prog.close()
     return summary
 

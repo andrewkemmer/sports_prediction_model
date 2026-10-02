@@ -1469,7 +1469,14 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                     logger.error("play-by-play sweep not started: %s", _short(exc))
                     break
                 try:
-                    payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=2)
+                    # 2026-10-02: a stats.nba.com 502 burst beat two attempts
+                    # and cost three games their sweep, while retries on
+                    # neighbouring games succeeded seconds later - a flaky
+                    # gateway, not a refusal. A third attempt (2s/4s backoff)
+                    # rides that out at near-zero cost; the probe and the
+                    # consecutive-failure trip still bound a dead host, and
+                    # the archive absorbs any gap that survives anyway.
+                    payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=3)
                 except HostUnavailable as exc:
                     info["failed"] += 1
                     consecutive += 1
