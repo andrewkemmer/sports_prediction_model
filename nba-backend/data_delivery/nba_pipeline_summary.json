@@ -1,35 +1,35 @@
 {
  "status": "ok",
  "errors": [],
- "run_date": "2026-10-01",
+ "run_date": "2026-10-02",
  "artifacts": [
-  "nba_moneyline_v1_20261001.json",
-  "nba_player_leader_matchup_20261001.json",
-  "nba_calibration_20261001.json",
-  "nba_predictions_history_20261001.csv",
+  "nba_moneyline_v1_20261002.json",
+  "nba_player_leader_matchup_20261002.json",
+  "nba_calibration_20261002.json",
+  "nba_predictions_history_20261002.csv",
   "nba_oof_moneyline.csv",
   "nba_oof_distribution.csv",
   "nba_fold_table.csv",
-  "nba_run_engine_markets_20261001.csv",
-  "nba_run_engine_markets_20261001.meta.json",
-  "nba_power_rankings_20261001.csv",
-  "nba_player_ts_20261001.csv",
-  "nba_feature_v1_20261001.json",
+  "nba_run_engine_markets_20261002.csv",
+  "nba_run_engine_markets_20261002.meta.json",
+  "nba_power_rankings_20261002.csv",
+  "nba_player_ts_20261002.csv",
+  "nba_feature_v1_20261002.json",
   "nba_shap_game_401909088.csv",
   "nba_shap_game_401909089.csv",
   "nba_shap_game_401909090.csv",
-  "nba_feature_workbook_20261001.xlsx",
-  "nba_feature_selection_20261001.json",
-  "nba_run_engine_feature_drift_20261001.csv",
-  "nba_run_engine_feature_coverage_20261001.csv",
+  "nba_feature_workbook_20261002.xlsx",
+  "nba_feature_selection_20261002.json",
+  "nba_run_engine_feature_drift_20261002.csv",
+  "nba_run_engine_feature_coverage_20261002.csv",
   "models/nba_ensemble_latest.joblib",
-  "nba_model_monitor_20261001.json",
-  "nba_run_engine_monitor_20261001.json",
+  "nba_model_monitor_20261002.json",
+  "nba_run_engine_monitor_20261002.json",
   "nba_production_cards_history.csv"
  ],
  "weights": {
-  "elasticnet": 0.8256,
-  "lightgbm": 0.1744,
+  "elasticnet": 0.7,
+  "lightgbm": 0.3,
   "xgboost": 0.0
  },
  "folds": {
@@ -93,13 +93,47 @@
     "compared": 6922,
     "exact": 6761,
     "max_abs_diff": 5.0,
-    "mean_abs_diff": 0.0287
+    "mean_abs_diff": 0.0287,
+    "worst_offenders": [
+     {
+      "game_id": "401705312",
+      "team": "OKC",
+      "abs_diff": 5.0
+     },
+     {
+      "game_id": "401705305",
+      "team": "OKC",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401705293",
+      "team": "SAC",
+      "abs_diff": 3.0
+     }
+    ]
    },
    "dreb": {
     "compared": 6922,
     "exact": 6470,
     "max_abs_diff": 10.0,
-    "mean_abs_diff": 0.1725
+    "mean_abs_diff": 0.1725,
+    "worst_offenders": [
+     {
+      "game_id": "401705149",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705111",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705095",
+      "team": "OKC",
+      "abs_diff": 10.0
+     }
+    ]
    },
    "tov": {
     "compared": 6922,
@@ -111,13 +145,47 @@
     "compared": 6922,
     "exact": 6387,
     "max_abs_diff": 3.0,
-    "mean_abs_diff": 0.0809
+    "mean_abs_diff": 0.0809,
+    "worst_offenders": [
+     {
+      "game_id": "401810968",
+      "team": "GSW",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401705661",
+      "team": "BKN",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401810900",
+      "team": "POR",
+      "abs_diff": 2.0
+     }
+    ]
    },
    "assists": {
     "compared": 6922,
     "exact": 6566,
     "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.2101
+    "mean_abs_diff": 0.2101,
+    "worst_offenders": [
+     {
+      "game_id": "401705475",
+      "team": "DEN",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401704679",
+      "team": "DEN",
+      "abs_diff": 16.0
+     },
+     {
+      "game_id": "401704743",
+      "team": "DEN",
+      "abs_diff": 16.0
+     }
+    ]
    },
    "points": {
     "compared": 6922,
@@ -127,7 +195,7 @@
    }
   }
  },
- "elapsed_seconds": 1896.56,
+ "elapsed_seconds": 3123.27,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -196,13 +264,47 @@
     "compared": 6922,
     "exact": 6761,
     "max_abs_diff": 5.0,
-    "mean_abs_diff": 0.0287
+    "mean_abs_diff": 0.0287,
+    "worst_offenders": [
+     {
+      "game_id": "401705312",
+      "team": "OKC",
+      "abs_diff": 5.0
+     },
+     {
+      "game_id": "401705305",
+      "team": "OKC",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401705293",
+      "team": "SAC",
+      "abs_diff": 3.0
+     }
+    ]
    },
    "dreb": {
     "compared": 6922,
     "exact": 6470,
     "max_abs_diff": 10.0,
-    "mean_abs_diff": 0.1725
+    "mean_abs_diff": 0.1725,
+    "worst_offenders": [
+     {
+      "game_id": "401705149",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705111",
+      "team": "OKC",
+      "abs_diff": 10.0
+     },
+     {
+      "game_id": "401705095",
+      "team": "OKC",
+      "abs_diff": 10.0
+     }
+    ]
    },
    "tov": {
     "compared": 6922,
@@ -214,13 +316,47 @@
     "compared": 6922,
     "exact": 6387,
     "max_abs_diff": 3.0,
-    "mean_abs_diff": 0.0809
+    "mean_abs_diff": 0.0809,
+    "worst_offenders": [
+     {
+      "game_id": "401810968",
+      "team": "GSW",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401705661",
+      "team": "BKN",
+      "abs_diff": 3.0
+     },
+     {
+      "game_id": "401810900",
+      "team": "POR",
+      "abs_diff": 2.0
+     }
+    ]
    },
    "assists": {
     "compared": 6922,
     "exact": 6566,
     "max_abs_diff": 22.0,
-    "mean_abs_diff": 0.2101
+    "mean_abs_diff": 0.2101,
+    "worst_offenders": [
+     {
+      "game_id": "401705475",
+      "team": "DEN",
+      "abs_diff": 22.0
+     },
+     {
+      "game_id": "401704679",
+      "team": "DEN",
+      "abs_diff": 16.0
+     },
+     {
+      "game_id": "401704743",
+      "team": "DEN",
+      "abs_diff": 16.0
+     }
+    ]
    },
    "points": {
     "compared": 6922,
