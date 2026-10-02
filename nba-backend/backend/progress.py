@@ -43,6 +43,13 @@ that becomes ``100%|...| 46/46 [00:52<00:00, 1.15s/it]``, the ``-> 164216
 pitches`` after it - all of that survives into a Kaggle log for the same reason
 this module now draws: the output is not asked whether it is a terminal.
 
+Third: a bar and a log line must not share a row.  ``StreamHandler.emit``
+writes wherever its stream's cursor sits, and a live bar leaves that cursor at
+the end of its row - so a record lands mid-bar and the bar's next repaint
+opens a new row, splitting one bar across two (``_install_log_record_bridge``
+fixes this by writing records the way ``tqdm.write`` does: bar cleared, line
+written, bar repainted on the same row).
+
 So the gate is gone, and what is left of the old design is kept because it is
 still needed.  ``tqdm`` is an optional import, and a backend that has to run
 before the dependency lands should still say what it is doing; the heartbeat
@@ -155,6 +162,75 @@ def _tqdm() -> Any | None:
     except Exception:  # noqa: BLE001 - absence is a supported state
         return None
     return tqdm
+
+
+def _install_log_record_bridge() -> None:
+    """Route log records around live bars, the way ``tqdm.write`` does.
+
+    ``StreamHandler.emit`` writes straight to its stream. While a bar
+    is live that stream sits at the end of the bar's row, so a record
+    paints itself over the tail of the bar, its newline drops the
+    cursor onto the next row, and the bar's next repaint starts a NEW
+    row — one bar split across two rows with a record in the seam (the
+    2026-10-01 Kaggle log: the ``schedule: 78%|...`` bar torn in half
+    by a preflight INFO line and a "dropping ..." WARNING).  ``tqdm``
+    solves this for its own writes with ``tqdm.write``: clear every bar
+    sharing the stream, write the line, repaint the bars.  A logging
+    record needs the same treatment, so the emit path borrows it while
+    any bar is live.
+
+    Installed once, lazily, when the first real bar is created: a
+    backend without ``tqdm`` (or with ``NBA_PROGRESS=0``) never has a
+    live bar and never gets the patch at all.  Gated the same way at
+    emit time, so with no bars live the write is byte-for-byte the
+    stock ``StreamHandler.emit`` path.  Handlers that override ``emit``
+    (pytest's capture, live logging) are untouched, and a handler
+    writing anywhere but the console streams keeps the stock path —
+    only a console handler can collide with a bar.
+
+    Display only: a failure inside the dance is reported through
+    ``handleError`` like any emit failure and never reaches the caller.
+    """
+    original = logging.StreamHandler.emit
+    if getattr(original, "_progress_bar_bridge", False):
+        return
+
+    def _emit(self, record):
+        try:
+            msg = self.format(record)
+        except RecursionError:
+            raise
+        except Exception:  # noqa: BLE001 - emit must never raise
+            self.handleError(record)
+            return
+        terminator = self.terminator
+        factory = _tqdm()
+        if (factory is not None
+                and getattr(factory, "_instances", None)
+                and isinstance(terminator, str)
+                and self.stream in (sys.stdout, sys.stderr)):
+            # A console handler with bars live: let tqdm clear the bar
+            # row, write the line, and repaint, so the bar stays on one
+            # row for its whole life and the record lands above it.
+            try:
+                factory.write(msg, file=self.stream, end=terminator)
+                self.flush()
+                return
+            except RecursionError:
+                raise
+            except Exception:  # noqa: BLE001 - never break logging
+                self.handleError(record)
+                return
+        try:
+            self.stream.write(msg + terminator)
+            self.flush()
+        except RecursionError:
+            raise
+        except Exception:  # noqa: BLE001
+            self.handleError(record)
+
+    _emit._progress_bar_bridge = True  # type: ignore[attr-defined]
+    logging.StreamHandler.emit = _emit
 
 
 class _Counter:
@@ -279,6 +355,10 @@ class _Bar:
             kwargs["bar_format"] = NO_RATE_BAR
         self._inner = factory(total=total, desc=desc, unit=unit or None,
                               leave=True, **kwargs)
+        # A live bar is the one state in which a logging record can
+        # tear the bar across two rows, so from the first bar on,
+        # records are written around bars instead of through them.
+        _install_log_record_bridge()
 
     def update(self, n: int = 1) -> None:
         if self._inner is not None:
