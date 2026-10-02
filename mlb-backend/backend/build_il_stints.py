@@ -480,14 +480,26 @@ def median_on_il(iv: pd.DataFrame, start: pd.Timestamp,
     return float(pd.Series(live).median())
 
 
-def season_medians(iv: pd.DataFrame, years: list[int]) -> dict[str, float]:
+def season_medians(iv: pd.DataFrame, years: list[int],
+                   end: pd.Timestamp) -> dict[str, float]:
     """Weekly median on-IL per season, March 1 -> window end (offseason
-    troughs are real but not what the gate is guarding against)."""
+    troughs are real but not what the gate is guarding against).
+
+    The LAST season stops at the window ``end`` — never Dec 31 and never
+    ``pd.Timestamp.max`` (the 2026-10-03 run's bug): stints still open at the
+    window end have an unknown future, and a weekly grid extended past the
+    data counted ONLY those never-closed stints for ~236 years of phantom
+    points, collapsing the season's median to exactly the open-stint count
+    ({'2026': 249.0} == 249 open stints, vs the in-season ~500). That value
+    ships into il_stints*.meta.json as median_on_il_by_season.
+    """
     out: dict[str, float] = {}
     for y in years:
         lo = pd.Timestamp(f"{y}-03-01")
-        hi = pd.Timestamp(f"{y}-12-31") if y < years[-1] else None
-        out[str(y)] = round(median_on_il(iv, lo, hi or pd.Timestamp.max), 0)
+        hi = pd.Timestamp(f"{y}-12-31") if y < years[-1] else pd.Timestamp(end)
+        if hi < lo:
+            continue  # window ended before the season opened — no honest median
+        out[str(y)] = round(median_on_il(iv, lo, hi), 0)
     return out
 
 
@@ -761,7 +773,7 @@ def main() -> None:
     dur = (iv.il_end - iv.il_start).dt.days.dropna()
     gate_from = max(start, start + pd.Timedelta(days=GATE_WARMUP_DAYS))
     med = median_on_il(iv, gate_from, end)
-    per_season = season_medians(iv, years)
+    per_season = season_medians(iv, years, end)
     print(f"il stints: {len(iv):,} over {iv.batter.nunique():,} batters "
           f"({int(iv.il_end.isna().sum()):,} still open at window end)")
     print(f"  stint length days: median {dur.median():.0f} "

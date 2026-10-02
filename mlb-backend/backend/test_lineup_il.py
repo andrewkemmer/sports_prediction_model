@@ -923,6 +923,34 @@ def test_taxonomy_gate_band_constants():
     assert b._MAX_MEDIAN_ON_IL == 900
 
 
+def test_season_medians_last_year_clamped_to_window_end():
+    """The last season's weekly grid must stop at the window end.
+
+    The 2026-10-03 run extended it to pd.Timestamp.max, so every week PAST
+    the window counted only never-closed stints (~236 years of phantom
+    points) and the season median collapsed to exactly the open-stint count
+    — the log reported {'2026': 249.0} == 249 open stints instead of the
+    in-season value, and that number ships into il_stints*.meta.json as
+    median_on_il_by_season.
+    """
+    import build_il_stints as b
+    # 5 stints alive Mar 1 -> Sep 1 (in-season), 3 never closed (open).
+    iv = pd.DataFrame({
+        "batter": pd.array(range(8), dtype="int64"),
+        "il_start": pd.to_datetime(["2026-03-01"] * 8),
+        "il_end": pd.to_datetime(["2026-09-01"] * 5 + [None] * 3),
+    })
+    m = b.season_medians(iv, [2026], end=pd.Timestamp("2026-10-03"))
+    # 31 weekly points Mar 1 -> Oct 3: 27 at 8 alive, 4 at 3 alive -> 8.
+    # The phantom Timestamp.max grid returned 3 (the open-stint count).
+    assert m["2026"] == 8
+    # prior seasons keep their own Mar 1 -> Dec 31 bounds
+    m2 = b.season_medians(iv, [2025, 2026], end=pd.Timestamp("2026-10-03"))
+    assert set(m2) == {"2025", "2026"}
+    assert m2["2025"] == 0  # no 2025 stints in this frame
+    assert m2["2026"] == 8
+
+
 def test_definition_recorded_in_meta_contract():
     """The meta 'definition' provenance key ships in the builder's meta
     dict — the one place the availability definition is written down for
