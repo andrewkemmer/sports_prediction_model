@@ -59,6 +59,12 @@ EXACT_MASTER_NAMES = frozenset({
     # pruned it mid-run after Phases 3/11 had already loaded it (deleted from
     # the repo by the artifact-sync commit 16108ed).
     "nhl_leave_events.json",
+    # Run log (2026-10-02, MLB/NFL parity): one rolling master file
+    # written by run_log_tee.py and delivered with the sync tree.
+    # Dateless by design (overwritten in place every run), so blanket
+    # policy would call it stale and the pruner would eat the only
+    # record of the latest run.
+    "nhl_pipeline_run_log.txt",
 })
 # 2026-09-30 retention audit: nhl_oof_moneyline.csv, nhl_oof_distribution.csv
 # and nhl_fold_table.csv are model-TRAINING residue nothing reads back. They
