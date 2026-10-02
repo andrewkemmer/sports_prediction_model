@@ -1028,12 +1028,18 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     MLB: a date is valid when a ``todays_games_<YYYYMMDD>.csv`` board exists
     (contents listing + local dir) OR the walk-forward history can rebuild it
     from calibration ``daily`` entries / prediction-history game dates
-    (``history_dates``) — then bounded to the ROLLING 10-DAY RETENTION
-    WINDOW (today ET .. today−10; retention_policy.py rev 2 anchors the
-    backend on the same ET day). Historical dates are never offered, so the
-    calendar, date rail, prev/next stepping and the board render gate all
-    expose exactly the rolling window. NFL: distinct ``game_date`` from
-    the moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful).
+    (``history_dates``) — then floored at the ROLLING 10-DAY RETENTION
+    WINDOW (today ET −10; retention_policy.py rev 2 anchors the backend on
+    the same ET day). The floor only, never an upper bound: MLB runs publish
+    TOMORROW's slate (the run's target date), so the current production
+    board is future-dated and must stay offered — the old closed window
+    dropped every tomorrow-dated board and pinned the rail on a retained
+    older snapshot (2026-10-02: valid dates stopped at 20261001 while the
+    RE24 run had shipped todays_games_20261003). Historical dates outside
+    the window are never offered, so the calendar, date rail, prev/next
+    stepping and the board render gate all expose exactly the rolling
+    window plus the live future slate. NFL: distinct ``game_date`` from the
+    moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful).
 
     NBA/NHL: same two sources (the current moneyline slate + the retained
     prediction history), bounded to their own rolling 10-day window — anchored
@@ -1069,15 +1075,21 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
         d = p.name[len("todays_games_"):-len(".csv")]
         if len(d) == 8 and d.isdigit():
             dates.add(d)
-    # Rolling 10-day retention window (today ET .. today−10) — mirrors the
-    # backend's blanket window (retention_policy.py rev 2), whose anchor is
-    # the same ET day. Boards older than the window are pruned by Phase 6,
-    # so a date outside it has no board to render; keeping it in the valid
-    # set would only offer a dead-end. MLB-only: the NFL branch above is
-    # untouched.
+    # Rolling 10-day retention FLOOR (today ET −10) — mirrors the backend's
+    # blanket window (retention_policy.py rev 2), whose anchor is the same
+    # ET day. Boards older than the window are pruned by Phase 6, so a date
+    # below the floor has no board to render; keeping it would only offer a
+    # dead-end. Only the FLOOR applies, never an upper bound: MLB runs
+    # publish TOMORROW's slate (the run's target date), so the current
+    # production board is future-dated — the old closed window dropped every
+    # tomorrow-dated board and pinned the date rail on a retained older
+    # snapshot (2026-10-02: valid dates stopped at 20261001 while the RE24
+    # run had shipped todays_games_20261003). MLB-only: the NFL branch above
+    # is untouched.
     window = _mlb_retention_window()
     if window:
-        dates &= window
+        floor = min(window)
+        dates = {d for d in dates if d >= floor}
     return sorted(dates, reverse=True)
 
 
