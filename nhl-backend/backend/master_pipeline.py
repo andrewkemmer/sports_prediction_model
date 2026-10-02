@@ -177,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir) if args.out_dir else config.DATA_DELIVERY_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── 1. Configuration ──────────────────────────────────────────────
+    _banner("PHASE 1", "configuration (date window, repull, library stack)")
     run_date = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
     date_c = run_date.replace("-", "")
 
@@ -1147,6 +1150,36 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     # window (an undated frame reaching production), which is exactly the
     # silent regression this gate exists to catch.
     gates["sealed_holdout_gate"] = bool(((sig or {}).get("holdout") or {}).get("cutoff"))
+    # Delivery consistency (2026-10-02 postmortem): commit cf7ecc0
+    # ("Rotate NHL 20260925 data-delivery artifacts", 2026-09-27)
+    # deleted the 20260925 markets/predictions/monitor/coverage family
+    # while leaving nhl_run_engine_markets_20260925.meta.json behind —
+    # an orphaned manifest describing 2440 rows of markets that no
+    # longer existed. Every schema gate still passed because each gate
+    # reads files that ARE present; nothing checked a manifest against
+    # its payload, and the retention window (anchor 20261001 -10d =
+    # 20260921) never authorized the deletion. Pair every *.meta.json
+    # with its sibling data file (and every serving board CSV with its
+    # meta) so a half-deleted delivery fails the next run loudly
+    # instead of shipping silently.
+    orphans: list[str] = []
+    for meta in sorted(out_dir.glob("*.meta.json")):
+        stem = meta.name[: -len(".meta.json")]
+        siblings = [f for f in out_dir.glob(stem + ".*")
+                    if f.name != meta.name]
+        if not siblings:
+            orphans.append(meta.name)
+    for board in sorted(out_dir.glob("nhl_run_engine_markets_*.csv")):
+        # The board's manifest is <stem>.meta.json — the .csv
+        # suffix is REPLACED, not appended (a board named
+        # nhl_run_engine_markets_<d>.csv pairs with
+        # nhl_run_engine_markets_<d>.meta.json).
+        if not (out_dir / board.with_suffix(".meta.json").name).exists():
+            orphans.append(board.name)
+    gates["delivery_consistency"] = not orphans
+    if orphans:
+        logger.warning("delivery consistency: %d orphaned artifact(s): %s",
+                       len(orphans), ", ".join(orphans[:8]))
     return gates
 
 
