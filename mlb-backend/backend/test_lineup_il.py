@@ -52,12 +52,12 @@ def _ratings(pa30s: dict[int, float], extra_team: str | None = None) -> pd.DataF
     rows = []
     for batter, (pa30, woba) in pa30s.items():
         rows.append({"game_date": GAME, "game_pk": GPK, "batting_team": TEAM,
-                     "batter": batter, "shrunk_woba": woba, "_pa30": pa30})
+                     "batter": batter, "shrunk_re24": woba, "_pa30": pa30})
     if extra_team:
         for batter, (pa30, woba) in pa30s.items():
             rows.append({"game_date": GAME, "game_pk": GPK,
                          "batting_team": extra_team,
-                         "batter": batter, "shrunk_woba": woba, "_pa30": pa30})
+                         "batter": batter, "shrunk_re24": woba, "_pa30": pa30})
     return pd.DataFrame(rows)
 
 
@@ -146,7 +146,7 @@ def test_out_player_removed_and_replacement_promoted(con):
     assert len(nine) == 9 and 2008 in nine, "healthy replacement is promoted"
     # rating row survives in the pool: eligibility flag, not a quality edit
     row = con.execute(
-        "SELECT shrunk_woba, _pa30 FROM lineup_pool WHERE batter=2000"
+        "SELECT shrunk_re24, _pa30 FROM lineup_pool WHERE batter=2000"
     ).fetchone()
     assert row == pytest.approx((0.400, 200.0))
 
@@ -173,7 +173,7 @@ def test_fallback_is_participant_pool_with_zero_flag(con):
     rows = []
     for i in range(9):
         rows.append({"game_date": GAME, "game_pk": GPK, "batting_team": TEAM,
-                     "batter": 5000 + i, "shrunk_woba": 0.310, "_pa30": 90.0})
+                     "batter": 5000 + i, "shrunk_re24": 0.310, "_pa30": 90.0})
     prior = dict(rows[0]); prior["game_pk"] = GPK - 1
     prior["game_date"] = pd.Timestamp(GAME) - pd.Timedelta(days=3)
     prior["batter"] = 5099
@@ -598,12 +598,12 @@ def test_il_filter_removes_player_from_weighted_pool_and_promotes(con):
     star = r.iloc[[0]].copy()
     star["batter"] = P_HARPER
     star["_pa30"] = 400.0
-    star["shrunk_woba"] = 0.900
+    star["shrunk_re24"] = 0.900
     r = pd.concat([r, star], ignore_index=True)
     _run_pool(con, r, [(P_HARPER, "2024-07-01", None)])
     healthy = [(100.0 - 5 * i, 0.300 + i / 1000) for i in range(10)]
     exp = (sum(p * w for p, w in healthy) / sum(p for p, _ in healthy))
-    m = con.execute("SELECT lineup_woba_mean FROM lineup_agg").fetchone()[0]
+    m = con.execute("SELECT lineup_re24_mean FROM lineup_agg").fetchone()[0]
     assert m == pytest.approx(exp, abs=1e-9)
     assert m < exp + 0.05 * abs(exp)  # sanity: no star leakage into the mean
 
@@ -619,12 +619,12 @@ def test_agg_is_participation_weighted_over_full_pool(con):    # VAR_B contract:
     extra = r.iloc[[0]].copy()
     extra['batter'] = 5550
     extra['_pa30'] = 500.0
-    extra['shrunk_woba'] = 0.999
+    extra['shrunk_re24'] = 0.999
     r = pd.concat([r, extra], ignore_index=True)
     _run_pool(con, r, [(5550, '2024-07-01', None)])
     m, t3, sd = con.execute(
-        'SELECT lineup_woba_mean, lineup_woba_top3, '
-        'lineup_woba_std FROM lineup_agg').fetchone()
+        'SELECT lineup_re24_mean, lineup_re24_top3, '
+        'lineup_re24_std FROM lineup_agg').fetchone()
     exp_mean = (sum((100.0 - 5 * i) * (0.300 + i / 1000)
                     for i in range(11)) / sum(100.0 - 5 * i
                                               for i in range(11)))
@@ -647,8 +647,8 @@ def test_agg_single_member_and_depleted_pool(con):
     r = _ratings({6001: (40.0, 0.350), 6002: (90.0, 0.450)})
     _run_pool(con, r, [(6002, '2024-07-01', None)])
     m, t3, sd = con.execute(
-        'SELECT lineup_woba_mean, lineup_woba_top3, '
-        'lineup_woba_std FROM lineup_agg').fetchone()
+        'SELECT lineup_re24_mean, lineup_re24_top3, '
+        'lineup_re24_std FROM lineup_agg').fetchone()
     assert m == pytest.approx(0.350, abs=1e-9)
     assert t3 == pytest.approx(0.350, abs=1e-9)
     assert sd is None or float(sd) in (0.0,) or pd.isna(sd)
@@ -661,7 +661,7 @@ def test_agg_weighted_mean_moves_toward_high_pa_members(con):
     r = _ratings({7001: (200.0, 0.260), 7002: (10.0, 0.400)})
     _run_pool(con, r, [])
     m = con.execute(
-        'SELECT lineup_woba_mean FROM lineup_agg').fetchone()[0]
+        'SELECT lineup_re24_mean FROM lineup_agg').fetchone()[0]
     assert m == pytest.approx(
         (200 * 0.260 + 10 * 0.400) / 210, abs=1e-9)
     assert m < (0.260 + 0.400) / 2

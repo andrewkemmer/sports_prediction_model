@@ -173,7 +173,7 @@ RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
 # improves EVERYTHING: derived-ML AUC 0.5515 -> 0.5682, margin-spread sd +27%,
 # the share of wide prices (~>0.55) up 0.19 -> 0.25, home/away lambda deviance
 # and RMSE DOWN, holdout logloss 0.6865 -> 0.6846. Two restored features show
-# material drift (woba_30g_diff 0.296, lineup_woba_top3_diff 0.104 WARN) but
+# material drift (woba_30g_diff 0.296, lineup_re24_top3_diff 0.104 WARN) but
 # still net-improve in the A/B; they stay drift-monitored so
 # classify_drift_retention can act. 2026-09-27 twin expansion: the 16 exp2
 # per-side twins are the halves of matchup-gap diffs and joined the served
@@ -195,8 +195,8 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
     "win_pct_diff", "elo_diff", "rest_days_diff",
     "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
     "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
-    "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
-    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_10g_diff",
+    "sp_xwoba_vs_l_diff", "lineup_re24_mean_diff", "lineup_re24_top3_diff",
+    "lineup_re24_std_diff", "woba_30g_diff", "bullpen_whip_10g_diff",
     "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
     "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
     "closer_availability_diff",

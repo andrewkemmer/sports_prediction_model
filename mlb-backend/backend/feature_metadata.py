@@ -137,37 +137,37 @@ _RICH: dict[str, dict[str, str]] = {
 
 
     # ---- SP xwOBA allowed -------------------------------------------------
-    # ---- lineup wOBA ------------------------------------------------------
-    "lineup_woba_mean_diff": {
-        "summary": "Home lineup avg wOBA − away lineup avg wOBA",
-        "definition": "Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).",
-        "formula": "lineup_woba_mean_home − lineup_woba_mean_away",
-        "source": "Statcast hitter aggregates, projected lineups",
+    # ---- lineup RE24 (swapped from lineup wOBA 2026-10-02) ---------------
+    "lineup_re24_mean_diff": {
+        "summary": "Home lineup avg RE24 − away lineup avg RE24",
+        "definition": "Projected nine-man lineup quality gap (each hitter's RE24 — runs above run expectancy over the 24 base-out states — shrunk toward the league mean by PA count).",
+        "formula": "lineup_re24_mean_home − lineup_re24_mean_away",
+        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
         "window": "season to date (shrunk)",
-        "units": "wOBA points",
+        "units": "RE24 (runs per PA)",
         "direction": "higher = home advantage",
     },
-    "lineup_woba_top3_diff": {
-        "summary": "Home top-3 hitter wOBA − away top-3 hitter wOBA",
+    "lineup_re24_top3_diff": {
+        "summary": "Home top-3 hitter RE24 − away top-3 hitter RE24",
         "definition": "Star-power gap at the top of the card.",
-        "formula": "lineup_woba_top3_home − lineup_woba_top3_away",
-        "source": "Statcast hitter aggregates, projected lineups",
+        "formula": "lineup_re24_top3_home − lineup_re24_top3_away",
+        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
         "window": "season to date (shrunk)",
-        "units": "wOBA points",
+        "units": "RE24 (runs per PA)",
         "direction": "higher = home advantage",
     },
-    "lineup_woba_std_diff": {
-        "summary": "Home lineup wOBA dispersion − away lineup dispersion",
+    "lineup_re24_std_diff": {
+        "summary": "Home lineup RE24 dispersion − away lineup RE24 dispersion",
         "definition": "Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.",
-        "formula": "lineup_woba_std_home − lineup_woba_std_away",
-        "source": "Statcast hitter aggregates, projected lineups",
+        "formula": "lineup_re24_std_home − lineup_re24_std_away",
+        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
         "window": "season to date (shrunk)",
-        "units": "wOBA points (std)",
+        "units": "RE24 (std, runs per PA)",
         "direction": "n/a (shape signal)",
     },
     "lineup_il_flag_home": {
         "summary": "Home projected nine includes an OUT/IR player (raw flag)",
-        "definition": "1 when at least one of the home game-eligible top-9-by-PA candidates is on the injured list as of the game date, else 0. Sides with no eligible pool read 0. The injured player's own trailing wOBA rating is untouched — the flag marks eligibility, not quality.",
+        "definition": "1 when at least one of the home game-eligible top-9-by-PA candidates is on the injured list as of the game date, else 0. Sides with no eligible pool read 0. The injured player's own trailing RE24 rating is untouched — the flag marks eligibility, not quality.",
         "formula": "MAX(on_il) over the projected nine",
         "source": "MLB StatsAPI transactions via build_il_stints.py (transaction dates, PA-reconciled)",
         "window": "as of game date (point-in-time)",
@@ -327,10 +327,10 @@ _RICH: dict[str, dict[str, str]] = {
     },
     # ---- weather interactions ---------------------------------------------
     "park_factor_slug_diff": {
-        "summary": "Home park SLG factor × lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
+        "summary": "Home park SLG factor × lineup top-3 RE24 diff (hitter-friendly parks amplify lineup edges)",
         "definition": "Interaction: does tonight's park amplify whichever lineup holds the star-power edge?",
-        "formula": "(home_park_slg_factor − 1) × lineup_woba_top3_diff",
-        "source": "DuckDB feature engineering: park factors × Statcast top-3 wOBA",
+        "formula": "(home_park_slg_factor − 1) × lineup_re24_top3_diff",
+        "source": "DuckDB feature engineering: park factors × Statcast top-3 RE24",
         "window": "season (park) × season (lineup)",
         "units": "index",
         "direction": "higher = home advantage",
@@ -434,9 +434,9 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "n/a (regression signal)",
     },
     "lineup_depth_multiplier_diff": {
-        "summary": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
+        "summary": "Lineup mean RE24 diff × top-3 RE24 diff (star power × depth)",
         "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
-        "formula": "lineup_woba_mean_diff × lineup_woba_top3_diff",
+        "formula": "lineup_re24_mean_diff × lineup_re24_top3_diff",
         "source": "DuckDB feature engineering: depth × star-power interaction",
         "window": "season to date (shrunk)",
         "units": "index",
@@ -589,8 +589,8 @@ _PER_SIDE_FAMILIES = {
     "sp_era": ("Starting-pitcher earned-run average", "ERA runs", "lower = better for that side", "season to date (prior in-season starts; LAG-shifted)"),
     "sp_k9": ("Starting-pitcher strikeouts per 9 innings", "K/9", "higher = better", "season to date (prior in-season starts; LAG-shifted)"),
     "sp_xwoba": ("Expected wOBA allowed by the starter", "xwOBA", "lower = better", "last 6 appearances (LAG-shifted; the legacy _30g name)"),
-    "lineup_woba_mean": ("Projected lineup average wOBA", "wOBA points", "higher = better"),
-    "lineup_woba_top3": ("Top-3 hitters' projected wOBA", "wOBA points", "higher = better"),
+    "lineup_re24_mean": ("Projected lineup average RE24", "RE24 (runs per PA)", "higher = better"),
+    "lineup_re24_top3": ("Top-3 hitters' projected RE24", "RE24 (runs per PA)", "higher = better"),
     "woba_30g": ("Team offensive wOBA", "wOBA points", "higher = better"),
     "bullpen_whip_10g": ("Bullpen walks+hits per inning", "WHIP", "lower = better", "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)"),
     "bullpen_whip_3g": ("Bullpen walks+hits per inning, short form", "WHIP", "lower = better", "3 team games (opportunity-shrunk)"),
@@ -605,7 +605,7 @@ _LEVEL_TWIN_FAMILIES = {
     "rest_days": ("Days of rest entering the game", "days", "more rest = fresher club", "per game (capped 1–6)"),
     "sp_era_5g": ("SP recent runs allowed per nine", "runs / 9 innings", "lower = better", "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP"),
     "sp_fbvelo_3g": ("SP fastball velocity, last 3 starts", "mph", "higher = better", "3g"),
-    "lineup_woba_std": ("Projected lineup wOBA dispersion (std dev)", "wOBA points", "n/a (order-quality spread)", "season to date (shrunk)"),
+    "lineup_re24_std": ("Projected lineup RE24 dispersion (std dev)", "RE24 (std, runs per PA)", "n/a (order-quality spread)", "season to date (shrunk)"),
     "bullpen_pitches_3d": ("Bullpen pitches thrown, last 3 days", "pitches", "more = heavier workload", "3d"),
     "team_hardhit_15g": ("Team hard-hit rate", "rate (0–1)", "higher = better", "15g"),
     "time_zones_crossed_last_3d": ("Time zones crossed over the last 3 days", "zones", "more = travel fatigue", "last 3 days"),
@@ -614,7 +614,7 @@ _LEVEL_TWIN_FAMILIES = {
 # Interaction twins: each side's OWN product of the interaction's factors.
 _INTERACTION_TWIN_FAMILIES = {
     "pitcher_regression_indicator": ("SP regression indicator (fastball velo × ERA, last 5 starts)", "index", "n/a (regression signal)"),
-    "lineup_depth_multiplier": ("Lineup depth multiplier (mean wOBA × top-3 wOBA)", "index", "higher = deeper, star-heavier lineup"),
+    "lineup_depth_multiplier": ("Lineup depth multiplier (mean RE24 × top-3 RE24)", "index", "higher = deeper, star-heavier lineup"),
     "ace_efficiency_factor": ("Ace efficiency factor (K/9 × whiff rate)", "index", "higher = strikeout volume backed by raw stuff"),
 }
 
@@ -652,8 +652,8 @@ _FORM_DELTA_FAMILIES = {
     "team_exitvelo_delta": ("Team exit-velocity momentum (15g − season)", "mph", "positive = velo up", "15g − season"),
     "bullpen_whip_delta": ("Bullpen WHIP momentum (10g − season)", "WHIP", "negative = pen tightening up", "10g − season"),
     "bullpen_era_delta": ("Bullpen ERA momentum (10g − season)", "ERA runs", "negative = recent better", "10g − season"),
-    "lineup_woba_mean_delta": ("Lineup wOBA momentum (today's lineup − season lineup)", "wOBA points", "positive = current lineup stronger than season average", "per-game lineup − season"),
-    "lineup_woba_top3_delta": ("Top-3 wOBA momentum (today's top-3 − season top-3)", "wOBA points", "positive = star power up today", "per-game lineup − season"),
+    "lineup_re24_mean_delta": ("Lineup RE24 momentum (today's lineup − season lineup)", "RE24 (runs per PA)", "positive = current lineup stronger than season average", "per-game lineup − season"),
+    "lineup_re24_top3_delta": ("Top-3 RE24 momentum (today's top-3 − season top-3)", "RE24 (runs per PA)", "positive = star power up today", "per-game lineup − season"),
 }
 
 

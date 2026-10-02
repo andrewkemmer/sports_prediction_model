@@ -472,8 +472,8 @@ RFE_CANDIDATE_COLS = [
     "team_exitvelo_delta_home",
     "bullpen_whip_delta_home",
     "bullpen_era_delta_home",
-    "lineup_woba_mean_delta_home",
-    "lineup_woba_top3_delta_home",
+    "lineup_re24_mean_delta_home",
+    "lineup_re24_top3_delta_home",
     "sp_era_delta_away",
     "sp_k9_delta_away",
     "sp_bb9_delta_away",
@@ -491,8 +491,8 @@ RFE_CANDIDATE_COLS = [
     "team_exitvelo_delta_away",
     "bullpen_whip_delta_away",
     "bullpen_era_delta_away",
-    "lineup_woba_mean_delta_away",
-    "lineup_woba_top3_delta_away",
+    "lineup_re24_mean_delta_away",
+    "lineup_re24_top3_delta_away",
     # lineup_actual_*/lineup_rest_count_* REMOVED 2026-09-26. They were
     # addition-ELIGIBLE here only because feature_selection.CANDIDATE_COLS is
     # "RFE_CANDIDATE_COLS minus MONEYLINE_FEATURE_COLS" -- and these four left
@@ -559,8 +559,8 @@ RFE_CANDIDATE_COLS = [
     "time_zones_crossed_last_3d_away",
     "closer_available_home",
     "closer_available_away",
-    "lineup_woba_std_home",
-    "lineup_woba_std_away",
+    "lineup_re24_std_home",
+    "lineup_re24_std_away",
     "lineup_il_flag_home",
     "lineup_il_flag_away",
     "lineup_il_flag_diff",

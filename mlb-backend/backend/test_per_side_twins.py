@@ -49,7 +49,7 @@ LEVEL_FAMILIES = {
     "rest_days_diff": ("rest_days_home", "rest_days_away"),
     "sp_era_5g_diff": ("sp_era_5g_home", "sp_era_5g_away"),
     "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
-    "lineup_woba_std_diff": ("lineup_woba_std_home", "lineup_woba_std_away"),
+    "lineup_re24_std_diff": ("lineup_re24_std_home", "lineup_re24_std_away"),
     "bullpen_pitches_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
     "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
     "travel_fatigue_diff": ("time_zones_crossed_last_3d_home",
@@ -101,14 +101,14 @@ def _diff_frame(n: int = 4) -> pd.DataFrame:
     d.update(sides("rest_days", 1, 5))
     d.update(sides("sp_era_5g", 2.5, 6.0))
     d.update(sides("sp_fbvelo_3g", 90.0, 99.0))
-    d.update(sides("lineup_woba_std", 0.03, 0.08))
+    d.update(sides("lineup_re24_std", 0.03, 0.08))
     d.update(sides("bullpen_pitches_3d", 20.0, 80.0))
     d.update(sides("team_hardhit_15g", 0.35, 0.50))
     d.update(sides("time_zones_crossed_last_3d", 0, 2))
     d.update(sides("sp_k9_5g", 6.0, 12.0))
     d.update(sides("sp_whiff_3g", 0.20, 0.32))
-    d.update(sides("lineup_woba_mean", 0.28, 0.36))
-    d.update(sides("lineup_woba_top3", 0.30, 0.42))
+    d.update(sides("lineup_re24_mean", 0.28, 0.36))
+    d.update(sides("lineup_re24_top3", 0.30, 0.42))
     d.update({
         "home_elo": [1501.0, 1520.0, 1495.0, 1533.0],
         "away_elo": [1499.0, 1510.0, 1502.0, 1488.0],
@@ -203,8 +203,8 @@ def test_interaction_twins_are_the_within_side_product():
     expected = {
         "pitcher_regression_indicator_home": ("sp_fbvelo_3g_home", "sp_era_5g_home"),
         "pitcher_regression_indicator_away": ("sp_fbvelo_3g_away", "sp_era_5g_away"),
-        "lineup_depth_multiplier_home": ("lineup_woba_mean_home", "lineup_woba_top3_home"),
-        "lineup_depth_multiplier_away": ("lineup_woba_mean_away", "lineup_woba_top3_away"),
+        "lineup_depth_multiplier_home": ("lineup_re24_mean_home", "lineup_re24_top3_home"),
+        "lineup_depth_multiplier_away": ("lineup_re24_mean_away", "lineup_re24_top3_away"),
         "ace_efficiency_factor_home": ("sp_k9_5g_home", "sp_whiff_3g_home"),
         "ace_efficiency_factor_away": ("sp_k9_5g_away", "sp_whiff_3g_away"),
     }

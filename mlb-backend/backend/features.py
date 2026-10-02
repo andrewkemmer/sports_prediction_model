@@ -63,8 +63,9 @@ PA_END_EVENTS = (
 
 # ── Expected-lineup availability (OUT/IR injury flag) ─────────────────────
 # An OUT/IR designation removes a player from the game-eligible nine, but
-# his own trailing wOBA rating is untouched: it is built strictly from games
-# he actually played and stays available to any side he is eligible for.
+# his own trailing rating (shrunk_re24) is untouched: it is built strictly
+# from games he actually played and stays available to any side he is
+# eligible for.
 # The IL tables are LOCAL-RUNTIME CACHES (build_il_stints.py, rebuilt as
 # Phase 1.5 of every daily run) that live OUTSIDE the git repo — the
 # pipeline points MLB_IL_STINTS_DIR at the run cache and this module
@@ -95,6 +96,39 @@ _IL_EXISTS_PREDICATE = """CASE WHEN EXISTS (
                      AND (i.il_end IS NULL OR i.il_end > p.game_date))
                THEN 1 ELSE 0 END"""
 
+# The TEAM-side availability filter (2026-10-02): the same batter stint
+# semantics as _IL_EXISTS_PREDICATE, generalized to any row alias/date so
+# every team-side SOURCE table can drop an unavailable batter's rows BEFORE
+# any window/season aggregate forms — the bullpen_raw precedent (source-level
+# filter, served family inherits it):
+#   team_offense_raw  -> team_woba/iso/k_rate/bb_rate_30g (+ season, deltas)
+#   team_contact_raw  -> team_barrel/hardhit/exitvelo_15g (+ season, deltas)
+#   team_hand_raw     -> lineup_lefty_share_30g -> opp_lefty_share
+#   exp2_team_cat_*   -> team_k_pct_cat, team_xwoba_cat
+#   exp2_team_fbhand_* -> team_k_pct_fb_vs, team_pa_fb_vs
+# Interpolated ONLY when the ledger registered (_batters_ok); absent cache →
+# literal TRUE (the exact pre-availability behavior — _register_il_stints
+# already warned loudly). Coverage contract: season-to-date/ASOF totals only
+# shrink slightly (a batter has no PAs while his stint is open, so the filter
+# catches edge rows only) — xwoba/K% coverage is preserved, never gated.
+_BATTER_LEDGER_EXCLUDE_ROW_SQL = """NOT EXISTS (
+              SELECT 1 FROM il_stints i
+              WHERE i.batter = {alias}.batter
+                AND i.il_start <= CAST({date} AS DATE)
+                AND (i.il_end IS NULL OR i.il_end > CAST({date} AS DATE)))"""
+
+
+def _batter_excl(alias: str, date: str, ledger_ok: bool) -> str:
+    """Row-level batter-availability exclusion for team-side source tables.
+
+    Returns the NOT-EXISTS fragment bound to ``il_stints`` when the ledger
+    is registered; literal TRUE when it is not — a missing cache degrades to
+    the exact pre-availability semantics (never a missing-table error).
+    """
+    if not ledger_ok:
+        return "TRUE"
+    return _BATTER_LEDGER_EXCLUDE_ROW_SQL.format(alias=alias, date=date)
+
 # Candidate pool over ONE schema for both paths — same columns, same names,
 # so every downstream consumer is indifferent to which path ran.
 #   IL path   : widen to team members with a rating row in the last
@@ -107,12 +141,12 @@ _LINEUP_POOL_SQL = """
     WITH pool AS (
         SELECT g.game_date, g.game_pk, g.batting_team,
                CAST(r.batter AS BIGINT) AS batter,
-               r.shrunk_woba, r._pa30
+               r.shrunk_re24, r._pa30
         FROM (SELECT DISTINCT game_date, game_pk, batting_team
-              FROM batter_ratings WHERE shrunk_woba IS NOT NULL) g
+              FROM batter_ratings WHERE shrunk_re24 IS NOT NULL) g
         JOIN batter_ratings r
           ON r.batting_team = g.batting_team
-         AND r.shrunk_woba IS NOT NULL
+         AND r.shrunk_re24 IS NOT NULL
          AND r.game_date <= g.game_date
          AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
          {restrict}
@@ -121,7 +155,7 @@ _LINEUP_POOL_SQL = """
             ORDER BY r.game_date DESC) = 1
     )
     SELECT p.game_date, p.game_pk, p.batting_team,
-           p.batter, p.shrunk_woba, p._pa30,
+           p.batter, p.shrunk_re24, p._pa30,
            {on_il} AS on_il
     FROM pool p
 """
@@ -141,7 +175,7 @@ _LINEUP_POOL_SQL = """
 _LINEUP_AGG_SQL = """
     CREATE TABLE lineup_agg AS
     WITH ranked AS (
-        SELECT game_date, game_pk, batting_team, shrunk_woba, _pa30,
+        SELECT game_date, game_pk, batting_team, shrunk_re24, _pa30,
                ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
                                   ORDER BY _pa30 DESC) AS rn
         FROM lineup_pool WHERE on_il = 0
@@ -149,19 +183,19 @@ _LINEUP_AGG_SQL = """
     pooled AS (
         SELECT game_date, game_pk, batting_team,
                SUM(_pa30) AS pa_pool,
-               SUM(_pa30 * shrunk_woba) AS w_sum,
-               SUM(_pa30 * shrunk_woba * shrunk_woba) AS w2_sum,
-               AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS top3
+               SUM(_pa30 * shrunk_re24) AS w_sum,
+               SUM(_pa30 * shrunk_re24 * shrunk_re24) AS w2_sum,
+               AVG(CASE WHEN rn <= 3 THEN shrunk_re24 END) AS top3
         FROM ranked
         GROUP BY game_date, game_pk, batting_team
     )
     SELECT game_date, game_pk, batting_team,
-           w_sum / NULLIF(pa_pool, 0) AS lineup_woba_mean,
-           top3 AS lineup_woba_top3,
+           w_sum / NULLIF(pa_pool, 0) AS lineup_re24_mean,
+           top3 AS lineup_re24_top3,
            CASE WHEN pa_pool > 0 THEN
                SQRT(GREATEST(w2_sum / pa_pool
                              - POWER(w_sum / pa_pool, 2), 0))
-           ELSE NULL END AS lineup_woba_std
+           ELSE NULL END AS lineup_re24_std
     FROM pooled
 """
 
@@ -184,7 +218,7 @@ _LINEUP_IL_FLAG_SQL = """
 
 # ── Bullpen availability (2026-09-30) ────────────────────────────────────
 # The lineup family prices tonight's ROSTER (unavailable batters are
-# filtered out of lineup_woba_* before the average). The bullpen family
+# filtered out of lineup_re24_* before the average). The bullpen family
 # priced only INNINGS ALREADY PITCHED: an arm placed on the IL today
 # kept contributing his pre-IL innings to every WHIP/ERA/pitch-count the
 # model reads, and nothing told the model the pen is thinner than its own
@@ -1413,14 +1447,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
               AND pitcher_rolling.pitcher = st.pitcher
     """)
 
+    # Batter availability ledger, registered ONCE before the FIRST
+    # team-side source table (2026-10-02) so the whole team_* family can
+    # filter unavailable batters at the source (see _batter_excl). The
+    # expected-lineup pool at 7e-bis consumes the same registration.
+    # Missing cache -> _batters_ok False -> every fragment binds TRUE
+    # (pre-availability semantics) under _register_il_stints's loud warning.
+    _batters_ok = _register_il_stints(con)
+
     # 6. Team offense rolling features
     con.execute(f"""
         CREATE TABLE team_offense_raw AS
         WITH pa_events AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
-                   CASE WHEN inning_topbot = 'Top' THEN away_team ELSE home_team END AS batting_team,
-                   events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team ELSE p.home_team END AS batting_team,
+                   p.events
+            FROM pitches p WHERE p.events IN ({PA_END_EVENTS})
+              AND {_batter_excl('p', 'p.game_date', _batters_ok)}
         ),
         game_agg AS (
             SELECT game_date, game_pk, batting_team,
@@ -1936,18 +1979,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # Barrel/hard-hit are derived from the official Statcast definitions —
     # the `barrel`/`hard_contact` columns don't exist in real Statcast pulls,
     # so the old AVG() over them silently produced all-NULL features.
-    con.execute("""
+    con.execute(f"""
         CREATE TABLE team_contact_raw AS
         WITH bip AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
-                   CASE WHEN inning_topbot = 'Top' THEN away_team
-                        ELSE home_team END AS batting_team,
-                   CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 26 AND 30
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                        ELSE p.home_team END AS batting_team,
+                   CASE WHEN p.launch_speed >= 98 AND p.launch_angle BETWEEN 26 AND 30
                         THEN 1.0 ELSE 0.0 END AS barrel_flag,
-                   CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag,
-                   launch_speed
-            FROM pitches
-            WHERE description = 'hit_into_play' AND launch_speed IS NOT NULL
+                   CASE WHEN p.launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag,
+                   p.launch_speed
+            FROM pitches p
+            WHERE p.description = 'hit_into_play' AND p.launch_speed IS NOT NULL
+              AND {_batter_excl('p', 'p.game_date', _batters_ok)}
         )
         SELECT game_date, game_pk, batting_team,
                AVG(barrel_flag) AS barrel_rate,
@@ -2008,11 +2052,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute(f"""
         CREATE TABLE team_hand_raw AS
         WITH pa AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
-                   CASE WHEN inning_topbot = 'Top' THEN away_team
-                        ELSE home_team END AS batting_team,
-                   stand
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                        ELSE p.home_team END AS batting_team,
+                   p.stand
+            FROM pitches p WHERE p.events IN ({PA_END_EVENTS})
+              AND {_batter_excl('p', 'p.game_date', _batters_ok)}
         )
         SELECT game_date, game_pk, batting_team,
                AVG(CASE WHEN stand = 'L' THEN 1.0 ELSE 0.0 END) AS lefty_share
@@ -2032,23 +2077,22 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         FROM team_hand_shifted
         WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
-    """)
-
-    # 7e. Lineup composition — every hitter gets his own statistical
-    # assumption: a per-player trailing-30g wOBA shrunk toward the
-    # point-in-time league mean by PA count (empirical Bayes), then
-    # aggregated into expected-lineup features (top-9 by playing time).
+    """)    # 7e. Lineup composition — every hitter gets his own statistical
+    # assumption: a per-player trailing-30g RE24 shrunk toward the
+    # point-in-time league mean by PA count (empirical Bayes, 120-PA prior),
+    # then aggregated into expected-lineup features. The wOBA machinery
+    # (_woba_num/_ab/lg_woba/shrunk_woba) is retained alongside; the served
+    # lineup_* features consume the RE24 rating (2026-10-02 swap).
     con.execute(f"""
         CREATE TABLE batter_game_stats AS
-        WITH pa AS (
+        WITH allp AS (
             SELECT CAST(game_date AS DATE) AS game_date, game_pk,
-                   CASE WHEN inning_topbot = 'Top' THEN away_team
-                        ELSE home_team END AS batting_team,
-                   batter, events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+                   CASE WHEN inning_topbot = 'Top' THEN away_team ELSE home_team END AS batting_team,
+                   batter, events, delta_run_exp
+            FROM pitches
         )
         SELECT game_date, game_pk, batting_team, batter,
-               COUNT(*) AS pa,
+               SUM(CASE WHEN events IN ({PA_END_EVENTS}) THEN 1 ELSE 0 END) AS pa,
                SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bb,
                SUM(CASE WHEN events = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hbp,
                SUM(CASE WHEN events = 'single' THEN 1 ELSE 0 END) AS s,
@@ -2056,8 +2100,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                SUM(CASE WHEN events = 'triple' THEN 1 ELSE 0 END) AS t,
                SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hr,
                SUM(CASE WHEN events IN ('strikeout','strikeout_double_play')
-                        THEN 1 ELSE 0 END) AS k
-        FROM pa
+                        THEN 1 ELSE 0 END) AS k,
+               -- RE24 (2026-10-02): Statcast's per-pitch run-expectancy
+               -- change summed over EVERY pitch the batter saw in the game —
+               -- the telescoping sum is exactly his runs-above-expectation
+               -- vs the base-out states (delta_run_exp already ships in the
+               -- pitches frame; no 24-state matrix needed). The PA-ending
+               -- counters above keep their exact old semantics (conditional
+               -- sums over event rows). COALESCE: a game whose pitches all
+               -- lack the column counts 0 (league-average value), never
+               -- NULL — NULL here would drop the rating row and cost pool
+               -- coverage.
+               COALESCE(SUM(delta_run_exp), 0.0) AS re24
+        FROM allp
         GROUP BY game_date, game_pk, batting_team, batter
     """)
     con.execute("""
@@ -2069,7 +2124,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             LAG(s, 1) OVER w AS _s,
             LAG(d, 1) OVER w AS _d,
             LAG(t, 1) OVER w AS _t,
-            LAG(hr, 1) OVER w AS _hr
+            LAG(hr, 1) OVER w AS _hr,
+            LAG(re24, 1) OVER w AS _re24
         FROM batter_game_stats
         WINDOW w AS (PARTITION BY batter ORDER BY game_date)
     """)
@@ -2079,21 +2135,29 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             SUM(0.690*_bb + 0.722*_hbp + 0.878*_s + 1.242*_d
                 + 1.568*_t + 2.007*_hr) OVER w30 AS _woba_num,
             SUM(_pa - _bb - _hbp) OVER w30 AS _ab,
-            SUM(_pa) OVER w30 AS _pa30
+            SUM(_pa) OVER w30 AS _pa30,
+            SUM(_re24) OVER w30 AS _re24_num
         FROM batter_shifted
         WINDOW w30 AS (PARTITION BY batter ORDER BY game_date
                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
     """)
     # League mean wOBA, cumulative through each date — built ONLY from
     # already-shifted (prior-game) stats, so it stays point-in-time safe.
+    # lg_re24 mirrors it exactly: pooled trailing-window RE24 numerator over
+    # pooled trailing-window PA (the same per-date windowed quantities
+    # summed across batters — identical construction to lg_woba).
     con.execute("""
         CREATE TABLE batter_league AS
         SELECT game_date,
             SUM(_woba_num) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
               / NULLIF(SUM(_ab) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
-              AS lg_woba
+              AS lg_woba,
+            SUM(_re24_num) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+              / NULLIF(SUM(_pa30) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
+              AS lg_re24
         FROM (
-            SELECT game_date, SUM(_woba_num) AS _woba_num, SUM(_ab) AS _ab
+            SELECT game_date, SUM(_woba_num) AS _woba_num, SUM(_ab) AS _ab,
+                   SUM(_re24_num) AS _re24_num, SUM(_pa30) AS _pa30
             FROM batter_rolling GROUP BY game_date
         )
     """)
@@ -2104,6 +2168,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    (r._woba_num + COALESCE(l.lg_woba, 0.315) * 120)
                    / (r._ab + 120)
                END AS shrunk_woba,
+               -- RE24 rating (2026-10-02): same empirical-Bayes shrink as
+               -- the wOBA branch but on the PA scale (RE24 is runs per PA):
+               -- 120-PA prior weight, league prior defaults to 0.0 runs/PA
+               -- (RE24 is centered on expectation by construction), gated on
+               -- observed PA exactly like the _ab gate above.
+               CASE WHEN COALESCE(r._pa30, 0) > 0 THEN
+                   (r._re24_num + COALESCE(l.lg_re24, 0.0) * 120)
+                   / (r._pa30 + 120)
+               END AS shrunk_re24,
                r._pa30
         FROM batter_rolling r
         LEFT JOIN batter_league l USING (game_date)
@@ -2116,7 +2189,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # When the IL cache is absent the pool degrades to the participant pool
     # (that game's own rating rows) with the flag hardwired to 0 — the exact
     # pre-IL behavior — under a loud warning, never a silent identity change.
-    if _register_il_stints(con):
+    if _batters_ok:
         con.execute(_LINEUP_POOL_SQL.format(
             lookback=LINEUP_POOL_LOOKBACK_DAYS, restrict="",
             on_il=_IL_EXISTS_PREDICATE))
@@ -2137,20 +2210,20 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute(_LINEUP_IL_FLAG_SQL)
 
     # Season-to-date lineup baselines (momentum companion for today's
-    # projected-lineup wOBA) — expanding mean of the team's PRIOR games'
-    # expected-lineup wOBA, season-partitioned (LAG-shifted: the current
+    # projected-lineup RE24) — expanding mean of the team's PRIOR games'
+    # expected-lineup RE24, season-partitioned (LAG-shifted: the current
     # game's lineup never enters its own baseline).
     con.execute("""
         CREATE TABLE lineup_season AS
         SELECT game_date, game_pk, batting_team,
-            AVG(_s_lwm) OVER w AS lineup_woba_mean_std,
-            AVG(_s_lwt) OVER w AS lineup_woba_top3_std
+            AVG(_s_lwm) OVER w AS lineup_re24_mean_std,
+            AVG(_s_lwt) OVER w AS lineup_re24_top3_std
         FROM (SELECT game_date, game_pk, batting_team,
                      EXTRACT(YEAR FROM game_date) AS season,
-                     LAG(lineup_woba_mean, 1) OVER (
+                     LAG(lineup_re24_mean, 1) OVER (
                          PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
                          ORDER BY game_date) AS _s_lwm,
-                     LAG(lineup_woba_top3, 1) OVER (
+                     LAG(lineup_re24_top3, 1) OVER (
                          PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
                          ORDER BY game_date) AS _s_lwt
               FROM lineup_agg)
@@ -2163,14 +2236,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # (LAG-shifted, excludes the current game), aggregated over the expected
     # top-9 by playing time per hand.  Paired with tonight's opposing starter
     # throwing hand at assembly time this yields lineup_ops_vs_starter_hand.
+    # 2026-10-02: unavailable batters' PAs are excluded at the SOURCE (the
+    # team-family availability filter — _batter_excl), so the hand splits and
+    # the OPS aggregates price tonight's real roster like every other
+    # team-side family; absent ledger binds TRUE (pre-availability behavior).
     con.execute(f"""
         CREATE TABLE batter_hand_game AS
         WITH pa AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
-                   CASE WHEN inning_topbot = 'Top' THEN away_team
-                        ELSE home_team END AS batting_team,
-                   batter, p_throws, events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                        ELSE p.home_team END AS batting_team,
+                   p.batter, p.p_throws, p.events
+            FROM pitches p WHERE p.events IN ({PA_END_EVENTS})
+              AND {_batter_excl('p', 'p.game_date', _batters_ok)}
         )
         SELECT game_date, game_pk, batting_team, batter, p_throws,
                COUNT(*) AS pa_n,
@@ -2247,6 +2325,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WITH lastp AS (
             SELECT CAST(game_date AS DATE) AS game_date,
                    game_pk, pitcher, batter, stand, p_throws,
+                   -- Each PA's OWN batting side (2026-10-02): the team-side
+                   -- builders must attribute a PA to the team that took it;
+                   -- deriving it downstream from a game-level join fanned
+                   -- every PA out to both sides (see exp2_team_cat_game).
+                   CASE WHEN inning_topbot = 'Top' THEN away_team
+                        ELSE home_team END AS batting_team,
                    CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 'fastball'
                         WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
                         WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
@@ -2257,7 +2341,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             FROM pitches
             WHERE events IN ({PA_END_EVENTS})
         )
-        SELECT game_date, game_pk, pitcher, batter, stand, pitch_cat,
+        SELECT game_date, game_pk, pitcher, batter, stand, batting_team,
+               pitch_cat,
                k_flag,
                CASE WHEN pitch_cat IS NOT NULL THEN 1.0 ELSE 0.0 END AS n_flag,
                CASE WHEN xwoba_val IS NOT NULL THEN 1.0 ELSE 0.0 END AS xwoba_n,
@@ -2415,23 +2500,21 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute(_EXP2_SP_FBHAND_SQL)
 
     # Offense per-category raw per-game counts (team-aggregated).
+    # 2026-10-02 FIX (double-attribution): exp2_pa now carries each PA's OWN
+    # batting_team, so no join is needed. The old join to the game's
+    # DISTINCT (game_pk, inning_topbot) rows fanned EVERY PA out to BOTH
+    # sides — each team's per-game counts equaled the game TOTAL (~half
+    # opponent PAs; 158/158 team-game cells wrong on the 2026-06-16..21
+    # window). Same availability filter as the rest of the team family.
     con.execute(f"""
         CREATE TABLE exp2_team_cat_game AS
-        WITH pa AS (
-            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
-                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
-                        ELSE p.home_team END AS batting_team,
-                   a.pitch_cat, a.k_flag, a.xwoba_summand, a.xwoba_n, a.n_flag
-            FROM exp2_pa a
-            JOIN (SELECT DISTINCT game_pk, game_date, home_team, away_team,
-                         inning_topbot
-                  FROM pitches) p USING (game_pk)
-            WHERE a.pitch_cat IS NOT NULL
-        )
         SELECT game_date, game_pk, batting_team, pitch_cat,
                SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n,
                SUM(xwoba_summand) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
-        FROM pa GROUP BY game_date, game_pk, batting_team, pitch_cat
+        FROM exp2_pa a
+        WHERE a.pitch_cat IS NOT NULL
+          AND {_batter_excl('a', 'a.game_date', _batters_ok)}
+        GROUP BY game_date, game_pk, batting_team, pitch_cat
     """)
     # Offense per-category K%/xwOBA — DATE-LEVEL season-to-date priors (same
     # daily + ASOF construction), so a target game never sees its own date's
@@ -2475,22 +2558,16 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     """)
 
     # Offense K% vs fastballs by the BATTER's handedness (season-to-date).
+    # 2026-10-02: own-batting-team attribution + availability filter, same
+    # as exp2_team_cat_game above (the old game-level join double-counted).
     con.execute(f"""
         CREATE TABLE exp2_team_fbhand_game AS
-        WITH pa AS (
-            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
-                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
-                        ELSE p.home_team END AS batting_team,
-                   a.stand, a.k_flag, a.n_flag
-            FROM exp2_pa a
-            JOIN (SELECT DISTINCT game_pk, game_date, home_team, away_team,
-                         inning_topbot
-                  FROM pitches) p USING (game_pk)
-            WHERE a.pitch_cat = 'fastball'
-        )
         SELECT game_date, game_pk, batting_team, stand,
                SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n
-        FROM pa GROUP BY game_date, game_pk, batting_team, stand
+        FROM exp2_pa a
+        WHERE a.pitch_cat = 'fastball'
+          AND {_batter_excl('a', 'a.game_date', _batters_ok)}
+        GROUP BY game_date, game_pk, batting_team, stand
     """)
     con.execute(f"""
         CREATE TABLE exp2_team_fbhand_daily AS
@@ -2587,12 +2664,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                  ELSE NULL END AS lineup_ops_vs_starter_hand_away,
             tf.time_zones_crossed_last_3d_home, tf.time_zones_crossed_last_3d_away,
             cl.closer_available_home, cl.closer_available_away,
-            lh.lineup_woba_mean AS lineup_woba_mean_home,
-            lh.lineup_woba_top3 AS lineup_woba_top3_home,
-            lh.lineup_woba_std AS lineup_woba_std_home,
-            la.lineup_woba_mean AS lineup_woba_mean_away,
-            la.lineup_woba_top3 AS lineup_woba_top3_away,
-            la.lineup_woba_std AS lineup_woba_std_away,
+            lh.lineup_re24_mean AS lineup_re24_mean_home,
+            lh.lineup_re24_top3 AS lineup_re24_top3_home,
+            lh.lineup_re24_std AS lineup_re24_std_home,
+            la.lineup_re24_mean AS lineup_re24_mean_away,
+            la.lineup_re24_top3 AS lineup_re24_top3_away,
+            la.lineup_re24_std AS lineup_re24_std_away,
             COALESCE(fh.lineup_il_flag, 0) AS lineup_il_flag_home,
             COALESCE(fa.lineup_il_flag, 0) AS lineup_il_flag_away,
             -- Momentum form deltas: recent window − season-to-date baseline,
@@ -2616,8 +2693,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ch.team_exitvelo_15g - tcsh.team_exitvelo_std AS team_exitvelo_delta_home,
             bh.bullpen_whip_10g - bpsh.bullpen_whip_std AS bullpen_whip_delta_home,
             bh.bullpen_era_10g - bpsh.bullpen_era_std AS bullpen_era_delta_home,
-            lh.lineup_woba_mean - lsh.lineup_woba_mean_std AS lineup_woba_mean_delta_home,
-            lh.lineup_woba_top3 - lsh.lineup_woba_top3_std AS lineup_woba_top3_delta_home,
+            lh.lineup_re24_mean - lsh.lineup_re24_mean_std AS lineup_re24_mean_delta_home,
+            lh.lineup_re24_top3 - lsh.lineup_re24_top3_std AS lineup_re24_top3_delta_home,
             sa.sp_era_5g - sa.sp_era AS sp_era_delta_away,
             sa.sp_k9_5g - sa.sp_k9 AS sp_k9_delta_away,
             pa.sp_bb9_30g - pas.sp_bb9_std AS sp_bb9_delta_away,
@@ -2635,8 +2712,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ca.team_exitvelo_15g - tcsa.team_exitvelo_std AS team_exitvelo_delta_away,
             ba.bullpen_whip_10g - bpsa.bullpen_whip_std AS bullpen_whip_delta_away,
             ba.bullpen_era_10g - bpsa.bullpen_era_std AS bullpen_era_delta_away,
-            la.lineup_woba_mean - lsa.lineup_woba_mean_std AS lineup_woba_mean_delta_away,
-            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away,
+            la.lineup_re24_mean - lsa.lineup_re24_mean_std AS lineup_re24_mean_delta_away,
+            la.lineup_re24_top3 - lsa.lineup_re24_top3_std AS lineup_re24_top3_delta_away,
             -- Experiment #2 source layer (see the exp2 block above). Side map:
             -- *_home = the HOME starter's priors / the AWAY lineup's priors
             -- (the batters the home starter faces), mirroring opp_lefty_share.
@@ -3282,8 +3359,8 @@ FORM_DELTA_SPECS: list[tuple[str, str, str, str]] = [
     ("team_exitvelo_delta", "team_exitvelo_15g","team_exitvelo_std", "last 15 games − season to date"),
     ("bullpen_whip_delta",  "bullpen_whip_10g","bullpen_whip_std",   "last 10 games − season to date"),
     ("bullpen_era_delta",   "bullpen_era_10g", "bullpen_era_std",    "last 10 games − season to date"),
-    ("lineup_woba_mean_delta", "lineup_woba_mean", "lineup_woba_mean_std", "today's lineup − season-to-date lineup"),
-    ("lineup_woba_top3_delta", "lineup_woba_top3", "lineup_woba_top3_std", "today's lineup − season-to-date lineup"),
+    ("lineup_re24_mean_delta", "lineup_re24_mean", "lineup_re24_mean_std", "today's lineup − season-to-date lineup"),
+    ("lineup_re24_top3_delta", "lineup_re24_top3", "lineup_re24_top3_std", "today's lineup − season-to-date lineup"),
 ]
 
 # All 38 column names, canonical order (family-major, side-minor).
@@ -3885,9 +3962,9 @@ def add_diff_features(
                                (trailing 6-start xwOBA allowed — NOT season-to-date)
         13. sp_xwoba_vs_l_diff home_sp_xwoba_vs_l − away_sp_xwoba_vs_l
                                (current-season-to-date xwOBA vs LHB)
-        14. lineup_woba_mean_diff
-        15. lineup_woba_top3_diff
-        16. lineup_woba_std_diff
+        14. lineup_re24_mean_diff
+        15. lineup_re24_top3_diff
+        16. lineup_re24_std_diff
         16b. lineup_il_flag_diff  home_lineup_il_flag − away_lineup_il_flag
                                (OUT/IR availability signal, one side's
                                projected nine missing a player)
@@ -3909,7 +3986,7 @@ def add_diff_features(
         27. closer_availability_diff
                                home_closer_available − away_closer_available
         28. dome_is_neutral    binary flag (1 fixed dome/closed roof)
-        29. park_factor_slug_diff  home_park_slug_factor × lineup_woba_top3_diff
+        29. park_factor_slug_diff  home_park_slug_factor × lineup_re24_top3_diff
         30. wind_advantage_flyball_factor
                                wind_direction_multiplier (Out=1, In=-1, Dome=0)
                                × sp_era_diff
@@ -3918,7 +3995,7 @@ def add_diff_features(
         33. pitcher_regression_indicator_diff
                                         sp_fbvelo_diff × sp_era_5g_diff
         34. lineup_depth_multiplier_diff
-                                        lineup_woba_mean_diff × lineup_woba_top3_diff
+                                        lineup_re24_mean_diff × lineup_re24_top3_diff
         35. ace_efficiency_factor_diff   sp_k9_5g_diff × sp_whiff_diff
 
     56 model features in total: the numbered run 1-35 plus 16b, plus the
@@ -4021,9 +4098,9 @@ def add_diff_features(
         ("sp_whiff_diff", "sp_whiff_3g_home", "sp_whiff_3g_away"),               # 11
         ("sp_xwoba_diff", "sp_xwoba_home", "sp_xwoba_away"),                     # 12
         ("sp_xwoba_vs_l_diff", "sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away"),      # 13
-        ("lineup_woba_mean_diff", "lineup_woba_mean_home", "lineup_woba_mean_away"),  # 14
-        ("lineup_woba_top3_diff", "lineup_woba_top3_home", "lineup_woba_top3_away"),  # 15
-        ("lineup_woba_std_diff", "lineup_woba_std_home", "lineup_woba_std_away"),     # 16
+        ("lineup_re24_mean_diff", "lineup_re24_mean_home", "lineup_re24_mean_away"),  # 14
+        ("lineup_re24_top3_diff", "lineup_re24_top3_home", "lineup_re24_top3_away"),  # 15
+        ("lineup_re24_std_diff", "lineup_re24_std_home", "lineup_re24_std_away"),     # 16
         ("lineup_il_flag_diff", "lineup_il_flag_home", "lineup_il_flag_away"),        # 16b availability
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
         ("bullpen_whip_10g_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),  # 18 (RENAMED 2026-09-30)
@@ -4048,7 +4125,7 @@ def add_diff_features(
         ("rest_days_home", "rest_days_away"),
         ("sp_era_5g_home", "sp_era_5g_away"),
         ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
-        ("lineup_woba_std_home", "lineup_woba_std_away"),
+        ("lineup_re24_std_home", "lineup_re24_std_away"),
         ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
         ("team_hardhit_15g_home", "team_hardhit_15g_away"),
         ("time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away"),
@@ -4081,12 +4158,12 @@ def add_diff_features(
     home_team = df["home_team"].astype(str).str.upper().str.strip()
     df["dome_is_neutral"] = home_team.map(DOME_STATUS).astype(float)  # NaN = unknown
 
-    # ── 29. park_factor_slug_diff: home_park_slug_factor × lineup_woba_top3_diff
+    # ── 29. park_factor_slug_diff: home_park_slug_factor × lineup_re24_top3_diff
     # Maps out when a power-heavy lineup gets to exploit a small ballpark.
     pf_raw = home_team.map(PARK_FACTORS_SLG).astype(float)  # NaN = unknown park
     pf = (pf_raw - 100.0) / 100.0  # center at 0: +0.05 = 5% more SLG than avg
     df["park_factor_slug_diff"] = pf * pd.to_numeric(
-        df["lineup_woba_top3_diff"], errors="coerce")
+        df["lineup_re24_top3_diff"], errors="coerce")
 
     # ── 30. wind_advantage_flyball_factor
     # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
@@ -4194,12 +4271,12 @@ def add_diff_features(
     _twin("pitcher_regression_indicator_away", "sp_fbvelo_3g_away", "sp_era_5g_away")
 
     # ── 34. lineup_depth_multiplier_diff:
-    #        lineup_woba_mean_diff × lineup_woba_top3_diff
+    #        lineup_re24_mean_diff × lineup_re24_top3_diff
     # Star power vs complete batting order depth.
     df["lineup_depth_multiplier_diff"] = (
-        df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"])
-    _twin("lineup_depth_multiplier_home", "lineup_woba_mean_home", "lineup_woba_top3_home")
-    _twin("lineup_depth_multiplier_away", "lineup_woba_mean_away", "lineup_woba_top3_away")
+        df["lineup_re24_mean_diff"] * df["lineup_re24_top3_diff"])
+    _twin("lineup_depth_multiplier_home", "lineup_re24_mean_home", "lineup_re24_top3_home")
+    _twin("lineup_depth_multiplier_away", "lineup_re24_mean_away", "lineup_re24_top3_away")
     # Bullpen meltdown per-side twins (2026-09-30): the within-side product
     # of the family's own factors — 3-day pitch count x 10-game WHIP.
     _twin("bullpen_meltdown_risk_home", "bullpen_pitches_3d_home",

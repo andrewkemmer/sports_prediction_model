@@ -126,7 +126,7 @@ def get_last_fold_signature() -> str | None:
 #   bullpen_ip_diff                  r=0.87 with bullpen_pitches_diff, weaker
 #
 # Wave-2 ablation candidates (univariate |lift| < ~0.01, need walk-forward
-# retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_woba_std_diff,
+# retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_re24_std_diff,
 # park_factor_slug_diff, closer_availability_diff, travel_fatigue_diff,
 # bullpen_whip_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
 MONEYLINE_FEATURE_COLS = [
@@ -148,10 +148,10 @@ MONEYLINE_FEATURE_COLS = [
     # 10–11. SP xwOBA diffs
     "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff",
-    # 12–14. Lineup wOBA diffs
-    "lineup_woba_mean_diff",
-    "lineup_woba_top3_diff",
-    "lineup_woba_std_diff",
+    # 12–14. Lineup RE24 diffs (swapped from lineup wOBA 2026-10-02)
+    "lineup_re24_mean_diff",
+    "lineup_re24_top3_diff",
+    "lineup_re24_std_diff",
     # 15. Team rolling wOBA diff
     "woba_30g_diff",
     # 16–18. Bullpen diffs (whip_diff RENAMED 2026-09-30: the name now
@@ -217,12 +217,12 @@ MONEYLINE_FEATURE_COLS = [
     # SP xwOBA allowed (last 6 starts)
     "sp_xwoba_home",
     "sp_xwoba_away",
-    # Lineup mean wOBA
-    "lineup_woba_mean_home",
-    "lineup_woba_mean_away",
-    # Lineup top-3 wOBA
-    "lineup_woba_top3_home",
-    "lineup_woba_top3_away",
+    # Lineup mean RE24
+    "lineup_re24_mean_home",
+    "lineup_re24_mean_away",
+    # Lineup top-3 RE24
+    "lineup_re24_top3_home",
+    "lineup_re24_top3_away",
     # Team 30-game wOBA
     "woba_30g_home",
     "woba_30g_away",
@@ -382,7 +382,7 @@ MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
 # EXPANDED 2026-09-27 (structural, mirrors the NHL d83e0c1 per-side twin
 # rollout): every served diff family now also exposes its raw home/away
 # halves, so the tree members see the levels the matchup gaps summarize.
-#   * 12 level twins (rest_days, sp_era_5g, sp_fbvelo_3g, lineup_woba_std,
+#   * 12 level twins (rest_days, sp_era_5g, sp_fbvelo_3g, lineup_re24_std,
 #     bullpen_pitches_3d, team_hardhit_15g) + the travel twins are the
 #     diff pass's OWN input columns — the same strictly-prior source, so
 #     home − away == diff by construction and no second derivation can
@@ -403,7 +403,7 @@ MONEYLINE_FEATURE_COLS += [
     "rest_days_home", "rest_days_away",
     "sp_era_5g_home", "sp_era_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
-    "lineup_woba_std_home", "lineup_woba_std_away",
+    "lineup_re24_std_home", "lineup_re24_std_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
     "team_hardhit_15g_home", "team_hardhit_15g_away",
     "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
@@ -894,8 +894,8 @@ RAW_PER_SIDE_COLS = [
     "sp_era_home", "sp_era_away",
     "sp_k9_home", "sp_k9_away",
     "sp_xwoba_home", "sp_xwoba_away",
-    "lineup_woba_mean_home", "lineup_woba_mean_away",
-    "lineup_woba_top3_home", "lineup_woba_top3_away",
+    "lineup_re24_mean_home", "lineup_re24_mean_away",
+    "lineup_re24_top3_home", "lineup_re24_top3_away",
     "woba_30g_home", "woba_30g_away",
     "bullpen_whip_10g_home", "bullpen_whip_10g_away",
     "bullpen_whip_3g_home", "bullpen_whip_3g_away",
@@ -905,7 +905,7 @@ RAW_PER_SIDE_COLS = [
     "rest_days_home", "rest_days_away",
     "sp_era_5g_home", "sp_era_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
-    "lineup_woba_std_home", "lineup_woba_std_away",
+    "lineup_re24_std_home", "lineup_re24_std_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
     "team_hardhit_15g_home", "team_hardhit_15g_away",
     "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
