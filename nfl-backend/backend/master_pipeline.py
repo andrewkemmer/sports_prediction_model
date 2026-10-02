@@ -1111,7 +1111,6 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
     if not token:
         logger.warning("GITHUB_TOKEN absent — artifact delivery skipped (local run)")
         return {"staged_files": [], "skipped": "GITHUB_TOKEN absent"}
-        raise RuntimeError("GITHUB_TOKEN is required for NFL artifact delivery")
     if not delivery_dir.is_dir():
         raise RuntimeError(f"NFL delivery directory does not exist: {delivery_dir}")
 
@@ -1120,11 +1119,23 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
         f"{quote(token, safe='')}"
         "@github.com/andrewkemmer/sports_prediction_model.git"
     )
-    def git(*args: str, capture: bool = False):
+    def git(*args: str) -> subprocess.CompletedProcess:
+        # Capture output on every git call. The run-log tee wraps the
+        # Python-level streams, but an uncaptured subprocess inherits
+        # the raw fds, so git's own chatter ("Unstaged changes after
+        # reset:", commit banners, fetch/rebase/push remote lines)
+        # clutters the console transcript. Capturing keeps the console
+        # as clean as the delivered log; failures still surface their
+        # captured output via _git_error_detail below.
         return subprocess.run(
             ["git", *args], cwd=repo_root, check=True,
-            capture_output=capture, text=True,
+            capture_output=True, text=True,
         )
+
+    def _git_error_detail(exc: Exception) -> str:
+        if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+            return f"\n{exc.stderr.strip()}"
+        return ""
 
     git("remote", "set-url", "origin", auth_url)
     git("config", "user.name", os.environ.get("GIT_USER_NAME", "NFL Production Pipeline"))
@@ -1135,7 +1146,7 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
             # Stage dynamically; no artifact family names are maintained here.
             git("reset")
             git("add", "-A", "--", delivery_rel.as_posix())
-            staged = git("diff", "--cached", "--name-only", capture=True).stdout.splitlines()
+            staged = git("diff", "--cached", "--name-only").stdout.splitlines()
             if any(not p.startswith(f"{delivery_rel.as_posix()}/") for p in staged):
                 raise RuntimeError(f"NFL delivery scope violation: {staged}")
 
@@ -1150,7 +1161,7 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
             git("fetch", "origin", branch)
             remote = git(
                 "ls-tree", "-r", "--name-only", f"origin/{branch}",
-                delivery_rel.as_posix(), capture=True,
+                delivery_rel.as_posix(),
             ).stdout.splitlines()
             if not any(p.startswith(f"{delivery_rel.as_posix()}/") for p in remote):
                 raise RuntimeError("remote NFL delivery directory is empty")
@@ -1159,8 +1170,14 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
             last_error = exc
             if attempt == 3:
                 break
-            logger.warning("NFL artifact sync attempt %d failed; retrying: %s", attempt, exc)
-    raise RuntimeError(f"NFL artifact delivery failed after 3 attempts: {last_error}")
+            logger.warning(
+                "NFL artifact sync attempt %d failed; retrying: %s%s",
+                attempt, exc, _git_error_detail(exc),
+            )
+    raise RuntimeError(
+        f"NFL artifact delivery failed after 3 attempts: {last_error}"
+        f"{_git_error_detail(last_error)}"
+    )
 
 
 def _team_names() -> dict[str, str]:
