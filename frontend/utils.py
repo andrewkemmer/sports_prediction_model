@@ -3151,18 +3151,27 @@ NFL_FEATURE_DESCRIPTIONS = {
     # which read as "Home minus away ... -- home team" for a single team's
     # value. describe_feature prefers an exact match, so these win over the
     # side-suffix fallback.
-    "epa_qb_diff": "Home minus away projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
-    "epa_qb_home": "Home projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
-    "epa_qb_away": "Away projected-lineup quarterback quality (EPA per dropback, PIT-injury filtered)",
-    "epa_wr_diff": "Home minus away projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
-    "epa_wr_home": "Home projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
-    "epa_wr_away": "Away projected-lineup wide receiver quality (EPA per target, PIT-injury filtered)",
-    "epa_te_diff": "Home minus away projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
-    "epa_te_home": "Home projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
-    "epa_te_away": "Away projected-lineup tight end quality (EPA per target, PIT-injury filtered)",
-    "epa_rb_diff": "Home minus away projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
-    "epa_rb_home": "Home projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
-    "epa_rb_away": "Away projected-lineup running back quality (EPA per rush attempt, PIT-injury filtered)",
+    #
+    # UNIT = EPA PER GAME since the 2026-10-03 conversion (backend commit
+    # 8fd012e): each member's shrunk EPA-per-opportunity rating x his own
+    # projected opportunities per game, summed over the projected lineup —
+    # so a level reads ~1.9 (QB), ~3.9 (WR), ~1.5 (TE), ~-1.1 (RB) per game,
+    # NOT ~0.05/0.2 per opportunity. Artifacts dated 2026-10-01 and earlier
+    # still carry the old per-opportunity scale; their hover tooltip (the
+    # backend features_metadata ``definition``) states the unit that run
+    # actually shipped. Keep this caption in step with that definition.
+    "epa_qb_diff": "Home minus away projected-lineup quarterback quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_qb_home": "Home projected-lineup quarterback quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_qb_away": "Away projected-lineup quarterback quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_wr_diff": "Home minus away projected-lineup wide receiver quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_wr_home": "Home projected-lineup wide receiver quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_wr_away": "Away projected-lineup wide receiver quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_te_diff": "Home minus away projected-lineup tight end quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_te_home": "Home projected-lineup tight end quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_te_away": "Away projected-lineup tight end quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_rb_diff": "Home minus away projected-lineup running back quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_rb_home": "Home projected-lineup running back quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
+    "epa_rb_away": "Away projected-lineup running back quality (projected EPA per game, opportunity-weighted, PIT-injury filtered)",
 }
 
 

@@ -1207,7 +1207,9 @@ def _render_run_engine_drift(
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Same windows as the moneyline drift; STATUS is assigned on
           PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
-          mean also moved &gt; 2×SHIFT SE (location gate). INSUFFICIENT =
+          mean also moved &gt; 2× the location SE (the pooled standard error
+          widened 1.5× for within-window clustering — about 3× the SHIFT SE
+          column above) (location gate). INSUFFICIENT =
           window too small to judge drift. STRUCTURAL = constant at the
           same value in both windows (cannot drift) — a stable fact,
           not a verdict. MODEL WEIGHT = the run line

@@ -264,8 +264,12 @@ if drift:
           (blend-weighted importances across members; sums to 100%).
           Status shows the sample sizes behind each comparison as baseline/current.
           STATUS is assigned on PSI ADJ. = raw PSI − sampling-noise floor,
-          escalated only when the mean also moved &gt; 2×SHIFT SE (location gate) —
-          that is why a raw PSI of 0.40 can read OK beside a 0.48 ALERT.
+          escalated only when the mean also moved &gt; 2× the location SE —
+          the pooled standard error widened 1.5× for within-window
+          clustering (config PSI_LOCATION_CLUSTER_FACTOR), i.e. roughly 3×
+          the SHIFT SE column shown above (location gate). That is why a raw
+          PSI of 0.40 can read OK beside a 0.48 ALERT, and why a mean move
+          of 2× SHIFT SE can still read OK.
           INSUFFICIENT = window too small to judge drift; PSI is informational only.
           STRUCTURAL = constant at the same value in both windows (cannot drift) —
           a stable fact with its reason, not a verdict.
