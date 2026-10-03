@@ -68,8 +68,25 @@ def con():
     c.close()
 
 
+def _set_effective(con, rows=None) -> None:
+    """lineup_effective fixture: (game_pk, team, batter, tier) rows.
+
+    None/empty -> the SHIPPED empty degrade table, i.e. the exact pre-audit
+    full-roster pool the historical fixtures below pin.
+    """
+    if not rows:
+        con.execute(features._EMPTY_LINEUP_EFFECTIVE_SQL)
+        return
+    vals = ", ".join("(%d, '%s', %d, %d)" % (g, t, b, tier)
+                     for (g, t, b, tier) in rows)
+    con.execute(f"""CREATE OR REPLACE TABLE lineup_effective AS
+        SELECT * FROM (VALUES {vals})
+        AS t(game_pk, team, batter, tier)""")
+
+
 def _run_pool(con: duckdb.DuckDBPyConnection, ratings: pd.DataFrame,
-              il_rows: list[tuple[int, str, str | None]]) -> None:
+              il_rows: list[tuple[int, str, str | None]],
+              *, effective: list[tuple] | None = None) -> None:
     con.register("batter_ratings", ratings)
     if il_rows:
         vals = ",".join(
@@ -86,6 +103,7 @@ def _run_pool(con: duckdb.DuckDBPyConnection, ratings: pd.DataFrame,
                    CAST(NULL AS DATE) AS il_start,
                    CAST(NULL AS DATE) AS il_end
             WHERE false""")
+    _set_effective(con, effective)
     con.execute(features._LINEUP_POOL_SQL.format(
         lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
         on_il=features._IL_EXISTS_PREDICATE))
@@ -101,6 +119,7 @@ def _run_pool_fallback(con: duckdb.DuckDBPyConnection,
                CAST(NULL AS DATE) AS il_start,
                CAST(NULL AS DATE) AS il_end
         WHERE false""")
+    _set_effective(con)
     con.execute(features._LINEUP_POOL_SQL.format(
         lookback=features.LINEUP_POOL_LOOKBACK_DAYS,
         restrict="AND r.game_pk = g.game_pk", on_il="0"))
@@ -521,6 +540,7 @@ def test_harper_retro_il_binds_at_filing_date_not_effective(con):
         CAST(il_start AS DATE) il_start, CAST(il_end AS DATE) il_end
         FROM (VALUES (547180, DATE '2025-06-07', NULL))
              AS t(batter, il_start, il_end)""")
+    _set_effective(con2)
     con2.execute(features._LINEUP_POOL_SQL.format(
         lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
         on_il=features._IL_EXISTS_PREDICATE))
@@ -674,10 +694,10 @@ def test_flag_columns_are_known_pool_candidates():
 
 
 def test_generation_universe_width_unchanged():
-    # The flags are candidates, NOT universe members: the 101-col serving
-    # contract (100 + the 2026-09-30 readmitted sp_k9_diff) is untouched
+    # The flags are candidates, NOT universe members: the 109-col serving
+    # contract (2026-10-03 pl_[pos] plan — 101 − 9 − 7 + 24) is untouched
     # until an RFE adoption says otherwise.
-    assert len(training.MONEYLINE_FEATURE_COLS) == 101
+    assert len(training.MONEYLINE_FEATURE_COLS) == 109
     assert "lineup_il_flag_home" not in training.MONEYLINE_FEATURE_COLS
 
 
@@ -687,6 +707,250 @@ def test_pool_and_flag_sql_are_shipped_constants():
         assert hasattr(features, name), name
     assert "on_il" in features._LINEUP_AGG_SQL
     assert "lineup_il_flag" in features._LINEUP_IL_FLAG_SQL
+    # membership binds BOTH pool templates (2026-10-03): the lineup_* and
+    # pl_* families can never drift apart on tonight's nine.
+    for name in ("_LINEUP_POOL_SQL", "_POS_POOL_SQL"):
+        assert "lineup_effective" in getattr(features, name), name
+
+
+# ── membership: tonight's nine (2026-10-03 membership audit) ─────────────────
+
+def test_membership_restricts_pool_to_the_effective_nine(con):
+    # 11 rated batters pool by default; tonight's nine lists only 9 — the
+    # two left off must not enter lineup_pool or the aggregate.
+    rows = {1000 + i: (100.0 - i, 0.300 + i / 1000) for i in range(11)}
+    eff = [(GPK, TEAM, 1000 + i, 1) for i in range(9)]
+    _run_pool(con, _ratings(rows), [], effective=eff)
+    got = {b for (b,) in con.execute("SELECT batter FROM lineup_pool").fetchall()}
+    assert got == {1000 + i for i in range(9)}, \
+        "a batter outside the effective nine must not pool"
+    m = con.execute("SELECT lineup_re24_mean FROM lineup_agg").fetchone()[0]
+    exp = (sum((100.0 - i) * (0.300 + i / 1000) for i in range(9))
+           / sum(100.0 - i for i in range(9)))
+    assert m == pytest.approx(exp, abs=1e-9)
+
+
+def test_membership_absent_nine_degrades_to_the_full_roster(con):
+    # The SHIPPED empty lineup_effective (missing/unreadable cache, or the
+    # pre-2025 horizon lineups.parquet never covered) is exactly the
+    # pre-audit roster pool: coverage may never fall below it.
+    rows = {1000 + i: (100.0 - i, 0.300 + i / 1000) for i in range(11)}
+    _run_pool(con, _ratings(rows), [])
+    n = con.execute("SELECT count(*) FROM lineup_pool").fetchone()[0]
+    assert n == 11, "an empty effective nine must restore the roster pool"
+
+
+# ── lineup_effective: the three-tier resolve (2026-10-03) ───────────────────
+
+_BOS_ORDER_R = [101, 102, 103, 104, 105, 106, 107, 108, 109]   # slot 9 = 109
+_BOS_ORDER_L = [101, 102, 103, 104, 105, 106, 107, 108, 999]   # slot 9 = 999
+_NYY_ORDER = [301, 302, 303, 304, 305, 306, 307, 308, 309]
+# pk -> game_date; BOS is always the AWAY side, NYY the home/fielding side.
+_GAMES = {
+    8998: "2025-05-28",
+    8999: "2025-05-30",
+    9001: "2025-06-01",
+    # tier-1-only game: dated OUTSIDE the 10-day projection window so it
+    # can never double as projection history for the target
+    9003: "2025-05-20",
+    9002: "2025-06-05",  # the TARGET: no announced order — projects
+}
+# pk -> announced away (BOS) order. 9002 has none by construction.
+_ANNOUNCED = {
+    8998: _BOS_ORDER_L,
+    8999: _BOS_ORDER_L,
+    9001: _BOS_ORDER_R,
+    9003: [201, 202, 203, 204, 205, 206, 207, 208, 209],
+}
+
+
+def _eff_con() -> duckdb.DuckDBPyConnection:
+    """Fixture for _build_lineup_effective: universe + orders + starters.
+
+    Prior-window lineups (10 days back from 2025-06-05): 8998/8999 were
+    announced vs LHP with 999 batting ninth; 9001 vs RHP with 109 ninth.
+    """
+    con = duckdb.connect(database=":memory:")
+    # Universe: 20 rated batters per team-game (superset of every order,
+    # so pool ∩ membership is what decides, never row absence).
+    batters = [*_BOS_ORDER_R, 999, 110, *[200 + i for i in range(1, 10)]]
+    vals = []
+    for pk, d in _GAMES.items():
+        for b in batters:
+            vals.append(f"(DATE '{d}', {pk}, 'BOS', {b}, 0.300, 50.0)")
+    con.execute(f"""CREATE TABLE batter_ratings AS
+        SELECT * FROM (VALUES {', '.join(vals)})
+        AS t(game_date, game_pk, batting_team, batter, shrunk_re24, _pa30)""")
+    lrows = []
+    for pk, order in _ANNOUNCED.items():
+        lrows.append(
+            f"({pk}, DATE '{_GAMES[pk]}', 'NYY', 'BOS', {_NYY_ORDER}::BIGINT[], "
+            f"{order}::BIGINT[], true, true)")
+    con.execute(f"""CREATE TABLE lineups_raw AS
+        SELECT * FROM (VALUES {', '.join(lrows)})
+        AS t(game_pk, game_date, home_team, away_team,
+             home_order, away_order, complete_home, complete_away)""")
+    srows = []
+    for pk in _GAMES:
+        # BOS (away) bats vs the HOME starter; the two 2025-05 games were
+        # vs LHP, everything later vs RHP.
+        hand = "L" if pk in (8998, 8999) else "R"
+        srows.append(f"({pk}, 'NYY', 'BOS', '{hand}', 'R')")
+    con.execute(f"""CREATE TABLE starters AS
+        SELECT * FROM (VALUES {', '.join(srows)})
+        AS t(game_pk, home_team, away_team,
+             home_starter_hand, away_starter_hand)""")
+    # pitches is membership's team-code vocabulary (slots map sides through
+    # it); fixture codes match the lineup feed here — the mismatched-feed
+    # case gets its own test below.
+    prows = [f"({pk}, 'NYY', 'BOS')" for pk in _GAMES]
+    con.execute(f"""CREATE TABLE pitches AS
+        SELECT * FROM (VALUES {', '.join(prows)})
+        AS t(game_pk, home_team, away_team)""")
+    return con
+
+
+def _eff_members(con, pk):
+    return {b for (b,) in con.execute(
+        "SELECT batter FROM lineup_effective WHERE game_pk = ?", [pk]).fetchall()}
+
+
+def test_lineup_effective_tier1_is_the_announced_order():
+    con = _eff_con()
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        assert _eff_members(con, 9003) == set(range(201, 210))
+        assert con.execute(
+            "SELECT DISTINCT tier FROM lineup_effective WHERE game_pk = 9003"
+        ).fetchone()[0] == 1
+    finally:
+        con.close()
+
+
+def test_lineup_effective_tier2_is_the_hand_conditioned_modal_slot():
+    con = _eff_con()
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        # Target vs RHP: only the RHP game (9001) counts. 999's two LHP
+        # votes must lose to 109's single RHP vote — conditioning, not
+        # raw vote count, decides the slot.
+        assert _eff_members(con, 9002) == set(_BOS_ORDER_R)
+        assert 999 not in _eff_members(con, 9002)
+        assert con.execute(
+            "SELECT DISTINCT tier FROM lineup_effective WHERE game_pk = 9002"
+        ).fetchone()[0] == 2
+    finally:
+        con.close()
+
+
+def test_lineup_effective_tier2_il_filter_drops_the_unavailable_slot():
+    con = _eff_con()
+    try:
+        con.execute("""CREATE TABLE il_stints AS
+            SELECT 109::BIGINT AS batter, DATE '2025-06-04' AS il_start,
+                   NULL::DATE AS il_end""")
+        features._build_lineup_effective(con, batters_ok=True)
+        # 109 is unavailable as of the target date and the LHP games can't
+        # fill an RHP slot -> slot 9 has no eligible candidate: 8 members.
+        assert _eff_members(con, 9002) == set(range(101, 109))
+        # the ANNOUNCED order is factual — the IL filter never rewrites it
+        assert _eff_members(con, 9003) == set(range(201, 210))
+    finally:
+        con.close()
+
+
+def test_pools_bind_the_projected_nine_end_to_end():
+    con = _eff_con()
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        con.execute("""CREATE TABLE il_stints AS
+            SELECT CAST(NULL AS BIGINT) AS batter,
+                   CAST(NULL AS DATE) AS il_start,
+                   CAST(NULL AS DATE) AS il_end
+            WHERE false""")
+        con.execute(features._LINEUP_POOL_SQL.format(
+            lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
+            on_il=features._IL_EXISTS_PREDICATE))
+        got = {b for (b,) in con.execute(
+            "SELECT batter FROM lineup_pool WHERE game_pk = 9002").fetchall()}
+        assert got == set(_BOS_ORDER_R), (
+            "the pool must carry exactly the projected nine — the other "
+            "11 rated batters sit outside membership")
+    finally:
+        con.close()
+
+
+def test_membership_maps_feed_team_codes_through_pitches():
+    """2026-10-03: the lineup feed's abbreviations are NOT the join key.
+
+    Measured on the real data: StatsAPI's feed returned OAK for all 162 of
+    the Athletics' 2025 games while pitches carried ATH — a code-keyed join
+    silently dropped that side to the roster fallback (1,458 members
+    missing). Slots must map home/away side through the PITCHES table's
+    codes so membership always lands in the pool's vocabulary."""
+    con = duckdb.connect(database=":memory:")
+    try:
+        con.execute("""CREATE TABLE pitches AS
+            SELECT * FROM (VALUES (9500, 'NYY', 'ATH'))
+            AS t(game_pk, home_team, away_team)""")
+        con.execute("""CREATE TABLE batter_ratings AS
+            SELECT * FROM (VALUES
+                (DATE '2025-06-01', 9500, 'ATH', 101, 0.30, 50.0),
+                (DATE '2025-06-01', 9500, 'ATH', 999, 0.30, 50.0)
+            ) AS t(game_date, game_pk, batting_team, batter,
+                   shrunk_re24, _pa30)""")
+        con.execute(f"""CREATE TABLE lineups_raw AS
+            SELECT * FROM (VALUES
+                (9500, DATE '2025-06-01', 'NYY', 'OAK',
+                 {list(range(301, 310))}::BIGINT[],
+                 {_BOS_ORDER_R}::BIGINT[], true, true))
+            AS t(game_pk, game_date, home_team, away_team,
+                 home_order, away_order, complete_home, complete_away)""")
+        con.execute("""CREATE TABLE starters AS
+            SELECT * FROM (VALUES (9500, 'NYY', 'ATH', 'R', 'R'))
+            AS t(game_pk, home_team, away_team,
+                 home_starter_hand, away_starter_hand)""")
+        features._build_lineup_effective(con, batters_ok=False)
+        got = {team for (team,) in con.execute(
+            "SELECT DISTINCT team FROM lineup_effective").fetchall()}
+        assert got == {"ATH"}, \
+            "membership must key on the pitches code, never the feed's OAK"
+        assert _eff_members(con, 9500) == set(_BOS_ORDER_R)
+    finally:
+        con.close()
+
+
+def test_missing_lineups_cache_degrades_loudly(monkeypatch):
+    monkeypatch.setattr(features, "LINEUPS_FILE", "__absent__.parquet")
+    c = duckdb.connect(database=":memory:")
+    try:
+        assert features._register_lineups(c) is False
+        c.execute(features._EMPTY_LINEUPS_RAW_SQL)
+        assert c.execute("SELECT count(*) FROM lineups_raw").fetchone()[0] == 0
+    finally:
+        c.close()
+
+
+def test_register_lineups_loads_announced_orders(tmp_path, monkeypatch):
+    df = pd.DataFrame({
+        "game_pk": [42],
+        "game_date": [pd.Timestamp("2025-06-05")],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "home_order": [_NYY_ORDER], "away_order": [_BOS_ORDER_R],
+        "complete_home": [True], "complete_away": [True],
+        "state": ["Final"],
+    })
+    df.to_parquet(tmp_path / "lineups.parquet")
+    monkeypatch.setattr(features, "_lineup_base_dir", lambda: tmp_path)
+    c = duckdb.connect(database=":memory:")
+    try:
+        assert features._register_lineups(c) is True
+        n, nc = c.execute(
+            "SELECT count(*), count(*) FILTER (WHERE complete_home "
+            "OR complete_away) FROM lineups_raw").fetchone()
+        assert (n, nc) == (1, 1)
+    finally:
+        c.close()
 
 
 # ── generalized availability taxonomy (2026-09-30 extension) ────────────────
@@ -733,6 +997,7 @@ def _pool_flag(il_rows, game_date=IL_GAME, batter=P_ISBEL):
                 SELECT CAST(NULL AS BIGINT) AS batter,
                        CAST(NULL AS DATE) AS il_start,
                        CAST(NULL AS DATE) AS il_end WHERE false""")
+        _set_effective(c)
         c.execute(features._LINEUP_POOL_SQL.format(
             lookback=features.LINEUP_POOL_LOOKBACK_DAYS, restrict="",
             on_il=features._IL_EXISTS_PREDICATE))

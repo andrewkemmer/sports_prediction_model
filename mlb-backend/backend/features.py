@@ -77,6 +77,11 @@ IL_STINTS_PITCHERS_FILE = "il_stints_pitchers.parquet"
 # pl_<pos>_xwoba_* family's pool key. Lives beside the IL ledger (same
 # runtime cache; .adhoc/mlb_fetch_positions.py rebuilds both copies).
 PLAYER_POSITIONS_FILE = "player_positions.parquet"
+# Announced batting orders (game_pk, home_order/away_order of 9 MLBAM ids,
+# complete_* flags) — membership's tier-1 source: tonight's nine. Lives in
+# the repo's data_delivery (backfill_lineups.py extends it; the daily run
+# refreshes today's slate). Absence degrades to EMPTY, never a build failure.
+LINEUPS_FILE = "lineups.parquet"
 # A stale IL table is the silent inclusion failure: a player PLACED on
 # the IL after the table's last transaction date stays in the projected
 # nine (his frozen _pa30 keeps him ranked high — the 2026-09-28 Aaron
@@ -133,6 +138,183 @@ def _batter_excl(alias: str, date: str, ledger_ok: bool) -> str:
         return "TRUE"
     return _BATTER_LEDGER_EXCLUDE_ROW_SQL.format(alias=alias, date=date)
 
+# ── Membership: tonight's nine (2026-10-03 membership audit) ────────────────
+# The pools previously widened to every healthy roster member with a rating
+# row in the lookback — a 26-man roster average priced on guys with no path
+# into the game. The agreed membership set is the EFFECTIVE nine per
+# team-game, resolved in lineup_effective:
+#   tier 1  the announced batting order (lineups.parquet, complete nine)
+#   tier 2  projected: each slot's MODAL starter over the last {lookback}
+#           days of announced orders, conditioned on the opposing starter's
+#           handedness (starters table) and IL-filtered as of the target date
+#   (no row) full roster — the exact pre-audit semantics, so an absent or
+#           unreadable lineup cache never shrinks coverage below what shipped
+#           before (2024's horizon, lineups.parquet does not cover)
+# The clause below is hardcoded into BOTH pool templates so the lineup_* and
+# pl_* families can never drift apart on membership; an EMPTY
+# lineup_effective table (the degrade path, or a test fixture) makes
+# NOT EXISTS true for every row and restores the full-roster pool.
+_LINEUP_MEMBERSHIP_SQL = """(
+    NOT EXISTS (
+        SELECT 1 FROM lineup_effective e
+        WHERE e.game_pk = g.game_pk AND e.team = g.batting_team)
+    OR r.batter IN (
+        SELECT e2.batter FROM lineup_effective e2
+        WHERE e2.game_pk = g.game_pk AND e2.team = g.batting_team))"""
+
+# Empty degrade tables — the loud no-data shape every consumer binds to.
+_EMPTY_LINEUPS_RAW_SQL = """CREATE OR REPLACE TEMP TABLE lineups_raw AS
+    SELECT CAST(NULL AS BIGINT) AS game_pk,
+           CAST(NULL AS DATE) AS game_date,
+           CAST(NULL AS VARCHAR) AS home_team,
+           CAST(NULL AS VARCHAR) AS away_team,
+           CAST(NULL AS BIGINT[]) AS home_order,
+           CAST(NULL AS BIGINT[]) AS away_order,
+           CAST(NULL AS BOOLEAN) AS complete_home,
+           CAST(NULL AS BOOLEAN) AS complete_away
+    WHERE false"""
+_EMPTY_LINEUP_EFFECTIVE_SQL = """CREATE OR REPLACE TABLE lineup_effective AS
+    SELECT CAST(NULL AS BIGINT) AS game_pk,
+           CAST(NULL AS VARCHAR) AS team,
+           CAST(NULL AS BIGINT) AS batter,
+           CAST(NULL AS INTEGER) AS tier
+    WHERE false"""
+
+# Tier-2 availability filter: a projected slot must not hand a roster spot
+# to a batter whose IL stint is open as of the TARGET game (bindings reuse
+# the _IL_EXISTS_PREDICATE semantics, re-aliased to n/s).
+_EFFECTIVE_IL_FILTER = """NOT EXISTS (
+            SELECT 1 FROM il_stints i
+            WHERE i.batter = s.batter
+              AND i.il_start <= n.game_date
+              AND (i.il_end IS NULL OR i.il_end > n.game_date))"""
+
+_LINEUP_EFFECTIVE_SQL = """
+    CREATE OR REPLACE TABLE lineup_effective AS
+    WITH uni AS (
+        -- the exact team-games the two pools aggregate (batter_ratings)
+        SELECT DISTINCT game_pk, batting_team AS team, game_date
+        FROM batter_ratings
+    ),
+    order_sides AS (
+        -- Announced orders exploded to (game, side, slot, batter), then
+        -- mapped to a team through THE PITCHES TABLE's codes — never the
+        -- lineup feed's own abbreviations. Measured 2026-10-03: the feed
+        -- returned OAK for all 162 of the Athletics' 2025 games while
+        -- pitches carried ATH, and a code-keyed join would have silently
+        -- dropped that side to the tier-3 roster fallback (1,458 missing
+        -- members). game_pk + home/away side is the stable identity;
+        -- pitches' vocabulary is the pool's join key.
+        SELECT l.game_pk, l.game_date, 'home' AS side,
+               u.batter AS batter, u.slot AS slot
+        FROM lineups_raw l,
+             UNNEST(l.home_order) WITH ORDINALITY u(batter, slot)
+        WHERE l.complete_home
+        UNION ALL
+        SELECT l.game_pk, l.game_date, 'away' AS side,
+               u.batter AS batter, u.slot AS slot
+        FROM lineups_raw l,
+             UNNEST(l.away_order) WITH ORDINALITY u(batter, slot)
+        WHERE l.complete_away
+    ),
+    slots AS (
+        SELECT o.game_pk, o.game_date,
+               CASE o.side WHEN 'home' THEN p.home_team
+                           ELSE p.away_team END AS team,
+               o.batter AS batter, o.slot AS slot
+        FROM order_sides o
+        JOIN (SELECT DISTINCT game_pk, home_team, away_team FROM pitches) p
+          ON p.game_pk = o.game_pk
+    ),
+    -- tier 1: tonight's nine, exactly as announced
+    t1 AS (
+        SELECT u.game_pk, u.team, s.batter
+        FROM uni u
+        JOIN slots s ON s.game_pk = u.game_pk AND s.team = u.team
+    ),
+    -- team-games with no announced nine need a projection. The target row
+    -- carries the opposing starter's hand (home team bats vs the AWAY
+    -- starter, and vice versa); a missing/NULL hand cannot condition and
+    -- falls back to the unconditioned window below.
+    need AS (
+        SELECT u.game_pk, u.team, u.game_date,
+               CASE WHEN u.team = s.home_team THEN s.away_starter_hand
+                    ELSE s.home_starter_hand END AS opp_hand
+        FROM uni u
+        LEFT JOIN (SELECT DISTINCT game_pk, team FROM t1) a
+          ON a.game_pk = u.game_pk AND a.team = u.team
+        LEFT JOIN starters s ON s.game_pk = u.game_pk
+        WHERE a.team IS NULL
+    ),
+    -- prior announced lineups of that team inside the 10-day window,
+    -- tagged with the opposing hand THEY actually faced. The IL filter
+    -- binds as of the TARGET date (availability must never look ahead).
+    hist AS (
+        SELECT n.game_pk, n.team, n.opp_hand, s.batter, s.slot,
+               s.game_date AS hist_date,
+               CASE WHEN s.team = hs.home_team THEN hs.away_starter_hand
+                    ELSE hs.home_starter_hand END AS hist_hand
+        FROM need n
+        JOIN slots s
+          ON s.team = n.team
+         AND s.game_date < n.game_date
+         AND s.game_date >= n.game_date - INTERVAL {lookback} DAY
+        JOIN starters hs ON hs.game_pk = s.game_pk
+        WHERE {il_filter}
+    ),
+    votes AS (
+        SELECT game_pk, team, slot, batter,
+               count(*) AS votes, max(hist_date) AS last_seen
+        FROM hist
+        WHERE hist_hand = opp_hand
+           OR hist_hand IS NULL OR opp_hand IS NULL
+        GROUP BY game_pk, team, slot, batter
+    ),
+    -- one batter per slot: most votes, then most recent appearance
+    t2 AS (
+        SELECT game_pk, team, batter FROM (
+            SELECT game_pk, team, slot, batter,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk, team, slot
+                                      ORDER BY votes DESC, last_seen DESC,
+                                               batter) AS rn
+            FROM votes)
+        WHERE rn = 1
+    )
+    SELECT game_pk, team, batter, 1 AS tier FROM t1
+    UNION ALL
+    SELECT game_pk, team, batter, 2 AS tier FROM t2
+"""
+
+
+def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
+                            batters_ok: bool) -> None:
+    """Resolve ``lineup_effective`` — the membership set both pools bind to.
+
+    Never raises: a failed or empty build creates the EMPTY table under a
+    loud warning so every pool degrades to the full-roster semantics
+    (never a missing-table error, never a fabricated nine).
+    """
+    try:
+        con.execute(_LINEUP_EFFECTIVE_SQL.format(
+            lookback=LINEUP_POOL_LOOKBACK_DAYS,
+            il_filter=(_EFFECTIVE_IL_FILTER if batters_ok else "TRUE")))
+        n, ngames = con.execute(
+            "SELECT count(*), count(DISTINCT game_pk) "
+            "FROM lineup_effective").fetchone()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("lineup_effective build failed (%s) — pools fall back "
+                       "to the full-roster membership", e)
+        con.execute(_EMPTY_LINEUP_EFFECTIVE_SQL)
+        return
+    if not n:
+        logger.warning("lineup_effective is EMPTY — no announced or "
+                       "projected nine anywhere in the frame; every pool "
+                       "falls back to the full-roster membership")
+        return
+    logger.info("lineup_effective: %d members across %d team-games "
+                "(announced + projected)", n, ngames)
+
+
 # Candidate pool over ONE schema for both paths — same columns, same names,
 # so every downstream consumer is indifferent to which path ran.
 #   IL path   : widen to team members with a rating row in the last
@@ -140,6 +322,8 @@ def _batter_excl(alias: str, date: str, ledger_ok: bool) -> str:
 #   Fallback  : restrict to that game's own rating rows (the participant
 #               pool) and hardwire the flag to 0 — byte-equivalent to the
 #               pre-IL feature.
+# Both paths additionally bind membership (2026-10-03): only batters in the
+# team-game's effective nine pool — see _LINEUP_MEMBERSHIP_SQL.
 _LINEUP_POOL_SQL = """
     CREATE TABLE lineup_pool AS
     WITH pool AS (
@@ -154,6 +338,7 @@ _LINEUP_POOL_SQL = """
          AND r.game_date <= g.game_date
          AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
          {restrict}
+         AND """ + _LINEUP_MEMBERSHIP_SQL + """
         QUALIFY ROW_NUMBER() OVER (
             PARTITION BY g.game_pk, g.batting_team, r.batter
             ORDER BY r.game_date DESC) = 1
@@ -244,8 +429,8 @@ PL_POS_SQL = ("CASE pos WHEN '1B' THEN 'fb' WHEN '2B' THEN 'sb' "
               "WHEN '3B' THEN 'tb' ELSE LOWER(pos) END")
 
 # Candidate pool — structurally identical to _LINEUP_POOL_SQL (same
-# lookback/QUALIFY/ledger semantics) plus the position-map join, so the
-# two families degrade and refresh together.
+# lookback/QUALIFY/ledger semantics + the same membership clause) plus the
+# position-map join, so the two families degrade and refresh together.
 _POS_POOL_SQL = """
     CREATE TABLE pos_pool AS
     WITH pool AS (
@@ -261,6 +446,7 @@ _POS_POOL_SQL = """
          AND r.game_date <= g.game_date
          AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
          {restrict}
+         AND """ + _LINEUP_MEMBERSHIP_SQL + """
         JOIN player_positions pp
           ON pp.batter = r.batter
          AND pp.season = EXTRACT(YEAR FROM r.game_date)
@@ -588,8 +774,17 @@ def batter_xwoba_rating_sql(arm: str) -> str:
     trailing-30g non-null xwOBA numerator (Statcast
     ``estimated_woba_using_speedangle`` over PA-ending events — the exp2
     non-null-only convention) toward a point-in-time league xwOBA with
-    prior weight ``k = BATTER_SHRINK_K``, and keep the NULL gate so a
-    rating row with zero measured PAs stays NULL under either arm.
+    prior weight ``k = BATTER_SHRINK_K``.
+
+    ZERO-OPPORTUNITY ROWS SHIP THE PRIOR (2026-10-03 membership audit):
+    the old NULL gate dropped a zero-PA rating row from every pool — a
+    season debut, or a window whose only PA-ending events carried no
+    measured estimate — which is precisely the membership hole the
+    effective-nine fix closes. With zero observations the honest estimate
+    IS the prior, so both arms COALESCE their window sums and return it
+    instead of NULL. Under the PA-weighted pool aggregates a zero-PA row
+    carries weight 0 anyway; what changes is that the row EXISTS, so the
+    QUALIFY dedupe, the membership clause, and coverage see the batter.
 
     The prior is POSITION-SEGMENTED (2026-10-02): first the batter's own
     position's league average (``lp.lg_xwoba_pos`` from
@@ -601,25 +796,20 @@ def batter_xwoba_rating_sql(arm: str) -> str:
     (a typo must never ship the default).
     """
     k = BATTER_SHRINK_K
+    prior = "COALESCE(lp.lg_xwoba_pos, l.lg_xwoba, 0.315)"
     if arm == "bayesian":
         return (
-            "CASE WHEN COALESCE(r._xwoba_den30, 0) > 0 THEN\n"
-            "    (r._xwoba_num30 + "
-            "COALESCE(lp.lg_xwoba_pos, l.lg_xwoba, 0.315) * "
-            f"{k})\n"
-            f"    / (r._xwoba_den30 + {k})\n"
-            "END"
+            "    (COALESCE(r._xwoba_num30, 0) + "
+            f"{prior} * {k})\n"
+            f"    / (COALESCE(r._xwoba_den30, 0) + {k})"
         )
     if arm == "ramp":
         return (
-            "CASE WHEN COALESCE(r._xwoba_den30, 0) > 0 THEN\n"
-            f"    CASE WHEN r._xwoba_den30 >= {k} "
-            "THEN r._xwoba_num30 / r._xwoba_den30\n"
-            f"         ELSE (r._xwoba_num30 + ({k} - r._xwoba_den30)\n"
-            "               * COALESCE(lp.lg_xwoba_pos, "
-            "l.lg_xwoba, 0.315))\n"
-            f"         / {k}.0\n"
-            "    END\n"
+            f"CASE WHEN COALESCE(r._xwoba_den30, 0) >= {k}\n"
+            "     THEN COALESCE(r._xwoba_num30, 0) / r._xwoba_den30\n"
+            f"     ELSE (COALESCE(r._xwoba_num30, 0)\n"
+            f"           + ({k} - COALESCE(r._xwoba_den30, 0)) * {prior})\n"
+            f"          / {k}.0\n"
             "END"
         )
     raise ValueError(
@@ -1035,6 +1225,49 @@ def _register_player_positions(con: "duckdb.DuckDBPyConnection") -> bool:
                        PLAYER_POSITIONS_FILE)
         return False
     logger.info("player positions: %d rows, %d batters", n, nb)
+    return True
+
+
+def _register_lineups(con: "duckdb.DuckDBPyConnection") -> bool:
+    """Load the announced-batting-order cache into ``con``; False when absent.
+
+    ``lineups.parquet`` (game_pk, game_date, home/away_team, complete
+    home_order/away_order of 9 MLBAM ids) is tier 1 of
+    lineup_effective — tonight's nine. Absent/unreadable degrades LOUDLY
+    to an empty ``lineups_raw`` so lineup_effective comes up without
+    announced orders and every pool falls back to the pre-audit semantics
+    (never a build failure, never a fabricated lineup).
+    """
+    path = _lineup_base_dir() / LINEUPS_FILE
+    if not path.exists():
+        logger.warning("%s not found in %s — membership degrades to "
+                       "projected-only then full-roster (no announced nine). "
+                       "Run backfill_lineups.py to restore tier 1.",
+                       LINEUPS_FILE, _lineup_base_dir())
+        return False
+    try:
+        lit = str(path).replace("\\", "/")
+        con.execute(f"""
+            CREATE OR REPLACE TEMP TABLE lineups_raw AS
+            SELECT CAST(game_pk AS BIGINT) AS game_pk,
+                   CAST(game_date AS DATE) AS game_date,
+                   home_team, away_team,
+                   home_order, away_order,
+                   complete_home, complete_away
+            FROM read_parquet('{lit}')
+        """)
+        n, n_complete = con.execute(
+            "SELECT count(*), count(*) FILTER (WHERE complete_home "
+            "OR complete_away) FROM lineups_raw").fetchone()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("%s present but unreadable (%s) — membership degrades "
+                       "to projected-only then full-roster", LINEUPS_FILE, e)
+        return False
+    if not n:
+        logger.warning("%s is EMPTY — membership degrades to "
+                       "projected-only then full-roster", LINEUPS_FILE)
+        return False
+    logger.info("lineups: %d games (%d with a complete nine)", n, n_complete)
     return True
 
 # Experiment-only superset (audit_pitcher_era_k9.py): keeps intent_walk /
@@ -1811,6 +2044,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     if not _pos_ok:
         con.execute("CREATE OR REPLACE TEMP TABLE player_positions "
                     "(batter BIGINT, season INTEGER, pos VARCHAR)")
+    # Announced batting orders register with the other membership caches
+    # (2026-10-03): lineups_raw is tier 1 of lineup_effective — tonight's
+    # nine. Absence degrades to an EMPTY table under _register_lineups's
+    # warning, so the membership clause below never hits a missing table.
+    _lineups_ok = _register_lineups(con)
+    if not _lineups_ok:
+        con.execute(_EMPTY_LINEUPS_RAW_SQL)
 
     # 6. Team offense rolling features
     con.execute(f"""
@@ -2572,6 +2812,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # When the IL cache is absent the pool degrades to the participant pool
     # (that game's own rating rows) with the flag hardwired to 0 — the exact
     # pre-IL behavior — under a loud warning, never a silent identity change.
+    # Membership resolve — tonight's nine per team-game (tier 1
+    # announced order, tier 2 hand-conditioned 10-day projection). Runs
+    # AFTER batter_ratings (its universe) and starters/il_stints (its
+    # conditioning inputs) exist, and BEFORE either pool so both bind the
+    # same membership set. Degrades to an empty table — full-roster pools —
+    # on any failure (loud, never a crash).
+    _build_lineup_effective(con, _batters_ok)
     if _batters_ok:
         con.execute(_LINEUP_POOL_SQL.format(
             lookback=LINEUP_POOL_LOOKBACK_DAYS, restrict="",

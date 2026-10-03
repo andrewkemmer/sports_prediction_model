@@ -4,13 +4,14 @@ The pl_* family is the MLB counterpart of NHL's pl_<metric>_<pos> features:
 per-batter trailing-30g shrunk xwOBA (Statcast
 estimated_woba_using_speedangle over PA-ending events, the exp2 non-null
 convention), pooled per position over the healthy roster, served as
-pl_<pos>_xwoba_{home,away,diff} x9 — computed by default, served only by an
-explicit A/B arm (NOT in the default serving universe).
+pl_<pos>_xwoba_{home,away,diff}. The frame computes all 9 pools; the
+2026-10-03 plan serves 8 (pl_dh computes but never enters the universe).
 
 Pinned here:
   * batter_xwoba_rating_sql: both shrinkage arms evaluate to the shipped
-    formula on single-row fixtures, zero-opportunity rows stay NULL, and an
-    unknown arm raises (mirrors test_shrink_arm.py);
+    formula on single-row fixtures, zero-opportunity rows ship the
+    position prior (2026-10-03 — the old NULL gate dropped them from
+    every pool), and an unknown arm raises (mirrors test_shrink_arm.py);
   * the shrinkage target is POSITION-SEGMENTED (2026-10-02): the prior
     is the batter's own position's point-in-time league xwOBA
     (batter_league_pos), falling back to the overall lg_xwoba for an
@@ -49,19 +50,21 @@ from features import (  # noqa: E402
 )
 
 
-def _eval_xwoba(expr: str, *, num: float = 0.0, den: int = 0,
+def _eval_xwoba(expr: str, *, num: float | None = 0.0, den: int | None = 0,
                 lg_xwoba: float = 0.315,
                 lg_xwoba_pos: float | None = None) -> float:
     """Run one production shrunk_xwoba expression on an r/l/lp fixture.
 
     ``lp`` mirrors batter_league_pos: NULL lg_xwoba_pos models a batter
-    with no listed position (the documented fallback chain).
+    with no listed position (the documented fallback chain). None num/den
+    models a first-ever rating row (all-NULL window sums).
     """
     con = duckdb.connect()
     con.execute(
         "CREATE TABLE r AS SELECT ?::DOUBLE AS _xwoba_num30,"
         " ?::BIGINT AS _xwoba_den30",
-        [float(num), int(den)])
+        [None if num is None else float(num),
+         None if den is None else int(den)])
     con.execute("CREATE TABLE l AS SELECT ?::DOUBLE AS lg_xwoba",
                 [float(lg_xwoba)])
     con.execute("CREATE TABLE lp AS SELECT ?::DOUBLE AS lg_xwoba_pos",
@@ -99,9 +102,23 @@ def test_ramp_washes_out_prior_at_k():
     assert got == pytest.approx((16.5 + 60 * 0.315) / 120)
 
 
-def test_zero_opportunity_stays_null_under_both_arms():
+def test_zero_opportunity_ships_the_prior_under_both_arms():
+    """2026-10-03 membership audit: a zero-PA rating row ships the
+    shrinkage prior instead of NULL. With zero observations the honest
+    estimate IS the prior — and the row must EXIST so the QUALIFY dedupe,
+    the membership clause, and coverage see the batter (a season debut's
+    rating row used to vanish from every pool)."""
     for arm in ("bayesian", "ramp"):
-        assert _eval_xwoba(batter_xwoba_rating_sql(arm), num=0.0, den=0) is None
+        # zero measured PAs -> the 0.315 day-one prior
+        assert _eval_xwoba(batter_xwoba_rating_sql(arm)) == pytest.approx(0.315)
+        # NULL window sums (a batter's very first row, pre-LAG) behave the
+        # same — the rating is never NULL under either arm
+        assert _eval_xwoba(batter_xwoba_rating_sql(arm),
+                           num=None, den=None) == pytest.approx(0.315)
+        # the position-segmented prior still wins at zero opportunity
+        assert _eval_xwoba(batter_xwoba_rating_sql(arm),
+                           num=None, den=None,
+                           lg_xwoba_pos=0.340) == pytest.approx(0.340)
 
 
 def test_position_prior_is_the_shrinkage_target():
@@ -182,12 +199,16 @@ def test_position_suffix_map_matches_the_served_names():
     assert mapped == set(PL_POSITIONS) | {"p"}  # P maps but never enters pools
 
 
-def _pool_con() -> duckdb.DuckDBPyConnection:
+def _pool_con(effective=None) -> duckdb.DuckDBPyConnection:
     """Synthetic batter_ratings + player_positions across two team-games.
 
     Day 1 (2026-06-01) has a C and a DH pool; day 2 (2026-06-15) has ONLY a
     C (the DH's last rating row falls outside the 10-day lookback), so the
     day-2 DH column must resolve to the position prior from day 1.
+
+    ``effective`` optionally seeds lineup_effective — (game_pk, team,
+    batter, tier) rows; None uses the SHIPPED empty degrade table (the
+    pre-audit full-roster pool every historical fixture pins).
     """
     con = duckdb.connect()
     con.execute("""
@@ -203,6 +224,14 @@ def _pool_con() -> duckdb.DuckDBPyConnection:
         SELECT * FROM (VALUES (100, 2026, 'C'), (200, 2026, 'DH'))
         t(batter, season, pos)
     """)
+    if effective:
+        vals = ", ".join("(%d, '%s', %d, %d)" % (g, t, b, tier)
+                         for (g, t, b, tier) in effective)
+        con.execute(f"""CREATE OR REPLACE TABLE lineup_effective AS
+            SELECT * FROM (VALUES {vals})
+            AS t(game_pk, team, batter, tier)""")
+    else:
+        con.execute(features._EMPTY_LINEUP_EFFECTIVE_SQL)
     con.execute(_POS_POOL_SQL.format(
         lookback=10, pos_case=PL_POS_SQL, restrict="", on_il="0"))
     con.execute(_POS_LEAGUE_SQL)
@@ -240,6 +269,73 @@ def test_pool_is_point_in_time_and_one_row_per_batter():
         "SELECT shrunk_xwoba FROM pos_pool WHERE game_pk = 2 AND pos = 'c'"
     ).fetchone()[0]
     assert float(px) == pytest.approx(0.33)
+
+
+def test_membership_restricts_position_pools_to_the_effective_nine():
+    """2026-10-03: the pl_* family binds the SAME effective nine as the
+    lineup family. Game 1's nine lists only the C (100) — the DH (200) is
+    left off — so the DH pool is EMPTY and resolves to the position prior
+    (NULL on day one) instead of shipping 0.40 from a guy not in the game.
+    Game 2 has no membership rows at all (no announced order, no
+    projection) and therefore degrades to the pre-audit roster pool."""
+    con = _pool_con(effective=[(1, "AAA", 100, 1)])
+    try:
+        row1 = con.execute(
+            "SELECT pl_c_xwoba, pl_dh_xwoba FROM pos_agg WHERE game_pk = 1"
+        ).fetchone()
+        assert row1[0] == pytest.approx(0.30)  # tonight's C pools normally
+        assert row1[1] is None, "a batter outside membership must not pool"
+        row2 = con.execute(
+            "SELECT pl_c_xwoba FROM pos_agg WHERE game_pk = 2").fetchone()
+        assert row2[0] == pytest.approx(0.33)
+    finally:
+        con.close()
+
+
+def test_slate_carries_the_served_pl_pools_forward():
+    """2026-10-03: build_upcoming_slate carried ZERO pl_* inputs (grep found
+    no pl hits in data_ingestion) — every slate row shipped NaN levels, so
+    add_diff_features could not compute any of the 24 model columns at serve
+    time. The 8 served pools must ride the same _RAW_CARRY/_RAW_INPUTS path
+    as every other diff family, and pl_dh must NOT be carried (it generates
+    but never serves)."""
+    from datetime import date
+
+    from data_ingestion import build_upcoming_slate
+    from features import add_diff_features
+
+    target = date(2025, 6, 5)
+    hist = pd.DataFrame({
+        "game_date": ["2025-06-01"],
+        "game_pk": [1],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "home_win": [1.0], "home_score": [5], "away_score": [3],
+        "total_runs": [8],
+        "pl_c_xwoba_home": [0.34],
+        "pl_c_xwoba_away": [0.30],
+    })
+    sched = pd.DataFrame({
+        "game_date": [pd.Timestamp(target)],
+        "game_id": ["20250605_BOS@NYY"],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "start_time_utc": [pd.Timestamp("2025-06-05 23:05")],
+    })
+    slate = build_upcoming_slate(hist, target, schedule_df=sched)
+    assert len(slate) == 1
+    # each team's own latest value rides ITS slot (home value -> home slot)
+    assert float(slate["pl_c_xwoba_home"].iloc[0]) == pytest.approx(0.34)
+    assert float(slate["pl_c_xwoba_away"].iloc[0]) == pytest.approx(0.30)
+    out = add_diff_features(slate)
+    assert float(out["pl_c_xwoba_diff"].iloc[0]) == pytest.approx(0.04)
+    # the 16 served level inputs all exist on the slate row...
+    for p in ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf"):
+        for side in ("home", "away"):
+            assert f"pl_{p}_xwoba_{side}" in slate.columns, (p, side)
+    # ...while pl_dh is never carried (not a served pool): its level inputs
+    # are absent and its diff ships NaN through the normal missing-input path
+    assert "pl_dh_xwoba_home" not in slate.columns
+    assert "pl_dh_xwoba_diff" in out.columns
+    assert out["pl_dh_xwoba_diff"].isna().all()
 
 
 def test_missing_position_map_degrades_loudly(monkeypatch):
