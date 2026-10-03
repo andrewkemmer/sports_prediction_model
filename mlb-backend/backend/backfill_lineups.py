@@ -37,13 +37,23 @@ if str(_BACKEND_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR.parent))
 
 from config import DATA_DELIVERY_DIR  # noqa: E402
+from data_ingestion import normalize_team  # noqa: E402  (canonical team codes)
 from phase1_lineup_coverage import fetch_feed, parse_batting_orders  # noqa: E402
 
 PAUSE_SEC = 0.15
 STATSAPI_SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 LINEUPS_COLUMNS = ["game_pk", "game_date", "home_team", "away_team",
                    "home_order", "away_order", "complete_home",
-                   "complete_away", "state"]
+                   "complete_away", "state",
+                   # Probable-starter THROWS HAND (2026-10-03 slate alignment):
+                   # lineup_effective's tier 2 conditions each slot's modal
+                   # projection on the OPPOSING starter's hand, and the
+                   # historical table gets that from pitches' inning-1 row —
+                   # a game with no pitches yet has none. Carrying the hand on
+                   # the same cache row the membership already reads keeps the
+                   # slate on the IDENTICAL projection SQL instead of silently
+                   # dropping to the unconditioned window.
+                   "home_starter_hand", "away_starter_hand"]
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -111,7 +121,9 @@ def complete_game_pks(path: Path | None = None) -> set[int]:
 
 
 def order_row(game_pk: int, game_date, home_team: str, away_team: str,
-              feed: dict | None, state: str | None = None) -> dict:
+              feed: dict | None, state: str | None = None,
+              home_starter_hand: str | None = None,
+              away_starter_hand: str | None = None) -> dict:
     """One lineups.parquet row from a StatsAPI live feed (pure — testable).
 
     complete_* is TRUE only on an exact 9-man order per side, mirroring the
@@ -142,7 +154,58 @@ def order_row(game_pk: int, game_date, home_team: str, away_team: str,
         "complete_home": ch,
         "complete_away": ca,
         "state": state or "unknown",
+        "home_starter_hand": home_starter_hand,
+        "away_starter_hand": away_starter_hand,
     }
+
+
+def _probable_hands(games: list, requests) -> dict[int, dict[str, str | None]]:
+    """{game_pk: {'home': 'L'/'R'/None, 'away': ...}} for tier-2 conditioning.
+
+    The schedule must be hydrated with ``probablePitcher``; ids are then
+    resolved to throwing hand in ONE batched /people call. Never raises:
+    a miss leaves the side None, which lineup_effective treats as
+    "cannot condition" and falls back to its unconditioned window — the
+    honest degrade, not a fabricated hand.
+    """
+    ids: set[int] = set()
+    by_game: dict[int, dict] = {}
+    for g in games:
+        try:
+            pk = int(g["gamePk"])
+        except Exception:
+            continue
+        sides: dict[str, int | None] = {}
+        for side in ("home", "away"):
+            t = ((g.get("teams") or {}).get(side) or {})
+            pid = (t.get("probablePitcher") or {}).get("id")
+            try:
+                pid = int(pid)
+            except (TypeError, ValueError):
+                pid = None
+            sides[side] = pid
+            if pid is not None:
+                ids.add(pid)
+        by_game[pk] = sides
+    if not ids:
+        return {}
+    hand: dict[int, str] = {}
+    try:
+        resp = requests.get("https://statsapi.mlb.com/api/v1/people",
+                            params={"personIds": ",".join(str(i) for i in sorted(ids))},
+                            timeout=20)
+        resp.raise_for_status()
+        for p in (resp.json().get("people") or []):
+            h = (p.get("pitchHand") or {}).get("code")
+            if p.get("id") and h in ("L", "R"):
+                hand[int(p["id"])] = h
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠️  probable-starter hands unresolved ({e}); tier 2 "
+              f"projects unconditioned")
+        return {}
+    return {pk: {side: hand.get(pid) if pid is not None else None
+                 for side, pid in sides.items()}
+            for pk, sides in by_game.items()}
 
 
 def fetch_scheduled_lineups(target_date, out_path: Path | None = None,
@@ -158,10 +221,17 @@ def fetch_scheduled_lineups(target_date, out_path: Path | None = None,
     """
     import requests
     try:
+        # hydrate=team(abbreviation) is REQUIRED, not cosmetic: the bare
+        # schedule response returns only {id, link, name} per team, so
+        # ``abbreviation`` is missing and every row landed with home_team =
+        # away_team = '' — an empty-string side can never join the pool's
+        # team vocabulary, so tier 1 silently resolved to nothing for the
+        # whole slate (2026-10-03: all 4 games captured, 0 usable teams).
         resp = requests.get(
             STATSAPI_SCHEDULE_URL,
             params={"sportId": 1, "startDate": pd.Timestamp(target_date).date().isoformat(),
-                    "endDate": pd.Timestamp(target_date).date().isoformat()},
+                    "endDate": pd.Timestamp(target_date).date().isoformat(),
+                    "hydrate": "team(abbreviation),probablePitcher"},
             timeout=20)
         resp.raise_for_status()
         games = (resp.json().get("dates") or [{}])[0].get("games") or []
@@ -170,6 +240,10 @@ def fetch_scheduled_lineups(target_date, out_path: Path | None = None,
               f"membership degrades to projection")
         return 0
     rows = []
+    # Tier-2 conditioning hands: batch the probable pitchers in ONE /people
+    # call (ids are already on the hydrated schedule) — per-pitcher calls would
+    # be 2x the games' worth of requests for two booleans.
+    hands = _probable_hands(games, requests)
     for g in games:
         try:
             pk = int(g["gamePk"])
@@ -177,11 +251,13 @@ def fetch_scheduled_lineups(target_date, out_path: Path | None = None,
             continue
         t = (g.get("teams") or {}).get("away") or {}
         h = (g.get("teams") or {}).get("home") or {}
-        away = (t.get("team") or {}).get("abbreviation") or ""
-        home = (h.get("team") or {}).get("abbreviation") or ""
+        away = normalize_team((t.get("team") or {}).get("abbreviation")) or ""
+        home = normalize_team((h.get("team") or {}).get("abbreviation")) or ""
         # fetch_feed paces itself (pause_sec between requests, one retry)
         feed, _err = fetch_feed(pk, pause_sec=pause_sec)
-        rows.append(order_row(pk, target_date, home, away, feed))
+        rows.append(order_row(pk, target_date, home, away, feed,
+                              home_starter_hand=hands.get(pk, {}).get("home"),
+                              away_starter_hand=hands.get(pk, {}).get("away")))
     if not rows:
         return 0
     try:

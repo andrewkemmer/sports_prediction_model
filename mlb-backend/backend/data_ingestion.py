@@ -20,6 +20,7 @@ import pandas as pd
 
 from config import (
     BULLPEN_WHIP_WINDOW,
+    DATA_DELIVERY_DIR,
     ELO_HOME_ADV,
     ELO_K,
     ELO_REVERT_FACTOR,
@@ -1560,6 +1561,48 @@ def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
     return state
 
 
+def _load_slate_pl(target_date: date,
+                   base: Optional[Path] = None) -> dict:
+    """``pl_slate_<YYYYMMDD>.parquet`` → {(game_date, team): row mapping}.
+
+    Written by features._export_slate_pl during the feature build — the
+    SAME 3-tier membership (announced nine / hand-conditioned projection /
+    full-roster degrade), position-pool and prior-fallback chain the
+    historical frame uses. build_upcoming_slate reads it so tonight's pl_*
+    pools are RESOLVED instead of carried: the artifact's per-team-game
+    values override the last-game carry, and only sides the artifact does
+    not cover fall back to the carry (marked ``pl_source_* = 'carry'``).
+
+    Absent/unreadable → {} (the slate builds exactly as before — never a
+    build failure). Keyed by (game_date, team); a doubleheader's two legs
+    share a team-date, so the first row (the file is ordered by game_pk)
+    wins and a warning names the collision.
+    """
+    path = ((base or DATA_DELIVERY_DIR)
+            / f"pl_slate_{pd.Timestamp(target_date):%Y%m%d}.parquet")
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_parquet(path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate pl_* artifact %s unreadable (%s) — every side "
+                       "serves the marked carry", path.name, e)
+        return {}
+    out: dict = {}
+    for _, r in df.iterrows():
+        try:
+            key = (pd.Timestamp(r["game_date"]).date(), str(r["team"]))
+        except Exception:  # noqa: BLE001 — malformed row: skip, stay honest
+            continue
+        if key in out:
+            logger.warning(
+                "slate pl_* artifact %s: duplicate team-date %s — keeping "
+                "the first game's resolution", path.name, key)
+            continue
+        out[key] = r.to_dict()
+    return out
+
+
 def enforce_board_date_invariant(board: pd.DataFrame, target_date: date,
                                  *, what: str = "board") -> pd.DataFrame:
     """Filter a slate/board frame to EXACTLY ``target_date``'s games.
@@ -1709,6 +1752,17 @@ def build_upcoming_slate(
                        for side in ("home", "away")]
     carry_cols = [c for c in _RAW_CARRY if c in hist.columns]
     team_state = _latest_side_state(hist, carry_cols)
+    # pl_* structural alignment (2026-10-03): resolve tonight's position
+    # pools through the SAME 3-tier chain the historical frame used
+    # (features._export_slate_pl writes the artifact during the feature
+    # build). The artifact overrides the carry per team-date below; sides it
+    # does not cover keep the strict-PIT carry and are MARKED as such —
+    # previously the whole pl_* slate shipped unmarked stale carry.
+    slate_pl = _load_slate_pl(target_date)
+    if slate_pl:
+        logger.info("slate pl_*: %d team-date pool resolution(s) for %s "
+                    "(3-tier membership; carry only as fall-through)",
+                    len(slate_pl), target_date)
     exp2_team_state = _latest_exp2_team_state(hist, _EXP2_TEAM_COLS)
     exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
@@ -1847,6 +1901,32 @@ def build_upcoming_slate(
             # Re-suffix the side-agnostic latest values onto this game's slot
             for base, val in team_state.get(team, {}).items():
                 row[f"{base}_{side}"] = val
+            # pl_*: the resolved 3-tier pool artifact OVERRIDES the carry
+            # for this team-date (a NULL artifact value stays NaN — an
+            # honestly unresolved pool must not silently re-inherit the
+            # stale carry). No artifact row → the carry above stands and the
+            # side is MARKED, so resolved-vs-carried is inspectable wherever
+            # the frame ships.
+            _pl = slate_pl.get((pd.Timestamp(row["game_date"]).date(), team))
+            if _pl is not None:
+                for _p in _pl_pools:
+                    _v = _pl.get(f"pl_{_p}_xwoba")
+                    row[f"pl_{_p}_xwoba_{side}"] = (
+                        float(_v) if _v is not None and pd.notna(_v)
+                        else np.nan)
+                _tier = _pl.get("pl_tier")
+                try:
+                    _tier = int(_tier)
+                except (TypeError, ValueError):
+                    _tier = 3
+                row[f"pl_source_{side}"] = f"pool-t{_tier}"
+                row[f"pl_prior_{side}"] = str(
+                    _pl.get("pl_prior_positions") or "")
+            else:
+                _carried = any(pd.notna(row.get(f"pl_{_p}_xwoba_{side}"))
+                               for _p in _pl_pools)
+                row[f"pl_source_{side}"] = "carry" if _carried else "missing"
+                row[f"pl_prior_{side}"] = ""
             # Exp2 team inputs describe the lineup faced by the starter in
             # this slot. Historical *_home values come from away_team rows and
             # *_away values from home_team rows, so carry the opponent's state
@@ -1919,6 +1999,13 @@ def build_upcoming_slate(
                 )
 
     slate = pd.DataFrame(rows)
+    if "pl_source_home" in slate.columns and len(slate):
+        # Mirrors the "slate lineups: N/M ACTUAL" convention: one line that
+        # says how many sides resolved tonight's pools vs served carry.
+        _pl_src = (slate["pl_source_home"].astype(str) + "/"
+                   + slate["pl_source_away"].astype(str))
+        logger.info("slate pl_* sources (home/away): %s",
+                    _pl_src.value_counts().to_dict())
     if unresolved_slots:
         logger.warning(
             "Slate pitcher resolution: %d of %d starter slots unresolved — "

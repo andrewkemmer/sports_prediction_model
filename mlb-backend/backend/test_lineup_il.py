@@ -785,11 +785,12 @@ def _eff_con() -> duckdb.DuckDBPyConnection:
     for pk, order in _ANNOUNCED.items():
         lrows.append(
             f"({pk}, DATE '{_GAMES[pk]}', 'NYY', 'BOS', {_NYY_ORDER}::BIGINT[], "
-            f"{order}::BIGINT[], true, true)")
+            f"{order}::BIGINT[], true, true, NULL::VARCHAR, NULL::VARCHAR)")
     con.execute(f"""CREATE TABLE lineups_raw AS
         SELECT * FROM (VALUES {', '.join(lrows)})
         AS t(game_pk, game_date, home_team, away_team,
-             home_order, away_order, complete_home, complete_away)""")
+             home_order, away_order, complete_home, complete_away,
+             home_starter_hand, away_starter_hand)""")
     srows = []
     for pk in _GAMES:
         # BOS (away) bats vs the HOME starter; the two 2025-05 games were
@@ -880,6 +881,60 @@ def test_pools_bind_the_projected_nine_end_to_end():
         con.close()
 
 
+def test_slate_tier2_conditions_on_lineups_raw_probable_hand():
+    """2026-10-03 slate alignment: a target with NO played frame
+    (lineups_raw only — absent from pitches and starters) must still
+    project through tier 2, conditioned on the CAPTURED probable-starter
+    hand from lineups_raw — the same hand-conditioned projection history
+    gets from the real starters table.
+
+    Two upcoming BOS games: 9100 vs an LHP probable (→ the LHP modal
+    order with 999 ninth), 9101 vs an RHP probable (→ the RHP order with
+    109 ninth). Same projection machinery, different hand, different nine.
+    """
+    con = _eff_con()
+    try:
+        # Append two UNPOSTED slate games (incomplete orders → tier 2):
+        # home probable hand L / R respectively; away hand constant.
+        con.execute("""CREATE OR REPLACE TABLE lineups_raw AS
+            SELECT * FROM lineups_raw
+            UNION ALL
+            SELECT * FROM (VALUES
+                (9100, DATE '2025-06-06', 'NYY', 'BOS', NULL::BIGINT[],
+                 NULL::BIGINT[], false, false, 'L', 'R'),
+                (9101, DATE '2025-06-07', 'NYY', 'BOS', NULL::BIGINT[],
+                 NULL::BIGINT[], false, false, 'R', 'R')
+            ) AS t(game_pk, game_date, home_team, away_team, home_order,
+                   away_order, complete_home, complete_away,
+                   home_starter_hand, away_starter_hand)""")
+        features._build_lineup_effective(con, batters_ok=False)
+        # both slate games entered the shared grid as is_slate team-games
+        n_slate = con.execute(
+            "SELECT count(*) FROM pool_universe WHERE is_slate"
+        ).fetchone()[0]
+        assert n_slate == 4, "both sides of both slate games must join the grid"
+
+        def _team_members(pk, team):
+            return {b for (b,) in con.execute(
+                "SELECT batter FROM lineup_effective "
+                "WHERE game_pk = ? AND team = ?", [pk, team]).fetchall()}
+
+        # LHP-conditioned target picks the LHP order (999 ninth)...
+        assert _team_members(9100, "BOS") == set(_BOS_ORDER_L)
+        assert con.execute(
+            "SELECT DISTINCT tier FROM lineup_effective WHERE game_pk = 9100"
+        ).fetchone()[0] == 2
+        # ...and the RHP-conditioned target picks the RHP order (109 ninth)
+        assert _team_members(9101, "BOS") == set(_BOS_ORDER_R)
+        assert 999 not in _team_members(9101, "BOS"), \
+            "conditioning must come from the captured probable hand"
+        assert con.execute(
+            "SELECT DISTINCT tier FROM lineup_effective WHERE game_pk = 9101"
+        ).fetchone()[0] == 2
+    finally:
+        con.close()
+
+
 def test_membership_maps_feed_team_codes_through_pitches():
     """2026-10-03: the lineup feed's abbreviations are NOT the join key.
 
@@ -903,9 +958,11 @@ def test_membership_maps_feed_team_codes_through_pitches():
             SELECT * FROM (VALUES
                 (9500, DATE '2025-06-01', 'NYY', 'OAK',
                  {list(range(301, 310))}::BIGINT[],
-                 {_BOS_ORDER_R}::BIGINT[], true, true))
+                 {_BOS_ORDER_R}::BIGINT[], true, true,
+                 NULL::VARCHAR, NULL::VARCHAR))
             AS t(game_pk, game_date, home_team, away_team,
-                 home_order, away_order, complete_home, complete_away)""")
+                 home_order, away_order, complete_home, complete_away,
+                 home_starter_hand, away_starter_hand)""")
         con.execute("""CREATE TABLE starters AS
             SELECT * FROM (VALUES (9500, 'NYY', 'ATH', 'R', 'R'))
             AS t(game_pk, home_team, away_team,

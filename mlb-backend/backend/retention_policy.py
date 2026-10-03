@@ -332,6 +332,12 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  retention_days=10, allowlisted=True,
                  notes="human-readable RFE workbook; regenerated every RFE "
                        "run, nothing reads it back — 10-day window"),
+    FamilyPolicy("pl_slate", "pl_slate_", retention_days=10, allowlisted=True,
+                 notes="per-date slate pl_* pool resolution "
+                       "(features._export_slate_pl; consumed by "
+                       "build_upcoming_slate with the marked carry as "
+                       "fall-through) — newest-only per date, 10-day "
+                       "blanket window"),
     FamilyPolicy("pbp_defense", "pbp_defense_", retention_days=None,
                  allowlisted=False,
                  notes="newest-only (traced 2026-09-26): both consumers take "

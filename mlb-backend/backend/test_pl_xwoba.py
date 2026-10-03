@@ -232,6 +232,10 @@ def _pool_con(effective=None) -> duckdb.DuckDBPyConnection:
             AS t(game_pk, team, batter, tier)""")
     else:
         con.execute(features._EMPTY_LINEUP_EFFECTIVE_SQL)
+    # the team-game grid the position pool aggregates (normally built by
+    # _build_lineup_effective); this fixture has no lineups_raw/pitches so
+    # the helper degrades to the historical grid — the documented path
+    features._build_pool_universe(con)
     con.execute(_POS_POOL_SQL.format(
         lookback=10, pos_case=PL_POS_SQL, restrict="", on_il="0"))
     con.execute(_POS_LEAGUE_SQL)
@@ -327,6 +331,10 @@ def test_slate_carries_the_served_pl_pools_forward():
     assert float(slate["pl_c_xwoba_away"].iloc[0]) == pytest.approx(0.30)
     out = add_diff_features(slate)
     assert float(out["pl_c_xwoba_diff"].iloc[0]) == pytest.approx(0.04)
+    # carry is now a MARKED state: no artifact for this date → the side
+    # serves carry, never an unmarked value (2026-10-03 alignment)
+    assert slate["pl_source_home"].iloc[0] == "carry"
+    assert slate["pl_source_away"].iloc[0] == "carry"
     # the 16 served level inputs all exist on the slate row...
     for p in ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf"):
         for side in ("home", "away"):
@@ -359,3 +367,166 @@ def test_add_diff_features_creates_the_nine_pl_diffs():
     out2 = features.add_diff_features(pd.DataFrame({"home_team": ["NYY"]}))
     for p in PL_POSITIONS:
         assert out2[f"pl_{p}_xwoba_diff"].isna().all(), p
+
+
+# ── slate structural alignment (2026-10-03): the 3-tier chain on today's
+# ── slate + a marked serving path (resolved pools vs carry)
+
+def test_pool_universe_extends_the_grid_to_unplayed_slate_games():
+    """pool_universe = played team-games (the old batter_ratings grid)
+    PLUS tonight's scheduled team-games from lineups_raw (no played frame
+    yet), flagged is_slate. A game already in pitches stays historical, and
+    the 2026-10-03 legacy empty-string team codes must never fabricate a
+    '' team."""
+    con = duckdb.connect()
+    try:
+        con.execute("""CREATE TABLE batter_ratings AS
+            SELECT * FROM (VALUES
+                (DATE '2026-06-01', 1, 'AAA', 100, 0.30, 30)
+            ) AS t(game_date, game_pk, batting_team, batter,
+                   shrunk_xwoba, _pa30)""")
+        con.execute("""CREATE TABLE pitches AS
+            SELECT * FROM (VALUES (1, 'AAA', 'BBB'), (2, 'AAA', 'BBB'))
+            AS t(game_pk, home_team, away_team)""")
+        con.execute("""CREATE TABLE lineups_raw AS
+            SELECT * FROM (VALUES
+                (2, DATE '2026-06-01', 'AAA', 'BBB', NULL::BIGINT[],
+                 NULL::BIGINT[], false, false, 'L', 'R'),
+                (9001, DATE '2026-06-20', 'AAA', 'BBB', NULL::BIGINT[],
+                 NULL::BIGINT[], false, false, 'L', 'R'),
+                (9002, DATE '2026-06-20', '', 'CCC', NULL::BIGINT[],
+                 NULL::BIGINT[], false, false, NULL, NULL)
+            ) AS t(game_pk, game_date, home_team, away_team, home_order,
+                   away_order, complete_home, complete_away,
+                   home_starter_hand, away_starter_hand)""")
+        features._build_pool_universe(con)
+        rows = con.execute(
+            "SELECT game_pk, batting_team, is_slate FROM pool_universe "
+            "ORDER BY is_slate DESC, game_pk, batting_team").fetchall()
+        # game 2's lineups row is a PLAYED game (in pitches) — never slate;
+        # the '' home side of 9002 is dropped; 9001 joins on both sides
+        assert rows == [(9001, 'AAA', True), (9001, 'BBB', True),
+                        (9002, 'CCC', True), (1, 'AAA', False)]
+    finally:
+        con.close()
+
+
+def test_export_slate_pl_ships_resolved_pools_with_provenance(tmp_path):
+    """End-to-end slate resolution: an upcoming game (lineups_raw only, no
+    played frame) binds tier-1 membership through pool_universe, resolves
+    its position pools through the SAME pos chain history uses, and ships
+    pl_slate_<date>.parquet carrying tier + prior-fallback provenance for
+    build_upcoming_slate to consume. Membership stays real: the announced
+    nine decides who pools — a rated batter left off the order does not."""
+    con = duckdb.connect()
+    try:
+        # Trailing-window ratings for two C-eligible batters (100 in the
+        # nine, 200 NOT in the announced order).
+        con.execute("""CREATE TABLE batter_ratings AS
+            SELECT * FROM (VALUES
+                (DATE '2026-06-15', 1, 'AAA', 100, 0.30, 30),
+                (DATE '2026-06-15', 1, 'AAA', 200, 0.40, 90)
+            ) AS t(game_date, game_pk, batting_team, batter,
+                   shrunk_xwoba, _pa30)""")
+        con.execute("""CREATE TABLE player_positions AS
+            SELECT * FROM (VALUES (100, 2026, 'C'), (200, 2026, 'C'))
+            AS t(batter, season, pos)""")
+        con.execute("""CREATE TABLE pitches AS
+            SELECT * FROM (VALUES (1, 'AAA', 'BBB'))
+            AS t(game_pk, home_team, away_team)""")
+        con.execute("""CREATE TABLE starters AS
+            SELECT * FROM (VALUES (1, 'AAA', 'BBB', 'R', 'R'))
+            AS t(game_pk, home_team, away_team,
+                 home_starter_hand, away_starter_hand)""")
+        # Tonight: complete announced nine for AAA including rated batter
+        # 100 (slot 1) but NOT 200; BBB has no ratings at all.
+        con.execute("""CREATE TABLE lineups_raw AS
+            SELECT * FROM (VALUES
+                (9001, DATE '2026-06-20', 'AAA', 'BBB',
+                 [100,102,103,104,105,106,107,108,109]::BIGINT[],
+                 [201,202,203,204,205,206,207,208,209]::BIGINT[],
+                 true, true, 'R', 'L'))
+            AS t(game_pk, game_date, home_team, away_team, home_order,
+                 away_order, complete_home, complete_away,
+                 home_starter_hand, away_starter_hand)""")
+        features._build_lineup_effective(con, batters_ok=False)
+        con.execute(_POS_POOL_SQL.format(
+            lookback=10, pos_case=PL_POS_SQL, restrict="", on_il="0"))
+        con.execute(_POS_LEAGUE_SQL)
+        con.execute(_POS_AGG_SQL)
+        n = features._export_slate_pl(con, base=tmp_path)
+        assert n == 1, "only the team-game with pool data exports"
+        art = pd.read_parquet(tmp_path / "pl_slate_20260620.parquet")
+        assert len(art) == 1
+        r = art.iloc[0]
+        assert str(r["team"]) == "AAA"
+        assert int(r["game_pk"]) == 9001
+        # tier 1: the announced nine bound (not a projection)
+        assert int(r["pl_tier"]) == 1
+        # C pool = the announced member's rating (0.30) — batter 200 (0.40)
+        # was left off the order and must NOT pool
+        assert float(r["pl_c_xwoba"]) == pytest.approx(0.30)
+        # every other served pool had no members -> named as prior fallback
+        # (day one: no strictly-prior league mean exists, so they are NULL)
+        assert r["pl_prior_positions"] == "fb,sb,ss,tb,rf,cf,lf"
+        assert pd.isna(r["pl_fb_xwoba"])
+    finally:
+        con.close()
+
+
+def test_slate_pool_artifact_overrides_carry_and_marks_source(tmp_path,
+                                                               monkeypatch):
+    """2026-10-03: when the feature build shipped a resolved pl_slate
+    artifact for the target date, build_upcoming_slate must serve THOSE
+    values (the 3-tier pools), mark the side pool-tN, and leave sides the
+    artifact does not cover on the MARKED carry — resolved vs carried must
+    be inspectable, never an unmarked stale value."""
+    from datetime import date
+
+    import data_ingestion as di
+    from data_ingestion import build_upcoming_slate
+    from features import PL_SERVED_POSITIONS
+
+    target = date(2025, 6, 5)
+    art = pd.DataFrame([{
+        "game_date": pd.Timestamp(target),
+        "game_pk": 9001,
+        "team": "NYY",
+        **{f"pl_{p}_xwoba": (0.31 if p == "c" else 0.28)
+           for p in PL_SERVED_POSITIONS},
+        "pl_tier": 2,
+        "pl_prior_positions": "rf",
+    }])
+    art.to_parquet(tmp_path / "pl_slate_20250605.parquet", index=False)
+    monkeypatch.setattr(di, "DATA_DELIVERY_DIR", tmp_path)
+
+    hist = pd.DataFrame({
+        "game_date": ["2025-06-01"],
+        "game_pk": [1],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "home_win": [1.0], "home_score": [5], "away_score": [3],
+        "total_runs": [8],
+        "pl_c_xwoba_home": [0.34],
+        "pl_c_xwoba_away": [0.30],
+    })
+    sched = pd.DataFrame({
+        "game_date": [pd.Timestamp(target)],
+        "game_id": ["20250605_BOS@NYY"],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "start_time_utc": [pd.Timestamp("2025-06-05 23:05")],
+    })
+    slate = build_upcoming_slate(hist, target, schedule_df=sched)
+    assert len(slate) == 1
+    # home side (NYY): the artifact's resolved pool OVERRIDES the carry
+    assert float(slate["pl_c_xwoba_home"].iloc[0]) == pytest.approx(0.31)
+    assert slate["pl_source_home"].iloc[0] == "pool-t2"
+    assert slate["pl_prior_home"].iloc[0] == "rf"
+    # away side (BOS): absent from the artifact -> the carry stands, MARKED
+    assert float(slate["pl_c_xwoba_away"].iloc[0]) == pytest.approx(0.30)
+    assert slate["pl_source_away"].iloc[0] == "carry"
+    assert slate["pl_prior_away"].iloc[0] == ""
+    # the marker column survives the diff pass (never a model input itself)
+    from features import add_diff_features
+    out = add_diff_features(slate)
+    assert out["pl_source_home"].iloc[0] == "pool-t2"
+    assert float(out["pl_c_xwoba_diff"].iloc[0]) == pytest.approx(0.01)

@@ -171,7 +171,9 @@ _EMPTY_LINEUPS_RAW_SQL = """CREATE OR REPLACE TEMP TABLE lineups_raw AS
            CAST(NULL AS BIGINT[]) AS home_order,
            CAST(NULL AS BIGINT[]) AS away_order,
            CAST(NULL AS BOOLEAN) AS complete_home,
-           CAST(NULL AS BOOLEAN) AS complete_away
+           CAST(NULL AS BOOLEAN) AS complete_away,
+           CAST(NULL AS VARCHAR) AS home_starter_hand,
+           CAST(NULL AS VARCHAR) AS away_starter_hand
     WHERE false"""
 _EMPTY_LINEUP_EFFECTIVE_SQL = """CREATE OR REPLACE TABLE lineup_effective AS
     SELECT CAST(NULL AS BIGINT) AS game_pk,
@@ -189,22 +191,88 @@ _EFFECTIVE_IL_FILTER = """NOT EXISTS (
               AND i.il_start <= n.game_date
               AND (i.il_end IS NULL OR i.il_end > n.game_date))"""
 
+# ── Pool universe: the team-games every candidate pool aggregates ──────────
+# Structural alignment (2026-10-03): the pools derived their game grid from
+# batter_ratings alone — a frame that only contains PLAYED games — so
+# tonight's team-game never entered the grid and the 3-tier chain
+# (announced nine / hand-conditioned projection / roster degrade) could not
+# run for the slate. Slate pl_* shipped as an unmarked stale carry-forward
+# of each team's last completed game instead. pool_universe fixes the grid
+# at the SOURCE so history and the slate resolve through the SAME SQL:
+#   hist   — batter_ratings team-games (identical set to the old inline
+#            subquery, so every historical row is unchanged)
+#   slate  — lineups_raw rows with no played frame yet (today's scheduled
+#            games, captured pre-game by fetch_scheduled_lineups), expanded
+#            to both sides; codes are normalized at capture and NULLIF'd so
+#            the 2026-10-03 legacy empty-string rows (schedule captured
+#            without hydrate) can never fabricate a '' team.
+# is_slate flags the rows _export_slate_pl ships to the serving slate.
+_SLATE_TEAMGAMES_SQL = """
+    SELECT l.game_pk, l.game_date, l.home_team AS batting_team
+    FROM lineups_raw l
+    WHERE NULLIF(l.home_team, '') IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM pitches p WHERE p.game_pk = l.game_pk)
+    UNION
+    SELECT l.game_pk, l.game_date, l.away_team AS batting_team
+    FROM lineups_raw l
+    WHERE NULLIF(l.away_team, '') IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM pitches p WHERE p.game_pk = l.game_pk)
+"""
+
+
+def _build_pool_universe(con: "duckdb.DuckDBPyConnection") -> None:
+    """Create ``pool_universe`` — the team-game grid membership and the
+    position pools both bind. Never raises; always leaves a usable table.
+
+    Degrades loudly: a fixture/checkout without ``lineups_raw`` or
+    ``pitches`` keeps the historical grid only (the slate then serves the
+    MARKED carry in build_upcoming_slate), and a checkout without
+    ``batter_ratings`` gets the empty grid (every pool falls to its own
+    no-data path — never a missing-table crash).
+    """
+    hist = ("SELECT DISTINCT game_date, game_pk, batting_team,\n"
+            "              false AS is_slate\n"
+            "           FROM batter_ratings")
+    try:
+        con.execute(f"""CREATE OR REPLACE TABLE pool_universe AS
+            {hist}
+            UNION ALL
+            SELECT game_date, game_pk, batting_team, true AS is_slate
+            FROM ({_SLATE_TEAMGAMES_SQL}) s""")
+    except Exception as e:  # noqa: BLE001 — absent input tables in fixtures
+        logger.warning("pool_universe slate extension failed (%s) — historical "
+                       "team-games only (slate pl_* serves the marked carry)", e)
+        try:
+            con.execute(f"CREATE OR REPLACE TABLE pool_universe AS {hist}")
+        except Exception as e2:  # noqa: BLE001
+            logger.warning("pool_universe build failed (%s) — empty grid; pools "
+                           "degrade to their no-data paths", e2)
+            con.execute("""CREATE OR REPLACE TABLE pool_universe AS
+                SELECT CAST(NULL AS DATE) AS game_date,
+                       CAST(NULL AS BIGINT) AS game_pk,
+                       CAST(NULL AS VARCHAR) AS batting_team,
+                       false AS is_slate
+                WHERE false""")
+    n, ns = con.execute(
+        "SELECT count(*), count(*) FILTER (WHERE is_slate) "
+        "FROM pool_universe").fetchone()
+    logger.info("pool_universe: %d team-games (%d upcoming/slate)", n, ns)
+
+
 _LINEUP_EFFECTIVE_SQL = """
     CREATE OR REPLACE TABLE lineup_effective AS
     WITH uni AS (
-        -- the exact team-games the two pools aggregate (batter_ratings)
+        -- the exact team-games the pools aggregate: historical
+        -- (batter_ratings) PLUS tonight's slate — one grid, one membership
+        -- chain (see _build_pool_universe).
         SELECT DISTINCT game_pk, batting_team AS team, game_date
-        FROM batter_ratings
+        FROM pool_universe
     ),
     order_sides AS (
-        -- Announced orders exploded to (game, side, slot, batter), then
-        -- mapped to a team through THE PITCHES TABLE's codes — never the
-        -- lineup feed's own abbreviations. Measured 2026-10-03: the feed
-        -- returned OAK for all 162 of the Athletics' 2025 games while
-        -- pitches carried ATH, and a code-keyed join would have silently
-        -- dropped that side to the tier-3 roster fallback (1,458 missing
-        -- members). game_pk + home/away side is the stable identity;
-        -- pitches' vocabulary is the pool's join key.
+        -- Announced orders exploded to (game, side, slot, batter), carrying
+        -- the feed's own team codes alongside — slots maps them into the
+        -- pool vocabulary below. game_pk + home/away side is the stable
+        -- identity.
         --
         -- ENGINE PORTABILITY (2026-10-03 production incident): the first
         -- shape used UNNEST(...) WITH ORDINALITY, which the Kaggle DuckDB
@@ -214,24 +282,38 @@ _LINEUP_EFFECTIVE_SQL = """
         -- run supports, and it pins the slot deterministically instead of
         -- trusting UNNEST's output order under parallel execution.
         SELECT l.game_pk, l.game_date, 'home' AS side,
+               l.home_team, l.away_team,
                list_extract(l.home_order, r.slot) AS batter, r.slot AS slot
         FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_home
           AND list_extract(l.home_order, r.slot) IS NOT NULL
         UNION ALL
         SELECT l.game_pk, l.game_date, 'away' AS side,
+               l.home_team, l.away_team,
                list_extract(l.away_order, r.slot) AS batter, r.slot AS slot
         FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_away
           AND list_extract(l.away_order, r.slot) IS NOT NULL
     ),
     slots AS (
-        SELECT o.game_pk, o.game_date,
-               CASE o.side WHEN 'home' THEN p.home_team
-                           ELSE p.away_team END AS team,
+        -- Team vocabulary: PITCHES' codes first — the feed's own
+        -- abbreviations differ from the pool key (measured 2026-10-03: the
+        -- feed returned OAK for all 162 of the Athletics' 2025 games while
+        -- pitches carried ATH; a code-keyed join silently dropped that side
+        -- to the tier-3 roster fallback, 1,458 missing members). The feed's
+        -- capture-normalized codes are used ONLY when the game has no played
+        -- frame yet — tonight's slate is absent from pitches by definition,
+        -- and pool_universe keys those rows by the SAME lineups_raw codes,
+        -- so tier 1 binds there too (the slate half of the 2026-10-03
+        -- structural alignment).
+        SELECT o.game_pk, o.game_date, o.side,
+               COALESCE(CASE o.side WHEN 'home' THEN p.home_team
+                                    ELSE p.away_team END,
+                        CASE o.side WHEN 'home' THEN o.home_team
+                                    ELSE o.away_team END) AS team,
                o.batter AS batter, o.slot AS slot
         FROM order_sides o
-        JOIN (SELECT DISTINCT game_pk, home_team, away_team FROM pitches) p
+        LEFT JOIN (SELECT DISTINCT game_pk, home_team, away_team FROM pitches) p
           ON p.game_pk = o.game_pk
     ),
     -- tier 1: tonight's nine, exactly as announced
@@ -245,13 +327,25 @@ _LINEUP_EFFECTIVE_SQL = """
     -- starter, and vice versa); a missing/NULL hand cannot condition and
     -- falls back to the unconditioned window below.
     need AS (
+        -- Target's opposing-starter hand: the STARTERS table's real throw
+        -- hand for played games; the lineups_raw PROBABLE-starter hand for
+        -- games with no played frame (tonight's slate — starters is
+        -- pitches-derived and has no row there), which is what makes the
+        -- projection hand-conditioned on the slate exactly as in history.
+        -- COALESCE also covers a played game whose inning-1 PA row is
+        -- missing. NULL on both sides cannot condition and falls back to
+        -- the unconditioned window below (loud, never fabricated).
         SELECT u.game_pk, u.team, u.game_date,
-               CASE WHEN u.team = s.home_team THEN s.away_starter_hand
-                    ELSE s.home_starter_hand END AS opp_hand
+               COALESCE(
+                   CASE WHEN u.team = s.home_team THEN s.away_starter_hand
+                        ELSE s.home_starter_hand END,
+                   CASE WHEN u.team = l.home_team THEN l.away_starter_hand
+                        ELSE l.home_starter_hand END) AS opp_hand
         FROM uni u
         LEFT JOIN (SELECT DISTINCT game_pk, team FROM t1) a
           ON a.game_pk = u.game_pk AND a.team = u.team
         LEFT JOIN starters s ON s.game_pk = u.game_pk
+        LEFT JOIN lineups_raw l ON l.game_pk = u.game_pk
         WHERE a.team IS NULL
     ),
     -- prior announced lineups of that team inside the 10-day window,
@@ -260,14 +354,18 @@ _LINEUP_EFFECTIVE_SQL = """
     hist AS (
         SELECT n.game_pk, n.team, n.opp_hand, s.batter, s.slot,
                s.game_date AS hist_date,
-               CASE WHEN s.team = hs.home_team THEN hs.away_starter_hand
-                    ELSE hs.home_starter_hand END AS hist_hand
+               COALESCE(
+                   CASE WHEN s.team = hs.home_team THEN hs.away_starter_hand
+                        ELSE hs.home_starter_hand END,
+                   CASE WHEN s.team = hl.home_team THEN hl.away_starter_hand
+                        ELSE hl.home_starter_hand END) AS hist_hand
         FROM need n
         JOIN slots s
           ON s.team = n.team
          AND s.game_date < n.game_date
          AND s.game_date >= n.game_date - INTERVAL {lookback} DAY
-        JOIN starters hs ON hs.game_pk = s.game_pk
+        LEFT JOIN starters hs ON hs.game_pk = s.game_pk
+        LEFT JOIN lineups_raw hl ON hl.game_pk = s.game_pk
         WHERE {il_filter}
     ),
     votes AS (
@@ -326,6 +424,90 @@ def _warn_pl_coverage(con: "duckdb.DuckDBPyConnection") -> None:
         cov * 100, PL_COVERAGE_FLOOR * 100, 3 * served)
 
 
+def _export_slate_pl(con: "duckdb.DuckDBPyConnection",
+                     base: "Path | None" = None) -> int:
+    """Ship tonight's resolved pl_* pools to ``pl_slate_<YYYYMMDD>.parquet``.
+
+    Serving half of the 2026-10-03 slate structural alignment: while history
+    resolves pl_* through the 3-tier chain (tier 1 announced nine, tier 2
+    hand-conditioned 10-day projection, tier 3 full-roster degrade) + the
+    position pools + the strictly-prior league fallback, the slate used to
+    ship an UNMARKED stale carry-forward of each team's last completed game
+    (lineup_effective/pos_agg never saw tonight's game_pk — batter_ratings
+    only contains played games). This artifact closes that gap: one file per
+    upcoming game_date with, per team-game:
+
+      pl_<pos>_xwoba         the SAME pos_agg values history serves (8 served)
+      pl_tier                membership tier that bound (1/2/3 degrade)
+      pl_prior_positions     served pools that resolved to the league-by-
+                             position prior instead of real pool data
+
+    build_upcoming_slate reads it and marks every side (pool-t1/t2/t3 vs
+    carry), so resolved-vs-carried is inspectable wherever the frame ships.
+    Writes NOTHING when no upcoming team-games exist (every side then serves
+    the marked carry — never a fabricated value). Never raises: a failure
+    degrades the slate to the marked carry under a loud warning.
+    Returns the number of team-game rows written.
+    """
+    served = list(PL_SERVED_POSITIONS)
+    try:
+        cols = ", ".join(f"a.pl_{p}_xwoba" for p in served)
+        rows = con.execute(f"""
+            SELECT u.game_date, u.game_pk, u.batting_team AS team,
+                   {cols},
+                   COALESCE((SELECT MAX(e.tier) FROM lineup_effective e
+                             WHERE e.game_pk = u.game_pk
+                               AND e.team = u.batting_team), 3) AS pl_tier
+            FROM pool_universe u
+            JOIN pos_agg a
+              ON a.game_pk = u.game_pk AND a.batting_team = u.batting_team
+            WHERE u.is_slate
+            ORDER BY u.game_date, u.game_pk, u.batting_team
+        """).fetchall()
+        if not rows:
+            logger.info("slate pl_*: no upcoming team-games resolved — the "
+                        "serving slate marks every side 'carry'")
+            return 0
+        # Which served pools actually held pool data for each team-game;
+        # everything else in the served set resolved via the prior fallback
+        # (the pos_agg COALESCE) — named so the artifact stays honest about
+        # "real pool vs league prior" even though both are resolved tonight.
+        pool_pos: dict[tuple[int, str], set] = {}
+        for pk, tm, pos in con.execute(
+                f"SELECT game_pk, batting_team, {PL_POS_SQL} AS pos "
+                "FROM pos_pool WHERE on_il = 0 "
+                "GROUP BY game_pk, batting_team, pos "
+                "HAVING SUM(_pa30) > 0").fetchall():
+            pool_pos.setdefault((int(pk), str(tm)), set()).add(str(pos))
+        col_names = (["game_date", "game_pk", "team"]
+                     + [f"pl_{p}_xwoba" for p in served] + ["pl_tier"])
+        df = pd.DataFrame(rows, columns=col_names)
+        df["pl_prior_positions"] = [
+            ",".join(p for p in served
+                     if p not in pool_pos.get((int(pk), str(tm)), set()))
+            for pk, tm in zip(df["game_pk"], df["team"])]
+        base_dir = Path(base) if base is not None else _lineup_base_dir()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        files = []
+        for d, grp in df.groupby("game_date"):
+            p = base_dir / f"pl_slate_{pd.Timestamp(d):%Y%m%d}.parquet"
+            grp.drop_duplicates(subset=["game_pk", "team"]).to_parquet(
+                p, index=False)
+            files.append(p.name)
+        tiers = {int(k): int(v)
+                 for k, v in df["pl_tier"].value_counts().items()}
+        n_prior = int((df["pl_prior_positions"] != "").sum())
+        logger.info("slate pl_* pools: %d team-games resolved across %d date(s) "
+                    "(membership tiers %s; %d with prior-fallback pools) → %s",
+                    len(df), df["game_date"].nunique(), tiers, n_prior,
+                    ", ".join(files))
+        return len(df)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate pl_* export failed (%s) — the serving slate "
+                       "falls back to the marked carry", e)
+        return 0
+
+
 def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
                             batters_ok: bool) -> None:
     """Resolve ``lineup_effective`` — the membership set both pools bind to.
@@ -335,6 +517,10 @@ def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
     (never a missing-table error, never a fabricated nine).
     """
     try:
+        # The grid membership resolves against (and the position pools will
+        # aggregate) — built HERE so lineup_effective and pos_pool can never
+        # disagree on which team-games exist: history AND tonight's slate.
+        _build_pool_universe(con)
         con.execute(_LINEUP_EFFECTIVE_SQL.format(
             lookback=LINEUP_POOL_LOOKBACK_DAYS,
             il_filter=(_EFFECTIVE_IL_FILTER if batters_ok else "TRUE")))
@@ -489,8 +675,10 @@ _POS_POOL_SQL = """
                CAST(r.batter AS BIGINT) AS batter,
                r.shrunk_xwoba, r._pa30,
                {pos_case} AS pos
-        FROM (SELECT DISTINCT game_date, game_pk, batting_team
-              FROM batter_ratings WHERE shrunk_xwoba IS NOT NULL) g
+        -- pool_universe = historical + tonight's slate team-games
+        -- (_build_pool_universe): tonight's game_pk aggregates through the
+        -- SAME membership/lookback/prior chain every historical game uses.
+        FROM pool_universe g
         JOIN batter_ratings r
           ON r.batting_team = g.batting_team
          AND r.shrunk_xwoba IS NOT NULL
@@ -1354,13 +1542,29 @@ def _register_lineups(con: "duckdb.DuckDBPyConnection") -> bool:
         return False
     try:
         lit = str(path).replace("\\", "/")
+        # Column-existence probe BEFORE the SELECT: read_parquet raises on a
+        # column that is absent (it does NOT return NULL), and the committed
+        # cache predates the hand columns. A legacy cache must still load —
+        # degrade to NULL hands (tier 2 runs unconditioned, loudly) rather
+        # than fail the whole membership build over two optional booleans.
+        have = set()
+        try:
+            have = {r[0] for r in con.execute(
+                f"SELECT name FROM (DESCRIBE SELECT * FROM read_parquet('{lit}'))")}
+        except Exception:  # noqa: BLE001 — unreadable cache handled below
+            have = set()
+        _hand_cols = ("home_starter_hand, away_starter_hand"
+                      if {"home_starter_hand", "away_starter_hand"} <= have
+                      else "CAST(NULL AS VARCHAR) AS home_starter_hand, "
+                          "CAST(NULL AS VARCHAR) AS away_starter_hand")
         con.execute(f"""
             CREATE OR REPLACE TEMP TABLE lineups_raw AS
             SELECT CAST(game_pk AS BIGINT) AS game_pk,
                    CAST(game_date AS DATE) AS game_date,
                    home_team, away_team,
                    home_order, away_order,
-                   complete_home, complete_away
+                   complete_home, complete_away,
+                   {_hand_cols}
             FROM read_parquet('{lit}')
         """)
         n, n_complete = con.execute(
@@ -2964,6 +3168,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # emptied pos_agg and the run still reported "ok" with 24 dead
     # universe columns. Name the production symptom, not the cause.
     _warn_pl_coverage(con)
+    # Serving artifact: tonight's resolved pools + provenance, written while
+    # batter_ratings / pos_agg / lineup_effective still exist. The slate
+    # build reads it to REPLACE the stale unmarked carry — the serving half
+    # of the 3-tier structural alignment (never raises: absence keeps the
+    # marked-carry path).
+    _export_slate_pl(con)
 
     # Season-to-date lineup baselines (momentum companion for today's
     # projected-lineup RE24) — expanding mean of the team's PRIOR games'

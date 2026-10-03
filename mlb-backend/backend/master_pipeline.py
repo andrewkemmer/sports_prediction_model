@@ -910,6 +910,10 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         "home_score", "away_score", "total_runs",
         # Game state from ESPN -- drives Live/Final status on the dashboard
         "game_state", "game_status_detail",
+        # pl_* provenance (2026-10-03 slate alignment): whether each side's
+        # position pools RESOLVED through the 3-tier chain tonight
+        # (pool-t1/t2/t3), fell back to the marked carry, or is missing.
+        "pl_source_home", "pl_source_away",
     ]
     cols = [c for c in out_cols if c in games.columns]
     games[cols].to_csv(path, index=False)
