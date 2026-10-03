@@ -1,9 +1,10 @@
 {
- "created_utc": "2026-10-02T20:09:43.655190+00:00",
- "date": "20261002",
+ "date": "2026-10-03",
+ "trained_at": "2026-10-03T02:32:47.674901+00:00",
+ "created_utc": "2026-10-03T02:32:47.674916+00:00",
  "config": {
   "sport": "nba",
-  "feature_set_version": "nba-prod-v2.4-epm",
+  "feature_set_version": "nba-prod-v2.5-epm",
   "seed": 42,
   "warmup_days": 30,
   "cadence_days": 7,
@@ -23,38 +24,39 @@
    "play_by_play": "stats.nba.com playbyplayv3",
    "team_events": "stats.nba.com playbyplayv3"
   },
-  "play_by_play_rows": 1711234,
+  "play_by_play_rows": 1712256,
   "event_rows": 6922
  },
- "winner_cards": {
-  "run_line": {
-   "n": 2133,
-   "brier": 0.25013305785053913,
-   "logloss": 0.6934126957739521,
-   "ece": 0.015199062353492745
+ "n_games": 2133,
+ "metrics": {
+  "auc": 0.7316035021556494,
+  "brier": 0.20872136311608508,
+  "logloss": 0.6048453035724981,
+  "ece": 0.026474345485922087,
+  "auc_calibrated": 0.7304535273860427,
+  "brier_calibrated": 0.20887501963012237,
+  "logloss_calibrated": 0.605153504553629,
+  "ece_calibrated": 0.0211316802369215
+ },
+ "calibration": {
+  "method": "favored_platt_floor",
+  "params": {
+   "a": 1.137558,
+   "b": 0.016129,
+   "n": 2133
   },
-  "totals": {
-   "n": 2133,
-   "brier": 0.25005739474861693,
-   "logloss": 0.6932619666225007,
-   "ece": 0.02522510079699947
+  "metrics_raw": {
+   "brier": 0.20872136311608508,
+   "logloss": 0.6048453035724981,
+   "ece": 0.026474345485922087
+  },
+  "metrics_calibrated": {
+   "brier": 0.20887501963012237,
+   "logloss": 0.605153504553629,
+   "ece": 0.0211316802369215
   }
  },
- "market_metrics": {
-  "run_line": {
-   "n": 2133,
-   "brier": 0.25013305785053913,
-   "logloss": 0.6934126957739521,
-   "ece": 0.015199062353492745
-  },
-  "totals": {
-   "n": 2133,
-   "brier": 0.25005739474861693,
-   "logloss": 0.6932619666225007,
-   "ece": 0.02522510079699947
-  }
- },
- "calibration_cards": {
+ "distribution_calibration": {
   "method": "prequential_platt",
   "scope": "line_specific",
   "totals": {
@@ -2074,31 +2076,42 @@
   },
   "derived_moneyline_tie_semantics": "three_way_unconditional"
  },
- "slate_history": [],
- "fit": {
-  "distribution": "negative_binomial",
-  "mc_draws": 10000,
-  "mc_draws_tail": 50000,
-  "mc_se_target": 0.005,
-  "seed": 42,
-  "spread_grid": [
-   -20,
-   20
-  ],
-  "total_grid": [
-   180,
-   280
-  ],
-  "half_stops": [
-   -0.5,
-   0.5
-  ],
-  "holdout": {
-   "cutoff": "2026-05-23",
-   "n_pre": 2130,
-   "n_holdout": 3,
-   "fitted_on": "pre-holdout OOF only",
-   "holdout_days": 21
+ "calibration_buckets": [
+  {
+   "bucket": "50\u201360%",
+   "mean_predicted": 0.5482,
+   "mean_actual": 0.5659,
+   "count": 797,
+   "gap": -0.0177
+  },
+  {
+   "bucket": "60\u201370%",
+   "mean_predicted": 0.6463,
+   "mean_actual": 0.6532,
+   "count": 643,
+   "gap": -0.0069
+  },
+  {
+   "bucket": "70\u201380%",
+   "mean_predicted": 0.746,
+   "mean_actual": 0.7822,
+   "count": 482,
+   "gap": -0.0362
+  },
+  {
+   "bucket": "80\u201390%",
+   "mean_predicted": 0.8379,
+   "mean_actual": 0.8731,
+   "count": 197,
+   "gap": -0.0352
+  },
+  {
+   "bucket": "90\u2013100%",
+   "mean_predicted": 0.9188,
+   "mean_actual": 0.9286,
+   "count": 14,
+   "gap": -0.0098
   }
- }
+ ],
+ "daily": []
 }
