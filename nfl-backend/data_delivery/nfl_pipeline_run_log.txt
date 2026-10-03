@@ -1,656 +1,960 @@
   📝 Run log tee: /kaggle/working/sports_prediction_model/nfl-backend/data_delivery/nfl_pipeline_run_log.txt (one rolling master file, overwritten every run)
-2026-10-02 02:39:21,896 INFO nflverse date window: 2016-01-01..2026-10-01 (seasons 2016..2026)
-2026-10-02 02:39:21,896 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
-2026-10-02 02:39:21,912 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
+2026-10-03 06:39:24,855 INFO nflverse date window: 2016-01-01..2026-10-03 (seasons 2016..2026)
+2026-10-03 06:39:24,855 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
+2026-10-03 06:39:24,879 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 2 — nflverse ingestion
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:39:23,980 INFO schedule rows (date window): 2688
-2026-10-02 02:39:24,202 INFO PIT weather archive: 97 window(s) x 4 batch(es) of 15 stadiums = 388 request batches
+2026-10-03 06:39:26,825 INFO schedule rows (date window): 2688
+2026-10-03 06:39:27,138 INFO PIT weather archive: 97 window(s) x 4 batch(es) of 15 stadiums = 388 request batches
 
 PIT weather archive batches:   0%|          | 0/388 [00:00<?, ?it/s]
-PIT weather archive batches:   0%|          | 1/388 [00:01<07:45,  1.20s/it]
-PIT weather archive batches:   1%|          | 2/388 [00:03<11:15,  1.75s/it]
-PIT weather archive batches:   1%|          | 3/388 [00:05<12:15,  1.91s/it]
-PIT weather archive batches:   1%|1         | 4/388 [00:07<12:14,  1.91s/it]
-PIT weather archive batches:   1%|1         | 5/388 [00:09<12:34,  1.97s/it]
-PIT weather archive batches:   2%|1         | 6/388 [00:11<13:03,  2.05s/it]
-PIT weather archive batches:   2%|1         | 7/388 [00:13<13:06,  2.06s/it]
-PIT weather archive batches:   2%|2         | 8/388 [00:15<12:39,  2.00s/it]
-PIT weather archive batches:   2%|2         | 9/388 [00:17<12:46,  2.02s/it]
-PIT weather archive batches:   3%|2         | 10/388 [00:19<12:48,  2.03s/it]
-PIT weather archive batches:   3%|2         | 11/388 [00:21<12:54,  2.06s/it]
-PIT weather archive batches:   3%|3         | 12/388 [00:23<12:28,  1.99s/it]
-PIT weather archive batches:   3%|3         | 13/388 [00:25<12:40,  2.03s/it]
-PIT weather archive batches:   4%|3         | 14/388 [00:27<12:40,  2.03s/it]
-PIT weather archive batches:   4%|3         | 15/388 [00:29<12:41,  2.04s/it]
-PIT weather archive batches:   4%|4         | 16/388 [00:31<12:16,  1.98s/it]
-PIT weather archive batches:   4%|4         | 17/388 [00:33<12:30,  2.02s/it]
-PIT weather archive batches:   5%|4         | 18/388 [00:36<12:45,  2.07s/it]
-PIT weather archive batches:   5%|4         | 19/388 [00:38<12:47,  2.08s/it]
-PIT weather archive batches:   5%|5         | 20/388 [00:39<12:17,  2.00s/it]
-PIT weather archive batches:   5%|5         | 21/388 [00:42<12:25,  2.03s/it]
-PIT weather archive batches:   6%|5         | 22/388 [00:44<12:26,  2.04s/it]
-PIT weather archive batches:   6%|5         | 23/388 [00:46<12:28,  2.05s/it]
-PIT weather archive batches:   6%|6         | 24/388 [00:48<12:04,  1.99s/it]
-PIT weather archive batches:   6%|6         | 25/388 [00:50<12:09,  2.01s/it]
-PIT weather archive batches:   7%|6         | 26/388 [00:52<12:14,  2.03s/it]
-PIT weather archive batches:   7%|6         | 27/388 [00:54<12:18,  2.05s/it]
-PIT weather archive batches:   7%|7         | 28/388 [00:56<11:55,  1.99s/it]
-PIT weather archive batches:   7%|7         | 29/388 [00:58<12:10,  2.03s/it]
-PIT weather archive batches:   8%|7         | 30/388 [01:00<12:15,  2.06s/it]
-PIT weather archive batches:   8%|7         | 31/388 [01:02<12:16,  2.06s/it]
-PIT weather archive batches:   8%|8         | 32/388 [01:04<11:52,  2.00s/it]
-PIT weather archive batches:   9%|8         | 33/388 [01:06<12:09,  2.06s/it]
-PIT weather archive batches:   9%|8         | 34/388 [01:08<12:24,  2.10s/it]
-PIT weather archive batches:   9%|9         | 35/388 [01:10<12:31,  2.13s/it]
-PIT weather archive batches:   9%|9         | 36/388 [01:12<11:58,  2.04s/it]
-PIT weather archive batches:  10%|9         | 37/388 [01:14<12:04,  2.06s/it]
-PIT weather archive batches:  10%|9         | 38/388 [01:16<12:03,  2.07s/it]
-PIT weather archive batches:  10%|#         | 39/388 [01:18<12:01,  2.07s/it]
-PIT weather archive batches:  10%|#         | 40/388 [01:20<11:34,  2.00s/it]
-PIT weather archive batches:  11%|#         | 41/388 [01:22<11:39,  2.01s/it]
-PIT weather archive batches:  11%|#         | 42/388 [01:24<11:42,  2.03s/it]
-PIT weather archive batches:  11%|#1        | 43/388 [01:26<11:41,  2.03s/it]
-PIT weather archive batches:  11%|#1        | 44/388 [01:28<11:18,  1.97s/it]
-PIT weather archive batches:  12%|#1        | 45/388 [01:30<11:25,  2.00s/it]
-PIT weather archive batches:  12%|#1        | 46/388 [01:32<11:29,  2.01s/it]
-PIT weather archive batches:  12%|#2        | 47/388 [01:34<11:31,  2.03s/it]
-PIT weather archive batches:  12%|#2        | 48/388 [01:36<11:08,  1.97s/it]
-PIT weather archive batches:  13%|#2        | 49/388 [01:38<11:15,  1.99s/it]
-PIT weather archive batches:  13%|#2        | 50/388 [01:40<11:19,  2.01s/it]
-PIT weather archive batches:  13%|#3        | 51/388 [01:42<11:22,  2.03s/it]
-PIT weather archive batches:  13%|#3        | 52/388 [01:44<10:59,  1.96s/it]
-PIT weather archive batches:  14%|#3        | 53/388 [01:46<11:16,  2.02s/it]
-PIT weather archive batches:  14%|#3        | 54/388 [01:49<11:20,  2.04s/it]
-PIT weather archive batches:  14%|#4        | 55/388 [01:51<11:19,  2.04s/it]
-PIT weather archive batches:  14%|#4        | 56/388 [01:52<10:55,  1.97s/it]
-PIT weather archive batches:  15%|#4        | 57/388 [01:54<11:00,  2.00s/it]
-PIT weather archive batches:  15%|#4        | 58/388 [01:56<11:05,  2.02s/it]
-PIT weather archive batches:  15%|#5        | 59/388 [01:59<11:11,  2.04s/it]
-PIT weather archive batches:  15%|#5        | 60/388 [02:00<10:50,  1.98s/it]
-PIT weather archive batches:  16%|#5        | 61/388 [02:02<10:55,  2.00s/it]
-PIT weather archive batches:  16%|#5        | 62/388 [02:05<10:58,  2.02s/it]
-PIT weather archive batches:  16%|#6        | 63/388 [02:07<11:05,  2.05s/it]
-PIT weather archive batches:  16%|#6        | 64/388 [02:09<10:45,  1.99s/it]
-PIT weather archive batches:  17%|#6        | 65/388 [02:11<10:51,  2.02s/it]
-PIT weather archive batches:  17%|#7        | 66/388 [02:13<10:59,  2.05s/it]
-PIT weather archive batches:  17%|#7        | 67/388 [02:15<10:57,  2.05s/it]
-PIT weather archive batches:  18%|#7        | 68/388 [02:17<10:35,  1.99s/it]
-PIT weather archive batches:  18%|#7        | 69/388 [02:19<10:44,  2.02s/it]
-PIT weather archive batches:  18%|#8        | 70/388 [02:21<10:53,  2.06s/it]
-PIT weather archive batches:  18%|#8        | 71/388 [02:23<10:54,  2.07s/it]
-PIT weather archive batches:  19%|#8        | 72/388 [02:25<10:41,  2.03s/it]
-PIT weather archive batches:  19%|#8        | 73/388 [02:27<10:42,  2.04s/it]
-PIT weather archive batches:  19%|#9        | 74/388 [02:29<10:41,  2.04s/it]
-PIT weather archive batches:  19%|#9        | 75/388 [02:31<10:40,  2.05s/it]
-PIT weather archive batches:  20%|#9        | 76/388 [02:33<10:18,  1.98s/it]
-PIT weather archive batches:  20%|#9        | 77/388 [02:35<10:25,  2.01s/it]
-PIT weather archive batches:  20%|##        | 78/388 [02:37<10:30,  2.03s/it]
-PIT weather archive batches:  20%|##        | 79/388 [02:39<10:30,  2.04s/it]
-PIT weather archive batches:  21%|##        | 80/388 [02:41<10:08,  1.98s/it]
-PIT weather archive batches:  21%|##        | 81/388 [02:43<10:17,  2.01s/it]
-PIT weather archive batches:  21%|##1       | 82/388 [02:45<10:24,  2.04s/it]
-PIT weather archive batches:  21%|##1       | 83/388 [02:47<10:26,  2.05s/it]
-PIT weather archive batches:  22%|##1       | 84/388 [02:49<10:04,  1.99s/it]
-PIT weather archive batches:  22%|##1       | 85/388 [02:51<10:11,  2.02s/it]
-PIT weather archive batches:  22%|##2       | 86/388 [02:53<10:13,  2.03s/it]
-PIT weather archive batches:  22%|##2       | 87/388 [02:55<10:15,  2.04s/it]
-PIT weather archive batches:  23%|##2       | 88/388 [02:57<09:55,  1.98s/it]
-PIT weather archive batches:  23%|##2       | 89/388 [02:59<10:01,  2.01s/it]
-PIT weather archive batches:  23%|##3       | 90/388 [03:01<10:02,  2.02s/it]
-PIT weather archive batches:  23%|##3       | 91/388 [03:03<10:04,  2.04s/it]
-PIT weather archive batches:  24%|##3       | 92/388 [03:05<09:43,  1.97s/it]
-PIT weather archive batches:  24%|##3       | 93/388 [03:07<09:51,  2.01s/it]
-PIT weather archive batches:  24%|##4       | 94/388 [03:09<09:55,  2.03s/it]
-PIT weather archive batches:  24%|##4       | 95/388 [03:11<10:08,  2.08s/it]
-PIT weather archive batches:  25%|##4       | 96/388 [03:13<09:45,  2.01s/it]
-PIT weather archive batches:  25%|##5       | 97/388 [03:15<09:53,  2.04s/it]
-PIT weather archive batches:  25%|##5       | 98/388 [03:18<09:55,  2.05s/it]
-PIT weather archive batches:  26%|##5       | 99/388 [03:20<09:55,  2.06s/it]
-PIT weather archive batches:  26%|##5       | 100/388 [03:21<09:33,  1.99s/it]
-PIT weather archive batches:  26%|##6       | 101/388 [03:24<09:39,  2.02s/it]
-PIT weather archive batches:  26%|##6       | 102/388 [03:26<09:42,  2.04s/it]
-PIT weather archive batches:  27%|##6       | 103/388 [03:28<09:42,  2.05s/it]
-PIT weather archive batches:  27%|##6       | 104/388 [03:29<09:21,  1.98s/it]
-PIT weather archive batches:  27%|##7       | 105/388 [03:32<09:30,  2.02s/it]
-PIT weather archive batches:  27%|##7       | 106/388 [03:34<09:38,  2.05s/it]
-PIT weather archive batches:  28%|##7       | 107/388 [03:36<09:37,  2.06s/it]
-PIT weather archive batches:  28%|##7       | 108/388 [03:38<09:17,  1.99s/it]
-PIT weather archive batches:  28%|##8       | 109/388 [03:40<09:19,  2.01s/it]
-PIT weather archive batches:  28%|##8       | 110/388 [03:42<09:23,  2.03s/it]
-PIT weather archive batches:  29%|##8       | 111/388 [03:44<09:23,  2.04s/it]
-PIT weather archive batches:  29%|##8       | 112/388 [03:46<09:05,  1.98s/it]
-PIT weather archive batches:  29%|##9       | 113/388 [03:48<09:08,  2.00s/it]
-PIT weather archive batches:  29%|##9       | 114/388 [03:50<09:12,  2.02s/it]
-PIT weather archive batches:  30%|##9       | 115/388 [03:52<09:14,  2.03s/it]
-PIT weather archive batches:  30%|##9       | 116/388 [03:54<08:55,  1.97s/it]
-PIT weather archive batches:  30%|###       | 117/388 [03:56<09:01,  2.00s/it]
-PIT weather archive batches:  30%|###       | 118/388 [03:58<09:04,  2.02s/it]
-PIT weather archive batches:  31%|###       | 119/388 [04:00<09:07,  2.04s/it]
-PIT weather archive batches:  31%|###       | 120/388 [04:02<08:50,  1.98s/it]
-PIT weather archive batches:  31%|###1      | 121/388 [04:04<08:54,  2.00s/it]
-PIT weather archive batches:  31%|###1      | 122/388 [04:06<08:57,  2.02s/it]
-PIT weather archive batches:  32%|###1      | 123/388 [04:08<08:59,  2.03s/it]
-PIT weather archive batches:  32%|###1      | 124/388 [04:10<08:42,  1.98s/it]
-PIT weather archive batches:  32%|###2      | 125/388 [04:12<08:49,  2.01s/it]
-PIT weather archive batches:  32%|###2      | 126/388 [04:14<09:08,  2.09s/it]
-PIT weather archive batches:  33%|###2      | 127/388 [04:16<09:05,  2.09s/it]
-PIT weather archive batches:  33%|###2      | 128/388 [04:18<08:42,  2.01s/it]
-PIT weather archive batches:  33%|###3      | 129/388 [04:20<08:45,  2.03s/it]
-PIT weather archive batches:  34%|###3      | 130/388 [04:22<08:46,  2.04s/it]
-PIT weather archive batches:  34%|###3      | 131/388 [04:24<08:47,  2.05s/it]
-PIT weather archive batches:  34%|###4      | 132/388 [04:26<08:27,  1.98s/it]
-PIT weather archive batches:  34%|###4      | 133/388 [04:28<08:31,  2.01s/it]
-PIT weather archive batches:  35%|###4      | 134/388 [04:30<08:34,  2.03s/it]
-PIT weather archive batches:  35%|###4      | 135/388 [04:32<08:35,  2.04s/it]
-PIT weather archive batches:  35%|###5      | 136/388 [04:34<08:18,  1.98s/it]
-PIT weather archive batches:  35%|###5      | 137/388 [04:36<08:22,  2.00s/it]
-PIT weather archive batches:  36%|###5      | 138/388 [04:38<08:26,  2.03s/it]
-PIT weather archive batches:  36%|###5      | 139/388 [04:40<08:27,  2.04s/it]
-PIT weather archive batches:  36%|###6      | 140/388 [04:42<08:10,  1.98s/it]
-PIT weather archive batches:  36%|###6      | 141/388 [04:44<08:19,  2.02s/it]
-PIT weather archive batches:  37%|###6      | 142/388 [04:46<08:24,  2.05s/it]
-PIT weather archive batches:  37%|###6      | 143/388 [04:48<08:23,  2.06s/it]
-PIT weather archive batches:  37%|###7      | 144/388 [04:50<08:05,  1.99s/it]
-PIT weather archive batches:  37%|###7      | 145/388 [04:52<08:09,  2.01s/it]
-PIT weather archive batches:  38%|###7      | 146/388 [04:54<08:12,  2.03s/it]
-PIT weather archive batches:  38%|###7      | 147/388 [04:56<08:12,  2.05s/it]
-PIT weather archive batches:  38%|###8      | 148/388 [04:58<07:56,  1.99s/it]
-PIT weather archive batches:  38%|###8      | 149/388 [05:00<08:01,  2.01s/it]
-PIT weather archive batches:  39%|###8      | 150/388 [05:03<08:04,  2.03s/it]
-PIT weather archive batches:  39%|###8      | 151/388 [05:05<08:03,  2.04s/it]
-PIT weather archive batches:  39%|###9      | 152/388 [05:06<07:46,  1.98s/it]
-PIT weather archive batches:  39%|###9      | 153/388 [05:08<07:51,  2.01s/it]
-PIT weather archive batches:  40%|###9      | 154/388 [05:11<07:55,  2.03s/it]
-PIT weather archive batches:  40%|###9      | 155/388 [05:13<07:56,  2.05s/it]
-PIT weather archive batches:  40%|####      | 156/388 [05:14<07:39,  1.98s/it]
-PIT weather archive batches:  40%|####      | 157/388 [05:17<07:43,  2.01s/it]
-PIT weather archive batches:  41%|####      | 158/388 [05:19<07:44,  2.02s/it]
-PIT weather archive batches:  41%|####      | 159/388 [05:21<07:43,  2.03s/it]
-PIT weather archive batches:  41%|####1     | 160/388 [05:22<07:30,  1.97s/it]
-PIT weather archive batches:  41%|####1     | 161/388 [05:25<07:34,  2.00s/it]
-PIT weather archive batches:  42%|####1     | 162/388 [05:27<07:52,  2.09s/it]
-PIT weather archive batches:  42%|####2     | 163/388 [05:29<07:50,  2.09s/it]
-PIT weather archive batches:  42%|####2     | 164/388 [05:31<07:31,  2.02s/it]
-PIT weather archive batches:  43%|####2     | 165/388 [05:33<07:36,  2.05s/it]
-PIT weather archive batches:  43%|####2     | 166/388 [05:35<07:34,  2.05s/it]
-PIT weather archive batches:  43%|####3     | 167/388 [05:37<07:35,  2.06s/it]
-PIT weather archive batches:  43%|####3     | 168/388 [05:39<07:19,  2.00s/it]
-PIT weather archive batches:  44%|####3     | 169/388 [05:41<07:23,  2.02s/it]
-PIT weather archive batches:  44%|####3     | 170/388 [05:43<07:25,  2.05s/it]
-PIT weather archive batches:  44%|####4     | 171/388 [05:45<07:24,  2.05s/it]
-PIT weather archive batches:  44%|####4     | 172/388 [05:47<07:09,  1.99s/it]
-PIT weather archive batches:  45%|####4     | 173/388 [05:49<07:11,  2.01s/it]
-PIT weather archive batches:  45%|####4     | 174/388 [05:51<07:13,  2.03s/it]
-PIT weather archive batches:  45%|####5     | 175/388 [05:53<07:15,  2.04s/it]
-PIT weather archive batches:  45%|####5     | 176/388 [05:55<06:59,  1.98s/it]
-PIT weather archive batches:  46%|####5     | 177/388 [05:57<07:05,  2.02s/it]
-PIT weather archive batches:  46%|####5     | 178/388 [05:59<07:10,  2.05s/it]
-PIT weather archive batches:  46%|####6     | 179/388 [06:01<07:09,  2.05s/it]
-PIT weather archive batches:  46%|####6     | 180/388 [06:03<06:53,  1.99s/it]
-PIT weather archive batches:  47%|####6     | 181/388 [06:05<06:56,  2.01s/it]
-PIT weather archive batches:  47%|####6     | 182/388 [06:07<06:58,  2.03s/it]
-PIT weather archive batches:  47%|####7     | 183/388 [06:09<06:58,  2.04s/it]
-PIT weather archive batches:  47%|####7     | 184/388 [06:11<06:43,  1.98s/it]
-PIT weather archive batches:  48%|####7     | 185/388 [06:13<06:48,  2.01s/it]
-PIT weather archive batches:  48%|####7     | 186/388 [06:15<06:50,  2.03s/it]
-PIT weather archive batches:  48%|####8     | 187/388 [06:17<06:48,  2.03s/it]
-PIT weather archive batches:  48%|####8     | 188/388 [06:19<06:35,  1.98s/it]
-PIT weather archive batches:  49%|####8     | 189/388 [06:21<06:38,  2.00s/it]
-PIT weather archive batches:  49%|####8     | 190/388 [06:23<06:39,  2.02s/it]
-PIT weather archive batches:  49%|####9     | 191/388 [06:25<06:40,  2.03s/it]
-PIT weather archive batches:  49%|####9     | 192/388 [06:27<06:28,  1.98s/it]
-PIT weather archive batches:  50%|####9     | 193/388 [06:29<06:31,  2.01s/it]
-PIT weather archive batches:  50%|#####     | 194/388 [06:31<06:32,  2.02s/it]
-PIT weather archive batches:  50%|#####     | 195/388 [06:33<06:32,  2.03s/it]
-PIT weather archive batches:  51%|#####     | 196/388 [06:35<06:18,  1.97s/it]
-PIT weather archive batches:  51%|#####     | 197/388 [06:37<06:22,  2.00s/it]
-PIT weather archive batches:  51%|#####1    | 198/388 [06:39<06:24,  2.03s/it]
-PIT weather archive batches:  51%|#####1    | 199/388 [06:41<06:24,  2.04s/it]
-PIT weather archive batches:  52%|#####1    | 200/388 [06:43<06:12,  1.98s/it]
-PIT weather archive batches:  52%|#####1    | 201/388 [06:45<06:16,  2.01s/it]
-PIT weather archive batches:  52%|#####2    | 202/388 [06:48<06:18,  2.04s/it]
-PIT weather archive batches:  52%|#####2    | 203/388 [06:50<06:18,  2.05s/it]
-PIT weather archive batches:  53%|#####2    | 204/388 [06:51<06:04,  1.98s/it]
-PIT weather archive batches:  53%|#####2    | 205/388 [06:54<06:08,  2.01s/it]
-PIT weather archive batches:  53%|#####3    | 206/388 [06:56<06:09,  2.03s/it]
-PIT weather archive batches:  53%|#####3    | 207/388 [06:58<06:10,  2.05s/it]
-PIT weather archive batches:  54%|#####3    | 208/388 [06:59<05:56,  1.98s/it]
-PIT weather archive batches:  54%|#####3    | 209/388 [07:02<06:14,  2.09s/it]
-PIT weather archive batches:  54%|#####4    | 210/388 [07:04<06:12,  2.10s/it]
-PIT weather archive batches:  54%|#####4    | 211/388 [07:06<06:07,  2.08s/it]
-PIT weather archive batches:  55%|#####4    | 212/388 [07:08<05:52,  2.00s/it]
-PIT weather archive batches:  55%|#####4    | 213/388 [07:10<05:55,  2.03s/it]
-PIT weather archive batches:  55%|#####5    | 214/388 [07:12<05:56,  2.05s/it]
-PIT weather archive batches:  55%|#####5    | 215/388 [07:14<05:56,  2.06s/it]
-PIT weather archive batches:  56%|#####5    | 216/388 [07:16<05:43,  2.00s/it]
-PIT weather archive batches:  56%|#####5    | 217/388 [07:18<05:46,  2.02s/it]
-PIT weather archive batches:  56%|#####6    | 218/388 [07:20<05:46,  2.04s/it]
-PIT weather archive batches:  56%|#####6    | 219/388 [07:22<05:44,  2.04s/it]
-PIT weather archive batches:  57%|#####6    | 220/388 [07:24<05:32,  1.98s/it]
-PIT weather archive batches:  57%|#####6    | 221/388 [07:26<05:34,  2.00s/it]
-PIT weather archive batches:  57%|#####7    | 222/388 [07:28<05:35,  2.02s/it]
-PIT weather archive batches:  57%|#####7    | 223/388 [07:30<05:36,  2.04s/it]
-PIT weather archive batches:  58%|#####7    | 224/388 [07:32<05:24,  1.98s/it]
-PIT weather archive batches:  58%|#####7    | 225/388 [07:34<05:27,  2.01s/it]
-PIT weather archive batches:  58%|#####8    | 226/388 [07:36<05:27,  2.02s/it]
-PIT weather archive batches:  59%|#####8    | 227/388 [07:38<05:27,  2.03s/it]
-PIT weather archive batches:  59%|#####8    | 228/388 [07:40<05:17,  1.98s/it]
-PIT weather archive batches:  59%|#####9    | 229/388 [07:42<05:18,  2.00s/it]
-PIT weather archive batches:  59%|#####9    | 230/388 [07:44<05:21,  2.03s/it]
-PIT weather archive batches:  60%|#####9    | 231/388 [07:46<05:22,  2.05s/it]
-PIT weather archive batches:  60%|#####9    | 232/388 [07:48<05:09,  1.98s/it]
-PIT weather archive batches:  60%|######    | 233/388 [07:50<05:11,  2.01s/it]
-PIT weather archive batches:  60%|######    | 234/388 [07:52<05:12,  2.03s/it]
-PIT weather archive batches:  61%|######    | 235/388 [07:54<05:11,  2.03s/it]
-PIT weather archive batches:  61%|######    | 236/388 [07:56<05:01,  1.98s/it]
-PIT weather archive batches:  61%|######1   | 237/388 [07:58<05:03,  2.01s/it]
-PIT weather archive batches:  61%|######1   | 238/388 [08:00<05:04,  2.03s/it]
-PIT weather archive batches:  62%|######1   | 239/388 [08:02<05:03,  2.04s/it]
-PIT weather archive batches:  62%|######1   | 240/388 [08:04<04:53,  1.98s/it]
-PIT weather archive batches:  62%|######2   | 241/388 [08:06<04:56,  2.02s/it]
-PIT weather archive batches:  62%|######2   | 242/388 [08:08<04:57,  2.04s/it]
-PIT weather archive batches:  63%|######2   | 243/388 [08:11<04:56,  2.05s/it]
-PIT weather archive batches:  63%|######2   | 244/388 [08:12<04:46,  1.99s/it]
-PIT weather archive batches:  63%|######3   | 245/388 [08:14<04:48,  2.01s/it]
-PIT weather archive batches:  63%|######3   | 246/388 [08:17<04:49,  2.04s/it]
-PIT weather archive batches:  64%|######3   | 247/388 [08:19<04:49,  2.05s/it]
-PIT weather archive batches:  64%|######3   | 248/388 [08:20<04:37,  1.99s/it]
-PIT weather archive batches:  64%|######4   | 249/388 [08:22<04:38,  2.00s/it]
-PIT weather archive batches:  64%|######4   | 250/388 [08:25<04:39,  2.03s/it]
-PIT weather archive batches:  65%|######4   | 251/388 [08:27<04:38,  2.03s/it]
-PIT weather archive batches:  65%|######4   | 252/388 [08:28<04:28,  1.97s/it]
-PIT weather archive batches:  65%|######5   | 253/388 [08:31<04:32,  2.02s/it]
-PIT weather archive batches:  65%|######5   | 254/388 [08:33<04:33,  2.04s/it]
-PIT weather archive batches:  66%|######5   | 255/388 [08:35<04:32,  2.05s/it]
-PIT weather archive batches:  66%|######5   | 256/388 [08:37<04:22,  1.99s/it]
-PIT weather archive batches:  66%|######6   | 257/388 [08:39<04:25,  2.02s/it]
-PIT weather archive batches:  66%|######6   | 258/388 [08:41<04:25,  2.05s/it]
-PIT weather archive batches:  67%|######6   | 259/388 [08:43<04:24,  2.05s/it]
-PIT weather archive batches:  67%|######7   | 260/388 [08:45<04:13,  1.98s/it]
-PIT weather archive batches:  67%|######7   | 261/388 [08:47<04:16,  2.02s/it]
-PIT weather archive batches:  68%|######7   | 262/388 [08:49<04:17,  2.05s/it]
-PIT weather archive batches:  68%|######7   | 263/388 [08:51<04:17,  2.06s/it]
-PIT weather archive batches:  68%|######8   | 264/388 [08:53<04:06,  1.99s/it]
-PIT weather archive batches:  68%|######8   | 265/388 [08:55<04:24,  2.15s/it]
-PIT weather archive batches:  69%|######8   | 266/388 [08:57<04:21,  2.14s/it]
-PIT weather archive batches:  69%|######8   | 267/388 [09:00<04:17,  2.13s/it]
-PIT weather archive batches:  69%|######9   | 268/388 [09:01<04:03,  2.03s/it]
-PIT weather archive batches:  69%|######9   | 269/388 [09:03<04:05,  2.06s/it]
-PIT weather archive batches:  70%|######9   | 270/388 [09:06<04:04,  2.07s/it]
-PIT weather archive batches:  70%|######9   | 271/388 [09:08<04:02,  2.07s/it]
-PIT weather archive batches:  70%|#######   | 272/388 [09:09<03:51,  2.00s/it]
-PIT weather archive batches:  70%|#######   | 273/388 [09:12<03:51,  2.01s/it]
-PIT weather archive batches:  71%|#######   | 274/388 [09:14<03:51,  2.03s/it]
-PIT weather archive batches:  71%|#######   | 275/388 [09:16<03:50,  2.04s/it]
-PIT weather archive batches:  71%|#######1  | 276/388 [09:18<03:42,  1.99s/it]
-PIT weather archive batches:  71%|#######1  | 277/388 [09:20<03:45,  2.03s/it]
-PIT weather archive batches:  72%|#######1  | 278/388 [09:22<03:45,  2.05s/it]
-PIT weather archive batches:  72%|#######1  | 279/388 [09:24<03:44,  2.06s/it]
-PIT weather archive batches:  72%|#######2  | 280/388 [09:26<03:34,  1.99s/it]
-PIT weather archive batches:  72%|#######2  | 281/388 [09:28<03:36,  2.02s/it]
-PIT weather archive batches:  73%|#######2  | 282/388 [09:30<03:36,  2.04s/it]
-PIT weather archive batches:  73%|#######2  | 283/388 [09:32<03:34,  2.05s/it]
-PIT weather archive batches:  73%|#######3  | 284/388 [09:34<03:26,  1.99s/it]
-PIT weather archive batches:  73%|#######3  | 285/388 [09:36<03:27,  2.02s/it]
-PIT weather archive batches:  74%|#######3  | 286/388 [09:38<03:27,  2.03s/it]
-PIT weather archive batches:  74%|#######3  | 287/388 [09:40<03:25,  2.04s/it]
-PIT weather archive batches:  74%|#######4  | 288/388 [09:42<03:17,  1.98s/it]
-PIT weather archive batches:  74%|#######4  | 289/388 [09:44<03:19,  2.01s/it]
-PIT weather archive batches:  75%|#######4  | 290/388 [09:46<03:20,  2.05s/it]
-PIT weather archive batches:  75%|#######5  | 291/388 [09:48<03:19,  2.06s/it]
-PIT weather archive batches:  75%|#######5  | 292/388 [09:50<03:11,  1.99s/it]
-PIT weather archive batches:  76%|#######5  | 293/388 [09:52<03:12,  2.02s/it]
-PIT weather archive batches:  76%|#######5  | 294/388 [09:54<03:12,  2.05s/it]
-PIT weather archive batches:  76%|#######6  | 295/388 [09:56<03:11,  2.06s/it]
-PIT weather archive batches:  76%|#######6  | 296/388 [09:58<03:03,  2.00s/it]
-PIT weather archive batches:  77%|#######6  | 297/388 [10:00<03:03,  2.02s/it]
-PIT weather archive batches:  77%|#######6  | 298/388 [10:02<03:03,  2.03s/it]
-PIT weather archive batches:  77%|#######7  | 299/388 [10:04<03:03,  2.06s/it]
-PIT weather archive batches:  77%|#######7  | 300/388 [10:06<02:54,  1.99s/it]
-PIT weather archive batches:  78%|#######7  | 301/388 [10:08<02:56,  2.03s/it]
-PIT weather archive batches:  78%|#######7  | 302/388 [10:10<02:58,  2.08s/it]
-PIT weather archive batches:  78%|#######8  | 303/388 [10:13<02:56,  2.08s/it]
-PIT weather archive batches:  78%|#######8  | 304/388 [10:14<02:48,  2.01s/it]
-PIT weather archive batches:  79%|#######8  | 305/388 [10:16<02:48,  2.03s/it]
-PIT weather archive batches:  79%|#######8  | 306/388 [10:19<02:46,  2.04s/it]
-PIT weather archive batches:  79%|#######9  | 307/388 [10:21<02:46,  2.05s/it]
-PIT weather archive batches:  79%|#######9  | 308/388 [10:22<02:38,  1.98s/it]
-PIT weather archive batches:  80%|#######9  | 309/388 [10:25<02:39,  2.02s/it]
-PIT weather archive batches:  80%|#######9  | 310/388 [10:27<02:40,  2.05s/it]
-PIT weather archive batches:  80%|########  | 311/388 [10:29<02:39,  2.07s/it]
-PIT weather archive batches:  80%|########  | 312/388 [10:31<02:32,  2.01s/it]
-PIT weather archive batches:  81%|########  | 313/388 [10:33<02:34,  2.06s/it]
-PIT weather archive batches:  81%|########  | 314/388 [10:35<02:33,  2.07s/it]
-PIT weather archive batches:  81%|########1 | 315/388 [10:37<02:31,  2.08s/it]
-PIT weather archive batches:  81%|########1 | 316/388 [10:39<02:24,  2.01s/it]
-PIT weather archive batches:  82%|########1 | 317/388 [10:41<02:23,  2.03s/it]
-PIT weather archive batches:  82%|########1 | 318/388 [10:43<02:23,  2.05s/it]
-PIT weather archive batches:  82%|########2 | 319/388 [10:45<02:21,  2.05s/it]
-PIT weather archive batches:  82%|########2 | 320/388 [10:47<02:14,  1.98s/it]
-PIT weather archive batches:  83%|########2 | 321/388 [10:49<02:15,  2.02s/it]
-PIT weather archive batches:  83%|########2 | 322/388 [10:51<02:15,  2.05s/it]
-PIT weather archive batches:  83%|########3 | 323/388 [10:53<02:13,  2.06s/it]
-PIT weather archive batches:  84%|########3 | 324/388 [10:55<02:07,  1.98s/it]
-PIT weather archive batches:  84%|########3 | 325/388 [10:57<02:07,  2.03s/it]
-PIT weather archive batches:  84%|########4 | 326/388 [10:59<02:06,  2.05s/it]
-PIT weather archive batches:  84%|########4 | 327/388 [11:01<02:05,  2.06s/it]
-PIT weather archive batches:  85%|########4 | 328/388 [11:03<01:59,  1.99s/it]
-PIT weather archive batches:  85%|########4 | 329/388 [11:05<01:58,  2.01s/it]
-PIT weather archive batches:  85%|########5 | 330/388 [11:07<01:57,  2.03s/it]
-PIT weather archive batches:  85%|########5 | 331/388 [11:09<01:56,  2.05s/it]
-PIT weather archive batches:  86%|########5 | 332/388 [11:11<01:51,  1.98s/it]
-PIT weather archive batches:  86%|########5 | 333/388 [11:13<01:50,  2.02s/it]
-PIT weather archive batches:  86%|########6 | 334/388 [11:15<01:50,  2.05s/it]
-PIT weather archive batches:  86%|########6 | 335/388 [11:17<01:48,  2.05s/it]
-PIT weather archive batches:  87%|########6 | 336/388 [11:19<01:43,  1.98s/it]
-PIT weather archive batches:  87%|########6 | 337/388 [11:22<01:50,  2.16s/it]
-PIT weather archive batches:  87%|########7 | 338/388 [11:24<01:47,  2.15s/it]
-PIT weather archive batches:  87%|########7 | 339/388 [11:26<01:44,  2.13s/it]
-PIT weather archive batches:  88%|########7 | 340/388 [11:28<01:37,  2.04s/it]
-PIT weather archive batches:  88%|########7 | 341/388 [11:30<01:36,  2.06s/it]
-PIT weather archive batches:  88%|########8 | 342/388 [11:32<01:35,  2.07s/it]
-PIT weather archive batches:  88%|########8 | 343/388 [11:34<01:33,  2.07s/it]
-PIT weather archive batches:  89%|########8 | 344/388 [11:36<01:27,  2.00s/it]
-PIT weather archive batches:  89%|########8 | 345/388 [11:38<01:27,  2.03s/it]
-PIT weather archive batches:  89%|########9 | 346/388 [11:40<01:26,  2.05s/it]
-PIT weather archive batches:  89%|########9 | 347/388 [11:42<01:24,  2.06s/it]
-PIT weather archive batches:  90%|########9 | 348/388 [11:44<01:19,  2.00s/it]
-PIT weather archive batches:  90%|########9 | 349/388 [11:46<01:18,  2.02s/it]
-PIT weather archive batches:  90%|######### | 350/388 [11:48<01:17,  2.03s/it]
-PIT weather archive batches:  90%|######### | 351/388 [11:50<01:15,  2.03s/it]
-PIT weather archive batches:  91%|######### | 352/388 [11:52<01:11,  1.97s/it]
-PIT weather archive batches:  91%|######### | 353/388 [11:54<01:10,  2.02s/it]
-PIT weather archive batches:  91%|#########1| 354/388 [11:56<01:09,  2.04s/it]
-PIT weather archive batches:  91%|#########1| 355/388 [11:58<01:07,  2.05s/it]
-PIT weather archive batches:  92%|#########1| 356/388 [12:00<01:03,  1.99s/it]
-PIT weather archive batches:  92%|#########2| 357/388 [12:02<01:03,  2.03s/it]
-PIT weather archive batches:  92%|#########2| 358/388 [12:05<01:01,  2.06s/it]
-PIT weather archive batches:  93%|#########2| 359/388 [12:07<01:00,  2.07s/it]
-PIT weather archive batches:  93%|#########2| 360/388 [12:08<00:55,  2.00s/it]
-PIT weather archive batches:  93%|#########3| 361/388 [12:11<00:54,  2.02s/it]
-PIT weather archive batches:  93%|#########3| 362/388 [12:13<00:52,  2.02s/it]
-PIT weather archive batches:  94%|#########3| 363/388 [12:15<00:50,  2.03s/it]
-PIT weather archive batches:  94%|#########3| 364/388 [12:16<00:47,  1.97s/it]
-PIT weather archive batches:  94%|#########4| 365/388 [12:19<00:46,  2.01s/it]
-PIT weather archive batches:  94%|#########4| 366/388 [12:21<00:44,  2.04s/it]
-PIT weather archive batches:  95%|#########4| 367/388 [12:23<00:42,  2.05s/it]
-PIT weather archive batches:  95%|#########4| 368/388 [12:25<00:39,  1.99s/it]
-PIT weather archive batches:  95%|#########5| 369/388 [12:27<00:38,  2.02s/it]
-PIT weather archive batches:  95%|#########5| 370/388 [12:29<00:36,  2.05s/it]
-PIT weather archive batches:  96%|#########5| 371/388 [12:31<00:35,  2.06s/it]
-PIT weather archive batches:  96%|#########5| 372/388 [12:33<00:31,  1.99s/it]
-PIT weather archive batches:  96%|#########6| 373/388 [12:35<00:30,  2.01s/it]
-PIT weather archive batches:  96%|#########6| 374/388 [12:37<00:28,  2.03s/it]
-PIT weather archive batches:  97%|#########6| 375/388 [12:39<00:26,  2.05s/it]
-PIT weather archive batches:  97%|#########6| 376/388 [12:41<00:23,  1.99s/it]
-PIT weather archive batches:  97%|#########7| 377/388 [12:43<00:22,  2.02s/it]
-PIT weather archive batches:  97%|#########7| 378/388 [12:45<00:20,  2.06s/it]
-PIT weather archive batches:  98%|#########7| 379/388 [12:47<00:18,  2.06s/it]
-PIT weather archive batches:  98%|#########7| 380/388 [12:49<00:15,  1.99s/it]
-PIT weather archive batches:  98%|#########8| 381/388 [12:51<00:14,  2.03s/it]
-PIT weather archive batches:  98%|#########8| 382/388 [12:53<00:12,  2.05s/it]
-PIT weather archive batches:  99%|#########8| 383/388 [12:55<00:10,  2.06s/it]
-PIT weather archive batches:  99%|#########8| 384/388 [12:57<00:07,  2.00s/it]
-PIT weather archive batches:  99%|#########9| 385/388 [12:59<00:06,  2.01s/it]
-PIT weather archive batches:  99%|#########9| 386/388 [13:01<00:04,  2.02s/it]
-PIT weather archive batches: 100%|#########9| 387/388 [13:03<00:02,  2.03s/it]
-PIT weather archive batches: 100%|##########| 388/388 [13:05<00:00,  1.97s/it]
-PIT weather archive batches: 100%|##########| 388/388 [13:05<00:00,  2.02s/it]
-2026-10-02 02:52:29,766 INFO PIT weather recent: fetching 2026-07-03..2026-10-02 observed (forecast endpoint) for 49 stadiums
-2026-10-02 02:52:36,020 INFO PIT weather: 1912/1912 eligible games available from strict pre-kickoff hourly records
-2026-10-02 02:52:36,292 INFO PIT weather rows: 1912
-2026-10-02 02:52:36,296 INFO ingestion window 2016-01-01 .. 2026-10-01 in 66 x 60-day chunks (MLB parity)
-2026-10-02 02:52:36,296 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
+PIT weather archive batches:   0%|          | 1/388 [00:00<06:20,  1.02it/s]
+PIT weather archive batches:   1%|          | 2/388 [00:02<09:50,  1.53s/it]
+PIT weather archive batches:   1%|          | 3/388 [00:04<10:48,  1.68s/it]
+PIT weather archive batches:   1%|1         | 4/388 [00:06<10:42,  1.67s/it]
+PIT weather archive batches:   1%|1         | 5/388 [00:08<11:03,  1.73s/it]
+PIT weather archive batches:   2%|1         | 6/388 [00:10<11:15,  1.77s/it]
+PIT weather archive batches:   2%|1         | 7/388 [00:11<11:23,  1.79s/it]
+PIT weather archive batches:   2%|2         | 8/388 [00:13<11:03,  1.75s/it]
+PIT weather archive batches:   2%|2         | 9/388 [00:15<11:11,  1.77s/it]
+PIT weather archive batches:   3%|2         | 10/388 [00:17<11:17,  1.79s/it]
+PIT weather archive batches:   3%|2         | 11/388 [00:19<11:19,  1.80s/it]
+PIT weather archive batches:   3%|3         | 12/388 [00:20<10:59,  1.75s/it]
+PIT weather archive batches:   3%|3         | 13/388 [00:22<11:06,  1.78s/it]
+PIT weather archive batches:   4%|3         | 14/388 [00:24<11:12,  1.80s/it]
+PIT weather archive batches:   4%|3         | 15/388 [00:26<11:14,  1.81s/it]
+PIT weather archive batches:   4%|4         | 16/388 [00:27<10:54,  1.76s/it]
+PIT weather archive batches:   4%|4         | 17/388 [00:29<11:02,  1.78s/it]
+PIT weather archive batches:   5%|4         | 18/388 [00:31<11:14,  1.82s/it]
+PIT weather archive batches:   5%|4         | 19/388 [00:33<11:15,  1.83s/it]
+PIT weather archive batches:   5%|5         | 20/388 [00:35<10:52,  1.77s/it]
+PIT weather archive batches:   5%|5         | 21/388 [00:36<10:56,  1.79s/it]
+PIT weather archive batches:   6%|5         | 22/388 [00:38<10:59,  1.80s/it]
+PIT weather archive batches:   6%|5         | 23/388 [00:40<11:01,  1.81s/it]
+PIT weather archive batches:   6%|6         | 24/388 [00:42<10:42,  1.76s/it]
+PIT weather archive batches:   6%|6         | 25/388 [00:44<10:47,  1.78s/it]
+PIT weather archive batches:   7%|6         | 26/388 [00:45<10:51,  1.80s/it]
+PIT weather archive batches:   7%|6         | 27/388 [00:47<10:53,  1.81s/it]
+PIT weather archive batches:   7%|7         | 28/388 [00:49<10:33,  1.76s/it]
+PIT weather archive batches:   7%|7         | 29/388 [00:51<10:47,  1.80s/it]
+PIT weather archive batches:   8%|7         | 30/388 [00:53<10:53,  1.82s/it]
+PIT weather archive batches:   8%|7         | 31/388 [00:55<10:54,  1.83s/it]
+PIT weather archive batches:   8%|8         | 32/388 [00:56<10:32,  1.78s/it]
+PIT weather archive batches:   9%|8         | 33/388 [00:58<10:49,  1.83s/it]
+PIT weather archive batches:   9%|8         | 34/388 [01:00<10:59,  1.86s/it]
+PIT weather archive batches:   9%|9         | 35/388 [01:02<11:06,  1.89s/it]
+PIT weather archive batches:   9%|9         | 36/388 [01:04<10:39,  1.82s/it]
+PIT weather archive batches:  10%|9         | 37/388 [01:06<10:38,  1.82s/it]
+PIT weather archive batches:  10%|9         | 38/388 [01:07<10:37,  1.82s/it]
+PIT weather archive batches:  10%|#         | 39/388 [01:09<10:37,  1.83s/it]
+PIT weather archive batches:  10%|#         | 40/388 [01:11<10:15,  1.77s/it]
+PIT weather archive batches:  11%|#         | 41/388 [01:13<10:19,  1.79s/it]
+PIT weather archive batches:  11%|#         | 42/388 [01:14<10:22,  1.80s/it]
+PIT weather archive batches:  11%|#1        | 43/388 [01:16<10:23,  1.81s/it]
+PIT weather archive batches:  11%|#1        | 44/388 [01:18<10:04,  1.76s/it]
+PIT weather archive batches:  12%|#1        | 45/388 [01:20<10:09,  1.78s/it]
+PIT weather archive batches:  12%|#1        | 46/388 [01:22<10:14,  1.80s/it]
+PIT weather archive batches:  12%|#2        | 47/388 [01:23<10:18,  1.81s/it]
+PIT weather archive batches:  12%|#2        | 48/388 [01:25<09:59,  1.76s/it]
+PIT weather archive batches:  13%|#2        | 49/388 [01:27<10:04,  1.78s/it]
+PIT weather archive batches:  13%|#2        | 50/388 [01:29<10:07,  1.80s/it]
+PIT weather archive batches:  13%|#3        | 51/388 [01:31<10:08,  1.81s/it]
+PIT weather archive batches:  13%|#3        | 52/388 [01:32<09:50,  1.76s/it]
+PIT weather archive batches:  14%|#3        | 53/388 [01:34<10:08,  1.82s/it]
+PIT weather archive batches:  14%|#3        | 54/388 [01:36<10:08,  1.82s/it]
+PIT weather archive batches:  14%|#4        | 55/388 [01:38<10:07,  1.83s/it]
+PIT weather archive batches:  14%|#4        | 56/388 [01:39<09:47,  1.77s/it]
+PIT weather archive batches:  15%|#4        | 57/388 [01:41<09:51,  1.79s/it]
+PIT weather archive batches:  15%|#4        | 58/388 [01:43<09:53,  1.80s/it]
+PIT weather archive batches:  15%|#5        | 59/388 [01:45<09:55,  1.81s/it]
+PIT weather archive batches:  15%|#5        | 60/388 [01:47<09:35,  1.76s/it]
+PIT weather archive batches:  16%|#5        | 61/388 [01:48<09:41,  1.78s/it]
+PIT weather archive batches:  16%|#5        | 62/388 [01:50<09:45,  1.80s/it]
+PIT weather archive batches:  16%|#6        | 63/388 [01:52<09:47,  1.81s/it]
+PIT weather archive batches:  16%|#6        | 64/388 [01:54<09:29,  1.76s/it]
+PIT weather archive batches:  17%|#6        | 65/388 [01:56<09:35,  1.78s/it]
+PIT weather archive batches:  17%|#7        | 66/388 [01:57<09:38,  1.80s/it]
+PIT weather archive batches:  17%|#7        | 67/388 [01:59<09:39,  1.81s/it]
+PIT weather archive batches:  18%|#7        | 68/388 [02:01<09:22,  1.76s/it]
+PIT weather archive batches:  18%|#7        | 69/388 [02:03<09:34,  1.80s/it]
+PIT weather archive batches:  18%|#8        | 70/388 [02:05<09:41,  1.83s/it]
+PIT weather archive batches:  18%|#8        | 71/388 [02:07<09:42,  1.84s/it]
+PIT weather archive batches:  19%|#8        | 72/388 [02:08<09:36,  1.82s/it]
+PIT weather archive batches:  19%|#8        | 73/388 [02:10<09:35,  1.83s/it]
+PIT weather archive batches:  19%|#9        | 74/388 [02:12<09:33,  1.83s/it]
+PIT weather archive batches:  19%|#9        | 75/388 [02:14<09:32,  1.83s/it]
+PIT weather archive batches:  20%|#9        | 76/388 [02:15<09:12,  1.77s/it]
+PIT weather archive batches:  20%|#9        | 77/388 [02:17<09:16,  1.79s/it]
+PIT weather archive batches:  20%|##        | 78/388 [02:19<09:18,  1.80s/it]
+PIT weather archive batches:  20%|##        | 79/388 [02:21<09:19,  1.81s/it]
+PIT weather archive batches:  21%|##        | 80/388 [02:23<09:01,  1.76s/it]
+PIT weather archive batches:  21%|##        | 81/388 [02:24<09:06,  1.78s/it]
+PIT weather archive batches:  21%|##1       | 82/388 [02:26<09:09,  1.80s/it]
+PIT weather archive batches:  21%|##1       | 83/388 [02:28<09:10,  1.81s/it]
+PIT weather archive batches:  22%|##1       | 84/388 [02:30<08:53,  1.76s/it]
+PIT weather archive batches:  22%|##1       | 85/388 [02:32<08:59,  1.78s/it]
+PIT weather archive batches:  22%|##2       | 86/388 [02:33<09:01,  1.79s/it]
+PIT weather archive batches:  22%|##2       | 87/388 [02:35<09:03,  1.81s/it]
+PIT weather archive batches:  23%|##2       | 88/388 [02:37<08:46,  1.75s/it]
+PIT weather archive batches:  23%|##2       | 89/388 [02:39<08:51,  1.78s/it]
+PIT weather archive batches:  23%|##3       | 90/388 [02:41<08:53,  1.79s/it]
+PIT weather archive batches:  23%|##3       | 91/388 [02:42<08:55,  1.80s/it]
+PIT weather archive batches:  24%|##3       | 92/388 [02:44<08:39,  1.75s/it]
+PIT weather archive batches:  24%|##3       | 93/388 [02:46<08:44,  1.78s/it]
+PIT weather archive batches:  24%|##4       | 94/388 [02:48<08:47,  1.79s/it]
+PIT weather archive batches:  24%|##4       | 95/388 [02:50<09:04,  1.86s/it]
+PIT weather archive batches:  25%|##4       | 96/388 [02:51<08:43,  1.79s/it]
+PIT weather archive batches:  25%|##5       | 97/388 [02:53<08:45,  1.80s/it]
+PIT weather archive batches:  25%|##5       | 98/388 [02:55<08:46,  1.81s/it]
+PIT weather archive batches:  26%|##5       | 99/388 [02:57<08:45,  1.82s/it]
+PIT weather archive batches:  26%|##5       | 100/388 [02:58<08:28,  1.77s/it]
+PIT weather archive batches:  26%|##6       | 101/388 [03:00<08:32,  1.79s/it]
+PIT weather archive batches:  26%|##6       | 102/388 [03:02<08:35,  1.80s/it]
+PIT weather archive batches:  27%|##6       | 103/388 [03:04<08:36,  1.81s/it]
+PIT weather archive batches:  27%|##6       | 104/388 [03:06<08:20,  1.76s/it]
+PIT weather archive batches:  27%|##7       | 105/388 [03:08<08:31,  1.81s/it]
+PIT weather archive batches:  27%|##7       | 106/388 [03:09<08:40,  1.85s/it]
+PIT weather archive batches:  28%|##7       | 107/388 [03:11<08:40,  1.85s/it]
+PIT weather archive batches:  28%|##7       | 108/388 [03:13<08:21,  1.79s/it]
+PIT weather archive batches:  28%|##8       | 109/388 [03:15<08:23,  1.80s/it]
+PIT weather archive batches:  28%|##8       | 110/388 [03:17<08:22,  1.81s/it]
+PIT weather archive batches:  29%|##8       | 111/388 [03:18<08:22,  1.81s/it]
+PIT weather archive batches:  29%|##8       | 112/388 [03:20<08:06,  1.76s/it]
+PIT weather archive batches:  29%|##9       | 113/388 [03:22<08:11,  1.79s/it]
+PIT weather archive batches:  29%|##9       | 114/388 [03:24<08:13,  1.80s/it]
+PIT weather archive batches:  30%|##9       | 115/388 [03:26<08:13,  1.81s/it]
+PIT weather archive batches:  30%|##9       | 116/388 [03:27<07:58,  1.76s/it]
+PIT weather archive batches:  30%|###       | 117/388 [03:29<08:02,  1.78s/it]
+PIT weather archive batches:  30%|###       | 118/388 [03:31<08:04,  1.79s/it]
+PIT weather archive batches:  31%|###       | 119/388 [03:33<08:05,  1.81s/it]
+PIT weather archive batches:  31%|###       | 120/388 [03:34<07:50,  1.76s/it]
+PIT weather archive batches:  31%|###1      | 121/388 [03:36<07:54,  1.78s/it]
+PIT weather archive batches:  31%|###1      | 122/388 [03:38<07:57,  1.79s/it]
+PIT weather archive batches:  32%|###1      | 123/388 [03:40<07:58,  1.81s/it]
+PIT weather archive batches:  32%|###1      | 124/388 [03:41<07:43,  1.76s/it]
+PIT weather archive batches:  32%|###2      | 125/388 [03:43<07:48,  1.78s/it]
+PIT weather archive batches:  32%|###2      | 126/388 [03:45<08:09,  1.87s/it]
+PIT weather archive batches:  33%|###2      | 127/388 [03:47<08:05,  1.86s/it]
+PIT weather archive batches:  33%|###2      | 128/388 [03:49<07:46,  1.80s/it]
+PIT weather archive batches:  33%|###3      | 129/388 [03:51<07:47,  1.80s/it]
+PIT weather archive batches:  34%|###3      | 130/388 [03:53<07:47,  1.81s/it]
+PIT weather archive batches:  34%|###3      | 131/388 [03:54<07:47,  1.82s/it]
+PIT weather archive batches:  34%|###4      | 132/388 [03:56<07:32,  1.77s/it]
+PIT weather archive batches:  34%|###4      | 133/388 [03:58<07:35,  1.79s/it]
+PIT weather archive batches:  35%|###4      | 134/388 [04:00<07:37,  1.80s/it]
+PIT weather archive batches:  35%|###4      | 135/388 [04:02<07:38,  1.81s/it]
+PIT weather archive batches:  35%|###5      | 136/388 [04:03<07:24,  1.76s/it]
+PIT weather archive batches:  35%|###5      | 137/388 [04:05<07:27,  1.78s/it]
+PIT weather archive batches:  36%|###5      | 138/388 [04:07<07:29,  1.80s/it]
+PIT weather archive batches:  36%|###5      | 139/388 [04:09<07:29,  1.81s/it]
+PIT weather archive batches:  36%|###6      | 140/388 [04:10<07:15,  1.76s/it]
+PIT weather archive batches:  36%|###6      | 141/388 [04:12<07:24,  1.80s/it]
+PIT weather archive batches:  37%|###6      | 142/388 [04:14<07:30,  1.83s/it]
+PIT weather archive batches:  37%|###6      | 143/388 [04:16<07:31,  1.84s/it]
+PIT weather archive batches:  37%|###7      | 144/388 [04:18<07:15,  1.78s/it]
+PIT weather archive batches:  37%|###7      | 145/388 [04:19<07:16,  1.80s/it]
+PIT weather archive batches:  38%|###7      | 146/388 [04:21<07:17,  1.81s/it]
+PIT weather archive batches:  38%|###7      | 147/388 [04:23<07:16,  1.81s/it]
+PIT weather archive batches:  38%|###8      | 148/388 [04:25<07:02,  1.76s/it]
+PIT weather archive batches:  38%|###8      | 149/388 [04:27<07:06,  1.78s/it]
+PIT weather archive batches:  39%|###8      | 150/388 [04:28<07:07,  1.80s/it]
+PIT weather archive batches:  39%|###8      | 151/388 [04:30<07:08,  1.81s/it]
+PIT weather archive batches:  39%|###9      | 152/388 [04:32<06:54,  1.76s/it]
+PIT weather archive batches:  39%|###9      | 153/388 [04:34<06:58,  1.78s/it]
+PIT weather archive batches:  40%|###9      | 154/388 [04:36<07:00,  1.80s/it]
+PIT weather archive batches:  40%|###9      | 155/388 [04:37<07:00,  1.81s/it]
+PIT weather archive batches:  40%|####      | 156/388 [04:39<06:47,  1.76s/it]
+PIT weather archive batches:  40%|####      | 157/388 [04:41<06:51,  1.78s/it]
+PIT weather archive batches:  41%|####      | 158/388 [04:43<06:53,  1.80s/it]
+PIT weather archive batches:  41%|####      | 159/388 [04:45<06:53,  1.81s/it]
+PIT weather archive batches:  41%|####1     | 160/388 [04:46<06:40,  1.76s/it]
+PIT weather archive batches:  41%|####1     | 161/388 [04:48<06:43,  1.78s/it]
+PIT weather archive batches:  42%|####1     | 162/388 [04:50<07:04,  1.88s/it]
+PIT weather archive batches:  42%|####2     | 163/388 [04:52<06:58,  1.86s/it]
+PIT weather archive batches:  42%|####2     | 164/388 [04:54<06:42,  1.80s/it]
+PIT weather archive batches:  43%|####2     | 165/388 [04:55<06:42,  1.80s/it]
+PIT weather archive batches:  43%|####2     | 166/388 [04:57<06:42,  1.81s/it]
+PIT weather archive batches:  43%|####3     | 167/388 [04:59<06:41,  1.82s/it]
+PIT weather archive batches:  43%|####3     | 168/388 [05:01<06:28,  1.76s/it]
+PIT weather archive batches:  44%|####3     | 169/388 [05:03<06:30,  1.78s/it]
+PIT weather archive batches:  44%|####3     | 170/388 [05:04<06:32,  1.80s/it]
+PIT weather archive batches:  44%|####4     | 171/388 [05:06<06:32,  1.81s/it]
+PIT weather archive batches:  44%|####4     | 172/388 [05:08<06:20,  1.76s/it]
+PIT weather archive batches:  45%|####4     | 173/388 [05:10<06:24,  1.79s/it]
+PIT weather archive batches:  45%|####4     | 174/388 [05:12<06:25,  1.80s/it]
+PIT weather archive batches:  45%|####5     | 175/388 [05:13<06:25,  1.81s/it]
+PIT weather archive batches:  45%|####5     | 176/388 [05:15<06:12,  1.76s/it]
+PIT weather archive batches:  46%|####5     | 177/388 [05:17<06:19,  1.80s/it]
+PIT weather archive batches:  46%|####5     | 178/388 [05:19<06:23,  1.83s/it]
+PIT weather archive batches:  46%|####6     | 179/388 [05:21<06:23,  1.84s/it]
+PIT weather archive batches:  46%|####6     | 180/388 [05:22<06:10,  1.78s/it]
+PIT weather archive batches:  47%|####6     | 181/388 [05:24<06:12,  1.80s/it]
+PIT weather archive batches:  47%|####6     | 182/388 [05:26<06:12,  1.81s/it]
+PIT weather archive batches:  47%|####7     | 183/388 [05:28<06:12,  1.82s/it]
+PIT weather archive batches:  47%|####7     | 184/388 [05:29<06:00,  1.77s/it]
+PIT weather archive batches:  48%|####7     | 185/388 [05:31<06:02,  1.79s/it]
+PIT weather archive batches:  48%|####7     | 186/388 [05:33<06:03,  1.80s/it]
+PIT weather archive batches:  48%|####8     | 187/388 [05:35<06:03,  1.81s/it]
+PIT weather archive batches:  48%|####8     | 188/388 [05:37<05:52,  1.76s/it]
+PIT weather archive batches:  49%|####8     | 189/388 [05:38<05:55,  1.78s/it]
+PIT weather archive batches:  49%|####8     | 190/388 [05:40<05:56,  1.80s/it]
+PIT weather archive batches:  49%|####9     | 191/388 [05:42<05:56,  1.81s/it]
+PIT weather archive batches:  49%|####9     | 192/388 [05:44<05:44,  1.76s/it]
+PIT weather archive batches:  50%|####9     | 193/388 [05:46<05:47,  1.78s/it]
+PIT weather archive batches:  50%|#####     | 194/388 [05:47<05:48,  1.80s/it]
+PIT weather archive batches:  50%|#####     | 195/388 [05:49<05:48,  1.81s/it]
+PIT weather archive batches:  51%|#####     | 196/388 [05:51<05:37,  1.76s/it]
+PIT weather archive batches:  51%|#####     | 197/388 [05:53<05:39,  1.78s/it]
+PIT weather archive batches:  51%|#####1    | 198/388 [05:55<05:41,  1.79s/it]
+PIT weather archive batches:  51%|#####1    | 199/388 [05:56<05:41,  1.81s/it]
+PIT weather archive batches:  52%|#####1    | 200/388 [05:58<05:29,  1.76s/it]
+PIT weather archive batches:  52%|#####1    | 201/388 [06:00<05:32,  1.78s/it]
+PIT weather archive batches:  52%|#####2    | 202/388 [06:02<05:34,  1.80s/it]
+PIT weather archive batches:  52%|#####2    | 203/388 [06:04<05:34,  1.81s/it]
+PIT weather archive batches:  53%|#####2    | 204/388 [06:05<05:23,  1.76s/it]
+PIT weather archive batches:  53%|#####2    | 205/388 [06:07<05:25,  1.78s/it]
+PIT weather archive batches:  53%|#####3    | 206/388 [06:09<05:26,  1.79s/it]
+PIT weather archive batches:  53%|#####3    | 207/388 [06:11<05:26,  1.81s/it]
+PIT weather archive batches:  54%|#####3    | 208/388 [06:12<05:16,  1.76s/it]
+PIT weather archive batches:  54%|#####3    | 209/388 [06:14<05:36,  1.88s/it]
+PIT weather archive batches:  54%|#####4    | 210/388 [06:16<05:31,  1.86s/it]
+PIT weather archive batches:  54%|#####4    | 211/388 [06:18<05:28,  1.85s/it]
+PIT weather archive batches:  55%|#####4    | 212/388 [06:20<05:15,  1.79s/it]
+PIT weather archive batches:  55%|#####4    | 213/388 [06:22<05:18,  1.82s/it]
+PIT weather archive batches:  55%|#####5    | 214/388 [06:24<05:19,  1.83s/it]
+PIT weather archive batches:  55%|#####5    | 215/388 [06:25<05:18,  1.84s/it]
+PIT weather archive batches:  56%|#####5    | 216/388 [06:27<05:06,  1.78s/it]
+PIT weather archive batches:  56%|#####5    | 217/388 [06:29<05:07,  1.80s/it]
+PIT weather archive batches:  56%|#####6    | 218/388 [06:31<05:07,  1.81s/it]
+PIT weather archive batches:  56%|#####6    | 219/388 [06:33<05:06,  1.81s/it]
+PIT weather archive batches:  57%|#####6    | 220/388 [06:34<04:56,  1.76s/it]
+PIT weather archive batches:  57%|#####6    | 221/388 [06:36<04:58,  1.79s/it]
+PIT weather archive batches:  57%|#####7    | 222/388 [06:38<04:58,  1.80s/it]
+PIT weather archive batches:  57%|#####7    | 223/388 [06:40<05:25,  1.97s/it]
+PIT weather archive batches:  58%|#####7    | 224/388 [06:42<05:07,  1.87s/it]
+PIT weather archive batches:  58%|#####7    | 225/388 [06:44<05:03,  1.86s/it]
+PIT weather archive batches:  58%|#####8    | 226/388 [06:46<05:00,  1.85s/it]
+PIT weather archive batches:  59%|#####8    | 227/388 [06:47<04:57,  1.85s/it]
+PIT weather archive batches:  59%|#####8    | 228/388 [06:49<04:45,  1.79s/it]
+PIT weather archive batches:  59%|#####9    | 229/388 [06:51<04:46,  1.80s/it]
+PIT weather archive batches:  59%|#####9    | 230/388 [06:53<04:45,  1.81s/it]
+PIT weather archive batches:  60%|#####9    | 231/388 [06:54<04:45,  1.82s/it]
+PIT weather archive batches:  60%|#####9    | 232/388 [06:56<04:35,  1.76s/it]
+PIT weather archive batches:  60%|######    | 233/388 [06:58<04:36,  1.78s/it]
+PIT weather archive batches:  60%|######    | 234/388 [07:00<04:36,  1.80s/it]
+PIT weather archive batches:  61%|######    | 235/388 [07:02<04:36,  1.81s/it]
+PIT weather archive batches:  61%|######    | 236/388 [07:03<04:27,  1.76s/it]
+PIT weather archive batches:  61%|######1   | 237/388 [07:05<04:28,  1.78s/it]
+PIT weather archive batches:  61%|######1   | 238/388 [07:07<04:29,  1.79s/it]
+PIT weather archive batches:  62%|######1   | 239/388 [07:09<04:28,  1.80s/it]
+PIT weather archive batches:  62%|######1   | 240/388 [07:10<04:19,  1.76s/it]
+PIT weather archive batches:  62%|######2   | 241/388 [07:12<04:21,  1.78s/it]
+PIT weather archive batches:  62%|######2   | 242/388 [07:14<04:21,  1.79s/it]
+PIT weather archive batches:  63%|######2   | 243/388 [07:16<04:21,  1.80s/it]
+PIT weather archive batches:  63%|######2   | 244/388 [07:18<04:12,  1.76s/it]
+PIT weather archive batches:  63%|######3   | 245/388 [07:19<04:14,  1.78s/it]
+PIT weather archive batches:  63%|######3   | 246/388 [07:21<04:14,  1.79s/it]
+PIT weather archive batches:  64%|######3   | 247/388 [07:23<04:14,  1.81s/it]
+PIT weather archive batches:  64%|######3   | 248/388 [07:25<04:05,  1.76s/it]
+PIT weather archive batches:  64%|######4   | 249/388 [07:26<04:07,  1.78s/it]
+PIT weather archive batches:  64%|######4   | 250/388 [07:28<04:07,  1.79s/it]
+PIT weather archive batches:  65%|######4   | 251/388 [07:30<04:07,  1.80s/it]
+PIT weather archive batches:  65%|######4   | 252/388 [07:32<03:58,  1.75s/it]
+PIT weather archive batches:  65%|######5   | 253/388 [07:34<04:01,  1.79s/it]
+PIT weather archive batches:  65%|######5   | 254/388 [07:36<04:02,  1.81s/it]
+PIT weather archive batches:  66%|######5   | 255/388 [07:37<04:01,  1.82s/it]
+PIT weather archive batches:  66%|######5   | 256/388 [07:39<03:52,  1.77s/it]
+PIT weather archive batches:  66%|######6   | 257/388 [07:41<03:57,  1.81s/it]
+PIT weather archive batches:  66%|######6   | 258/388 [07:43<03:58,  1.84s/it]
+PIT weather archive batches:  67%|######6   | 259/388 [07:45<03:56,  1.84s/it]
+PIT weather archive batches:  67%|######7   | 260/388 [07:46<03:47,  1.78s/it]
+PIT weather archive batches:  67%|######7   | 261/388 [07:48<03:49,  1.81s/it]
+PIT weather archive batches:  68%|######7   | 262/388 [07:50<03:51,  1.84s/it]
+PIT weather archive batches:  68%|######7   | 263/388 [07:52<03:49,  1.84s/it]
+PIT weather archive batches:  68%|######8   | 264/388 [07:54<03:40,  1.78s/it]
+PIT weather archive batches:  68%|######8   | 265/388 [07:56<03:56,  1.93s/it]
+PIT weather archive batches:  69%|######8   | 266/388 [07:58<03:53,  1.91s/it]
+PIT weather archive batches:  69%|######8   | 267/388 [08:00<03:48,  1.89s/it]
+PIT weather archive batches:  69%|######9   | 268/388 [08:01<03:38,  1.82s/it]
+PIT weather archive batches:  69%|######9   | 269/388 [08:03<03:38,  1.84s/it]
+PIT weather archive batches:  70%|######9   | 270/388 [08:05<03:39,  1.86s/it]
+PIT weather archive batches:  70%|######9   | 271/388 [08:07<03:36,  1.85s/it]
+PIT weather archive batches:  70%|#######   | 272/388 [08:08<03:27,  1.79s/it]
+PIT weather archive batches:  70%|#######   | 273/388 [08:10<03:27,  1.80s/it]
+PIT weather archive batches:  71%|#######   | 274/388 [08:12<03:26,  1.81s/it]
+PIT weather archive batches:  71%|#######   | 275/388 [08:14<03:25,  1.82s/it]
+PIT weather archive batches:  71%|#######1  | 276/388 [08:16<03:17,  1.77s/it]
+PIT weather archive batches:  71%|#######1  | 277/388 [08:17<03:19,  1.80s/it]
+PIT weather archive batches:  72%|#######1  | 278/388 [08:19<03:20,  1.82s/it]
+PIT weather archive batches:  72%|#######1  | 279/388 [08:21<03:19,  1.83s/it]
+PIT weather archive batches:  72%|#######2  | 280/388 [08:23<03:11,  1.77s/it]
+PIT weather archive batches:  72%|#######2  | 281/388 [08:25<03:13,  1.81s/it]
+PIT weather archive batches:  73%|#######2  | 282/388 [08:27<03:14,  1.83s/it]
+PIT weather archive batches:  73%|#######2  | 283/388 [08:28<03:12,  1.84s/it]
+PIT weather archive batches:  73%|#######3  | 284/388 [08:30<03:05,  1.78s/it]
+PIT weather archive batches:  73%|#######3  | 285/388 [08:32<03:04,  1.80s/it]
+PIT weather archive batches:  74%|#######3  | 286/388 [08:34<03:04,  1.81s/it]
+PIT weather archive batches:  74%|#######3  | 287/388 [08:36<03:03,  1.81s/it]
+PIT weather archive batches:  74%|#######4  | 288/388 [08:37<02:56,  1.76s/it]
+PIT weather archive batches:  74%|#######4  | 289/388 [08:39<02:57,  1.80s/it]
+PIT weather archive batches:  75%|#######4  | 290/388 [08:41<02:58,  1.82s/it]
+PIT weather archive batches:  75%|#######5  | 291/388 [08:43<02:57,  1.83s/it]
+PIT weather archive batches:  75%|#######5  | 292/388 [08:44<02:50,  1.77s/it]
+PIT weather archive batches:  76%|#######5  | 293/388 [08:46<02:51,  1.80s/it]
+PIT weather archive batches:  76%|#######5  | 294/388 [08:48<02:51,  1.82s/it]
+PIT weather archive batches:  76%|#######6  | 295/388 [08:50<02:50,  1.83s/it]
+PIT weather archive batches:  76%|#######6  | 296/388 [08:52<02:43,  1.77s/it]
+PIT weather archive batches:  77%|#######6  | 297/388 [08:54<02:43,  1.79s/it]
+PIT weather archive batches:  77%|#######6  | 298/388 [08:55<02:42,  1.80s/it]
+PIT weather archive batches:  77%|#######7  | 299/388 [08:57<02:41,  1.81s/it]
+PIT weather archive batches:  77%|#######7  | 300/388 [08:59<02:35,  1.76s/it]
+PIT weather archive batches:  78%|#######7  | 301/388 [09:01<02:38,  1.83s/it]
+PIT weather archive batches:  78%|#######7  | 302/388 [09:03<02:39,  1.85s/it]
+PIT weather archive batches:  78%|#######8  | 303/388 [09:05<02:37,  1.85s/it]
+PIT weather archive batches:  78%|#######8  | 304/388 [09:06<02:30,  1.79s/it]
+PIT weather archive batches:  79%|#######8  | 305/388 [09:08<02:29,  1.80s/it]
+PIT weather archive batches:  79%|#######8  | 306/388 [09:10<02:28,  1.81s/it]
+PIT weather archive batches:  79%|#######9  | 307/388 [09:12<02:27,  1.82s/it]
+PIT weather archive batches:  79%|#######9  | 308/388 [09:13<02:21,  1.77s/it]
+PIT weather archive batches:  80%|#######9  | 309/388 [09:15<02:21,  1.79s/it]
+PIT weather archive batches:  80%|#######9  | 310/388 [09:17<02:21,  1.82s/it]
+PIT weather archive batches:  80%|########  | 311/388 [09:19<02:20,  1.83s/it]
+PIT weather archive batches:  80%|########  | 312/388 [09:21<02:14,  1.77s/it]
+PIT weather archive batches:  81%|########  | 313/388 [09:22<02:14,  1.80s/it]
+PIT weather archive batches:  81%|########  | 314/388 [09:24<02:14,  1.82s/it]
+PIT weather archive batches:  81%|########1 | 315/388 [09:26<02:13,  1.83s/it]
+PIT weather archive batches:  81%|########1 | 316/388 [09:28<02:07,  1.77s/it]
+PIT weather archive batches:  82%|########1 | 317/388 [09:30<02:07,  1.79s/it]
+PIT weather archive batches:  82%|########1 | 318/388 [09:31<02:06,  1.80s/it]
+PIT weather archive batches:  82%|########2 | 319/388 [09:33<02:05,  1.81s/it]
+PIT weather archive batches:  82%|########2 | 320/388 [09:35<01:59,  1.76s/it]
+PIT weather archive batches:  83%|########2 | 321/388 [09:37<02:00,  1.79s/it]
+PIT weather archive batches:  83%|########2 | 322/388 [09:39<02:00,  1.82s/it]
+PIT weather archive batches:  83%|########3 | 323/388 [09:41<01:58,  1.83s/it]
+PIT weather archive batches:  84%|########3 | 324/388 [09:42<01:53,  1.77s/it]
+PIT weather archive batches:  84%|########3 | 325/388 [09:44<01:53,  1.80s/it]
+PIT weather archive batches:  84%|########4 | 326/388 [09:46<01:53,  1.82s/it]
+PIT weather archive batches:  84%|########4 | 327/388 [09:48<01:51,  1.83s/it]
+PIT weather archive batches:  85%|########4 | 328/388 [09:49<01:46,  1.77s/it]
+PIT weather archive batches:  85%|########4 | 329/388 [09:51<01:45,  1.79s/it]
+PIT weather archive batches:  85%|########5 | 330/388 [09:53<01:44,  1.80s/it]
+PIT weather archive batches:  85%|########5 | 331/388 [09:55<01:43,  1.81s/it]
+PIT weather archive batches:  86%|########5 | 332/388 [09:57<01:38,  1.76s/it]
+PIT weather archive batches:  86%|########5 | 333/388 [09:58<01:38,  1.79s/it]
+PIT weather archive batches:  86%|########6 | 334/388 [10:00<01:37,  1.81s/it]
+PIT weather archive batches:  86%|########6 | 335/388 [10:02<01:36,  1.83s/it]
+PIT weather archive batches:  87%|########6 | 336/388 [10:04<01:32,  1.77s/it]
+PIT weather archive batches:  87%|########6 | 337/388 [10:06<01:39,  1.96s/it]
+PIT weather archive batches:  87%|########7 | 338/388 [10:08<01:36,  1.93s/it]
+PIT weather archive batches:  87%|########7 | 339/388 [10:10<01:33,  1.91s/it]
+PIT weather archive batches:  88%|########7 | 340/388 [10:12<01:27,  1.83s/it]
+PIT weather archive batches:  88%|########7 | 341/388 [10:13<01:26,  1.84s/it]
+PIT weather archive batches:  88%|########8 | 342/388 [10:15<01:25,  1.86s/it]
+PIT weather archive batches:  88%|########8 | 343/388 [10:17<01:23,  1.85s/it]
+PIT weather archive batches:  89%|########8 | 344/388 [10:19<01:18,  1.79s/it]
+PIT weather archive batches:  89%|########8 | 345/388 [10:21<01:17,  1.81s/it]
+PIT weather archive batches:  89%|########9 | 346/388 [10:23<01:16,  1.83s/it]
+PIT weather archive batches:  89%|########9 | 347/388 [10:24<01:15,  1.84s/it]
+PIT weather archive batches:  90%|########9 | 348/388 [10:26<01:11,  1.78s/it]
+PIT weather archive batches:  90%|########9 | 349/388 [10:28<01:10,  1.80s/it]
+PIT weather archive batches:  90%|######### | 350/388 [10:30<01:08,  1.81s/it]
+PIT weather archive batches:  90%|######### | 351/388 [10:32<01:07,  1.82s/it]
+PIT weather archive batches:  91%|######### | 352/388 [10:33<01:03,  1.76s/it]
+PIT weather archive batches:  91%|######### | 353/388 [10:35<01:02,  1.80s/it]
+PIT weather archive batches:  91%|#########1| 354/388 [10:37<01:01,  1.82s/it]
+PIT weather archive batches:  91%|#########1| 355/388 [10:39<01:00,  1.83s/it]
+PIT weather archive batches:  92%|#########1| 356/388 [10:40<00:56,  1.77s/it]
+PIT weather archive batches:  92%|#########2| 357/388 [10:42<00:55,  1.80s/it]
+PIT weather archive batches:  92%|#########2| 358/388 [10:44<00:54,  1.82s/it]
+PIT weather archive batches:  93%|#########2| 359/388 [10:46<00:53,  1.83s/it]
+PIT weather archive batches:  93%|#########2| 360/388 [10:48<00:49,  1.77s/it]
+PIT weather archive batches:  93%|#########3| 361/388 [10:49<00:48,  1.79s/it]
+PIT weather archive batches:  93%|#########3| 362/388 [10:51<00:46,  1.80s/it]
+PIT weather archive batches:  94%|#########3| 363/388 [10:53<00:45,  1.81s/it]
+PIT weather archive batches:  94%|#########3| 364/388 [10:55<00:42,  1.76s/it]
+PIT weather archive batches:  94%|#########4| 365/388 [10:57<00:41,  1.79s/it]
+PIT weather archive batches:  94%|#########4| 366/388 [10:58<00:39,  1.81s/it]
+PIT weather archive batches:  95%|#########4| 367/388 [11:00<00:38,  1.82s/it]
+PIT weather archive batches:  95%|#########4| 368/388 [11:02<00:35,  1.77s/it]
+PIT weather archive batches:  95%|#########5| 369/388 [11:04<00:34,  1.80s/it]
+PIT weather archive batches:  95%|#########5| 370/388 [11:06<00:32,  1.83s/it]
+PIT weather archive batches:  96%|#########5| 371/388 [11:08<00:31,  1.84s/it]
+PIT weather archive batches:  96%|#########5| 372/388 [11:09<00:28,  1.78s/it]
+PIT weather archive batches:  96%|#########6| 373/388 [11:11<00:26,  1.79s/it]
+PIT weather archive batches:  96%|#########6| 374/388 [11:13<00:25,  1.80s/it]
+PIT weather archive batches:  97%|#########6| 375/388 [11:15<00:23,  1.81s/it]
+PIT weather archive batches:  97%|#########6| 376/388 [11:16<00:21,  1.76s/it]
+PIT weather archive batches:  97%|#########7| 377/388 [11:18<00:19,  1.79s/it]
+PIT weather archive batches:  97%|#########7| 378/388 [11:20<00:18,  1.81s/it]
+PIT weather archive batches:  98%|#########7| 379/388 [11:22<00:16,  1.82s/it]
+PIT weather archive batches:  98%|#########7| 380/388 [11:24<00:14,  1.77s/it]
+PIT weather archive batches:  98%|#########8| 381/388 [11:25<00:12,  1.80s/it]
+PIT weather archive batches:  98%|#########8| 382/388 [11:27<00:10,  1.82s/it]
+PIT weather archive batches:  99%|#########8| 383/388 [11:29<00:09,  1.83s/it]
+PIT weather archive batches:  99%|#########8| 384/388 [11:31<00:07,  1.77s/it]
+PIT weather archive batches:  99%|#########9| 385/388 [11:33<00:05,  1.78s/it]
+PIT weather archive batches:  99%|#########9| 386/388 [11:34<00:03,  1.79s/it]
+PIT weather archive batches: 100%|#########9| 387/388 [11:36<00:01,  1.79s/it]
+PIT weather archive batches: 100%|##########| 388/388 [11:38<00:00,  1.75s/it]
+PIT weather archive batches: 100%|##########| 388/388 [11:38<00:00,  1.80s/it]
+2026-10-03 06:51:06,736 INFO PIT weather: 1912/1912 eligible games available from strict pre-kickoff hourly records
+2026-10-03 06:51:07,019 INFO PIT weather rows: 1912
+2026-10-03 06:51:07,021 INFO ingestion window 2016-01-01 .. 2026-10-03 in 66 x 60-day chunks (MLB parity)
+2026-10-03 06:51:07,021 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
 
-nflverse population (season/source units):   0%|          | 0/108 [00:00<?, ?it/s]2026-10-02 02:52:36,297 INFO loading pbp season 2016
-2026-10-02 02:52:37,787 INFO loading pbp season 2017
-2026-10-02 02:52:38,866 INFO loading pbp season 2018
-2026-10-02 02:52:39,877 INFO loading pbp season 2019
-2026-10-02 02:52:40,942 INFO loading pbp season 2020
-2026-10-02 02:52:41,963 INFO loading pbp season 2021
-2026-10-02 02:52:43,019 INFO loading pbp season 2022
-2026-10-02 02:52:44,096 INFO loading pbp season 2023
-2026-10-02 02:52:45,142 INFO loading pbp season 2024
-2026-10-02 02:52:46,228 INFO loading pbp season 2025
-2026-10-02 02:52:47,265 INFO loading pbp season 2026
-2026-10-02 02:52:47,773 INFO pbp rows: 492565
+nflverse population (season/source units):   0%|          | 0/108 [00:00<?, ?it/s]
+                                                                                  
+2026-10-03 06:51:07,022 INFO loading pbp season 2016
 
-nflverse population (season/source units):  11%|#1        | 12/108 [00:11<01:31,  1.05it/s]2026-10-02 02:52:47,774 INFO loading player stats season 2015
+nflverse population (season/source units):  10%|#         | 11/108 [00:00<00:00, 20514.60it/s]
+                                                                                              
+2026-10-03 06:51:08,149 INFO loading pbp season 2017
 
-nflverse population (season/source units):  12%|#2        | 13/108 [00:11<01:26,  1.10it/s]2026-10-02 02:52:48,269 INFO loading player stats season 2016
+nflverse population (season/source units):  10%|#         | 11/108 [00:01<00:09,  9.75it/s]
+                                                                                           
+2026-10-03 06:51:09,098 INFO loading pbp season 2018
 
-nflverse population (season/source units):  13%|#2        | 14/108 [00:12<01:20,  1.17it/s]2026-10-02 02:52:48,759 INFO loading player stats season 2017
+nflverse population (season/source units):  10%|#         | 11/108 [00:02<00:18,  5.30it/s]
+                                                                                           
+2026-10-03 06:51:09,965 INFO loading pbp season 2019
 
-nflverse population (season/source units):  14%|#3        | 15/108 [00:12<01:13,  1.26it/s]2026-10-02 02:52:49,247 INFO loading player stats season 2018
+nflverse population (season/source units):  10%|#         | 11/108 [00:02<00:25,  3.74it/s]
+                                                                                           
+2026-10-03 06:51:10,777 INFO loading pbp season 2020
 
-nflverse population (season/source units):  15%|#4        | 16/108 [00:13<01:08,  1.34it/s]2026-10-02 02:52:49,767 INFO loading player stats season 2019
+nflverse population (season/source units):  10%|#         | 11/108 [00:03<00:33,  2.93it/s]
+                                                                                           
+2026-10-03 06:51:11,676 INFO loading pbp season 2021
 
-nflverse population (season/source units):  16%|#5        | 17/108 [00:13<01:03,  1.44it/s]2026-10-02 02:52:50,283 INFO loading player stats season 2020
+nflverse population (season/source units):  10%|#         | 11/108 [00:04<00:41,  2.36it/s]
+                                                                                           
+2026-10-03 06:51:12,744 INFO loading pbp season 2022
 
-nflverse population (season/source units):  17%|#6        | 18/108 [00:14<00:58,  1.54it/s]2026-10-02 02:52:50,779 INFO loading player stats season 2021
+nflverse population (season/source units):  10%|#         | 11/108 [00:05<00:50,  1.92it/s]
+                                                                                           
+2026-10-03 06:51:13,691 INFO loading pbp season 2023
 
-nflverse population (season/source units):  18%|#7        | 19/108 [00:15<00:55,  1.61it/s]2026-10-02 02:52:51,304 INFO loading player stats season 2022
+nflverse population (season/source units):  10%|#         | 11/108 [00:06<00:58,  1.65it/s]
+                                                                                           
+2026-10-03 06:51:14,599 INFO loading pbp season 2024
 
-nflverse population (season/source units):  19%|#8        | 20/108 [00:15<00:58,  1.49it/s]2026-10-02 02:52:52,119 INFO loading player stats season 2023
+nflverse population (season/source units):  10%|#         | 11/108 [00:07<01:06,  1.45it/s]
+                                                                                           
+2026-10-03 06:51:15,520 INFO loading pbp season 2025
 
-nflverse population (season/source units):  19%|#9        | 21/108 [00:16<00:54,  1.60it/s]2026-10-02 02:52:52,618 INFO loading player stats season 2024
+nflverse population (season/source units):  10%|#         | 11/108 [00:08<01:14,  1.29it/s]
+                                                                                           
+2026-10-03 06:51:16,582 INFO loading pbp season 2026
 
-nflverse population (season/source units):  20%|##        | 22/108 [00:16<00:51,  1.68it/s]2026-10-02 02:52:53,133 INFO loading player stats season 2025
+nflverse population (season/source units):  10%|#         | 11/108 [00:09<01:24,  1.15it/s]
+                                                                                           
+2026-10-03 06:51:17,108 INFO pbp rows: 492751
 
-nflverse population (season/source units):  21%|##1       | 23/108 [00:17<00:48,  1.76it/s]2026-10-02 02:52:53,640 INFO loading player stats season 2026
-2026-10-02 02:52:53,963 INFO ngs published from 2016 — skipping [2015] (documented window)
+nflverse population (season/source units):  10%|#         | 11/108 [00:10<01:28,  1.09it/s]
+nflverse population (season/source units):  11%|#1        | 12/108 [00:10<01:20,  1.19it/s]
+                                                                                           
+2026-10-03 06:51:17,109 INFO loading player stats season 2015
 
-nflverse population (season/source units):  22%|##2       | 24/108 [00:17<00:41,  2.01it/s]2026-10-02 02:52:53,964 INFO loading ngs passing season 2016
+nflverse population (season/source units):  11%|#1        | 12/108 [00:10<01:20,  1.19it/s]
+nflverse population (season/source units):  12%|#2        | 13/108 [00:10<01:14,  1.28it/s]
+                                                                                           
+2026-10-03 06:51:17,376 INFO loading player stats season 2016
 
-nflverse population (season/source units):  23%|##3       | 25/108 [00:18<00:40,  2.03it/s]2026-10-02 02:52:54,448 INFO loading ngs rushing season 2016
+nflverse population (season/source units):  12%|#2        | 13/108 [00:10<01:14,  1.28it/s]
+nflverse population (season/source units):  13%|#2        | 14/108 [00:10<01:07,  1.40it/s]
+                                                                                           
+2026-10-03 06:51:17,668 INFO loading player stats season 2017
 
-nflverse population (season/source units):  24%|##4       | 26/108 [00:18<00:40,  2.05it/s]2026-10-02 02:52:54,925 INFO loading ngs receiving season 2016
+nflverse population (season/source units):  13%|#2        | 14/108 [00:10<01:07,  1.40it/s]
+nflverse population (season/source units):  14%|#3        | 15/108 [00:10<00:59,  1.55it/s]
+                                                                                           
+2026-10-03 06:51:17,939 INFO loading player stats season 2018
 
-nflverse population (season/source units):  25%|##5       | 27/108 [00:19<00:39,  2.05it/s]2026-10-02 02:52:55,413 INFO loading ngs passing season 2017
-2026-10-02 02:52:55,418 INFO loading ngs rushing season 2017
-2026-10-02 02:52:55,423 INFO loading ngs receiving season 2017
-2026-10-02 02:52:55,430 INFO loading ngs passing season 2018
-2026-10-02 02:52:55,435 INFO loading ngs rushing season 2018
-2026-10-02 02:52:55,440 INFO loading ngs receiving season 2018
-2026-10-02 02:52:55,447 INFO loading ngs passing season 2019
-2026-10-02 02:52:55,451 INFO loading ngs rushing season 2019
-2026-10-02 02:52:55,455 INFO loading ngs receiving season 2019
-2026-10-02 02:52:55,461 INFO loading ngs passing season 2020
-2026-10-02 02:52:55,465 INFO loading ngs rushing season 2020
-2026-10-02 02:52:55,469 INFO loading ngs receiving season 2020
-2026-10-02 02:52:55,476 INFO loading ngs passing season 2021
-2026-10-02 02:52:55,481 INFO loading ngs rushing season 2021
-2026-10-02 02:52:55,486 INFO loading ngs receiving season 2021
-2026-10-02 02:52:55,493 INFO loading ngs passing season 2022
-2026-10-02 02:52:55,498 INFO loading ngs rushing season 2022
-2026-10-02 02:52:55,503 INFO loading ngs receiving season 2022
-2026-10-02 02:52:55,509 INFO loading ngs passing season 2023
+nflverse population (season/source units):  14%|#3        | 15/108 [00:10<00:59,  1.55it/s]
+nflverse population (season/source units):  15%|#4        | 16/108 [00:11<00:52,  1.74it/s]
+                                                                                           
+2026-10-03 06:51:18,208 INFO loading player stats season 2019
 
-nflverse population (season/source units):  43%|####2     | 46/108 [00:19<00:03, 17.01it/s]2026-10-02 02:52:55,514 INFO loading ngs rushing season 2023
-2026-10-02 02:52:55,519 INFO loading ngs receiving season 2023
-2026-10-02 02:52:55,525 INFO loading ngs passing season 2024
-2026-10-02 02:52:55,530 INFO loading ngs rushing season 2024
-2026-10-02 02:52:55,534 INFO loading ngs receiving season 2024
-2026-10-02 02:52:55,540 INFO loading ngs passing season 2025
-2026-10-02 02:52:55,545 INFO loading ngs rushing season 2025
-2026-10-02 02:52:55,550 INFO loading ngs receiving season 2025
-2026-10-02 02:52:55,556 INFO loading ngs passing season 2026
-2026-10-02 02:52:55,560 INFO loading ngs rushing season 2026
-2026-10-02 02:52:55,565 INFO loading ngs receiving season 2026
-2026-10-02 02:52:55,576 INFO loading snap counts season 2013
+nflverse population (season/source units):  15%|#4        | 16/108 [00:11<00:52,  1.74it/s]
+nflverse population (season/source units):  16%|#5        | 17/108 [00:11<00:46,  1.95it/s]
+                                                                                           
+2026-10-03 06:51:18,487 INFO loading player stats season 2020
 
-nflverse population (season/source units):  54%|#####3    | 58/108 [00:19<00:02, 19.06it/s]2026-10-02 02:52:56,050 INFO loading snap counts season 2014
-2026-10-02 02:52:56,586 INFO loading snap counts season 2015
-2026-10-02 02:52:57,092 INFO loading snap counts season 2016
-2026-10-02 02:52:57,574 INFO loading snap counts season 2017
-2026-10-02 02:52:58,094 INFO loading snap counts season 2018
+nflverse population (season/source units):  16%|#5        | 17/108 [00:11<00:46,  1.95it/s]
+nflverse population (season/source units):  17%|#6        | 18/108 [00:11<00:41,  2.16it/s]
+                                                                                           
+2026-10-03 06:51:18,777 INFO loading player stats season 2021
 
-nflverse population (season/source units):  58%|#####8    | 63/108 [00:22<00:06,  6.79it/s]2026-10-02 02:52:58,576 INFO loading snap counts season 2019
-2026-10-02 02:52:59,095 INFO loading snap counts season 2020
-2026-10-02 02:52:59,597 INFO loading snap counts season 2021
-2026-10-02 02:53:00,101 INFO loading snap counts season 2022
+nflverse population (season/source units):  17%|#6        | 18/108 [00:11<00:41,  2.16it/s]
+nflverse population (season/source units):  18%|#7        | 19/108 [00:12<00:36,  2.42it/s]
+                                                                                           
+2026-10-03 06:51:19,042 INFO loading player stats season 2022
 
-nflverse population (season/source units):  62%|######2   | 67/108 [00:24<00:08,  4.62it/s]2026-10-02 02:53:00,597 INFO loading snap counts season 2023
-2026-10-02 02:53:01,111 INFO loading snap counts season 2024
-2026-10-02 02:53:01,589 INFO loading snap counts season 2025
+nflverse population (season/source units):  18%|#7        | 19/108 [00:12<00:36,  2.42it/s]
+nflverse population (season/source units):  19%|#8        | 20/108 [00:12<00:31,  2.78it/s]
+                                                                                           
+2026-10-03 06:51:19,248 INFO loading player stats season 2023
 
-nflverse population (season/source units):  65%|######4   | 70/108 [00:25<00:10,  3.80it/s]2026-10-02 02:53:02,068 INFO loading snap counts season 2026
-2026-10-02 02:53:02,417 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
-2026-10-02 02:53:02,418 INFO loading ftn charting season 2022
+nflverse population (season/source units):  19%|#8        | 20/108 [00:12<00:31,  2.78it/s]
+nflverse population (season/source units):  19%|#9        | 21/108 [00:12<00:28,  3.04it/s]
+                                                                                           
+2026-10-03 06:51:19,493 INFO loading player stats season 2024
 
-nflverse population (season/source units):  67%|######6   | 72/108 [00:26<00:10,  3.48it/s]2026-10-02 02:53:02,937 INFO loading ftn charting season 2023
-2026-10-02 02:53:03,409 INFO loading ftn charting season 2024
+nflverse population (season/source units):  19%|#9        | 21/108 [00:12<00:28,  3.04it/s]
+nflverse population (season/source units):  20%|##        | 22/108 [00:12<00:25,  3.34it/s]
+                                                                                           
+2026-10-03 06:51:19,719 INFO loading player stats season 2025
 
-nflverse population (season/source units):  69%|######8   | 74/108 [00:27<00:11,  2.88it/s]2026-10-02 02:53:04,229 INFO loading ftn charting season 2025
+nflverse population (season/source units):  20%|##        | 22/108 [00:12<00:25,  3.34it/s]
+nflverse population (season/source units):  21%|##1       | 23/108 [00:12<00:24,  3.54it/s]
+                                                                                           
+2026-10-03 06:51:19,958 INFO loading player stats season 2026
 
-nflverse population (season/source units):  69%|######9   | 75/108 [00:28<00:11,  2.76it/s]2026-10-02 02:53:04,721 INFO loading ftn charting season 2026
+nflverse population (season/source units):  21%|##1       | 23/108 [00:12<00:24,  3.54it/s]
+                                                                                           
+2026-10-03 06:51:20,133 INFO ngs published from 2016 — skipping [2015] (documented window)
 
-nflverse population (season/source units):  70%|#######   | 76/108 [00:29<00:14,  2.24it/s]
-nflverse population (season/source units):  71%|#######1  | 77/108 [00:29<00:14,  2.20it/s]
-nflverse population (season/source units):  72%|#######2  | 78/108 [00:30<00:13,  2.18it/s]
-nflverse population (season/source units):  73%|#######3  | 79/108 [00:30<00:13,  2.13it/s]
-nflverse population (season/source units):  74%|#######4  | 80/108 [00:31<00:13,  2.12it/s]
-nflverse population (season/source units):  75%|#######5  | 81/108 [00:31<00:12,  2.13it/s]
-nflverse population (season/source units):  76%|#######5  | 82/108 [00:32<00:12,  2.10it/s]
-nflverse population (season/source units):  77%|#######6  | 83/108 [00:32<00:11,  2.12it/s]
-nflverse population (season/source units):  78%|#######7  | 84/108 [00:33<00:13,  1.81it/s]
-nflverse population (season/source units):  79%|#######8  | 85/108 [00:34<00:12,  1.87it/s]
-nflverse population (season/source units):  80%|#######9  | 86/108 [00:34<00:10,  2.11it/s]
-nflverse population (season/source units):  81%|########  | 87/108 [00:34<00:09,  2.14it/s]2026-10-02 02:53:11,129 INFO loading weekly injury report season 2016
-2026-10-02 02:53:11,140 INFO loading weekly injury report season 2017
-2026-10-02 02:53:11,152 INFO loading weekly injury report season 2018
-2026-10-02 02:53:11,163 INFO loading weekly injury report season 2019
-2026-10-02 02:53:11,174 INFO loading weekly injury report season 2020
-2026-10-02 02:53:11,186 INFO loading weekly injury report season 2021
-2026-10-02 02:53:11,199 INFO loading weekly injury report season 2022
-2026-10-02 02:53:11,209 INFO loading weekly injury report season 2023
-2026-10-02 02:53:11,220 INFO loading weekly injury report season 2024
+nflverse population (season/source units):  21%|##1       | 23/108 [00:13<00:24,  3.54it/s]
+nflverse population (season/source units):  22%|##2       | 24/108 [00:13<00:21,  3.98it/s]
+                                                                                           
+2026-10-03 06:51:20,134 INFO loading ngs passing season 2016
 
-nflverse population (season/source units):  89%|########8 | 96/108 [00:34<00:01,  9.32it/s]2026-10-02 02:53:11,232 INFO loading weekly injury report season 2025
-2026-10-02 02:53:11,243 INFO loading weekly injury report season 2026
-2026-10-02 02:53:11,619 INFO loading weekly roster snapshot season 2016
+nflverse population (season/source units):  22%|##2       | 24/108 [00:13<00:21,  3.98it/s]
+nflverse population (season/source units):  23%|##3       | 25/108 [00:13<00:18,  4.41it/s]
+                                                                                           
+2026-10-03 06:51:20,301 INFO loading ngs rushing season 2016
 
-nflverse population (season/source units):  92%|#########1| 99/108 [00:35<00:01,  6.11it/s]2026-10-02 02:53:12,172 INFO loading weekly roster snapshot season 2017
-2026-10-02 02:53:12,718 INFO loading weekly roster snapshot season 2018
-2026-10-02 02:53:13,309 INFO loading weekly roster snapshot season 2019
+nflverse population (season/source units):  23%|##3       | 25/108 [00:13<00:18,  4.41it/s]
+nflverse population (season/source units):  24%|##4       | 26/108 [00:13<00:16,  4.98it/s]
+                                                                                           
+2026-10-03 06:51:20,440 INFO loading ngs receiving season 2016
 
-nflverse population (season/source units):  94%|#########4| 102/108 [00:37<00:01,  3.62it/s]2026-10-02 02:53:13,867 INFO loading weekly roster snapshot season 2020
-2026-10-02 02:53:14,424 INFO loading weekly roster snapshot season 2021
+nflverse population (season/source units):  24%|##4       | 26/108 [00:13<00:16,  4.98it/s]
+nflverse population (season/source units):  25%|##5       | 27/108 [00:13<00:15,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,609 INFO loading ngs passing season 2017
 
-nflverse population (season/source units):  96%|#########6| 104/108 [00:38<00:01,  2.97it/s]2026-10-02 02:53:14,992 INFO loading weekly roster snapshot season 2022
-2026-10-02 02:53:15,532 INFO loading weekly roster snapshot season 2023
+nflverse population (season/source units):  25%|##5       | 27/108 [00:13<00:15,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,617 INFO loading ngs rushing season 2017
 
-nflverse population (season/source units):  98%|#########8| 106/108 [00:39<00:00,  2.59it/s]2026-10-02 02:53:16,087 INFO loading weekly roster snapshot season 2024
+nflverse population (season/source units):  26%|##5       | 28/108 [00:13<00:15,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,625 INFO loading ngs receiving season 2017
 
-nflverse population (season/source units):  99%|#########9| 107/108 [00:40<00:00,  2.44it/s]2026-10-02 02:53:16,646 INFO loading weekly roster snapshot season 2025
+nflverse population (season/source units):  27%|##6       | 29/108 [00:13<00:15,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,635 INFO loading ngs passing season 2018
 
-nflverse population (season/source units): 100%|##########| 108/108 [00:40<00:00,  2.29it/s]2026-10-02 02:53:17,219 INFO loading weekly roster snapshot season 2026
+nflverse population (season/source units):  28%|##7       | 30/108 [00:13<00:14,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,642 INFO loading ngs rushing season 2018
 
-nflverse population (season/source units): 100%|##########| 108/108 [00:42<00:00,  2.56it/s]
-2026-10-02 02:53:18,561 INFO PIT injury designation rows: 47614
-2026-10-02 02:53:18,561 INFO weekly injury report rows: 56547 | player crosswalk rows: 22669
-2026-10-02 02:53:18,562 INFO weekly roster rows: 476889 | roster-unavailable rows: 130450
-2026-10-02 02:53:18,562 INFO player stats rows: 203207 | ngs rows: 24971
-2026-10-02 02:53:18,562 INFO snap count rows: 329100 | ftn charting rows: 193280
-2026-10-02 02:53:18,564 INFO decided games: warmup 256, core (OOF population) 2431
+nflverse population (season/source units):  29%|##8       | 31/108 [00:13<00:14,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,649 INFO loading ngs receiving season 2018
+
+nflverse population (season/source units):  30%|##9       | 32/108 [00:13<00:14,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,660 INFO loading ngs passing season 2019
+
+nflverse population (season/source units):  31%|###       | 33/108 [00:13<00:14,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,667 INFO loading ngs rushing season 2019
+
+nflverse population (season/source units):  31%|###1      | 34/108 [00:13<00:14,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,675 INFO loading ngs receiving season 2019
+
+nflverse population (season/source units):  32%|###2      | 35/108 [00:13<00:13,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,684 INFO loading ngs passing season 2020
+
+nflverse population (season/source units):  33%|###3      | 36/108 [00:13<00:13,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,691 INFO loading ngs rushing season 2020
+
+nflverse population (season/source units):  34%|###4      | 37/108 [00:13<00:13,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,699 INFO loading ngs receiving season 2020
+
+nflverse population (season/source units):  35%|###5      | 38/108 [00:13<00:13,  5.22it/s]
+                                                                                           
+2026-10-03 06:51:20,708 INFO loading ngs passing season 2021
+
+nflverse population (season/source units):  36%|###6      | 39/108 [00:13<00:13,  5.22it/s]
+nflverse population (season/source units):  37%|###7      | 40/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,717 INFO loading ngs rushing season 2021
+
+nflverse population (season/source units):  37%|###7      | 40/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,724 INFO loading ngs receiving season 2021
+
+nflverse population (season/source units):  38%|###7      | 41/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,734 INFO loading ngs passing season 2022
+
+nflverse population (season/source units):  39%|###8      | 42/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,742 INFO loading ngs rushing season 2022
+
+nflverse population (season/source units):  40%|###9      | 43/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,749 INFO loading ngs receiving season 2022
+
+nflverse population (season/source units):  41%|####      | 44/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,758 INFO loading ngs passing season 2023
+
+nflverse population (season/source units):  42%|####1     | 45/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,766 INFO loading ngs rushing season 2023
+
+nflverse population (season/source units):  43%|####2     | 46/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,773 INFO loading ngs receiving season 2023
+
+nflverse population (season/source units):  44%|####3     | 47/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,784 INFO loading ngs passing season 2024
+
+nflverse population (season/source units):  44%|####4     | 48/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,791 INFO loading ngs rushing season 2024
+
+nflverse population (season/source units):  45%|####5     | 49/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,798 INFO loading ngs receiving season 2024
+
+nflverse population (season/source units):  46%|####6     | 50/108 [00:13<00:02, 27.43it/s]
+                                                                                           
+2026-10-03 06:51:20,809 INFO loading ngs passing season 2025
+
+nflverse population (season/source units):  47%|####7     | 51/108 [00:13<00:02, 27.43it/s]
+nflverse population (season/source units):  48%|####8     | 52/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,817 INFO loading ngs rushing season 2025
+
+nflverse population (season/source units):  48%|####8     | 52/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,824 INFO loading ngs receiving season 2025
+
+nflverse population (season/source units):  49%|####9     | 53/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,834 INFO loading ngs passing season 2026
+
+nflverse population (season/source units):  50%|#####     | 54/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,841 INFO loading ngs rushing season 2026
+
+nflverse population (season/source units):  51%|#####     | 55/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,848 INFO loading ngs receiving season 2026
+
+nflverse population (season/source units):  52%|#####1    | 56/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:20,864 INFO loading snap counts season 2013
+
+nflverse population (season/source units):  53%|#####2    | 57/108 [00:13<00:01, 46.20it/s]
+                                                                                           
+2026-10-03 06:51:21,130 INFO loading snap counts season 2014
+
+nflverse population (season/source units):  54%|#####3    | 58/108 [00:14<00:01, 46.20it/s]
+nflverse population (season/source units):  55%|#####4    | 59/108 [00:14<00:01, 24.98it/s]
+                                                                                           
+2026-10-03 06:51:21,390 INFO loading snap counts season 2015
+
+nflverse population (season/source units):  55%|#####4    | 59/108 [00:14<00:01, 24.98it/s]
+                                                                                           
+2026-10-03 06:51:21,689 INFO loading snap counts season 2016
+
+nflverse population (season/source units):  56%|#####5    | 60/108 [00:14<00:01, 24.98it/s]
+                                                                                           
+2026-10-03 06:51:21,970 INFO loading snap counts season 2017
+
+nflverse population (season/source units):  56%|#####6    | 61/108 [00:14<00:01, 24.98it/s]
+                                                                                           
+2026-10-03 06:51:22,214 INFO loading snap counts season 2018
+
+nflverse population (season/source units):  57%|#####7    | 62/108 [00:15<00:01, 24.98it/s]
+                                                                                           
+2026-10-03 06:51:22,462 INFO loading snap counts season 2019
+
+nflverse population (season/source units):  58%|#####8    | 63/108 [00:15<00:01, 24.98it/s]
+nflverse population (season/source units):  59%|#####9    | 64/108 [00:15<00:04, 10.62it/s]
+                                                                                           
+2026-10-03 06:51:22,730 INFO loading snap counts season 2020
+
+nflverse population (season/source units):  59%|#####9    | 64/108 [00:15<00:04, 10.62it/s]
+                                                                                           
+2026-10-03 06:51:23,021 INFO loading snap counts season 2021
+
+nflverse population (season/source units):  60%|######    | 65/108 [00:15<00:04, 10.62it/s]
+                                                                                           
+2026-10-03 06:51:23,237 INFO loading snap counts season 2022
+
+nflverse population (season/source units):  61%|######1   | 66/108 [00:16<00:03, 10.62it/s]
+                                                                                           
+2026-10-03 06:51:23,439 INFO loading snap counts season 2023
+
+nflverse population (season/source units):  62%|######2   | 67/108 [00:16<00:03, 10.62it/s]
+nflverse population (season/source units):  63%|######2   | 68/108 [00:16<00:04,  8.14it/s]
+                                                                                           
+2026-10-03 06:51:23,644 INFO loading snap counts season 2024
+
+nflverse population (season/source units):  63%|######2   | 68/108 [00:16<00:04,  8.14it/s]
+                                                                                           
+2026-10-03 06:51:23,831 INFO loading snap counts season 2025
+
+nflverse population (season/source units):  64%|######3   | 69/108 [00:16<00:04,  8.14it/s]
+                                                                                           
+2026-10-03 06:51:24,036 INFO loading snap counts season 2026
+
+nflverse population (season/source units):  65%|######4   | 70/108 [00:17<00:04,  8.14it/s]
+                                                                                           
+2026-10-03 06:51:24,232 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
+
+nflverse population (season/source units):  65%|######4   | 70/108 [00:17<00:04,  8.14it/s]
+nflverse population (season/source units):  66%|######5   | 71/108 [00:17<00:05,  7.33it/s]
+                                                                                           
+2026-10-03 06:51:24,232 INFO loading ftn charting season 2022
+
+nflverse population (season/source units):  66%|######5   | 71/108 [00:17<00:05,  7.33it/s]
+                                                                                           
+2026-10-03 06:51:24,461 INFO loading ftn charting season 2023
+
+nflverse population (season/source units):  67%|######6   | 72/108 [00:17<00:04,  7.33it/s]
+nflverse population (season/source units):  68%|######7   | 73/108 [00:17<00:05,  6.63it/s]
+                                                                                           
+2026-10-03 06:51:24,694 INFO loading ftn charting season 2024
+
+nflverse population (season/source units):  68%|######7   | 73/108 [00:17<00:05,  6.63it/s]
+                                                                                           
+2026-10-03 06:51:24,945 INFO loading ftn charting season 2025
+
+nflverse population (season/source units):  69%|######8   | 74/108 [00:17<00:05,  6.63it/s]
+nflverse population (season/source units):  69%|######9   | 75/108 [00:18<00:05,  5.82it/s]
+                                                                                           
+2026-10-03 06:51:25,235 INFO loading ftn charting season 2026
+
+nflverse population (season/source units):  69%|######9   | 75/108 [00:18<00:05,  5.82it/s]
+nflverse population (season/source units):  71%|#######1  | 77/108 [00:18<00:06,  4.82it/s]
+nflverse population (season/source units):  72%|#######2  | 78/108 [00:19<00:06,  4.75it/s]
+nflverse population (season/source units):  73%|#######3  | 79/108 [00:19<00:06,  4.53it/s]
+nflverse population (season/source units):  74%|#######4  | 80/108 [00:19<00:06,  4.40it/s]
+nflverse population (season/source units):  75%|#######5  | 81/108 [00:19<00:06,  4.47it/s]
+nflverse population (season/source units):  76%|#######5  | 82/108 [00:20<00:06,  4.33it/s]
+nflverse population (season/source units):  77%|#######6  | 83/108 [00:20<00:05,  4.75it/s]
+nflverse population (season/source units):  78%|#######7  | 84/108 [00:20<00:05,  4.67it/s]
+nflverse population (season/source units):  79%|#######8  | 85/108 [00:20<00:04,  4.82it/s]
+nflverse population (season/source units):  80%|#######9  | 86/108 [00:20<00:04,  5.04it/s]
+nflverse population (season/source units):  81%|########  | 87/108 [00:21<00:06,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,562 INFO loading weekly injury report season 2016
+
+nflverse population (season/source units):  81%|########  | 87/108 [00:21<00:06,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,579 INFO loading weekly injury report season 2017
+
+nflverse population (season/source units):  81%|########1 | 88/108 [00:21<00:06,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,597 INFO loading weekly injury report season 2018
+
+nflverse population (season/source units):  82%|########2 | 89/108 [00:21<00:06,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,614 INFO loading weekly injury report season 2019
+
+nflverse population (season/source units):  83%|########3 | 90/108 [00:21<00:05,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,631 INFO loading weekly injury report season 2020
+
+nflverse population (season/source units):  84%|########4 | 91/108 [00:21<00:05,  3.03it/s]
+                                                                                           
+2026-10-03 06:51:28,648 INFO loading weekly injury report season 2021
+
+nflverse population (season/source units):  85%|########5 | 92/108 [00:21<00:05,  3.03it/s]
+nflverse population (season/source units):  86%|########6 | 93/108 [00:21<00:01,  9.23it/s]
+                                                                                           
+2026-10-03 06:51:28,665 INFO loading weekly injury report season 2022
+
+nflverse population (season/source units):  86%|########6 | 93/108 [00:21<00:01,  9.23it/s]
+                                                                                           
+2026-10-03 06:51:28,682 INFO loading weekly injury report season 2023
+
+nflverse population (season/source units):  87%|########7 | 94/108 [00:21<00:01,  9.23it/s]
+                                                                                           
+2026-10-03 06:51:28,698 INFO loading weekly injury report season 2024
+
+nflverse population (season/source units):  88%|########7 | 95/108 [00:21<00:01,  9.23it/s]
+                                                                                           
+2026-10-03 06:51:28,717 INFO loading weekly injury report season 2025
+
+nflverse population (season/source units):  89%|########8 | 96/108 [00:21<00:01,  9.23it/s]
+                                                                                           
+2026-10-03 06:51:28,735 INFO loading weekly injury report season 2026
+
+nflverse population (season/source units):  90%|########9 | 97/108 [00:21<00:01,  9.23it/s]
+nflverse population (season/source units):  91%|######### | 98/108 [00:22<00:00, 10.36it/s]
+                                                                                           
+2026-10-03 06:51:29,078 INFO loading weekly roster snapshot season 2016
+
+nflverse population (season/source units):  91%|######### | 98/108 [00:22<00:00, 10.36it/s]
+                                                                                           
+2026-10-03 06:51:29,339 INFO loading weekly roster snapshot season 2017
+
+nflverse population (season/source units):  92%|#########1| 99/108 [00:22<00:00, 10.36it/s]
+nflverse population (season/source units):  93%|#########2| 100/108 [00:22<00:01,  7.46it/s]
+                                                                                            
+2026-10-03 06:51:29,633 INFO loading weekly roster snapshot season 2018
+
+nflverse population (season/source units):  93%|#########2| 100/108 [00:22<00:01,  7.46it/s]
+                                                                                            
+2026-10-03 06:51:29,928 INFO loading weekly roster snapshot season 2019
+
+nflverse population (season/source units):  94%|#########3| 101/108 [00:22<00:00,  7.46it/s]
+nflverse population (season/source units):  94%|#########4| 102/108 [00:23<00:01,  5.82it/s]
+                                                                                            
+2026-10-03 06:51:30,230 INFO loading weekly roster snapshot season 2020
+
+nflverse population (season/source units):  94%|#########4| 102/108 [00:23<00:01,  5.82it/s]
+                                                                                            
+2026-10-03 06:51:30,527 INFO loading weekly roster snapshot season 2021
+
+nflverse population (season/source units):  95%|#########5| 103/108 [00:23<00:00,  5.82it/s]
+nflverse population (season/source units):  96%|#########6| 104/108 [00:23<00:00,  4.89it/s]
+                                                                                            
+2026-10-03 06:51:30,840 INFO loading weekly roster snapshot season 2022
+
+nflverse population (season/source units):  96%|#########6| 104/108 [00:23<00:00,  4.89it/s]
+nflverse population (season/source units):  97%|#########7| 105/108 [00:24<00:00,  4.59it/s]
+                                                                                            
+2026-10-03 06:51:31,132 INFO loading weekly roster snapshot season 2023
+
+nflverse population (season/source units):  97%|#########7| 105/108 [00:24<00:00,  4.59it/s]
+nflverse population (season/source units):  98%|#########8| 106/108 [00:24<00:00,  4.35it/s]
+                                                                                            
+2026-10-03 06:51:31,418 INFO loading weekly roster snapshot season 2024
+
+nflverse population (season/source units):  98%|#########8| 106/108 [00:24<00:00,  4.35it/s]
+nflverse population (season/source units):  99%|#########9| 107/108 [00:24<00:00,  4.15it/s]
+                                                                                            
+2026-10-03 06:51:31,704 INFO loading weekly roster snapshot season 2025
+
+nflverse population (season/source units):  99%|#########9| 107/108 [00:24<00:00,  4.15it/s]
+nflverse population (season/source units): 100%|##########| 108/108 [00:24<00:00,  4.01it/s]
+                                                                                            
+2026-10-03 06:51:31,983 INFO loading weekly roster snapshot season 2026
+
+nflverse population (season/source units): 100%|##########| 108/108 [00:24<00:00,  4.01it/s]
+nflverse population (season/source units): 100%|##########| 108/108 [00:26<00:00,  4.07it/s]
+2026-10-03 06:51:33,533 INFO PIT injury designation rows: 47614
+2026-10-03 06:51:33,533 INFO weekly injury report rows: 56603 | player crosswalk rows: 22673
+2026-10-03 06:51:33,533 INFO weekly roster rows: 476895 | roster-unavailable rows: 130470
+2026-10-03 06:51:33,533 INFO player stats rows: 203275 | ngs rows: 24982
+2026-10-03 06:51:33,533 INFO snap count rows: 329191 | ftn charting rows: 193280
+2026-10-03 06:51:33,537 INFO decided games: warmup 256, core (OOF population) 2432
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 3 — point-in-time feature engine
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:53:33,128 INFO feature frame: 2687 decided games, 267 columns
-2026-10-02 02:53:33,158 INFO feature coverage:
+2026-10-03 06:51:57,685 INFO feature frame: 2688 decided games, 267 columns
+2026-10-03 06:51:57,725 INFO feature coverage:
                    feature  n_games  coverage_pct        mean        std
-                  elo_diff     2687        100.00   -1.029089 101.252056
-              win_pct_diff     2687         99.33   -0.002438   0.293811
-            rest_days_diff     2687         93.41   -0.033865   2.523396
-              is_dome_home     2687        100.00    0.288798   0.453288
-          ewm_net_pts_diff     2687         99.33   -0.485966  10.411360
-              ewm_ypp_diff     2687         96.50   -0.012903   0.698463
-       pace_plays_min_diff     2687         96.50   -0.002259   0.122674
-           rest_short_diff     2687        100.00    0.018980   0.359962
-           rest_short_home     2687        100.00    0.155936   0.362862
-           rest_short_away     2687        100.00    0.136956   0.343865
-                  div_game     2687        100.00    0.362114   0.480701
-         travel_miles_diff     2687         96.84 -955.783553 660.352857
-             altitude_home     2687         98.21  594.385752 944.347685
-                prime_time     2687        100.00    0.208411   0.406248
-              is_turf_home     2687         98.36    0.427923   0.494871
-                    temp_f     2687         71.12   58.667713  16.862461
-                  wind_mph     2687         71.12    7.947619   4.461536
-                 is_precip     2687         71.12    0.012036   0.109073
-                   is_snow     2687         71.12    0.005233   0.072168
-pbp_air_yards_att_ewm_diff     2687         96.50   -0.009857   1.559411
-pbp_air_yards_att_ewm_home     2687         97.92    7.967939   1.123259
-pbp_air_yards_att_ewm_away     2687         97.92    7.972548   1.109783
- pbp_def_epa_play_ewm_diff     2687         96.50    0.000710   0.108820
- pbp_def_epa_play_ewm_home     2687         97.92   -0.011479   0.076085
- pbp_def_epa_play_ewm_away     2687         97.92   -0.012213   0.079715
-         travel_miles_home     2687         96.95    0.004894   0.179853
-         travel_miles_away     2687         97.39  957.489687 661.272370
-                  elo_home     2687        100.00 1500.286165  72.500090
-                  elo_away     2687        100.00 1501.315254  71.970735
-              win_pct_home     2687         99.40    0.499114   0.209825
-              win_pct_away     2687         99.33    0.501677   0.209317
-          ewm_net_pts_home     2687         99.40   -0.240381   7.515590
-          ewm_net_pts_away     2687         99.33    0.253586   7.514113
-              ewm_ypp_home     2687         97.92    4.193406   0.504337
-              ewm_ypp_away     2687         97.92    4.207248   0.502896
-            rest_days_home     2687         93.45    7.434090   2.100545
-            rest_days_away     2687         93.45    7.468339   2.076930
-       pace_plays_min_home     2687         97.92    1.355057   0.088732
-       pace_plays_min_away     2687         97.92    1.357266   0.088721
-               epa_qb_home     2687         90.66    0.026424   0.111387
-               epa_qb_away     2687         90.55    0.026538   0.110975
-               epa_qb_diff     2687         87.87    0.000039   0.155150
-               epa_wr_home     2687         92.04    0.219029   0.149253
-               epa_wr_away     2687         92.04    0.218219   0.146439
-               epa_wr_diff     2687         90.66    0.001625   0.201590
-               epa_te_home     2687         91.37    0.203352   0.209092
-               epa_te_away     2687         91.37    0.195858   0.203493
-               epa_te_diff     2687         89.32    0.007800   0.293835
-               epa_rb_home     2687         92.04   -0.051868   0.080675
-               epa_rb_away     2687         92.04   -0.051644   0.079437
-               epa_rb_diff     2687         90.66    0.000069   0.114788
-           inj_ol_out_home     2687        100.00    2.312616   1.557941
-           inj_ol_out_away     2687        100.00    2.330852   1.529174
-           inj_ol_out_diff     2687        100.00   -0.018236   2.018170
-  ol_snaps_lost_share_home     2687        100.00    1.481215   1.135722
-  ol_snaps_lost_share_away     2687        100.00    1.496498   1.115271
-  ol_snaps_lost_share_diff     2687        100.00   -0.015283   1.505582
-           ol_key_out_home     2687        100.00    0.725344   0.446424
-           ol_key_out_away     2687        100.00    0.739486   0.438997
-           ol_key_out_diff     2687        100.00   -0.014142   0.618486
-          inj_def_out_home     2687        100.00    7.131373   3.315537
-          inj_def_out_away     2687        100.00    7.179382   3.353327
-          inj_def_out_diff     2687        100.00   -0.048009   4.109394
- def_snaps_lost_share_home     2687        100.00    3.087829   1.627073
- def_snaps_lost_share_away     2687        100.00    3.118303   1.623105
- def_snaps_lost_share_diff     2687        100.00   -0.030475   2.119413
-          def_key_out_home     2687        100.00    0.854485   0.352685
-          def_key_out_away     2687        100.00    0.861183   0.345819
-          def_key_out_diff     2687        100.00   -0.006699   0.481172
-                   is_home     2687        100.00    1.000000   0.000000
-2026-10-02 02:53:33,164 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
+                  elo_diff     2688        100.00   -1.062688 101.248200
+              win_pct_diff     2688         99.33   -0.002500   0.293773
+            rest_days_diff     2688         93.42   -0.033851   2.522893
+              is_dome_home     2688        100.00    0.288690   0.453238
+          ewm_net_pts_diff     2688         99.33   -0.486290  10.409423
+              ewm_ypp_diff     2688         96.50   -0.013164   0.698455
+       pace_plays_min_diff     2688         96.50   -0.002321   0.122691
+           rest_short_diff     2688        100.00    0.018973   0.359895
+           rest_short_home     2688        100.00    0.156250   0.363160
+           rest_short_away     2688        100.00    0.137277   0.344203
+                  div_game     2688        100.00    0.362351   0.480769
+         travel_miles_diff     2688         96.84 -955.460289 660.431919
+             altitude_home     2688         98.21  594.403030 944.169164
+                prime_time     2688        100.00    0.208705   0.406459
+              is_turf_home     2688         98.36    0.427761   0.494848
+                    temp_f     2688         71.13   58.677406  16.863375
+                  wind_mph     2688         71.13    7.949948   4.461530
+                 is_precip     2688         71.13    0.012029   0.109045
+                   is_snow     2688         71.13    0.005230   0.072149
+pbp_air_yards_att_ewm_diff     2688         96.50   -0.010501   1.559456
+pbp_air_yards_att_ewm_home     2688         97.92    7.967373   1.123420
+pbp_air_yards_att_ewm_away     2688         97.92    7.972620   1.109578
+ pbp_def_epa_play_ewm_diff     2688         96.50    0.000698   0.108800
+ pbp_def_epa_play_ewm_home     2688         97.92   -0.011481   0.076070
+ pbp_def_epa_play_ewm_away     2688         97.92   -0.012204   0.079702
+         travel_miles_home     2688         96.95    0.004892   0.179818
+         travel_miles_away     2688         97.40  957.167623 661.351349
+                  elo_home     2688        100.00 1500.270451  72.491176
+                  elo_away     2688        100.00 1501.333138  71.963315
+              win_pct_home     2688         99.40    0.499084   0.209791
+              win_pct_away     2688         99.33    0.501707   0.209284
+          ewm_net_pts_home     2688         99.40   -0.241294   7.514331
+          ewm_net_pts_away     2688         99.33    0.252994   7.512767
+              ewm_ypp_home     2688         97.92    4.193113   0.504465
+              ewm_ypp_away     2688         97.92    4.207212   0.502804
+            rest_days_home     2688         93.45    7.432723   2.101244
+            rest_days_away     2688         93.45    7.466959   2.077669
+       pace_plays_min_home     2688         97.92    1.355011   0.088747
+       pace_plays_min_away     2688         97.92    1.357280   0.088707
+               epa_qb_home     2688         90.66    1.139573   4.674244
+               epa_qb_away     2688         90.55    1.100865   4.675930
+               epa_qb_diff     2688         87.87    0.040974   6.529266
+               epa_wr_home     2688         92.04    4.523304   3.207973
+               epa_wr_away     2688         92.04    4.501202   3.217048
+               epa_wr_diff     2688         90.66    0.038377   4.380865
+               epa_te_home     2688         91.37    1.552661   1.619277
+               epa_te_away     2688         91.37    1.529546   1.616021
+               epa_te_diff     2688         89.32    0.023995   2.283229
+               epa_rb_home     2688         92.04   -1.409578   2.258459
+               epa_rb_away     2688         92.04   -1.445910   2.233024
+               epa_rb_diff     2688         90.66    0.046536   3.221071
+           inj_ol_out_home     2688        100.00    2.312872   1.557707
+           inj_ol_out_away     2688        100.00    2.330357   1.529105
+           inj_ol_out_diff     2688        100.00   -0.017485   2.018170
+  ol_snaps_lost_share_home     2688        100.00    1.481462   1.135582
+  ol_snaps_lost_share_away     2688        100.00    1.496017   1.115342
+  ol_snaps_lost_share_diff     2688        100.00   -0.014555   1.505774
+           ol_key_out_home     2688        100.00    0.725446   0.446372
+           ol_key_out_away     2688        100.00    0.739211   0.439147
+           ol_key_out_diff     2688        100.00   -0.013765   0.618680
+          inj_def_out_home     2688        100.00    7.130952   3.314992
+          inj_def_out_away     2688        100.00    7.177827   3.353672
+          inj_def_out_diff     2688        100.00   -0.046875   4.109050
+ def_snaps_lost_share_home     2688        100.00    3.087990   1.626792
+ def_snaps_lost_share_away     2688        100.00    3.117846   1.622976
+ def_snaps_lost_share_diff     2688        100.00   -0.029857   2.119261
+          def_key_out_home     2688        100.00    0.854539   0.352631
+          def_key_out_away     2688        100.00    0.861235   0.345765
+          def_key_out_diff     2688        100.00   -0.006696   0.481082
+                   is_home     2688        100.00    1.000000   0.000000
+2026-10-03 06:51:57,733 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 4 — walk-forward fold generation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  eligible settled games : 2687
-  game date range        : 2016-09-08 .. 2026-09-28
+2026-10-03 06:51:58,021 WARNING OOF validation population is thin on 57 of 163 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], [2017-11-16..2017-11-22 n=14 regular], [2018-10-18..2018-10-24 n=14 regular], [2018-10-25..2018-10-31 n=14 regular], [2018-11-01..2018-11-07 n=13 regular], [2018-11-08..2018-11-14 n=14 regular], [2018-11-15..2018-11-21 n=13 regular], [2019-10-10..2019-10-16 n=14 regular], [2019-10-17..2019-10-23 n=14 regular], [2019-10-31..2019-11-06 n=14 regular], [2019-11-07..2019-11-13 n=13 regular], [2019-11-14..2019-11-20 n=14 regular], [2019-11-21..2019-11-27 n=14 regular], [2020-10-08..2020-10-14 n=14 regular], [2020-10-15..2020-10-21 n=14 regular], [2020-10-22..2020-10-28 n=14 regular], [2020-10-29..2020-11-04 n=14 regular], [2020-11-05..2020-11-11 n=14 regular], [2020-11-12..2020-11-18 n=14 regular], [2020-11-19..2020-11-25 n=14 regular], [2021-10-14..2021-10-20 n=14 regular], [2021-10-21..2021-10-27 n=13 regular], [2021-11-04..2021-11-10 n=14 regular], [2021-11-11..2021-11-17 n=14 regular], [2021-12-02..2021-12-08 n=14 regular], [2021-12-09..2021-12-15 n=14 regular], [2022-10-13..2022-10-19 n=14 regular], [2022-10-20..2022-10-26 n=14 regular], [2022-11-03..2022-11-09 n=13 regular], [2022-11-10..2022-11-16 n=14 regular], [2022-11-17..2022-11-23 n=14 regular], [2022-12-08..2022-12-14 n=13 regular], [2023-10-05..2023-10-11 n=14 regular], [2023-10-19..2023-10-25 n=13 regular], [2023-11-02..2023-11-08 n=14 regular], [2023-11-09..2023-11-15 n=14 regular], [2023-11-16..2023-11-22 n=14 regular], [2023-11-30..2023-12-06 n=13 regular], [2024-10-03..2024-10-09 n=14 regular], [2024-10-10..2024-10-16 n=14 regular], [2024-11-07..2024-11-13 n=14 regular], [2024-11-14..2024-11-20 n=14 regular], [2024-11-21..2024-11-27 n=13 regular], [2024-12-05..2024-12-11 n=13 regular], [2024-12-26..2025-01-01 n=14 regular], [2025-10-02..2025-10-08 n=14 regular], [2025-10-23..2025-10-29 n=13 regular], [2025-10-30..2025-11-05 n=14 regular], [2025-11-06..2025-11-12 n=14 regular], [2025-11-20..2025-11-26 n=14 regular], [2025-12-04..2025-12-10 n=14 regular], [2026-09-03..2026-09-09 n=1 regular], [2026-10-01..2026-10-07 n=1 regular] - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
+  eligible settled games : 2688
+  game date range        : 2016-09-08 .. 2026-10-01
   warmup seasons         : [2016] (training-only)
   first OOF validation   : 2017-09-07 (fold 0, n_val=15)
-  last OOF validation    : 2026-09-30 (fold 105, n_val=16)
-  validation windows     : 106 (7-calendar-day, non-overlapping, expanding training)
-  training observations  : 256 (first) .. 2671 (last)
-  validation observations: 1673
-  n_validation min/max/mean/median: 15 / 18 / 15.783 / 16.0 (windows are 7 CALENDAR days — game counts vary per window)
+  last OOF validation    : 2026-10-07 (fold 162, n_val=1)
+  validation windows     : 163 (7-calendar-day, non-overlapping, expanding training)
+  training observations  : 256 (first) .. 2687 (last)
+  validation observations: 2432
+  n_validation min/max/mean/median: 1 / 18 / 14.92 / 15.0 (windows are 7 CALENDAR days — game counts vary per window)
   complete n_validation distribution:
+      1 games: 2 folds
+     13 games: 13 folds
+     14 games: 42 folds
      15 games: 25 folds
      16 games: 80 folds
      18 games: 1 folds
@@ -658,252 +962,394 @@ pbp_air_yards_att_ewm_away     2687         97.92    7.972548   1.109783
     fold   0  train_end=2017-01-01  val=[2017-09-07 .. 2017-09-13]  n_train=  256  n_val=15
     fold   1  train_end=2017-09-11  val=[2017-09-14 .. 2017-09-20]  n_train=  271  n_val=16
     fold   2  train_end=2017-09-18  val=[2017-09-21 .. 2017-09-27]  n_train=  287  n_val=16
-    fold 103  train_end=2026-09-09  val=[2026-09-10 .. 2026-09-16]  n_train= 2640  n_val=15
-    fold 104  train_end=2026-09-14  val=[2026-09-17 .. 2026-09-23]  n_train= 2655  n_val=16
-    fold 105  train_end=2026-09-21  val=[2026-09-24 .. 2026-09-30]  n_train= 2671  n_val=16
-2026-10-02 02:53:33,348 INFO folds: {"n_folds": 106, "first_val_start": "2017-09-07", "last_val_end": "2026-09-30", "min_train": 256, "max_train": 2671, "total_val_games": 1673}
+    fold 160  train_end=2026-09-14  val=[2026-09-17 .. 2026-09-23]  n_train= 2655  n_val=16
+    fold 161  train_end=2026-09-21  val=[2026-09-24 .. 2026-09-30]  n_train= 2671  n_val=16
+    fold 162  train_end=2026-09-28  val=[2026-10-01 .. 2026-10-07]  n_train= 2687  n_val=1
+2026-10-03 06:51:58,116 INFO folds: {"n_folds": 163, "first_val_start": "2017-09-07", "last_val_end": "2026-10-07", "min_train": 256, "max_train": 2687, "total_val_games": 2432, "n_candidates": 163, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 57, "provisional_games": 759, "postseason_windows": 0, "min_val_fold_games": 15, "oof_regular": {"n": 0, "sufficient": false}, "oof_postseason": {"n": 0, "sufficient": false}, "oof_provisional": {"n": 0, "sufficient": false}, "oof_all": {"n": 0, "sufficient": false}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 5 — moneyline walk-forward OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-moneyline OOF folds:   0%|          | 0/106 [00:00<?, ?it/s]
-moneyline OOF folds:   1%|          | 1/106 [00:04<07:59,  4.56s/it]
-moneyline OOF folds:   2%|1         | 2/106 [00:05<03:46,  2.18s/it]
-moneyline OOF folds:   3%|2         | 3/106 [00:05<02:24,  1.41s/it]
-moneyline OOF folds:   4%|3         | 4/106 [00:06<01:45,  1.04s/it]
-moneyline OOF folds:   5%|4         | 5/106 [00:06<01:28,  1.14it/s]
-moneyline OOF folds:   6%|5         | 6/106 [00:07<01:25,  1.17it/s]
-moneyline OOF folds:   7%|6         | 7/106 [00:08<01:25,  1.16it/s]
-moneyline OOF folds:   8%|7         | 8/106 [00:09<01:25,  1.15it/s]
-moneyline OOF folds:   8%|8         | 9/106 [00:10<01:25,  1.13it/s]
-moneyline OOF folds:   9%|9         | 10/106 [00:10<01:24,  1.13it/s]
-moneyline OOF folds:  10%|#         | 11/106 [00:11<01:25,  1.11it/s]
-moneyline OOF folds:  11%|#1        | 12/106 [00:13<01:30,  1.04it/s]
-moneyline OOF folds:  12%|#2        | 13/106 [00:14<01:36,  1.03s/it]
-moneyline OOF folds:  13%|#3        | 14/106 [00:15<01:42,  1.12s/it]
-moneyline OOF folds:  14%|#4        | 15/106 [00:17<01:51,  1.22s/it]
-moneyline OOF folds:  15%|#5        | 16/106 [00:18<01:50,  1.23s/it]
-moneyline OOF folds:  16%|#6        | 17/106 [00:19<01:46,  1.20s/it]
-moneyline OOF folds:  17%|#6        | 18/106 [00:20<01:35,  1.08s/it]
-moneyline OOF folds:  18%|#7        | 19/106 [00:21<01:27,  1.01s/it]
-moneyline OOF folds:  19%|#8        | 20/106 [00:21<01:21,  1.05it/s]
-moneyline OOF folds:  20%|#9        | 21/106 [00:22<01:22,  1.04it/s]
-moneyline OOF folds:  21%|##        | 22/106 [00:23<01:18,  1.07it/s]
-moneyline OOF folds:  22%|##1       | 23/106 [00:24<01:13,  1.12it/s]
-moneyline OOF folds:  23%|##2       | 24/106 [00:25<01:11,  1.14it/s]2026-10-02 02:53:59,573 INFO moneyline OOF fold 25/106
+moneyline OOF folds:   0%|          | 0/163 [00:00<?, ?it/s]
+moneyline OOF folds:   1%|          | 1/163 [00:06<18:00,  6.67s/it]
+moneyline OOF folds:   1%|1         | 2/163 [00:07<08:43,  3.25s/it]
+moneyline OOF folds:   2%|1         | 3/163 [00:08<05:48,  2.18s/it]
+moneyline OOF folds:   2%|2         | 4/163 [00:09<04:29,  1.70s/it]
+moneyline OOF folds:   3%|3         | 5/163 [00:10<03:56,  1.50s/it]
+moneyline OOF folds:   4%|3         | 6/163 [00:11<03:42,  1.42s/it]
+moneyline OOF folds:   4%|4         | 7/163 [00:13<03:35,  1.38s/it]
+moneyline OOF folds:   5%|4         | 8/163 [00:14<03:31,  1.36s/it]
+moneyline OOF folds:   6%|5         | 9/163 [00:15<03:30,  1.36s/it]
+moneyline OOF folds:   6%|6         | 10/163 [00:17<03:27,  1.35s/it]
+moneyline OOF folds:   7%|6         | 11/163 [00:19<04:23,  1.73s/it]
+moneyline OOF folds:   7%|7         | 12/163 [00:21<04:43,  1.88s/it]
+moneyline OOF folds:   8%|7         | 13/163 [00:22<03:57,  1.58s/it]
+moneyline OOF folds:   9%|8         | 14/163 [00:23<03:25,  1.38s/it]
+moneyline OOF folds:   9%|9         | 15/163 [00:24<03:04,  1.25s/it]
+moneyline OOF folds:  10%|9         | 16/163 [00:25<02:50,  1.16s/it]
+moneyline OOF folds:  10%|#         | 17/163 [00:26<02:41,  1.11s/it]
+moneyline OOF folds:  11%|#1        | 18/163 [00:27<02:40,  1.11s/it]
+moneyline OOF folds:  12%|#1        | 19/163 [00:28<02:34,  1.07s/it]
+moneyline OOF folds:  12%|#2        | 20/163 [00:29<02:32,  1.07s/it]
+moneyline OOF folds:  13%|#2        | 21/163 [00:30<02:30,  1.06s/it]
+moneyline OOF folds:  13%|#3        | 22/163 [00:32<02:36,  1.11s/it]
+moneyline OOF folds:  14%|#4        | 23/163 [00:33<02:35,  1.11s/it]
+moneyline OOF folds:  15%|#4        | 24/163 [00:34<02:35,  1.12s/it]
+                                                                     
+2026-10-03 06:52:33,562 INFO moneyline OOF fold 25/163
 
-moneyline OOF folds:  24%|##3       | 25/106 [00:26<01:11,  1.14it/s]
-moneyline OOF folds:  25%|##4       | 26/106 [00:27<01:10,  1.13it/s]
-moneyline OOF folds:  25%|##5       | 27/106 [00:27<01:09,  1.14it/s]
-moneyline OOF folds:  26%|##6       | 28/106 [00:28<01:08,  1.14it/s]
-moneyline OOF folds:  27%|##7       | 29/106 [00:29<01:08,  1.13it/s]
-moneyline OOF folds:  28%|##8       | 30/106 [00:30<01:08,  1.12it/s]
-moneyline OOF folds:  29%|##9       | 31/106 [00:31<01:07,  1.11it/s]
-moneyline OOF folds:  30%|###       | 32/106 [00:32<01:09,  1.07it/s]
-moneyline OOF folds:  31%|###1      | 33/106 [00:33<01:08,  1.07it/s]
-moneyline OOF folds:  32%|###2      | 34/106 [00:34<01:08,  1.06it/s]
-moneyline OOF folds:  33%|###3      | 35/106 [00:35<01:06,  1.07it/s]
-moneyline OOF folds:  34%|###3      | 36/106 [00:36<01:06,  1.05it/s]
-moneyline OOF folds:  35%|###4      | 37/106 [00:37<01:06,  1.04it/s]
-moneyline OOF folds:  36%|###5      | 38/106 [00:38<01:05,  1.03it/s]
-moneyline OOF folds:  37%|###6      | 39/106 [00:39<01:03,  1.06it/s]
-moneyline OOF folds:  38%|###7      | 40/106 [00:40<01:03,  1.04it/s]
-moneyline OOF folds:  39%|###8      | 41/106 [00:41<01:02,  1.04it/s]
-moneyline OOF folds:  40%|###9      | 42/106 [00:42<01:01,  1.03it/s]
-moneyline OOF folds:  41%|####      | 43/106 [00:43<01:03,  1.00s/it]
-moneyline OOF folds:  42%|####1     | 44/106 [00:44<01:02,  1.00s/it]
-moneyline OOF folds:  42%|####2     | 45/106 [00:45<01:01,  1.01s/it]
-moneyline OOF folds:  43%|####3     | 46/106 [00:46<01:00,  1.00s/it]
-moneyline OOF folds:  44%|####4     | 47/106 [00:47<00:58,  1.00it/s]
-moneyline OOF folds:  45%|####5     | 48/106 [00:48<00:58,  1.01s/it]
-moneyline OOF folds:  46%|####6     | 49/106 [00:49<00:57,  1.00s/it]2026-10-02 02:54:23,678 INFO moneyline OOF fold 50/106
+moneyline OOF folds:  15%|#4        | 24/163 [00:35<02:35,  1.12s/it]
+moneyline OOF folds:  15%|#5        | 25/163 [00:35<02:35,  1.13s/it]
+moneyline OOF folds:  16%|#5        | 26/163 [00:36<02:35,  1.14s/it]
+moneyline OOF folds:  17%|#6        | 27/163 [00:37<02:36,  1.15s/it]
+moneyline OOF folds:  17%|#7        | 28/163 [00:39<02:39,  1.18s/it]
+moneyline OOF folds:  18%|#7        | 29/163 [00:40<02:40,  1.20s/it]
+moneyline OOF folds:  18%|#8        | 30/163 [00:41<02:47,  1.26s/it]
+moneyline OOF folds:  19%|#9        | 31/163 [00:42<02:42,  1.23s/it]
+moneyline OOF folds:  20%|#9        | 32/163 [00:44<02:40,  1.22s/it]
+moneyline OOF folds:  20%|##        | 33/163 [00:45<02:38,  1.22s/it]
+moneyline OOF folds:  21%|##        | 34/163 [00:46<02:36,  1.21s/it]
+moneyline OOF folds:  21%|##1       | 35/163 [00:47<02:35,  1.21s/it]
+moneyline OOF folds:  22%|##2       | 36/163 [00:48<02:35,  1.22s/it]
+moneyline OOF folds:  23%|##2       | 37/163 [00:50<02:34,  1.22s/it]
+moneyline OOF folds:  23%|##3       | 38/163 [00:51<02:35,  1.25s/it]
+moneyline OOF folds:  24%|##3       | 39/163 [00:52<02:34,  1.25s/it]
+moneyline OOF folds:  25%|##4       | 40/163 [00:53<02:33,  1.25s/it]
+moneyline OOF folds:  25%|##5       | 41/163 [00:55<02:33,  1.26s/it]
+moneyline OOF folds:  26%|##5       | 42/163 [00:56<02:35,  1.28s/it]
+moneyline OOF folds:  26%|##6       | 43/163 [00:57<02:36,  1.30s/it]
+moneyline OOF folds:  27%|##6       | 44/163 [00:59<02:37,  1.33s/it]
+moneyline OOF folds:  28%|##7       | 45/163 [01:00<02:37,  1.33s/it]
+moneyline OOF folds:  28%|##8       | 46/163 [01:02<02:42,  1.39s/it]
+moneyline OOF folds:  29%|##8       | 47/163 [01:03<02:40,  1.38s/it]
+moneyline OOF folds:  29%|##9       | 48/163 [01:04<02:38,  1.38s/it]
+moneyline OOF folds:  30%|###       | 49/163 [01:06<02:37,  1.38s/it]
+                                                                     
+2026-10-03 06:53:05,796 INFO moneyline OOF fold 50/163
 
-moneyline OOF folds:  47%|####7     | 50/106 [00:50<00:56,  1.00s/it]
-moneyline OOF folds:  48%|####8     | 51/106 [00:51<00:55,  1.02s/it]
-moneyline OOF folds:  49%|####9     | 52/106 [00:52<00:55,  1.02s/it]
-moneyline OOF folds:  50%|#####     | 53/106 [00:53<00:54,  1.04s/it]
-moneyline OOF folds:  51%|#####     | 54/106 [00:54<00:54,  1.05s/it]
-moneyline OOF folds:  52%|#####1    | 55/106 [00:55<00:54,  1.06s/it]
-moneyline OOF folds:  53%|#####2    | 56/106 [00:56<00:53,  1.07s/it]
-moneyline OOF folds:  54%|#####3    | 57/106 [00:57<00:52,  1.07s/it]
-moneyline OOF folds:  55%|#####4    | 58/106 [00:58<00:51,  1.08s/it]
-moneyline OOF folds:  56%|#####5    | 59/106 [01:00<00:50,  1.08s/it]
-moneyline OOF folds:  57%|#####6    | 60/106 [01:01<00:50,  1.09s/it]
-moneyline OOF folds:  58%|#####7    | 61/106 [01:02<00:48,  1.08s/it]
-moneyline OOF folds:  58%|#####8    | 62/106 [01:03<00:49,  1.13s/it]
-moneyline OOF folds:  59%|#####9    | 63/106 [01:04<00:48,  1.12s/it]
-moneyline OOF folds:  60%|######    | 64/106 [01:05<00:47,  1.12s/it]
-moneyline OOF folds:  61%|######1   | 65/106 [01:06<00:46,  1.13s/it]
-moneyline OOF folds:  62%|######2   | 66/106 [01:07<00:45,  1.13s/it]
-moneyline OOF folds:  63%|######3   | 67/106 [01:09<00:44,  1.13s/it]
-moneyline OOF folds:  64%|######4   | 68/106 [01:10<00:42,  1.12s/it]
-moneyline OOF folds:  65%|######5   | 69/106 [01:11<00:40,  1.10s/it]
-moneyline OOF folds:  66%|######6   | 70/106 [01:12<00:39,  1.11s/it]
-moneyline OOF folds:  67%|######6   | 71/106 [01:13<00:39,  1.13s/it]
-moneyline OOF folds:  68%|######7   | 72/106 [01:14<00:38,  1.13s/it]
-moneyline OOF folds:  69%|######8   | 73/106 [01:15<00:37,  1.13s/it]
-moneyline OOF folds:  70%|######9   | 74/106 [01:16<00:36,  1.14s/it]2026-10-02 02:54:51,458 INFO moneyline OOF fold 75/106
+moneyline OOF folds:  30%|###       | 49/163 [01:07<02:37,  1.38s/it]
+moneyline OOF folds:  31%|###       | 50/163 [01:07<02:36,  1.39s/it]
+moneyline OOF folds:  31%|###1      | 51/163 [01:09<02:35,  1.39s/it]
+moneyline OOF folds:  32%|###1      | 52/163 [01:10<02:33,  1.38s/it]
+moneyline OOF folds:  33%|###2      | 53/163 [01:11<02:35,  1.42s/it]
+moneyline OOF folds:  33%|###3      | 54/163 [01:13<02:32,  1.40s/it]
+moneyline OOF folds:  34%|###3      | 55/163 [01:14<02:28,  1.38s/it]
+moneyline OOF folds:  34%|###4      | 56/163 [01:15<02:26,  1.37s/it]
+moneyline OOF folds:  35%|###4      | 57/163 [01:17<02:24,  1.37s/it]
+moneyline OOF folds:  36%|###5      | 58/163 [01:18<02:25,  1.39s/it]
+moneyline OOF folds:  36%|###6      | 59/163 [01:20<02:26,  1.41s/it]
+moneyline OOF folds:  37%|###6      | 60/163 [01:21<02:31,  1.47s/it]
+moneyline OOF folds:  37%|###7      | 61/163 [01:23<02:31,  1.48s/it]
+moneyline OOF folds:  38%|###8      | 62/163 [01:24<02:29,  1.48s/it]
+moneyline OOF folds:  39%|###8      | 63/163 [01:26<02:28,  1.48s/it]
+moneyline OOF folds:  39%|###9      | 64/163 [01:27<02:26,  1.48s/it]
+moneyline OOF folds:  40%|###9      | 65/163 [01:29<02:24,  1.48s/it]
+moneyline OOF folds:  40%|####      | 66/163 [01:30<02:24,  1.49s/it]
+moneyline OOF folds:  41%|####1     | 67/163 [01:32<02:27,  1.54s/it]
+moneyline OOF folds:  42%|####1     | 68/163 [01:33<02:23,  1.51s/it]
+moneyline OOF folds:  42%|####2     | 69/163 [01:35<02:21,  1.50s/it]
+moneyline OOF folds:  43%|####2     | 70/163 [01:36<02:17,  1.48s/it]
+moneyline OOF folds:  44%|####3     | 71/163 [01:38<02:16,  1.48s/it]
+moneyline OOF folds:  44%|####4     | 72/163 [01:39<02:15,  1.49s/it]
+moneyline OOF folds:  45%|####4     | 73/163 [01:41<02:16,  1.52s/it]
+moneyline OOF folds:  45%|####5     | 74/163 [01:42<02:15,  1.52s/it]
+                                                                     
+2026-10-03 06:53:42,520 INFO moneyline OOF fold 75/163
 
-moneyline OOF folds:  71%|#######   | 75/106 [01:18<00:35,  1.15s/it]
-moneyline OOF folds:  72%|#######1  | 76/106 [01:19<00:34,  1.16s/it]
-moneyline OOF folds:  73%|#######2  | 77/106 [01:20<00:33,  1.17s/it]
-moneyline OOF folds:  74%|#######3  | 78/106 [01:21<00:32,  1.17s/it]
-moneyline OOF folds:  75%|#######4  | 79/106 [01:22<00:32,  1.20s/it]
-moneyline OOF folds:  75%|#######5  | 80/106 [01:24<00:30,  1.18s/it]
-moneyline OOF folds:  76%|#######6  | 81/106 [01:25<00:29,  1.18s/it]
-moneyline OOF folds:  77%|#######7  | 82/106 [01:26<00:28,  1.19s/it]
-moneyline OOF folds:  78%|#######8  | 83/106 [01:27<00:27,  1.20s/it]
-moneyline OOF folds:  79%|#######9  | 84/106 [01:28<00:25,  1.16s/it]
-moneyline OOF folds:  80%|########  | 85/106 [01:29<00:24,  1.17s/it]
-moneyline OOF folds:  81%|########1 | 86/106 [01:31<00:23,  1.18s/it]
-moneyline OOF folds:  82%|########2 | 87/106 [01:32<00:23,  1.22s/it]
-moneyline OOF folds:  83%|########3 | 88/106 [01:33<00:22,  1.24s/it]
-moneyline OOF folds:  84%|########3 | 89/106 [01:34<00:20,  1.23s/it]
-moneyline OOF folds:  85%|########4 | 90/106 [01:36<00:19,  1.21s/it]
-moneyline OOF folds:  86%|########5 | 91/106 [01:37<00:18,  1.21s/it]
-moneyline OOF folds:  87%|########6 | 92/106 [01:38<00:16,  1.20s/it]
-moneyline OOF folds:  88%|########7 | 93/106 [01:39<00:15,  1.21s/it]
-moneyline OOF folds:  89%|########8 | 94/106 [01:40<00:14,  1.21s/it]
-moneyline OOF folds:  90%|########9 | 95/106 [01:42<00:13,  1.21s/it]
-moneyline OOF folds:  91%|######### | 96/106 [01:43<00:12,  1.22s/it]
-moneyline OOF folds:  92%|#########1| 97/106 [01:44<00:10,  1.21s/it]
-moneyline OOF folds:  92%|#########2| 98/106 [01:45<00:09,  1.21s/it]
-moneyline OOF folds:  93%|#########3| 99/106 [01:46<00:08,  1.20s/it]2026-10-02 02:55:21,510 INFO moneyline OOF fold 100/106
+moneyline OOF folds:  45%|####5     | 74/163 [01:44<02:15,  1.52s/it]
+moneyline OOF folds:  46%|####6     | 75/163 [01:44<02:13,  1.52s/it]
+moneyline OOF folds:  47%|####6     | 76/163 [01:45<02:11,  1.51s/it]
+moneyline OOF folds:  47%|####7     | 77/163 [01:47<02:09,  1.50s/it]
+moneyline OOF folds:  48%|####7     | 78/163 [01:48<02:07,  1.50s/it]
+moneyline OOF folds:  48%|####8     | 79/163 [01:50<02:06,  1.50s/it]
+moneyline OOF folds:  49%|####9     | 80/163 [01:52<02:08,  1.55s/it]
+moneyline OOF folds:  50%|####9     | 81/163 [01:53<02:06,  1.54s/it]
+moneyline OOF folds:  50%|#####     | 82/163 [01:55<02:03,  1.53s/it]
+moneyline OOF folds:  51%|#####     | 83/163 [01:56<02:02,  1.53s/it]
+moneyline OOF folds:  52%|#####1    | 84/163 [01:58<02:00,  1.53s/it]
+moneyline OOF folds:  52%|#####2    | 85/163 [01:59<01:59,  1.54s/it]
+moneyline OOF folds:  53%|#####2    | 86/163 [02:01<01:58,  1.54s/it]
+moneyline OOF folds:  53%|#####3    | 87/163 [02:02<01:59,  1.57s/it]
+moneyline OOF folds:  54%|#####3    | 88/163 [02:04<01:57,  1.57s/it]
+moneyline OOF folds:  55%|#####4    | 89/163 [02:05<01:55,  1.57s/it]
+moneyline OOF folds:  55%|#####5    | 90/163 [02:07<01:54,  1.57s/it]
+moneyline OOF folds:  56%|#####5    | 91/163 [02:09<01:53,  1.58s/it]
+moneyline OOF folds:  56%|#####6    | 92/163 [02:10<01:52,  1.59s/it]
+moneyline OOF folds:  57%|#####7    | 93/163 [02:12<01:54,  1.64s/it]
+moneyline OOF folds:  58%|#####7    | 94/163 [02:14<01:51,  1.61s/it]
+moneyline OOF folds:  58%|#####8    | 95/163 [02:15<01:48,  1.60s/it]
+moneyline OOF folds:  59%|#####8    | 96/163 [02:17<01:46,  1.59s/it]
+moneyline OOF folds:  60%|#####9    | 97/163 [02:18<01:44,  1.59s/it]
+moneyline OOF folds:  60%|######    | 98/163 [02:20<01:42,  1.58s/it]
+moneyline OOF folds:  61%|######    | 99/163 [02:22<01:48,  1.69s/it]
+                                                                     
+2026-10-03 06:54:22,271 INFO moneyline OOF fold 100/163
 
-moneyline OOF folds:  94%|#########4| 100/106 [01:48<00:07,  1.21s/it]
-moneyline OOF folds:  95%|#########5| 101/106 [01:49<00:05,  1.19s/it]
-moneyline OOF folds:  96%|#########6| 102/106 [01:50<00:04,  1.20s/it]
-moneyline OOF folds:  97%|#########7| 103/106 [01:51<00:03,  1.20s/it]
-moneyline OOF folds:  98%|#########8| 104/106 [01:52<00:02,  1.22s/it]
-moneyline OOF folds:  99%|#########9| 105/106 [01:54<00:01,  1.21s/it]
-moneyline OOF folds: 100%|##########| 106/106 [01:55<00:00,  1.21s/it]
-moneyline OOF folds: 100%|##########| 106/106 [01:55<00:00,  1.09s/it]
-2026-10-02 02:55:28,741 INFO moneyline OOF rows: 1673; adaptive weights: {"elasticnet": 0.311, "lightgbm": 0.136, "xgboost": 0.553}
+moneyline OOF folds:  61%|######    | 99/163 [02:24<01:48,  1.69s/it]
+moneyline OOF folds:  61%|######1   | 100/163 [02:24<01:49,  1.73s/it]
+moneyline OOF folds:  62%|######1   | 101/163 [02:25<01:48,  1.75s/it]
+moneyline OOF folds:  63%|######2   | 102/163 [02:27<01:47,  1.76s/it]
+moneyline OOF folds:  63%|######3   | 103/163 [02:29<01:41,  1.70s/it]
+moneyline OOF folds:  64%|######3   | 104/163 [02:30<01:38,  1.66s/it]
+moneyline OOF folds:  64%|######4   | 105/163 [02:32<01:38,  1.69s/it]
+moneyline OOF folds:  65%|######5   | 106/163 [02:34<01:36,  1.69s/it]
+moneyline OOF folds:  66%|######5   | 107/163 [02:35<01:34,  1.69s/it]
+moneyline OOF folds:  66%|######6   | 108/163 [02:37<01:32,  1.68s/it]
+moneyline OOF folds:  67%|######6   | 109/163 [02:39<01:31,  1.70s/it]
+moneyline OOF folds:  67%|######7   | 110/163 [02:41<01:30,  1.70s/it]
+moneyline OOF folds:  68%|######8   | 111/163 [02:42<01:30,  1.74s/it]
+moneyline OOF folds:  69%|######8   | 112/163 [02:44<01:28,  1.73s/it]
+moneyline OOF folds:  69%|######9   | 113/163 [02:46<01:26,  1.72s/it]
+moneyline OOF folds:  70%|######9   | 114/163 [02:48<01:24,  1.72s/it]
+moneyline OOF folds:  71%|#######   | 115/163 [02:49<01:24,  1.77s/it]
+moneyline OOF folds:  71%|#######1  | 116/163 [02:51<01:24,  1.79s/it]
+moneyline OOF folds:  72%|#######1  | 117/163 [02:53<01:22,  1.79s/it]
+moneyline OOF folds:  72%|#######2  | 118/163 [02:55<01:20,  1.78s/it]
+moneyline OOF folds:  73%|#######3  | 119/163 [02:57<01:17,  1.76s/it]
+moneyline OOF folds:  74%|#######3  | 120/163 [02:58<01:15,  1.75s/it]
+moneyline OOF folds:  74%|#######4  | 121/163 [03:00<01:13,  1.74s/it]
+moneyline OOF folds:  75%|#######4  | 122/163 [03:02<01:13,  1.79s/it]
+moneyline OOF folds:  75%|#######5  | 123/163 [03:04<01:11,  1.79s/it]
+moneyline OOF folds:  76%|#######6  | 124/163 [03:05<01:09,  1.78s/it]
+                                                                      
+2026-10-03 06:55:05,753 INFO moneyline OOF fold 125/163
+
+moneyline OOF folds:  76%|#######6  | 124/163 [03:07<01:09,  1.78s/it]
+moneyline OOF folds:  77%|#######6  | 125/163 [03:07<01:06,  1.76s/it]
+moneyline OOF folds:  77%|#######7  | 126/163 [03:09<01:05,  1.76s/it]
+moneyline OOF folds:  78%|#######7  | 127/163 [03:11<01:03,  1.76s/it]
+moneyline OOF folds:  79%|#######8  | 128/163 [03:13<01:02,  1.80s/it]
+moneyline OOF folds:  79%|#######9  | 129/163 [03:14<01:00,  1.79s/it]
+moneyline OOF folds:  80%|#######9  | 130/163 [03:16<00:58,  1.78s/it]
+moneyline OOF folds:  80%|########  | 131/163 [03:18<00:56,  1.77s/it]
+moneyline OOF folds:  81%|########  | 132/163 [03:20<00:54,  1.77s/it]
+moneyline OOF folds:  82%|########1 | 133/163 [03:22<00:54,  1.82s/it]
+moneyline OOF folds:  82%|########2 | 134/163 [03:23<00:52,  1.80s/it]
+moneyline OOF folds:  83%|########2 | 135/163 [03:25<00:50,  1.79s/it]
+moneyline OOF folds:  83%|########3 | 136/163 [03:27<00:48,  1.79s/it]
+moneyline OOF folds:  84%|########4 | 137/163 [03:29<00:46,  1.78s/it]
+moneyline OOF folds:  85%|########4 | 138/163 [03:30<00:44,  1.78s/it]
+moneyline OOF folds:  85%|########5 | 139/163 [03:32<00:44,  1.84s/it]
+moneyline OOF folds:  86%|########5 | 140/163 [03:34<00:41,  1.82s/it]
+moneyline OOF folds:  87%|########6 | 141/163 [03:36<00:39,  1.80s/it]
+moneyline OOF folds:  87%|########7 | 142/163 [03:38<00:37,  1.79s/it]
+moneyline OOF folds:  88%|########7 | 143/163 [03:39<00:35,  1.80s/it]
+moneyline OOF folds:  88%|########8 | 144/163 [03:41<00:34,  1.84s/it]
+moneyline OOF folds:  89%|########8 | 145/163 [03:43<00:32,  1.82s/it]
+moneyline OOF folds:  90%|########9 | 146/163 [03:45<00:30,  1.82s/it]
+moneyline OOF folds:  90%|######### | 147/163 [03:47<00:28,  1.81s/it]
+moneyline OOF folds:  91%|######### | 148/163 [03:49<00:27,  1.80s/it]
+moneyline OOF folds:  91%|#########1| 149/163 [03:50<00:25,  1.80s/it]
+                                                                      
+2026-10-03 06:55:50,900 INFO moneyline OOF fold 150/163
+
+moneyline OOF folds:  91%|#########1| 149/163 [03:52<00:25,  1.80s/it]
+moneyline OOF folds:  92%|#########2| 150/163 [03:52<00:23,  1.84s/it]
+moneyline OOF folds:  93%|#########2| 151/163 [03:54<00:22,  1.83s/it]
+moneyline OOF folds:  93%|#########3| 152/163 [03:56<00:20,  1.83s/it]
+moneyline OOF folds:  94%|#########3| 153/163 [03:58<00:18,  1.82s/it]
+moneyline OOF folds:  94%|#########4| 154/163 [04:00<00:16,  1.82s/it]
+moneyline OOF folds:  95%|#########5| 155/163 [04:01<00:14,  1.86s/it]
+moneyline OOF folds:  96%|#########5| 156/163 [04:03<00:12,  1.86s/it]
+moneyline OOF folds:  96%|#########6| 157/163 [04:05<00:11,  1.87s/it]
+moneyline OOF folds:  97%|#########6| 158/163 [04:07<00:09,  1.88s/it]
+moneyline OOF folds:  98%|#########7| 159/163 [04:09<00:07,  1.89s/it]
+moneyline OOF folds:  98%|#########8| 160/163 [04:11<00:05,  1.92s/it]
+moneyline OOF folds:  99%|#########8| 161/163 [04:13<00:03,  1.93s/it]
+moneyline OOF folds:  99%|#########9| 162/163 [04:15<00:01,  1.93s/it]
+moneyline OOF folds: 100%|##########| 163/163 [04:17<00:00,  1.93s/it]
+                                                                      
+2026-10-03 06:56:15,490 INFO moneyline OOF: 2432 scored row(s), 1673 grading / 0 postseason / 759 provisional
+
+moneyline OOF folds: 100%|##########| 163/163 [04:17<00:00,  1.93s/it]
+moneyline OOF folds: 100%|##########| 163/163 [04:17<00:00,  1.58s/it]
+2026-10-03 06:56:15,497 INFO moneyline OOF rows: 2432; adaptive weights: {"elasticnet": 0.329, "lightgbm": 0.265, "xgboost": 0.406}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 6-7 — margin/total distribution OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-distribution OOF folds:   0%|          | 0/106 [00:00<?, ?it/s]
-distribution OOF folds:   3%|2         | 3/106 [00:00<00:03, 25.86it/s]
-distribution OOF folds:   6%|5         | 6/106 [00:00<00:05, 18.86it/s]
-distribution OOF folds:   8%|7         | 8/106 [00:00<00:05, 16.50it/s]
-distribution OOF folds:   9%|9         | 10/106 [00:00<00:06, 14.46it/s]
-distribution OOF folds:  11%|#1        | 12/106 [00:00<00:07, 13.22it/s]
-distribution OOF folds:  13%|#3        | 14/106 [00:00<00:07, 12.07it/s]
-distribution OOF folds:  15%|#5        | 16/106 [00:01<00:08, 11.18it/s]
-distribution OOF folds:  17%|#6        | 18/106 [00:01<00:08, 10.66it/s]
-distribution OOF folds:  19%|#8        | 20/106 [00:01<00:08, 10.04it/s]
-distribution OOF folds:  21%|##        | 22/106 [00:01<00:09,  8.95it/s]
-distribution OOF folds:  22%|##1       | 23/106 [00:02<00:09,  8.83it/s]
-distribution OOF folds:  23%|##2       | 24/106 [00:02<00:09,  8.72it/s]
-distribution OOF folds:  24%|##3       | 25/106 [00:02<00:09,  8.35it/s]
-distribution OOF folds:  25%|##4       | 26/106 [00:02<00:10,  7.85it/s]
-distribution OOF folds:  25%|##5       | 27/106 [00:02<00:10,  7.40it/s]
-distribution OOF folds:  26%|##6       | 28/106 [00:02<00:10,  7.10it/s]
-distribution OOF folds:  27%|##7       | 29/106 [00:02<00:11,  6.68it/s]
-distribution OOF folds:  28%|##8       | 30/106 [00:03<00:12,  6.29it/s]
-distribution OOF folds:  29%|##9       | 31/106 [00:03<00:12,  6.00it/s]
-distribution OOF folds:  30%|###       | 32/106 [00:03<00:12,  5.78it/s]
-distribution OOF folds:  31%|###1      | 33/106 [00:03<00:12,  5.67it/s]
-distribution OOF folds:  32%|###2      | 34/106 [00:03<00:12,  5.82it/s]
-distribution OOF folds:  33%|###3      | 35/106 [00:04<00:12,  5.56it/s]
-distribution OOF folds:  34%|###3      | 36/106 [00:04<00:13,  5.37it/s]
-distribution OOF folds:  35%|###4      | 37/106 [00:04<00:13,  5.20it/s]
-distribution OOF folds:  36%|###5      | 38/106 [00:04<00:13,  5.07it/s]
-distribution OOF folds:  37%|###6      | 39/106 [00:04<00:13,  4.80it/s]
-distribution OOF folds:  38%|###7      | 40/106 [00:05<00:14,  4.67it/s]
-distribution OOF folds:  39%|###8      | 41/106 [00:05<00:14,  4.51it/s]
-distribution OOF folds:  40%|###9      | 42/106 [00:05<00:14,  4.38it/s]
-distribution OOF folds:  41%|####      | 43/106 [00:05<00:14,  4.34it/s]
-distribution OOF folds:  42%|####1     | 44/106 [00:06<00:13,  4.44it/s]
-distribution OOF folds:  42%|####2     | 45/106 [00:06<00:13,  4.52it/s]
-distribution OOF folds:  43%|####3     | 46/106 [00:06<00:13,  4.44it/s]
-distribution OOF folds:  44%|####4     | 47/106 [00:06<00:13,  4.40it/s]
-distribution OOF folds:  45%|####5     | 48/106 [00:06<00:12,  4.47it/s]
-distribution OOF folds:  46%|####6     | 49/106 [00:07<00:13,  4.17it/s]
-distribution OOF folds:  47%|####7     | 50/106 [00:07<00:13,  4.06it/s]
-distribution OOF folds:  48%|####8     | 51/106 [00:07<00:13,  4.03it/s]
-distribution OOF folds:  49%|####9     | 52/106 [00:08<00:13,  3.89it/s]
-distribution OOF folds:  50%|#####     | 53/106 [00:08<00:13,  3.83it/s]
-distribution OOF folds:  51%|#####     | 54/106 [00:08<00:13,  3.74it/s]
-distribution OOF folds:  52%|#####1    | 55/106 [00:08<00:13,  3.86it/s]
-distribution OOF folds:  53%|#####2    | 56/106 [00:09<00:12,  3.99it/s]
-distribution OOF folds:  54%|#####3    | 57/106 [00:09<00:12,  4.04it/s]
-distribution OOF folds:  55%|#####4    | 58/106 [00:09<00:12,  3.83it/s]
-distribution OOF folds:  56%|#####5    | 59/106 [00:09<00:12,  3.72it/s]
-distribution OOF folds:  57%|#####6    | 60/106 [00:10<00:12,  3.59it/s]
-distribution OOF folds:  58%|#####7    | 61/106 [00:10<00:12,  3.67it/s]
-distribution OOF folds:  58%|#####8    | 62/106 [00:10<00:11,  3.71it/s]
-distribution OOF folds:  59%|#####9    | 63/106 [00:10<00:11,  3.63it/s]
-distribution OOF folds:  60%|######    | 64/106 [00:11<00:11,  3.58it/s]
-distribution OOF folds:  61%|######1   | 65/106 [00:11<00:11,  3.49it/s]
-distribution OOF folds:  62%|######2   | 66/106 [00:11<00:11,  3.40it/s]
-distribution OOF folds:  63%|######3   | 67/106 [00:12<00:11,  3.36it/s]
-distribution OOF folds:  64%|######4   | 68/106 [00:12<00:11,  3.36it/s]
-distribution OOF folds:  65%|######5   | 69/106 [00:12<00:10,  3.43it/s]
-distribution OOF folds:  66%|######6   | 70/106 [00:13<00:10,  3.42it/s]
-distribution OOF folds:  67%|######6   | 71/106 [00:13<00:10,  3.31it/s]
-distribution OOF folds:  68%|######7   | 72/106 [00:13<00:10,  3.29it/s]
-distribution OOF folds:  69%|######8   | 73/106 [00:13<00:10,  3.24it/s]
-distribution OOF folds:  70%|######9   | 74/106 [00:14<00:09,  3.24it/s]
-distribution OOF folds:  71%|#######   | 75/106 [00:14<00:09,  3.26it/s]
-distribution OOF folds:  72%|#######1  | 76/106 [00:14<00:09,  3.22it/s]
-distribution OOF folds:  73%|#######2  | 77/106 [00:15<00:09,  3.19it/s]
-distribution OOF folds:  74%|#######3  | 78/106 [00:15<00:08,  3.21it/s]
-distribution OOF folds:  75%|#######4  | 79/106 [00:15<00:08,  3.22it/s]
-distribution OOF folds:  75%|#######5  | 80/106 [00:16<00:07,  3.35it/s]
-distribution OOF folds:  76%|#######6  | 81/106 [00:16<00:07,  3.32it/s]
-distribution OOF folds:  77%|#######7  | 82/106 [00:16<00:07,  3.25it/s]
-distribution OOF folds:  78%|#######8  | 83/106 [00:17<00:07,  3.16it/s]
-distribution OOF folds:  79%|#######9  | 84/106 [00:17<00:07,  3.11it/s]
-distribution OOF folds:  80%|########  | 85/106 [00:17<00:06,  3.10it/s]
-distribution OOF folds:  81%|########1 | 86/106 [00:18<00:06,  3.07it/s]
-distribution OOF folds:  82%|########2 | 87/106 [00:18<00:06,  3.07it/s]
-distribution OOF folds:  83%|########3 | 88/106 [00:18<00:05,  3.13it/s]
-distribution OOF folds:  84%|########3 | 89/106 [00:19<00:05,  3.15it/s]
-distribution OOF folds:  85%|########4 | 90/106 [00:19<00:05,  3.06it/s]
-distribution OOF folds:  86%|########5 | 91/106 [00:19<00:05,  2.99it/s]
-distribution OOF folds:  87%|########6 | 92/106 [00:20<00:04,  2.92it/s]
-distribution OOF folds:  88%|########7 | 93/106 [00:20<00:04,  2.91it/s]
-distribution OOF folds:  89%|########8 | 94/106 [00:20<00:04,  2.88it/s]
-distribution OOF folds:  90%|########9 | 95/106 [00:21<00:03,  2.90it/s]
-distribution OOF folds:  91%|######### | 96/106 [00:21<00:03,  2.84it/s]
-distribution OOF folds:  92%|#########1| 97/106 [00:21<00:03,  2.94it/s]
-distribution OOF folds:  92%|#########2| 98/106 [00:22<00:02,  2.99it/s]
-distribution OOF folds:  93%|#########3| 99/106 [00:22<00:02,  3.02it/s]
-distribution OOF folds:  94%|#########4| 100/106 [00:22<00:02,  2.98it/s]
-distribution OOF folds:  95%|#########5| 101/106 [00:23<00:01,  2.88it/s]
-distribution OOF folds:  96%|#########6| 102/106 [00:23<00:01,  2.94it/s]
-distribution OOF folds:  97%|#########7| 103/106 [00:23<00:01,  3.00it/s]
-distribution OOF folds:  98%|#########8| 104/106 [00:24<00:00,  2.94it/s]
-distribution OOF folds:  99%|#########9| 105/106 [00:24<00:00,  2.85it/s]
-distribution OOF folds: 100%|##########| 106/106 [00:24<00:00,  2.79it/s]
-distribution OOF folds: 100%|##########| 106/106 [00:24<00:00,  4.25it/s]
-2026-10-02 02:55:53,695 INFO calibrated NB dispersion: alpha_home 0.121847, alpha_away 0.129823
+distribution OOF folds:   0%|          | 0/163 [00:00<?, ?it/s]
+distribution OOF folds:   1%|1         | 2/163 [00:00<00:08, 18.72it/s]
+distribution OOF folds:   2%|2         | 4/163 [00:00<00:10, 15.07it/s]
+distribution OOF folds:   4%|3         | 6/163 [00:00<00:11, 14.03it/s]
+distribution OOF folds:   5%|4         | 8/163 [00:00<00:11, 13.36it/s]
+distribution OOF folds:   6%|6         | 10/163 [00:00<00:11, 12.83it/s]
+distribution OOF folds:   7%|7         | 12/163 [00:00<00:12, 12.05it/s]
+distribution OOF folds:   9%|8         | 14/163 [00:01<00:13, 11.19it/s]
+distribution OOF folds:  10%|9         | 16/163 [00:01<00:14, 10.36it/s]
+distribution OOF folds:  11%|#1        | 18/163 [00:01<00:15,  9.57it/s]
+distribution OOF folds:  12%|#1        | 19/163 [00:01<00:15,  9.03it/s]
+distribution OOF folds:  12%|#2        | 20/163 [00:01<00:16,  8.51it/s]
+distribution OOF folds:  13%|#2        | 21/163 [00:02<00:17,  8.10it/s]
+distribution OOF folds:  13%|#3        | 22/163 [00:02<00:18,  7.68it/s]
+distribution OOF folds:  14%|#4        | 23/163 [00:02<00:18,  7.38it/s]
+distribution OOF folds:  15%|#4        | 24/163 [00:02<00:19,  7.04it/s]
+distribution OOF folds:  15%|#5        | 25/163 [00:02<00:20,  6.82it/s]
+distribution OOF folds:  16%|#5        | 26/163 [00:02<00:20,  6.63it/s]
+distribution OOF folds:  17%|#6        | 27/163 [00:02<00:21,  6.45it/s]
+distribution OOF folds:  17%|#7        | 28/163 [00:03<00:21,  6.29it/s]
+distribution OOF folds:  18%|#7        | 29/163 [00:03<00:21,  6.16it/s]
+distribution OOF folds:  18%|#8        | 30/163 [00:03<00:22,  5.95it/s]
+distribution OOF folds:  19%|#9        | 31/163 [00:03<00:23,  5.70it/s]
+distribution OOF folds:  20%|#9        | 32/163 [00:03<00:24,  5.28it/s]
+distribution OOF folds:  20%|##        | 33/163 [00:04<00:25,  5.03it/s]
+distribution OOF folds:  21%|##        | 34/163 [00:04<00:25,  5.05it/s]
+distribution OOF folds:  21%|##1       | 35/163 [00:04<00:25,  5.00it/s]
+distribution OOF folds:  22%|##2       | 36/163 [00:04<00:25,  4.96it/s]
+distribution OOF folds:  23%|##2       | 37/163 [00:04<00:26,  4.75it/s]
+distribution OOF folds:  23%|##3       | 38/163 [00:05<00:27,  4.60it/s]
+distribution OOF folds:  24%|##3       | 39/163 [00:05<00:27,  4.56it/s]
+distribution OOF folds:  25%|##4       | 40/163 [00:05<00:27,  4.49it/s]
+distribution OOF folds:  25%|##5       | 41/163 [00:05<00:28,  4.28it/s]
+distribution OOF folds:  26%|##5       | 42/163 [00:06<00:28,  4.26it/s]
+distribution OOF folds:  26%|##6       | 43/163 [00:06<00:28,  4.17it/s]
+distribution OOF folds:  27%|##6       | 44/163 [00:06<00:28,  4.15it/s]
+distribution OOF folds:  28%|##7       | 45/163 [00:06<00:28,  4.10it/s]
+distribution OOF folds:  28%|##8       | 46/163 [00:07<00:28,  4.07it/s]
+distribution OOF folds:  29%|##8       | 47/163 [00:07<00:28,  4.07it/s]
+distribution OOF folds:  29%|##9       | 48/163 [00:07<00:28,  3.99it/s]
+distribution OOF folds:  30%|###       | 49/163 [00:07<00:29,  3.90it/s]
+distribution OOF folds:  31%|###       | 50/163 [00:08<00:29,  3.87it/s]
+distribution OOF folds:  31%|###1      | 51/163 [00:08<00:29,  3.78it/s]
+distribution OOF folds:  32%|###1      | 52/163 [00:08<00:29,  3.73it/s]
+distribution OOF folds:  33%|###2      | 53/163 [00:09<00:30,  3.66it/s]
+distribution OOF folds:  33%|###3      | 54/163 [00:09<00:30,  3.54it/s]
+distribution OOF folds:  34%|###3      | 55/163 [00:09<00:30,  3.51it/s]
+distribution OOF folds:  34%|###4      | 56/163 [00:09<00:30,  3.50it/s]
+distribution OOF folds:  35%|###4      | 57/163 [00:10<00:30,  3.47it/s]
+distribution OOF folds:  36%|###5      | 58/163 [00:10<00:30,  3.42it/s]
+distribution OOF folds:  36%|###6      | 59/163 [00:10<00:31,  3.35it/s]
+distribution OOF folds:  37%|###6      | 60/163 [00:11<00:30,  3.35it/s]
+distribution OOF folds:  37%|###7      | 61/163 [00:11<00:30,  3.32it/s]
+distribution OOF folds:  38%|###8      | 62/163 [00:11<00:30,  3.27it/s]
+distribution OOF folds:  39%|###8      | 63/163 [00:12<00:31,  3.22it/s]
+distribution OOF folds:  39%|###9      | 64/163 [00:12<00:30,  3.20it/s]
+distribution OOF folds:  40%|###9      | 65/163 [00:12<00:31,  3.11it/s]
+distribution OOF folds:  40%|####      | 66/163 [00:13<00:31,  3.07it/s]
+distribution OOF folds:  41%|####1     | 67/163 [00:13<00:31,  3.08it/s]
+distribution OOF folds:  42%|####1     | 68/163 [00:13<00:31,  3.01it/s]
+distribution OOF folds:  42%|####2     | 69/163 [00:14<00:32,  2.87it/s]
+distribution OOF folds:  43%|####2     | 70/163 [00:14<00:31,  2.94it/s]
+distribution OOF folds:  44%|####3     | 71/163 [00:14<00:31,  2.90it/s]
+distribution OOF folds:  44%|####4     | 72/163 [00:15<00:31,  2.91it/s]
+distribution OOF folds:  45%|####4     | 73/163 [00:15<00:31,  2.87it/s]
+distribution OOF folds:  45%|####5     | 74/163 [00:15<00:31,  2.84it/s]
+distribution OOF folds:  46%|####6     | 75/163 [00:16<00:31,  2.82it/s]
+distribution OOF folds:  47%|####6     | 76/163 [00:16<00:31,  2.81it/s]
+distribution OOF folds:  47%|####7     | 77/163 [00:16<00:30,  2.83it/s]
+distribution OOF folds:  48%|####7     | 78/163 [00:17<00:30,  2.79it/s]
+distribution OOF folds:  48%|####8     | 79/163 [00:17<00:30,  2.76it/s]
+distribution OOF folds:  49%|####9     | 80/163 [00:18<00:30,  2.72it/s]
+distribution OOF folds:  50%|####9     | 81/163 [00:18<00:30,  2.73it/s]
+distribution OOF folds:  50%|#####     | 82/163 [00:18<00:29,  2.75it/s]
+distribution OOF folds:  51%|#####     | 83/163 [00:19<00:28,  2.77it/s]
+distribution OOF folds:  52%|#####1    | 84/163 [00:19<00:28,  2.73it/s]
+distribution OOF folds:  52%|#####2    | 85/163 [00:19<00:28,  2.70it/s]
+distribution OOF folds:  53%|#####2    | 86/163 [00:20<00:28,  2.71it/s]
+distribution OOF folds:  53%|#####3    | 87/163 [00:20<00:28,  2.71it/s]
+distribution OOF folds:  54%|#####3    | 88/163 [00:20<00:27,  2.68it/s]
+distribution OOF folds:  55%|#####4    | 89/163 [00:21<00:28,  2.62it/s]
+distribution OOF folds:  55%|#####5    | 90/163 [00:21<00:28,  2.55it/s]
+distribution OOF folds:  56%|#####5    | 91/163 [00:22<00:28,  2.56it/s]
+distribution OOF folds:  56%|#####6    | 92/163 [00:22<00:27,  2.54it/s]
+distribution OOF folds:  57%|#####7    | 93/163 [00:22<00:27,  2.55it/s]
+distribution OOF folds:  58%|#####7    | 94/163 [00:23<00:27,  2.53it/s]
+distribution OOF folds:  58%|#####8    | 95/163 [00:23<00:27,  2.48it/s]
+distribution OOF folds:  59%|#####8    | 96/163 [00:24<00:28,  2.39it/s]
+distribution OOF folds:  60%|#####9    | 97/163 [00:24<00:27,  2.44it/s]
+distribution OOF folds:  60%|######    | 98/163 [00:25<00:26,  2.47it/s]
+distribution OOF folds:  61%|######    | 99/163 [00:25<00:25,  2.49it/s]
+distribution OOF folds:  61%|######1   | 100/163 [00:25<00:25,  2.46it/s]
+distribution OOF folds:  62%|######1   | 101/163 [00:26<00:25,  2.46it/s]
+distribution OOF folds:  63%|######2   | 102/163 [00:26<00:25,  2.42it/s]
+distribution OOF folds:  63%|######3   | 103/163 [00:27<00:24,  2.46it/s]
+distribution OOF folds:  64%|######3   | 104/163 [00:27<00:23,  2.46it/s]
+distribution OOF folds:  64%|######4   | 105/163 [00:27<00:23,  2.44it/s]
+distribution OOF folds:  65%|######5   | 106/163 [00:28<00:23,  2.43it/s]
+distribution OOF folds:  66%|######5   | 107/163 [00:28<00:23,  2.37it/s]
+distribution OOF folds:  66%|######6   | 108/163 [00:29<00:23,  2.38it/s]
+distribution OOF folds:  67%|######6   | 109/163 [00:29<00:22,  2.36it/s]
+distribution OOF folds:  67%|######7   | 110/163 [00:30<00:22,  2.34it/s]
+distribution OOF folds:  68%|######8   | 111/163 [00:30<00:22,  2.33it/s]
+distribution OOF folds:  69%|######8   | 112/163 [00:30<00:21,  2.34it/s]
+distribution OOF folds:  69%|######9   | 113/163 [00:31<00:21,  2.34it/s]
+distribution OOF folds:  70%|######9   | 114/163 [00:31<00:21,  2.30it/s]
+distribution OOF folds:  71%|#######   | 115/163 [00:32<00:21,  2.28it/s]
+distribution OOF folds:  71%|#######1  | 116/163 [00:32<00:20,  2.27it/s]
+distribution OOF folds:  72%|#######1  | 117/163 [00:33<00:20,  2.24it/s]
+distribution OOF folds:  72%|#######2  | 118/163 [00:33<00:19,  2.25it/s]
+distribution OOF folds:  73%|#######3  | 119/163 [00:34<00:20,  2.20it/s]
+distribution OOF folds:  74%|#######3  | 120/163 [00:34<00:19,  2.24it/s]
+distribution OOF folds:  74%|#######4  | 121/163 [00:34<00:18,  2.26it/s]
+distribution OOF folds:  75%|#######4  | 122/163 [00:35<00:18,  2.25it/s]
+distribution OOF folds:  75%|#######5  | 123/163 [00:35<00:17,  2.24it/s]
+distribution OOF folds:  76%|#######6  | 124/163 [00:36<00:17,  2.18it/s]
+distribution OOF folds:  77%|#######6  | 125/163 [00:36<00:17,  2.15it/s]
+distribution OOF folds:  77%|#######7  | 126/163 [00:37<00:17,  2.14it/s]
+distribution OOF folds:  78%|#######7  | 127/163 [00:37<00:16,  2.13it/s]
+distribution OOF folds:  79%|#######8  | 128/163 [00:38<00:16,  2.12it/s]
+distribution OOF folds:  79%|#######9  | 129/163 [00:38<00:15,  2.15it/s]
+distribution OOF folds:  80%|#######9  | 130/163 [00:39<00:15,  2.16it/s]
+distribution OOF folds:  80%|########  | 131/163 [00:39<00:14,  2.18it/s]
+distribution OOF folds:  81%|########  | 132/163 [00:40<00:14,  2.14it/s]
+distribution OOF folds:  82%|########1 | 133/163 [00:40<00:14,  2.12it/s]
+distribution OOF folds:  82%|########2 | 134/163 [00:41<00:13,  2.12it/s]
+distribution OOF folds:  83%|########2 | 135/163 [00:41<00:13,  2.11it/s]
+distribution OOF folds:  83%|########3 | 136/163 [00:41<00:12,  2.11it/s]
+distribution OOF folds:  84%|########4 | 137/163 [00:42<00:12,  2.09it/s]
+distribution OOF folds:  85%|########4 | 138/163 [00:42<00:11,  2.09it/s]
+distribution OOF folds:  85%|########5 | 139/163 [00:43<00:11,  2.10it/s]
+distribution OOF folds:  86%|########5 | 140/163 [00:43<00:11,  2.05it/s]
+distribution OOF folds:  87%|########6 | 141/163 [00:44<00:10,  2.03it/s]
+distribution OOF folds:  87%|########7 | 142/163 [00:44<00:10,  2.04it/s]
+distribution OOF folds:  88%|########7 | 143/163 [00:45<00:09,  2.02it/s]
+distribution OOF folds:  88%|########8 | 144/163 [00:45<00:09,  2.02it/s]
+distribution OOF folds:  89%|########8 | 145/163 [00:46<00:08,  2.02it/s]
+distribution OOF folds:  90%|########9 | 146/163 [00:46<00:08,  2.01it/s]
+distribution OOF folds:  90%|######### | 147/163 [00:47<00:07,  2.03it/s]
+distribution OOF folds:  91%|######### | 148/163 [00:47<00:07,  2.04it/s]
+distribution OOF folds:  91%|#########1| 149/163 [00:48<00:06,  2.06it/s]
+distribution OOF folds:  92%|#########2| 150/163 [00:48<00:06,  2.05it/s]
+distribution OOF folds:  93%|#########2| 151/163 [00:49<00:05,  2.06it/s]
+distribution OOF folds:  93%|#########3| 152/163 [00:49<00:05,  2.04it/s]
+distribution OOF folds:  94%|#########3| 153/163 [00:50<00:04,  2.05it/s]
+distribution OOF folds:  94%|#########4| 154/163 [00:50<00:04,  2.03it/s]
+distribution OOF folds:  95%|#########5| 155/163 [00:51<00:03,  2.03it/s]
+distribution OOF folds:  96%|#########5| 156/163 [00:51<00:03,  2.02it/s]
+distribution OOF folds:  96%|#########6| 157/163 [00:52<00:02,  2.02it/s]
+distribution OOF folds:  97%|#########6| 158/163 [00:52<00:02,  2.01it/s]
+distribution OOF folds:  98%|#########7| 159/163 [00:53<00:01,  2.01it/s]
+distribution OOF folds:  98%|#########8| 160/163 [00:53<00:01,  1.99it/s]
+distribution OOF folds:  99%|#########8| 161/163 [00:54<00:01,  1.92it/s]
+distribution OOF folds:  99%|#########9| 162/163 [00:54<00:00,  1.91it/s]
+distribution OOF folds: 100%|##########| 163/163 [00:55<00:00,  1.90it/s]
+distribution OOF folds: 100%|##########| 163/163 [00:55<00:00,  2.94it/s]
+2026-10-03 06:57:10,975 INFO calibrated NB dispersion: alpha_home 0.119626, alpha_away 0.136473
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 8 — calibration
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:55:53,896 INFO prequential per-fold calibration: 86 fitted, 20 identity
-2026-10-02 02:55:53,899 INFO final pooled calibrator (THIS is what serves): a=1.0056 b=0.0546 n=1673 method=favored_platt_floor
+2026-10-03 06:57:11,538 INFO prequential per-fold calibration: 143 fitted, 20 identity
+2026-10-03 06:57:11,563 INFO final pooled calibrator (THIS is what serves): a=1.0315 b=0.0354 n=1673 method=favored_platt_floor
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 9 — evaluation / diagnostics
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:55:53,907 INFO moneyline OOF raw:    {"n": 1673, "auc": 0.6990022636503886, "logloss": 0.627801625219001, "brier": 0.2190548034459541, "ece": 0.022748582098764014}
-2026-10-02 02:55:53,908 INFO moneyline OOF calib:  {"n": 1673, "auc": 0.6963839266404257, "logloss": 0.6287870082193623, "brier": 0.2194720952089375, "ece": 0.022031364349777056}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
-2026-10-02 02:55:53,911 INFO moneyline OOF shipped: {"n": 1673, "auc": 0.6998096803494961, "logloss": 0.6267516291626307, "brier": 0.21860664604155297, "ece": 0.028318700730504257}
-2026-10-02 02:55:53,921 INFO   member xgboost       w=0.553 auc=0.6968 logloss=0.6281 brier=0.2193
-2026-10-02 02:55:53,922 INFO   member lightgbm      w=0.136 auc=0.6974 logloss=0.6289 brier=0.2195
-2026-10-02 02:55:53,922 INFO   member elasticnet    w=0.311 auc=0.6961 logloss=0.6311 brier=0.2205
-2026-10-02 02:55:57,221 INFO run-line OOF:  {"n": 1622, "n_pushes": 51, "logscore": 0.6929067934406784, "brier": 0.24987979069050556, "ece_cover": 0.023893341553637502}
-2026-10-02 02:55:57,221 INFO totals OOF:    {"n": 1627, "n_pushes": 46, "logscore": 0.6934848594551379, "brier": 0.2501687877996312, "ece_cover": 0.01999600491702521}
+2026-10-03 06:57:11,575 INFO moneyline OOF raw:    {"n": 1673, "auc": 0.6985365572328677, "logloss": 0.6281275335708634, "brier": 0.2191962626508501, "ece": 0.020829575935949182}
+2026-10-03 06:57:11,576 INFO moneyline OOF calib:  {"n": 1673, "auc": 0.6967732168346381, "logloss": 0.6289641798146743, "brier": 0.2195584094367774, "ece": 0.02126392584939138}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
+2026-10-03 06:57:11,576 WARNING Calibration: prequential calibrated metrics worse than raw (ECE 0.0208 -> 0.0213, log-loss 0.6281 -> 0.6290) — shipping the raw blend (identity calibrator)
+2026-10-03 06:57:11,582 INFO moneyline OOF shipped: {"n": 2432, "auc": 0.6947223079370075, "logloss": 0.6309549850849562, "brier": 0.22046675962436113, "ece": 0.02060666479768577}
+2026-10-03 06:57:11,600 INFO   member xgboost       w=0.406 auc=0.6907 logloss=0.6335 brier=0.2216
+2026-10-03 06:57:11,600 INFO   member lightgbm      w=0.265 auc=0.6936 logloss=0.6322 brier=0.2209
+2026-10-03 06:57:11,600 INFO   member elasticnet    w=0.329 auc=0.6907 logloss=0.6341 brier=0.2219
+2026-10-03 06:57:18,848 INFO run-line OOF:  {"n": 2346, "n_pushes": 86, "logscore": 0.6929285495728061, "brier": 0.24989068936487643, "ece_cover": 0.013283248081841427}
+2026-10-03 06:57:18,848 INFO totals OOF:    {"n": 2360, "n_pushes": 72, "logscore": 0.6928268480457717, "brier": 0.24983984597457623, "ece_cover": 0.027283474576271227}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 10 — final full-history refit
@@ -911,70 +1357,77 @@ distribution OOF folds: 100%|##########| 106/106 [00:24<00:00,  4.25it/s]
 
 
 final full-history refit:   0%|          | 0/2 [00:00<?, ?it/s]
-final full-history refit:  50%|#####     | 1/2 [00:01<00:01,  1.23s/it]
-final full-history refit: 100%|##########| 2/2 [00:01<00:00,  1.38it/s]
-final full-history refit: 100%|##########| 2/2 [00:01<00:00,  1.24it/s]
-2026-10-02 02:55:59,318 INFO final refit: 3 members + run-line regressors on 2687 games
+final full-history refit:  50%|#####     | 1/2 [00:01<00:01,  1.97s/it]
+final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.11s/it]
+final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.24s/it]
+2026-10-03 06:57:22,400 INFO final refit: 3 members + run-line regressors on 2688 games
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 11 — current-slate serving
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:56:14,506 INFO slate games: 1
+2026-10-03 06:57:22,406 INFO slate games: 0
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 12 — artifact persistence
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:57:14,791 INFO cards history store: 1673 rows (0 added this run) -> nfl_production_cards_history.csv
-2026-10-02 02:57:14,831 INFO dated board snapshots: 1 date(s) -> nfl_board_20261001.csv
-2026-10-02 02:57:21,696 INFO NFL SHAP attributions written for 1 games
-2026-10-02 02:57:21,701 INFO SHAP attribution cards: 1 written this run (242 on disk, all retained)
+2026-10-03 06:59:58,257 INFO cards history store: 2432 rows (759 added this run) -> nfl_production_cards_history.csv
+2026-10-03 07:00:03,778 INFO SHAP: no slate games — no attribution cards written
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 13 — monitoring
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:57:22,866 INFO Rolling Brier: 324 points (2017-09-07 -> 2026-09-28), 1673 games, 0 sparse days excluded (<1 games/day), mean 0.2195
-2026-10-02 02:57:22,874 INFO monitoring: 70 features scored, 1 drift (ALERT/WARN), 0 insufficient-window, 3 drift structural, 0 coverage (STARVED/LOW), 38 coverage structural (documented policy)
-2026-10-02 02:57:22,874 WARNING   drift   pace_plays_min_away                WARN         psi_adj=0.244 (raw 0.441, null 0.197 med 0.149)
-2026-10-02 02:57:22,874 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
-2026-10-02 02:57:22,874 INFO   drift   travel_miles_home                  STRUCTURAL   constant 0 in both windows (cannot drift)
-2026-10-02 02:57:22,874 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
-2026-10-02 02:57:22,874 WARNING   full tables: run_engine_feature_drift_20261001.csv, run_engine_feature_coverage_20261001.csv
+2026-10-03 07:00:05,607 INFO Rolling Brier: 492 points (2017-09-07 -> 2026-10-01), 2432 games, 0 sparse days excluded (<1 games/day), mean 0.2213
+2026-10-03 07:00:05,621 INFO monitoring: 70 features scored, 1 drift (ALERT/WARN), 0 insufficient-window, 3 drift structural, 0 coverage (STARVED/LOW), 38 coverage structural (documented policy)
+2026-10-03 07:00:05,621 WARNING   drift   pace_plays_min_away                WARN         psi_adj=0.222 (raw 0.419, null 0.197 med 0.149)
+2026-10-03 07:00:05,621 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
+2026-10-03 07:00:05,621 INFO   drift   travel_miles_home                  STRUCTURAL   constant 0 in both windows (cannot drift)
+2026-10-03 07:00:05,621 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
+2026-10-03 07:00:05,621 WARNING   full tables: run_engine_feature_drift_20261003.csv, run_engine_feature_coverage_20261003.csv
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 14 — schema validation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-02 02:57:22,974 INFO gate ml_probability_bounds        PASS
-2026-10-02 02:57:22,975 INFO gate oof_population               PASS
-2026-10-02 02:57:22,975 INFO gate spread_grid_coherent         PASS
-2026-10-02 02:57:22,975 INFO gate totals_grid_coherent         PASS
-2026-10-02 02:57:22,975 INFO gate markets_has_slate            PASS
-2026-10-02 02:57:22,975 INFO gate slate_contract_fields        PASS
-2026-10-02 02:57:22,975 INFO gate fold_geometry                PASS
-2026-10-02 02:57:22,975 INFO artifacts written: 256
-2026-10-02 02:57:22,975 INFO   -> nfl_moneyline_v1_20261001.json
-2026-10-02 02:57:22,975 INFO   -> nfl_qb_matchup_20261001.json
-2026-10-02 02:57:22,975 INFO   -> nfl_calibration_20261001.json
-2026-10-02 02:57:22,975 INFO   -> nfl_predictions_history_20261001.csv
-2026-10-02 02:57:22,975 INFO   -> nfl_production_cards_history.csv
-2026-10-02 02:57:22,975 INFO   -> nfl_board_20261001.csv
-2026-10-02 02:57:22,976 INFO   -> nfl_power_rankings_20261001.csv
-2026-10-02 02:57:22,976 INFO   -> nfl_run_engine_markets_20261001.csv
-2026-10-02 02:57:22,976 INFO   -> nfl_run_engine_monitor_20261001.json
-2026-10-02 02:57:22,976 INFO   -> nfl_feature_v1_20261001.json
-2026-10-02 02:57:22,976 INFO   -> nfl_ensemble_latest.joblib
-2026-10-02 02:57:22,976 INFO   -> run_engine_feature_drift_20261001.csv
-2026-10-02 02:57:22,976 INFO   -> run_engine_feature_coverage_20261001.csv
-2026-10-02 02:57:22,976 INFO   -> nfl_model_monitor_20261001.json
-2026-10-02 02:57:22,976 INFO   -> nfl_shap_game_*.csv (242 per-game cards, e.g. nfl_shap_game_2026_01_NE_SEA.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
-2026-10-02 02:57:23,009 INFO retention: kept 238 protected file(s)
-2026-10-02 02:57:23,009 INFO retention: kept 116 artifact(s) within the window (anchor 20261001 -10d)
-2026-10-02 02:57:23,009 INFO retention: no stale files
+2026-10-03 07:00:05,857 INFO gate ml_probability_bounds        PASS
+2026-10-03 07:00:05,857 INFO gate oof_population               PASS
+2026-10-03 07:00:05,857 INFO gate spread_grid_coherent         PASS
+2026-10-03 07:00:05,857 INFO gate totals_grid_coherent         PASS
+2026-10-03 07:00:05,858 INFO gate markets_has_slate            PASS
+2026-10-03 07:00:05,858 INFO gate slate_contract_fields        PASS
+2026-10-03 07:00:05,858 INFO gate fold_geometry                PASS
+2026-10-03 07:00:05,858 INFO artifacts written: 11
+2026-10-03 07:00:05,858 INFO   -> nfl_calibration_20261003.json
+2026-10-03 07:00:05,858 INFO   -> nfl_predictions_history_20261003.csv
+2026-10-03 07:00:05,858 INFO   -> nfl_production_cards_history.csv
+2026-10-03 07:00:05,859 INFO   -> nfl_power_rankings_20261003.csv
+2026-10-03 07:00:05,859 INFO   -> nfl_run_engine_markets_20261003.csv
+2026-10-03 07:00:05,859 INFO   -> nfl_run_engine_monitor_20261003.json
+2026-10-03 07:00:05,859 INFO   -> nfl_feature_v1_20261003.json
+2026-10-03 07:00:05,859 INFO   -> nfl_ensemble_latest.joblib
+2026-10-03 07:00:05,859 INFO   -> run_engine_feature_drift_20261003.csv
+2026-10-03 07:00:05,859 INFO   -> run_engine_feature_coverage_20261003.csv
+2026-10-03 07:00:05,859 INFO   -> nfl_model_monitor_20261003.json
+2026-10-03 07:00:05,903 INFO retention: kept 238 protected file(s)
+2026-10-03 07:00:05,904 INFO retention: kept 113 artifact(s) within the window (anchor 20261003 -10d)
+2026-10-03 07:00:05,904 INFO retention: pruned stale artifact nfl_calibration_20260922.json
+2026-10-03 07:00:05,904 INFO retention: pruned stale artifact nfl_feature_v1_20260922.json
+2026-10-03 07:00:05,904 INFO retention: pruned stale artifact nfl_model_monitor_20260922.json
+2026-10-03 07:00:05,905 INFO retention: pruned stale artifact nfl_moneyline_v1_20260922.json
+2026-10-03 07:00:05,905 INFO retention: pruned stale artifact nfl_power_rankings_20260922.csv
+2026-10-03 07:00:05,905 INFO retention: pruned stale artifact nfl_predictions_history_20260922.csv
+2026-10-03 07:00:05,905 INFO retention: pruned stale artifact nfl_qb_matchup_20260922.json
+2026-10-03 07:00:05,906 INFO retention: pruned stale artifact nfl_run_engine_markets_20260922.csv
+2026-10-03 07:00:05,906 INFO retention: pruned stale artifact nfl_run_engine_markets_20260922.meta.json
+2026-10-03 07:00:05,906 INFO retention: pruned stale artifact nfl_shap_game_2026_01_NE_SEA.csv
+2026-10-03 07:00:05,906 INFO retention: pruned stale artifact nfl_shap_game_2026_02_NYG_LA.csv
+2026-10-03 07:00:05,907 INFO retention: pruned stale artifact run_engine_feature_coverage_20260922.csv
+2026-10-03 07:00:05,907 INFO retention: pruned stale artifact run_engine_feature_drift_20260922.csv
+2026-10-03 07:00:05,907 INFO retention: removed 13 stale file(s)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE — 256 artifacts in 1081s
+  DONE — 11 artifacts in 1241s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
