@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-10-03T16:19:31.678898+00:00",
+ "created_utc": "2026-10-03T18:50:53.382550+00:00",
  "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
  "manifest": {
   "elo_diff": {
@@ -177,7 +177,7 @@
   "travel_miles_diff": {
    "description": "Home minus away distance traveled to the venue (miles)",
    "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team\u2192stadium map",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "each side uses its most recent home venue strictly before kickoff; no current/future venue association",
@@ -193,7 +193,7 @@
   "altitude_home": {
    "description": "Game-venue elevation in feet",
    "definition": "altitude_ft of the game stadium",
-   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation) + nfl_neutral_venues.csv (neutral-site rows)",
    "lookback": 0,
    "aggregation": "static pre-game fact",
    "point_in_time_rule": "venue attribute known before kickoff",
@@ -490,7 +490,7 @@
   "travel_miles_home": {
    "description": "Home team's travel distance to the game venue (miles)",
    "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "the home team's most recent home venue strictly before kickoff; no current/future venue association",
@@ -504,7 +504,7 @@
   "travel_miles_away": {
    "description": "Away team's travel distance to the game venue (miles)",
    "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "the away team's most recent home venue strictly before kickoff; no current/future venue association",
@@ -1203,16 +1203,16 @@
   {
    "feature": "travel_miles_diff",
    "n_games": 2688,
-   "coverage_pct": 96.84,
-   "mean": -955.4602885193394,
-   "std": 660.431918731338
+   "coverage_pct": 98.62,
+   "mean": -936.3903479845158,
+   "std": 676.7273901406028
   },
   {
    "feature": "altitude_home",
    "n_games": 2688,
-   "coverage_pct": 98.21,
-   "mean": 594.4030303030303,
-   "std": 944.1691643070432
+   "coverage_pct": 100.0,
+   "mean": 602.0444940476191,
+   "std": 977.0035580625521
   },
   {
    "feature": "prime_time",
@@ -1301,16 +1301,16 @@
   {
    "feature": "travel_miles_home",
    "n_games": 2688,
-   "coverage_pct": 96.95,
-   "mean": 0.00489225839996489,
-   "std": 0.17981829209007866
+   "coverage_pct": 98.74,
+   "mean": 70.19578620552925,
+   "std": 559.8290854540146
   },
   {
    "feature": "travel_miles_away",
    "n_games": 2688,
-   "coverage_pct": 97.4,
-   "mean": 957.1676229075938,
-   "std": 661.3513486543467
+   "coverage_pct": 99.18,
+   "mean": 1008.0492819307109,
+   "std": 778.6882768643571
   },
   {
    "feature": "elo_home",
@@ -1630,10 +1630,10 @@
   "min_val_fold_games": 15,
   "oof_regular": {
    "n": 1673,
-   "auc": 0.6967732168346381,
-   "logloss": 0.6289641798146743,
-   "brier": 0.2195584094367774,
-   "ece": 0.02126392584939138,
+   "auc": 0.6969938146113586,
+   "logloss": 0.6288597650401995,
+   "brier": 0.21950959678708964,
+   "ece": 0.020919745845860236,
    "sufficient": true
   },
   "oof_postseason": {
@@ -1642,18 +1642,18 @@
   },
   "oof_provisional": {
    "n": 759,
-   "auc": 0.6819341793334263,
-   "logloss": 0.6414121811022543,
-   "brier": 0.2249940527294382,
-   "ece": 0.025429211397365467,
+   "auc": 0.6826523497420165,
+   "logloss": 0.6409296736239563,
+   "brier": 0.22475740652852166,
+   "ece": 0.025422568611881323,
    "sufficient": true
   },
   "oof_all": {
    "n": 2432,
-   "auc": 0.6923054915816728,
-   "logloss": 0.632849061795461,
-   "brier": 0.2212548129150379,
-   "ece": 0.02151029057242962,
+   "auc": 0.6926862695812872,
+   "logloss": 0.6326266485167914,
+   "brier": 0.22114737951478164,
+   "ece": 0.021019783191418877,
    "sufficient": true
   }
  },
