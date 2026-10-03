@@ -2381,9 +2381,11 @@ class TestPositionsCacheVersioning:
     """
 
     def test_the_cache_key_carries_the_version(self):
-        assert ing._positions_path("2025-26").name == "positions_v2_2025-26.parquet"
+        assert ing._positions_path("2025-26").name == "positions_v3_2025-26.parquet"
+        assert (ing._positions_path_v2("2025-26").name
+                == "positions_v2_2025-26.parquet")
         # The single-label table stays readable under its old name, which is
-        # what makes it usable as the outage fallback.
+        # what makes it usable as the last outage fallback.
         assert ing._positions_path_v1("2025-26").name == "positions_2025-26.parquet"
 
     def test_a_live_pull_writes_the_versioned_file_with_the_listing(
@@ -2391,8 +2393,13 @@ class TestPositionsCacheVersioning:
         import urllib.parse
 
         def payload(url, *_args, **_kwargs):
-            which = urllib.parse.parse_qs(
-                urllib.parse.urlparse(url).query)["PlayerPosition"][0]
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "PlayerPosition" not in query:
+                # The index answering for a player the filter never lists him
+                # under is covered separately; here it stays silent so the
+                # convention is what this test measures.
+                return {"resultSets": []}
+            which = query["PlayerPosition"][0]
             ids = {"G": [10], "F": [10, 20], "C": [20]}[which]
             return {"resultSets": [{"headers": ["PLAYER_ID"],
                                     "rowSet": [[i] for i in ids]}]}
@@ -2433,4 +2440,154 @@ class TestPositionsCacheVersioning:
         assert list(frame.columns) == ["player_id", "position"]
         assert list(frame.position) == ["C"]
         assert not ing._positions_path("2025-26").exists()
+
+
+#: A ``playerindex`` payload naming player 20 a ``C-F`` - the league's own
+#: reading, and the disagreement the override exists to honor. Ten's ``G``
+#: agrees with the convention, so it is inert; 20's is the whole test.
+_INDEX_PAYLOAD = {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
+                                  "rowSet": [[10, "G"], [20, "C-F"]]}]}
+
+
+class TestPositionPrimaryIndex:
+    """The collapsed cell follows the league's own primary letter.
+
+    ``playerindex`` is the only endpoint that publishes a position at all, and
+    it publishes the code ORDERED - ``C-F`` and ``F-C`` are the same two
+    letters in the league's order of preference. The local G->F->C convention
+    cannot see that difference (an unordered set has no order to read) and
+    disagrees with the league for 28 of 582 players in 2025-26, 17 of them
+    ``C-F`` players who are actually starting centres.
+
+    Everything here runs offline; the live coverage numbers in the coverage
+    gate below were measured once against the real endpoint and are what the
+    gate is set from.
+    """
+
+    def test_a_full_index_moves_the_cell_the_convention_got_wrong(
+            self, tmp_path, monkeypatch):
+        import urllib.parse
+
+        def payload(url, *_args, **_kwargs):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "PlayerPosition" not in query:
+                return _INDEX_PAYLOAD
+            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[i] for i in ids]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", payload)
+        frame = ing._fetch_positions("2025-26")
+        # 20 was F under the convention and is C by the league's reading.
+        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "C"}
+        # The listing is NOT rewritten - the segments ask who the club fields
+        # at centre, which is indifferent to which of them is primary.
+        assert dict(zip(frame.player_id, frame.positions)) == {
+            10: "G|F", 20: "F|C"}
+
+    def test_a_truncated_index_is_refused_whole(self, tmp_path, monkeypatch):
+        """The endpoint degrades SILENTLY on a back season, returning 200.
+
+        Measured live 2026-10-02: 100% of 2025-26's filter players are in the
+        index, but only 23% of 2024-25's and 24% of 2023-24's. Applying that
+        quarter would key one season's prior cells on two conventions at once,
+        so below the floor the index is dropped and the season keeps the
+        convention wholesale - partial is not an option here.
+        """
+        import urllib.parse
+
+        def payload(url, *_args, **_kwargs):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "PlayerPosition" not in query:
+                # Names only the first of ten players: the shape a back season
+                # returns, at 10% rather than the real ~24%.
+                return {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
+                                        "rowSet": [[10, "G"]]}]}
+            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[i] for i in ids]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", payload)
+        frame = ing._fetch_positions("2024-25")
+        # Convention stands for everyone, including the one the index covered.
+        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
+
+    def test_an_unreachable_index_leaves_the_convention_in_charge(
+            self, tmp_path, monkeypatch):
+        """The listing and the collapsed cell are INDEPENDENT.
+
+        The index is what decides the cell; the filter pull is what produces
+        the listing the nine features actually read. So an index outage must
+        cost the override and nothing else - not the listing, and not the
+        features.
+        """
+        import urllib.parse
+
+        def payload(url, *_args, **_kwargs):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "PlayerPosition" not in query:
+                raise TimeoutError("the read operation timed out")
+            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[i] for i in ids]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", payload)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26")
+        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
+        assert dict(zip(frame.player_id, frame.positions)) == {
+            10: "G|F", 20: "F|C"}
+
+    def test_the_gate_refuses_a_densely_covered_but_truncated_index(self):
+        """A coverage fraction, not a count.
+
+        The interesting case is an index that covers MOST of the league and
+        still misses some: 90% looks trustworthy and is not. The floor is the
+        only thing standing between that and a season keyed on two
+        conventions, so the comparison is asserted at the boundary rather than
+        only through the live-shaped case above.
+        """
+        floor = config.PLAYER_EPM_PRIMARY_MIN_COVERAGE
+        assert 0.24 < floor, "a back season's index covers ~24%; the floor must clear it"
+        assert floor <= 1.0
+
+    def test_the_index_cache_is_a_separate_file_from_the_positions_table(self):
+        """Different endpoint, different failure mode.
+
+        The collapsed cell is the only thing that depends on the index, so a
+        lost index must not invalidate the listing the segments read. Separate
+        files are what makes that independence mechanical rather than a
+        promise.
+        """
+        assert ing._position_index_path("2025-26").parent == (
+            ing._positions_path("2025-26").parent)
+        assert ing._position_index_path("2025-26").name != (
+            ing._positions_path("2025-26").name)
+
+    def test_an_outage_prefers_the_listing_table_over_the_single_label_one(
+            self, tmp_path, monkeypatch):
+        """v2 before v1: the fallback should cost the cell, not the features.
+
+        Both are outage artifacts and both are on disk after a real run, so the
+        order is a decision. v2 still carries ``positions``, which is what the
+        nine features are computed from; v1 has no listing at all.
+        """
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        pd.DataFrame({"player_id": [1], "position": ["C"],
+                      "positions": ["C"]}).to_parquet(
+            cached / ing._positions_path_v2("2025-26").name, index=False)
+
+        def dead(*_args, **_kwargs):
+            raise TimeoutError("the read operation timed out")
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", dead)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26")
+        assert "positions" in frame.columns
+        assert list(frame.position) == ["C"]
 

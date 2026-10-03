@@ -74,7 +74,14 @@ RFE_MAX_STEPS = 120
 # by his own prior-possession total instead of a plain mean; availability
 # inputs are unchanged and strictly point-in-time (designation archive +
 # appearance recency gate).
-FEATURE_SET_VERSION = "nba-prod-v2.4-epm"
+#: v2.5: the position prior's collapsed cell follows the league's own primary
+#: letter from ``playerindex`` (C-F is a centre who also plays forward) instead
+#: of a local G->F->C convention that disagreed with the league for 28 of 582
+#: players in 2025-26 - 17 of them starting centres. Coverage is unchanged and
+#: provably so (the segments read the listing, which is byte-identical); what
+#: moves is the prior, whose centre cell goes from 64 players to 81 and whose
+#: shrinkage constant therefore rises from 445 to 487 plays.
+FEATURE_SET_VERSION = "nba-prod-v2.5-epm"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -557,6 +564,17 @@ PLAYER_EPM_POSITIONS = ("G", "F", "C")
 #: theoretical. Most-specific-first, then narrowest-position-first, is the
 #: order the enumeration is walked in.
 PLAYER_EPM_POSITION_PRIORITY = ("G", "F", "C")
+#: The fraction of a season's players that ``playerindex`` must cover before its
+#: PRIMARY position is allowed to decide the collapsed cell; below it, every
+#: player in that season keeps the ``PLAYER_EPM_POSITION_PRIORITY`` convention.
+#: This is a coverage gate, not a tuning knob, and it exists because the
+#: endpoint degrades silently rather than failing: measured live 2026-10-02 it
+#: answers 2025-26 completely (582 of 582 filter players) but a BACK season
+#: with about a quarter of the league (131 of 569 for 2024-25, 135 of 572 for
+#: 2023-24), and it returns HTTP 200 either way. 0.90 sits far above the ~24% a
+#: truncated back-season index measures and far below the 100% a live one
+#: does, so the two are not confusable.
+PLAYER_EPM_PRIMARY_MIN_COVERAGE = 0.90
 #: Fallback prior strength (possessions) for a position cell with no evidence
 #: at all. Measured 2026-10-02 on the full cached frame: the whole-frame
 #: mean player-season is 2,292 possessions, so 20% is ~458 (per position:

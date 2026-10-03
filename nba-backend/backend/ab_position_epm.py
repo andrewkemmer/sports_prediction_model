@@ -71,12 +71,16 @@ def build_player_games():
                       CACHE.glob("positions/positions_*.parquet")})
     positions = []
     for season in seasons:
-        # v2 carries the feed's full listing (what the segments read); the
-        # single-label v1 file - still on disk from before the listing
-        # existed - is the outage fallback, so it wins only when v2 is absent.
-        path = CACHE / "positions" / f"positions_v2_{season}.parquet"
-        if not path.exists():
-            path = CACHE / "positions" / f"positions_{season}.parquet"
+        # Newest first: v3's collapsed cell follows the league's own primary,
+        # v2's follows the local convention but still carries the listing the
+        # segments read, and v1 - still on disk from before the listing existed
+        # - has no listing at all. The fallbacks are outage paths, so the first
+        # file present wins and none of them is silently upgraded.
+        path = next((CACHE / "positions" / f"positions_v{v}_{season}.parquet"
+                     for v in (3, 2)
+                     if (CACHE / "positions"
+                         / f"positions_v{v}_{season}.parquet").exists()),
+                    CACHE / "positions" / f"positions_{season}.parquet")
         if path.exists():
             frame = pd.read_parquet(path)
             frame["season"] = season
