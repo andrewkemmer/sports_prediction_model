@@ -73,6 +73,10 @@ PA_END_EVENTS = (
 # degrade loudly to the participant behavior, never silently look correct.
 IL_STINTS_FILE = "il_stints.parquet"
 IL_STINTS_PITCHERS_FILE = "il_stints_pitchers.parquet"
+# StatsAPI full-season roster position map (batter, season, pos) — the
+# pl_<pos>_xwoba_* family's pool key. Lives beside the IL ledger (same
+# runtime cache; .adhoc/mlb_fetch_positions.py rebuilds both copies).
+PLAYER_POSITIONS_FILE = "player_positions.parquet"
 # A stale IL table is the silent inclusion failure: a player PLACED on
 # the IL after the table's last transaction date stays in the projected
 # nine (his frozen _pa30 keeps him ranked high — the 2026-09-28 Aaron
@@ -216,6 +220,179 @@ _LINEUP_IL_FLAG_SQL = """
     GROUP BY game_date, game_pk, batting_team
 """
 
+# ── Position-pool xwOBA family (pl_<pos>_xwoba_*, 2026-10-02) ─────────────
+# The MLB counterpart of NHL's pl_<metric>_<pos> family: instead of one
+# team-wide lineup average, the healthy roster's trailing-30g SHRUNK xwOBA
+# rating is pooled PER POSITION and served as pl_<pos>_xwoba_{home,away,diff}
+# (9 pools x 3 reps = 27 columns; pitcher rows excluded from the pools).
+# Structure mirrors the lineup family one-for-one: candidate pool (same
+# 10-day lookback, one row per batter, OUT/IR flagged via the same
+# predicate), PA-weighted healthy-pool aggregate, then a strictly-prior
+# league-by-position mean used ONLY when a position's pool is empty for a
+# team-game — the NHL _POSITION_PRIOR fallback, measured necessary here:
+# season-level StatsAPI positions leave DH pools empty in ~64% of
+# team-games because most clubs list their DH at a defensive position.
+# A missing/unreadable player_positions.parquet degrades LOUDLY to an
+# empty pos_agg (every pl_* ships NULL) — never a build failure, never a
+# fabricated value (see _register_player_positions).
+PL_POSITIONS = ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf", "dh")
+# StatsAPI roster abbrev -> served pool suffix: fb/sb/tb carry the owner's
+# first/second/third-base spelling (1B/2B/3B), everything else lowercases
+# (C/SS/LF/CF/RF/DH). P stays out of the pools; TWP already folded to DH
+# at fetch time.
+PL_POS_SQL = ("CASE pos WHEN '1B' THEN 'fb' WHEN '2B' THEN 'sb' "
+              "WHEN '3B' THEN 'tb' ELSE LOWER(pos) END")
+
+# Candidate pool — structurally identical to _LINEUP_POOL_SQL (same
+# lookback/QUALIFY/ledger semantics) plus the position-map join, so the
+# two families degrade and refresh together.
+_POS_POOL_SQL = """
+    CREATE TABLE pos_pool AS
+    WITH pool AS (
+        SELECT g.game_date, g.game_pk, g.batting_team,
+               CAST(r.batter AS BIGINT) AS batter,
+               r.shrunk_xwoba, r._pa30,
+               {pos_case} AS pos
+        FROM (SELECT DISTINCT game_date, game_pk, batting_team
+              FROM batter_ratings WHERE shrunk_xwoba IS NOT NULL) g
+        JOIN batter_ratings r
+          ON r.batting_team = g.batting_team
+         AND r.shrunk_xwoba IS NOT NULL
+         AND r.game_date <= g.game_date
+         AND r.game_date >= g.game_date - INTERVAL {lookback} DAY
+         {restrict}
+        JOIN player_positions pp
+          ON pp.batter = r.batter
+         AND pp.season = EXTRACT(YEAR FROM r.game_date)
+         AND pp.pos IN ('C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH')
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY g.game_pk, g.batting_team, r.batter
+            ORDER BY r.game_date DESC) = 1
+    )
+    SELECT p.game_date, p.game_pk, p.batting_team,
+           p.batter, p.shrunk_xwoba, p._pa30, p.pos,
+           {on_il} AS on_il
+    FROM pool p
+"""
+
+# League-by-position prior — the healthy-pool PA-weighted mean over every
+# OTHER date (strictly prior: UNBOUNDED PRECEDING .. 1 PRECEDING), pivoted
+# to one row per date so pos_agg binds it with a single join. Day 1 of the
+# data horizon has no prior date and ships NULL — the same first-day
+# behavior the rating chain itself has.
+_POS_LEAGUE_SQL = """
+    CREATE TABLE pos_league AS
+    WITH daily AS (
+        SELECT game_date, pos,
+               SUM(_pa30 * shrunk_xwoba) AS num,
+               SUM(_pa30) AS den
+        FROM pos_pool WHERE on_il = 0
+        GROUP BY game_date, pos
+    ),
+    -- Grid of every pool date x every pool position, so each position
+    -- carries a PRIOR row on days its own pool was inactive (a zero-filled
+    -- day contributes nothing to the expanding sums — the prior is the
+    -- carry-forward of the last known value, still strictly prior).
+    grid AS (
+        SELECT d.game_date, p.pos,
+               COALESCE(daily.num, 0) AS num,
+               COALESCE(daily.den, 0) AS den
+        FROM (SELECT DISTINCT game_date FROM pos_pool) d
+        CROSS JOIN (SELECT DISTINCT pos FROM pos_pool) p
+        LEFT JOIN daily
+          ON daily.game_date = d.game_date AND daily.pos = p.pos
+    )
+    SELECT game_date,
+           MAX(CASE WHEN pos = 'c'  THEN prior END) AS pr_c,
+           MAX(CASE WHEN pos = 'fb' THEN prior END) AS pr_fb,
+           MAX(CASE WHEN pos = 'sb' THEN prior END) AS pr_sb,
+           MAX(CASE WHEN pos = 'ss' THEN prior END) AS pr_ss,
+           MAX(CASE WHEN pos = 'tb' THEN prior END) AS pr_tb,
+           MAX(CASE WHEN pos = 'rf' THEN prior END) AS pr_rf,
+           MAX(CASE WHEN pos = 'cf' THEN prior END) AS pr_cf,
+           MAX(CASE WHEN pos = 'lf' THEN prior END) AS pr_lf,
+           MAX(CASE WHEN pos = 'dh' THEN prior END) AS pr_dh
+    FROM (
+        SELECT game_date, pos,
+               SUM(num) OVER w / NULLIF(SUM(den) OVER w, 0) AS prior
+        FROM grid
+        WINDOW w AS (PARTITION BY pos ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ) e
+    GROUP BY game_date
+"""
+
+# Game-eligible per-position aggregate — PA-weighted mean of the healthy
+# pool (same participation weighting as _LINEUP_AGG_SQL), pivoted to one
+# row per team-game with all 9 pool columns, then the empty-pool fallback:
+# COALESCE(pool mean, league-by-position prior) so a thin/depleted position
+# ships the honest prior instead of padding the pool or going NULL.
+_POS_AGG_SQL = """
+    CREATE TABLE pos_agg AS
+    WITH pooled AS (
+        SELECT game_date, game_pk, batting_team, pos,
+               SUM(_pa30 * shrunk_xwoba) / NULLIF(SUM(_pa30), 0) AS px
+        FROM pos_pool WHERE on_il = 0
+        GROUP BY game_date, game_pk, batting_team, pos
+    ),
+    wide AS (
+        SELECT game_date, game_pk, batting_team,
+               MAX(CASE WHEN pos = 'c'  THEN px END) AS pl_c_xwoba,
+               MAX(CASE WHEN pos = 'fb' THEN px END) AS pl_fb_xwoba,
+               MAX(CASE WHEN pos = 'sb' THEN px END) AS pl_sb_xwoba,
+               MAX(CASE WHEN pos = 'ss' THEN px END) AS pl_ss_xwoba,
+               MAX(CASE WHEN pos = 'tb' THEN px END) AS pl_tb_xwoba,
+               MAX(CASE WHEN pos = 'rf' THEN px END) AS pl_rf_xwoba,
+               MAX(CASE WHEN pos = 'cf' THEN px END) AS pl_cf_xwoba,
+               MAX(CASE WHEN pos = 'lf' THEN px END) AS pl_lf_xwoba,
+               MAX(CASE WHEN pos = 'dh' THEN px END) AS pl_dh_xwoba
+        FROM pooled
+        GROUP BY game_date, game_pk, batting_team
+    )
+    SELECT w.game_date, w.game_pk, w.batting_team,
+           COALESCE(w.pl_c_xwoba,  lg.pr_c)  AS pl_c_xwoba,
+           COALESCE(w.pl_fb_xwoba, lg.pr_fb) AS pl_fb_xwoba,
+           COALESCE(w.pl_sb_xwoba, lg.pr_sb) AS pl_sb_xwoba,
+           COALESCE(w.pl_ss_xwoba, lg.pr_ss) AS pl_ss_xwoba,
+           COALESCE(w.pl_tb_xwoba, lg.pr_tb) AS pl_tb_xwoba,
+           COALESCE(w.pl_rf_xwoba, lg.pr_rf) AS pl_rf_xwoba,
+           COALESCE(w.pl_cf_xwoba, lg.pr_cf) AS pl_cf_xwoba,
+           COALESCE(w.pl_lf_xwoba, lg.pr_lf) AS pl_lf_xwoba,
+           COALESCE(w.pl_dh_xwoba, lg.pr_dh) AS pl_dh_xwoba
+    FROM wide w
+    LEFT JOIN pos_league lg ON lg.game_date = w.game_date
+"""
+
+# Position-segmented league xwOBA prior — the shrinkage TARGET for each
+# batter's trailing-30g rating (2026-10-02: the prior must be the batter's
+# own position's average, not the overall league average — a catcher's
+# thin sample shrinks toward catcher quality, a DH's toward DH quality).
+# Structurally identical to batter_league: per-date sums of the SAME
+# already-shifted rolling quantities (point-in-time safe — each value
+# predates its own row's game), aggregated per position, cumulative
+# through the current date within the position. Batters without a listed
+# position simply never appear here; their rating falls back to the
+# overall lg_xwoba via COALESCE at rating time.
+_BATTER_LEAGUE_POS_SQL = """
+    CREATE TABLE batter_league_pos AS
+    SELECT game_date, pos,
+        SUM(_xwoba_num30) OVER w
+          / NULLIF(SUM(_xwoba_den30) OVER w, 0) AS lg_xwoba_pos
+    FROM (
+        SELECT b.game_date, pp.pos,
+               SUM(b._xwoba_num30) AS _xwoba_num30,
+               SUM(b._xwoba_den30) AS _xwoba_den30
+        FROM batter_rolling b
+        JOIN player_positions pp
+          ON pp.batter = b.batter
+         AND pp.season = EXTRACT(YEAR FROM b.game_date)
+         AND pp.pos IN ('C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH')
+        GROUP BY b.game_date, pp.pos
+    ) t
+    WINDOW w AS (PARTITION BY pos ORDER BY game_date
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+"""
+
 # ── Bullpen availability (2026-09-30) ────────────────────────────────────
 # The lineup family prices tonight's ROSTER (unavailable batters are
 # filtered out of lineup_re24_* before the average). The bullpen family
@@ -319,6 +496,134 @@ _BP_SHRINK_FRACTION = 0.20
 _BP_PITCHES_PER_IP = 15.5    # measured pool constant (2024-2026)
 _BP_MIN_SEASON_PITCHES = 30  # cameo player-seasons excluded from k's mean
 _BP_K_FLOOR = 20.0           # pitch floor: k can never collapse to ~0
+
+# ── Batter-rating shrinkage arm (A/B, 2026-10-02) ─────────────────────────
+# Owner intent: shrinkage exists to hold back THIN player-level data, not
+# to compress established separation forever. Two arms, selected per run:
+#
+#   bayesian (default, shipped)  w = n / (n + 120)
+#       the previously-shipped empirical-Bayes form; the league prior
+#       never fully washes out (50% own weight at n = 120).
+#   ramp (candidate, opt-in via MLB_SHRINK_ARM=ramp)  w = min(n / 120, 1)
+#       full own weight once 20%-of-a-season opportunity (120 PA/AB) is
+#       reached, raw forever after. Continuous at the threshold — the
+#       119 -> 120 step is only (mu - r_bar)/120, so a player crossing
+#       it shows no wobble — and past the midpoint it keeps more of the
+#       player's own data than bayesian does (n = 60: ramp 50%, bayes 33%).
+#
+# Both arms evaluate value = w * r_bar + (1 - w) * mu with the SAME
+# point-in-time league prior (lg_woba default 0.315; lg_re24 default 0.0,
+# centered on expectation by construction) and the SAME NULL gate: a
+# rating row with zero opportunities stays NULL so pool joins behave
+# identically under either arm.
+#
+# SCOPE: batter ratings only (shrunk_woba + shrunk_re24 -> lineup_*).
+# The bullpen, sp_era_5g, win% and exp2 shrinkers are NOT in this A/B.
+# Measured record — .adhoc shrink A/B on the production frame (7387
+# decided games; sealed 21-day holdout 2026-09-11..2026-10-01): ramp
+# holdout blend logloss 0.66578 vs bayesian 0.66564 (delta +0.00014,
+# inside the ±0.001 adoption bar); walk OOF marginally favored ramp
+# (-0.00019, 46/76 folds; lightgbm -0.00057, xgboost +0.00020) — a wash;
+# lineup_* carries only ~2% of model weight either way. A feature-level
+# re-gate the same date (paired nested logloss, treatment slice) found
+# no difference either (all |z| <= 1.1).
+# DEFAULT HELD AT BAYESIAN (2026-10-02): the adoption commit was
+# un-committed so the code default keeps matching the shipped
+# artifacts (the production frame was built bayesian at 11:20, before
+# the ramp decision). Ramp stays one env var away —
+# MLB_SHRINK_ARM=ramp — and can be re-adopted once production has
+# actually shipped a ramp-built frame. test_shrink_arm.py pins both
+# weight schedules.
+MLB_SHRINK_ARM = os.getenv("MLB_SHRINK_ARM", "bayesian").strip().lower() or "bayesian"
+
+BATTER_SHRINK_K = 120  # PA/AB — 20% of a ~600-opportunity season
+
+
+def batter_rating_sql(arm: str) -> tuple[str, str]:
+    """Return ``(shrunk_woba_expr, shrunk_re24_expr)`` SQL for ``arm``.
+
+    Expressions reference ``r.*`` (batter_rolling) and ``l.*``
+    (batter_league) — the aliases of the CREATE TABLE batter_ratings
+    block — so the production SQL itself is what test_shrink_arm.py
+    evaluates against single-row fixtures. Unknown arms raise: a typo
+    must never silently ship the default.
+    """
+    k = BATTER_SHRINK_K
+    if arm == "bayesian":
+        return (
+            "CASE WHEN COALESCE(r._ab, 0) > 0 THEN\n"
+            f"    (r._woba_num + COALESCE(l.lg_woba, 0.315) * {k})\n"
+            f"    / (r._ab + {k})\n"
+            "END",
+            "CASE WHEN COALESCE(r._pa30, 0) > 0 THEN\n"
+            f"    (r._re24_num + COALESCE(l.lg_re24, 0.0) * {k})\n"
+            f"    / (r._pa30 + {k})\n"
+            "END",
+        )
+    if arm == "ramp":
+        return (
+            "CASE WHEN COALESCE(r._ab, 0) > 0 THEN\n"
+            f"    CASE WHEN r._ab >= {k} THEN r._woba_num / r._ab\n"
+            f"         ELSE (r._woba_num + ({k} - r._ab)\n"
+            "               * COALESCE(l.lg_woba, 0.315))\n"
+            f"         / {k}.0\n"
+            "    END\n"
+            "END",
+            "CASE WHEN COALESCE(r._pa30, 0) > 0 THEN\n"
+            f"    CASE WHEN r._pa30 >= {k} THEN r._re24_num / r._pa30\n"
+            f"         ELSE (r._re24_num + ({k} - r._pa30)\n"
+            "               * COALESCE(l.lg_re24, 0.0))\n"
+            f"         / {k}.0\n"
+            "    END\n"
+            "END",
+        )
+    raise ValueError(
+        f"MLB_SHRINK_ARM must be 'bayesian' or 'ramp', got {arm!r}")
+
+
+def batter_xwoba_rating_sql(arm: str) -> str:
+    """Return the ``shrunk_xwoba`` SQL for ``arm`` (the pl_* pool rating).
+
+    Same two-arm contract as :func:`batter_rating_sql`: blend the
+    trailing-30g non-null xwOBA numerator (Statcast
+    ``estimated_woba_using_speedangle`` over PA-ending events — the exp2
+    non-null-only convention) toward a point-in-time league xwOBA with
+    prior weight ``k = BATTER_SHRINK_K``, and keep the NULL gate so a
+    rating row with zero measured PAs stays NULL under either arm.
+
+    The prior is POSITION-SEGMENTED (2026-10-02): first the batter's own
+    position's league average (``lp.lg_xwoba_pos`` from
+    ``batter_league_pos``), falling back to the overall ``l.lg_xwoba``
+    when the batter has no listed position, then the 0.315 literal on
+    day one — so a catcher's thin sample shrinks toward catcher quality,
+    not the DH average. References ``r.*`` (batter_rolling), ``l.*``
+    (batter_league) and ``lp.*`` (batter_league_pos); unknown arms raise
+    (a typo must never ship the default).
+    """
+    k = BATTER_SHRINK_K
+    if arm == "bayesian":
+        return (
+            "CASE WHEN COALESCE(r._xwoba_den30, 0) > 0 THEN\n"
+            "    (r._xwoba_num30 + "
+            "COALESCE(lp.lg_xwoba_pos, l.lg_xwoba, 0.315) * "
+            f"{k})\n"
+            f"    / (r._xwoba_den30 + {k})\n"
+            "END"
+        )
+    if arm == "ramp":
+        return (
+            "CASE WHEN COALESCE(r._xwoba_den30, 0) > 0 THEN\n"
+            f"    CASE WHEN r._xwoba_den30 >= {k} "
+            "THEN r._xwoba_num30 / r._xwoba_den30\n"
+            f"         ELSE (r._xwoba_num30 + ({k} - r._xwoba_den30)\n"
+            "               * COALESCE(lp.lg_xwoba_pos, "
+            "l.lg_xwoba, 0.315))\n"
+            f"         / {k}.0\n"
+            "    END\n"
+            "END"
+        )
+    raise ValueError(
+        f"MLB_SHRINK_ARM must be 'bayesian' or 'ramp', got {arm!r}")
 
 # Recent pitcher runs/9 is blended toward the same pitcher's non-overlapping
 # older appearance history using 30 pseudo innings. This is an explicit,
@@ -690,6 +995,46 @@ def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
                 signal)
     else:
         logger.info("injured list: %d stints, %d batters", n, nb)
+    return True
+
+
+def _register_player_positions(con: "duckdb.DuckDBPyConnection") -> bool:
+    """Load the StatsAPI position map into ``con``; False (loudly) when absent.
+
+    ``player_positions.parquet`` (batter, season, pos) keys the pl_*
+    position pools. Absence never fails the build: the caller creates an
+    empty-but-well-formed ``pos_agg`` so every game_level LEFT JOIN stays
+    bound while the pl_* family ships NULL under the warning below.
+    """
+    path = il_stints_dir() / PLAYER_POSITIONS_FILE
+    if not path.exists():
+        logger.warning(
+            "%s not found in %s — pl_* position-pool xwOBA features "
+            "degrade to NULL (empty pos_agg). Run .adhoc/mlb_fetch_positions.py "
+            "to restore the position map.",
+            PLAYER_POSITIONS_FILE, il_stints_dir())
+        return False
+    try:
+        lit = str(path).replace("\\", "/")
+        con.execute(f"""
+            CREATE OR REPLACE TEMP TABLE player_positions AS
+            SELECT CAST(batter AS BIGINT) AS batter,
+                   CAST(season AS INTEGER) AS season,
+                   UPPER(TRIM(pos)) AS pos
+            FROM read_parquet('{lit}')
+        """)
+        n, nb = con.execute(
+            "SELECT count(*), count(DISTINCT batter) "
+            "FROM player_positions").fetchone()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("%s unreadable (%s) — pl_* degrades to NULL",
+                       PLAYER_POSITIONS_FILE, e)
+        return False
+    if not n:
+        logger.warning("%s is EMPTY — pl_* degrades to NULL",
+                       PLAYER_POSITIONS_FILE)
+        return False
+    logger.info("player positions: %d rows, %d batters", n, nb)
     return True
 
 # Experiment-only superset (audit_pitcher_era_k9.py): keeps intent_walk /
@@ -1454,6 +1799,17 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # Missing cache -> _batters_ok False -> every fragment binds TRUE
     # (pre-availability semantics) under _register_il_stints's loud warning.
     _batters_ok = _register_il_stints(con)
+    # Position map registers BEFORE the batter chain (2026-10-02): the
+    # pl_* shrinkage prior is position-segmented — batter_league_pos and
+    # the shrunk_xwoba rating itself join it at rating time. Absence
+    # degrades to an EMPTY well-formed temp table so every downstream
+    # join/pool SQL still binds: ratings fall back to the overall league
+    # xwOBA prior, pools come up empty, pl_* ships NULL — loud, never a
+    # missing-table error.
+    _pos_ok = _register_player_positions(con)
+    if not _pos_ok:
+        con.execute("CREATE OR REPLACE TEMP TABLE player_positions "
+                    "(batter BIGINT, season INTEGER, pos VARCHAR)")
 
     # 6. Team offense rolling features
     con.execute(f"""
@@ -2088,7 +2444,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WITH allp AS (
             SELECT CAST(game_date AS DATE) AS game_date, game_pk,
                    CASE WHEN inning_topbot = 'Top' THEN away_team ELSE home_team END AS batting_team,
-                   batter, events, delta_run_exp
+                   batter, events, delta_run_exp,
+                   estimated_woba_using_speedangle
             FROM pitches
         )
         SELECT game_date, game_pk, batting_team, batter,
@@ -2111,7 +2468,20 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                -- lack the column counts 0 (league-average value), never
                -- NULL — NULL here would drop the rating row and cost pool
                -- coverage.
-               COALESCE(SUM(delta_run_exp), 0.0) AS re24
+               COALESCE(SUM(delta_run_exp), 0.0) AS re24,
+               -- xwOBA (2026-10-02 position-pool A/B): Statcast's
+               -- estimated_woba_using_speedangle over PA-ending events
+               -- with a measured estimate — the exp2 non-null-only
+               -- convention, so sac bunts / intent walks / interference
+               -- (no estimate) drop out of BOTH numerator and denominator
+               -- instead of counting as fake 0s.
+               SUM(CASE WHEN events IN ({PA_END_EVENTS})
+                         AND estimated_woba_using_speedangle IS NOT NULL
+                        THEN estimated_woba_using_speedangle
+                        ELSE 0 END) AS xwoba_num,
+               SUM(CASE WHEN events IN ({PA_END_EVENTS})
+                         AND estimated_woba_using_speedangle IS NOT NULL
+                        THEN 1 ELSE 0 END) AS xwoba_den
         FROM allp
         GROUP BY game_date, game_pk, batting_team, batter
     """)
@@ -2125,7 +2495,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             LAG(d, 1) OVER w AS _d,
             LAG(t, 1) OVER w AS _t,
             LAG(hr, 1) OVER w AS _hr,
-            LAG(re24, 1) OVER w AS _re24
+            LAG(re24, 1) OVER w AS _re24,
+            LAG(xwoba_num, 1) OVER w AS _xwoba_num,
+            LAG(xwoba_den, 1) OVER w AS _xwoba_den
         FROM batter_game_stats
         WINDOW w AS (PARTITION BY batter ORDER BY game_date)
     """)
@@ -2136,7 +2508,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                 + 1.568*_t + 2.007*_hr) OVER w30 AS _woba_num,
             SUM(_pa - _bb - _hbp) OVER w30 AS _ab,
             SUM(_pa) OVER w30 AS _pa30,
-            SUM(_re24) OVER w30 AS _re24_num
+            SUM(_re24) OVER w30 AS _re24_num,
+            SUM(_xwoba_num) OVER w30 AS _xwoba_num30,
+            SUM(_xwoba_den) OVER w30 AS _xwoba_den30
         FROM batter_shifted
         WINDOW w30 AS (PARTITION BY batter ORDER BY game_date
                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
@@ -2154,32 +2528,40 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
               AS lg_woba,
             SUM(_re24_num) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
               / NULLIF(SUM(_pa30) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
-              AS lg_re24
+              AS lg_re24,
+            SUM(_xwoba_num30) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+              / NULLIF(SUM(_xwoba_den30) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
+              AS lg_xwoba
         FROM (
             SELECT game_date, SUM(_woba_num) AS _woba_num, SUM(_ab) AS _ab,
-                   SUM(_re24_num) AS _re24_num, SUM(_pa30) AS _pa30
+                   SUM(_re24_num) AS _re24_num, SUM(_pa30) AS _pa30,
+                   SUM(_xwoba_num30) AS _xwoba_num30,
+                   SUM(_xwoba_den30) AS _xwoba_den30
             FROM batter_rolling GROUP BY game_date
         )
     """)
-    con.execute("""
+    # Position-segmented prior for the pl_* shrinkage target — must exist
+    # BEFORE batter_ratings joins it (an empty player_positions leaves it
+    # empty; ratings then fall back to lg_xwoba via COALESCE).
+    con.execute(_BATTER_LEAGUE_POS_SQL)
+    _woba_expr, _re24_expr = batter_rating_sql(MLB_SHRINK_ARM)
+    _xwoba_expr = batter_xwoba_rating_sql(MLB_SHRINK_ARM)
+    logger.info("Batter shrinkage arm: %s (k=%d PA/AB)",
+                MLB_SHRINK_ARM, BATTER_SHRINK_K)
+    con.execute(f"""
         CREATE TABLE batter_ratings AS
         SELECT r.game_date, r.game_pk, r.batting_team, r.batter,
-               CASE WHEN COALESCE(r._ab, 0) > 0 THEN
-                   (r._woba_num + COALESCE(l.lg_woba, 0.315) * 120)
-                   / (r._ab + 120)
-               END AS shrunk_woba,
-               -- RE24 rating (2026-10-02): same empirical-Bayes shrink as
-               -- the wOBA branch but on the PA scale (RE24 is runs per PA):
-               -- 120-PA prior weight, league prior defaults to 0.0 runs/PA
-               -- (RE24 is centered on expectation by construction), gated on
-               -- observed PA exactly like the _ab gate above.
-               CASE WHEN COALESCE(r._pa30, 0) > 0 THEN
-                   (r._re24_num + COALESCE(l.lg_re24, 0.0) * 120)
-                   / (r._pa30 + 120)
-               END AS shrunk_re24,
+               {_woba_expr} AS shrunk_woba,
+               {_re24_expr} AS shrunk_re24,
+               {_xwoba_expr} AS shrunk_xwoba,
                r._pa30
         FROM batter_rolling r
         LEFT JOIN batter_league l USING (game_date)
+        LEFT JOIN player_positions pp
+          ON pp.batter = r.batter
+         AND pp.season = EXTRACT(YEAR FROM r.game_date)
+        LEFT JOIN batter_league_pos lp
+          ON lp.game_date = r.game_date AND lp.pos = pp.pos
     """)
     # 7e-bis. Game-eligible candidate pool: widen from "batted in this game"
     # to "team member with a rating row in the last {lookback} days" (one row
@@ -2208,6 +2590,21 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             restrict="AND r.game_pk = g.game_pk", on_il="0"))
     con.execute(_LINEUP_AGG_SQL)
     con.execute(_LINEUP_IL_FLAG_SQL)
+
+    # 7e-ter. Position-pool xwOBA family (pl_<pos>_xwoba_*). Built from
+    # the SAME batter_ratings rows as the lineup family (LAG-shifted,
+    # shrunk toward the position-segmented prior, IL-flagged) plus the
+    # StatsAPI position map registered before the batter chain. The chain
+    # is UNCONDITIONAL: with an absent/empty map every table binds but
+    # comes up empty, so pos_agg has well-formed zero rows and game_level's
+    # LEFT JOINs ship NULL pl_* (loud) — never a crash.
+    con.execute(_POS_POOL_SQL.format(
+        lookback=LINEUP_POOL_LOOKBACK_DAYS,
+        pos_case=PL_POS_SQL,
+        restrict=("" if _batters_ok else "AND r.game_pk = g.game_pk"),
+        on_il=(_IL_EXISTS_PREDICATE if _batters_ok else "0")))
+    con.execute(_POS_LEAGUE_SQL)
+    con.execute(_POS_AGG_SQL)
 
     # Season-to-date lineup baselines (momentum companion for today's
     # projected-lineup RE24) — expanding mean of the team's PRIOR games'
@@ -2670,6 +3067,27 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             la.lineup_re24_mean AS lineup_re24_mean_away,
             la.lineup_re24_top3 AS lineup_re24_top3_away,
             la.lineup_re24_std AS lineup_re24_std_away,
+            -- Position-pool xwOBA (pl_* family, 2026-10-02): one level
+            -- pair per position pool, same home/away aliasing as the
+            -- lineup family; the _diff twins form in add_diff_features.
+            posh.pl_c_xwoba AS pl_c_xwoba_home,
+            posa.pl_c_xwoba AS pl_c_xwoba_away,
+            posh.pl_fb_xwoba AS pl_fb_xwoba_home,
+            posa.pl_fb_xwoba AS pl_fb_xwoba_away,
+            posh.pl_sb_xwoba AS pl_sb_xwoba_home,
+            posa.pl_sb_xwoba AS pl_sb_xwoba_away,
+            posh.pl_ss_xwoba AS pl_ss_xwoba_home,
+            posa.pl_ss_xwoba AS pl_ss_xwoba_away,
+            posh.pl_tb_xwoba AS pl_tb_xwoba_home,
+            posa.pl_tb_xwoba AS pl_tb_xwoba_away,
+            posh.pl_rf_xwoba AS pl_rf_xwoba_home,
+            posa.pl_rf_xwoba AS pl_rf_xwoba_away,
+            posh.pl_cf_xwoba AS pl_cf_xwoba_home,
+            posa.pl_cf_xwoba AS pl_cf_xwoba_away,
+            posh.pl_lf_xwoba AS pl_lf_xwoba_home,
+            posa.pl_lf_xwoba AS pl_lf_xwoba_away,
+            posh.pl_dh_xwoba AS pl_dh_xwoba_home,
+            posa.pl_dh_xwoba AS pl_dh_xwoba_away,
             COALESCE(fh.lineup_il_flag, 0) AS lineup_il_flag_home,
             COALESCE(fa.lineup_il_flag, 0) AS lineup_il_flag_away,
             -- Momentum form deltas: recent window − season-to-date baseline,
@@ -2808,6 +3226,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN closer_avail cl ON w.game_pk = cl.game_pk
         LEFT JOIN lineup_agg lh ON w.game_pk = lh.game_pk AND w.home_team = lh.batting_team
         LEFT JOIN lineup_agg la ON w.game_pk = la.game_pk AND w.away_team = la.batting_team
+        LEFT JOIN pos_agg posh ON w.game_pk = posh.game_pk AND w.home_team = posh.batting_team
+        LEFT JOIN pos_agg posa ON w.game_pk = posa.game_pk AND w.away_team = posa.batting_team
         LEFT JOIN lineup_il_flag fh ON w.game_pk = fh.game_pk AND w.home_team = fh.batting_team
         LEFT JOIN lineup_il_flag fa ON w.game_pk = fa.game_pk AND w.away_team = fa.batting_team
         LEFT JOIN lineup_season lsh ON w.game_pk = lsh.game_pk AND w.home_team = lsh.batting_team
@@ -2881,9 +3301,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
         "team_contact_season",
         "lineup_agg_shifted", "lineup_season", "lineup_pool", "lineup_il_flag",
+        "pos_pool", "pos_league", "pos_agg",
         "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
         "batter_game_stats", "batter_shifted", "batter_rolling",
         "batter_league", "batter_ratings", "lineup_agg",
+        "batter_league_pos",
         "batter_hand_game", "batter_hand_shifted", "batter_hand_rolling", "lineup_ops_agg",
         "exp2_pa", "exp2_league_k", "exp2_league_cat", "exp2_sp_cat_game",
         "exp2_sp_fbhand_game", "exp2_sp_cat_daily", "exp2_sp_cat_cum",
@@ -3061,20 +3483,56 @@ TEAM_TZ_OFFSETS = {
 
 # Shrinkage weight for early-season win% smoothing (feature 2):
 # smoothed = (wins + K/2) / (games + K) -> exactly .500 at game 0.
+#
+# INDEPENDENT A/B ARM (2026-10-02): win_pct_diff carries ~8.65% of model
+# weight — ~4x the entire lineup family — so this schedule is gated on
+# its own (MLB_WINPCT_SHRINK_ARM), default bayesian until the gate rules:
+#   bayesian (default)  w = G/(G+30)      never fully raw (84% own at G=162)
+#   ramp                w = min(G/30, 1)  linear own weight below 30 games,
+#                       raw from game 30 (~mid-May); continuous at the
+#                       threshold, monotone in season-to-date G (crosses
+#                       once, resets every April).
+# Independent of MLB_SHRINK_ARM (batter ratings, adopted ramp 2026-10-02):
+# per-family switches, per-family gates, per-family adoption. The level
+# twins (home_win_pct/away_win_pct) are RAW under every arm.
 WIN_PCT_SHRINKAGE_GAMES = 30.0
+MLB_WINPCT_SHRINK_ARM = (os.getenv("MLB_WINPCT_SHRINK_ARM", "bayesian")
+                         .strip().lower() or "bayesian")
 
 
-def _smoothed_win_pct(wins: pd.Series, losses: pd.Series) -> pd.Series:
+def _smoothed_win_pct(wins: pd.Series, losses: pd.Series,
+                      arm: str | None = None) -> pd.Series:
     """Win pct shrunk toward .500 by games played (early-season smoothing).
 
-    (wins + K/2) / (games + K): equals exactly 0.500 before a team plays,
-    heavily smoothed to .500 early season, converges to the raw win pct
-    as the season matures.
+    bayesian (default): ``(wins + K/2) / (games + K)`` — equals exactly
+    0.500 before a team plays, heavily smoothed early season, converging
+    toward (but never reaching) the raw win pct as the season matures.
+
+    ramp: own weight ``w = min(G/K, 1)`` — the linear batter-arm
+    schedule; raw win pct at/above K games, continuous at the threshold.
+
+    ``arm=None`` uses the module default (``MLB_WINPCT_SHRINK_ARM``);
+    NaN inputs stay NaN under both arms; an unknown arm raises so a typo
+    can never silently ship the default.
     """
     wins = pd.to_numeric(wins, errors="coerce")
     losses = pd.to_numeric(losses, errors="coerce")
     games = (wins + losses).clip(lower=0)
-    return (wins + 0.5 * WIN_PCT_SHRINKAGE_GAMES) / (games + WIN_PCT_SHRINKAGE_GAMES)
+    k = WIN_PCT_SHRINKAGE_GAMES
+    chosen = MLB_WINPCT_SHRINK_ARM if arm is None else arm
+    if chosen == "bayesian":
+        return (wins + 0.5 * k) / (games + k)
+    if chosen == "ramp":
+        below = games < k
+        # below k: w*p + (1-w)*.5 with w = G/k, algebraically
+        # (wins + (k - G)*.5)/k; at/above k: raw (denominator masked to
+        # NaN below k so the division never sees a small/zero G).
+        blended = (wins + (k - games) * 0.5) / k
+        raw = wins / games.where(~below)
+        return blended.where(below, raw)
+    raise ValueError(
+        f"MLB_WINPCT_SHRINK_ARM must be 'bayesian' or 'ramp', "
+        f"got {chosen!r}")
 
 
 
@@ -3968,6 +4426,13 @@ def add_diff_features(
         16b. lineup_il_flag_diff  home_lineup_il_flag − away_lineup_il_flag
                                (OUT/IR availability signal, one side's
                                projected nine missing a player)
+        16c. pl_<pos>_xwoba_diff ×9  home pool − away pool for each of the
+                               9 position pools (c/fb/sb/ss/tb/rf/cf/lf/dh)
+                               — the position-pool xwOBA family; the level
+                               halves are the game_level pl_*_{home,away}
+                               columns, so home − away == diff by
+                               construction. Served only by an explicit
+                               arm (computed, not in the default universe).
         17. woba_30g_diff      home_woba_30g − away_woba_30g
         18. bullpen_whip_10g_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
         19. bullpen_whip_3g_diff
@@ -4101,6 +4566,18 @@ def add_diff_features(
         ("lineup_re24_mean_diff", "lineup_re24_mean_home", "lineup_re24_mean_away"),  # 14
         ("lineup_re24_top3_diff", "lineup_re24_top3_home", "lineup_re24_top3_away"),  # 15
         ("lineup_re24_std_diff", "lineup_re24_std_home", "lineup_re24_std_away"),     # 16
+        # 16c. Position-pool xwOBA diffs (pl_* family, 2026-10-02 A/B).
+        # Frames lacking the pl_* levels see all 9 created as NULL — the
+        # exact _diff contract (never a fabricated 0).
+        ("pl_c_xwoba_diff", "pl_c_xwoba_home", "pl_c_xwoba_away"),
+        ("pl_fb_xwoba_diff", "pl_fb_xwoba_home", "pl_fb_xwoba_away"),
+        ("pl_sb_xwoba_diff", "pl_sb_xwoba_home", "pl_sb_xwoba_away"),
+        ("pl_ss_xwoba_diff", "pl_ss_xwoba_home", "pl_ss_xwoba_away"),
+        ("pl_tb_xwoba_diff", "pl_tb_xwoba_home", "pl_tb_xwoba_away"),
+        ("pl_rf_xwoba_diff", "pl_rf_xwoba_home", "pl_rf_xwoba_away"),
+        ("pl_cf_xwoba_diff", "pl_cf_xwoba_home", "pl_cf_xwoba_away"),
+        ("pl_lf_xwoba_diff", "pl_lf_xwoba_home", "pl_lf_xwoba_away"),
+        ("pl_dh_xwoba_diff", "pl_dh_xwoba_home", "pl_dh_xwoba_away"),
         ("lineup_il_flag_diff", "lineup_il_flag_home", "lineup_il_flag_away"),        # 16b availability
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
         ("bullpen_whip_10g_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),  # 18 (RENAMED 2026-09-30)

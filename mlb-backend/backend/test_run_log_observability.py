@@ -266,15 +266,17 @@ def _diff_output() -> tuple[set, set, pd.DataFrame]:
 
 
 def test_diff_pass_creates_fifty_eight_columns():
-    """58 on the identity frame: the 36 the pass always created plus the
+    """67 on the identity frame: the 36 the pass always created plus the
     2026-09-27 twin expansion minus the 2 travel twins, PLUS the 2
     bullpen_meltdown_risk per-side twins added 2026-09-30 (renames are
     in-place; the 12 level twins are absent inputs here, so they are
     created NULL like their diffs; the 6 interaction twins and the 2
     travel twins are new columns; the 16 exp2 twins belong to
-    add_exp2_features)."""
+    add_exp2_features), PLUS the 9 pl_<pos>_xwoba position-pool diffs
+    added 2026-10-02 (absent inputs here → created NULL like the rest).
+    58 -> 67 with that family."""
     _, created, _ = _diff_output()
-    assert len(created) == 58, sorted(created)
+    assert len(created) == 67, sorted(created)
 
 
 def test_created_set_carries_the_il_flag_diff():
