@@ -380,8 +380,7 @@ def main(argv: list[str] | None = None) -> int:
                                      diagnostics=fold_diag)
     fold_info = folds_mod.fold_summary(fold_list)
     fold_info.update(fold_diag)
-    for _block_key in ("oof_regular", "oof_postseason", "oof_provisional",
-                       "oof_all"):
+    for _block_key in _OOF_BLOCK_KEYS:
         fold_info.setdefault(_block_key, {"n": 0, "sufficient": False})
     fold_tbl = folds_mod.fold_table(game_df, fold_list, date_col="gameday")
     if not fold_list:
@@ -434,7 +433,15 @@ def main(argv: list[str] | None = None) -> int:
     # folder holds served artifacts only.
     ingestion.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fold_tbl.to_csv(ingestion.CACHE_DIR / "nfl_fold_table.csv", index=False)
-    logger.info("folds: %s", json.dumps(fold_info))
+    # The four oof_* keys were seeded with {"n": 0, "sufficient": False}
+    # placeholders above, because Phase 4 runs BEFORE any OOF exists. Printing
+    # fold_info verbatim therefore logged oof_all {"n": 0, "sufficient":
+    # false} on EVERY run: the 2026-10-03 log said n=0 while the delivered
+    # feature JSON recorded n=2432 — and a genuinely empty OOF would have
+    # looked exactly the same. Geometry is logged here; the OOF blocks are
+    # logged as their own line once Phase 8b has computed them for real.
+    logger.info("folds: %s", json.dumps(
+        {k: v for k, v in fold_info.items() if k not in _OOF_BLOCK_KEYS}))
 
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
     _banner("PHASE 5", "moneyline walk-forward OOF")
@@ -550,9 +557,18 @@ def main(argv: list[str] | None = None) -> int:
                 else np.ones(len(oof_ml), dtype=bool))
     _g_ok = okp & _grading
     fold_info.update(_oof_blocks(oof_ml, _grading))
+    # Logged here rather than left to the Phase 4 line above: this is the
+    # first moment the four blocks carry real counts.
+    logger.info("oof blocks: %s", json.dumps(
+        {k: fold_info[k] for k in _OOF_BLOCK_KEYS}))
     platt = ml_mod.moneyline_fit(p_ens[_g_ok], y_oof[_g_ok])
     if platt is not None:
-        logger.info("final pooled calibrator (THIS is what serves): "
+        # NOT "this is what serves": Phase 9's gate can still void this map,
+        # and the 2026-10-03 run proved it — this line printed a pooled Platt
+        # a=1.0315 and 19 ms later the log said "shipping the raw blend
+        # (identity calibrator)". The line that names the SERVING map is
+        # logged after the gate has ruled.
+        logger.info("final pooled calibrator (fitted; Phase 9 gates it): "
                     "a=%.4f b=%.4f n=%d method=%s",
                     platt["a"], platt["b"], platt["n"], platt["method"])
     else:
@@ -607,6 +623,14 @@ def main(argv: list[str] | None = None) -> int:
             gate_reason,
         )
         platt = None  # serving layer ships identity; bundle persists None
+    # The one line that says which map actually serves, emitted AFTER the
+    # gate: without it a reader has to correlate the Phase 8b fit line with a
+    # later WARNING to know what shipped.
+    logger.info(
+        "serving calibrator: %s",
+        ("identity (raw blend)" if platt is None else
+         "pooled Platt a=%.4f b=%.4f n=%d method=%s"
+         % (platt["a"], platt["b"], platt["n"], platt["method"])))
     # The two lines above score the CAUSAL walk-forward blend: every fold was
     # blended with the weights earned from PRIOR folds only. That is the
     # honest evaluation layer and must stay causal, but it is NOT the
@@ -729,12 +753,25 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("slate games: %d", len(slate))
 
     # decided OOF rows for the markets artifact (same schema as slate rows)
+    # _build_oof_market_rows re-runs the Monte-Carlo distribution over EVERY
+    # OOF game in one shot. On the 2026-10-03 run that stretch was the single
+    # largest silent gap in the log — 156 s with no record and no bar between
+    # "slate games: 0" and the Phase 12 banner. Bracket it so the cost is
+    # attributable from the log instead of invisible.
+    _mkt_t0 = time.time()
+    logger.info("markets: Monte-Carlo distribution over %d OOF game(s), "
+                "MC_DRAWS=%d", len(oof_ml), dist_mod.MC_DRAWS)
     oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig)
+    logger.info("markets: OOF market rows built in %.1fs",
+                time.time() - _mkt_t0)
     # Calibrate every published total and run-line cut separately using only
     # prior folds for OOF rows; the final maps are reused for tonight's slate.
     oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
     if len(slate):
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
+    logger.info("markets: prior-fold market calibration applied in %.1fs "
+                "(%d OOF row(s))", time.time() - _mkt_t0,
+                len(oof_market_rows))
 
     # ── 4.5. Record-only RFE + workbook ───────────────────────────────────
     _rfe: dict = {"ran": False, "reason": "NFL_RFE_FORCE not set"}
@@ -748,6 +785,11 @@ def main(argv: list[str] | None = None) -> int:
             from feature_workbook import generate_workbook
             _rfe["workbook"] = generate_workbook(trace_path=_rfe.get("trace"))
             logger.info("RFE workbook: %s", _rfe["workbook"] or "not written")
+        else:
+            # A silent RFE block is indistinguishable from a crashed one in
+            # the log; say why it did not run.
+            logger.info("RFE: not run (%s)",
+                        _rfe.get("reason") or "no reason recorded")
     except Exception as exc:
         # Non-fatal by design (a selection hiccup must never block artifact
         # delivery) but never silent: the traceback goes to the log, and the
@@ -1282,6 +1324,14 @@ def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
     serve_mod.write_power_rankings_csv(path, ratings, records, _team_names())
 
 
+# The four published OOF populations. Seeded as {"n": 0, "sufficient":
+# False} placeholders by Phase 4 (which runs before any OOF exists) and
+# replaced with real metrics by _oof_blocks in Phase 8b — so a verbatim
+# fold_info log from Phase 4 reports zeros for a population that is not zero.
+_OOF_BLOCK_KEYS = ("oof_regular", "oof_postseason", "oof_provisional",
+                   "oof_all")
+
+
 def _oof_blocks(oof: pd.DataFrame, grading: np.ndarray) -> dict:
     """Four scored populations, all published.
 
@@ -1297,7 +1347,7 @@ def _oof_blocks(oof: pd.DataFrame, grading: np.ndarray) -> dict:
     ``sufficient`` says whether the block clears ``MIN_VAL_FOLD_GAMES``, so a
     thin block is disclosed as thin rather than mistaken for a verdict.
     """
-    keys = ("oof_regular", "oof_postseason", "oof_provisional", "oof_all")
+    keys = _OOF_BLOCK_KEYS
     if oof is None or not len(oof):
         return {k: {"n": 0, "sufficient": False} for k in keys}
     gate = int(getattr(config, "MIN_VAL_FOLD_GAMES", 15))

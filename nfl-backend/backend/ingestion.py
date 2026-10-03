@@ -45,9 +45,23 @@ def _cache_path(name: str) -> Path:
 
 
 def clear_cache() -> None:
-    """Remove all cached nflverse parquet artifacts."""
+    """Remove all cached nflverse parquet artifacts.
+
+    The validated PIT weather archive (``weather_pit_*.parquet``) is
+    deliberately KEPT. It is not an nflverse pull: its settled-game rows are
+    immutable strictly-pre-kickoff observations, ``fetch_games_weather`` is
+    already incremental on top of it, and pending forecasts are refreshed
+    every run regardless. Deleting it here is the one thing in a
+    ``NFL_FULL_REPULL=1`` daily run that can force a full archive re-fetch,
+    and both logged full-repulls paid for exactly that — 388 request batches,
+    699-786 s, 56-65% of the whole run. Refresh it explicitly with
+    ``build_weather_table.py --refresh`` (or point ``NFL_WEATHER_CACHE`` at a
+    fresh file), not with the nflverse pull cache.
+    """
     if CACHE_DIR.exists():
         for path in CACHE_DIR.glob("*.parquet"):
+            if path.name.startswith("weather_pit_"):
+                continue
             path.unlink(missing_ok=True)
 
 

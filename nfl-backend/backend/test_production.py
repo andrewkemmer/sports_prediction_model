@@ -1612,6 +1612,16 @@ check("Phase 9 still scores the CAUSAL column (diagnostic added, not swapped)",
       # (2026-10-03), never the shipped blend and never the whole frame.
       and 'oof_ml["p_ensemble"][_grading]' in mp_src
       and '_oof_blocks(oof_ml, _grading)' in mp_src)
+# Phase 4 seeds the four oof_* keys with {"n": 0, "sufficient": False}
+# placeholders because it runs before any OOF exists. Logging fold_info
+# verbatim therefore reported oof_all n=0 on every run — the 2026-10-03 log
+# said n=0 while the delivered feature JSON recorded n=2432, and a genuinely
+# empty OOF would have looked identical. The placeholders must be filtered
+# out of the Phase 4 line and logged again once Phase 8b fills them in.
+check("the run log reports real oof_* blocks, not the Phase-4 placeholders",
+      "_OOF_BLOCK_KEYS" in mp_src
+      and "if k not in _OOF_BLOCK_KEYS" in mp_src
+      and '"oof blocks: %s"' in mp_src)
 check("shipped blend is never written into the OOF frame as a column",
       "p_ensemble_shipped" not in mp_src
       and 'oof_ml["p_ensemble"] =' not in mp_src
@@ -1824,8 +1834,15 @@ try:
     check("serving calibration is rank preserving (cannot move pooled auc)",
           _smap is not None and int((np.diff(_served[_ord]) < 0).sum()) == 0)
     check("Phase 9 labels the prequential twin as not auc-comparable",
-          "pooled auc is NOT comparable to raw" in mp_src
-          and "THIS is what serves" in mp_src)
+          "pooled auc is NOT comparable to raw" in mp_src)
+    # The Phase 8b fit line used to claim "(THIS is what serves)" while
+    # Phase 9's gate could void that very map: on the 2026-10-03 run the log
+    # named a pooled Platt a=1.0315 and 19 ms later said "shipping the raw
+    # blend (identity calibrator)". The log must name the SERVING map only
+    # after the gate has ruled.
+    check("the serving map is named on the log AFTER the calibrator gate",
+          "(fitted; Phase 9 gates it)" in mp_src
+          and '"serving calibrator: %s"' in mp_src)
 except Exception as exc:  # noqa: BLE001
     check("prequential OOF honesty checks", False, str(exc))
 
@@ -1849,6 +1866,14 @@ check("an empty or reversed date window yields no chunks",
       list(ingest_mod.chunk_date_range("2026-01-01", "2016-01-01")) == []
       and list(ingest_mod.chunk_date_range("2026-01-01", "2026-01-01"))
       == [(pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-01"))])
+# NFL_FULL_REPULL=1 is set on every daily run and calls clear_cache(), which
+# wiped the validated PIT weather archive along with the nflverse pulls. The
+# archive is immutable for settled games and fetch_games_weather is already
+# incremental on it, so losing it cost the 2026-10-02/03 runs a full
+# 388-batch refetch — 699-786 s, 56-65% of the whole run.
+check("full repull clears the nflverse pulls but keeps the PIT weather archive",
+      "weather_pit_" in inspect.getsource(ingest_mod.clear_cache)
+      and "unlink(missing_ok=True)" in inspect.getsource(ingest_mod.clear_cache))
 try:
     # MLB statcast parity: the bar is a stock ``tqdm`` when the library is
     # importable, which is what puts ``100%|#####| 36/36 [00:00<00:00,
