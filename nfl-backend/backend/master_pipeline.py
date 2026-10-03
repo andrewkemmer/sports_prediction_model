@@ -766,11 +766,19 @@ def main(argv: list[str] | None = None) -> int:
                 time.time() - _mkt_t0)
     # Calibrate every published total and run-line cut separately using only
     # prior folds for OOF rows; the final maps are reused for tonight's slate.
+    # This is a separate multi-minute fit (154 s on the 2026-10-03 15:59
+    # run — the last silent stretch left after the bracket above: no record
+    # and no bar between "OOF market rows built" and the next line). Give it
+    # its own start/end records and time it on its own clock, so the end
+    # line reports THIS block instead of folding the Monte-Carlo time in.
+    _cal_t0 = time.time()
+    logger.info("markets: prior-fold market calibration start "
+                "(%d OOF row(s))", len(oof_market_rows))
     oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
     if len(slate):
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
     logger.info("markets: prior-fold market calibration applied in %.1fs "
-                "(%d OOF row(s))", time.time() - _mkt_t0,
+                "(%d OOF row(s))", time.time() - _cal_t0,
                 len(oof_market_rows))
 
     # ── 4.5. Record-only RFE + workbook ───────────────────────────────────
