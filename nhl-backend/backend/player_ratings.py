@@ -30,7 +30,11 @@ MLB's 120 PA is exactly 20% of a ~600-PA season, so here
 
 which puts ~17% prior weight on a player at his own average season
 (``k / (k + n) = 0.2 / 1.2``) — the same 20%-of-a-season intent, expressed in ice
-time instead of plate appearances.
+time instead of plate appearances. That bayesian schedule is what
+ships: a ramp alternative (``w = min(n / k, 1)``, prior fully washed
+out at k, MLB's adopted form) was A/B-gated on 2026-10-02 and returned
+a wash — NOT adopted for now; it stays selectable via
+``NHL_SHRINK_ARM=ramp``.
 
 GRAIN. MoneyPuck publishes regular-season skater game-by-game archives with
 individual xGoals and seconds of ice time. Each rating row is a player's
@@ -57,6 +61,7 @@ filesystem access. ``ingestion.py`` owns the pulls.
 """
 from __future__ import annotations
 
+import os
 from typing import Mapping, Optional
 
 import numpy as np
@@ -94,6 +99,58 @@ _POSITION_ALIASES = {
 SHRINK_FRACTION_OF_SEASON = 0.20
 ROLLING_ROWS = 30                # MLB lineup-wOBA analogue: trailing 30 played games
 SECONDS_PER_HOUR = 3_600.0      # MoneyPuck icetime is measured in seconds
+
+# -- Rating shrinkage arm (2026-10-02, MLB ramp methodology evaluated) ------
+# Owner intent: shrinkage holds back THIN player-level data; it must not
+# compress established separation forever. Mirrors MLB's batter-rating arm
+# (mlb-backend/backend/features.py -> MLB_SHRINK_ARM), with MLB's flat
+# 120-PA k generalized to this module's position/situation ice-time k:
+#
+#   bayesian (SHIPPED default, reversible)  w = n / (n + k)
+#       the conjugate (normal-normal) form; the position/situation
+#       league prior never fully washes out (50% own weight at
+#       n = k). Remains the production arm after the 2026-10-02 gate
+#       returned a wash (measured record below).
+#   ramp (GATED 2026-10-02 — NOT adopted for now; selectable via
+#         NHL_SHRINK_ARM=ramp)  w = min(n / k, 1)
+#       full own weight once the 20%-of-a-season opportunity (k) is
+#       reached, raw forever after. Below k the value is
+#       (xg + (k - n) * mu_ice) / k — continuous at the threshold (the
+#       (k-1) -> k step is (mu_ice - raw)/k, per-second ~1e-8) and past
+#       k the league prior exerts ZERO pull. At n = k/2 the ramp keeps
+#       50% of the player's own data vs bayesian's 33%.
+#
+# Both arms evaluate value = w * raw + (1 - w) * mu with the SAME
+# point-in-time position/situation league prior and the SAME gates:
+# non-finite input stays NaN, zero evidence (ice + k <= 0) stays NaN, and
+# ice = 0 with a valid k shrinks fully to the prior — so pool joins
+# behave identically under either arm.
+#
+# SCOPE: player ratings only (shrunk_rate_per60 -> pl_* pool features);
+# the pool aggregation and availability flags apply no shrinkage of
+# their own. DECISION 2026-10-02 (owner): the gate was a wash — do NOT
+# adopt for now; bayesian stays the default, ramp ships one env var
+# away (NHL_SHRINK_ARM=ramp) for re-evaluation on a holdout with real
+# power (the sealed tail held only 8 off-season games). Reversible in
+# either direction. test_shrink_arm.py pins both weight schedules.
+#
+# Measured record — .adhoc/nhl_shrink_arm_ab.py on the local production
+# frame (2800 decided games 2024-10-04..2026-10-01; sealed 21-day
+# holdout 2026-09-11..2026-10-01, 8 off-season games — production's
+# sealed tail is the same sparse window right now; frame sanity: 123
+# non-pl columns bit-identical, 24/25 pl_* columns changed, max|Δ|
+# 0.092 on pl_evo_c_diff): ramp holdout blend logloss 0.63731 vs
+# bayesian 0.63688 (delta +0.00044, inside the ±0.001 adoption bar);
+# walk OOF ensemble ramp 0.67622 vs bayesian 0.67557 (58 paired folds
+# mean delta +0.00009, ramp wins 27/58 — a dead heat). The gate is a
+# wash, not a refutation: adoption rests on the structural rule (shrink
+# thin data; do not compress established separation), the same reading
+# MLB's batter gate drew (+0.00014). OWNER DECISION 2026-10-02: not
+# adopted for now — the wash plus an 8-game sealed tail gives no
+# evidence worth shipping a behavior change on; bayesian remains
+# default. Report: .adhoc/nhl_shrink_arm_ab_report_20261002.json.
+NHL_SHRINK_ARM = os.getenv("NHL_SHRINK_ARM", "bayesian").strip().lower() or "bayesian"
+SHRINK_ARMS: tuple[str, ...] = ("bayesian", "ramp")
 
 # -- Prepared-input contract (what the engine consumes) ---------------------
 IN_PLAYER = "player_id"
@@ -431,19 +488,35 @@ def shrink_rate(
     prior_ice_seconds: float,
     league_rate_per60: float,
     k_seconds: float,
+    *,
+    arm: str = NHL_SHRINK_ARM,
 ) -> float:
-    """Conjugate (normal-normal) shrinkage of a rate toward a league prior.
+    """Shrinkage of a rate toward a league prior (MLB ramp-arm parity).
 
-        shrunk = (prior_xg + mu_ice * k) / (prior_ice + k)
+    bayesian (SHIPPED default)::
+
+        shrunk = (xg + mu_ice * k) / (ice + k)
 
     where ``mu_ice = league_rate_per60 / 3600`` converts the per-hour prior back
     into xG per second, so the pseudo-count ``mu_ice * k`` is a genuine xG total
-    rather than a rate pasted next to a count. This is
-    MLB's formula with ``120`` generalized to a position- and
-    situation-specific ``k``.
+    rather than a rate pasted next to a count. This is MLB's formula with
+    ``120`` generalized to a position- and situation-specific ``k``.
+
+    ramp (gated 2026-10-02 — NOT adopted; ``NHL_SHRINK_ARM=ramp``)::
+
+        w = min(ice / k, 1)  ->  raw at ice >= k,
+        else shrunk = (xg + (k - ice) * mu_ice) / k
+
+    The prior washes out completely once the 20%-of-a-season opportunity is
+    reached; below it the ramp trusts the player's own data at exactly
+    ``ice / k`` (50% at ``ice = k/2`` vs bayesian's 33%). Unknown arms raise:
+    a typo must never silently ship the wrong arm.
 
     Returns xG per SECOND of ice time; callers scale to xG per 60 minutes.
     """
+    if arm not in SHRINK_ARMS:
+        raise ValueError(
+            f"NHL_SHRINK_ARM must be 'bayesian' or 'ramp', got {arm!r}")
     xg = float(prior_xg)
     ice = float(prior_ice_seconds)
     mu60 = float(league_rate_per60)
@@ -453,7 +526,13 @@ def shrink_rate(
     denom = ice + k
     if denom <= 0:
         return float("nan")
-    return (xg + (mu60 / SECONDS_PER_HOUR) * k) / denom
+    if arm == "bayesian":
+        return (xg + (mu60 / SECONDS_PER_HOUR) * k) / denom
+    # ramp: w = min(ice / k, 1). denom > 0 guarantees ice > 0 on this
+    # branch (ice = 0 would mean k <= 0, already rejected above).
+    if ice >= k:
+        return xg / ice
+    return (xg + (k - ice) * (mu60 / SECONDS_PER_HOUR)) / k
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +544,7 @@ def build_player_ratings(
     injuries: Optional[pd.DataFrame] = None,
     window: int = ROLLING_ROWS,
     shrink_fraction: float = SHRINK_FRACTION_OF_SEASON,
+    shrink_arm: str = NHL_SHRINK_ARM,
     id_col: Optional[str] = None,
     as_of: Optional[object] = None,
 ) -> tuple[pd.DataFrame, dict]:
@@ -481,9 +561,13 @@ def build_player_ratings(
     strength uses completed seasons before the source game's season. ``as_of``
     drops raw game rows on or after that date.
     """
+    if shrink_arm not in SHRINK_ARMS:
+        raise ValueError(
+            f"NHL_SHRINK_ARM must be 'bayesian' or 'ramp', got {shrink_arm!r}")
     prepared, audit = prepare_player_games(games, id_col=id_col)
     audit["window_rows"] = int(window)
     audit["shrink_fraction_of_season"] = float(shrink_fraction)
+    audit["shrink_arm"] = str(shrink_arm)
 
     empty = pd.DataFrame(columns=OUTPUT_COLUMNS)
     if len(prepared) == 0:
@@ -529,7 +613,7 @@ def build_player_ratings(
             merged[PRIOR_ICE] > 0,
             merged[PRIOR_XG] / merged[PRIOR_ICE] * SECONDS_PER_HOUR, np.nan)
     merged[OUT_SHRUNK_RATE] = [
-        shrink_rate(x, i, m, k) * SECONDS_PER_HOUR
+        shrink_rate(x, i, m, k, arm=shrink_arm) * SECONDS_PER_HOUR
         for x, i, m, k in zip(merged[PRIOR_XG], merged[PRIOR_ICE],
                               merged[OUT_LEAGUE_RATE], merged[OUT_K_SECONDS])
     ]

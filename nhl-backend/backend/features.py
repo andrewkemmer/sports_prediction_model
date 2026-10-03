@@ -1064,6 +1064,11 @@ def _load_player_ratings() -> pd.DataFrame:
                 int(audit.get("dropped_bad_values", 0)
                     + audit.get("dropped_unknown_position", 0)
                     + audit.get("dropped_bad_situation", 0)))
+    logger.info("player rating shrinkage arm: %s (k = %.2f * mean "
+                "prior-season ice time per position/situation)",
+                audit.get("shrink_arm", _pr.NHL_SHRINK_ARM),
+                float(audit.get("shrink_fraction_of_season",
+                                _pr.SHRINK_FRACTION_OF_SEASON)))
     return ratings
 
 

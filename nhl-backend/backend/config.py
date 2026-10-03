@@ -590,6 +590,10 @@ COIN_FLIP_THRESHOLD = 0.02
 # is 20% of a 600-PA season, carried over per position in ice time:
 #     k[position, situation] = PLAYER_RATING_SHRINK_FRACTION * mean season ice time
 # which puts ~17% prior weight on a player at his own average season.
+# Shipped schedule: bayesian w = n/(n + k). A ramp alternative
+# (w = min(n / k, 1), prior fully washed out at k — MLB's adopted form)
+# was A/B-gated 2026-10-02 and returned a wash: NOT adopted for now,
+# selectable with NHL_SHRINK_ARM=ramp.
 PLAYER_RATING_SHRINK_FRACTION = 0.20
 # Trailing played-game rows summed independently per player and situation.
 PLAYER_RATING_PRIOR_ROWS = 30

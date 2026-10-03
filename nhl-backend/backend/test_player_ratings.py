@@ -334,13 +334,26 @@ class TestShrinkRate:
         assert (pr.shrink_rate(100.0, 1_000.0, 0.5, 2_000.0)
                 > 0.5 / pr.SECONDS_PER_HOUR)
 
-    def test_weight_is_k_over_ice_plus_k(self):
+    def test_bayesian_arm_weight_is_k_over_ice_plus_k(self):
         ice, xg, mu60, k = 4_000.0, 40.0, 0.5, 2_000.0
-        got = pr.shrink_rate(xg, ice, mu60, k)
+        got = pr.shrink_rate(xg, ice, mu60, k, arm="bayesian")
         expected = (xg + (mu60 / pr.SECONDS_PER_HOUR) * k) / (ice + k)
         assert got == pytest.approx(expected)
         # ...and that is 1/3 prior weight, 2/3 evidence.
         assert (k / (ice + k)) == pytest.approx(1 / 3)
+
+    def test_ramp_arm_is_raw_at_or_above_k(self):
+        """The ramp arm (gated 2026-10-02, not adopted): at ice >= k the
+        prior has ZERO pull — the rating is the player's own rate."""
+        ice, xg, mu60, k = 4_000.0, 40.0, 0.5, 2_000.0
+        assert ice >= k
+        got = pr.shrink_rate(xg, ice, mu60, k, arm="ramp")
+        assert got == pytest.approx(xg / ice)
+        # Below k the own weight is exactly ice/k (here 1,000/2,000 = 50%).
+        below = pr.shrink_rate(20.0, 1_000.0, mu60, k, arm="ramp")
+        mu = mu60 / pr.SECONDS_PER_HOUR
+        w = (below - mu) / (20.0 / 1_000.0 - mu)
+        assert w == pytest.approx(0.5)
 
     def test_shrinks_toward_the_prior_from_both_directions(self):
         """The invariant is BETWEEN-ness: raw -> prior, never past it."""
