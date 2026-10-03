@@ -172,6 +172,16 @@ ELASTICNET_PARAMS = {
 # every screen leader's gain reversed on the 73-fold walk (lightgbm worse on
 # 3/3 seeds) -> params CONFIRMED, unchanged. Second consecutive retune the
 # production config survives.
+# L8 re-tune (2026-10-03): the same FULL RESET that re-tuned LightGBM ran
+# XGBoost too (12 dims, both operating points) — params CONFIRMED,
+# unchanged. Best candidate screened well (20-fold d -0.0030) and cleared
+# the 3-seed causal floor by only 4% (mean d_tune -0.00391 vs a 0.00374
+# floor, measured on 8 verify folds vs the floor's 12), and refit-static
+# did NOT confirm (-0.00121 vs its own 0.00237 floor, seal positive). The
+# full 82-fold tune surface then settled it: the challenger is WORSE on
+# all three metrics (logloss +0.00104, brier +0.00049, AUC -0.00296) —
+# the earlier causal "gain" was an artifact of the narrow verify surface.
+# Blend-level logloss/AUC 0.6835 / 0.567 unchanged either way.
 XGBOOST_PARAMS = {
     "max_depth": 2,
     "min_child_weight": 12,
@@ -317,16 +327,41 @@ XGBOOST_REFIT_ROUNDS = 50
 # pooled OOF member logloss 0.6863 -> 0.6845 mean, better on all three seeds.
 # Elastic-net searched too: production C=0.03 / l1_ratio 0.5 confirmed optimal
 # on the big frame (best challenger -0.0001, below the 0.001 gate) - unchanged.
+# L8 re-tune (2026-10-03): FULL RESET — every model parameter free (13
+# dims, incl. n_estimators/reg_alpha/reg_lambda/max_bin/extra_trees, which
+# no earlier L-series search touched), machine-stable num_threads=1, TPE
+# seed 42 over the 20 most-recent tune folds of the 7,387-game / 86-fold
+# frame; the last 4 folds stayed sealed until verification. Doctrine held:
+# the 3-seed noise floor (0.00144 pooled OOF) was measured FIRST, and the
+# winner had to clear it. It did — paired vs the full incumbent params at
+# the same seed, 3/3 seeds negative on BOTH surfaces: mean d_tune -0.00323
+# (2.2x the floor), sealed holdout -0.00802. Re-measured on the whole
+# 82-fold tune set (seed 42, n=7019 pooled OOF) the member improves on all
+# three metrics: logloss 0.68500 -> 0.68344, brier 0.24599 -> 0.24523,
+# AUC 0.56216 -> 0.56888. Blend impact neutral (full production walk
+# logloss 0.6835 / AUC 0.567 incumbent and challenger alike) -> ADOPTED
+# under the member-strength policy (RF 2026-08-31 / L5 precedent: adopt a
+# member gain when the blend is unharmed). Record:
+# mlb_tune_full_20261003.json.
+# What changed in spirit: the old hobble (50 rounds, 6 leaves, min_gain
+# 1.2224 blocking most splits) is gone. Capacity now comes from rounds
+# (364) and leaves (40) at a 2.9x slower learning rate, and stability from
+# sampling discipline instead of pruning — min_gain_to_split down to
+# 0.418, bagging 0.39 every 4 rounds, features 0.53, extra_trees.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 50,
-    "max_depth": 6,
-    "num_leaves": 6,
-    "min_child_samples": 70,
-    "min_gain_to_split": 1.2224,
-    "bagging_fraction": 0.4518,
-    "bagging_freq": 1,
-    "feature_fraction": 0.7632,
-    "learning_rate": 0.0332,
+    "n_estimators": 364,
+    "max_depth": 7,
+    "num_leaves": 40,
+    "min_child_samples": 64,
+    "min_gain_to_split": 0.4182845581383924,
+    "bagging_fraction": 0.38979006549031003,
+    "bagging_freq": 4,
+    "feature_fraction": 0.5273799895070881,
+    "learning_rate": 0.01131605401240319,
+    "reg_alpha": 0.3851388837658578,
+    "reg_lambda": 0.0026749993754089075,
+    "max_bin": 173,
+    "extra_trees": True,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }

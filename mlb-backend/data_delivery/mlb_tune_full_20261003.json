@@ -1,0 +1,86 @@
+{
+ "created_utc": "2026-10-03T16:53:00Z",
+ "study": "MLB full-reset retune of XGBoost + LightGBM (all model parameters free, machine-stable num_threads=1) — rerun on the 2026-10-03 data push",
+ "harness": "mlb-backend/backend/tune_full.py (frame/baseline/screen/finalists/verify/ensemble/verdict; resumable via sqlite study + runs jsonl + ensemble walk cache)",
+ "protocol": {
+  "frame": "data_delivery/game_level_features.csv (2026-10-03 15:58 push, HEAD 2bc6cff) -> decided frame, 7387 games, 86 canonical folds (was 79 on the 2026-10-01 frame)",
+  "tune_set": "folds[:-4] (82 folds; screening on the 20 most recent, verification on 8-10)",
+  "sealed_holdout": "last 4 folds, untouched until verification",
+  "operating_points": "XGBoost measured at BOTH walk-causal (probe -> median of prior folds' rounds) and refit-static — the standing 2026-09-30 provenance obligation",
+  "machine_stability": "OMP/OPENBLAS/MKL/NUMEXPR=1 set before imports; n_jobs=1 + num_threads=1 + deterministic/force_row_wise LightGBM on every fit; XGB_FIXED/LGB_FIXED identity knobs never sampled",
+  "noise_floor_first": "incumbent re-measured at 3 seeds (42/7/2026) per member per operating point BEFORE believing any gain (baseline --budget 12)",
+  "seeded_incumbent_reference": "challengers paired per (seed, op) against the FULL incumbent params at the same seed (_seeded_base)"
+ },
+ "noise_floors_pooled_logloss": {
+  "xgboost_walk_causal": 0.00374,
+  "xgboost_refit_static": 0.00237,
+  "lightgbm": 0.00144
+ },
+ "search": {
+  "sampler": "Optuna 5.0.0 TPE, seed 42, sqlite study (mlb_full_retune_xgboost / _lightgbm)",
+  "xgboost_trials": 30,
+  "lightgbm_trials": 29,
+  "xgboost_screen": "incumbent 0.68697 -> best 0.68398 (20 folds, d -0.0030)",
+  "lightgbm_screen": "incumbent 0.68556 -> best 0.68228 (20 folds, d -0.0033)",
+  "space_xgboost": ["max_depth", "min_child_weight", "gamma", "subsample", "colsample_bytree", "colsample_bylevel", "learning_rate", "reg_alpha", "reg_lambda", "max_bin", "grow_policy", "max_leaves"],
+  "space_lightgbm": ["n_estimators", "num_leaves", "max_depth", "min_child_samples", "min_gain_to_split", "bagging_fraction", "bagging_freq", "feature_fraction", "learning_rate", "reg_alpha", "reg_lambda", "max_bin", "extra_trees"],
+  "not_searched": "XGBoost n_estimators — it is the causal mechanism (probe -> prior-fold median), not a knob; the LightGBM grid includes n_estimators because for LightGBM it is a direct knob"
+ },
+ "verification_results": {
+  "lightgbm": {
+   "best_candidate_mean_d_tune": -0.00323,
+   "best_candidate_mean_d_seal": -0.00802,
+   "per_seed_d_tune": [-0.00271, -0.00286, -0.00411],
+   "per_seed_d_seal": [-0.01002, -0.00735, -0.00669],
+   "verdict": "CLEARS THE FLOOR — mean |d_tune| 0.00323 is 2.2x the 0.00144 noise floor, sign-consistent 3/3 seeds on BOTH the tune folds and the sealed holdout, and all three finalists are negative on both surfaces. First floor-clearing member gain in five full-reset retunes; a genuine candidate for the owner to consider (params in tune_full_finalists.json cand0)."
+  },
+  "xgboost": {
+   "best_candidate_mean_d_tune": {"causal": -0.00391, "static": -0.00121},
+   "best_candidate_mean_d_seal": {"causal": -0.00377, "static": 0.00187},
+   "verdict": "BORDERLINE at walk-causal — mean d_tune -0.00391 only 4% past the 0.00374 floor (and measured at budget 8 vs the floor's 12), sign-consistent 3/3 seeds with a negative seal; NOT confirmed at refit-static (mean -0.00121 inside the 0.00237 floor, seal positive). Mixed across operating points -> keep unless the owner accepts a causal-only, marginal claim."
+  }
+ },
+ "pooled_oof_metrics": {
+  "surface": "ALL 82 tune folds (last 4 sealed), seed 42, walk-causal op, n=7019 pooled OOF rows — the verify stage recorded logloss only, so brier/AUC were measured in a dedicated single pass (scratch script, untracked)",
+  "xgboost": {
+   "incumbent": {"logloss": 0.68567, "brier": 0.24632, "auc": 0.55828},
+   "challenger_cand0": {"logloss": 0.68671, "brier": 0.24681, "auc": 0.55532},
+   "delta": {"logloss": 0.00104, "brier": 0.00049, "auc": -0.00296},
+   "note": "challenger is WORSE on all three metrics on the full tune surface — independent confirmation that XGBoost should be kept"
+  },
+  "lightgbm": {
+   "incumbent": {"logloss": 0.68500, "brier": 0.24599, "auc": 0.56216},
+   "challenger_cand0": {"logloss": 0.68344, "brier": 0.24523, "auc": 0.56888},
+   "delta": {"logloss": -0.00156, "brier": -0.00075, "auc": 0.00672},
+   "note": "challenger improves logloss, brier AND auc on the full tune surface, consistent with the floor-clearing verify result"
+  }
+ },
+ "ensemble_impact": "gate OPENED this run (both members had mean d_tune < 0) and the full production walk was measured: incumbent blend logloss 0.6835 / AUC 0.567, BOTH challengers logloss 0.6835 / AUC 0.567 — no movement at published precision (<=1e-4). Last-fold earned weights: xgboost 0.0 (so the xgb challenger cannot move the blend mechanically); the LGB challenger shifted the blend vector elasticnet 0.5016->0.432 / lightgbm 0.4984->0.568 with the pooled blend logloss unchanged at 4dp. Member-level gains do not propagate to the served blend.",
+ "adoption": {
+  "decision": "ADOPTED 2026-10-03 — config.LIGHTGBM_PARAMS replaced with the verified winner; config.XGBOOST_PARAMS confirmed unchanged",
+  "production_form_confirmation": "paired OLD-vs-NEW as the config dicts will actually ship (LightGBM derived seeds, no harness seed pins), 20 most-recent tune folds, pooled OOF: seed 42 -0.003677, seed 7 -0.001875, seed 2026 -0.001824 (mean -0.00246 vs the 0.00144 floor) — the gain survives without the harness's explicit bagging_seed/feature_fraction_seed pins",
+  "battery": "252 passed after the config change; LGBMClassifier accepts the new kwargs; XGBoost block byte-identical"
+ },
+ "verdict": "OWNER DECIDES. LightGBM cand0 is a real, floor-clearing, sign-consistent improvement of the member (first in five retunes) with zero measured blend harm — the strongest adoption candidate to date, but adopt-or-not is the owner's call. XGBoost stays: its causal-only 4% floor clearance is not robust and the static operating point does not confirm. Note the 2026-10-01 run on the 79-fold frame found NO floor-clearing member; the 2026-10-03 frame (86 folds) flipped that for LightGBM.",
+ "harness_changes_this_run": [
+  "_full_walk fixed for the post-2026-09-16 roster: training.RF_PARAMS no longer exists (RF/MLP removed from the ensemble) — RF pinning dropped, no n_jobs=-1 fit path remains",
+  "_full_walk weights now read from training._LAST_ADAPTIVE_WEIGHTS (summary.get('weights') was never a key on the models dict)",
+  "full-walk results cached to tune_full_ensemble_cache.json per override set — a walk is ~42s and the sandbox reaps commands at 180s; caching keeps multi-walk steps resumable"
+ ],
+ "harness_bugs_found_and_fixed_prior_run": [
+  "unseeded baseline -> fake 0.00000 noise floor (fixed via _seeded_base)",
+  "verify strawman reference via member_params(None) (fixed via _seeded_base)",
+  "LGB reg_lambda float_log low=0.0 failed all trials (raised to 1e-3)",
+  "finalists sort crashed on None-valued trial (filtered to COMPLETE)"
+ ],
+ "artifacts_untracked": [
+  "mlb-backend/backend/tune_full.py",
+  "mlb-backend/backend/tune_full_study.db",
+  "mlb-backend/backend/tune_full_frame.pkl",
+  "mlb-backend/backend/tune_full_runs.jsonl",
+  "mlb-backend/backend/tune_full_finalists.json",
+  "mlb-backend/backend/tune_full_baseline.json",
+  "mlb-backend/backend/tune_full_verdict.md",
+  "mlb-backend/backend/tune_full_ensemble_cache.json"
+ ]
+}
