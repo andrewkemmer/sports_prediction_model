@@ -302,6 +302,96 @@ class TestPositionAssignment:
         assert list(frame.player_id) == ["1"]
         assert list(frame.positions) == ["G"]
 
+    def test_the_leagues_own_primary_overrides_the_convention(self):
+        """``C-F`` is a centre who also plays forward, not a coin flip.
+
+        The convention files him as F. Embiid, Towns, Holmgren, Hartenstein,
+        Bitadze and Wendell Carter Jr. are all ``C-F`` in 2025-26 and all
+        starters at centre - the same labelling artifact that left
+        ``pl_epm_c_*`` thin. The index is a READING and the convention is a
+        convention, so the reading wins.
+        """
+        assigned = src.assign_positions(
+            {"G": {"1"}, "F": {"2", "3"}, "C": {"2", "4"}},
+            {"2": "C", "3": "F"})
+        assert assigned == {"1": "G", "2": "C", "3": "F", "4": "C"}
+
+    def test_the_primary_never_puts_a_player_in_two_cells(self):
+        """The invariant that makes the override safe.
+
+        The prior divides by these cells, so an override that added a cell
+        instead of moving one would double-count the league mean. It only
+        REWRITES, so every player is still in exactly one.
+        """
+        assigned = src.assign_positions(
+            {"G": {"1", "2"}, "F": {"2"}, "C": {"2", "3"}}, {"2": "C"})
+        assert assigned == {"1": "G", "2": "C", "3": "C"}
+        assert sorted(assigned) == ["1", "2", "3"]
+
+    def test_a_player_the_index_omits_keeps_the_convention(self):
+        """A partial index degrades per player, not wholesale.
+
+        The index is trustworthy for the live season only (23% coverage on a
+        back season, measured), so a season ends up mixing two conventions by
+        design - and a player the index says nothing about must still get a
+        cell rather than falling out of the prior.
+        """
+        assigned = src.assign_positions(
+            {"G": {"1", "2"}, "F": {"2", "3"}}, {"2": "F"})
+        assert assigned == {"1": "G", "2": "F", "3": "F"}
+
+    def test_an_index_naming_a_position_the_feed_did_not_list_is_ignored(self):
+        """Trust the reading only where the two sources agree the player plays.
+
+        The prior cell has to be a cell this season's filter pull actually
+        produced, or ``league_prior_table`` has a denominator nothing was
+        counted against. The filter pull is what defines which cells exist;
+        the index only chooses between them.
+        """
+        assigned = src.assign_positions(
+            {"G": {"1"}, "F": {"2"}}, {"2": "C"})
+        assert assigned == {"1": "G", "2": "F"}
+
+    def test_the_index_reads_the_first_letter_of_a_compound_code(self):
+        """``POSITION`` is ordered; the first letter is the league's primary.
+
+        ``C-F`` and ``F-C`` are the same two letters in different orders and
+        must NOT collapse to the same answer - that difference is the entire
+        reason this source is being read at all.
+        """
+        payload = {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
+                                   "rowSet": [[1, "C-F"], [2, "F-C"],
+                                              [3, "G"], [4, "G-F"]]}]}
+        assert src.primary_positions(payload) == {
+            1: "C", 2: "F", 3: "G", 4: "G"}
+
+    def test_a_junk_or_absent_position_reads_as_no_index_at_all(self):
+        """Never a partial answer: half a primary is two conventions at once."""
+        assert src.primary_positions(None) == {}
+        assert src.primary_positions({}) == {}
+        assert src.primary_positions({"resultSets": []}) == {}
+        assert src.primary_positions({"resultSets": [{"headers": [],
+                                                     "rowSet": []}]}) == {}
+        # An unknown code has no cell in the prior table, so it is dropped
+        # rather than inventing a fourth position.
+        assert src.primary_positions(
+            {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
+                             "rowSet": [[1, "X"]]}]}) == {}
+
+    def test_the_primary_moves_the_cell_but_not_the_listing(self):
+        """``position`` follows the league; ``positions`` stays the full set.
+
+        The segments ask "who does this club field who the league lists at
+        centre", and that is indifferent to which of them the league calls
+        primary. Rewriting the listing too would be a different, worse change.
+        """
+        frame = src.positions_frame(
+            {"G": {"1"}, "F": {"2"}, "C": {"2"}}, {"2": "C"})
+        assert dict(zip(frame.player_id, frame.position)) == {
+            "1": "G", "2": "C"}
+        assert dict(zip(frame.player_id, frame.positions)) == {
+            "1": "G", "2": "F|C"}
+
     def test_no_positions_yields_a_well_formed_empty_frame(self):
         frame = src.positions_frame({})
         assert frame.empty
