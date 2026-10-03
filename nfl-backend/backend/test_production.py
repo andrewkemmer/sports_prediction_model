@@ -1170,6 +1170,42 @@ check("calibration JSON contract",
       all(k in cal_rec for k in ("metrics", "calibration_buckets", "daily")))
 check("calibration metrics keys",
       all(k in cal_rec["metrics"] for k in ("auc", "brier", "logloss", "ece")))
+# The deployed-calibrator gate (2026-10-03 review): write_calibration_json
+# must ALWAYS record provenance -- a favored Platt map when one serves,
+# method "identity" with params null when the gate ships the raw blend
+# (MLB parity). The gated branch is invisible to test_data_delivery until a
+# gated run lands (the 2026-10-03 15:59 artifact, the first one, regressed
+# with an empty section), so pin it here. The twins must survive the
+# identity branch -- that is what the reliability table's CALIBRATED
+# column renders.
+_gated_path = tmp / "nfl_calibration_gated.json"
+_gated_pair = [{"bucket": "50-60%", "count": 3}]
+serve_mod.write_calibration_json(
+    _gated_path, {"auc": 0.6, "brier": 0.24, "logloss": 0.68, "ece": 0.05},
+    {"brier": 0.25}, [], [{"date": "20260910", "n_games": 1}], {},
+    platt=None, run_date="20260910", n_games=1,
+    calibrated_buckets=_gated_pair)
+_gated_rec = json.loads(_gated_path.read_text())
+check("gated calibrator run records identity provenance + bucket twins",
+      (rec_ok := _gated_rec["calibration"]) is not None
+      and rec_ok.get("method") == "identity"
+      and rec_ok.get("params") is None
+      and rec_ok.get("metrics_calibrated", {}).get("brier") == 0.25
+      and rec_ok.get("calibration_buckets_calibrated") == _gated_pair,
+      f"method={rec_ok.get('method')}, params={rec_ok.get('params')}")
+_platt_path = tmp / "nfl_calibration_platt.json"
+serve_mod.write_calibration_json(
+    _platt_path, {"auc": 0.6, "brier": 0.24, "logloss": 0.68, "ece": 0.05},
+    {"brier": 0.23}, [], [{"date": "20260910", "n_games": 1}], {},
+    platt={"a": 1.02, "b": 0.04, "n": 99}, run_date="20260910", n_games=99,
+    calibrated_buckets=_gated_pair)
+_platt_rec = json.loads(_platt_path.read_text())["calibration"]
+check("served Platt keeps favored provenance + params",
+      _platt_rec.get("method") == "favored_platt_floor"
+      and isinstance(_platt_rec.get("params"), dict)
+      and abs(float(_platt_rec["params"]["a"]) - 1.02) < 1e-6
+      and _platt_rec.get("calibration_buckets_calibrated") == _gated_pair,
+      f"method={_platt_rec.get('method')}, params={_platt_rec.get('params')}")
 
 # ---------------------------------------------------------------------------
 print("\n== 7b. Run-engine per-line metrics: (y, p) pair order + binary range ==")

@@ -14,6 +14,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -175,18 +176,28 @@ for pattern in REQUIRED_CSV:
         # (ATL-CAR 2026-09-20 picked CAR) and went stale when that game's
         # price crossed 0.5 (now ATL at 0.524); the invariant holds for all
         # 1506 home picks and 926 away picks in the file instead.
-        _p_dep = pd.to_numeric(df["home_win_prob_model_calibrated"],
-                               errors="coerce")
-        _home_pick = df["model_pick"] == df["home_team"]
+        # The pick mirrors the RAW blend on EVERY row -- the writer's
+        # contract (serving.write_predictions_history_csv: model_pick =
+        # where(p_ensemble >= 0.5, home, away)). The original pin hard-coded
+        # one game (ATL-CAR 2026-09-20 picked CAR) and went stale when its
+        # price crossed 0.5. Note the pick deliberately reads the RAW
+        # column, not the calibrated one: a served favored-Platt map snaps
+        # sub-edge games to exactly 0.5, so 2020_15_SF_DAL shows raw
+        # 0.500788 (pick DAL) against a displayed 0.5 -- the pick is the
+        # raw argmax by design, and 1 - displayed would flip the side on
+        # such a coin-flip row.
+        _p_raw = pd.to_numeric(df["home_win_prob_model"], errors="coerce")
+        _expect_pick = np.where(_p_raw >= 0.5,
+                                df["home_team"], df["away_team"])
         _away_pick = df["model_pick"] == df["away_team"]
         check("  away pick displays the away deployed probability",
-              bool(_away_pick.any()) and bool(_home_pick.any())
-              and bool((_p_dep[_home_pick] > 0.5).all())
-              and bool((_p_dep[_away_pick] < 0.5).all()),
-              f"home picks={int(_home_pick.sum())} "
+              bool(_away_pick.any())
+              and bool((df["model_pick"] == df["home_team"]).any())
+              and bool((df["model_pick"].to_numpy() == _expect_pick).all()),
               f"away picks={int(_away_pick.sum())} "
-              f"bad home={int((~(_p_dep[_home_pick] > 0.5)).sum())} "
-              f"bad away={int((~(_p_dep[_away_pick] < 0.5)).sum())}")
+              f"home picks={int((df['model_pick'] == df['home_team']).sum())} "
+              f"mismatched picks="
+              f"{int((df['model_pick'].to_numpy() != _expect_pick).sum())}")
     if "power_rankings" in pattern:
         need = {"rank", "team", "team_name", "elo", "wins", "losses", "record"}
         check("  power rankings columns superset of shared page",
