@@ -124,9 +124,21 @@ for pattern in REQUIRED_JSON:
               len(raw_buckets) == len(cal_buckets)
               and [b.get("count") for b in raw_buckets]
               == [b.get("count") for b in cal_buckets])
+        # Provenance must exist on EVERY run: a favored Platt map when one
+        # serves, method "identity" with params null when the deployed
+        # calibrator gate shipped the raw blend (MLB parity:
+        # mlb calibration_20261001.json). An empty section is the defect
+        # the 2026-10-03 gated artifact shipped.
+        _cal_sec = rec.get("calibration") or {}
+        _gated = bool((rec.get("metrics") or {}).get("calibrator_gated_out"))
         check("  calibration provenance preserves favored method",
-              (rec.get("calibration") or {}).get("method")
-              in ("favored_platt_floor", "platt"))
+              ((_cal_sec.get("method") in ("favored_platt_floor", "platt")
+                and isinstance(_cal_sec.get("params"), dict))
+               if not _gated else
+               (_cal_sec.get("method") == "identity"
+                and _cal_sec.get("params") is None)),
+              f"gated={_gated} method={_cal_sec.get('method')} "
+              f"params={_cal_sec.get('params')!r}")
 
 for pattern in REQUIRED_CSV:
     files = sorted(DD.glob(pattern))
@@ -158,13 +170,23 @@ for pattern in REQUIRED_CSV:
             "game_date"].astype(str))
         check("  retained history includes season 2026 dates",
               {"2026-09-20", "2026-09-21"}.issubset(dates_2026))
-        car = df[(df["game_date"].astype(str) == "2026-09-20")
-                 & (df["home_team"] == "ATL") & (df["away_team"] == "CAR")]
-        if not car.empty:
-            p_car = pd.to_numeric(car["home_win_prob_model_calibrated"],
-                                  errors="coerce").iloc[0]
-            check("  away pick displays the away deployed probability",
-                  car["model_pick"].iloc[0] == "CAR" and float(1.0 - p_car) > 0.5)
+        # Every pick must display the deployed probability of the side it
+        # picked -- on every row. The original pin hard-coded one game
+        # (ATL-CAR 2026-09-20 picked CAR) and went stale when that game's
+        # price crossed 0.5 (now ATL at 0.524); the invariant holds for all
+        # 1506 home picks and 926 away picks in the file instead.
+        _p_dep = pd.to_numeric(df["home_win_prob_model_calibrated"],
+                               errors="coerce")
+        _home_pick = df["model_pick"] == df["home_team"]
+        _away_pick = df["model_pick"] == df["away_team"]
+        check("  away pick displays the away deployed probability",
+              bool(_away_pick.any()) and bool(_home_pick.any())
+              and bool((_p_dep[_home_pick] > 0.5).all())
+              and bool((_p_dep[_away_pick] < 0.5).all()),
+              f"home picks={int(_home_pick.sum())} "
+              f"away picks={int(_away_pick.sum())} "
+              f"bad home={int((~(_p_dep[_home_pick] > 0.5)).sum())} "
+              f"bad away={int((~(_p_dep[_away_pick] < 0.5)).sum())}")
     if "power_rankings" in pattern:
         need = {"rank", "team", "team_name", "elo", "wins", "losses", "record"}
         check("  power rankings columns superset of shared page",

@@ -323,28 +323,33 @@ def write_calibration_json(path, moneyline_metrics: dict,
     CALIBRATED column renders '—' without it). All values are the NFL
     pipeline's own outputs; ``platt`` is the OOF-fitted Platt map the
     serving path already applies — never refitted here.
+    On a gated run (``platt=None``) the section still carries provenance: ``method="identity"`` with ``params`` null (MLB parity).
     """
-    cal_sec: dict = {}
-    if isinstance(platt, dict) and platt.get("a") is not None \
-            and platt.get("b") is not None:
-        n = int(platt.get("n") or n_games or 0)
-        cal_sec = {
-            "method": "favored_platt_floor",
-            "params": {"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
-                       "n": n},
-            "metrics_raw": {
-                "brier": _r4(moneyline_metrics.get("brier")),
-                "logloss": _r4(moneyline_metrics.get("logloss")),
-                "ece": _r4(moneyline_metrics.get("ece")),
-            },
-            "metrics_calibrated": {
-                "brier": _r4(calibrated_metrics.get("brier")),
-                "logloss": _r4(calibrated_metrics.get("logloss")),
-                "ece": _r4(calibrated_metrics.get("ece")),
-            },
-        }
-        if calibrated_buckets:
-            cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
+    # Provenance is written on EVERY run, including gated ones. MLB parity
+    # (calibration_20261001.json) records method "identity" with params
+    # null when the gate ships the raw blend; persisting {} instead (the
+    # 2026-10-03 NFL gated run) dropped the provenance banner state AND
+    # the calibrated bucket twins -- test_data_delivery caught both.
+    _has_platt = (isinstance(platt, dict) and platt.get("a") is not None
+                  and platt.get("b") is not None)
+    cal_sec = {
+        "method": "favored_platt_floor" if _has_platt else "identity",
+        "params": ({"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
+                    "n": int(platt.get("n") or n_games or 0)}
+                   if _has_platt else None),
+        "metrics_raw": {
+            "brier": _r4(moneyline_metrics.get("brier")),
+            "logloss": _r4(moneyline_metrics.get("logloss")),
+            "ece": _r4(moneyline_metrics.get("ece")),
+        },
+        "metrics_calibrated": {
+            "brier": _r4(calibrated_metrics.get("brier")),
+            "logloss": _r4(calibrated_metrics.get("logloss")),
+            "ece": _r4(calibrated_metrics.get("ece")),
+        },
+    }
+    if calibrated_buckets:
+        cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
     record = {
         "date": run_date,
         "trained_at": _now_utc(),
