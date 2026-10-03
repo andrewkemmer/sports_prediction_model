@@ -198,6 +198,34 @@ except (Exception, SystemExit) as e:
     print(f"  ⚠️  IL ledger rebuild failed (non-fatal; features degrade "
           f"loudly): {e}")
 
+# ── Phase 1.6: Announced lineups — membership tier 1 (tonight's nine) ──────
+# lineups.parquet feeds lineup_effective (features.py): the membership set
+# BOTH candidate pools bind — tonight's nine (tier 1), else the
+# hand-conditioned 10-day projection (tier 2), else the full roster. Two
+# incremental passes, both NON-FATAL (a gap degrades membership to the
+# projection — worse information, never a crash):
+#   1) decided-game gaps: every finished game still missing (or incomplete)
+#      in the cache, driven by the PREVIOUS run's game_level_features.csv;
+#   2) pre-game capture: today's scheduled game_pks via the StatsAPI
+#      schedule — posted nines land NOW so an overnight rebuild of tonight's
+#      games resolves tier 1 instead of projecting (the 2026-10-03 audit's
+#      "wire daily pre-game fetch").
+from backfill_lineups import (fetch_scheduled_lineups,
+                              main as _backfill_lineups)
+sys.argv = ["backfill_lineups.py", "--limit", "500"]
+try:
+    _backfill_lineups()
+except (Exception, SystemExit) as e:
+    print(f"  ⚠️  lineups decided-gap backfill failed (non-fatal; "
+          f"membership degrades to projection): {e}")
+try:
+    _n_lineups = fetch_scheduled_lineups(CONFIG["end_date"])
+    print(f"  🧾 lineups: {_n_lineups} posted row(s) captured for "
+          f"{CONFIG['end_date']}")
+except (Exception, SystemExit) as e:
+    print(f"  ⚠️  pre-game lineup capture failed (non-fatal; membership "
+          f"degrades to projection): {e}")
+
 # ── Phase 2-3: Feature Engineering ──────────────────────────────────────────
 _banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL)")
 from features import build_features
