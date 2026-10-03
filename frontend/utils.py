@@ -2483,6 +2483,23 @@ def load_model_monitor(date_str: str,
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
     st.session_state["data_source"] = src
+    # Which artifact this load actually serves, plus the newest one that
+    # resolves — the Model Monitor header prints both so neither a stale
+    # session date nor a silent verify-then-fallback can present an older
+    # artifact as current (2026-10-03: a session pinned to 20261001 served
+    # a pl_*-free monitor with no on-page date context at all, and the
+    # pl_xwoba rows looked missing from the ARTIFACTS). The newest probe
+    # walks the union newest-first but only above ``picked`` (normally all
+    # skipped — zero extra fetches on a current session).
+    st.session_state["monitor_served_date"] = picked
+    newest = picked
+    for cand in available_dates(**cfg)[:10]:
+        if cand <= newest:
+            continue
+        if _fetch_bytes(f"{prefix}_{cand}.json", **cfg, sport=s)[0] is not None:
+            newest = cand
+            break  # union is newest-first: the first hit is the newest
+    st.session_state["monitor_newest_date"] = newest
     if data is None:
         return {}
     return json.loads(data)

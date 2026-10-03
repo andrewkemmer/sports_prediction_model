@@ -78,6 +78,46 @@ st.markdown("<div style='color:#94A3B8;margin:2px 0 14px;'>Tracking model health
             unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
+# Served-artifact context
+# ---------------------------------------------------------------------------
+# The header must say WHICH artifact is on screen. Two view-layer lies by
+# omission made the 2026-10-03 monitor read as inaccurate: (1) a session
+# pinned by the shared date navigation kept serving the 20261001 pre-pl_*
+# artifact while the page presented itself as current — the pl_xwoba rows
+# were absent from the VIEW, not from the artifacts; (2) _pick_artifact_date
+# silently falls back to another day when the requested date carries no
+# monitor file, so the requested date is not necessarily the served one.
+# Name the sport + served run date here, and flag the newest published
+# monitor whenever the screen is behind it.
+def _fmt_stamp(raw) -> str:
+    """'20261003' or '2026-10-03' -> 'Oct 3, 2026'; anything else as-is."""
+    s = str(raw or "").replace("-", "")
+    if len(s) >= 8 and s[:8].isdigit():
+        return utils.format_date_short(s[:8])
+    return str(raw) or "—"
+
+
+_sport_label = utils.resolve_sport(utils.get_sport()).get("label", "")
+# utils.load_model_monitor records the date it ACTUALLY resolved (its
+# verify-then-fallback can differ from the requested one); the artifact's
+# own "date" and the request are the next-best answers.
+_served = (st.session_state.get("monitor_served_date")
+           or mon.get("date") or date_str)
+_newest = st.session_state.get("monitor_newest_date") or ""
+_ctx = (f"Serving <b>{html.escape(_sport_label)}</b> artifact for "
+        f"<b>{_fmt_stamp(_served)}</b>")
+if str(_served) != str(date_str):
+    _ctx += f" · requested: {_fmt_stamp(date_str)}"
+if _newest and str(_newest) != str(_served):
+    _ctx += (f" · <span style='color:{utils.AMBER};font-weight:700;'>"
+             f"newest published: {_fmt_stamp(_newest)}</span>")
+st.markdown(
+    f"<div style='color:#94A3B8;font-size:0.8rem;margin:-12px 0 14px;'>"
+    f"{_ctx}</div>",
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------------------------
 # Top alert boxes
 # ---------------------------------------------------------------------------
 last_retrained = mon.get("last_retrained", "")
@@ -311,13 +351,16 @@ if coverage:
         f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
         f"Share of games in each drift window with a real observation per feature — {sub}</div>",
         unsafe_allow_html=True)
-    show_starved_only = n_starved + n_low > 0
+    # Every feature-window pair is listed, worst-first — NO healthy-tail
+    # truncation. The old cap (skip OK rows past 12 whenever any row was
+    # STARVED/LOW) sorted the pl_* family last (100% measured) and hid all
+    # 48 pl rows behind "N healthy feature-window pairs hidden" on the
+    # healthy 2026-10-03 artifact — the monitor read as if pl_xwoba did
+    # not exist (the 2026-10-03 report). Worst-first ordering already puts
+    # the alarms on top; the drift matrix above renders every row too.
     cov_rows = []
-    shown = 0
     for r in cov_sorted:
         status = r.get("status", "OK")
-        if show_starved_only and status == "OK" and shown >= 12:
-            continue  # keep the table readable; healthy tail is summarized below
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
@@ -362,8 +405,6 @@ if coverage:
             f"<td>{pct_n:.0f}%{default_cell}{structural}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td></tr>"
         )
-        shown += 1
-    n_hidden = len(coverage) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -377,8 +418,8 @@ if coverage:
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
           STRUCTURAL = absent by the feature's documented missing-value policy
-          (rate stable across windows).
-          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+          (rate stable across windows). Rows are listed worst-first — every
+          feature-window pair stays visible (no healthy-tail truncation).
         </div>
         """,
         unsafe_allow_html=True,

@@ -1248,13 +1248,12 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         f"Share of games in each drift window with a real observation per "
         f"feature — {sub}</div>",
         unsafe_allow_html=True)
-    show_starved_only = n_starved + n_low > 0
+    # Every feature-window pair, worst-first — no healthy-tail truncation
+    # (mirrors the Model Monitor remediation: the OK-past-12 cap hid whole
+    # healthy families behind "N healthy feature-window pairs hidden").
     rows = []
-    shown = 0
     for r in cov_sorted:
         status = r.get("status", "OK")
-        if show_starved_only and status == "OK" and shown >= 12:
-            continue
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
@@ -1284,8 +1283,6 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
             f"<td>{pct_n:.0f}%{default_cell}{structural}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
             f"</tr>")
-        shown += 1
-    n_hidden = len(cov_sorted) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -1298,7 +1295,7 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
-          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+          Rows are listed worst-first — every feature-window pair stays visible.
         </div>
         """,
         unsafe_allow_html=True,
