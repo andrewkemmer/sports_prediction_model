@@ -1085,22 +1085,51 @@ def load_moneypuck_player_games(
     and 5on4 (PPO) rows are retained. ZIPs are downloaded to a temporary file
     beside the parquet cache and parsed in bounded CSV chunks; the 2.6-GB
     historical CSV is never decompressed into one in-memory DataFrame. Only
-    requested start-year seasons are retained and cached. A missing requested
-    season makes the family unavailable rather than returning incomplete
-    rolling history.
+    requested start-year seasons are retained and cached.
+
+    Seasons are derived from the calendar by default, so the season in
+    progress is always requested. A missing FINISHED season makes the family
+    unavailable rather than returning incomplete rolling history; a missing
+    live season is expected before MoneyPuck posts it and is skipped with a
+    warning, and its cache is refreshed every run because it grows during the
+    season. A live-season fetch failure falls back to the last cached copy.
 
     MoneyPuck data is free for non-commercial use and must be credited.
     """
-    defaults = [2021, 2022, 2023, 2024, 2025]
+    defaults = list(config.player_rating_seasons())
     requested = sorted(set(int(s) for s in (defaults if seasons is None else seasons)))
     if not requested:
         return None
+    # Seasons that may still be unpublished or actively growing: MoneyPuck
+    # posts an archive only once a season's games exist, and keeps updating
+    # the in-progress one. A gap here is EXPECTED, unlike a hole in finished
+    # history, so it must not take the whole family down.
+    live_from = config.current_nhl_season()
 
     required = ["playerId", "name", "gameId", "season", "playerTeam",
                 "gameDate", "position", "situation", "icetime", "I_F_xGoals"]
     frames: list[pd.DataFrame] = []
     missing: list[int] = []
+    unpublished: list[int] = []
     historical = sorted(set(requested) & set(MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS))
+
+    def _cached(season: int, path: Path) -> pd.DataFrame | None:
+        """Read one cached season, or None when it is unusable."""
+        if not path.exists():
+            return None
+        try:
+            cached = pd.read_parquet(path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("MoneyPuck player games %s cache unreadable (%s)",
+                           season, exc)
+            return None
+        if not all(column in cached.columns for column in required):
+            return None
+        cached["season"] = _moneypuck_season_start(cached["season"])
+        if not (cached["season"] == season).any():
+            return None
+        return cached[cached["season"].eq(season)
+                      & cached["situation"].isin(MONEYPUCK_SITUATIONS)].copy()
 
     if historical:
         path = _cache_path(
@@ -1140,20 +1169,16 @@ def load_moneypuck_player_games(
                    if s not in MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS):
         path = _cache_path(
             f"moneypuck_player_games_{MP_PLAYER_GAME_VERSION}_{season}.parquet")
+        # A finished season's archive is immutable, so it caches forever. The
+        # live season gains games after every game day: serving its cached copy
+        # would freeze ratings at the day the cache was written, silently and
+        # with no error at all — worse than never having fetched it. So the live
+        # season is re-fetched every run, and falls back to the last good copy
+        # only when the fetch itself fails.
+        live = season >= live_from
         frame: pd.DataFrame | None = None
-        if use_cache and path.exists():
-            try:
-                cached = pd.read_parquet(path)
-                if all(column in cached.columns for column in required):
-                    cached["season"] = _moneypuck_season_start(cached["season"])
-                    if (cached["season"] == season).any():
-                        frame = cached[
-                            cached["season"].eq(season)
-                            & cached["situation"].isin(MONEYPUCK_SITUATIONS)
-                        ].copy()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("MoneyPuck player games %s cache unreadable (%s)",
-                               season, exc)
+        if use_cache and path.exists() and not live:
+            frame = _cached(season, path)
         if frame is None:
             try:
                 url = MONEYPUCK_PLAYER_GAMES_ZIP_URL.format(season=season)
@@ -1166,11 +1191,27 @@ def load_moneypuck_player_games(
                 logger.info("MoneyPuck player games %s: cached %d rows",
                             season, len(frame))
             except Exception as exc:  # noqa: BLE001
-                logger.warning("MoneyPuck player games %s unavailable: %s", season, exc)
-                missing.append(season)
-                continue
+                stale = _cached(season, path) if live else None
+                if stale is not None:
+                    logger.warning("MoneyPuck player games %s refresh failed "
+                                   "(%s); serving the cached copy", season, exc)
+                    frame = stale
+                else:
+                    logger.warning("MoneyPuck player games %s unavailable: %s",
+                                   season, exc)
+                    (unpublished if live else missing).append(season)
+                    continue
         frames.append(frame)
 
+    if unpublished:
+        # Before opening night (or before MoneyPuck regenerates the live
+        # archive) the current season legitimately has no rows. Falling through
+        # to finished history is the correct reading; killing the family would
+        # drop all 24 pl_* columns to position priors every year for no reason.
+        logger.warning("MoneyPuck season(s) not available yet: %s; ratings run "
+                       "through season %s", unpublished,
+                       max((int(s) for s in requested
+                            if s not in unpublished), default="none"))
     if missing:
         logger.error("MoneyPuck player-game history incomplete; unavailable "
                      "seasons: %s", missing)

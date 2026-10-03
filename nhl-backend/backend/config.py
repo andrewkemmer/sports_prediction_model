@@ -13,6 +13,7 @@ API boxscore rollups + Elo + goalie-insensitive team stats).
 Market-independence policy: no sportsbook/market data is ingested or used
 anywhere in this backend. All outputs are model-derived/fair.
 """
+from datetime import date, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -600,9 +601,43 @@ PLAYER_RATING_PRIOR_ROWS = 30
 # MoneyPuck situations: 5on5 is even strength (EVO), 5on4 is the power play (PPO).
 PLAYER_RATING_SITUATIONS = ("5on5", "5on4")
 PLAYER_RATING_POSITIONS = ("C", "L", "R", "D")
-# MoneyPuck season start-years loaded as historical warm-up for the rolling
-# rating builder. The source-date gate—not a season-end serving label—decides
-# which player-game rows are eligible for each target game.
-PLAYER_RATING_SEASONS = (2008, 2009, 2010, 2011, 2012, 2013, 2014,
-                         2015, 2016, 2017, 2018, 2019, 2020, 2021,
-                         2022, 2023, 2024, 2025)
+# MoneyPuck publishes one player-game archive per season START-YEAR, and
+# PLAYER_RATING_FIRST_SEASON is the earliest one the pipeline has ever read.
+#
+# The set of seasons to load is DERIVED from the calendar, never listed. A
+# literal list is a gate, and the 2008..2025 list that shipped here is exactly
+# how the 2026-27 season went missing: training graded 13 real 2026-27 games
+# off NHL-API boxscores while every ``pl_*`` column was rated from 2025-26
+# rows, because nothing ever asked for season 2026. Any end-year literal rots
+# the same way the moment the season rolls over.
+#
+# The source-date gate—not a season-end serving label—still decides which
+# player-game rows are eligible for each target game; deriving the season set
+# only controls which archives are read.
+PLAYER_RATING_FIRST_SEASON = 2008
+
+
+def current_nhl_season(today: object = None) -> int:
+    """Season start-year containing ``today`` (default: local today).
+
+    Mirrors ``player_ratings._season_ids`` so the two never disagree: an NHL
+    season spans July through June, so January-June belongs to the season that
+    began the previous July onward. 2026-10-03 -> 2026; 2026-04-15 -> 2025.
+    """
+    stamp = date.today() if today is None else today
+    if isinstance(stamp, str):
+        stamp = date.fromisoformat(stamp[:10])
+    if isinstance(stamp, datetime):
+        stamp = stamp.date()
+    return int(stamp.year) - (1 if int(stamp.month) < 7 else 0)
+
+
+def player_rating_seasons(today: object = None) -> tuple[int, ...]:
+    """Every MoneyPuck season from the first published one through ``today``.
+
+    Includes the season IN PROGRESS, so current-season games reach the rating
+    builder the day MoneyPuck publishes them instead of a year late.
+    """
+    first = int(PLAYER_RATING_FIRST_SEASON)
+    last = max(current_nhl_season(today), first)
+    return tuple(range(first, last + 1))

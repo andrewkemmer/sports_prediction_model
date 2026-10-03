@@ -1033,7 +1033,7 @@ def _load_player_ratings() -> pd.DataFrame:
     """MoneyPuck skater game logs -> trailing, shrunk EVO/PPO ratings."""
     try:
         games = ingestion.load_moneypuck_player_games(
-            seasons=list(config.PLAYER_RATING_SEASONS), use_cache=True)
+            seasons=list(config.player_rating_seasons()), use_cache=True)
     except Exception as exc:  # noqa: BLE001
         logger.warning("player ratings unavailable (%s); pool columns use "
                        "position priors", exc)
