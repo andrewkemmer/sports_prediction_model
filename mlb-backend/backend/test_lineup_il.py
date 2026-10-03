@@ -920,6 +920,88 @@ def test_membership_maps_feed_team_codes_through_pitches():
         con.close()
 
 
+def test_lineup_effective_sql_avoids_engine_specific_syntax():
+    """2026-10-03 production incident: the first shape used
+    UNNEST(...) WITH ORDINALITY, which the Kaggle DuckDB build does not
+    implement — every remote run logged 'WITH ORDINALITY not implemented'
+    and silently fell back to the full-roster membership. range(1, 10) +
+    list_extract is the portable spelling, and it pins the slot
+    deterministically rather than trusting UNNEST's output order."""
+    sql = features._LINEUP_EFFECTIVE_SQL
+    # comments document the incident, so assert on the EXECUTABLE body
+    body = "\n".join(l for l in sql.splitlines()
+                     if not l.strip().startswith("--"))
+    assert "WITH ORDINALITY" not in body.upper()
+    assert "UNNEST(" not in body.upper()
+    assert "list_extract(" in body and "range(1, 10)" in body
+
+
+def test_player_positions_falls_back_to_the_repo_cache(tmp_path, monkeypatch):
+    """The run cache (MLB_IL_STINTS_DIR) is where a LOCAL refresh writes,
+    but nothing in the daily run produces it there — so the committed repo
+    copy must be the fallback. The 2026-10-03 remote run shipped all 24
+    pl_* universe columns at 0% coverage because only the cache was read."""
+    (tmp_path / "repo").mkdir(exist_ok=True)
+    (tmp_path / "cache").mkdir(exist_ok=True)
+    pd.DataFrame({"batter": [1, 2], "season": [2026, 2026],
+                  "pos": ["C", "SS"]}).to_parquet(
+        tmp_path / "repo" / "player_positions.parquet")
+    monkeypatch.setattr(features, "il_stints_dir",
+                        lambda: tmp_path / "cache")
+    monkeypatch.setattr(features, "_lineup_base_dir",
+                        lambda: tmp_path / "repo")
+    con = duckdb.connect(database=":memory:")
+    try:
+        assert features._register_player_positions(con) is True
+        n = con.execute("SELECT count(*) FROM player_positions").fetchone()[0]
+        assert n == 2
+    finally:
+        con.close()
+
+
+def test_player_positions_staleness_warns_past_the_horizon_season(
+        tmp_path, monkeypatch, caplog):
+    """A 2024-2026 map prices 2024-2026; at the 2027 opener every pl_*
+    pool would empty. Warn BEFORE betting that season, not after."""
+    (tmp_path / "repo").mkdir(exist_ok=True)
+    pd.DataFrame({"batter": [1, 2], "season": [2025, 2026],
+                  "pos": ["C", "SS"]}).to_parquet(
+        tmp_path / "repo" / "player_positions.parquet")
+    monkeypatch.setattr(features, "il_stints_dir",
+                        lambda: tmp_path / "empty")
+    monkeypatch.setattr(features, "_lineup_base_dir",
+                        lambda: tmp_path / "repo")
+    con = duckdb.connect(database=":memory:")
+    try:
+        con.execute("CREATE TABLE pitches AS SELECT * FROM (VALUES "
+                    "(DATE '2027-04-02')) t(game_date)")
+        with caplog.at_level("WARNING"):
+            assert features._register_player_positions(con) is True
+        assert "no position map" in caplog.text
+    finally:
+        con.close()
+
+
+def test_pl_agg_coverage_names_a_dead_position_pool():
+    """The honest production symptom: share of pos_agg cells that carry a
+    value. 0.0 is the 2026-10-03 remote shape (24 median-imputed columns
+    under a run that still reported 'ok')."""
+    con = duckdb.connect(database=":memory:")
+    try:
+        cols = ", ".join(f"0.34::DOUBLE AS pl_{p}_xwoba"
+                         for p in features.PL_POSITIONS)
+        con.execute(
+            f"CREATE TABLE pos_agg AS SELECT {cols} FROM (VALUES (1))")
+        assert features._pl_agg_coverage(con) == pytest.approx(1.0)
+        con.execute("DROP TABLE pos_agg")
+        con.execute("CREATE TABLE pos_agg AS SELECT " + ", ".join(
+            f"NULL::DOUBLE AS pl_{p}_xwoba"
+            for p in features.PL_POSITIONS) + " FROM (VALUES (1))")
+        assert features._pl_agg_coverage(con) == 0.0
+    finally:
+        con.close()
+
+
 def test_missing_lineups_cache_degrades_loudly(monkeypatch):
     monkeypatch.setattr(features, "LINEUPS_FILE", "__absent__.parquet")
     c = duckdb.connect(database=":memory:")

@@ -205,17 +205,25 @@ _LINEUP_EFFECTIVE_SQL = """
         -- dropped that side to the tier-3 roster fallback (1,458 missing
         -- members). game_pk + home/away side is the stable identity;
         -- pitches' vocabulary is the pool's join key.
+        --
+        -- ENGINE PORTABILITY (2026-10-03 production incident): the first
+        -- shape used UNNEST(...) WITH ORDINALITY, which the Kaggle DuckDB
+        -- build does not implement ("WITH ORDINALITY not implemented") —
+        -- membership silently fell back to the full roster for every run.
+        -- range(1, 10) + list_extract is the spelling every DuckDB line we
+        -- run supports, and it pins the slot deterministically instead of
+        -- trusting UNNEST's output order under parallel execution.
         SELECT l.game_pk, l.game_date, 'home' AS side,
-               u.batter AS batter, u.slot AS slot
-        FROM lineups_raw l,
-             UNNEST(l.home_order) WITH ORDINALITY u(batter, slot)
+               list_extract(l.home_order, r.slot) AS batter, r.slot AS slot
+        FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_home
+          AND list_extract(l.home_order, r.slot) IS NOT NULL
         UNION ALL
         SELECT l.game_pk, l.game_date, 'away' AS side,
-               u.batter AS batter, u.slot AS slot
-        FROM lineups_raw l,
-             UNNEST(l.away_order) WITH ORDINALITY u(batter, slot)
+               list_extract(l.away_order, r.slot) AS batter, r.slot AS slot
+        FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_away
+          AND list_extract(l.away_order, r.slot) IS NOT NULL
     ),
     slots AS (
         SELECT o.game_pk, o.game_date,
@@ -284,6 +292,38 @@ _LINEUP_EFFECTIVE_SQL = """
     UNION ALL
     SELECT game_pk, team, batter, 2 AS tier FROM t2
 """
+
+
+def _pl_agg_coverage(con: "duckdb.DuckDBPyConnection") -> float:
+    """Share of pos_agg's pool cells that are non-NULL across all 9 pools.
+
+    1.0 is healthy; 0.0 means the position map never bound, so every
+    served pl_* column ships NULL and is median-imputed downstream. The
+    2026-10-03 remote run measured 0.0 here while the run still reported
+    "ok" and the drift gate raised nothing — this number is the honest
+    signal, so it is logged on EVERY build (healthy value included).
+    """
+    cells = " + ".join(f"(pl_{p}_xwoba IS NOT NULL)::INT"
+                       for p in PL_POSITIONS)
+    row = con.execute(
+        f"SELECT avg(({cells})::DOUBLE) / {len(PL_POSITIONS)} "
+        "FROM pos_agg").fetchone()
+    return float(row[0]) if row and row[0] is not None else 0.0
+
+
+def _warn_pl_coverage(con: "duckdb.DuckDBPyConnection") -> None:
+    cov = _pl_agg_coverage(con)
+    served = len(PL_SERVED_POSITIONS)
+    if cov >= PL_COVERAGE_FLOOR:
+        logger.info("pl_* pool coverage: %.1f%% non-NULL across %d pools "
+                    "(%d served)", cov * 100, len(PL_POSITIONS), served)
+        return
+    logger.warning(
+        "pl_* pool coverage %.1f%% — below the %.0f%% floor. The position map "
+        "did not bind, so all %d served pl_* universe columns ship NULL and "
+        "are median-imputed as constants (a missing feature the drift gate "
+        "cannot see). Check the player_positions warning above.",
+        cov * 100, PL_COVERAGE_FLOOR * 100, 3 * served)
 
 
 def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
@@ -427,6 +467,17 @@ PL_POSITIONS = ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf", "dh")
 # at fetch time.
 PL_POS_SQL = ("CASE pos WHEN '1B' THEN 'fb' WHEN '2B' THEN 'sb' "
               "WHEN '3B' THEN 'tb' ELSE LOWER(pos) END")
+# The 8 pools the 2026-10-03 plan SERVES (3 cols each = 24 universe
+# members). pl_dh is still computed and pooled — season-level StatsAPI
+# positions put most clubs' DH at a defensive spot — it simply never
+# enters the serving universe, so neither the slate carry nor the
+# coverage tripwire below counts it.
+PL_SERVED_POSITIONS = tuple(p for p in PL_POSITIONS if p != "dh")
+# pos_agg must fill at least this share of its pool cells or the pl_*
+# family is effectively absent. A missing position map produces 0% and is
+# INVISIBLE to the drift gate (a median-imputed constant column has
+# PSI ~0) — this is the only signal that says "these 24 columns are dead".
+PL_COVERAGE_FLOOR = 0.90
 
 # Candidate pool — structurally identical to _LINEUP_POOL_SQL (same
 # lookback/QUALIFY/ledger semantics + the same membership clause) plus the
@@ -1188,44 +1239,100 @@ def _register_il_stints(con: "duckdb.DuckDBPyConnection") -> bool:
     return True
 
 
+def _player_positions_candidates() -> list:
+    """Where the position map may live, most authoritative first.
+
+    The run cache (``MLB_IL_STINTS_DIR``) wins when present — that is what a
+    local refresh writes — but nothing in the DAILY run produces it there,
+    so the committed repo copy has to be the fallback. Measured on the
+    2026-10-03 remote run: the run cache had no map, the repo copy was
+    complete (4,381 rows, seasons 2024-2026), and because we only ever
+    looked at the cache, all 24 served ``pl_*`` columns shipped at 0%
+    coverage and were median-imputed as constants.
+    """
+    out: list[Path] = []
+    for base in (il_stints_dir(), _lineup_base_dir()):
+        p = base / PLAYER_POSITIONS_FILE
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def _warn_player_positions_staleness(con) -> None:
+    """Loud when the position map does not reach the data horizon's season.
+
+    A map covering 2024-2026 prices 2024-2026. At the 2027 opener every
+    ``pl_*`` pool would find no rows and the same 24 columns would go
+    median-imputed — the 2026-10-03 failure shape, one season early.
+    """
+    try:
+        max_season = con.execute(
+            "SELECT max(season) FROM player_positions").fetchone()[0]
+        horizon = con.execute("SELECT max(game_date) FROM pitches").fetchone()[0]
+    except Exception:  # noqa: BLE001 — the tripwire never breaks a build
+        return
+    if max_season is None or horizon is None:
+        return
+    hs = pd.Timestamp(horizon).year
+    if int(max_season) < hs:
+        logger.warning(
+            "player_positions covers through season %s but the data horizon "
+            "is %d — the current season has no position map, so every pl_* "
+            "pool for those games is EMPTY and 24 served columns ship "
+            "median-imputed. Refresh the map before betting this season.",
+            int(max_season), hs)
+
+
 def _register_player_positions(con: "duckdb.DuckDBPyConnection") -> bool:
     """Load the StatsAPI position map into ``con``; False (loudly) when absent.
 
     ``player_positions.parquet`` (batter, season, pos) keys the pl_*
-    position pools. Absence never fails the build: the caller creates an
-    empty-but-well-formed ``pos_agg`` so every game_level LEFT JOIN stays
-    bound while the pl_* family ships NULL under the warning below.
+    position pools. Resolution order is _player_positions_candidates().
+    Absence never fails the build: the caller creates an empty-but-well-
+    formed ``pos_agg`` so every game_level LEFT JOIN stays bound while the
+    pl_* family ships NULL under the warnings below.
     """
-    path = il_stints_dir() / PLAYER_POSITIONS_FILE
-    if not path.exists():
+    candidates = _player_positions_candidates()
+    present = [p for p in candidates if p.exists()]
+    if not present:
         logger.warning(
-            "%s not found in %s — pl_* position-pool xwOBA features "
-            "degrade to NULL (empty pos_agg). Run .adhoc/mlb_fetch_positions.py "
-            "to restore the position map.",
-            PLAYER_POSITIONS_FILE, il_stints_dir())
+            "%s not found in any of %s — pl_* position-pool xwOBA features "
+            "degrade to NULL (empty pos_agg), i.e. 24 of the 109 served "
+            "columns ship median-imputed constants. Run "
+            ".adhoc/mlb_fetch_positions.py to restore the position map.",
+            PLAYER_POSITIONS_FILE,
+            ", ".join(str(p) for p in candidates))
         return False
-    try:
-        lit = str(path).replace("\\", "/")
-        con.execute(f"""
-            CREATE OR REPLACE TEMP TABLE player_positions AS
-            SELECT CAST(batter AS BIGINT) AS batter,
-                   CAST(season AS INTEGER) AS season,
-                   UPPER(TRIM(pos)) AS pos
-            FROM read_parquet('{lit}')
-        """)
-        n, nb = con.execute(
-            "SELECT count(*), count(DISTINCT batter) "
-            "FROM player_positions").fetchone()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("%s unreadable (%s) — pl_* degrades to NULL",
-                       PLAYER_POSITIONS_FILE, e)
-        return False
-    if not n:
-        logger.warning("%s is EMPTY — pl_* degrades to NULL",
-                       PLAYER_POSITIONS_FILE)
-        return False
-    logger.info("player positions: %d rows, %d batters", n, nb)
-    return True
+    last_err = None
+    for path in present:
+        try:
+            lit = str(path).replace("\\", "/")
+            con.execute(f"""
+                CREATE OR REPLACE TEMP TABLE player_positions AS
+                SELECT CAST(batter AS BIGINT) AS batter,
+                       CAST(season AS INTEGER) AS season,
+                       UPPER(TRIM(pos)) AS pos
+                FROM read_parquet('{lit}')
+            """)
+            n, nb = con.execute(
+                "SELECT count(*), count(DISTINCT batter) "
+                "FROM player_positions").fetchone()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("%s unreadable (%s) — trying the next source",
+                           path, e)
+            last_err = e
+            continue
+        if not n:
+            logger.warning("%s is EMPTY — trying the next source", path)
+            continue
+        _warn_player_positions_staleness(con)
+        logger.info("player positions: %d rows, %d batters (source: %s)",
+                    n, nb, path)
+        return True
+    logger.warning(
+        "no readable %s among %s (last error: %s) — pl_* degrades to NULL",
+        PLAYER_POSITIONS_FILE, ", ".join(str(p) for p in present), last_err)
+    return False
 
 
 def _register_lineups(con: "duckdb.DuckDBPyConnection") -> bool:
@@ -2853,6 +2960,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         on_il=(_IL_EXISTS_PREDICATE if _batters_ok else "0")))
     con.execute(_POS_LEAGUE_SQL)
     con.execute(_POS_AGG_SQL)
+    # 2026-10-03 production incident: a missing position map silently
+    # emptied pos_agg and the run still reported "ok" with 24 dead
+    # universe columns. Name the production symptom, not the cause.
+    _warn_pl_coverage(con)
 
     # Season-to-date lineup baselines (momentum companion for today's
     # projected-lineup RE24) — expanding mean of the team's PRIOR games'
