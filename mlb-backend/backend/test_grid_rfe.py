@@ -238,10 +238,11 @@ def test_single_list_no_margin_in_any_enumeration():
     feature_selection.reset_feature_subset()
     active = training.active_moneyline_feature_cols()
     assert MARGIN_COL not in active
-    # 101 = the 2026-09-30 contract: 100 + the readmitted sp_k9_diff.
-    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 101, (
+    # 109 = the 2026-10-03 contract: 101 − 9 (re24) − 7 (depth/sp_era/
+    # slug) + 24 (8 pl pools × home/away/diff) → 101 + 8.
+    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 109, (
         f"width drift: universe={len(training.MONEYLINE_FEATURE_COLS)} "
-        f"active={len(active)} (expected 101 everywhere)")
+        f"active={len(active)} (expected 109 everywhere)")
 
 def test_drift_default_enumerates_active_width():
     """compute_feature_drift's default enumeration is the ACTIVE serving

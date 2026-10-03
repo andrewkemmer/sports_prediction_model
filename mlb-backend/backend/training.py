@@ -207,22 +207,10 @@ MONEYLINE_FEATURE_COLS = [
     "away_elo",
     # Win percentage
     "home_win_pct",
-    "away_win_pct",
-    # SP ERA (season-to-date)
-    "sp_era_home",
-    "sp_era_away",
-    # SP K/9 (season-to-date)
-    "sp_k9_home",
-    "sp_k9_away",
+    "away_win_pct",    # SP K/9 (season-to-date)
+    "sp_k9_home", "sp_k9_away",
     # SP xwOBA allowed (last 6 starts)
-    "sp_xwoba_home",
-    "sp_xwoba_away",
-    # Lineup mean RE24
-    "lineup_re24_mean_home",
-    "lineup_re24_mean_away",
-    # Lineup top-3 RE24
-    "lineup_re24_top3_home",
-    "lineup_re24_top3_away",
+    "sp_xwoba_home", "sp_xwoba_away",
     # Team 30-game wOBA
     "woba_30g_home",
     "woba_30g_away",
@@ -419,6 +407,62 @@ MONEYLINE_FEATURE_COLS += [
     "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
     "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
 ]
+
+# ── Position-pool adoption (2026-10-03): the pl_[pos] + removals plan ───────
+# add 24 (8 pools × home/away/diff), replace 9, remove 7:
+#   NEW      24  pl_<pos>_xwoba_{home,away,diff} for c/fb/sb/ss/tb/rf/cf/lf
+#                (the plan sheet's 8 pools; pl_dh is generated in the frame
+#                 but NOT served)
+#   REPLACE   9  the lineup re24 family (mean/top3/std × diff/home/away)
+#   REMOVE    7  lineup_depth_multiplier ×3, the plain sp_era trio ×3, and
+#                park_factor_slug_diff (built on lineup_re24_top3_diff)
+# → 101 − 9 − 7 + 24 = 109. RAW_PER_SIDE 60 − 10 + 16 = 66 (the 10
+# departed levels out, the 16 pl levels in); the logistic slice
+# 41 − 6 + 8 = 43 — pl levels tree-only, pl diffs join the slice. The
+# removed columns remain generated (features.py) and move to
+# config.RFE_CANDIDATE_COLS so RFE may re-trial them — the 2026-09-07
+# _EXP2_REMOVALS pattern.
+_PL_PLAN_REMOVALS = [
+    # replace: the lineup re24 family (9)
+    "lineup_re24_mean_diff",
+    "lineup_re24_top3_diff",
+    "lineup_re24_std_diff",
+    "lineup_re24_mean_home",
+    "lineup_re24_mean_away",
+    "lineup_re24_top3_home",
+    "lineup_re24_top3_away",
+    "lineup_re24_std_home",
+    "lineup_re24_std_away",
+    # remove: the lineup depth interaction (3) — mean × top3, both re24
+    "lineup_depth_multiplier_diff",
+    "lineup_depth_multiplier_home",
+    "lineup_depth_multiplier_away",
+    # remove: the plain SP ERA trio (3) (sp_era_5g_* stays)
+    "sp_era_diff",
+    "sp_era_home",
+    "sp_era_away",
+    # remove: park slugging × re24 top3 (the 7th removal — consumes the
+    # re24 family that just left)
+    "park_factor_slug_diff",
+]
+MONEYLINE_FEATURE_COLS = [c for c in MONEYLINE_FEATURE_COLS
+                          if c not in _PL_PLAN_REMOVALS]
+# NEW 2026-10-03: the eight position-pool xwOBA families, each serving its
+# two levels (tree-only via RAW_PER_SIDE_COLS) plus the matchup diff.
+# pl_dh is generated in the frame but NOT served (the plan sheet lists 8
+# pools). Literal names, owned here so the serving universe never depends
+# on a builder import (same contract as the exp2 twins above).
+MONEYLINE_FEATURE_COLS += [
+    "pl_c_xwoba_home", "pl_c_xwoba_away", "pl_c_xwoba_diff",
+    "pl_fb_xwoba_home", "pl_fb_xwoba_away", "pl_fb_xwoba_diff",
+    "pl_sb_xwoba_home", "pl_sb_xwoba_away", "pl_sb_xwoba_diff",
+    "pl_ss_xwoba_home", "pl_ss_xwoba_away", "pl_ss_xwoba_diff",
+    "pl_tb_xwoba_home", "pl_tb_xwoba_away", "pl_tb_xwoba_diff",
+    "pl_rf_xwoba_home", "pl_rf_xwoba_away", "pl_rf_xwoba_diff",
+    "pl_cf_xwoba_home", "pl_cf_xwoba_away", "pl_cf_xwoba_diff",
+    "pl_lf_xwoba_home", "pl_lf_xwoba_away", "pl_lf_xwoba_diff",
+]
+MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
 
 # ── Known feature pool (RFE trial space) ────────────────────────────────────
 # KNOWN_FEATURE_COLS = the generation universe plus every RFE candidate
@@ -932,11 +976,8 @@ LOGISTIC_USE_RAW_COLS = False
 RAW_PER_SIDE_COLS = [
     "home_elo", "away_elo",
     "home_win_pct", "away_win_pct",
-    "sp_era_home", "sp_era_away",
     "sp_k9_home", "sp_k9_away",
     "sp_xwoba_home", "sp_xwoba_away",
-    "lineup_re24_mean_home", "lineup_re24_mean_away",
-    "lineup_re24_top3_home", "lineup_re24_top3_away",
     "woba_30g_home", "woba_30g_away",
     "bullpen_whip_10g_home", "bullpen_whip_10g_away",
     "bullpen_whip_3g_home", "bullpen_whip_3g_away",
@@ -946,12 +987,10 @@ RAW_PER_SIDE_COLS = [
     "rest_days_home", "rest_days_away",
     "sp_era_5g_home", "sp_era_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
-    "lineup_re24_std_home", "lineup_re24_std_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
     "team_hardhit_15g_home", "team_hardhit_15g_away",
     "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
     "pitcher_regression_indicator_home", "pitcher_regression_indicator_away",
-    "lineup_depth_multiplier_home", "lineup_depth_multiplier_away",
     "ace_efficiency_factor_home", "ace_efficiency_factor_away",
     # exp2 twins — same frozen names as features.EXP2_TWIN_COLS (literal
     # contract, no builder import)
@@ -963,6 +1002,22 @@ RAW_PER_SIDE_COLS = [
     "exp2_cat_xwoba_breaking_home", "exp2_cat_xwoba_breaking_away",
     "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
     "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
+]
+
+# 2026-10-03 (pl_[pos] plan): the re24 / sp_era / depth level twins left
+# this list with their families (universe filter _PL_PLAN_REMOVALS above);
+# the 16 pl position-pool levels (8 pools × home/away — no DH) take their
+# tree-only seat under the same mirror rule. 60 − 10 + 16 = 66; the
+# logistic slice moves 41 → 43.
+RAW_PER_SIDE_COLS += [
+    "pl_c_xwoba_home", "pl_c_xwoba_away",
+    "pl_fb_xwoba_home", "pl_fb_xwoba_away",
+    "pl_sb_xwoba_home", "pl_sb_xwoba_away",
+    "pl_ss_xwoba_home", "pl_ss_xwoba_away",
+    "pl_tb_xwoba_home", "pl_tb_xwoba_away",
+    "pl_rf_xwoba_home", "pl_rf_xwoba_away",
+    "pl_cf_xwoba_home", "pl_cf_xwoba_away",
+    "pl_lf_xwoba_home", "pl_lf_xwoba_away",
 ]
 
 

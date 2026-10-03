@@ -48,7 +48,7 @@ def test_contract_carries_the_renamed_bullpen_family():
     assert "bullpen_meltdown_risk" not in cols
     # The availability mechanism is a filter, NOT extra model columns.
     assert not [c for c in cols if "exposed_share" in c or "il_count" in c]
-    assert len(training.MONEYLINE_FEATURE_COLS) == 101
+    assert len(training.MONEYLINE_FEATURE_COLS) == 109
 
 
 def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):
@@ -649,7 +649,7 @@ def test_sp_gate_is_infilter_only_and_wired_upstream():
     """No new serving columns; the gate table is built before the first SP
     window and consumed by all three per-pitcher sources; cleanup drops it."""
     cols = training.MONEYLINE_FEATURE_COLS
-    assert len(cols) == 101
+    assert len(cols) == 109
     assert not [c for c in cols if "stale" in c or "gap" in c]
     src = (BACKEND / "features.py").read_text(encoding="utf-8")
     # orchestrator: gate built from pitcher_game_stats BEFORE pitcher_shifted

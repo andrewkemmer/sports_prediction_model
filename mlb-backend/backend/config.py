@@ -510,6 +510,27 @@ RFE_CANDIDATE_COLS = [
     "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff",
     "bullpen_ip_diff",
+    # --- universe departures (pl_[pos] + removals plan, 2026-10-03) (14) ---
+    # The re24 / depth / sp_era / park-factor-slug families left
+    # MONEYLINE_FEATURE_COLS for the position-pool xwOBA swap (plan: replace
+    # 9, remove 7). They remain generated (features.py) and enter the
+    # addition pool so RFE may re-trial them with evidence — the 2026-09-07
+    # S-family cull pattern. lineup_re24_std_home/away already sit in the
+    # per-side group below.
+    "lineup_re24_mean_diff",
+    "lineup_re24_top3_diff",
+    "lineup_re24_std_diff",
+    "lineup_re24_mean_home",
+    "lineup_re24_mean_away",
+    "lineup_re24_top3_home",
+    "lineup_re24_top3_away",
+    "lineup_depth_multiplier_diff",
+    "lineup_depth_multiplier_home",
+    "lineup_depth_multiplier_away",
+    "park_factor_slug_diff",
+    "sp_era_diff",
+    "sp_era_home",
+    "sp_era_away",
     # --- raw per-side levels (shadowed by diff-only routing) (76) ---
     "rest_days_home",
     "rest_days_away",

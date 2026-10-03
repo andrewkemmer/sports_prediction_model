@@ -42,14 +42,16 @@ import features
 import training
 import distributions as re_engine
 
-# ── the 18 families from the request ────────────────────────────────────────
-# (diff_or_level_base, home_twin, away_twin) for the 15 diff families,
-# plus the 3 renamed interactions.
+# ── the twin families (16 since 2026-10-03) ────────────────────────────────────────
+# (diff_or_level_base, home_twin, away_twin) for the diff families plus
+# the renamed interactions. 16 families since 2026-10-03: the
+# lineup_re24_std and lineup_depth_multiplier triples left the serving
+# universe with the pl_[pos] + removals plan (the diff pass still creates
+# their columns — they are just no longer served).
 LEVEL_FAMILIES = {
     "rest_days_diff": ("rest_days_home", "rest_days_away"),
     "sp_era_5g_diff": ("sp_era_5g_home", "sp_era_5g_away"),
     "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
-    "lineup_re24_std_diff": ("lineup_re24_std_home", "lineup_re24_std_away"),
     "bullpen_pitches_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
     "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
     "travel_fatigue_diff": ("time_zones_crossed_last_3d_home",
@@ -58,8 +60,6 @@ LEVEL_FAMILIES = {
 RENAME_FAMILIES = {
     "pitcher_regression_indicator_diff": ("pitcher_regression_indicator_home",
                                           "pitcher_regression_indicator_away"),
-    "lineup_depth_multiplier_diff": ("lineup_depth_multiplier_home",
-                                     "lineup_depth_multiplier_away"),
     "ace_efficiency_factor_diff": ("ace_efficiency_factor_home",
                                    "ace_efficiency_factor_away"),
 }
@@ -78,7 +78,7 @@ EXP2_FAMILIES = {
        for c in ("fastball", "breaking", "offspeed")},
 }
 ALL_TWIN_DIFFS = {**LEVEL_FAMILIES, **RENAME_FAMILIES, **EXP2_FAMILIES}
-assert len(ALL_TWIN_DIFFS) == 18, sorted(ALL_TWIN_DIFFS)
+assert len(ALL_TWIN_DIFFS) == 16, sorted(ALL_TWIN_DIFFS)
 
 # Twin names that are raw LEVELS (pass through from the frame inputs, not
 # computed by add_diff_features/add_exp2_features themselves).
@@ -262,7 +262,7 @@ def test_exp2_no_scratch_columns_remain():
 
 # ── C. universe, routing, adopted state ─────────────────────────────────────
 
-def test_universe_carries_all_thirty_six_twins_and_renames():
+def test_universe_carries_all_twin_families_and_renames():
     universe = training.MONEYLINE_FEATURE_COLS
     for diff, (h, a) in ALL_TWIN_DIFFS.items():
         assert diff in universe, f"diff {diff} not in serving universe"
@@ -378,7 +378,7 @@ def test_metadata_covers_the_full_serving_width_without_warnings():
     loud = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
     assert not loud, loud
     for name in ("pitcher_regression_indicator_diff",
-                 "lineup_depth_multiplier_diff", "ace_efficiency_factor_diff",
+                 "pl_lf_xwoba_diff", "ace_efficiency_factor_diff",
                  "rest_days_home", "exp2_cat_k_offspeed_away"):
         entry = meta.get(name)
         assert entry is not None, f"no metadata row for {name}"

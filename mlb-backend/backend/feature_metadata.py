@@ -80,15 +80,9 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage (more rested)",
     },
     # ---- SP season + last-5 diffs ----------------------------------------
-    "sp_era_diff": {
-        "summary": "Home SP season-to-date ERA − away SP",
-        "definition": "Starting-pitcher quality gap on season-long earned-run average.",
-        "formula": "sp_era_home − sp_era_away",
-        "source": "Statcast pitching aggregates (season to date)",
-        "window": "season to date",
-        "units": "ERA runs",
-        "direction": "lower = home advantage (ERA is a cost)",
-    },
+    # sp_era_diff RETIRED 2026-10-03 (pl_[pos] + removals plan — plain SP
+    # ERA trio left serving; sp_era_5g_diff stays). Column still generated;
+    # candidate pool carries it. Restore its authored entry if re-promoted.
     "sp_era_5g_diff": {
         "summary": "Home SP recent runs allowed per nine − away SP (shrunk recent form)",
         "definition": (
@@ -137,34 +131,94 @@ _RICH: dict[str, dict[str, str]] = {
 
 
     # ---- SP xwOBA allowed -------------------------------------------------
-    # ---- lineup RE24 (swapped from lineup wOBA 2026-10-02) ---------------
-    "lineup_re24_mean_diff": {
-        "summary": "Home lineup avg RE24 − away lineup avg RE24",
-        "definition": "Projected nine-man lineup quality gap (each hitter's RE24 — runs above run expectancy over the 24 base-out states — shrunk toward the league mean by PA count).",
-        "formula": "lineup_re24_mean_home − lineup_re24_mean_away",
-        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-        "window": "season to date (shrunk)",
-        "units": "RE24 (runs per PA)",
-        "direction": "higher = home advantage",
+    # ---- position-pool xwOBA diffs (pl_[pos] + removals plan, 2026-10-03)
+    # The lineup re24 family, lineup_depth_multiplier_diff, sp_era_diff and
+    # park_factor_slug_diff left MONEYLINE_FEATURE_COLS for this family
+    # (plan: add 24 = 8 pools × home/away/diff, replace 9, remove 7 →
+    # width 109; no DH). Their authored entries were removed with them —
+    # the dashboard only renders serving members — and the columns remain
+    # generated (features.py) under config.RFE_CANDIDATE_COLS, so RFE may
+    # re-trial them; restore their entries here if one is re-promoted (same
+    # pattern as the 2026-09-07 S-family retirement below).
+    "pl_c_xwoba_diff": {
+        "summary": "Home lineup's catcher-pool xwOBA − away lineup's",
+        "definition": (
+            "Position-pool batting quality for the C seat: aggregate "
+            "Statcast xwOBA of the projected lineup's players at the "
+            "position, shrunk toward the position-segmented league prior."
+        ),
+        "formula": "pl_c_xwoba_home − pl_c_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at catcher",
     },
-    "lineup_re24_top3_diff": {
-        "summary": "Home top-3 hitter RE24 − away top-3 hitter RE24",
-        "definition": "Star-power gap at the top of the card.",
-        "formula": "lineup_re24_top3_home − lineup_re24_top3_away",
-        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-        "window": "season to date (shrunk)",
-        "units": "RE24 (runs per PA)",
-        "direction": "higher = home advantage",
+    "pl_fb_xwoba_diff": {
+        "summary": "Home lineup's first-base-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the 1B seat (StatsAPI 1B → fb), shrunk toward the position-segmented league prior.",
+        "formula": "pl_fb_xwoba_home − pl_fb_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at first base",
     },
-    "lineup_re24_std_diff": {
-        "summary": "Home lineup RE24 dispersion − away lineup RE24 dispersion",
-        "definition": "Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.",
-        "formula": "lineup_re24_std_home − lineup_re24_std_away",
-        "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-        "window": "season to date (shrunk)",
-        "units": "RE24 (std, runs per PA)",
-        "direction": "n/a (shape signal)",
+    "pl_sb_xwoba_diff": {
+        "summary": "Home lineup's second-base-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the 2B seat (StatsAPI 2B → sb), shrunk toward the position-segmented league prior.",
+        "formula": "pl_sb_xwoba_home − pl_sb_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at second base",
     },
+    "pl_ss_xwoba_diff": {
+        "summary": "Home lineup's shortstop-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the SS seat, shrunk toward the position-segmented league prior.",
+        "formula": "pl_ss_xwoba_home − pl_ss_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at shortstop",
+    },
+    "pl_tb_xwoba_diff": {
+        "summary": "Home lineup's third-base-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the 3B seat (StatsAPI 3B → tb), shrunk toward the position-segmented league prior.",
+        "formula": "pl_tb_xwoba_home − pl_tb_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at third base",
+    },
+    "pl_rf_xwoba_diff": {
+        "summary": "Home lineup's right-field-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the RF seat, shrunk toward the position-segmented league prior.",
+        "formula": "pl_rf_xwoba_home − pl_rf_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper in right field",
+    },
+    "pl_cf_xwoba_diff": {
+        "summary": "Home lineup's center-field-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the CF seat, shrunk toward the position-segmented league prior.",
+        "formula": "pl_cf_xwoba_home − pl_cf_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper in center field",
+    },
+    "pl_lf_xwoba_diff": {
+        "summary": "Home lineup's left-field-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the LF seat, shrunk toward the position-segmented league prior.",
+        "formula": "pl_lf_xwoba_home − pl_lf_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper in left field",
+    },
+
+    # pl_dh_xwoba_diff is generated in the frame but NOT served (the plan
+    # sheet lists 8 pools; pl_dh rides TWP→DH only at the frame level).
     "lineup_il_flag_home": {
         "summary": "Home projected nine includes an OUT/IR player (raw flag)",
         "definition": "1 when at least one of the home game-eligible top-9-by-PA candidates is on the injured list as of the game date, else 0. Sides with no eligible pool read 0. The injured player's own trailing RE24 rating is untouched — the flag marks eligibility, not quality.",
@@ -326,15 +380,9 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "n/a (gate flag)",
     },
     # ---- weather interactions ---------------------------------------------
-    "park_factor_slug_diff": {
-        "summary": "Home park SLG factor × lineup top-3 RE24 diff (hitter-friendly parks amplify lineup edges)",
-        "definition": "Interaction: does tonight's park amplify whichever lineup holds the star-power edge?",
-        "formula": "(home_park_slg_factor − 1) × lineup_re24_top3_diff",
-        "source": "DuckDB feature engineering: park factors × Statcast top-3 RE24",
-        "window": "season (park) × season (lineup)",
-        "units": "index",
-        "direction": "higher = home advantage",
-    },
+    # park_factor_slug_diff RETIRED 2026-10-03 (pl_[pos] + removals plan —
+    # the 7th removal; built on lineup_re24_top3_diff, which left with the
+    # re24 family).
     "wind_advantage_flyball_factor": {
         "summary": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
         "definition": (
@@ -433,15 +481,9 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "index",
         "direction": "n/a (regression signal)",
     },
-    "lineup_depth_multiplier_diff": {
-        "summary": "Lineup mean RE24 diff × top-3 RE24 diff (star power × depth)",
-        "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
-        "formula": "lineup_re24_mean_diff × lineup_re24_top3_diff",
-        "source": "DuckDB feature engineering: depth × star-power interaction",
-        "window": "season to date (shrunk)",
-        "units": "index",
-        "direction": "higher = home advantage",
-    },
+    # lineup_depth_multiplier_diff RETIRED 2026-10-03 (pl_[pos] + removals
+    # plan — a lineup_re24_mean_diff × lineup_re24_top3_diff product; both
+    # inputs left with the re24 family).
     "ace_efficiency_factor_diff": {
         "summary": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
         "definition": "Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.",
@@ -596,6 +638,19 @@ _PER_SIDE_FAMILIES = {
     "bullpen_whip_3g": ("Bullpen walks+hits per inning, short form", "WHIP", "lower = better", "3 team games (opportunity-shrunk)"),
     "team_barrel_15g": ("Team barreled-ball rate", "rate (0–1)", "higher = better"),
     "team_exitvelo_15g": ("Team average exit velocity", "mph", "higher = better"),
+    # Position-pool xwOBA levels (pl_[pos] + removals plan, 2026-10-03):
+    # aggregate Statcast xwOBA of the projected lineup's hitters at the
+    # position (StatsAPI 1B→fb, 2B→sb, 3B→tb; TWP→DH), shrunk toward the
+    # position-segmented league prior. Levels are tree-only; the _diff
+    # siblings carry the matchup signal to the logistic slice.
+    "pl_c_xwoba": ("Position-pool xwOBA — catcher seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_fb_xwoba": ("Position-pool xwOBA — first-base seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_sb_xwoba": ("Position-pool xwOBA — second-base seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_ss_xwoba": ("Position-pool xwOBA — shortstop seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_tb_xwoba": ("Position-pool xwOBA — third-base seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_rf_xwoba": ("Position-pool xwOBA — right-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_cf_xwoba": ("Position-pool xwOBA — center-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_lf_xwoba": ("Position-pool xwOBA — left-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
 }
 
 # 2026-09-27 per-side twin families the originals above don't cover.
