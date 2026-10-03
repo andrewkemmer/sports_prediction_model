@@ -4291,6 +4291,74 @@ check("neutral rows never enter the prior-home venue ladder (LA/NE travel bug)",
       f"AAA prior={_lad_a1['travel_miles_home']} (NaN or 0; the leaked "
       "London prior would price thousands of miles)")
 
+# ---- Neutral-site truth table (2026-10-03): calendared neutral games are
+# measurable on BOTH sides. Blank-only stays the answer for rows the
+# committed calendar does not know, but international/Super Bowl venues are
+# announced pre-kickoff, so nfl_neutral_venues.csv can price both teams'
+# travel honestly. Its game_id guard also covers feed rows whose location
+# flag is wrong: 2026_05_PHI_JAX (Oct-11 London) ships location="Home",
+# which would otherwise hand Tottenham Stadium to the prior-home ladder --
+# the LA/NE mispricing class pinned above.
+_tbl = feat_mod._neutral_venues()
+_tbl_facts = feat_mod._venue_facts()
+check("neutral truth table: committed, populated, every venue resolvable",
+      len(_tbl) >= 60
+      and _tbl.get("2025_04_MIN_PIT") == "Croke Park"
+      and _tbl.get("2026_05_PHI_JAX") == "Tottenham Hotspur Stadium"
+      and _tbl.get("2025_22_SEA_NE") == "Levi's Stadium"
+      and all(v in _tbl_facts for v in _tbl.values())
+      and all(np.isfinite(_tbl_facts[v]["lat"])
+              and np.isfinite(_tbl_facts[v]["lon"])
+              for v in _tbl.values()),
+      f"n={len(_tbl)}, "
+      f"unresolved={sorted({v for v in _tbl.values() if v not in _tbl_facts})}")
+
+_ntg = pd.DataFrame([
+    {"game_id": "R0", "season": 2026, "week": 1, "gameday": "2026-09-01",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "BBB",
+     "stadium": "Soldier Field", "location": "Home"},
+    {"game_id": "R1", "season": 2026, "week": 1, "gameday": "2026-09-02",
+     "gametime": "13:00", "home_team": "BBB", "away_team": "EEE",
+     "stadium": "Lambeau Field", "location": "Home"},
+    # calendared neutral carrying a feed-style NOMINAL stadium label:
+    {"game_id": "2025_04_MIN_PIT", "season": 2026, "week": 2,
+     "gameday": "2026-09-05", "gametime": "13:00", "home_team": "AAA",
+     "away_team": "BBB", "stadium": "Acrisure Stadium",
+     "location": "Neutral"},
+    # calendared neutral the feed mislabels location="Home":
+    {"game_id": "2026_05_PHI_JAX", "season": 2026, "week": 3,
+     "gameday": "2026-09-19", "gametime": "13:00", "home_team": "AAA",
+     "away_team": "DDD", "stadium": "Tottenham Hotspur Stadium",
+     "location": "Home"},
+    {"game_id": "X4", "season": 2026, "week": 4, "gameday": "2026-09-26",
+     "gametime": "13:00", "home_team": "AAA", "away_team": "CCC",
+     "stadium": "Soldier Field", "location": "Home"},
+])
+_ntg_out = feat_mod._attach_static_team_facts(_ntg, venue_timeline=_ntg)
+_nt_r2 = _ntg_out[_ntg_out["game_id"].eq("2025_04_MIN_PIT")].iloc[0]
+_nt_r4 = _ntg_out[_ntg_out["game_id"].eq("X4")].iloc[0]
+check("calendared neutral games measure BOTH teams' travel to the true venue",
+      np.isfinite(_nt_r2["travel_miles_home"])
+      and float(_nt_r2["travel_miles_home"]) > 1000.0
+      and np.isfinite(_nt_r2["travel_miles_away"])
+      and float(_nt_r2["travel_miles_away"]) > 1000.0
+      and abs((float(_nt_r2["travel_miles_home"])
+               - float(_nt_r2["travel_miles_away"]))
+              - float(_nt_r2["travel_miles_diff"])) < 1e-6
+      # the committed venue must beat the row's nominal stadium label:
+      and abs(float(_nt_r2["altitude_home"]) - 26.2) < 0.5,
+      f"home={_nt_r2['travel_miles_home']}, "
+      f"away={_nt_r2['travel_miles_away']}, "
+      f"diff={_nt_r2['travel_miles_diff']}, "
+      f"alt={_nt_r2['altitude_home']} (Croke Park 26.2 expected; the "
+      "Acrisure label would win if the table were ignored)")
+check("a mis-flagged neutral row never leaks its venue into the prior-home "
+      "ladder",
+      np.isfinite(_nt_r4["travel_miles_home"])
+      and float(_nt_r4["travel_miles_home"]) <= 1.0,
+      f"next home game priced {_nt_r4['travel_miles_home']} mi "
+      "(0 required; the Tottenham leak would price thousands)")
+
 _dw = pd.DataFrame({
     "gameday": (["2025-12-15"] * 200          # prior season's late-season tail
                 + ["2025-09-08"] * 260        # prior seasons' same-phase pool

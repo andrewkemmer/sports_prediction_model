@@ -608,7 +608,7 @@ FEATURE_MANIFEST = {
     "travel_miles_diff": {
         "description": "Home minus away distance traveled to the venue (miles)",
         "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team→stadium map",
-        "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+        "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
         "lookback": "prior home games",
         "aggregation": "point-in-time static venue fact",
         "point_in_time_rule": "each side uses its most recent home venue strictly before kickoff; no current/future venue association",
@@ -620,7 +620,7 @@ FEATURE_MANIFEST = {
     "altitude_home": {
         "description": "Game-venue elevation in feet",
         "definition": "altitude_ft of the game stadium",
-        "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+        "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation) + nfl_neutral_venues.csv (neutral-site rows)",
         "lookback": 0,
         "aggregation": "static pre-game fact",
         "point_in_time_rule": "venue attribute known before kickoff",
@@ -873,7 +873,7 @@ FEATURE_MANIFEST["rest_short_away"] = {
 FEATURE_MANIFEST["travel_miles_home"] = {
     "description": "Home team's travel distance to the game venue (miles)",
     "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
-    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
     "lookback": "prior home games",
     "aggregation": "point-in-time static venue fact",
     "point_in_time_rule": "the home team's most recent home venue strictly before kickoff; no current/future venue association",
@@ -885,7 +885,7 @@ FEATURE_MANIFEST["travel_miles_home"] = {
 FEATURE_MANIFEST["travel_miles_away"] = {
     "description": "Away team's travel distance to the game venue (miles)",
     "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
-    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+    "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
     "lookback": "prior home games",
     "aggregation": "point-in-time static venue fact",
     "point_in_time_rule": "the away team's most recent home venue strictly before kickoff; no current/future venue association",

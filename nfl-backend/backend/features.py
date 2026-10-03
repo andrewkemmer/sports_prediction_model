@@ -228,6 +228,31 @@ def _venue_facts() -> dict[str, dict]:
     return out
 
 
+# Neutral-site truth table (committed): game_id -> the venue the game was
+# actually played at. International and Super Bowl venues are announced
+# before kickoff, so this calendar is point-in-time honest; the feed's own
+# labels are not (the 2025 international slate ships the NOMINAL team
+# stadium, and 2026_05_PHI_JAX ships location="Home").
+NEUTRAL_VENUE_FILE = config.BACKEND_DIR / "nfl_neutral_venues.csv"
+
+
+@functools.lru_cache(maxsize=1)
+def _neutral_venues() -> dict[str, str]:
+    """Committed neutral-site calendar: ``game_id`` -> true venue name.
+
+    This is the only source that makes both teams' travel measurable on a
+    neutral row: each side's own PRIOR home stadium is already computed
+    above, so the table only has to name the venue those distances are
+    measured to. Every stadium it names must exist in :data:`VENUE_FILE`
+    (pinned by test_production) or the row silently falls back to NaN.
+    Rows absent from the table stay NaN -- unknown, never guessed.
+    """
+    if not NEUTRAL_VENUE_FILE.exists():
+        return {}
+    t = pd.read_csv(NEUTRAL_VENUE_FILE)
+    return dict(zip(t["game_id"].astype(str), t["stadium"].astype(str)))
+
+
 def _is_dome_home(df: pd.DataFrame) -> np.ndarray:
     """1.0 when the home venue is roofed, 0.0 when open-air, NaN when unknown.
 
@@ -280,6 +305,14 @@ def _prior_home_stadiums(games: pd.DataFrame) -> dict[tuple[str, str], str]:
         # is read from ``games`` (the selection above does not carry it).
         _neutral = games["location"].astype(str).str.strip().str.lower().eq("neutral")
         home_rows = home_rows[~_neutral.reindex(home_rows.index, fill_value=False)]
+    if "game_id" in games.columns:
+        # Truth-table guard (2026-10-03): the location flag is not
+        # authoritative -- 2026_05_PHI_JAX, the Oct-11 London game, ships
+        # location="Home" with the true stadium, which is exactly the LA/NE
+        # mispricing class above (a foreign stadium becomes the team's most
+        # recent "home" venue). The committed neutral calendar decides.
+        _tbl_neutral = games["game_id"].astype(str).isin(_neutral_venues())
+        home_rows = home_rows[~_tbl_neutral.reindex(home_rows.index, fill_value=False)]
     home_rows["_kickoff"] = _kickoff_utc(home_rows)
     home_rows = home_rows.dropna(subset=["_kickoff", "home_team", "stadium"])
     home_rows = home_rows.sort_values(["home_team", "_kickoff", "game_id"])
@@ -1144,12 +1177,41 @@ def _attach_static_team_facts(df: pd.DataFrame,
     # point-in-time-honest value for a Neutral row is UNKNOWN: blank the
     # venue-derived quantities and let the serving imputation path handle
     # them, exactly like any other unmeasurable venue fact.
+    _table_row = (df["game_id"].astype(str).isin(_neutral_venues())
+                  if "game_id" in df.columns
+                  else pd.Series(False, index=df.index))
     if "location" in df.columns:
-        _neutral = df["location"].astype(str).str.strip().str.lower().eq("neutral")
+        _neutral = (df["location"].astype(str).str.strip().str.lower().eq("neutral")
+                    | _table_row)
         if _neutral.any():
             for _col in ("travel_miles_diff", "travel_miles_home",
                          "travel_miles_away", "altitude_home"):
                 df.loc[_neutral, _col] = np.nan
+        # Neutral-site truth table (2026-10-03): blanking above is no longer
+        # the last word for CALENDARED games. Both teams really travel to a
+        # neutral venue and the venue was announced pre-kickoff, so a
+        # committed game -> venue table makes the four blanks measurable
+        # again: each side's prior home stadium (already computed above,
+        # with neutral rows barred from the ladder) measured to the TRUE
+        # venue -- never the feed's label, which is nominal for the 2025
+        # international slate. Calendared rows win even when the feed's
+        # location flag says "Home" (2026_05_PHI_JAX); uncalendared
+        # neutral rows keep the NaN above -- unknown, never guessed.
+        if _table_row.any():
+            _venues = df.loc[_table_row, "game_id"].astype(str).map(_neutral_venues())
+            _m = _table_row.to_numpy()
+            _vlat = np.array([facts.get(v, {}).get("lat", np.nan)
+                              for v in _venues], dtype=float)
+            _vlon = np.array([facts.get(v, {}).get("lon", np.nan)
+                              for v in _venues], dtype=float)
+            _valt = np.array([facts.get(v, {}).get("altitude_ft", np.nan)
+                              for v in _venues], dtype=float)
+            _h = _haversine_miles(home_lat[_m], home_lon[_m], _vlat, _vlon)
+            _a = _haversine_miles(away_lat[_m], away_lon[_m], _vlat, _vlon)
+            df.loc[_table_row, "travel_miles_home"] = _h
+            df.loc[_table_row, "travel_miles_away"] = _a
+            df.loc[_table_row, "travel_miles_diff"] = _h - _a
+            df.loc[_table_row, "altitude_home"] = _valt
 
     gametime = (df["gametime"].astype(str) if "gametime" in df.columns
                 else pd.Series("", index=df.index))
