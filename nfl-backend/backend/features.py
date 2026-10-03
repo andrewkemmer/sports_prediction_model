@@ -1450,9 +1450,10 @@ def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
     calendar date than the target, so neither the target result nor another
     game still in progress that date can enter the rating.
     """
-    empty_cols = list(obs.columns) + ["_num", "_den", "_vol"]
+    empty_cols = list(obs.columns) + ["_num", "_den", "_vol", "_n_games"]
     if obs.empty:
-        return obs.assign(_num=np.nan, _den=np.nan, _vol=np.nan)
+        return obs.assign(_num=np.nan, _den=np.nan, _vol=np.nan,
+                          _n_games=np.nan)
     d = obs.copy()
     required = {"game_id", "team", "player_id", "position", "gameday",
                 "kickoff_utc", "epa", "opp"}
@@ -1470,7 +1471,7 @@ def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
     d = d[d["position"].isin(EPA_QB_POSITIONS)]
     d = d[~d["player_id"].isin(["", "nan", "none", "<na>", "null"])]
     if d.empty:
-        return d.assign(_num=np.nan, _den=np.nan, _vol=np.nan)
+        return d.assign(_num=np.nan, _den=np.nan, _vol=np.nan, _n_games=np.nan)
     d = d.sort_values(["player_id", "gameday", "kickoff_utc", "game_id"])
     # Exactly one observation per player-game, in exact chronological order.
     d = d.drop_duplicates(["game_id", "player_id"], keep="last")
@@ -1482,6 +1483,12 @@ def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
     d["_den"] = g["opp"].transform(
         lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).sum())
     d["_vol"] = d["_den"]
+    # Games actually observed by this player inside the same rolling window.
+    # _den / _n_games is the trailing per-GAME opportunity count that weights
+    # the per-game aggregate; _den alone is a window total and would price a
+    # per-game feature on eight games' worth of volume.
+    d["_n_games"] = g["game_id"].transform(
+        lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).count())
     return d
 
 
@@ -1556,12 +1563,33 @@ def _strict_pit_timestamp(value):
     return stamp.tz_convert("UTC")
 
 
+def _projected_opportunities_per_game(den: pd.Series,
+                                      n_games: pd.Series) -> pd.Series:
+    """Projected opportunities per game for each candidate player.
+
+    The historical ``_den`` is a rolling-window TOTAL; the per-game family
+    needs the same quantity in per-game units to weight a shrunk RATE into
+    an EPA-per-game total. ``den / n_games`` is the trailing per-game mean,
+    which is the honest PIT-safe projection available from the player panel:
+    it uses only strictly-prior games, so it carries no future information.
+
+    This is a SEAM. A depth-chart projection conditioned on the injury-
+    adjusted pool would be a strictly better estimate of tonight's volume
+    (a promoted backup inherits a starter's share), but that is a
+    modeling change with its own validation burden, so it is not folded in
+    here. Until it exists, the trailing per-game mean is what the per-game
+    family weights by, and the residual bias is that an injury-promoted
+    player keeps his own low trailing rate of usage.
+    """
+    return den / n_games.where(n_games > 0)
+
+
 def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
                          injuries: pd.DataFrame | None = None,
                          roster_unavailable: pd.DataFrame | None = None,
                          weekly_injuries: pd.DataFrame | None = None
                          ) -> pd.DataFrame:
-    """Per-(game, team, position) mean of PIT-shrunk EPA player ratings.
+    """Per-(game, team, position) EPA per GAME of the projected lineup.
 
     Candidate pool: each team's latest player EPA rating from a game date
     strictly before the target date and within the 21-calendar-day window,
@@ -1569,20 +1597,27 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     Only a strictly pre-kickoff Out/IR/Doubtful designation excludes the
     player; other statuses and no admissible report leave him eligible. The
     rolling player rating is computed before current-game membership filtering,
-    so a current injury never erases prior-game EPA. Eligible player ratings
-    are averaged with rolling-opportunity weights by position (a member's
-    weight is his own rolling-8 opportunity total; no absent-player padding),
-    so a 300-dropback starter prices his rate while a 15-dropback backup
-    cannot move the team average off it. A single eligible member prices his
-    own shrunk rating. This mirrors MLB's lagged player ratings -> candidate
-    roster -> IL membership filter -> team aggregate structure, with NFL
-    positional outputs.
+    so a current injury never erases prior-game EPA.
+
+    The aggregate is a per-GAME total, not a rate: each eligible member's
+    shrunk EPA-per-opportunity rating is multiplied by his own projected
+    per-game opportunities and the group SUMS the products, giving the EPA
+    the projected lineup generates in one game. Weighting by per-game
+    opportunities (rather than by a rolling opportunity total and then
+    normalizing by the group total) is what puts the result in per-game
+    units: the multiplication by projected volume is the entire difference
+    between a rate and a total, and it is also what makes the family
+    responsive to projected usage rather than rating quality alone.
+
+    A member with no admissible shrunk rating contributes nothing; a family
+    with no finite-rating member is NaN, which min_count=1 preserves.
     """
     cols = list(EPA_QUALITY_AGG_COLS)
     if history.empty or games is None or games.empty:
         return pd.DataFrame(columns=cols)
     needed_history = {"game_id", "team", "player_id", "position", "gameday",
-                      "kickoff_utc", "epa", "opp", "_num", "_den"}
+                      "kickoff_utc", "epa", "opp", "_num", "_den",
+                      "_n_games"}
     needed_games = {"game_id", "gameday", "gametime", "home_team", "away_team"}
     if (not needed_history.issubset(history.columns)
             or not needed_games.issubset(games.columns)):
@@ -1596,7 +1631,7 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     d["kickoff_utc"] = pd.to_datetime(d["kickoff_utc"], errors="coerce", utc=True)
     d["position"] = _normalize_epa_lineup_positions(d["position"])
     d = d.dropna(subset=["gameday", "kickoff_utc", "player_id", "position",
-                         "_num", "_den"])
+                         "_num", "_den", "_n_games"])
     if d.empty:
         return pd.DataFrame(columns=cols)
 
@@ -1618,7 +1653,7 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     tgt = tgt.rename(columns={"gameday": "target_day"})
 
     pool = (d[["game_id", "team", "player_id", "position", "gameday",
-               "_num", "_den"]]
+               "_num", "_den", "_n_games"]]
             .rename(columns={"game_id": "history_game_id",
                              "gameday": "rating_day"}))
     j = tgt.merge(pool, on="team", how="inner")
@@ -1748,22 +1783,23 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     ok = (top["mu"].notna() & top["k"].notna() & denom.gt(0))
     top["epa_q"] = np.where(
         ok, (top["_num"] + top["mu"] * top["k"]) / denom, np.nan)
-    # Opportunity-weighted blend (2026-09-28): a member's weight is his own
-    # rolling-8 opportunity total, so the aggregate is the projected lineup's
-    # combined shrunk EPA over combined opportunities — exactly the usage
-    # share each member is projected to run. Each row is priced as its share
-    # of that combined total and the group aggregate SUMS the shares (a mean
-    # here would divide by member count a second time). NaN members contribute
-    # no weight and no EPA; a family with no finite-weight member keeps NaN
-    # ratings, which the min_count=1 sum preserves.
-    top["_w"] = top["_den"].where(top["epa_q"].notna(), other=0.0)
-    _ws = top.groupby(["game_id", "team", "position"])["_w"].transform("sum")
-    top["epa_q"] = np.where(
-        _ws.gt(0),
-        top["_w"] * top["epa_q"].fillna(0.0) / _ws.where(_ws.gt(0), other=1.0),
-        top["epa_q"])
-    out = (top.groupby(["game_id", "team", "position"], as_index=False)["epa_q"]
-           .sum(min_count=1))
+    # Per-GAME aggregate: weight each member by his PROJECTED PER-GAME
+    # opportunities and sum the products. ``_epa_per_game`` is the product
+    # row (shrunk rate x projected volume); the group SUM is the team's
+    # projected EPA this game. Dividing by the group's projected volume
+    # would recover the old rate and is deliberately NOT done.
+    #
+    # The weight must be the same volume quantity the candidate cut ranked
+    # on (``_den``) converted to per-game units, so the lineup that was
+    # selected and the lineup that is priced agree. A member with no
+    # finite shrunk rating is NaN and the sum skips it, which is the same
+    # membership semantics as before: no rating, no contribution.
+    top["_tpg"] = _projected_opportunities_per_game(top["_den"],
+                                                     top["_n_games"])
+    top["_epa_per_game"] = top["_tpg"] * top["epa_q"]
+    out = (top.groupby(["game_id", "team", "position"], as_index=False)
+           ["_epa_per_game"].sum(min_count=1)
+           .rename(columns={"_epa_per_game": "epa_q"}))
     return out[cols]
 
 

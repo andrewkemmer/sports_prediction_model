@@ -297,13 +297,18 @@ _EPA_POSITION_LABEL = {
 }
 # The per-position quality family is a DIFFERENT kind of static side fact from
 # travel_miles: its lookback is a rolling per-player window and its
-# aggregation is a mean of shrunk rates, not a per-game venue fact. It gets
-# its own metadata rather than being forced through the venue wording.
+# aggregation is a per-game TOTAL of shrunk rates weighted by each member's
+# projected opportunities per game (not a mean of rates, and not a per-game
+# venue fact). It gets its own metadata rather than being forced through the
+# venue wording.
 _STATIC_SIDE_DOC_EPA = {
     "epa_qb": (
         "Projected-lineup quality",
-        "mean shrunk EPA per opportunity of the projected quarterbacks, over an "
-        "8-game strictly-prior window, shrunk to a position-segmented league prior",
+        "projected EPA per game from the quarterbacks: each member's shrunk "
+        "EPA-per-opportunity rating, weighted by his own projected "
+        "opportunities per game (dropbacks), summed over the lineup; ratings "
+        "from an 8-game strictly-prior window shrunk to a position-segmented "
+        "league prior",
         "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt "
         "opportunity flags; weekly player stats for position labels; weekly "
         "roster snapshots (nflverse weekly_rosters)",
@@ -323,7 +328,9 @@ _STATIC_SIDE_DOC_EPA = {
         "channels"),
     "epa_wr": (
         "Projected-lineup quality",
-        "mean shrunk EPA per opportunity of the projected wide receivers",
+        "projected EPA per game from the wide receivers: each member's shrunk "
+        "EPA-per-opportunity rating, weighted by his own projected "
+        "opportunities per game (targets), summed over the lineup",
         "nflverse play-by-play EPA + opportunity flags; weekly player stats "
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
@@ -341,7 +348,9 @@ _STATIC_SIDE_DOC_EPA = {
         "designation on one of the three channels"),
     "epa_te": (
         "Projected-lineup quality",
-        "mean shrunk EPA per opportunity of the projected tight ends",
+        "projected EPA per game from the tight ends: each member's shrunk "
+        "EPA-per-opportunity rating, weighted by his own projected "
+        "opportunities per game (targets), summed over the lineup",
         "nflverse play-by-play EPA + opportunity flags; weekly player stats "
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "
@@ -359,7 +368,9 @@ _STATIC_SIDE_DOC_EPA = {
         "designation on one of the three channels"),
     "epa_rb": (
         "Projected-lineup quality",
-        "mean shrunk EPA per opportunity of the projected running backs",
+        "projected EPA per game from the running backs: each member's shrunk "
+        "EPA-per-opportunity rating, weighted by his own projected "
+        "opportunities per game (rush attempts + targets), summed over the lineup",
         "nflverse play-by-play EPA + opportunity flags; weekly player stats "
         "for position labels; weekly roster snapshots (nflverse weekly_rosters)",
         "rolling(8) player rating from games dated before the target date; "

@@ -3014,13 +3014,24 @@ _epa_prior = feat_mod._position_priors_asof(
 _epa_qb_prior = _epa_prior[_epa_prior["position"] == "QB"].iloc[0]
 _epa_p1_q = (5.0 + _epa_mu * _epa_k) / (10.0 + _epa_k)
 _epa_p2_q = (2.0 + _epa_mu * _epa_k) / (20.0 + _epa_k)
-_epa_expected_home = (10.0 * _epa_p1_q + 20.0 * _epa_p2_q) / 30.0
+_epa_p4_q = (_epa_mu * _epa_k) / (10.0 + _epa_k)
+# Per-game aggregate (not the old rate): each member's weight is his OWN
+# per-game opportunity count -- rolling-window total divided by games
+# observed in that window -- and the group SUMS rate x tpg with NO
+# normalisation. Dividing by the group total would ship EPA per opportunity
+# again. Every fixture player appears in exactly ONE historical game, so
+# _n_games = 1 and tpg == _den: P1 10, P2 20, P4 10. The product is the
+# EPA that member projects to generate this game.
+_epa_p1_tpg, _epa_p2_tpg, _epa_p4_tpg = 10.0, 20.0, 10.0
+_epa_expected_home = _epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q
 _epa_unfiltered_p3_q = (9.0 + _epa_mu * _epa_k) / (30.0 + _epa_k)
-_epa_expected_away = (_epa_mu * _epa_k) / (10.0 + _epa_k)
-# Opportunity-weighted blend: the HOME family is the projected lineup's
-# combined shrunk EPA over combined rolling-8 opportunities (P1 10 opps,
+_epa_expected_away = _epa_p4_tpg * _epa_p4_q
+# Opportunity-weighted blend (2026-09-28): a member's blend weight is
+# his own rolling-8 opportunity total, so the aggregate is the projected
+# lineup's combined shrunk EPA over combined opportunities (P1 10 opps,
 # P2 20 opps). The old plain two-player average let a low-workload backup
-# price half the team's QB rate.
+# price half the team's QB rate. WEIGHTED BY PER-GAME OPPORTUNITIES since
+# the family became EPA/game: weight = tpg, group SUMS rate x tpg.
 check("Out exclusion changes target lineup membership, not P3's lagged EPA",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "epa"], 9.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "opp"], 30.0)
@@ -3036,8 +3047,8 @@ check("all QB/WR/TE/RB lineup aggregates populate both team sides",
       "position-specific aggregates and home-away differences emitted")
 check("FB opportunity history is grouped into the RB lineup family",
       _epa_fb_in_rb)
-check("epa_qb_home follows PIT-qualified player EPA shrinkage and an "
-      "opportunity-weighted lineup blend",
+check("epa_qb_home follows PIT-qualified player EPA shrinkage and a "
+      "per-game opportunity-weighted lineup blend",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "epa"], 5.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "opp"], 10.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "epa"], 2.0)
@@ -3078,11 +3089,59 @@ _epa_solo_home = float(_epa_solo_agg[
     & _epa_solo_agg["position"].eq("QB")]["epa_q"].iloc[0])
 check("epa_qb blend is opportunity-weighted: a low-workload backup cannot "
       "price half the team rate",
-      np.isclose(_epa_solo_home, _epa_p1_q)
+      np.isclose(_epa_solo_home, _epa_p1_tpg * _epa_p1_q)
       and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
-      and not np.isclose(_epa_expected_home, (_epa_p1_q + _epa_p2_q) / 2.0),
+      and not np.isclose(_epa_expected_home,
+                         (_epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q)
+                         / 2.0),
       f"P2 removed from the target pool: home={_epa_solo_home:.9f} "
-      f"(starter={_epa_p1_q:.9f}); blend={_epa_expected_home:.9f}")
+      f"(starter tpg x rating={_epa_p1_tpg * _epa_p1_q:.9f}); "
+      f"blend={_epa_expected_home:.9f}")
+
+# Per-game VOLUME pin (2026-10-03). The worked example above gives every
+# player one observed game, so tpg == _den and the /_n_games conversion is
+# invisible: deleting it would still pass. This check builds a player whose
+# rolling window spans TWO games and asserts the weight is _den/_n_games,
+# not _den. Same rating, half the weight -> half the per-game EPA. A rate
+# family would be immune to this (the group sum would cancel the factor),
+# which is precisely why the distinction only matters now that the column
+# is EPA per game.
+_epa_mg_hist = pd.DataFrame([
+    {"game_id": "MG1", "team": "MGH", "player_id": "M1", "position": "QB",
+     "gameday": pd.Timestamp("2024-09-01"),
+     "kickoff_utc": pd.Timestamp("2024-09-01 17:00:00Z"),
+     "epa": 12.0, "opp": 20.0, "_num": 12.0, "_den": 20.0, "_n_games": 1.0},
+    {"game_id": "MG2", "team": "MGH", "player_id": "M1", "position": "QB",
+     "gameday": pd.Timestamp("2024-09-07"),
+     "kickoff_utc": pd.Timestamp("2024-09-07 17:00:00Z"),
+     "epa": 8.0, "opp": 20.0, "_num": 20.0, "_den": 40.0, "_n_games": 2.0},
+])
+_epa_mg_games = pd.DataFrame([
+    {"game_id": "MG_TARGET", "gameday": "2024-09-14", "gametime": "13:00",
+     "home_team": "MGA", "away_team": "MGH"},
+])
+_epa_mg_agg = feat_mod.epa_quality_team_agg(_epa_mg_hist, _epa_mg_games)
+_epa_mg_home = float(_epa_mg_agg[
+    _epa_mg_agg["game_id"].eq("MG_TARGET")
+    & _epa_mg_agg["team"].eq("MGH")]["epa_q"].iloc[0])
+_epa_mg_prior = feat_mod._position_priors_asof(
+    _epa_mg_hist, pd.Series([pd.Timestamp("2024-09-14")]))
+_epa_mg_mu = float(_epa_mg_prior.loc[_epa_mg_prior["position"].eq("QB"),
+                                     "mu"].iloc[0])
+_epa_mg_k = float(_epa_mg_prior.loc[_epa_mg_prior["position"].eq("QB"),
+                                    "k"].iloc[0])
+_epa_mg_q = (20.0 + _epa_mg_mu * _epa_mg_k) / (40.0 + _epa_mg_k)
+_epa_mg_tpg = 40.0 / 2.0          # rolling total 40 over 2 observed games
+_epa_mg_rate_shape = (10.0 * _epa_mg_q)  # weight _den (10 opps * 4x) wrong
+check("epa weights by PER-GAME opportunities: _den/_n_games, not the "
+      "rolling window total",
+      np.isclose(_epa_mg_home, _epa_mg_tpg * _epa_mg_q)
+      and not np.isclose(_epa_mg_home, 40.0 * _epa_mg_q)
+      and not np.isclose(_epa_mg_home, _epa_mg_q),
+      f"2-game window: expected {_epa_mg_tpg * _epa_mg_q:.9f} "
+      f"(tpg={_epa_mg_tpg:.1f} x {_epa_mg_q:.9f}); "
+      f"window-total would be {40.0 * _epa_mg_q:.9f}, "
+      f"rate would be {_epa_mg_q:.9f}; got {_epa_mg_home:.9f}")
 
 
 # ---- The run log must not crash, and must describe what it shipped. ------
