@@ -1,6 +1,6 @@
 {
   "generated_for": "20261003",
-  "n_features": 101,
+  "n_features": 109,
   "warnings": [],
   "features": {
     "is_home": {
@@ -67,22 +67,6 @@
       ],
       "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "sp_era_diff": {
-      "name": "sp_era_diff",
-      "summary": "Home SP season-to-date ERA \u2212 away SP",
-      "definition": "Starting-pitcher quality gap on season-long earned-run average.",
-      "formula": "sp_era_home \u2212 sp_era_away",
-      "source": "Statcast pitching aggregates (season to date)",
-      "window": "season to date",
-      "units": "ERA runs",
-      "direction": "lower = home advantage (ERA is a cost)",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Starting-pitcher quality gap on season-long earned-run average.\nFormula: sp_era_home \u2212 sp_era_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = home advantage (ERA is a cost)\nConsumed by: xgboost, lightgbm, logistic"
-    },
     "sp_era_5g_diff": {
       "name": "sp_era_5g_diff",
       "summary": "Home SP recent runs allowed per nine \u2212 away SP (shrunk recent form)",
@@ -130,54 +114,6 @@
         "logistic"
       ],
       "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
-    },
-    "lineup_re24_mean_diff": {
-      "name": "lineup_re24_mean_diff",
-      "summary": "Home lineup avg RE24 \u2212 away lineup avg RE24",
-      "definition": "Projected nine-man lineup quality gap (each hitter's RE24 \u2014 runs above run expectancy over the 24 base-out states \u2014 shrunk toward the league mean by PA count).",
-      "formula": "lineup_re24_mean_home \u2212 lineup_re24_mean_away",
-      "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-      "window": "season to date (shrunk)",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Projected nine-man lineup quality gap (each hitter's RE24 \u2014 runs above run expectancy over the 24 base-out states \u2014 shrunk toward the league mean by PA count).\nFormula: lineup_re24_mean_home \u2212 lineup_re24_mean_away\nSource: Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: RE24 (runs per PA)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
-    },
-    "lineup_re24_top3_diff": {
-      "name": "lineup_re24_top3_diff",
-      "summary": "Home top-3 hitter RE24 \u2212 away top-3 hitter RE24",
-      "definition": "Star-power gap at the top of the card.",
-      "formula": "lineup_re24_top3_home \u2212 lineup_re24_top3_away",
-      "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-      "window": "season to date (shrunk)",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Star-power gap at the top of the card.\nFormula: lineup_re24_top3_home \u2212 lineup_re24_top3_away\nSource: Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: RE24 (runs per PA)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
-    },
-    "lineup_re24_std_diff": {
-      "name": "lineup_re24_std_diff",
-      "summary": "Home lineup RE24 dispersion \u2212 away lineup RE24 dispersion",
-      "definition": "Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.",
-      "formula": "lineup_re24_std_home \u2212 lineup_re24_std_away",
-      "source": "Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups",
-      "window": "season to date (shrunk)",
-      "units": "RE24 (std, runs per PA)",
-      "direction": "n/a (shape signal)",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.\nFormula: lineup_re24_std_home \u2212 lineup_re24_std_away\nSource: Statcast per-pitch delta_run_exp aggregated to batter-games, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: RE24 (std, runs per PA)\nDirection: n/a (shape signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "woba_30g_diff": {
       "name": "woba_30g_diff",
@@ -355,22 +291,6 @@
       ],
       "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "park_factor_slug_diff": {
-      "name": "park_factor_slug_diff",
-      "summary": "Home park SLG factor \u00d7 lineup top-3 RE24 diff (hitter-friendly parks amplify lineup edges)",
-      "definition": "Interaction: does tonight's park amplify whichever lineup holds the star-power edge?",
-      "formula": "(home_park_slg_factor \u2212 1) \u00d7 lineup_re24_top3_diff",
-      "source": "DuckDB feature engineering: park factors \u00d7 Statcast top-3 RE24",
-      "window": "season (park) \u00d7 season (lineup)",
-      "units": "index",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Interaction: does tonight's park amplify whichever lineup holds the star-power edge?\nFormula: (home_park_slg_factor \u2212 1) \u00d7 lineup_re24_top3_diff\nSource: DuckDB feature engineering: park factors \u00d7 Statcast top-3 RE24\nWindow: season (park) \u00d7 season (lineup) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
-    },
     "wind_advantage_flyball_factor": {
       "name": "wind_advantage_flyball_factor",
       "summary": "Wind direction multiplier \u00d7 SP ERA diff (flyball risk in windy conditions)",
@@ -497,52 +417,6 @@
       ],
       "tooltip": "What: Per-side interaction level: the away club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: pitcher_regression_indicator_away\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: n/a (regression signal) (away side)\nConsumed by: xgboost, lightgbm"
     },
-    "lineup_depth_multiplier_diff": {
-      "name": "lineup_depth_multiplier_diff",
-      "summary": "Lineup mean RE24 diff \u00d7 top-3 RE24 diff (star power \u00d7 depth)",
-      "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
-      "formula": "lineup_re24_mean_diff \u00d7 lineup_re24_top3_diff",
-      "source": "DuckDB feature engineering: depth \u00d7 star-power interaction",
-      "window": "season to date (shrunk)",
-      "units": "index",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "logistic"
-      ],
-      "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_re24_mean_diff \u00d7 lineup_re24_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
-    },
-    "lineup_depth_multiplier_home": {
-      "name": "lineup_depth_multiplier_home",
-      "summary": "Lineup depth multiplier (mean RE24 \u00d7 top-3 RE24) \u2014 home side",
-      "definition": "Per-side interaction level: the home club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
-      "formula": "lineup_depth_multiplier_home",
-      "source": "DuckDB feature engineering: within-side product",
-      "window": "per game",
-      "units": "index",
-      "direction": "higher = deeper, star-heavier lineup (home side)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side interaction level: the home club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: lineup_depth_multiplier_home\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = deeper, star-heavier lineup (home side)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_depth_multiplier_away": {
-      "name": "lineup_depth_multiplier_away",
-      "summary": "Lineup depth multiplier (mean RE24 \u00d7 top-3 RE24) \u2014 away side",
-      "definition": "Per-side interaction level: the away club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
-      "formula": "lineup_depth_multiplier_away",
-      "source": "DuckDB feature engineering: within-side product",
-      "window": "per game",
-      "units": "index",
-      "direction": "higher = deeper, star-heavier lineup (away side)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side interaction level: the away club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: lineup_depth_multiplier_away\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = deeper, star-heavier lineup (away side)\nConsumed by: xgboost, lightgbm"
-    },
     "ace_efficiency_factor_diff": {
       "name": "ace_efficiency_factor_diff",
       "summary": "SP K/9 diff \u00d7 whiff rate diff (high strikeout volume from raw stuff)",
@@ -649,36 +523,6 @@
       ],
       "tooltip": "What: Raw season record quality of the away club.\nFormula: smoothed_win_pct(away_wins, away_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm"
     },
-    "sp_era_home": {
-      "name": "sp_era_home",
-      "summary": "Starting-pitcher earned-run average \u2014 home team",
-      "definition": "Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "sp_era_home",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date (prior in-season starts; LAG-shifted)",
-      "units": "ERA runs",
-      "direction": "lower = better for that side for the home side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm"
-    },
-    "sp_era_away": {
-      "name": "sp_era_away",
-      "summary": "Starting-pitcher earned-run average \u2014 away team",
-      "definition": "Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "sp_era_away",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date (prior in-season starts; LAG-shifted)",
-      "units": "ERA runs",
-      "direction": "lower = better for that side for the away side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (prior in-season starts; LAG-shifted) \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm"
-    },
     "sp_k9_home": {
       "name": "sp_k9_home",
       "summary": "Starting-pitcher strikeouts per 9 innings \u2014 home team",
@@ -738,66 +582,6 @@
         "lightgbm"
       ],
       "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: last 6 appearances (LAG-shifted; the legacy _30g name) \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_re24_mean_home": {
-      "name": "lineup_re24_mean_home",
-      "summary": "Projected lineup average RE24 \u2014 home team",
-      "definition": "Per-side level column: the home club's projected lineup average re24. The corresponding 'lineup_re24_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "lineup_re24_mean_home",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = better for the home side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the home club's projected lineup average re24. The corresponding 'lineup_re24_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_re24_mean_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: RE24 (runs per PA)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_re24_mean_away": {
-      "name": "lineup_re24_mean_away",
-      "summary": "Projected lineup average RE24 \u2014 away team",
-      "definition": "Per-side level column: the away club's projected lineup average re24. The corresponding 'lineup_re24_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "lineup_re24_mean_away",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = better for the away side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the away club's projected lineup average re24. The corresponding 'lineup_re24_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_re24_mean_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: RE24 (runs per PA)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_re24_top3_home": {
-      "name": "lineup_re24_top3_home",
-      "summary": "Top-3 hitters' projected RE24 \u2014 home team",
-      "definition": "Per-side level column: the home club's top-3 hitters' projected re24. The corresponding 'lineup_re24_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "lineup_re24_top3_home",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = better for the home side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the home club's top-3 hitters' projected re24. The corresponding 'lineup_re24_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_re24_top3_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: RE24 (runs per PA)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_re24_top3_away": {
-      "name": "lineup_re24_top3_away",
-      "summary": "Top-3 hitters' projected RE24 \u2014 away team",
-      "definition": "Per-side level column: the away club's top-3 hitters' projected re24. The corresponding 'lineup_re24_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "lineup_re24_top3_away",
-      "source": "Statcast aggregates via DuckDB feature engineering",
-      "window": "season to date",
-      "units": "RE24 (runs per PA)",
-      "direction": "higher = better for the away side (level column)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the away club's top-3 hitters' projected re24. The corresponding 'lineup_re24_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_re24_top3_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: RE24 (runs per PA)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "woba_30g_home": {
       "name": "woba_30g_home",
@@ -1199,36 +983,6 @@
       ],
       "tooltip": "What: Per-side level column: the away club's sp fastball velocity, last 3 starts. This IS the sp_fbvelo_3g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_fbvelo_3g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 3g \u00b7 Units: mph\nDirection: higher = better (away side)\nConsumed by: xgboost, lightgbm"
     },
-    "lineup_re24_std_home": {
-      "name": "lineup_re24_std_home",
-      "summary": "Projected lineup RE24 dispersion (std dev) \u2014 home team",
-      "definition": "Per-side level column: the home club's projected lineup re24 dispersion (std dev). This IS the lineup_re24_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
-      "formula": "lineup_re24_std_home",
-      "source": "Ingest-layer rolling/team state (same source as the diff)",
-      "window": "season to date (shrunk)",
-      "units": "RE24 (std, runs per PA)",
-      "direction": "n/a (order-quality spread) (home side)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the home club's projected lineup re24 dispersion (std dev). This IS the lineup_re24_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: lineup_re24_std_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: season to date (shrunk) \u00b7 Units: RE24 (std, runs per PA)\nDirection: n/a (order-quality spread) (home side)\nConsumed by: xgboost, lightgbm"
-    },
-    "lineup_re24_std_away": {
-      "name": "lineup_re24_std_away",
-      "summary": "Projected lineup RE24 dispersion (std dev) \u2014 away team",
-      "definition": "Per-side level column: the away club's projected lineup re24 dispersion (std dev). This IS the lineup_re24_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
-      "formula": "lineup_re24_std_away",
-      "source": "Ingest-layer rolling/team state (same source as the diff)",
-      "window": "season to date (shrunk)",
-      "units": "RE24 (std, runs per PA)",
-      "direction": "n/a (order-quality spread) (away side)",
-      "members": [
-        "xgboost",
-        "lightgbm"
-      ],
-      "tooltip": "What: Per-side level column: the away club's projected lineup re24 dispersion (std dev). This IS the lineup_re24_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: lineup_re24_std_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: season to date (shrunk) \u00b7 Units: RE24 (std, runs per PA)\nDirection: n/a (order-quality spread) (away side)\nConsumed by: xgboost, lightgbm"
-    },
     "bullpen_pitches_3d_home": {
       "name": "bullpen_pitches_3d_home",
       "summary": "Bullpen pitches thrown, last 3 days \u2014 home team",
@@ -1558,6 +1312,374 @@
         "lightgbm"
       ],
       "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_platoon_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_platoon_k_fastball_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home platoon-K matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_c_xwoba_home": {
+      "name": "pl_c_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 catcher seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 catcher seat. The corresponding 'pl_c_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_c_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 catcher seat. The corresponding 'pl_c_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_c_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_c_xwoba_away": {
+      "name": "pl_c_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 catcher seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 catcher seat. The corresponding 'pl_c_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_c_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 catcher seat. The corresponding 'pl_c_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_c_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_c_xwoba_diff": {
+      "name": "pl_c_xwoba_diff",
+      "summary": "Home lineup's catcher-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the C seat: aggregate Statcast xwOBA of the projected lineup's players at the position, shrunk toward the position-segmented league prior.",
+      "formula": "pl_c_xwoba_home \u2212 pl_c_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at catcher",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the C seat: aggregate Statcast xwOBA of the projected lineup's players at the position, shrunk toward the position-segmented league prior.\nFormula: pl_c_xwoba_home \u2212 pl_c_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at catcher\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_fb_xwoba_home": {
+      "name": "pl_fb_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 first-base seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 first-base seat. The corresponding 'pl_fb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_fb_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 first-base seat. The corresponding 'pl_fb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_fb_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_fb_xwoba_away": {
+      "name": "pl_fb_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 first-base seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 first-base seat. The corresponding 'pl_fb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_fb_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 first-base seat. The corresponding 'pl_fb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_fb_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_fb_xwoba_diff": {
+      "name": "pl_fb_xwoba_diff",
+      "summary": "Home lineup's first-base-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the 1B seat (StatsAPI 1B \u2192 fb), shrunk toward the position-segmented league prior.",
+      "formula": "pl_fb_xwoba_home \u2212 pl_fb_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at first base",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the 1B seat (StatsAPI 1B \u2192 fb), shrunk toward the position-segmented league prior.\nFormula: pl_fb_xwoba_home \u2212 pl_fb_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at first base\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_sb_xwoba_home": {
+      "name": "pl_sb_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 second-base seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 second-base seat. The corresponding 'pl_sb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_sb_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 second-base seat. The corresponding 'pl_sb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_sb_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_sb_xwoba_away": {
+      "name": "pl_sb_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 second-base seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 second-base seat. The corresponding 'pl_sb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_sb_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 second-base seat. The corresponding 'pl_sb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_sb_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_sb_xwoba_diff": {
+      "name": "pl_sb_xwoba_diff",
+      "summary": "Home lineup's second-base-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the 2B seat (StatsAPI 2B \u2192 sb), shrunk toward the position-segmented league prior.",
+      "formula": "pl_sb_xwoba_home \u2212 pl_sb_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at second base",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the 2B seat (StatsAPI 2B \u2192 sb), shrunk toward the position-segmented league prior.\nFormula: pl_sb_xwoba_home \u2212 pl_sb_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at second base\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_ss_xwoba_home": {
+      "name": "pl_ss_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 shortstop seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 shortstop seat. The corresponding 'pl_ss_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_ss_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 shortstop seat. The corresponding 'pl_ss_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_ss_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_ss_xwoba_away": {
+      "name": "pl_ss_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 shortstop seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 shortstop seat. The corresponding 'pl_ss_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_ss_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 shortstop seat. The corresponding 'pl_ss_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_ss_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_ss_xwoba_diff": {
+      "name": "pl_ss_xwoba_diff",
+      "summary": "Home lineup's shortstop-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the SS seat, shrunk toward the position-segmented league prior.",
+      "formula": "pl_ss_xwoba_home \u2212 pl_ss_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at shortstop",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the SS seat, shrunk toward the position-segmented league prior.\nFormula: pl_ss_xwoba_home \u2212 pl_ss_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at shortstop\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_tb_xwoba_home": {
+      "name": "pl_tb_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 third-base seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 third-base seat. The corresponding 'pl_tb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_tb_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 third-base seat. The corresponding 'pl_tb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_tb_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_tb_xwoba_away": {
+      "name": "pl_tb_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 third-base seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 third-base seat. The corresponding 'pl_tb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_tb_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 third-base seat. The corresponding 'pl_tb_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_tb_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_tb_xwoba_diff": {
+      "name": "pl_tb_xwoba_diff",
+      "summary": "Home lineup's third-base-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the 3B seat (StatsAPI 3B \u2192 tb), shrunk toward the position-segmented league prior.",
+      "formula": "pl_tb_xwoba_home \u2212 pl_tb_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at third base",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the 3B seat (StatsAPI 3B \u2192 tb), shrunk toward the position-segmented league prior.\nFormula: pl_tb_xwoba_home \u2212 pl_tb_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at third base\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_rf_xwoba_home": {
+      "name": "pl_rf_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 right-field seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 right-field seat. The corresponding 'pl_rf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_rf_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 right-field seat. The corresponding 'pl_rf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_rf_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_rf_xwoba_away": {
+      "name": "pl_rf_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 right-field seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 right-field seat. The corresponding 'pl_rf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_rf_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 right-field seat. The corresponding 'pl_rf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_rf_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_rf_xwoba_diff": {
+      "name": "pl_rf_xwoba_diff",
+      "summary": "Home lineup's right-field-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the RF seat, shrunk toward the position-segmented league prior.",
+      "formula": "pl_rf_xwoba_home \u2212 pl_rf_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper in right field",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the RF seat, shrunk toward the position-segmented league prior.\nFormula: pl_rf_xwoba_home \u2212 pl_rf_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper in right field\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_cf_xwoba_home": {
+      "name": "pl_cf_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 center-field seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 center-field seat. The corresponding 'pl_cf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_cf_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 center-field seat. The corresponding 'pl_cf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_cf_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_cf_xwoba_away": {
+      "name": "pl_cf_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 center-field seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 center-field seat. The corresponding 'pl_cf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_cf_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 center-field seat. The corresponding 'pl_cf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_cf_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_cf_xwoba_diff": {
+      "name": "pl_cf_xwoba_diff",
+      "summary": "Home lineup's center-field-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the CF seat, shrunk toward the position-segmented league prior.",
+      "formula": "pl_cf_xwoba_home \u2212 pl_cf_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper in center field",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the CF seat, shrunk toward the position-segmented league prior.\nFormula: pl_cf_xwoba_home \u2212 pl_cf_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper in center field\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_lf_xwoba_home": {
+      "name": "pl_lf_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 left-field seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 left-field seat. The corresponding 'pl_lf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_lf_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 left-field seat. The corresponding 'pl_lf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_lf_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_lf_xwoba_away": {
+      "name": "pl_lf_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 left-field seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 left-field seat. The corresponding 'pl_lf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_lf_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 left-field seat. The corresponding 'pl_lf_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_lf_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_lf_xwoba_diff": {
+      "name": "pl_lf_xwoba_diff",
+      "summary": "Home lineup's left-field-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the LF seat, shrunk toward the position-segmented league prior.",
+      "formula": "pl_lf_xwoba_home \u2212 pl_lf_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper in left field",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the LF seat, shrunk toward the position-segmented league prior.\nFormula: pl_lf_xwoba_home \u2212 pl_lf_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper in left field\nConsumed by: xgboost, lightgbm, logistic"
     }
   },
   "categorical_context": {
