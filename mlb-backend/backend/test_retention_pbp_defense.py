@@ -86,6 +86,30 @@ def test_il_stint_table_still_never_deleted():
         assert rp.is_never_delete(rel), rel
 
 
+def test_player_positions_map_survives_the_sweep():
+    """The 2026-10-03 incident: the 06:36 sweep classified the dateless
+    position map stale and git rm'd it, so the 11:08 run found neither
+    copy and all 24 served pl_* columns shipped at 0% coverage —
+    median-imputed constants the drift gate cannot see. The map is a
+    master (the pl_<pos> pool key; only .adhoc/mlb_fetch_positions.py
+    rebuilds it), so no window may ever delete it."""
+    rel = "mlb-backend/data_delivery/player_positions.parquet"
+    assert rp.is_never_delete(rel), rel
+    assert _v(rel) == "protected"
+
+
+def test_totals_history_store_survives_the_sweep():
+    """Same trap, adjacent family: the frozen totals-history store is dateless
+    and priced-once. A run whose store update throws skips the CSV rewrite,
+    so the name reads stale and the sweep destroys rows that only re-seed
+    from the 10-day markets window."""
+    for name in ("run_engine_totals_history.csv",
+                 "run_engine_totals_history.meta.json"):
+        rel = f"mlb-backend/data_delivery/{name}"
+        assert rp.is_never_delete(rel), rel
+        assert _v(rel) == "protected"
+
+
 def test_family_is_registered_and_not_allowlisted():
     fam = rp._family_for("mlb-backend/data_delivery/pbp_defense_20260925.parquet")
     assert fam is not None and fam.family == "pbp_defense"

@@ -98,7 +98,8 @@ Consumer audit (traced at HEAD 827de1b):
   mlb_feature_selection_state.json| RFE serving gate (every run)                 | master-equivalent                   | NEVER DELETE
   *_triage_* records              | audit trail                                  | record                              | NEVER DELETE
   masters (game_level_features.csv, model_history.json, model_version_history.json,
-           umpire_*.csv, lineups.parquet, batter_woba.parquet, team_woba.parquet,
+           umpire_*.csv, lineups.parquet, player_positions.parquet,
+           batter_woba.parquet, team_woba.parquet,
            il_stints.parquet, statsapi_roof_cache.json) | multiple             | master                              | NEVER DELETE
 
 Notes
@@ -150,6 +151,22 @@ EXACT_MASTER_NAMES = frozenset({
     # protected rather than aged out. batter_woba.parquet / team_woba.parquet
     # left this list WITH their builder (build_batter_woba.py) on 2026-09-26.
     "lineups.parquet",
+    # Position map (batter, season, pos) — the pl_<pos>_xwoba family's pool
+    # key. Same dateless-name trap as il_stints: the 2026-10-03 06:36 sweep
+    # classified it stale and git rm'd it, so the 11:08 run found neither
+    # copy and all 24 served pl_* columns shipped median-imputed constants
+    # (0% coverage, invisible to the drift gate). Rebuild path:
+    # .adhoc/mlb_fetch_positions.py; only the run cache copy refreshes, so
+    # the committed fallback must survive every window.
+    "player_positions.parquet",
+    # Frozen totals-history store (distributions.update_totals_history_store):
+    # rows are priced ONCE at first publication and never mutated. The daily
+    # run normally rewrites it (so Phase 5 stages it), but a run whose store
+    # update throws skips the CSV rewrite and the dateless name then reads
+    # stale to Phase 6 — git rm would destroy 7,300+ frozen price rows that
+    # only re-seed from the 10-day markets window. Same trap, same fix.
+    "run_engine_totals_history.csv",
+    "run_engine_totals_history.meta.json",
     # Injured-list stint table (expected-lineup features.py lineup_agg): the
     # daily pipeline CONSUMES it and only build_il_stints.py regenerates it.
     # Dateless name, so without this the date-gate classifies it stale on the
