@@ -847,8 +847,15 @@ check("legacy daily observed-weather table is not a production input",
 
 # ---------------------------------------------------------------------------
 print("\n== 4. Fold tests ==")
-seasons = [2018] * 20 + [2019] * 40 + [2020] * 40
-dates = (pd.date_range("2018-09-01", periods=20, freq="7D").tolist()
+# The warmup block must be PRE-OOF_FIRST_SEASON, because that is the only
+# mechanism that keeps it out of validation: ``core_mask = season >=
+# OOF_FIRST_SEASON``. This fixture used to declare 2018 as "warmup" while
+# OOF_FIRST_SEASON is 2017, so the 2018 windows were core and would have
+# validated -- they passed only because the 15-game value gate happened to
+# drop them. The gate now marks thin windows provisional instead of dropping
+# them (2026-10-03), so the warmup exclusion is expressed where it belongs.
+seasons = [2016] * 20 + [2019] * 40 + [2020] * 40
+dates = (pd.date_range("2016-09-01", periods=20, freq="7D").tolist()
          + pd.date_range("2019-09-01", periods=40, freq="3D").tolist()
          + pd.date_range("2020-09-01", periods=40, freq="3D").tolist())
 fold_df = pd.DataFrame({
@@ -860,7 +867,9 @@ fold_df["gameday"] = pd.to_datetime(fold_df["gameday"])
 fl = folds_mod.make_folds(fold_df)
 check("folds exist", len(fl) > 0)
 check("OOF begins 2019 (no warmup validation)",
-      all(fold_df.loc[f.val_idx, "season"].ge(2019).all() for f in fl))
+      all(fold_df.loc[f.val_idx, "season"].ge(config.OOF_FIRST_SEASON).all()
+          for f in fl)
+      and all(fold_df.loc[f.val_idx, "season"].ge(2019).all() for f in fl))
 check("training strictly before validation",
       all(fold_df.loc[f.train_idx, "gameday"].max() < f.val_start for f in fl))
 check("training expands", all(
@@ -1597,8 +1606,12 @@ check("blend_full is a separate array, not an alias of the causal column",
 # honest causal column — swapping p_ensemble out would quietly leak the
 # full-population weights into the evaluation layer.
 check("Phase 9 still scores the CAUSAL column (diagnostic added, not swapped)",
-      'binary_metrics(oof_ml["p_ensemble"], y_oof)' in mp_src
-      and 'binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)' in mp_src)
+      'binary_metrics(oof_ml["p_ensemble"]' in mp_src
+      and 'binary_metrics(oof_ml["p_ensemble_calibrated"]' in mp_src
+      # ... and it scores the causal column over the GRADING population
+      # (2026-10-03), never the shipped blend and never the whole frame.
+      and 'oof_ml["p_ensemble"][_grading]' in mp_src
+      and '_oof_blocks(oof_ml, _grading)' in mp_src)
 check("shipped blend is never written into the OOF frame as a column",
       "p_ensemble_shipped" not in mp_src
       and 'oof_ml["p_ensemble"] =' not in mp_src

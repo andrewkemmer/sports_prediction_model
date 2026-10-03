@@ -375,8 +375,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 4. Fold generation ────────────────────────────────────────────────
     _banner("PHASE 4", "walk-forward fold generation")
-    fold_list = folds_mod.make_folds(game_df, date_col="gameday")
+    fold_diag: dict = {}
+    fold_list = folds_mod.make_folds(game_df, date_col="gameday",
+                                     diagnostics=fold_diag)
     fold_info = folds_mod.fold_summary(fold_list)
+    fold_info.update(fold_diag)
+    for _block_key in ("oof_regular", "oof_postseason", "oof_provisional",
+                       "oof_all"):
+        fold_info.setdefault(_block_key, {"n": 0, "sufficient": False})
     fold_tbl = folds_mod.fold_table(game_df, fold_list, date_col="gameday")
     if not fold_list:
         raise RuntimeError(
@@ -535,7 +541,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # 8b. POOLED final calibrator — the serving layer (never used to score
     # its own fitting population). Identical favored-space guardrails apply.
-    platt = ml_mod.moneyline_fit(p_ens[okp], y_oof[okp])
+    # Fitted on the GRADING population only: regular-season rows from windows
+    # at or above MIN_VAL_FOLD_GAMES. Postseason and provisional rows stay in
+    # ``oof_ml`` — scored, shipped, reported below as their own blocks — but
+    # they must not move a map that then serves regular season.
+    _grading = (oof_ml["grades_pooled"].to_numpy(bool)
+                if "grades_pooled" in oof_ml
+                else np.ones(len(oof_ml), dtype=bool))
+    _g_ok = okp & _grading
+    fold_info.update(_oof_blocks(oof_ml, _grading))
+    platt = ml_mod.moneyline_fit(p_ens[_g_ok], y_oof[_g_ok])
     if platt is not None:
         logger.info("final pooled calibrator (THIS is what serves): "
                     "a=%.4f b=%.4f n=%d method=%s",
@@ -547,9 +562,15 @@ def main(argv: list[str] | None = None) -> int:
     # ── 9. Evaluation ─────────────────────────────────────────────────────
     _banner("PHASE 9", "evaluation / diagnostics")
     # Headline calibrated metrics are the PREQUENTIAL twins (honest per-fold
-    # leverage), not pooled self-calibration (MLB parity).
-    raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"], y_oof)
-    cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
+    # leverage), not pooled self-calibration (MLB parity) — and both are
+    # measured on the GRADING population. The full frame (postseason +
+    # provisional) is still written to the OOF store and to
+    # *_predictions_history, and is reported alongside as oof_postseason /
+    # oof_provisional / oof_all.
+    raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"][_grading],
+                                    y_oof[_grading])
+    cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"][_grading],
+                                    y_oof[_grading])
     logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
     # The calibrated twin needs its label ON the log line, because "calib
     # scores worse than raw" is the wrong conclusion to draw from these two
@@ -1259,6 +1280,46 @@ def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
     records = {team: (int(row.wins), int(row.losses))
                for team, row in rec.iterrows()}
     serve_mod.write_power_rankings_csv(path, ratings, records, _team_names())
+
+
+def _oof_blocks(oof: pd.DataFrame, grading: np.ndarray) -> dict:
+    """Four scored populations, all published.
+
+    ``oof_regular``      regular-season rows from windows at or above
+                         ``MIN_VAL_FOLD_GAMES`` — the GRADING set that
+                         defines the headline metrics, the blend weights and
+                         the pooled calibrator.
+    ``oof_postseason``   every playoff row: fit and scored, never a grader.
+    ``oof_provisional``  every row in a window under the gate.
+    ``oof_all``          the whole OOF frame, so the split hides nothing and
+                         any block can be reconciled against it.
+
+    ``sufficient`` says whether the block clears ``MIN_VAL_FOLD_GAMES``, so a
+    thin block is disclosed as thin rather than mistaken for a verdict.
+    """
+    keys = ("oof_regular", "oof_postseason", "oof_provisional", "oof_all")
+    if oof is None or not len(oof):
+        return {k: {"n": 0, "sufficient": False} for k in keys}
+    gate = int(getattr(config, "MIN_VAL_FOLD_GAMES", 15))
+
+    def _block(frame: pd.DataFrame) -> dict:
+        if frame is None or not len(frame):
+            return {"n": 0, "sufficient": False}
+        metrics = eval_mod.binary_metrics(frame["p_ensemble_calibrated"],
+                                          frame["home_win"])
+        return {**metrics, "n": int(len(frame)),
+                "sufficient": bool(len(frame) >= gate)}
+
+    post = (oof[oof["is_playoffs"].astype(bool)]
+            if "is_playoffs" in oof else oof.iloc[:0])
+    prov = (oof[oof["provisional"].astype(bool)]
+            if "provisional" in oof else oof.iloc[:0])
+    return {
+        "oof_regular": _block(oof[grading]),
+        "oof_postseason": _block(post),
+        "oof_provisional": _block(prov),
+        "oof_all": _block(oof),
+    }
 
 
 def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,

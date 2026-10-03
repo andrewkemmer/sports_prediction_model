@@ -7,8 +7,13 @@ Geometry (spec section 6):
   - training expands over time; the final partial window is retained
   - 2018 is warmup only: it appears in training sets (strictly-prior state)
     but never in a validation window
-  - ordinary validation windows with fewer than MIN_VAL_FOLD_GAMES games are
-    skipped; the final partial tail is retained so newest games remain visible
+  - every non-empty window is a fold; ordinary windows with fewer than
+    MIN_VAL_FOLD_GAMES games are retained but marked ``provisional``, so they
+    are fit and scored without ever grading pooled metrics, blend weights or
+    calibration. The 2026-10-03 change: the old skip removed ~758 of 2,431
+    core games from validation -- every playoff game in ten seasons (the OOF
+    had no February date at all) plus hundreds of regular-season games whose
+    7-calendar-day block straddled a week and fell under the gate.
 
 A fold is a (fold_id, val_start, val_end, train_idx, val_idx) tuple over the
 row order of the caller's frame; callers must pass frames already in
@@ -17,6 +22,7 @@ remain valid for every downstream consumer.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import pandas as pd
@@ -25,6 +31,8 @@ try:
     from backend import config
 except ImportError:
     import config
+
+logger = logging.getLogger(__name__)
 
 # Every frame that feeds fold generation MUST be put in this order first.
 # Why a helper and not a bare sort_values(date_col): make_folds returns
@@ -60,20 +68,53 @@ class Fold:
     val_end: pd.Timestamp
     train_idx: pd.Index
     val_idx: pd.Index
+    season_type: str = "regular"     # regular | postseason | mixed
+    provisional: bool = False        # under MIN_VAL_FOLD_GAMES: scored,
+    #                                  never grades weights/calibration
+
+    @property
+    def grades_pooled(self) -> bool:
+        """May this fold's rows contribute to weights/calibration/headline?"""
+        return not self.provisional
+
+
+def postseason_flag(values: pd.Series) -> pd.Series:
+    """Row-level playoff flag for an NFL ``game_type`` column.
+
+    nflverse spells it ``POST`` (regular season + postseason are the two
+    values ``config.GAME_TYPES`` keeps; preseason is dropped at ingest), so a
+    substring match on "post" is the whole rule. Unknown/missing reads as
+    regular. Kept as one shared helper so the gate and any future
+    ``is_playoffs`` feature cannot drift apart.
+    """
+    return (values.astype("string").str.strip().str.lower()
+            .str.contains("post", regex=False, na=False)
+            .fillna(False).astype(bool))
 
 
 def make_folds(df: pd.DataFrame,
                date_col: str = "gameday",
-               cadence_days: int | None = None) -> list[Fold]:
+               cadence_days: int | None = None,
+               min_val_games: int | None = None,
+               diagnostics: dict | None = None) -> list[Fold]:
     """Build expanding walk-forward folds over ``df``.
 
     ``df`` may contain warmup rows (2018) and core rows (2019+). Validation
     windows cover ONLY core-season games (OOF_FIRST_SEASON and later);
     warmup rows join training sets when they fall strictly before a window.
     Training is every eligible row STRICTLY BEFORE ``val_start``.
+
+    Every NON-EMPTY window becomes a fold. ``MIN_VAL_FOLD_GAMES`` marks a thin
+    one ``provisional`` instead of discarding it: the games are fit, scored
+    and shipped, but they never grade pooled metrics, blend weights or
+    calibration. Before 2026-10-03 the skip removed ~758 of 2,431 core games
+    from validation -- every postseason game in ten seasons (no February date
+    ever appeared in the OOF) plus hundreds of regular-season games whose
+    7-calendar-day block straddled a week.
     """
     cadence = cadence_days or config.RETRAIN_CADENCE_DAYS
-    min_val_games = getattr(config, "MIN_VAL_FOLD_GAMES", 15)
+    if min_val_games is None:
+        min_val_games = getattr(config, "MIN_VAL_FOLD_GAMES", 15)
     if date_col not in df.columns:
         raise KeyError(f"make_folds: missing date column {date_col!r}")
     dates = pd.to_datetime(df[date_col], errors="coerce")
@@ -87,6 +128,11 @@ def make_folds(df: pd.DataFrame,
     d_min = core_dates.min().normalize()
     d_max = core_dates.max().normalize()
 
+    # Row-level season type drives Fold.season_type. Absent the column (small
+    # unit-test fixtures) every window classifies as regular.
+    post = (postseason_flag(df["game_type"])
+            if "game_type" in df.columns else None)
+
     folds: list[Fold] = []
     fold_id = 0
     win_start = d_min
@@ -95,23 +141,92 @@ def make_folds(df: pd.DataFrame,
         val_mask = (core_mask & (dates >= win_start)
                     & (dates <= win_end + pd.Timedelta(hours=23, minutes=59, seconds=59)))
         val_idx = df.index[val_mask]
-        is_final_window = win_end >= d_max
-        if len(val_idx) and (len(val_idx) >= min_val_games or is_final_window):
+        # Two guards, neither of them the value gate:
+        #   * an empty validation window is not a fold (a schedule gap can
+        #     never manufacture a validation set out of nothing);
+        #   * an empty TRAINING window is not a fold either. The old
+        #     MIN_VAL_FOLD_GAMES skip used to hide this -- it discarded the
+        #     first window of any frame with no pre-core warmup, and keeping
+        #     it would score rows no member can predict for (lightgbm: "input
+        #     data must be 2 dimensional and non empty", elasticnet: "0
+        #     samples"). Production never trips it: the 2016 warmup season
+        #     precedes the first core window, so fold 0 ships n_train=256.
+        if len(val_idx) and len(df.index[dates < win_start]):
+            n_val = len(val_idx)
+            if post is None:
+                season_type = "regular"
+            else:
+                n_post = int(post.loc[val_idx].sum())
+                season_type = ("regular" if n_post == 0 else
+                               "postseason" if n_post == n_val else
+                               "mixed")
             train_mask = dates < win_start
             train_idx = df.index[train_mask]
             folds.append(Fold(fold_id=fold_id, val_start=win_start,
                               val_end=win_end, train_idx=train_idx,
-                              val_idx=val_idx))
+                              val_idx=val_idx,
+                              season_type=season_type,
+                              provisional=n_val < min_val_games))
             fold_id += 1
         win_start = win_end + pd.Timedelta(days=1)
+
+    provisional = [f for f in folds if f.provisional]
+    if provisional:
+        logger.warning(
+            "OOF validation population is thin on %d of %d window(s) "
+            "(< MIN_VAL_FOLD_GAMES=%d games): %s - retained and scored, "
+            "but PROVISIONAL: excluded from pooled metrics, blend weights "
+            "and calibration (playoff weeks, bye weeks and week-straddling "
+            "blocks are the usual cause)",
+            len(provisional), len(folds), min_val_games,
+            ", ".join(f"[{f.val_start.date()}..{f.val_end.date()} "
+                      f"n={len(f.val_idx)} {f.season_type}]"
+                      for f in provisional),
+        )
+    non_regular = [f for f in folds if f.season_type != "regular"]
+    if non_regular and post is not None:
+        logger.info(
+            "OOF season-type split: %d window(s) carry postseason games "
+            "(%d rows); their playoff rows are reported as oof_postseason "
+            "and never grade the blend",
+            len(non_regular),
+            sum(int(post.loc[f.val_idx].sum()) for f in non_regular),
+        )
+    if diagnostics is not None:
+        diagnostics.update(_geometry(folds, min_val_games))
     return folds
 
 
-def fold_summary(folds: list[Fold]) -> dict:
+def _geometry(folds: list[Fold], minimum: int) -> dict:
+    """JSON-friendly coverage accounting shared with MLB/NBA/NHL.
+
+    ``dropped_windows``/``dropped_games`` are always 0 since 2026-10-03;
+    they are reported so a regression back to silent dropping surfaces as a
+    non-zero instead of as a coverage number that quietly shrinks. Before
+    that date these two were never reported at all, which is how ~758 of
+    2,431 core games (31%) went unscored without a single log line.
+    """
+    prov = [f for f in folds if f.provisional]
+    return {
+        "n_candidates": len(folds),
+        "dropped_windows": 0,
+        "dropped_games": 0,
+        "provisional_windows": len(prov),
+        "provisional_games": int(sum(len(f.val_idx) for f in prov)),
+        "postseason_windows": int(
+            sum(1 for f in folds if f.season_type != "regular")),
+        "min_val_fold_games": int(minimum),
+    }
+
+
+def fold_summary(folds: list[Fold],
+                 minimum: int | None = None) -> dict:
     """Diagnostics for the final validation record."""
     if not folds:
         return {"n_folds": 0}
-    return {
+    gate = int(minimum if minimum is not None
+               else getattr(config, "MIN_VAL_FOLD_GAMES", 15))
+    out = {
         "n_folds": len(folds),
         "first_val_start": str(folds[0].val_start.date()),
         "last_val_end": str(folds[-1].val_end.date()),
@@ -119,6 +234,8 @@ def fold_summary(folds: list[Fold]) -> dict:
         "max_train": int(max(len(f.train_idx) for f in folds)),
         "total_val_games": int(sum(len(f.val_idx) for f in folds)),
     }
+    out.update(_geometry(folds, gate))
+    return out
 
 
 def fold_table(df: pd.DataFrame, folds: list[Fold],
@@ -133,9 +250,11 @@ def fold_table(df: pd.DataFrame, folds: list[Fold],
             "fold_id": f.fold_id,
             "train_end_date": (dates.loc[f.train_idx].max().date()
                                if len(f.train_idx) else pd.NaT),
-            "validation_start": f.val_start.date(),
-            "validation_end": f.val_end.date(),
-            "n_train": int(len(f.train_idx)),
-            "n_validation": int(len(f.val_idx)),
+            "validation_start": f.val_start.date(),                "validation_end": f.val_end.date(),
+                "season_type": f.season_type,
+                "provisional": bool(f.provisional),
+                "grades_pooled": bool(f.grades_pooled),
+                "n_train": int(len(f.train_idx)),
+                "n_validation": int(len(f.val_idx)),
         })
     return pd.DataFrame(rows)

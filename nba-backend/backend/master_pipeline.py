@@ -153,6 +153,29 @@ def _stamp_sealed_tail(oof_markets: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _oof_block(frame: pd.DataFrame) -> dict:
+    """Metrics for ONE scored population of the OOF frame.
+
+    The walk-forward publishes four populations instead of one pooled number:
+    ``oof_regular`` (regular-season rows from windows at or above
+    ``MIN_VAL_FOLD_GAMES`` — the GRADING set that defines the headline
+    metrics, the blend weights and the Platt map), ``oof_postseason`` (the
+    held-out read on the regime every fold trains on — train is strictly
+    prior with no season-type filter — but which none of them graded before
+    2026-10-03), ``oof_provisional`` (rows in a window under the gate) and
+    ``oof_all`` (everything, so the split hides nothing). ``sufficient``
+    reports whether the block clears the same gate, so a thin block is
+    disclosed as thin rather than mistaken for a verdict.
+    """
+    if frame is None or not len(frame):
+        return {"n": 0, "sufficient": False}
+    metrics = evaluation.binary_metrics(
+        frame.p_ensemble_calibrated.to_numpy(float),
+        frame.home_win.to_numpy(float))
+    return {**metrics, "n": int(len(frame)),
+            "sufficient": bool(len(frame) >= config.MIN_VAL_FOLD_GAMES)}
+
+
 def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFrame:
     if oof is None or not len(oof):
         return pd.DataFrame() if oof is None else oof
@@ -160,8 +183,11 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
         return pd.DataFrame()
     base = oof.copy()
     # Preserve the OOF identity key; only metadata columns that would collide
-    # with the richer game frame are replaced during the merge.
-    for col in ("home_win", "gameday", "season"):
+    # with the richer game frame are replaced during the merge. ``is_playoffs``
+    # is listed because walk_forward_oof emits its own copy for the grading
+    # split -- the game frame's version is the feature the model was fed, so
+    # it wins and the OOF CSV carries exactly one column under that name.
+    for col in ("home_win", "gameday", "season", "is_playoffs"):
         if col in base and col in game_df:
             base = base.drop(columns=[col])
     metadata = game_df.copy()
@@ -1046,8 +1072,13 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # enough — fold labels are positional, and the tree members are
     # row-order sensitive under a fixed seed.
     game_df = folds_mod.canonical_sort(game_df, "gameday")
-    fold_list = folds_mod.make_folds(game_df)
+    fold_diag: dict = {}
+    fold_list = folds_mod.make_folds(game_df, diagnostics=fold_diag)
     fold_info = folds_mod.fold_summary(fold_list)
+    fold_info.update(fold_diag)
+    for _block_key in ("oof_regular", "oof_postseason", "oof_provisional",
+                       "oof_all"):
+        fold_info.setdefault(_block_key, {"n": 0, "sufficient": False})
     if not fold_list:
         raise RuntimeError("NBA walk-forward produced no eligible folds after 30-day warm-up")
     _step("features", f"{len(game_df)} games, "
@@ -1094,8 +1125,25 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         ml_oof = _merge_oof_metadata(ml["oof"], game_df)
         if not len(ml_oof):
             raise RuntimeError("NBA moneyline walk-forward produced no OOF rows")
-        platt = ml_mod.moneyline_fit(ml_oof.p_ensemble.to_numpy(float),
-                                     ml_oof.home_win.to_numpy(float))
+        # The SHIPPED Platt map is fitted on the GRADING population only:
+        # regular-season rows from windows at or above MIN_VAL_FOLD_GAMES.
+        # Fitting it on every OOF row would let 169 postseason rows and 16
+        # provisional windows move a calibrator that then serves regular
+        # season — the exact train/score mismatch this split removes.
+        _grades = (ml_oof["grades_pooled"].astype(bool)
+                   if "grades_pooled" in ml_oof
+                   else pd.Series(True, index=ml_oof.index))
+        _grade = ml_oof[_grades]
+        platt = ml_mod.moneyline_fit(_grade.p_ensemble.to_numpy(float),
+                                     _grade.home_win.to_numpy(float))
+        _post = (ml_oof[ml_oof.is_playoffs.astype(bool)]
+                 if "is_playoffs" in ml_oof else ml_oof.iloc[:0])
+        fold_info["oof_regular"] = _oof_block(_grade)
+        fold_info["oof_postseason"] = _oof_block(_post)
+        fold_info["oof_provisional"] = _oof_block(
+            ml_oof[ml_oof.provisional.astype(bool)]
+            if "provisional" in ml_oof else ml_oof.iloc[:0])
+        fold_info["oof_all"] = _oof_block(ml_oof)
         if "p_ensemble_calibrated" not in ml_oof:
             ml_oof["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 ml_oof.p_ensemble.to_numpy(float), platt)
@@ -1189,15 +1237,20 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         serving.write_player_matchup_json(p_player, leaders)
         artifacts.append(p_player.name)
 
-        raw_metrics = evaluation.binary_metrics(ml_oof.p_ensemble.to_numpy(float),
-                                                ml_oof.home_win.to_numpy(float))
-        cal_metrics = evaluation.binary_metrics(ml_oof.p_ensemble_calibrated.to_numpy(float),
-                                                ml_oof.home_win.to_numpy(float))
-        buckets = evaluation.calibration_buckets(ml_oof.p_ensemble.to_numpy(float),
-                                                  ml_oof.home_win.to_numpy(float))
+        # Headline pooled metrics describe the GRADING population. The full
+        # frame (including postseason + provisional rows) is still written to
+        # nba_oof_moneyline.csv / *_predictions_history and is reported
+        # separately as oof_postseason — see _oof_season_split below.
+        raw_metrics = evaluation.binary_metrics(_grade.p_ensemble.to_numpy(float),
+                                                _grade.home_win.to_numpy(float))
+        cal_metrics = evaluation.binary_metrics(_grade.p_ensemble_calibrated.to_numpy(float),
+                                                _grade.home_win.to_numpy(float))
+        buckets = evaluation.calibration_buckets(_grade.p_ensemble.to_numpy(float),
+                                                  _grade.home_win.to_numpy(float))
         p_cal = out / config.CALIBRATION_JSON.format(date=date_c)
         serving.write_calibration_json(p_cal, raw_metrics, cal_metrics, buckets, [],
-                                       _config_meta(facts), platt, run_day, len(ml_oof),
+                                       _config_meta(facts), platt, run_day,
+                                       len(_grade),
                                        market_calibration)
         artifacts.append(p_cal.name)
         p_hist = out / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)

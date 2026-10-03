@@ -485,6 +485,34 @@ def reset_feature_subset() -> None:
 
 # ── Walk-forward splits ─────────────────────────────────────────────────────
 
+def postseason_flag(values) -> np.ndarray:
+    """Row mask for postseason games in a game-type-like column.
+
+    MLB's Statcast ``game_type`` codes regular season R and the four
+    postseason rounds F/D/L/W (matching ingestion.KEEP_GAME_TYPES, plus the
+    StatsAPI schedule-level code P); a loose text match keeps the mask
+    honest if the vocabulary ever widens ("postseason"/"playoff"). Frames
+    without the column (synthetic test frames) yield an all-False mask —
+    regular by construction.
+    """
+    s = pd.Series(list(values)).astype(str).str.strip().str.upper()
+    if s.empty:
+        return np.zeros(0, dtype=bool)
+    code = s.isin({"F", "D", "L", "W", "P"})
+    loose = s.str.contains("POST|PLAY", regex=True, na=False)
+    return (code | loose).to_numpy()
+
+
+def _season_type(is_post: np.ndarray) -> str:
+    """Window label from a row-level postseason mask."""
+    is_post = np.asarray(is_post, dtype=bool)
+    if not is_post.any():
+        return "regular"
+    if is_post.all():
+        return "postseason"
+    return "mixed"
+
+
 def walk_forward_splits(
     games: pd.DataFrame,
     retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
@@ -509,9 +537,13 @@ def walk_forward_splits(
         val_start: datetime
         val_end: datetime
         is_partial_tail: True ONLY for the final fold when its window runs
-            partially into the frame's tail (short of a full cadence). Consumers
-            may keep that one fold below the min-val gate to surface the last
-            decided day's OOF predictions (still leakage-free: train < val_start).
+            partially into the frame's tail (short of a full cadence).
+            Retention no longer depends on it — every non-empty window is
+            retained — but the flag stays as tail provenance
+            (still leakage-free: train < val_start).
+        season_type: "regular" / "postseason" / "mixed" derived from the
+            window's game_type rows (F/D/L/W/P = postseason; frames without
+            game_type are "regular").
     """
     if "game_date" not in games.columns:
         raise ValueError("games must have a 'game_date' column")
@@ -574,6 +606,8 @@ def walk_forward_splits(
         val_games = df[val_mask].copy()
 
         if not train_games.empty and not val_games.empty:
+            _st = (_season_type(postseason_flag(val_games["game_type"].to_numpy()))
+                   if "game_type" in val_games.columns else "regular")
             splits.append({
                 "train_games": train_games,
                 "val_games": val_games,
@@ -581,6 +615,7 @@ def walk_forward_splits(
                 "val_start": val_start,
                 "val_end": val_end,
                 "is_partial_tail": is_partial_tail,
+                "season_type": _st,
             })
             fold_idx += 1
 
@@ -604,18 +639,24 @@ def canonical_walk_forward_splits(
 
     This is the synchronization contract for moneyline, totals, and run
     engine evaluations: canonical post-game identity filtering, expanding
-    weekly windows, and the same minimum-validation rule. Postseason games
-    are intentionally included because that is the current moneyline policy;
-    there is no season-type filter in the canonical source frame.
+    weekly windows, and ONE shared retained fold set (2026-10-03
+    season-split remediation). Every non-empty window is RETAINED — windows
+    under ``min_val_games`` are stamped ``provisional=True`` (fit and
+    scored, reported, but excluded from the grading population) instead of
+    being dropped, and each window carries a ``season_type`` label.
+    Postseason games were always in the training frame (train stays
+    strictly prior, so never a leakage fix); what changes is that their
+    grades are a separate reporting block rather than silently missing.
     """
     decided = get_decided_frame(games).copy()
     all_splits = walk_forward_splits(
         decided, retrain_cadence_days=retrain_cadence_days,
         max_eval_folds=max_eval_folds, min_train_days=min_train_days,
     )
-    kept = [s for s in all_splits
-            if len(s["val_games"]) >= min_val_games
-            or s.get("is_partial_tail", False)]
+    kept = []
+    for s in all_splits:
+        s["provisional"] = len(s["val_games"]) < min_val_games
+        kept.append(s)
     return decided, kept
 
 
@@ -1422,6 +1463,18 @@ def last_ensemble_info() -> list[dict[str, Any]]:
     return [dict(e) for e in _LAST_ENSEMBLE_INFO]
 
 
+# Season-split reporting from the most recent walk_forward_evaluate():
+# row counts + four published metric blocks (regular / postseason /
+# provisional / all) so the graded headline never hides a scored game.
+_LAST_SEASON_SPLIT: dict[str, Any] = {}
+
+
+def get_last_season_split() -> dict[str, Any]:
+    """Season-split counts + metric blocks from the latest walk-forward run."""
+    from copy import deepcopy
+    return deepcopy(_LAST_SEASON_SPLIT)
+
+
 def set_calibration(calibrator: dict | None) -> None:
     """Restore the favored-team moneyline calibrator from a persisted bundle.
 
@@ -1668,10 +1721,13 @@ def _attach_oof_run_margins(
     fold's VAL games, so every game's margin comes from a model trained
     strictly before it (fold-boundary asserted inside oof_run_margins).
 
-    Games outside any executed fold's val window (warm-up rows, folds below
-    the min-val gate) get NO margin → NaN → the moneyline's existing
-    imputation path (trees route NaN; logistic/MLP train-median). The
-    coverage is logged loudly, never papered over.
+    Games outside any retained fold's val window (warm-up rows) get NO
+    margin → NaN → the moneyline's existing imputation path (trees route
+    NaN; logistic/MLP train-median). The coverage is logged loudly, never
+    papered over. Retention is unconditional (2026-10-03 season-split
+    remediation): every retained window gets margins, matching
+    walk_forward_evaluate's executed set — the sync assertion below pins
+    the two together.
 
     Returns (enriched COPY of games, regenerated splits over the enriched
     frame). Fold GEOMETRY is asserted identical to the input splits —
@@ -1695,8 +1751,7 @@ def _attach_oof_run_margins(
                                        retrain_cadence_days, max_eval_folds,
                                        min_train_days)
 
-    exec_folds = [s for s in splits
-                    if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
+    exec_folds = list(splits)
     if not exec_folds:
         logger.warning("run_margin_diff: no executed folds — margin stays all-NaN")
         out = games.copy()
@@ -1744,15 +1799,18 @@ def _attach_oof_run_margins(
 
 def _regenerate_splits(out: pd.DataFrame, splits: list[dict[str, Any]],
                        min_val_games: int, retrain_cadence_days: int,
-                       max_eval_folds: int,
-                       min_train_days: int) -> list[dict[str, Any]]:
+                       max_eval_folds: int, min_train_days: int) -> list[dict[str, Any]]:
     """Re-split the (possibly enriched) frame with the caller's geometry
-    parameters so every train/val slice carries the attached columns."""
-    return [
-        s for s in walk_forward_splits(
-            out, retrain_cadence_days=retrain_cadence_days,
-            max_eval_folds=max_eval_folds, min_train_days=min_train_days)
-        if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
+    parameters so every train/val slice carries the attached columns.
+
+    Retention is unconditional (2026-10-03): the same set
+    walk_forward_evaluate executes, so the margin-fold-sync assertion holds
+    on every window. ``min_val_games`` is kept for call-signature parity
+    and no longer filters here; callers re-derive the ``provisional`` flag.
+    """
+    return walk_forward_splits(
+        out, retrain_cadence_days=retrain_cadence_days,
+        max_eval_folds=max_eval_folds, min_train_days=min_train_days)
 
 
 # ── Full walk-forward evaluation ────────────────────────────────────────────
@@ -1768,10 +1826,17 @@ def walk_forward_evaluate(
 ) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
     """Run full walk-forward evaluation across all splits.
 
-    Validation folds with fewer than ``min_val_games`` games are skipped
-    (default MIN_VAL_FOLD_GAMES): tiny postseason/offseason-tail folds add
-    high-variance metrics that pollute the pooled scores and the adaptive
-    weights earned from them. Pass 0 to keep every fold (used by tests).
+    Every retained window is FIT and SCORED (2026-10-03 season-split
+    remediation). Folds with fewer than ``min_val_games`` val games are
+    marked ``provisional`` instead of being skipped: their rows still land
+    in the returned OOF frame (CSV / predictions_history) but never enter
+    the grading population — the headline pooled metrics, the shipped
+    Platt map, the prequential calibrator and the adaptive weights all
+    earn only from GRADES rows (regular-season rows of non-provisional
+    folds). Postseason rows are reported as their own block via
+    get_last_season_split() instead of being pooled into — or dropped
+    from — the headline. Pass ``min_val_games=0`` to grade every fold
+    (used by tests).
 
     decided_snapshot: Pre-computed decided frame (from frames.get_decided_frame)
             captured ONCE after official results, before slate merge.  Passed
@@ -1788,6 +1853,8 @@ def walk_forward_evaluate(
     # OOF scoring must start from the configured priors. Otherwise an earlier
     # run's adaptive weights can change the current run's fold predictions.
     _LAST_ADAPTIVE_WEIGHTS.clear()
+    # Season-split report is per-run state too.
+    _LAST_SEASON_SPLIT.clear()
     # Same priors rule for the causal XGB round measurements: a stale list
     # from a previous run/frame would leak another run's fold geometry.
     _LAST_XGB_BEST_ROUNDS.clear()
@@ -1848,18 +1915,31 @@ def walk_forward_evaluate(
 
         if len(train) < 10 or len(val) < 5:
             continue
-        # Keep the FINAL partial-tail fold even below the min-val gate so the
-        # last decided day's OOF predictions surface (the tail rows are never
-        # in this fold's train set, so keeping it is leakage-free). Every
-        # other fold below the gate is still skipped.
-        is_partial_tail = bool(split.get("is_partial_tail"))
-        if len(val) < min_val_games and not is_partial_tail:
+        # Season-split remediation (2026-10-03): no window is skipped for
+        # size anymore. Sub-gate windows stay in the run as PROVISIONAL
+        # folds — fit, scored, written to the OOF frame — but never enter
+        # the grading accumulators below. Leakage contract unchanged: train
+        # is strictly < val_start for every fold, so keeping a window is
+        # never a leak (the old "tiny postseason folds pollute the pooled
+        # scores" concern is answered by grading the population, not by
+        # deleting the games).
+        provisional = len(val) < min_val_games
+        _post = (postseason_flag(val["game_type"].to_numpy())
+                 if "game_type" in val.columns
+                 else np.zeros(len(val), dtype=bool))
+        # Row-level grading mask: regular-season rows of non-provisional
+        # folds. Postseason rows and every provisional row are SCORED but
+        # never GRADERS — the structural contradiction being removed is
+        # n=3 grades (thin Finals tail pooled) vs n=34 not graded.
+        grades = (~_post) if not provisional else np.zeros(len(val), dtype=bool)
+        season_type = split.get("season_type") or _season_type(_post)
+        if provisional:
             logger.info(
-                "Skipping fold %d [%s → %s]: only %d val games < %d minimum",
+                "Fold %d [%s → %s]: PROVISIONAL (%d val games < %d) — "
+                "fit + scored, excluded from grading",
                 split["fold_idx"], str(split["val_start"])[:10],
                 str(split["val_end"])[:10], len(val), min_val_games,
             )
-            continue
 
         try:
             ml_models, ml_metrics = train_moneyline_ensemble(train, val)
@@ -1886,23 +1966,29 @@ def walk_forward_evaluate(
             fold_cal = moneyline_fit(oof_y, oof_blend)
         fold_calibrated = moneyline_apply(ensemble_prob, fold_cal)
 
-        oof_y.extend(y_val)
-        oof_blend.extend(np.asarray(ensemble_prob, dtype=float).tolist())
+        # Grading-gated accumulators: only GRADES rows feed the prequential
+        # calibrator, the shipped Platt map, the adaptive weights and the
+        # per-member reports. Non-grading rows are still scored and still
+        # published — via val_pred/combined below (CSV, predictions_history,
+        # calibration curve) and via the season-split blocks.
+        oof_y.extend(np.asarray(y_val, dtype=float)[grades].tolist())
+        oof_blend.extend(
+            np.asarray(ensemble_prob, dtype=float)[grades].tolist())
         oof_blend_calibrated.extend(
-            np.asarray(fold_calibrated, dtype=float).tolist()
+            np.asarray(fold_calibrated, dtype=float)[grades].tolist()
         )
         for name, p in member_probs.items():
             p_arr = np.asarray(p, dtype=float)
-            oof_members.setdefault(name, []).extend(p_arr.tolist())
             pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
-            oof_members_cal.setdefault(name, []).extend(pc.tolist())
+            oof_members.setdefault(name, []).extend(p_arr[grades].tolist())
+            oof_members_cal.setdefault(name, []).extend(pc[grades].tolist())
 
         # Rolling per-fold blend weighting (2026-09-16 spec): after each
         # fold, re-earn the blend weights from the accumulated PRIOR+current
         # fold OOF member log-loss, so the NEXT fold's blend is weighted by
         # evidence strictly before it (causal — never sees what it scores).
         # Fold 0 blended on the static priors (cleared at run start).
-        _rolling = compute_adaptive_weights(oof_members, oof_y)
+        _rolling = compute_adaptive_weights(oof_members, oof_y) if oof_y else {}
         if _rolling:
             _LAST_ADAPTIVE_WEIGHTS.clear()
             _LAST_ADAPTIVE_WEIGHTS.update(_rolling)
@@ -1911,13 +1997,38 @@ def walk_forward_evaluate(
         val_pred["home_win_prob_model"] = ensemble_prob
         val_pred["home_win_prob_model_calibrated"] = np.round(fold_calibrated, 4)
         val_pred["fold_idx"] = split["fold_idx"]
+        # Season-split disclosure columns: row-level where the fact is
+        # row-level (is_playoffs, grades_pooled), fold-level broadcast
+        # where it is a window property (season_type, provisional).
+        val_pred["is_playoffs"] = _post
+        val_pred["season_type"] = season_type
+        val_pred["provisional"] = provisional
+        val_pred["grades_pooled"] = grades
         all_preds.append(val_pred)
         fold_metrics_list.append(ml_metrics)
 
-    # Pool metrics across folds
+    # Pool metrics across the GRADING population only — regular-season
+    # rows of non-provisional folds (2026-10-03 season-split remediation).
+    # The full OOF frame, postseason and provisional rows included, is
+    # still returned/written; it just doesn't grade. For a run whose every
+    # window is under the gate this falls back to the uninformed default —
+    # the same pooled number the OLD skip-everything path reported, now
+    # with the rows visible instead of absent.
     if all_preds:
         combined = pd.concat(all_preds, ignore_index=True)
-        pooled = compute_metrics(combined["home_win"].values, combined["home_win_prob_model"].values)
+        _g = (combined["grades_pooled"].astype(bool).to_numpy()
+              if "grades_pooled" in combined.columns
+              else np.ones(len(combined), dtype=bool))
+        if _g.any():
+            pooled = compute_metrics(
+                combined["home_win"].values[_g],
+                combined["home_win_prob_model"].values[_g])
+        else:
+            logger.warning(
+                "Walk-forward: all %d OOF rows are non-grading "
+                "(postseason/provisional) — pooled metrics fall back to the "
+                "uninformed default", len(combined))
+            pooled = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
     else:
         combined = pd.DataFrame()
         pooled = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
@@ -2041,6 +2152,59 @@ def walk_forward_evaluate(
         else:
             entry.update({"auc": None, "brier": None, "logloss": None, "n_eval": 0})
         _LAST_ENSEMBLE_INFO.append(entry)
+
+    # Season-split reporting (2026-10-03): four published populations so
+    # the headline can grade on regular-season folds alone without hiding
+    # any scored game. Blocks use the RAW blend — the same quantity as
+    # `pooled` — so oof_regular reconciles with the headline exactly, and
+    # `sufficient` discloses a block thinner than the gate instead of
+    # letting a thin block masquerade as a verdict.
+    def _season_block(frame: Optional[pd.DataFrame]) -> dict[str, Any]:
+        if frame is None or not len(frame):
+            return {"n": 0, "sufficient": False}
+        m = compute_metrics(frame["home_win"].to_numpy(dtype=float),
+                            frame["home_win_prob_model"].to_numpy(dtype=float))
+        return {**m, "n": int(len(frame)),
+                "sufficient": bool(len(frame) >= min_val_games)}
+
+    if len(combined) and "grades_pooled" in combined.columns:
+        _g = combined["grades_pooled"].astype(bool).to_numpy()
+        _p = (combined["is_playoffs"].astype(bool).to_numpy()
+              if "is_playoffs" in combined.columns
+              else np.zeros(len(combined), dtype=bool))
+        _v = (combined["provisional"].astype(bool).to_numpy()
+              if "provisional" in combined.columns
+              else np.zeros(len(combined), dtype=bool))
+    else:
+        _g = np.zeros(len(combined), dtype=bool)
+        _p = np.zeros(len(combined), dtype=bool)
+        _v = np.zeros(len(combined), dtype=bool)
+    season_split: dict[str, Any] = {
+        "counts": {
+            "regular_rows": int((~_p).sum()),
+            "postseason_rows": int(_p.sum()),
+            "provisional_rows": int(_v.sum()),
+            "grading_rows": int(_g.sum()),
+            "oof_rows": int(len(combined)),
+        },
+        "blocks": {
+            "oof_regular": _season_block(combined[_g] if len(combined) else None),
+            "oof_postseason": _season_block(combined[_p] if len(combined) else None),
+            "oof_provisional": _season_block(combined[_v] if len(combined) else None),
+            "oof_all": _season_block(combined if len(combined) else None),
+        },
+    }
+    _LAST_SEASON_SPLIT.clear()
+    _LAST_SEASON_SPLIT.update(season_split)
+    logger.info(
+        "Walk-forward season split: %d OOF rows (%d grading / %d "
+        "postseason / %d provisional); blocks regular n=%d, postseason "
+        "n=%d, provisional n=%d",
+        len(combined), int(_g.sum()), int(_p.sum()), int(_v.sum()),
+        season_split["blocks"]["oof_regular"]["n"],
+        season_split["blocks"]["oof_postseason"]["n"],
+        season_split["blocks"]["oof_provisional"]["n"],
+    )
 
     return best_models, pooled, combined
 

@@ -348,6 +348,7 @@ from training import (
     calibration_buckets,
     feature_importance_weights,
     get_last_calibrator,
+    get_last_season_split,
     get_last_walk_forward_splits,
     get_last_fold_signature,
     load_ensemble,
@@ -1215,6 +1216,7 @@ def _model_monitor_json(
     rolling_brier: Optional[dict] = None,
     features_metadata: Optional[dict] = None,
     run_engine: Optional[dict] = None,
+    season_split: Optional[dict] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -1258,6 +1260,11 @@ def _model_monitor_json(
         # FOLD cadence and must never drive this card.
         "next_retrain": (datetime.now() + timedelta(days=NEXT_RUN_HEURISTIC_DAYS)).strftime("%Y-%m-%d"),
         "metrics": metrics,
+        # Season-split reporting (2026-10-03): headline metrics above grade
+        # regular-season non-provisional rows only; these four published
+        # blocks (regular/postseason/provisional/all) make every scored
+        # population reconcilable against the headline instead of hidden.
+        "season_split": season_split or {},
         "drift_summary": {
             "warnings": n_warns,
             "alerts": n_alerts,
@@ -2494,7 +2501,7 @@ def run_daily_pipeline(
             coverage_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier, features_metadata=features_metadata, run_engine=run_engine_block)
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier, features_metadata=features_metadata, run_engine=run_engine_block, season_split=get_last_season_split())
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync

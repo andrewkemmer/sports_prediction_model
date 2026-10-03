@@ -1444,7 +1444,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute("""
         CREATE TABLE game_winners AS
         WITH last_pitch AS (
-            SELECT game_pk, game_date, home_team, away_team,
+            SELECT game_pk, game_date, game_type, home_team, away_team,
                    home_score, away_score,
                    ROW_NUMBER() OVER (
                        PARTITION BY game_pk
@@ -1454,6 +1454,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         )
         SELECT game_pk,
                CAST(game_date AS DATE) AS game_date,
+               game_type,
                home_team, away_team,
                home_score, away_score,
                CASE WHEN home_score > away_score THEN 1.0
@@ -3007,7 +3008,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     con.execute("""
         CREATE TABLE game_level AS
         SELECT
-            w.game_pk, w.game_date, w.home_team, w.away_team,
+            w.game_pk, w.game_date, w.game_type,
+            w.home_team, w.away_team,
             w.home_score, w.away_score, w.home_win, w.total_runs,
             s.home_starter_id, s.away_starter_id, v.venue,
             rh.rest_days AS rest_days_home, ra.rest_days AS rest_days_away,

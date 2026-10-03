@@ -508,6 +508,34 @@ def walk_forward_oof(
                 np.asarray(p, dtype=float) if p is not None
                 else np.full(len(val), np.nan)
             )
+
+        # --- WHICH ROWS MAY GRADE THE MODEL -------------------------------
+        # Policy (2026-10-03): only regular-season rows from windows at or
+        # above MIN_VAL_FOLD_GAMES feed the blend optimizer and the in-loop
+        # Platt map. Postseason rows and provisional (under-gate) windows are
+        # still FIT and still SCORED -- they land in ``oof`` and therefore in
+        # ``*_predictions_history`` -- but they are never evidence FOR the
+        # model, only evidence ABOUT it. Two reasons, both observed:
+        #   * the gate's stated purpose was to keep thin post-season folds out
+        #     of pooled metrics, yet ``is_partial_tail`` re-admitted the single
+        #     thinnest one (n=3 Finals), so a 3-game window graded the model
+        #     while a 34-game playoff window did not;
+        #   * postseason is trained on by every fold (train = strictly prior,
+        #     no season-type filter) but was never scored, so the reported
+        #     pooled metrics silently described only ~93% of the population.
+        is_post = (folds_mod.postseason_flag(val["game_type"]).to_numpy()
+                   if "game_type" in val
+                   else (pd.to_numeric(val["is_playoffs"], errors="coerce")
+                         .fillna(0).gt(0.5).to_numpy()
+                         if "is_playoffs" in val
+                         else np.zeros(len(val), dtype=bool)))
+        fold_provisional = bool(getattr(fold, "provisional", False))
+        grades = np.zeros(len(val), dtype=bool) if fold_provisional else ~is_post
+        row["is_playoffs"] = is_post.astype(float)
+        row["season_type"] = getattr(fold, "season_type", "regular")
+        row["provisional"] = fold_provisional
+        row["grades_pooled"] = grades
+
         # This fold's blend uses only the prior weights.
         row["p_ensemble"] = _blend(row, prior_weights)
         prior_cal = moneyline_fit(
@@ -522,10 +550,10 @@ def walk_forward_oof(
         # Add the scored fold only after its prediction and calibration values
         # have been fixed.  These values can train the next fold.
         for name in config.ENSEMBLE_MEMBERS:
-            pooled[name].extend(row[f"p_{name}"].tolist())
-        pooled_y.extend(y_val.tolist())
-        prior_blend.extend(row.p_ensemble.tolist())
-        prior_y.extend(y_val.tolist())
+            pooled[name].extend(row[f"p_{name}"].to_numpy(float)[grades].tolist())
+        pooled_y.extend(row.home_win.to_numpy(float)[grades].tolist())
+        prior_blend.extend(row.p_ensemble.to_numpy(float)[grades].tolist())
+        prior_y.extend(row.home_win.to_numpy(float)[grades].tolist())
         earned = compute_adaptive_weights(pooled, np.asarray(pooled_y, dtype=float))
         if earned:
             prior_weights = earned
@@ -538,6 +566,9 @@ def walk_forward_oof(
                 "n_train": int(len(train)),
                 "n_val": int(len(val)),
                 "is_partial_tail": bool(getattr(fold, "is_partial_tail", False)),
+                "season_type": getattr(fold, "season_type", "regular"),
+                "provisional": fold_provisional,
+                "n_grading": int(grades.sum()),
                 "weights": fold_weights,
             }
         )
@@ -546,7 +577,18 @@ def walk_forward_oof(
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1, len(folds))
 
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(oof):
+        season_split = {
+            "regular_rows": int((~oof.is_playoffs.astype(bool)).sum()),
+            "postseason_rows": int(oof.is_playoffs.astype(bool).sum()),
+            "provisional_rows": int(oof.provisional.astype(bool).sum()),
+            "grading_rows": int(oof.grades_pooled.astype(bool).sum()),
+        }
+    else:
+        season_split = {"regular_rows": 0, "postseason_rows": 0,
+                        "provisional_rows": 0, "grading_rows": 0}
     return {"oof": oof, "member_weights": prior_weights,
+            "season_split": season_split,
             "fold_table": pd.DataFrame(fold_rows)}
 
 
