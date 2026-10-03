@@ -267,7 +267,7 @@ def primary_positions(payload: Any) -> dict:
     Holmgren, Hartenstein, Bitadze, Wendell Carter Jr., Adebayo, Turner...) and
     11 ``F-G`` (Tatum, Doncic, Barnes, Barrett, Anunoby...). Those 17 include
     most of the league's actual starting centres, which is the same ORL/SAS/OKC
-    labelling artifact that starved ``pl_epm_c_*`` in the first place.
+    labelling artifact that starved ``pl_rapm_c_*`` in the first place.
 
     A player absent from the index is simply not in the returned dict: the
     caller falls back to the convention for them, so a partial index degrades
@@ -330,10 +330,11 @@ def assign_positions(by_position: dict, primary: dict | None = None) -> dict:
     if primary:
         for player_id, position in primary.items():
             # Only where the two sources AGREE the player plays there. The
-            # collapsed cell is a denominator in ``league_prior_table``, so it
-            # has to be a cell this season's own filter pull actually produced;
-            # an index naming a position the filter never returned for this
-            # player would create a cell nothing was counted against.
+            # collapsed cell picks the position prior the RAPM shrink layer
+            # weighs against, so it has to be a cell this season's own filter
+            # pull actually produced; an index naming a position the filter
+            # never returned for this player would create a cell nothing was
+            # counted against.
             if (player_id in assigned
                     and player_id in (by_position.get(position) or ())):
                 assigned[player_id] = position
@@ -349,10 +350,10 @@ def positions_frame(by_position: dict,
     so a player may live in exactly one of them. ``positions`` is the feed's
     FULL listing, pipe-joined in config order (``"F|C"`` for a forward-centre),
     and it is what the team-level position segments read: "what is this club's
-    EPM at centre" is answered by every player the league lists at centre, and
+    RAPM at centre" is answered by every player the league lists at centre, and
     collapsing the 47 F-C players of 2025-26 into F left whole rosters with no
     C segment at all (ORL starts Wendell Carter Jr. and Goga Bitadze - both
-    listed F-C - which is most of the 62% ``pl_epm_c_diff`` baseline coverage
+    listed F-C - which is most of the 62% ``pl_rapm_c_diff`` baseline coverage
     the monitor flags). The prior keeps its single cell; the segment keeps the
     whole listing; neither can double-count in the other's arithmetic.
 

@@ -32,7 +32,7 @@ def main() -> None:
     import features as feat_mod
     import ingestion
     import lineup_projection as proj
-    import player_epm as epm_mod
+    import player_rapm as rapm_mod
 
     print("=" * 78)
     print("1. POINT-IN-TIME")
@@ -49,12 +49,12 @@ def main() -> None:
         [pd.read_parquet(p).assign(season=p.stem.split("_")[1])
          for p in sorted(CACHE.glob("positions/positions_*.parquet"))],
         ignore_index=True)
-    games_frame = epm_mod.prepare_player_games(log, positions)
+    games_frame = rapm_mod.prepare_player_games(log, positions)
 
     # (a) Recompute every prior independently and compare. A leak of even one
     # row would move these numbers, so this is the real test of the guarantee.
     sample_dates = pd.Series(sorted(games_frame.gameday.dropna().unique())[::40])
-    ratings = epm_mod.build_player_epm(games_frame, target_dates=sample_dates)
+    ratings = rapm_mod.build_player_rapm(games_frame, target_dates=sample_dates)
     print(f"  rating rows audited: {len(ratings)} across {len(sample_dates)} dates")
 
     mismatches = 0
@@ -62,12 +62,23 @@ def main() -> None:
     by_date = {d: grp for d, grp in games_frame.groupby("gameday")}
     for row in ratings.itertuples(index=False):
         target = pd.Timestamp(row.target_date)
+        # The SAME evidence season the build resolves: the strict reading (a
+        # game on the target day is not evidence yet), which falls back to the
+        # prior season while the own season has nothing before the target.
+        season = rapm_mod._evidence_season(games_frame, target, strict=True)
         earlier = games_frame[games_frame.gameday < target]
-        earlier = earlier[earlier.season == epm_mod._season_of(target)]
+        if season:
+            earlier = earlier[earlier.season == season]
         mine = earlier[earlier.player_id == row.player_id]
+        # DNPs are not games PLAYED: _prior_for drops zero-share rows before
+        # counting, and the recompute has to make the same cut.
+        mine = mine[pd.to_numeric(mine.share, errors="coerce").fillna(0) > 0]
         checked += 1
-        if (abs(mine.plays.sum() - row.prior_plays) > 1e-6
-                or abs(mine.plus_minus.sum() - row.prior_pm) > 1e-6
+        eff = float((mine.share ** 2).sum())
+        minutes = float(pd.to_numeric(mine.minutes, errors="coerce")
+                        .fillna(0).sum())
+        if (abs(eff - row.prior_eff) > 1e-6
+                or abs(minutes - row.prior_minutes) > 1e-6
                 or len(mine) != row.prior_games):
             mismatches += 1
     print(f"  prior recomputed from strictly-earlier rows: {checked} checked, "
@@ -82,7 +93,7 @@ def main() -> None:
     probe = games_frame[games_frame.player_id == games_frame.player_id.iloc[0]]
     d0 = pd.Timestamp(probe.gameday.iloc[1])
     same_day = probe[probe.gameday == d0]
-    contributors = epm_mod._prior_for(games_frame, d0)
+    contributors = rapm_mod._prior_for(games_frame, d0)
     contributors = contributors[
         contributors.player_id == same_day.player_id.iloc[0]]
     same_day_in_prior = len(games_frame[(games_frame.gameday == d0)
@@ -93,9 +104,11 @@ def main() -> None:
     earlier_only = games_frame[(games_frame.player_id
                                 == same_day.player_id.iloc[0])
                                & (games_frame.gameday < d0)]
+    earlier_only = earlier_only[
+        pd.to_numeric(earlier_only.share, errors="coerce").fillna(0) > 0]
     if len(contributors) and len(earlier_only):
-        exact = (abs(contributors.prior_plays.iloc[0] - earlier_only.plays.sum())
-                 < 1e-6)
+        exact = (abs(contributors.prior_eff.iloc[0]
+                     - float((earlier_only.share ** 2).sum())) < 1e-6)
         print(f"  prior equals the strictly-earlier sum exactly: {exact}")
 
     # (c) Do any ratings dated on/after a game contribute to that game's
@@ -106,7 +119,8 @@ def main() -> None:
     game_df = feat_mod.build_game_features(settled, facts.team_stats,
                                            facts.team_events)
     all_dates = pd.Series(sorted(pd.to_datetime(game_df.gameday).dropna().unique()))
-    full = epm_mod.build_player_epm(games_frame, target_dates=all_dates)
+    full = rapm_mod.build_player_rapm(games_frame, target_dates=all_dates,
+                                      team_stats=facts.team_stats)
     full = full.rename(columns={"target_date": "gameday"})
     full["gameday"] = pd.to_datetime(full["gameday"])
     full["report_name"] = ""

@@ -401,68 +401,83 @@ Two things are deliberately **not** done here:
   OOF CSV is still the last resort — MLB keeps that same ladder, and MLB's
   invariant rests on the window rather than on removing the fallback.
 
-### Player-level Estimated Plus-Minus, shrunk to a position-segmented prior
+### Player-level Regularized Adjusted Plus-Minus, shrunk to a position-segmented prior
 
-`backend/player_epm.py` rates every player on Estimated Plus-Minus — the NBA
-analogue of NFL's EPA-per-target — the way MLB rates a batter on wOBA and NHL
-rates a skater:
-
-```
-EPM = 100 * plus_minus / participated_possessions
-```
-
-A player's participated possessions are his minutes share of the game's
-possessions, `game_possessions * minutes / 48`, where a team's game
-possessions are Dean Oliver's estimate `FGA + 0.44 * FTA + TOV` summed over
-both teams. Every input is already in the player frame, so the rating adds no
-new source.
-
-The rate is arithmetic and uninteresting. What makes it a rating is that each
-player's accumulated plus-minus is pulled toward a league prior before use:
+`backend/player_rapm.py` rates every player on Regularized Adjusted
+Plus-Minus — the NBA analogue of NFL's EPA-per-target — the way MLB rates a
+batter on wOBA and NHL rates a skater:
 
 ```
-EPM_shrunk = (100 * prior_pm + lg_epm[pos] * k[pos]) / (prior_plays + k[pos])
+(X'X + λI) β = X'y        RAPM_raw = β[player]
 ```
+
+The design has **one row per game**. `y` is the home margin, each home
+player's column carries his minutes share of the game (`MIN / 48`, clipped at
+1.0; a player who did not play contributes no row) and each away player's
+carries the negative of his, so every coefficient is signed toward its own
+side. The regression is what makes it *adjusted*: each teammate's share is
+claimed by his own column, so a player's beta is his effect conditional on
+who he played with. The ridge is what makes it *regularized* — λ = 16 sits
+on the player columns only, and the home-court intercept column is never
+ridged. Every input is already in the player frame (game-log minutes plus the
+team's own result), so the rating adds no new source.
+
+The solved beta is a regression estimate, not yet a rating: a five-game
+call-up and an 82-game regular are solved in the same design, so each raw
+beta is pulled toward a league prior before use:
+
+```
+RAPM_shrunk = (eff * beta + lg_rapm[pos] * k[pos]) / (eff + k[pos])
+```
+
+Here `eff` is the player's accumulated eff-games — the sum of `share**2`
+over the fit's games before the target — and `lg_rapm[pos]` is the mean raw
+beta of that position's evidenced players **in the same fit**, so the prior
+and the rating it shrinks can never disagree about scale or about date.
 
 **The prior is position-segmented.** One league mean would be wrong here for the
 same reason NHL segments by position: a centre and a guard do not share an
-opportunity. On the 2024-25 league the split is real, and it is stable across
-the three seasons in the frame — league EPM is about +0.38 per 100 possessions
-for guards, −0.39 for forwards and −0.64 for centres — so a single mean would
-rate every centre as a below-average guard. The ordering is the opposite of true
-shooting's (league TS runs .618 centres / .588 forwards / .574 guards): centres
-are the most efficient shooters per attempt and the worst plus-minus performers
-per possession they share the floor for, which is exactly the distinction an
-impact rating exists to capture.
+opportunity. Measured at the end of the cached 2025-26 frame the split is real
+and stable — the fit's position means run +0.32 points per game for centres,
++0.04 for guards and −0.14 for forwards, and barely move across a fortnight of
+target dates. The prior spread is modest next to the solved betas (top players
+run +5 to +6, fringe −5 to −7 points per game), which is the point: the
+segmented prior disciplines the thin cells — a player with no evidence at all
+falls back exactly to his position's mean instead of dropping out of the
+rating — while the stars are carried by their own evidence.
 
 **Prior strength follows the MLB convention carried across by its fraction.**
 MLB's fixed prior is 120 plate appearances, which is 20% of a 600-PA season. The
 fraction is the portable part; the season length is sport-specific. So:
 
 ```
-k[position] = 0.20 * mean PARTICIPATED POSSESSIONS per PLAYER-SEASON at that position
+k[position] = 0.20 * mean EFF-GAMES per PLAYER-SEASON at that position
 ```
 
-Measured on the cached 2023-24 through 2025-26 frame that gives k of about 490
-for guards, 422 for forwards and 445 for centres — reference player-seasons of
-roughly 2,450, 2,110 and 2,225 participated possessions. The unit is a
+Measured on the cached 2023-24 through 2025-26 frame the mean player-season
+sits near 13.3 eff-games, so k lands between 2.4 and 3.0 — about 3.0 for
+guards, 2.4 for forwards and 2.6 for centres. The unit is a
 **player-season**, not a player: averaging per player divides each career by its
 season count and weights a three-game cameo like a full season, which collapses
 the reference season and makes `k` several times too small. That is the
 correction NHL documents at length, and the test asserts the two units disagree
 rather than only that the chosen one runs.
 
-**The prior is strictly point-in-time.** The player's numerator and denominator,
-and the league mean, are summed over rows *strictly before* the target date and
-partitioned by season. Both properties are invisible in the output — a player
-with a full season of evidence looks equally well-rated whether or not the
-boundary holds — so both are pinned by tests. The same discipline governs the
-prior *strength*: `k` is derived per target season from completed prior seasons
-only, so a season never tunes its own shrinkage, and the frame's earliest
-season (no completed prior to measure against) keeps the whole-frame mean.
+**The prior is strictly point-in-time.** The solve reads only games *strictly
+before* the target date, and the position prior is the mean beta of that
+position's members in that same strictly-bounded fit — never a table that
+could straddle the boundary. Both properties are invisible in the output — a
+player with a full season of evidence looks equally well-rated whether or not
+the boundary holds — so both are pinned by tests. The same discipline governs
+the prior *strength*: `k` is derived per target season from completed prior
+seasons only, so a season never tunes its own shrinkage, and the frame's
+earliest season (no completed prior to measure against) keeps the whole-frame
+mean. Before a season's first decided game there is no in-season evidence to
+solve on, so the fit falls back to the last season that has one — the bridge
+the opening slate needs.
 
-**Availability is a separate column, never folded into the rate.** An injured
-player still has an EPM; what changes is how much a lineup
+**Availability is a separate column, never folded into the rating.** An injured
+player still has a RAPM; what changes is how much a lineup
 projection should lean on it. `out` carries a 0.0 multiplier, `day_to_day` 0.5,
 `healthy` 1.0. Note that this is a *current* input, like MLB's IL: it describes
 today's roster, so it is only meaningful for a live slate. A rating dated to a
@@ -501,12 +516,12 @@ still passes; the real shape is pinned by a test.
 
 #### Published, and promoted only as a lineup aggregate
 
-The ratings are written to `nba_player_epm_{date}.csv` (and the projected
-lineups to `nba_player_epm_lineups_{date}.csv`) alongside the feature
+The ratings are written to `nba_player_rapm_{date}.csv` (and the projected
+lineups to `nba_player_rapm_lineups_{date}.csv`) alongside the feature
 contract. The model never consumes a single player's rating directly: what
 enters `MONEYLINE_FEATURE_COLS` is the projected lineup's per-position
-aggregate — `pl_epm_{pos}_home/_away/_diff`, built by
-`backend/ab_position_epm.py` from these ratings — so one player's rating moves
+aggregate — `pl_rapm_{pos}_home/_away/_diff`, built by
+`backend/ab_position_rapm.py` from these ratings — so one player's rating moves
 a prediction only through the projected roster he is part of. That aggregate
 form is the one that was holdout-validated; adding a raw per-player column
 there changes the model and needs its own validation, which is a separate
@@ -523,7 +538,7 @@ nobody played, so the failure is logged loudly even though it is not fatal.
 counterparts of MLB's `build_il_stints.py` and `_LINEUP_AGG_ROSTER`. Four
 things are inherited deliberately, and each is a bug MLB already paid for:
 
-* **RATING FIRST, INJURY SECOND.** The shrunk EPM is computed for every player
+* **RATING FIRST, INJURY SECOND.** The shrunk RAPM is computed for every player
   regardless of injury. The removal happens at pool construction, where a
   replacement inherits the vacated slot. Multiplying a rating by zero instead —
   the obvious shortcut — leaves the player *in* the pool dragging the mean
@@ -543,7 +558,7 @@ things are inherited deliberately, and each is a bug MLB already paid for:
 * **NO PADDING.** A short-handed team is averaged over the players it has.
   Padding to eight would fabricate full strength from a depleted roster.
 
-`PLAYER_EPM_MIN_PLAYS` (120) gates **pool membership**, not the rating.
+`PLAYER_RAPM_MIN_MINUTES` (50) gates **pool membership**, not the rating.
 Shrinkage already handles a thin rating; the floor answers a different
 question — whether a player with three career games is a candidate for
 tonight's lineup at all.

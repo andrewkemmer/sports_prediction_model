@@ -59,7 +59,7 @@ logger = logging.getLogger("smoke")
 UPSTREAM_SCHEDULE = "espn scoreboard: event id, date, home/away, score"
 UPSTREAM_SEASON_LOG = "stats.nba.com LeagueGameLog"
 UPSTREAM_PLAY_BY_PLAY = "stats.nba.com playbyplayv3"
-#: Fourth upstream of the ``pl_epm_*`` family only: which players those
+#: Fourth upstream of the ``pl_rapm_*`` family only: which players those
 #: player-line ratings exclude from a game's projected lineup is decided by
 #: the pre-tipoff official injury report, published with the run's artifacts
 #: as the designations archive and consumed point-in-time.
@@ -162,21 +162,22 @@ FEATURE_UPSTREAM.update({
     for side in ("home", "away")
 })
 
-# The position-segmented projected-lineup EPM family. The ratings come out of
-# the season log's player lines through player_epm's shrunk, position-prior
-# construction; the pipeline then averages them over each game's projected
-# lineup, excluding players the pre-tipoff report designated
-# Out/Doubtful/Recovery (master_pipeline._build_position_epm_features). The
-# plain build_game_features path of this tool leaves them NaN - they show up
+# The position-segmented projected-lineup RAPM family. The ratings come out
+# of the season log's player lines through player_rapm's ridge fit and
+# position-prior shrinkage; the pipeline then blends them over each game's
+# projected lineup by minutes per game, excluding players the pre-tipoff
+# report designated Out/Doubtful/Recovery
+# (master_pipeline._build_position_rapm_features). The plain
+# build_game_features path of this tool leaves them NaN - they show up
 # below the coverage gate, which is the honest statement that this tool's
 # build is a subset of the production build for that family.
-_PL_EPM_UPSTREAM = (
-    f"{UPSTREAM_SEASON_LOG} player lines -> position-segmented shrunk EPM"
+_PL_RAPM_UPSTREAM = (
+    f"{UPSTREAM_SEASON_LOG} player lines -> position-segmented shrunk RAPM"
     f" -> projected lineup average ({UPSTREAM_INJURY_REPORT})"
 )
 FEATURE_UPSTREAM.update({
-    f"pl_epm_{pos}_{side}": (_PL_EPM_UPSTREAM if side == "diff"
-                            else f"{_PL_EPM_UPSTREAM} ({side} side)")
+    f"pl_rapm_{pos}_{side}": (_PL_RAPM_UPSTREAM if side == "diff"
+                             else f"{_PL_RAPM_UPSTREAM} ({side} side)")
     for pos in ("c", "f", "g")
     for side in ("home", "away", "diff")
 })

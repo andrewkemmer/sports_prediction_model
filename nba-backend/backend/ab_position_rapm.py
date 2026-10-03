@@ -1,7 +1,7 @@
-"""Holdout A/B: baseline contract vs baseline + position-segmented EPM.
+"""Holdout A/B: baseline contract vs baseline + position-segmented RAPM.
 
 Runs the identical walk-forward over the identical games with one difference -
-whether the nine ``pl_epm_*`` columns are in the contract - and reports the
+whether the nine ``pl_rapm_*`` columns are in the contract - and reports the
 out-of-fold metrics side by side.
 
 What makes this an honest comparison rather than two numbers:
@@ -17,7 +17,7 @@ What makes this an honest comparison rather than two numbers:
   only to games it covers.
 
 Run:
-    python ab_position_epm.py
+    python ab_position_rapm.py
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ logger = logging.getLogger("ab")
 
 CACHE = Path(os.path.expanduser("~/.cache/sports_prediction_model/nba"))
 
-POSITION_FEATURES = [f"pl_epm_{p}_{side}" for p in ("c", "f", "g")
+POSITION_FEATURES = [f"pl_rapm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
 
 
@@ -54,7 +54,7 @@ def build_player_games():
     while the rating frame identifies them by id, and the designation filter
     has to reach the player rather than the team.
     """
-    import player_epm as epm_mod
+    import player_rapm as rapm_mod
     frames = [pd.read_parquet(f)
               for f in sorted(CACHE.glob("season_logs/log_*_Regular_Season.parquet"))]
     log = pd.concat(frames, ignore_index=True)
@@ -63,7 +63,7 @@ def build_player_games():
     log["gameday"] = pd.to_datetime(log["gameday"], errors="coerce")
     id_by_name: dict = {}
     name_by_id: dict = {}
-    for pid, pname, team in zip(epm_mod._player_id_str(log.player_id),
+    for pid, pname, team in zip(rapm_mod._player_id_str(log.player_id),
                                 log.player_name.astype(str), log.team.astype(str)):
         id_by_name.setdefault((team, pname), pid)
         name_by_id.setdefault(pid, pname)
@@ -85,7 +85,7 @@ def build_player_games():
             frame = pd.read_parquet(path)
             frame["season"] = season
             positions.append(frame)
-    frame = epm_mod.prepare_player_games(
+    frame = rapm_mod.prepare_player_games(
         log, pd.concat(positions, ignore_index=True))
     return frame, name_by_id
 
@@ -99,7 +99,8 @@ def _flip_name(name: str) -> str:
 
 
 def build_position_features(games: pd.DataFrame,
-                            designations: pd.DataFrame | None
+                            designations: pd.DataFrame | None,
+                            team_stats: pd.DataFrame | None = None,
                             ) -> pd.DataFrame:
     """The nine features, for every decided game in the window.
 
@@ -108,12 +109,13 @@ def build_position_features(games: pd.DataFrame,
     column the model cannot learn from, and that was the blocker.
     """
     import lineup_projection as proj
-    import player_epm as epm_mod
+    import player_rapm as rapm_mod
     games_frame, name_by_id = build_player_games()
     dates = pd.Series(sorted(pd.to_datetime(games.gameday).dropna().unique()))
     logger.info("building ratings for %d target dates", len(dates))
     started = time.time()
-    ratings = epm_mod.build_player_epm(games_frame, target_dates=dates)
+    ratings = rapm_mod.build_player_rapm(games_frame, target_dates=dates,
+                                         team_stats=team_stats)
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:
@@ -134,7 +136,7 @@ def build_position_features(games: pd.DataFrame,
     aggregates = proj.projected_lineup(ratings, games=games)
     logger.info("aggregates: %d team-games in %.0fs", len(aggregates),
                 time.time() - started)
-    return proj.attach_position_epm(games, aggregates), aggregates
+    return proj.attach_position_rapm(games, aggregates), aggregates
 
 
 def score(p: np.ndarray, y: np.ndarray) -> dict:
@@ -178,7 +180,8 @@ def main() -> None:
                 else f"{len(designations)} rows")
 
     logger.info("building the nine position features")
-    enriched, aggregates = build_position_features(base, designations)
+    enriched, aggregates = build_position_features(base, designations,
+                                                    team_stats=facts.team_stats)
 
     missing = [c for c in POSITION_FEATURES if c not in enriched.columns]
     if missing:
@@ -218,7 +221,7 @@ def main() -> None:
                 if c not in set(POSITION_FEATURES)]
     results = {}
     for name, columns in (("baseline", baseline),
-                          ("position_ts", baseline + POSITION_FEATURES)):
+                          ("position_rapm", baseline + POSITION_FEATURES)):
         missing_cols = [c for c in columns if c not in joined.columns]
         if missing_cols:
             logger.warning("%s: dropping %d absent column(s)", name,
@@ -241,9 +244,9 @@ def main() -> None:
         print(f"  weights   {({k: round(v, 4) for k, v in weights.items()})}")
 
     config.reset_feature_subset()
-    b, t = results["baseline"][0], results["position_ts"][0]
-    print("\n=== side by side (position_ts minus baseline)")
-    print(f"  {'metric':<10} {'baseline':>10} {'position_ts':>12} {'delta':>10}")
+    b, t = results["baseline"][0], results["position_rapm"][0]
+    print("\n=== side by side (position_rapm minus baseline)")
+    print(f"  {'metric':<10} {'baseline':>10} {'position_rapm':>12} {'delta':>10}")
     for key in ("logloss", "accuracy", "brier", "auc", "ece"):
         if key in b and key in t:
             print(f"  {key:<10} {b[key]:>10.5f} {t[key]:>12.5f} "
@@ -255,7 +258,7 @@ def main() -> None:
     # -0.0007 means nothing if the per-game deltas are an order of magnitude
     # wider, which on 2,000 games they usually are.
     base_oof = results["baseline"][1]
-    treat_oof = results["position_ts"][1]
+    treat_oof = results["position_rapm"][1]
     merged = (base_oof[["game_id", "home_win", "p_ensemble"]]
               .rename(columns={"p_ensemble": "p_ensemble_b"})
               .merge(treat_oof[["game_id", "p_ensemble"]]

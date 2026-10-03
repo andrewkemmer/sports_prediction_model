@@ -314,9 +314,9 @@ def _build_injury_stints(facts, games: pd.DataFrame) -> pd.DataFrame | None:
     return stints
 
 
-def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
-                     stints=None) -> str | None:
-    """Build and write the player-level EPM ratings, or report why not.
+def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
+                      stints=None) -> str | None:
+    """Build and write the player-level RAPM ratings, or report why not.
 
     Returns the artifact name, or None when the ratings could not be built at
     all. This never raises into the run: the ratings are published alongside
@@ -325,12 +325,12 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
     because a silently-absent ratings file is indistinguishable from a league
     where nobody played.
     """
-    import player_epm as epm_mod
+    import player_rapm as rapm_mod
     try:
         slate_dates = pd.to_datetime(games.gameday, errors="coerce").dropna()
         target = slate_dates.max() if len(slate_dates) else None
         if target is None:
-            logger.warning("player EPM skipped: the schedule has no usable date")
+            logger.warning("player RAPM skipped: the schedule has no usable date")
             return None
         seasons = sorted({ingestion.season_label(d.date())
                           for d in slate_dates})
@@ -338,16 +338,16 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
             [ingestion._fetch_positions(season) for season in seasons],
             ignore_index=True) if seasons else pd.DataFrame()
         if not len(positions):
-            logger.warning("player EPM skipped: no positions resolved for %s; "
+            logger.warning("player RAPM skipped: no positions resolved for %s; "
                            "every rating would fall back to an unsegmented "
                            "prior", ", ".join(seasons) or "the window")
             return None
         teams = sorted(set(games.home_team.astype(str)) |
                        set(games.away_team.astype(str)))
-        games_frame = epm_mod.prepare_player_games(facts.player_stats, positions)
+        games_frame = rapm_mod.prepare_player_games(facts.player_stats, positions)
         if not len(games_frame):
-            logger.warning("player EPM skipped: the player log has no "
-                           "points/fga/fta rows to rate")
+            logger.warning("player RAPM skipped: the player log has no "
+                           "rows to rate")
             return None
         # Availability is ANNOTATED, not applied. The rating is computed for
         # every player regardless of injury, and the removal happens at pool
@@ -356,22 +356,24 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
         # pool dragging the mean toward zero.
         if stints is not None:
             import injury_stints as stints_mod
-            ratings = epm_mod.build_player_epm(
-                games_frame, target_dates=pd.Series([target]))
+            ratings = rapm_mod.build_player_rapm(
+                games_frame, target_dates=pd.Series([target]),
+                team_stats=facts.team_stats)
             ratings = stints_mod.annotate_availability(ratings, stints)
         else:
-            ratings = epm_mod.build_player_epm(
-                games_frame, target_dates=pd.Series([target]))
+            ratings = rapm_mod.build_player_rapm(
+                games_frame, target_dates=pd.Series([target]),
+                team_stats=facts.team_stats)
             ratings["is_available"] = True
         if not len(ratings):
-            logger.warning("player EPM skipped: no player had strictly-prior "
+            logger.warning("player RAPM skipped: no player had strictly-prior "
                            "evidence as of %s", target.date())
             return None
         # The rating row's own date doubles as the pool's gameday, so the
         # projected-lineup join and the artifact agree on one column. The
         # rename happens AFTER the artifact is written, because the CSV keeps
         # ``target_date`` as its label.
-        path = out / config.PLAYER_EPM_CSV.format(date=date_c)
+        path = out / config.PLAYER_RAPM_CSV.format(date=date_c)
         ratings.assign(target_date=pd.to_datetime(ratings.target_date)
                        .dt.strftime("%Y-%m-%d")).to_csv(path, index=False)
 
@@ -385,7 +387,7 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
         aggregates = proj_mod.projected_lineup(
             ratings, games=games, stints=stints)
         if len(aggregates):
-            agg_path = out / config.PLAYER_EPM_AGG_CSV.format(date=date_c)
+            agg_path = out / config.PLAYER_RAPM_AGG_CSV.format(date=date_c)
             aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)
                               .dt.strftime("%Y-%m-%d")).to_csv(agg_path,
                                                               index=False)
@@ -395,7 +397,7 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
             # The seven diff features are attached to a COPY of the slate for
             # Reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
             # that changes the model and needs its own holdout gate. The
-            # family is SUPERSEDED by the nine pl_epm_* features, which are the
+            # family is SUPERSEDED by the nine pl_rapm_* features, which are the
             # same idea built across the whole decided frame the way MLB's
             # lineup_agg is - and this per-target-date version covers one row
             # per run, which is why it was never promoted. The verdict ships
@@ -414,7 +416,7 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
             _superseded_lineup_family = {
                 "status": "SUPERSEDED",
                 "note": ("per-target-date projected-lineup diffs; superseded "
-                         "by the nine pl_epm_* features built across the whole "
+                         "by the nine pl_rapm_* features built across the whole "
                          "decided frame. Never promoted to the serving "
                          "contract, so no model depends on it."),
                 "populated_rows": populated,
@@ -429,7 +431,7 @@ def _write_player_epm(out: Path, date_c: str, facts, games: pd.DataFrame,
                 logger.warning("projected-lineup status not written (%s)", exc)
         return path.name
     except Exception as exc:  # noqa: BLE001
-        logger.warning("player EPM ratings not written (%s); the run continues "
+        logger.warning("player RAPM ratings not written (%s); the run continues "
                        "without them", exc)
         return None
 
@@ -485,24 +487,25 @@ def _empty_contract_columns(frame: pd.DataFrame | None) -> list[str]:
             if col in frame.columns and not frame[col].notna().any()]
 
 
-def _build_position_epm_features(facts, games: pd.DataFrame,
-                                cache_dir: Path | None = None
-                                ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """The nine ``pl_epm_*`` features over the WHOLE decided frame, plus slate.
+def _build_position_rapm_features(facts, games: pd.DataFrame,
+                                 cache_dir: Path | None = None
+                                 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """The nine ``pl_rapm_*`` features over the WHOLE decided frame, plus slate.
 
     This is MLB's ``lineup_agg`` construction, translated: ratings are built
     for EVERY decided game date (not one target date - the "1 of 2,779 rows"
     blocker), the position pools are projected per (game, team), and the nine
     position-segmented columns are attached with sides retained -
-    ``pl_epm_{c,f,g}_{away,home,diff}`` - the same shape as MLB's
+    ``pl_rapm_{c,f,g}_{away,home,diff}`` - the same shape as MLB's
     ``lineup_woba_mean_{home,away}`` family, segmented by position instead of
     averaged over one pool.
 
     POINT-IN-TIME, in both directions the contract requires:
 
-    * every rating row is summed over games STRICTLY BEFORE its target date
-      (the guarantee ``player_epm._prior_for`` implements and the audit
-      recomputes), so a player's rating for game G never includes game G;
+    * every rating row is fitted over games STRICTLY BEFORE its target date
+      (the guarantee ``player_rapm._prior_for`` and ``_SeasonDesign.advance``
+      implement and the audit recomputes), so a player's rating for game G
+      never includes game G;
     * a player designated Out/Doubtful/Recovery in the last pre-tipoff report
       is removed from THAT game's pool only. Every other game he appears in
       keeps his rating, so his absence does not erase the rolling lagged
@@ -515,9 +518,9 @@ def _build_position_epm_features(facts, games: pd.DataFrame,
     degraded run, not a failed one.
     """
     import lineup_projection as proj_mod
-    import player_epm as epm_mod
+    import player_rapm as rapm_mod
 
-    seasons = sorted({epm_mod._season_of(d) for d in games.gameday.dropna()})
+    seasons = sorted({rapm_mod._season_of(d) for d in games.gameday.dropna()})
     seasons = [s for s in seasons if s]
     # Positions are FETCHED, not read out of the cache directory. The old glob
     # made this phase depend on a later phase having already written the table
@@ -531,19 +534,19 @@ def _build_position_epm_features(facts, games: pd.DataFrame,
         [ingestion._fetch_positions(season) for season in seasons],
         f"positions for {', '.join(seasons) or 'the window'}")
     if not len(positions):
-        logger.warning("pl_epm features skipped: no position table; every "
+        logger.warning("pl_rapm features skipped: no position table; every "
                        "rating would fall back to an unsegmented prior")
         return None, None
-    games_frame = epm_mod.prepare_player_games(facts.player_stats, positions)
+    games_frame = rapm_mod.prepare_player_games(facts.player_stats, positions)
     if not len(games_frame):
-        logger.warning("pl_epm features skipped: the player log has no "
+        logger.warning("pl_rapm features skipped: the player log has no "
                        "rateable rows")
         return None, None
 
     # id -> "First Last", the form the injury report files players under.
     name_by_id: dict = {}
     log = facts.player_stats
-    for pid, pname in zip(epm_mod._player_id_str(log.player_id),
+    for pid, pname in zip(rapm_mod._player_id_str(log.player_id),
                           log.player_name.astype(str)):
         name_by_id.setdefault(str(pid), str(pname))
 
@@ -579,7 +582,9 @@ def _build_position_epm_features(facts, games: pd.DataFrame,
 
     dates = pd.Series(sorted(pd.to_datetime(decided.gameday).dropna().unique())
                       + sorted(pd.to_datetime(pending.gameday).dropna().unique()))
-    ratings = epm_mod.build_player_epm(games_frame, target_dates=pd.Series(dates))
+    ratings = rapm_mod.build_player_rapm(games_frame,
+                                        target_dates=pd.Series(dates),
+                                        team_stats=facts.team_stats)
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:
@@ -588,13 +593,13 @@ def _build_position_epm_features(facts, games: pd.DataFrame,
 
     aggregates = proj_mod.projected_lineup(ratings, games=games)
     if not len(aggregates):
-        logger.warning("pl_epm features skipped: no team-game aggregates")
+        logger.warning("pl_rapm features skipped: no team-game aggregates")
         return None, None
 
     def _attach(frame: pd.DataFrame) -> pd.DataFrame | None:
         if frame is None or not len(frame):
             return None
-        return proj_mod.attach_position_epm(frame, aggregates)
+        return proj_mod.attach_position_rapm(frame, aggregates)
 
     return _attach(decided), _attach(pending)
 
@@ -1010,9 +1015,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # never aborts the run, because a missing feature family is a worse
     # artifact, not a broken one.
     try:
-        _pl_frame, _pl_slate = _build_position_epm_features(facts, games)
+        _pl_frame, _pl_slate = _build_position_rapm_features(facts, games)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("pl_epm feature build failed (%s); the nine columns "
+        logger.warning("pl_rapm feature build failed (%s); the nine columns "
                        "will be NaN on this run", exc)
         _pl_frame = _pl_slate = None
     if _pl_frame is not None and len(_pl_frame):
@@ -1023,27 +1028,27 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # carrying empty features with no error, which is the exact failure
         # the first A/B run exhibited.
         game_df = game_df.drop(columns=[
-            c for c in config.PLAYER_EPM_POSITION_FEATURE_COLS
+            c for c in config.PLAYER_RAPM_POSITION_FEATURE_COLS
             if c in game_df.columns])
         game_df = game_df.merge(
-            _pl_frame[["game_id"] + config.PLAYER_EPM_POSITION_FEATURE_COLS],
+            _pl_frame[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS],
             on="game_id", how="left")
         _pl_attached = int(
-            game_df[config.PLAYER_EPM_POSITION_FEATURE_COLS[0]]
+            game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]
             .notna().sum())
-        logger.info("pl_epm features attached: %d/%d decided rows carry them",
+        logger.info("pl_rapm features attached: %d/%d decided rows carry them",
                     _pl_attached, len(game_df))
         if _pl_attached < len(game_df):
             # An unattached row is NaN on all nine position columns, and
             # a bare fraction does not say WHY. The pool gates
-            # (PLAYER_EPM_POOL_LOOKBACK_DAYS / RECENCY_DAYS / MIN_PLAYS)
+            # (PLAYER_EPM_POOL_LOOKBACK_DAYS / RECENCY_DAYS / MIN_MINUTES)
             # have no in-season evidence at the start of a season - a
             # player's last appearances live in the PRIOR season,
             # outside the lookback - so bucketing the gap by days into
             # its season separates that structural hole from a genuine
             # build regression.
             _gaps = game_df[game_df[
-                config.PLAYER_EPM_POSITION_FEATURE_COLS[0]].isna()]
+                config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]].isna()]
             _gap_days = pd.to_datetime(_gaps.gameday, errors="coerce")
             _all_days = pd.to_datetime(game_df.gameday, errors="coerce")
             _labels = pd.Series(
@@ -1060,7 +1065,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                           & (_gap_age < _recency)).sum())
             _n_rest = int(len(_gaps) - _n_look - _n_rec)
             logger.info(
-                "pl_epm coverage gap: %d/%d decided rows lack position-epm "
+                "pl_rapm coverage gap: %d/%d decided rows lack position-rapm "
                 "features; by days into their season: %d within the "
                 "%d-day pool lookback, %d more within the %d-day "
                 "recency window, %d beyond it - early-season rows are "
@@ -1089,7 +1094,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # and the stat ladders, so it is built before training and survives a
     # training failure. MLB's phase-4 shape: the model block is contained, a
     # failure inside it is recorded and the run still ships every artifact
-    # the surviving phases can produce (power rankings, ratings, player EPM,
+    # the surviving phases can produce (power rankings, ratings, player RAPM,
     # the feature contract, drift/coverage) and exits with status "failed"
     # so the scheduler files it red. A crash here used to abort ``run``
     # outright, and a run that trains on Monday publishes nothing on Monday -
@@ -1104,10 +1109,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # "upcoming game" the designation names. Same pre-drop as game_df:
         # the slate's own NaN placeholders must not win the name collision.
         slate = slate.drop(columns=[
-            c for c in config.PLAYER_EPM_POSITION_FEATURE_COLS
+            c for c in config.PLAYER_RAPM_POSITION_FEATURE_COLS
             if c in slate.columns])
         slate = slate.merge(
-            _pl_slate[["game_id"] + config.PLAYER_EPM_POSITION_FEATURE_COLS],
+            _pl_slate[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS],
             on="game_id", how="left")
 
     phase_error: Exception | None = None
@@ -1280,17 +1285,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     serving.write_power_rankings_csv(p_rank, ratings, records, facts.team_names, point_diff)
     artifacts.append(p_rank.name)
 
-    # Player-level EPM, shrunk to a position-segmented league prior.
+    # Player-level RAPM, shrunk toward a position-segmented prior.
     # Published ALONGSIDE the feature contract and deliberately not fed to the
     # ensemble, for the same reason NHL's player ratings are not: adding a
     # column to MONEYLINE_FEATURE_COLS changes the model and needs its own
     # holdout validation, which is a separate decision from building the
     # rating. The rating is PIT (strictly prior rows, season-partitioned), so
     # it is safe to publish now and to promote later behind a gate.
-    epm_name = _write_player_epm(out, date_c, facts, games,
-                               stints=_build_injury_stints(facts, games))
-    if epm_name:
-        artifacts.append(epm_name)
+    rapm_name = _write_player_rapm(out, date_c, facts, games,
+                                 stints=_build_injury_stints(facts, games))
+    if rapm_name:
+        artifacts.append(rapm_name)
     coverage = feat_mod.feature_coverage_report(game_df)
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
     serving.write_feature_json(p_feat, coverage, _config_meta(facts), fold_info)

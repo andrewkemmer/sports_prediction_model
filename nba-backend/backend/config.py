@@ -81,7 +81,16 @@ RFE_MAX_STEPS = 120
 #: provably so (the segments read the listing, which is byte-identical); what
 #: moves is the prior, whose centre cell goes from 64 players to 81 and whose
 #: shrinkage constant therefore rises from 445 to 487 plays.
-FEATURE_SET_VERSION = "nba-prod-v2.5-epm"
+#: v2.6: the pl_epm family is replaced by pl_rapm - player impact solved as
+#: a ridge RAPM (ONE row per game: signed MIN/48 shares on both sides,
+#: unregularized home-court intercept) and expressed in PER-GAME points
+#: instead of per-100-possession EPM. The shrink layer weighs eff-games
+#: (sum of share**2) toward the position mean of the SAME fit's betas, and
+#: the team segments blend members by MINUTES PER GAME - the agreed
+#: aggregation weight - rather than by prior possessions. Columns are
+#: renamed pl_rapm_* / lineup_rapm_* throughout; historical notes below
+#: keep the pl_epm spelling because that is what those versions published.
+FEATURE_SET_VERSION = "nba-prod-v2.6-rapm"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -154,17 +163,17 @@ MONEYLINE_FEATURE_COLS = [
     "event_shooting_fouls_diff", "event_q4_points_diff",
     # Position-segmented projected-lineup impact - the NBA mirror of
     # MLB's lineup_woba_* trio, one per position, with sides retained:
-    #   pl_epm_{pos}_home / _away : the projected lineup's shrunk EPM
-    #                              at that position, home side / away side
-    #   pl_epm_{pos}_diff         : home minus away
+    #   pl_rapm_{pos}_home / _away : the projected lineup's shrunk RAPM
+    #                               at that position, home side / away side
+    #   pl_rapm_{pos}_diff         : home minus away
     # Built over the WHOLE decided frame (MLB's lineup_agg construction),
     # strictly point-in-time on both axes: ratings sum only games STRICTLY
     # BEFORE each target, and a player designated Out/Doubtful/Recovery in
     # the last pre-tipoff report is removed from THAT game's pool only - his
     # rating survives on every prior game he actually played.
-    "pl_epm_c_away", "pl_epm_c_home", "pl_epm_c_diff",
-    "pl_epm_f_away", "pl_epm_f_home", "pl_epm_f_diff",
-    "pl_epm_g_away", "pl_epm_g_home", "pl_epm_g_diff",
+    "pl_rapm_c_away", "pl_rapm_c_home", "pl_rapm_c_diff",
+    "pl_rapm_f_away", "pl_rapm_f_home", "pl_rapm_f_diff",
+    "pl_rapm_g_away", "pl_rapm_g_home", "pl_rapm_g_diff",
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -472,8 +481,8 @@ MARKETS_CSV = "nba_run_engine_markets_{date}.csv"
 MARKETS_META_JSON = "nba_run_engine_markets_{date}.meta.json"
 MARKETS_MONITOR_JSON = "nba_run_engine_monitor_{date}.json"
 PLAYER_MATCHUP_JSON = "nba_player_leader_matchup_{date}.json"
-PLAYER_EPM_CSV = "nba_player_epm_{date}.csv"
-PLAYER_EPM_AGG_CSV = "nba_player_epm_lineups_{date}.csv"
+PLAYER_RAPM_CSV = "nba_player_rapm_{date}.csv"
+PLAYER_RAPM_AGG_CSV = "nba_player_rapm_lineups_{date}.csv"
 FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nba_shap_game"
@@ -485,15 +494,20 @@ RUN_ENGINE_FEATURE_DRIFT_PREFIX = "nba_run_engine_feature_drift_"
 RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 
 # ---------------------------------------------------------------------------
-# Player-level Estimated Plus-Minus (EPM) ratings
+# Player-level Regularized Adjusted Plus-Minus (RAPM) ratings
 # ---------------------------------------------------------------------------
-# Player-level Estimated Plus-Minus (EPM) ratings.
+# Player-level RAPM ratings, per game.
 #
 # The NBA analogue of NFL's EPA-per-target, MLB's shrunk wOBA and
-# NHL's shrunk player ratings: a player's impact per 100 possessions
-# he participated in. The rate is exact; what makes it a *rating* is
-# that each player's raw EPM is pulled toward a POSITION-SEGMENTED
-# league prior before it is used.
+# NHL's shrunk player ratings: a player's impact in POINTS PER GAME,
+# solved by ridge regression over ONE row per game - signed MIN/48
+# participation shares on both sides plus an unregularized home-court
+# intercept. The regression is what makes it ADJUSTED: every
+# teammate's share is claimed by his own column, so the rating is his
+# effect conditional on who he played with. The ridge is what makes
+# it REGULARIZED. What makes the solved beta a *rating* is a second,
+# smaller layer: each player's raw beta is pulled toward a
+# POSITION-SEGMENTED league prior before it is used.
 #
 # A single league mean would be wrong here for the same reason NHL documents
 # (nhl-backend/backend/config.py, PLAYER_RATING_SHRINK_FRACTION): a centre's
@@ -503,13 +517,17 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 # Prior strength follows the SAME convention NHL carries over from MLB's fixed
 # 120-PA prior. MLB's 120 is 20% of a 600-PA season, so the fraction is the
 # portable part and the season length is sport-specific. The NBA reference
-# season is one full player-SEASON of PARTICIPATED POSSESSIONS, and the
-# prior is 20% of the mean player-season of possessions at that position:
-#     k[position] = PLAYER_EPM_SHRINK_FRACTION * mean season possessions at position
+# season is one full player-SEASON of EFF-GAMES (sum of share**2, the
+# participation weight the shrink layer itself measures in), and the prior is
+# 20% of the mean player-season of eff-games at that position:
+#     k[position] = PLAYER_RAPM_SHRINK_FRACTION * mean player-season eff-games
 # Averaging per PLAYER-SEASON rather than per player is deliberate and is the
 # same correction NHL documents: dividing by seasons first weights a 3-game
 # cameo like an 82-game regular and collapses the reference season, which would
 # silently make k several times too small and under-shrink every rating.
+# Measured 2026-10-03 on the cached frame: the mean player-season sits near
+# 13.3 eff-games, so 20% yields k = 2.4-3.0 per position (G 2.96, F 2.43,
+# C 2.56).
 #
 # SEASON BOUNDARY (audit 2026-09-29, against MLB's structural guidance):
 # the shrunk rating is a SEASON-CUMULATIVE quantity, and it follows MLB's
@@ -519,12 +537,13 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 #   * A PENDING-slate target before the season's first result rates from the
 #     last completed season (the _evidence_season fallback) - the bridge the
 #     2026-27 opening slate needed.
-#   * From the first DECIDED game the prior is strictly in-season: opening
-#     night itself has a zero prior and no league mean yet (epm_shrunk NaN),
-#     and day 2+ ratings thin in from the league prior as possessions accumulate.
+#   * From the first DECIDED game the solve is strictly in-season: opening
+#     night itself has no in-season game before it, so the FIT falls back to
+#     the last season that does (the strict _evidence_season reading) and
+#     day 2+ ratings thin in from the league prior as eff-games accumulate.
 #     That early-season thinness is the shrinkage doing its job, NOT missing
-#     carryover - and it is the pl_epm coverage the drift report reads as
-#     STARVED/LOW for the first weeks (min-plays pool floor on top).
+#     carryover - and it is the pl_rapm coverage the drift report reads as
+#     STARVED/LOW for the first weeks (min-minutes pool floor on top).
 #   * k is per TARGET SEASON, derived from completed prior seasons only -
 #     NHL's season_ice_time_table as_of discipline (adopted 2026-10-01).
 #     A season cannot tune its own shrinkage strength, and an in-progress
@@ -536,21 +555,19 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 #     frame itself contains. The frame's EARLIEST season has no completed
 #     prior to measure against, so it keeps the whole-frame mean - the
 #     pre-2026-10-01 behavior - rather than a constant that ignores the
-#     frame's own season scale; PLAYER_EPM_FALLBACK_K_PLAYS remains only
-#     for cells with no evidence at all. The position prior tables
-#     remain per-date PIT cumulative, unchanged.
+#     frame's own season scale; PLAYER_RAPM_FALLBACK_K_EFF remains only
+#     for cells with no evidence at all. The position prior is no longer a
+#     per-date cumulative table: it is the mean beta of that position's
+#     evidenced members IN THE SAME FIT, so the prior and the rating it
+#     shrinks can never disagree about scale or about date.
 # MLB additionally ships CROSS-SEASON recent-form windows (last-5-start rolls
 # over the prior season's tail - "no gap at the season boundary") and a
 # shrink prior that falls back to all-history-through-window. The NBA has no
-# cross-season recent-form analogue in the pl_epm family: adopting one (or
+# cross-season recent-form analogue in the pl_rapm family: adopting one (or
 # blending the prior-season tail into the first N games' prior) is a rating
 # redefinition and needs its own holdout validation - recorded here so the
 # divergence from MLB's structure is a decision, not an oversight.
-PLAYER_EPM_SHRINK_FRACTION = 0.20
-#: Free-throw weight in Dean Oliver's possession estimate. 0.44 is the
-#: standard NBA value (a made free throw is worth ~0.44 of a possession),
-#: so a team's game possessions are ``FGA + 0.44 * FTA + TOV``.
-PLAYER_EPM_FTA_WEIGHT = 0.44
+PLAYER_RAPM_SHRINK_FRACTION = 0.20
 #: The three positions stats.nba.com will actually answer for. Measured against
 #: the live endpoint: the ``PlayerPosition`` filter accepts G, F and C, and
 #: returns HTTP 400 for PG/SG/SF/PF and for compound codes like ``G-F``. The
@@ -575,29 +592,35 @@ PLAYER_EPM_POSITION_PRIORITY = ("G", "F", "C")
 #: truncated back-season index measures and far below the 100% a live one
 #: does, so the two are not confusable.
 PLAYER_EPM_PRIMARY_MIN_COVERAGE = 0.90
-#: Fallback prior strength (possessions) for a position cell with no evidence
-#: at all. Measured 2026-10-02 on the full cached frame: the whole-frame
-#: mean player-season is 2,292 possessions, so 20% is ~458 (per position:
-#: G 490, F 422, C 445); 450 is the rounded common value. A cell with no data
-#: must still yield a complete prior table rather than raising at lookup time,
-#: so an empty frame degrades to the league-wide reference instead of crashing
-#: the build.
-PLAYER_EPM_FALLBACK_K_PLAYS = 450.0
-#: Prior rows summed per player. 1 == "all strictly prior rows", the correct
-#: setting at the game grain the season log provides. Mirrors NHL's
-#: PLAYER_RATING_PRIOR_ROWS.
-PLAYER_EPM_PRIOR_ROWS = 1
-#: Minimum accumulated PARTICIPATED POSSESSIONS before a player may be
-#: PROJECTED into a lineup, mirroring MLB's LINEUP_MIN_PA discipline. The NBA
-#: number is 120: a player's possessions run ~6.10x his scoring plays
-#: (measured median ratio), so MLB's 20-PA floor scales to ~122 possessions -
+#: RAPM ridge strength (lambda) on the player columns of the signed
+#: single-row design; the home-court intercept column is NEVER ridged.
+#: Measured 2026-10-03 on the cached 2-season frame (.adhoc/rapm_prototype.py):
+#: candidates 4/8/16, and 16 is the one that surfaces stars at the top
+#: (Wemby +5.2, Haliburton +3.9, Curry +3.6) while fringe players sink to
+#: -6..-7 and thin players (<=5 games) sit at mean|beta| 0.39 versus 1.64
+#: for regulars (>=20 games) - the shrinkage working through the ridge.
+PLAYER_RAPM_LAMBDA = 16.0
+#: Fallback shrinkage strength k (EFF-GAMES) for a position cell with no
+#: evidence at all. Measured 2026-10-03 on the cached frame: mean
+#: player-season eff-games (sum of share**2) is 13.3, so the 20% fraction
+#: yields 2.5-2.8 per position; 2.6 is the rounded common value. A cell
+#: with no data must still yield a complete prior table rather than raise
+#: at lookup time.
+PLAYER_RAPM_FALLBACK_K_EFF = 2.6
+#: Minimum accumulated MINUTES before a player may be PROJECTED into a
+#: lineup, mirroring MLB's LINEUP_MIN_PA discipline. The NBA number is 50:
+#: the minutes equivalent of the 120-possession floor this replaced.
+#: plays = sum(share * team possessions) with share = MIN/48 makes plays
+#: proportional to minutes at a measured median 2.38x (p10 2.29, p90 2.46),
+#: and on the cached 2025-26 frame at mid-season minutes >= 50 admits the
+#: SAME players as plays >= 120 at 99.8% agreement (0 extra, 1 missed) -
 #: about two player-games of rotation. The reasoning is the same, and because
-#: the shrinkage already handles the RATING - a 120-possession player is still
+#: the shrinkage already handles the RATING - a 50-minute player is still
 #: pulled most of the way to the prior. This floor is about POOL MEMBERSHIP,
 #: which shrinkage does not touch: a player with three career games is not a
 #: candidate for tonight's starting five no matter how well his rate is
 #: estimated.
-PLAYER_EPM_MIN_PLAYS = 120
+PLAYER_RAPM_MIN_MINUTES = 50
 # Recency gate for the projected-lineup pool (availability audit 2026-09-28):
 # a rating row whose season evidence is older than this is a PHANTOM - a
 # player who stopped appearing (injury never filed, quietly shut down, or a
@@ -606,7 +629,7 @@ PLAYER_EPM_MIN_PLAYS = 120
 # The audit's worst case sat in the Clippers' pool 217 days after his last
 # game (15.13% of rotation pool rows league-wide). A NaN gap (season not
 # started for the player) stays eligible - the season-start carryover the
-# min-plays floor already governs.
+# min-minutes floor already governs.
 PLAYER_EPM_RECENCY_DAYS = 30
 #: How far back a TEAM MEMBER's rating row may sit and still count as a
 #: candidate for the next game, mirroring MLB's LINEUP_POOL_LOOKBACK_DAYS.
@@ -622,11 +645,12 @@ PLAYER_EPM_POOL_LOOKBACK_DAYS = 10
 #: for a short-handed team, and padding would fabricate full strength.
 PLAYER_EPM_TOP_K = 8
 #: The "regular" floor for a top-5 rest count, mirroring MLB's
-#: LINEUP_REST_PA discipline. NBA rotation possessions run ~6.10x the
-#: scoring plays the MLB floor was written in, so MLB's 50-PA regular floor
-#: scales to ~305 possessions - about five player-games. A player below it
-#: is not a rotation regular, so his absence is not news.
-PLAYER_EPM_REST_PLAYS = 300
+#: LINEUP_REST_PA discipline: 126 accumulated MINUTES, the minutes
+#: equivalent of the 300-possession floor this replaced (300 / 2.38, and
+#: minutes >= 126 agrees with plays >= 300 at 99.6% on the cached frame) -
+#: about five player-games. A player below it is not a rotation regular, so
+#: his absence is not news.
+PLAYER_RAPM_REST_MINUTES = 126
 PLAYER_EPM_TOP5_K = 5
 #: Raw status vocabulary -> treatment, and nothing else. A status the feed
 #: invents that is not listed here is reported as UNKNOWN rather than guessed,
@@ -702,7 +726,7 @@ PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 #: The nine position-segmented projected-lineup features - per position, the
 #: away side, the home side and the difference. Registered as CANDIDATES, not
 #: as contract columns: they are gated behind their own holdout A/B, which is
-#: ``ab_position_epm.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
+#: ``ab_position_rapm.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
 #: decision about the model, and the candidate list is where a feature waits
 #: until that decision has evidence behind it.
 #:
@@ -714,14 +738,14 @@ PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 #: feature list. ``PLAYER_EPM_POSITIONS`` stays G/F/C for the prior tables;
 #: the published column order deliberately does not inherit that internal
 #: ordering.
-PLAYER_EPM_POSITION_FEATURE_COLS: list[str] = [
-    f"pl_epm_{position}_{side}"
+PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
+    f"pl_rapm_{position}_{side}"
     for position in ("c", "f", "g")
     for side in ("away", "home", "diff")]
 
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
-    + PLAYER_EPM_POSITION_FEATURE_COLS))
+    + PLAYER_RAPM_POSITION_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is
@@ -729,11 +753,11 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
 PLAYER_EPM_MAX_LAG_DAYS = 45
 #: Team-level projected-lineup aggregates, mirroring MLB's lineup_woba_* trio
 #: plus its rest count.
-PLAYER_EPM_FEATURE_COLS: list[str] = [
-    "lineup_epm_mean_home", "lineup_epm_mean_away",
-    "lineup_epm_top3_home", "lineup_epm_top3_away",
-    "lineup_epm_std_home", "lineup_epm_std_away",
-    "lineup_epm_rest_count_home", "lineup_epm_rest_count_away",
+PLAYER_RAPM_FEATURE_COLS: list[str] = [
+    "lineup_rapm_mean_home", "lineup_rapm_mean_away",
+    "lineup_rapm_top3_home", "lineup_rapm_top3_away",
+    "lineup_rapm_std_home", "lineup_rapm_std_away",
+    "lineup_rapm_rest_count_home", "lineup_rapm_rest_count_away",
 ]
 
 PLAYER_FIELDS = [

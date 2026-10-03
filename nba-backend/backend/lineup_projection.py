@@ -1,4 +1,4 @@
-"""Projected-lineup aggregates over the shrunk player EPM ratings.
+"""Projected-lineup aggregates over the shrunk player RAPM ratings.
 
 The NBA analogue of MLB's ``_LINEUP_AGG_ROSTER``, and it exists for the reason
 MLB's exists. MLB's comment on the widen step is the whole argument:
@@ -29,9 +29,9 @@ Four further properties are inherited deliberately:
   segment asks "how does this team rate at this position", and the cut is
   arbitrary there: a team whose centers rank below the eight by participation
   is centerless in the projected lineup but not on its roster, so a segment cut
-  from the lineup starves pl_epm_c coverage for no evidentiary reason. Each
+  from the lineup starves pl_rapm_c coverage for no evidentiary reason. Each
   segment therefore blends every eligible member of the position, priced by the
-  same playing-time weights - the population MLB's lineup_agg adopted when it
+  same MINUTES-PER-GAME weights - the population MLB's lineup_agg adopted when it
   dropped its nine-cut, because opportunity weighting is what makes an
   arbitrary cut redundant.
 """
@@ -53,10 +53,10 @@ except ImportError:
 
 AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_out_count", "lineup_healthy_frac",
-               "lineup_epm_concentration",
-               "lineup_epm_mean", "lineup_epm_top3", "lineup_epm_std",
-               "lineup_epm_rest_count"] + [
-    f"pl_epm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
+               "lineup_rapm_concentration",
+               "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
+               "lineup_rapm_rest_count"] + [
+    f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
 
 #: The seven model-facing features, as home-minus-away diffs, which is the
 #: convention ``features._attach_contract`` already uses for every other
@@ -64,24 +64,24 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
 #:
 #: 1-4 are MLB's ``lineup_woba_*`` mirror. 5-7 exist because 1-4 cannot see
 #: WHY two projected lineups differ - a team missing a star and a team missing
-#: a bench player can carry an identical ``lineup_epm_mean`` and they are not
+#: a bench player can carry an identical ``lineup_rapm_mean`` and they are not
 #: the same bet. Availability asymmetry (5), proportional depletion (6) and
 #: star-dependency (7) are the three ways that shows up.
 DIFF_FEATURES = [
-    "lineup_epm_mean_diff",
-    "lineup_epm_top3_diff",
-    "lineup_epm_std_diff",
-    "lineup_epm_rest_count_diff",
+    "lineup_rapm_mean_diff",
+    "lineup_rapm_top3_diff",
+    "lineup_rapm_std_diff",
+    "lineup_rapm_rest_count_diff",
     "lineup_out_count_diff",
     "lineup_healthy_frac_diff",
-    "lineup_epm_concentration_diff",
+    "lineup_rapm_concentration_diff",
 ]
 
 #: The nine position-segmented features: each position's eligible-roster
 #: impact, opportunity-weighted by playing time, on BOTH sides plus the
 #: difference. The segment blends the team's whole eligible roster at the
 #: position (shrinkage already prices a thin member), not just the
-#: projected eight - the cut that starved pl_epm_c coverage is a lineup
+#: projected eight - the cut that starved pl_rapm_c coverage is a lineup
 #: concept, not a position concept.
 #:
 #: The sides are kept rather than differenced away because the two halves of a
@@ -94,18 +94,18 @@ DIFF_FEATURES = [
 #: Only G/F/C exist because that is all the free source publishes; see
 #: ``nba_injury_report`` / ``nba_sources.position_query``. A five-way guard and
 #: wing split is what a lineup model would really want and is not obtainable.
-POSITION_EPM_SOURCES = [f"pl_epm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
+POSITION_RAPM_SOURCES = [f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
 #: Published order is per-POSITION grouped - ``c_away, c_home, c_diff``, then
 #: ``f_*``, then ``g_*`` - C first, matching the contract order in
-#: ``config.PLAYER_EPM_POSITION_FEATURE_COLS``. ``PLAYER_EPM_POSITIONS`` itself
+#: ``config.PLAYER_RAPM_POSITION_FEATURE_COLS``. ``PLAYER_EPM_POSITIONS`` itself
 #: is ordered G/F/C for the prior tables; the PUBLISHED column order follows
 #: the contract, not the config tuple's internal order. The sides are kept
 #: rather than differenced away because the two halves of a position split
 #: carry different information: a diff says the home lineup is better at
 #: impact; the sides say WHO is better and by how much.
 _POSITION_PUBLISHED_ORDER = ("c", "f", "g")
-POSITION_EPM_FEATURES = [
-    f"pl_epm_{position}_{side}"
+POSITION_RAPM_FEATURES = [
+    f"pl_rapm_{position}_{side}"
     for position in _POSITION_PUBLISHED_ORDER
     for side in ("away", "home", "diff")]
 
@@ -289,10 +289,10 @@ def _position_segments(frame: pd.DataFrame):
 
     The rating's ``position`` is one collapsed cell - the league prior's
     denominator, exactly one per player (``nba_sources.assign_positions``) -
-    but a team segment answers a different question: what is this club's EPM
+    but a team segment answers a different question: what is this club's RAPM
     at centre? Collapsing every forward-centre into F answers that with NaN
     for whole rosters: ORL's centers are both listed F-C, and 140 of the 626
-    team-games missing ``pl_epm_c`` in the OOF frame are that labeling
+    team-games missing ``pl_rapm_c`` in the OOF frame are that labeling
     artifact rather than an injury. ``positions`` is the feed's full listing,
     so one player may price two segments - which is NOT the prior's
     double-count: each segment is its own weighted mean and nothing is summed
@@ -316,7 +316,7 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
     out["player_id"] = out.player_id.astype(str)
     out["team"] = out.team.astype(str)
     out["gameday"] = pd.to_datetime(out.gameday, errors="coerce")
-    for column in ("epm_shrunk", "prior_plays"):
+    for column in ("rapm_shrunk", "prior_minutes", "prior_minutes_per_game"):
         out[column] = pd.to_numeric(out.get(column), errors="coerce")
     return out
 
@@ -325,9 +325,9 @@ def projected_lineup(ratings: pd.DataFrame | None,
                      games: pd.DataFrame | None = None,
                      stints=None,
                      lookback_days: int = config.PLAYER_EPM_POOL_LOOKBACK_DAYS,
-                     min_plays: float = config.PLAYER_EPM_MIN_PLAYS,
+                     min_minutes: float = config.PLAYER_RAPM_MIN_MINUTES,
                      top_k: int = config.PLAYER_EPM_TOP_K,
-                     rest_plays: float = config.PLAYER_EPM_REST_PLAYS,
+                     rest_minutes: float = config.PLAYER_RAPM_REST_MINUTES,
                      top5_k: int = config.PLAYER_EPM_TOP5_K,
                      ) -> pd.DataFrame:
     """One row per (game, team) describing the projected healthy lineup.
@@ -379,8 +379,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
             if team_rows is None or team_rows.empty:
                 continue
             row = _project_team(team_rows, str(team), gameday, stints,
-                                lookback_days, min_plays, top_k, rest_plays,
-                                top5_k)
+                                lookback_days, min_minutes, top_k,
+                                rest_minutes, top5_k)
             if row is not None:
                 rows.append(row)
     if not rows:
@@ -394,8 +394,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
 
 
 def _project_team(work: pd.DataFrame, team: str, gameday, stints,
-                  lookback_days: int, min_plays: float, top_k: int,
-                  rest_plays: float, top5_k: int):
+                  lookback_days: int, min_minutes: float, top_k: int,
+                  rest_minutes: float, top5_k: int):
     """Widen, filter, rank - in that order, for one team and one game."""
     window_start = pd.Timestamp(gameday) - pd.Timedelta(days=lookback_days)
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
@@ -404,7 +404,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     pool = work[(work.team == team)
                 & (work.gameday <= pd.Timestamp(gameday))
                 & (work.gameday >= window_start)
-                & work.epm_shrunk.notna()]
+                & work.rapm_shrunk.notna()]
     if pool.empty:
         return None
     # One row per player: the most recent rating at or before the game. A
@@ -414,18 +414,19 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
               .groupby("player_id", as_index=False).tail(1))
     pool_size = len(latest)
 
-    # STEP 2 - ELIGIBILITY. The min-plays floor is about POOL MEMBERSHIP, not
-    # about the rating: shrinkage already handles a thin rating, but a player
-    # with three career games is not a candidate for tonight's lineup however
-    # well his rate is estimated. The recency gate is the second membership
-    # clause: a rating row dated after a player stopped appearing is a phantom
-    # (injury never filed, quiet shutdown, roster cut), and no designation
-    # will ever remove him - the row only LOOKS fresh because it is re-emitted
-    # per target date. The gap is the player's actual last appearance strictly
-    # at or before the target within the rated season; NaN means the season
-    # has not started for him yet, which is the season-start carryover the
-    # min-plays floor already governs, not staleness.
-    latest = latest[latest.prior_plays >= min_plays]
+    # STEP 2 - ELIGIBILITY. The min-minutes floor is about POOL MEMBERSHIP,
+    # not about the rating: shrinkage already handles a thin rating, but a
+    # player with three career games is not a candidate for tonight's lineup
+    # however well his rate is estimated. The recency gate is the second
+    # membership clause: a rating row dated after a player stopped appearing
+    # is a phantom (injury never filed, quiet shutdown, roster cut), and no
+    # designation will ever remove him - the row only LOOKS fresh because it
+    # is re-emitted per target date. The gap is the player's actual last
+    # appearance strictly at or before the target within the rated season;
+    # NaN means the season has not started for him yet, which is the
+    # season-start carryover the min-minutes floor already governs, not
+    # staleness.
+    latest = latest[latest.prior_minutes >= min_minutes]
     if "days_since_appearance" in latest.columns:
         recency = latest["days_since_appearance"]
         latest = latest[recency.isna()
@@ -454,48 +455,50 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     if healthy.empty:
         return {"gameday": pd.Timestamp(gameday), "team": team,
                 "pool_size": pool_size, "healthy_size": 0,
-                "lineup_epm_mean": np.nan, "lineup_epm_top3": np.nan,
-                "lineup_epm_std": np.nan, "lineup_epm_rest_count": np.nan}
+                "lineup_rapm_mean": np.nan, "lineup_rapm_top3": np.nan,
+                "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan}
 
     # STEP 4 - RANK BY PARTICIPATION, NOT BY RATING. MLB orders the pool by
     # trailing PA and averages the rating over the top nine. Ranking by the
     # rating instead would project the eight best-rated regulars and quietly
     # redefine the question from "who plays" to "who produces", which is a
     # different feature wearing this one's name.
-    healthy = healthy.sort_values(["prior_plays", "gameday"], ascending=False)
-    # Opportunity weighting (NFL f9d3e00 / MLB e3aa763 family parity):
-    # a member's weight is his OWN prior-opportunity total, so each aggregate
-    # is the population's combined shrunk EPM over combined
-    # possessions - exactly the usage-weighted quantity "what does this
-    # roster produce per possession when its actual minutes distribution
-    # prices it". The old plain mean let a 21-possession bench piece
-    # price equal to a 500-possession starter, so one rotation discard
-    # dragged a team's projection by half a member. Weights are the same strictly-prior per-player totals the pool
+    healthy = healthy.sort_values(["prior_minutes", "gameday"], ascending=False)
+    # MINUTES-PER-GAME weighting (the agreed team-level aggregation): a
+    # member's weight is his OWN minutes per game over the window, so each
+    # aggregate is the lineup's RAPM averaged PER GAME over the minutes
+    # distribution it would actually field - "what does this roster rate per
+    # game when its real rotation prices it". Cumulative minutes would fold
+    # durability into the blend (an ironman outweighing an equal per-game
+    # player who missed time) and the result would no longer be a per-game
+    # average, which is the unit the ratings themselves live in. The
+    # min-minutes floor is what stops a two-game call-up from pricing like a
+    # regular. Weights are the same strictly-prior per-player totals the pool
     # ranking already reads; nothing new is fetched and nothing leaks. A NaN
     # rating contributes no weight and no rating (removal, not zeroing); a
     # family with no finite-weight member keeps NaN. The weights are assigned
     # on the whole ELIGIBLE roster before the top-k slice so the lineup
     # aggregates and the position segments price members identically.
     healthy = healthy.copy()
-    healthy["_w"] = healthy["prior_plays"].where(
-        healthy.epm_shrunk.notna(), other=0.0).astype(float)
+    healthy["_w"] = healthy["prior_minutes_per_game"].where(
+        healthy.rapm_shrunk.notna(), other=0.0).astype(float)
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
     def _blend(frame: pd.DataFrame) -> float:
-        """Opportunity-weighted mean of epm_shrunk over ``frame``."""
+        """Minutes-per-game-weighted mean of rapm_shrunk over ``frame``."""
         w = frame["_w"]
         den = float(w.sum())
         if not den:
             return np.nan
-        return float((w * frame.epm_shrunk.fillna(0.0)).sum() / den)
+        return float((w * frame.rapm_shrunk.fillna(0.0)).sum() / den)
 
-    ratings = projected.epm_shrunk.to_numpy(dtype=float)
+    ratings = projected.rapm_shrunk.to_numpy(dtype=float)
 
     # The rest count: top-5 regulars by participation who are NOT in the
-    # projected lineup. Below rest_plays a player is not a rotation regular,
-    # so his absence is not news.
-    regulars = healthy[healthy.prior_plays >= rest_plays].head(top5_k)
+    # projected lineup. Below rest_minutes a player is not a rotation
+    # regular, so his absence is not news.
+    regulars = healthy[healthy.prior_minutes >= rest_minutes].head(top5_k)
     rest_count = int(len(regulars) - len(
         regulars[regulars.player_id.isin(set(projected.player_id))]))
 
@@ -505,19 +508,19 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # (ddof=0) the plain std used, with each member's deviation priced by his
     # share of the lineup's opportunities.
     std = np.nan
-    finite = projected[projected.epm_shrunk.notna()]
+    finite = projected[projected.rapm_shrunk.notna()]
     if len(finite) >= 2 and w_sum:
-        dev = finite.epm_shrunk.to_numpy(dtype=float) - mean
+        dev = finite.rapm_shrunk.to_numpy(dtype=float) - mean
         std = float(np.sqrt((finite._w.to_numpy(dtype=float)
                              * dev ** 2).sum() / w_sum))
     # Position-segmented impact over the team's ELIGIBLE ROSTER at
     # each position, not over the projected eight. The lineup aggregates
     # describe who plays tonight, so they are cut at top_k; a position
-    # segment describes the team's EPM at that position, and the cut
+    # segment describes the team's RAPM at that position, and the cut
     # is arbitrary there - a team whose centers all rank below the eight
     # by participation is centerless in the projected lineup but NOT
-    # centerless on its roster, so its pl_epm_c stayed NaN for no reason
-    # other than the cut. That is the pl_epm_c coverage hole the monitor
+    # centerless on its roster, so its pl_rapm_c stayed NaN for no reason
+    # other than the cut. That is the pl_rapm_c coverage hole the monitor
     # flags as STARVED: 3 of 6 team-games in the 2026-10-01 artifact,
     # each with a 16-17 man healthy roster. So the segment blends every
     # eligible member of the position, priced by the same opportunity
@@ -531,14 +534,14 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # denominator, but a segment asks which players THIS club plays at
     # centre, and collapsing every F-C to F left whole rosters (ORL:
     # Wendell Carter Jr., Goga Bitadze) with no C segment at all - most
-    # of the 62% pl_epm_c coverage the monitor flags.
+    # of the 62% pl_rapm_c coverage the monitor flags.
     segmented: dict = {}
     if "position" in healthy.columns:
         for position, group in _position_segments(healthy):
             if position in config.PLAYER_EPM_POSITIONS and len(group):
                 value = _blend(group)
                 if value == value:
-                    segmented[f"pl_epm_{str(position).lower()}"] = value
+                    segmented[f"pl_rapm_{str(position).lower()}"] = value
     return {
         "gameday": pd.Timestamp(gameday),
         "team": team,
@@ -555,11 +558,11 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         # lineup's weighted mean. A high value means the projection rests on a
         # few players, so losing one of them costs more than the mean alone
         # suggests.
-        "lineup_epm_concentration": (top3 / mean) if mean else np.nan,
-        "lineup_epm_mean": mean,
-        "lineup_epm_top3": top3,
-        "lineup_epm_std": std if std == std else np.nan,
-        "lineup_epm_rest_count": rest_count,
+        "lineup_rapm_concentration": (top3 / mean) if mean else np.nan,
+        "lineup_rapm_mean": mean,
+        "lineup_rapm_top3": top3,
+        "lineup_rapm_std": std if std == std else np.nan,
+        "lineup_rapm_rest_count": rest_count,
         **segmented,
     }
 
@@ -594,13 +597,13 @@ def attach_to_slate(slate: pd.DataFrame, aggregates: pd.DataFrame) -> pd.DataFra
         return out
 
     sources = {
-        "lineup_epm_mean_diff": "lineup_epm_mean",
-        "lineup_epm_top3_diff": "lineup_epm_top3",
-        "lineup_epm_std_diff": "lineup_epm_std",
-        "lineup_epm_rest_count_diff": "lineup_epm_rest_count",
+        "lineup_rapm_mean_diff": "lineup_rapm_mean",
+        "lineup_rapm_top3_diff": "lineup_rapm_top3",
+        "lineup_rapm_std_diff": "lineup_rapm_std",
+        "lineup_rapm_rest_count_diff": "lineup_rapm_rest_count",
         "lineup_out_count_diff": "lineup_out_count",
         "lineup_healthy_frac_diff": "lineup_healthy_frac",
-        "lineup_epm_concentration_diff": "lineup_epm_concentration",
+        "lineup_rapm_concentration_diff": "lineup_rapm_concentration",
     }
     out = _attach_sides(out, aggregates, list(sources.values()))
     for feature, column in sources.items():
@@ -612,8 +615,8 @@ def attach_to_slate(slate: pd.DataFrame, aggregates: pd.DataFrame) -> pd.DataFra
     return out.drop(columns=drop)
 
 
-def attach_position_epm(slate: pd.DataFrame,
-                       aggregates: pd.DataFrame) -> pd.DataFrame:
+def attach_position_rapm(slate: pd.DataFrame,
+                        aggregates: pd.DataFrame) -> pd.DataFrame:
     """Attach the nine position-segmented impact features, sides retained.
 
     Same join and same (date, team) grain as :func:`attach_to_slate`, and the
@@ -626,12 +629,12 @@ def attach_position_epm(slate: pd.DataFrame,
     published features are ``{away, home, diff}`` per position, not three diffs.
     """
     out = slate.copy() if slate is not None else pd.DataFrame()
-    for column in POSITION_EPM_FEATURES:
+    for column in POSITION_RAPM_FEATURES:
         out[column] = np.nan
     if out.empty or aggregates is None or not len(aggregates):
         return out
-    out = _attach_sides(out, aggregates, POSITION_EPM_SOURCES)
-    for column in POSITION_EPM_SOURCES:
+    out = _attach_sides(out, aggregates, POSITION_RAPM_SOURCES)
+    for column in POSITION_RAPM_SOURCES:
         away = f"_away_{column}"
         home = f"_home_{column}"
         if away in out.columns and home in out.columns:

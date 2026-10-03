@@ -606,7 +606,7 @@ def _positions_path_v1(season: str):
     Kept as the read fallback for a feed outage - single-label is the behavior
     the pipeline ran with before the listing existed, so an unreachable
     stats.nba.com degrades the segments to today's coverage instead of
-    dropping all nine ``pl_epm_*`` features.
+    dropping all nine ``pl_rapm_*`` features.
     """
     return _cache_dir() / "positions" / f"positions_{season}.parquet"
 
@@ -1409,8 +1409,8 @@ def _dedupe_player_games(log: pd.DataFrame) -> pd.DataFrame:
     with no shared day and the seasons do not overlap, so a duplicate can only
     come from upstream returning a player twice inside one window. That has not
     happened, and the invariant is cheap to keep true: a doubled row silently
-    doubles ``prior_plays`` and ``prior_pm`` in the player rating, which
-    overstates a player's sample without any error anywhere.
+    doubles ``prior_eff``, ``prior_minutes`` and the game count in the player
+    rating, which overstates a player's sample without any error anywhere.
 
     Note the cache directory deliberately holds several granularities at once -
     a whole-season file beside the 60-day slices - so anything that reads that

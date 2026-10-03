@@ -51,7 +51,7 @@ HEADER_ROW = ["Feature", "In Production", "Type", "Category", "Side",
 # Taxonomy: category / type / side (NBA name grammar)
 # --------------------------------------------------------------------------- #
 CATEGORY_RULES: list[tuple[str, str]] = [
-    (r"^pl_epm_|lineup_epm|lineup_", "Projected Lineups"),
+    (r"^pl_rapm_|lineup_rapm|lineup_", "Projected Lineups"),
     (r"^event_|possessions|shooting_fouls|live_tov|rim_|three_rate|"
      r"and_in|shot_distance|q4_points", "Play-by-Play"),
     (r"rest_days|back_to_back", "Schedule & Rest"),
@@ -115,8 +115,8 @@ STAT_WORDS: dict[str, str] = {
     "possessions": "estimated possessions (FGA + 0.44·FTA − OREB + TOV)",
     "shooting_fouls": "shooting fouls drawn per game",
     "q4_points": "fourth-quarter points per game",
-    "pl_epm": "position-segmented shrunk estimated plus-minus of "
-             "the projected lineup",
+    "pl_rapm": "position-segmented shrunk RAPM (points per game) of "
+              "the projected lineup",
 }
 
 WINDOW_WORDS: dict[str, str] = {
@@ -409,7 +409,7 @@ NBA_API_SOURCES = [
      "Per game per player: the six official designations at the latest "
      "pre-tipoff report.",
      "Point-in-time exclusion from the projected lineup pool for the "
-     "pl_epm_* family (Out/Doubtful/Recovery removed from that game only).",
+     "pl_rapm_* family (Out/Doubtful/Recovery removed from that game only).",
      "Nothing beyond the designation state."),
 ]
 

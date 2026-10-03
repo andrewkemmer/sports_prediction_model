@@ -1,19 +1,19 @@
-"""Tests for the player-level Estimated Plus-Minus rating.
+"""Tests for the player-level Regularized Adjusted Plus-Minus rating.
 
-The rate itself is arithmetic. What is worth testing is every place the
-rating can be quietly wrong while still producing numbers: a prior that
-forgets the factor of 100, a running total that gets summed instead of
-read, a player id that joins in its float spelling, a DNP row whose
-stale plus-minus rates a player for impact he never had, and a season
-boundary that lets last season leak into this one's rating. Each of
-those produced a plausible frame during development, which is why each
-gets its own test.
+The fit is linear algebra; what is worth testing is every place the rating
+can be quietly wrong while still producing numbers: a sign convention that
+prices one side of the game into the other, a one-sided game that feeds the
+unadjusted fit, a prior that counts a DNP as a game played, a running total
+that gets summed instead of read, a player id that joins in its float
+spelling, and a season boundary that lets last season leak into this one's
+rating. Each of those produced a plausible frame during development, which
+is why each gets its own test.
 
-The fixture convention carries the rating's denominator: every player is
-his own team and plays 48 minutes, so a game's possessions are the
-player's own box-score possessions and his participated possessions equal
-``fga + 0.44 * fta + tov`` - the same number the old scoring-play
-denominator produced, so expected values port one-for-one.
+The fixture convention: ``_row`` describes one player's box-score line;
+end-to-end rating tests pair two teams per ``game_id`` so ``y`` (the home
+margin) exists, because a game priced with only one side is skipped by
+design. A 48-minute player carries ``share = 1.0``, so eff-games per game
+is exactly 1 and the shrinkage arithmetic reads in game counts.
 
 Everything here runs offline. The live probes that established what
 stats.nba.com will and will not answer for a position are pinned in
@@ -29,17 +29,23 @@ import pytest
 
 import config
 import nba_sources as src
-import player_epm as epm
+import player_rapm as rapm
 
 
 def _row(player, day, plus_minus, fga, fta=0, tov=0, minutes=48,
-         position="G", season="2024-25", team=None):
-    return {
+         position="G", season="2024-25", team=None, points=None,
+         game_id=None):
+    row = {
         "player_id": player, "gameday": day, "season": season,
         "plus_minus": plus_minus, "fga": fga, "fta": fta, "tov": tov,
         "minutes": minutes, "position": position,
         "team": player if team is None else team,
     }
+    if points is not None:
+        row["points"] = points
+    if game_id is not None:
+        row["game_id"] = game_id
+    return row
 
 
 def _frame(rows):
@@ -47,67 +53,249 @@ def _frame(rows):
 
 
 def _prepared(rows):
-    return epm.prepare_player_games(_frame(rows))
+    return rapm.prepare_player_games(_frame(rows))
 
 
-class TestEstimatedPlusMinusRate:
-    def test_rate_is_pm_times_hundred_over_possessions(self):
-        got = float(epm.estimated_plus_minus(pd.Series([10]),
-                                              pd.Series([4])).iloc[0])
-        assert got == pytest.approx(100.0 * 10 / 4)
+class TestParticipationShare:
+    """The design-matrix entry: MIN/48, clipped at one, zero for a DNP."""
 
-    def test_a_zero_participation_game_is_undefined_not_zero(self):
-        """Zero possessions is genuinely unknown, not a performance of zero.
+    def test_a_full_game_is_one_and_an_ot_game_is_still_one(self):
+        got = rapm.participation_share(pd.Series([48.0, 72.0, 0.0, -5.0]))
+        assert list(got) == [1.0, 1.0, 0.0, 0.0]
 
-        Coding it 0.0 would drag every rate the player appears in toward
-        zero, and it would do so silently - the column would look
-        populated.
+    def test_minutes_scale_linearly_below_the_full_game(self):
+        got = rapm.participation_share(pd.Series([24.0, 12.0]))
+        assert got.iloc[0] == pytest.approx(0.5)
+        assert got.iloc[1] == pytest.approx(0.25)
+
+    def test_missing_minutes_reads_as_zero_participation_not_nan(self):
+        """NaN minutes is a row that tells us nothing, not a mystery weight.
+
+        A NaN would propagate into the design matrix and poison the whole
+        game's equation; zero simply leaves the player out of it.
         """
-        got = epm.estimated_plus_minus(pd.Series([10]), pd.Series([0]))
-        assert got.isna().all()
-
-    def test_missing_counting_columns_yield_nan_not_a_crash(self):
-        got = epm.estimated_plus_minus(pd.Series([10]), pd.Series([None]))
-        assert got.isna().all()
-
-
-class TestParticipationGating:
-    """EPM-specific: participation is gated on MINUTES, not on the PM column.
-
-    The feed can carry a stale nonzero plus-minus on a DNP row (120 such
-    rows exist in the 2023-24..2025-26 logs), so a zero-minute row must
-    contribute nothing to either side of the rate.
-    """
-
-    def test_participated_possessions_is_zero_not_nan_for_a_dnp(self):
-        """A DNP row is a defined observation of zero opportunity."""
-        got = epm.participated_possessions(pd.Series([110.0]),
-                                            pd.Series([0.0]))
+        got = rapm.participation_share(pd.Series([np.nan]))
         assert float(got.iloc[0]) == 0.0
-        assert not got.isna().any()
 
-    def test_a_zero_minute_row_carries_no_plus_minus(self):
+    def test_a_zero_minute_row_carries_no_share(self):
+        """A DNP row is gated on MINUTES, not on the feed's PM column.
+
+        The feed can carry a stale nonzero plus-minus on a DNP row (120
+        such rows exist in the 2023-24..2025-26 logs); a zero-minute row
+        must contribute nothing to either side of the rating, and it is
+        not a game the player PLAYED either.
+        """
         games = _prepared([
             _row("a", "2024-11-01", 10, 10, 0),
             _row("a", "2024-11-02", 999, 10, 0, minutes=0),
         ])
         dnp = games[games.gameday == "2024-11-02"].iloc[0]
-        assert dnp.plays == 0.0
-        assert dnp.plus_minus == 0.0
-        assert pd.isna(dnp.epm)
-        ratings = epm.build_player_epm(
+        assert dnp.share == 0.0
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-03"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 10
-        assert row.prior_plays == pytest.approx(10)
+        assert row.prior_games == 1
+        assert row.prior_minutes == pytest.approx(48)
+        assert row.prior_eff == pytest.approx(1.0)
 
-    def test_teammate_participations_sum_to_the_games_possessions(self):
-        """The pro-rata split is exhaustive when minutes sum to 48."""
+    def test_teammate_shares_sum_to_the_games_share_of_minutes(self):
+        """Two teammates splitting 48 minutes carry shares summing to 1.
+
+        That identity is what makes each solved beta a per-game average in
+        points: every row of the design weighs the game's margin exactly
+        once, so no player's participation is counted twice or missed.
+        """
         games = _prepared([
-            _row("x", "2024-11-01", 10, 10, 0, team="T", minutes=24),
-            _row("y", "2024-11-01", 20, 10, 0, team="T", minutes=24),
+            _row("x", "2024-11-01", 10, 10, 0, team="T", minutes=36),
+            _row("y", "2024-11-01", 20, 10, 0, team="T", minutes=12),
         ])
-        assert games.plays.sum() == pytest.approx(20.0)
+        assert games.share.sum() == pytest.approx(1.0)
+
+
+def _two_team_game(day="2024-11-01", game_id="g1", home_pts=110.0,
+                   away_pts=90.0):
+    """One game, both sides, real box points for the fallback margin."""
+    return _frame([
+        _row("h1", day, 20, 10, 0, team="HOME", points=home_pts,
+             game_id=game_id, minutes=48),
+        _row("a1", day, 10, 10, 0, team="AWAY", points=away_pts,
+             game_id=game_id, minutes=48),
+    ])
+
+
+class TestTeamGameEntries:
+    """ONE row per game: both sides in the same equation, same y, opposite
+    sign. The two-row-per-game design was built and REJECTED during
+    development (it rated Huerter +10 and LeBron -2, no star in the top
+    eight) - these tests pin the shape that replaced it.
+    """
+
+    def test_both_sides_carry_the_same_margin_with_opposite_signs(self):
+        entries = rapm.team_game_entries(_two_team_game())
+        assert len(entries) == 2
+        assert set(entries.sign) == {1.0, -1.0}
+        # y is one game-level quantity on both rows; only sign differs.
+        assert entries.y.nunique() == 1
+        # Box fallback: the lexicographically first team ("AWAY") stands in
+        # as the nominal home side, so y is ITS margin: 90 - 110.
+        assert float(entries.y.iloc[0]) == pytest.approx(-20.0)
+        signs = dict(zip(entries.player_id, entries.sign))
+        assert signs["a1"] == 1.0
+        assert signs["h1"] == -1.0
+
+    def test_the_official_team_table_supplies_true_sides(self):
+        """With team_stats the sides come from is_home, not from spelling.
+
+        The production path passes the official table, so home court is
+        real - which is what makes the intercept's ~+1.7 reading mean
+        something instead of "which team sorts first".
+        """
+        ts = pd.DataFrame({
+            "gameday": ["2024-11-01", "2024-11-01"],
+            "team": ["HOME", "AWAY"],
+            "net_points": [20.0, -20.0],
+            "is_home": [True, False],
+        })
+        entries = rapm.team_game_entries(_two_team_game(), team_stats=ts)
+        signs = dict(zip(entries.player_id, entries.sign))
+        ys = dict(zip(entries.player_id, entries.y))
+        assert signs["h1"] == 1.0 and signs["a1"] == -1.0
+        # Both rows read the HOME margin: +20 for home, -(-20) for away.
+        assert ys["h1"] == pytest.approx(20.0)
+        assert ys["a1"] == pytest.approx(20.0)
+
+    def test_a_one_sided_game_yields_no_margin_and_no_fit(self):
+        """A game priced with one team is the UNADJUSTED fit, so it is
+        skipped rather than half-priced: the opponent would have nowhere
+        to put his share and it would land on the margin as if one roster
+        caused all of it."""
+        entries = rapm.team_game_entries(_frame([
+            _row("h1", "2024-11-01", 20, 10, 0, team="HOME", points=110,
+                 game_id="g1"),
+        ]))
+        assert entries.y.isna().all()
+        assert rapm.fit_rapm(entries) is None
+
+    def test_dnps_do_not_enter_the_design(self):
+        entries = rapm.team_game_entries(_frame([
+            _row("h1", "2024-11-01", 20, 10, 0, team="HOME", points=110,
+                 game_id="g1", minutes=48),
+            _row("a1", "2024-11-01", 10, 10, 0, team="AWAY", points=90,
+                 game_id="g1", minutes=48),
+            _row("h6", "2024-11-01", 0, 0, 0, team="HOME", points=0,
+                 game_id="g1", minutes=0),
+        ]))
+        assert "h6" not in set(entries.player_id)
+        assert len(entries) == 2
+
+    def test_the_game_key_accepts_the_feeds_id_spellings(self):
+        """The raw feed spells its id nba_game_id; pairing must not care.
+
+        Without an id the pair falls back to the gameday, which is only
+        sound for a one-game day - so the id spellings are load-bearing
+        for every multi-game night.
+        """
+        frame = _two_team_game().rename(columns={"game_id": "nba_game_id"})
+        entries = rapm.team_game_entries(frame)
+        assert (entries.game_key == "g1").all()
+
+
+class TestSignedDesign:
+    """The fit: signed shares, both sides one equation, unridged intercept."""
+
+    @staticmethod
+    def _home_win_games():
+        """Home blows out with the star on the floor, loses when he sits.
+
+        Shares must vary ACROSS GAMES: with constant minutes every beta
+        column is a scalar copy of the intercept and the free intercept
+        column explains the whole margin (every beta exactly zero, which
+        is correct but tests nothing). Varying the split also gives the
+        attribution something to price - the two teammates play the SAME
+        total minutes in complementary games, so their difference is
+        which minutes coincided with winning.
+        """
+        rows = []
+        for index in range(6):
+            heavy = index < 3
+            day = f"2024-11-{index + 1:02d}"
+            gid = f"g{index}"
+            margin = 40.0 if heavy else -20.0
+            star_min, scrub_min = (44.0, 4.0) if heavy else (4.0, 44.0)
+            home_pts = 100.0 + margin / 2
+            away_pts = 100.0 - margin / 2
+            rows.append(_row("star", day, 0, 0, team="HOME",
+                             minutes=star_min, points=home_pts, game_id=gid))
+            rows.append(_row("scrub", day, 0, 0, team="HOME",
+                             minutes=scrub_min, points=0.0, game_id=gid))
+            rows.append(_row("avg1", day, 0, 0, team="AWAY", minutes=24,
+                             points=away_pts / 2, game_id=gid))
+            rows.append(_row("avg2", day, 0, 0, team="AWAY", minutes=24,
+                             points=away_pts / 2, game_id=gid))
+        return rapm.prepare_player_games(_frame(rows))
+
+    def test_swapping_the_sides_flips_no_beta(self):
+        """Sign symmetry: nothing about the betas depends on which side is
+        called home. Flipping sign AND margin together leaves the outer
+        product and x*y unchanged - only the intercept's READING moves,
+        and it absorbs that by flipping with them."""
+        entries = rapm.team_game_entries(self._home_win_games())
+        beta, icpt = rapm.fit_rapm(entries)
+        flipped = entries.copy()
+        flipped["sign"] = -flipped.sign
+        flipped["y"] = -flipped.y
+        beta2, icpt2 = rapm.fit_rapm(flipped)
+        assert np.allclose(beta.values, beta2.values, atol=1e-9)
+        assert icpt2 == pytest.approx(-icpt)
+
+    def test_the_winner_rates_positive_and_minutes_split_the_credit(self):
+        """Attribution: credit follows the minutes that coincided with
+        winning.
+
+        The star plays 44 minutes in the three blowouts and 4 in the
+        three losses; the scrub plays the mirror image. Their TOTAL
+        minutes are equal, so only WHOSE minutes matched the results can
+        separate them - and it does: the star above zero, the scrub below
+        it. The two visitors play identical minutes in every game and
+        rate at zero, which is what "no differential signal" looks like.
+        """
+        entries = rapm.team_game_entries(self._home_win_games())
+        beta, _ = rapm.fit_rapm(entries)
+        assert beta["star"] > 0
+        assert beta["scrub"] < 0
+        assert beta["star"] > beta["scrub"]
+        assert abs(beta["avg1"]) < 0.05 and abs(beta["avg2"]) < 0.05
+
+    def test_the_intercept_reads_the_mean_margin_unridged(self):
+        """Home court is an extra column that is NEVER ridged: lambda sits
+        on players only, so the intercept keeps the game's mean margin
+        (-10 here: three +40 wins and three -20 losses average -10 in the
+        box fallback's nominal-home reading) instead of being priced as if
+        it were a player and dragged toward zero."""
+        entries = rapm.team_game_entries(self._home_win_games())
+        _, icpt = rapm.fit_rapm(entries)
+        assert icpt == pytest.approx(-10.0)
+
+    def test_the_raw_league_mean_is_exactly_zero(self):
+        """The ridge's minimum-norm solution, centered on the players this
+        fit evidenced - the property every downstream prior leans on."""
+        entries = rapm.team_game_entries(self._home_win_games())
+        beta, _ = rapm.fit_rapm(entries)
+        assert float(beta.mean()) == pytest.approx(0.0, abs=1e-9)
+
+    def test_a_fit_folds_in_each_game_exactly_once_strictly_prior(self):
+        """Point-in-time at the solve: a game on the target day is not
+        evidence for that day's rating. The day pointer only moves
+        forward, so no game is ever folded in twice."""
+        entries = rapm.team_game_entries(self._home_win_games())
+        design = rapm._SeasonDesign(entries)
+        design.advance(pd.Timestamp("2024-11-01"))
+        assert design.games == 0        # the 11-01 game is NOT yet evidence
+        design.advance(pd.Timestamp("2024-11-03"))
+        assert design.games == 2        # 11-01 and 11-02
+        design.advance(pd.Timestamp("2024-11-30"))
+        assert design.games == 6        # all six, each exactly once
+        assert design.solve() is not None
 
 
 class TestPlayerIdSpelling:
@@ -120,78 +308,91 @@ class TestPlayerIdSpelling:
         position and therefore no prior. The failure is invisible in the
         output.
         """
-        got = epm._player_id_str(pd.Series([1628983.0, "2544", 203076.0]))
+        got = rapm._player_id_str(pd.Series([1628983.0, "2544", 203076.0]))
         assert list(got) == ["1628983", "2544", "203076"]
 
     def test_prepared_rows_carry_the_clean_id(self):
-        out = epm.prepare_player_games(
+        out = rapm.prepare_player_games(
             _frame([_row(1628983.0, "2024-11-01", 20, 10, 4)]))
         assert list(out.player_id) == ["1628983"]
 
 
-class TestEPMShrinkage:
+class TestRAPMShrinkage:
     def test_a_zero_evidence_player_lands_exactly_on_the_league_prior(self):
         """The whole point of the prior, stated as its limiting case."""
-        got = epm.shrunk_epm(pd.Series([0.0]), pd.Series([0.0]),
+        got = rapm.shrunk_rapm(pd.Series([0.0]), pd.Series([0.0]),
                               pd.Series([5.5]), pd.Series([100.0]))
         assert float(got.iloc[0]) == pytest.approx(5.5)
 
     def test_evidence_moves_the_rating_off_the_prior(self):
-        got = epm.shrunk_epm(pd.Series([200.0]), pd.Series([100.0]),
-                              pd.Series([5.5]), pd.Series([100.0]))
-        # (100 * 200 + 5.5 * 100) / (100 + 100) = 20550 / 200
-        assert float(got.iloc[0]) == pytest.approx(102.75)
+        # (eff * raw + lg * k) / (eff + k) = (10*20 + 5.5*10) / 20
+        got = rapm.shrunk_rapm(pd.Series([10.0]), pd.Series([20.0]),
+                              pd.Series([5.5]), pd.Series([10.0]))
+        assert float(got.iloc[0]) == pytest.approx(12.75)
 
-    def test_the_rating_carries_the_factor_of_hundred(self):
-        """Regression: dropping the 100 returns 1.0, not 100.
+    def test_a_player_without_a_fitted_beta_shrinks_all_the_way(self):
+        """No beta in the window is no evidence, whatever ``prior_eff``
+        says (rows whose games carried no margin): his rating IS the
+        position prior rather than a number pulled toward it."""
+        got = rapm.shrunk_rapm(pd.Series([4.0]), pd.Series([np.nan]),
+                              pd.Series([5.5]), pd.Series([10.0]))
+        assert float(got.iloc[0]) == pytest.approx(5.5)
 
-        That is not an error, it is a wrong number in the right range
-        (both are "a small positive rating"), so nothing downstream
-        objects to it.
-        """
-        got = float(epm.shrunk_epm(pd.Series([100.0]), pd.Series([100.0]),
+    def test_an_empty_position_cell_stays_empty(self):
+        """A NaN league cell keeps the rating NaN rather than manufacturing
+        one from nothing."""
+        got = rapm.shrunk_rapm(pd.Series([4.0]), pd.Series([20.0]),
+                              pd.Series([np.nan]), pd.Series([10.0]))
+        assert got.isna().all()
+
+    def test_the_rating_stays_in_points_per_game_units(self):
+        """Both sides of the mix are points per game, so no scale factor
+        hides anywhere - k = 0 returns the player's own raw beta, and a
+        6-point rating reads as 6, not 600."""
+        got = float(rapm.shrunk_rapm(pd.Series([100.0]), pd.Series([6.0]),
                                     pd.Series([5.5]),
                                     pd.Series([0.0])).iloc[0])
-        # k = 0: the rating is the player's own raw rate, 100 * pm / plays.
-        assert got == pytest.approx(100.0)
-        assert got > 50
+        assert got == pytest.approx(6.0)
+        assert 0 < got < 10
 
     def test_more_evidence_means_less_prior_weight(self):
-        """Both players post a 120 EPM; the one with more evidence sits nearer it.
+        """Both players post a 30-point raw beta; the one with more
+        evidence sits nearer it.
 
         The prior's job is to pull a THIN record toward the league, so as
         evidence accumulates the rating should approach the player's own
-        rate - and since 120 is above the 5.5 prior, "closer to own rate"
+        beta - and since 30 is above the 5.5 prior, "closer to own beta"
         means "further from the league".
         """
-        # plus-minus chosen so the raw rate is 120 at each volume:
-        # 100 * 30 / 25 and 100 * 300 / 250.
-        thin = float(epm.shrunk_epm(pd.Series([30.0]), pd.Series([25.0]),
+        thin = float(rapm.shrunk_rapm(pd.Series([1.0]), pd.Series([30.0]),
                                      pd.Series([5.5]),
-                                     pd.Series([100.0])).iloc[0])
-        thick = float(epm.shrunk_epm(pd.Series([300.0]), pd.Series([250.0]),
+                                     pd.Series([10.0])).iloc[0])
+        thick = float(rapm.shrunk_rapm(pd.Series([40.0]), pd.Series([30.0]),
                                       pd.Series([5.5]),
-                                      pd.Series([100.0])).iloc[0])
+                                      pd.Series([10.0])).iloc[0])
         assert thin < thick
         assert abs(thin - 5.5) < abs(thick - 5.5)
-        assert abs(thick - 120.0) < abs(thin - 120.0)
+        assert abs(thick - 30.0) < abs(thin - 30.0)
 
 
-class TestSeasonPlaysPriorTable:
+class TestSeasonEffTable:
+
     def test_k_is_twenty_percent_of_the_mean_player_season(self):
         """The MLB/NHL convention, carried across by its fraction.
 
         MLB's fixed 120-PA prior is 20% of a 600-PA season, so the
         fraction is the portable part and the season length is
-        sport-specific.
+        sport-specific. In eff-games a 48-minute game is exactly 1, so
+        the mean player-season reads as a game count.
         """
         games = _prepared([
             _row("a", "2024-11-01", 20, 10, 4),
             _row("a", "2024-11-02", 20, 10, 4),
             _row("b", "2024-11-01", 20, 10, 4),
         ])
-        table = epm.season_plays_table(games, shrink_fraction=0.20)
-        per_season = games.groupby(["player_id", "season"]).plays.sum()
+        table = rapm.season_eff_table(games, shrink_fraction=0.20)
+        per_season = (games.assign(eff=games.share ** 2)
+                      .groupby(["player_id", "season"]).eff.sum())
         # Two player-seasons, not three rows: "a"'s two November games are
         # one season of evidence, which is the whole point of the unit.
         assert len(per_season) == 2
@@ -215,16 +416,16 @@ class TestSeasonPlaysPriorTable:
                 _row("a", "2024-04-01", 20, 10, 4, season="2023-24"),
                 _row("b", "2024-11-01", 20, 10, 4)]
         games = _prepared(rows)
-        one = 10 + 0.44 * 4
-        table = epm.season_plays_table(games, shrink_fraction=0.20)
+        table = rapm.season_eff_table(games, shrink_fraction=0.20)
 
-        # Per PLAYER-SEASON: (3u + u + u) / 3.
-        per_player_season = (3 * one + one + one) / 3
+        # Per PLAYER-SEASON, eff-games: a contributes seasons of 3 and 1,
+        # b one season of 1 - mean (3 + 1 + 1) / 3.
+        per_player_season = (3 + 1 + 1) / 3
         assert table["G"] == pytest.approx(0.20 * per_player_season)
         # Per PLAYER, dividing each career by its season count first: a is
-        # (3u + u)/2 = 2u and b is u, so the mean is 1.5u - a different
+        # (3 + 1)/2 = 2 and b is 1, so the mean is 1.5 - a different
         # number.
-        per_player = ((3 * one + one) / 2 + one) / 2
+        per_player = ((3 + 1) / 2 + 1) / 2
         assert per_player != pytest.approx(per_player_season)
         assert table["G"] != pytest.approx(0.20 * per_player)
 
@@ -247,17 +448,17 @@ class TestSeasonPlaysPriorTable:
             rows.append(_row("b", f"2024-11-{day:02d}", 20, 10, 4,
                              season="2024-25"))
         games = _prepared(rows)
-        one = 10 + 0.44 * 4
-        # Whole-frame mean (pre-2026-10-01 behavior): two player-
-        # seasons, one of them only ten games long, so the in-progress
-        # season drags the mean to well under a full season's volume.
-        whole = epm.season_plays_table(games, shrink_fraction=0.20)
-        assert whole["G"] == pytest.approx(0.20 * (82 * one + 10 * one) / 2)
-        # Through 2024-25: only the completed 2023-24 season enters,
-        # and k is ~44% stronger for it.
-        pIT = epm.season_plays_table(games, shrink_fraction=0.20,
+        # 48-minute games: eff-games per game is exactly 1, so the
+        # player-seasons are 82 and 10 games of evidence.
+        # Whole-frame mean: two player-seasons, one of them only ten games
+        # long, so the in-progress season drags the mean down.
+        whole = rapm.season_eff_table(games, shrink_fraction=0.20)
+        assert whole["G"] == pytest.approx(0.20 * (82 + 10) / 2)
+        # Through 2024-25: only the completed 2023-24 season enters, so k
+        # is markedly stronger for it.
+        pIT = rapm.season_eff_table(games, shrink_fraction=0.20,
                                      through_season="2024-25")
-        assert pIT["G"] == pytest.approx(0.20 * 82 * one)
+        assert pIT["G"] == pytest.approx(0.20 * 82)
         assert pIT["G"] > whole["G"]
 
     def test_an_empty_position_cell_keeps_a_usable_default(self):
@@ -266,16 +467,16 @@ class TestSeasonPlaysPriorTable:
         If it raised, one unpopulated position would take the whole rating
         build down rather than degrading just that cell.
         """
-        table = epm.season_plays_table(
+        table = rapm.season_eff_table(
             _prepared([_row("a", "2024-11-01", 20, 10, 4)]))
         for position in config.PLAYER_EPM_POSITIONS:
             assert position in table
             assert table[position] > 0
-        assert table["C"] == config.PLAYER_EPM_FALLBACK_K_PLAYS
+        assert table["C"] == config.PLAYER_RAPM_FALLBACK_K_EFF
 
     def test_no_data_yields_a_complete_table_rather_than_nothing(self):
         for games in (None, pd.DataFrame()):
-            table = epm.season_plays_table(games)
+            table = rapm.season_eff_table(games)
             assert set(table) == set(config.PLAYER_EPM_POSITIONS)
 
 
@@ -308,7 +509,7 @@ class TestPositionAssignment:
         The convention files him as F. Embiid, Towns, Holmgren, Hartenstein,
         Bitadze and Wendell Carter Jr. are all ``C-F`` in 2025-26 and all
         starters at centre - the same labelling artifact that left
-        ``pl_epm_c_*`` thin. The index is a READING and the convention is a
+        ``pl_rapm_c_*`` thin. The index is a READING and the convention is a
         convention, so the reading wins.
         """
         assigned = src.assign_positions(
@@ -344,7 +545,7 @@ class TestPositionAssignment:
         """Trust the reading only where the two sources agree the player plays.
 
         The prior cell has to be a cell this season's filter pull actually
-        produced, or ``league_prior_table`` has a denominator nothing was
+        produced, or ``LEAGUE_TABLE_GONE`` has a denominator nothing was
         counted against. The filter pull is what defines which cells exist;
         the index only chooses between them.
         """
@@ -403,7 +604,7 @@ class TestPositionAssignment:
         The forward-centre ("2") is the whole point: the prior divides by
         exactly one cell so no player is counted twice, while the team
         segments need him in BOTH the F and C groups or a roster whose
-        centers are all listed F-C ships pl_epm_c as NaN - the 62%
+        centers are all listed F-C ships pl_rapm_c as NaN - the 62%
         baseline coverage the monitor flags LOW_COVERAGE.
         """
         frame = src.positions_frame({"G": {"1"}, "F": {"1", "2"},
@@ -417,7 +618,7 @@ class TestPositionAssignment:
         """The segment reads ``positions`` off the RATING row, so both stages
         must carry it: prepare joins the labels per (player, season), build
         rebuilds the roster from raw columns. A drop anywhere upstream is
-        invisible except as NaN ``pl_epm_c`` at serve time, so the whole path
+        invisible except as NaN ``pl_rapm_c`` at serve time, so the whole path
         is pinned together rather than each hop alone.
         """
         stats = _frame([
@@ -425,12 +626,12 @@ class TestPositionAssignment:
             _row("b", "2024-11-01", 10, 10, 4, position="F"),
         ]).drop(columns=["position"])  # production player_stats has no label
         positions = src.positions_frame({"F": {"a", "b"}, "C": {"b"}})
-        games = epm.prepare_player_games(stats, positions)
+        games = rapm.prepare_player_games(stats, positions)
         assert dict(zip(games.player_id, games.position)) == {"a": "F", "b": "F"}
         assert dict(zip(games.player_id, games.positions)) == {
             "a": "F", "b": "F|C"}
 
-        ratings = epm.build_player_epm(games, target_dates=["2024-11-02"])
+        ratings = rapm.build_player_rapm(games, target_dates=["2024-11-02"])
         listed = dict(zip(ratings.player_id, ratings.positions))
         assert listed["b"] == "F|C"
         # The collapsed cell the prior divided by never moved.
@@ -501,7 +702,7 @@ class TestPositionJoin:
             "position": ["G", "G", "F"],
             "season": ["2023-24", "2024-25", "2025-26"],
         })
-        frame = epm.prepare_player_games(stats, positions)
+        frame = rapm.prepare_player_games(stats, positions)
         assert len(frame) == 3
         assert frame.gameday.nunique() == 3
 
@@ -512,7 +713,7 @@ class TestPositionJoin:
             "position": ["F", "G"],
             "season": ["2023-24", "2025-26"],
         })
-        frame = epm.prepare_player_games(stats, positions)
+        frame = rapm.prepare_player_games(stats, positions)
         # every game here is 2023-24, so the 2025-26 row must not apply
         assert set(frame.position) == {"F"}
 
@@ -523,7 +724,7 @@ class TestPositionJoin:
             "position": ["G", "C"],
             "season": ["2023-24", "2023-24"],
         })
-        frame = epm.prepare_player_games(stats, positions)
+        frame = rapm.prepare_player_games(stats, positions)
         assert len(frame.drop_duplicates(["player_id", "gameday"])) \
             == len(frame)
 
@@ -535,7 +736,7 @@ class TestPositionJoin:
             "position": ["F", "G"],
             "season": ["2023-24", "2023-24"],
         })
-        frame = epm.prepare_player_games(stats, positions)
+        frame = rapm.prepare_player_games(stats, positions)
         assert len(frame) == 3
         assert frame.position.nunique() == 1
 
@@ -545,7 +746,7 @@ class TestPositionJoin:
             "player_id": ["1628983", "1628983"],
             "position": ["G", "F"],
         })
-        frame = epm.prepare_player_games(stats, positions)
+        frame = rapm.prepare_player_games(stats, positions)
         assert len(frame) == 3
 
 
@@ -682,12 +883,12 @@ class TestPointInTimeDiscipline:
         prior, which is the only defensible answer for a player with no
         evidence.
         """
-        games = epm.prepare_player_games(self._season_games())
-        ratings = epm.build_player_epm(
+        games = rapm.prepare_player_games(self._season_games())
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-01"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 0
-        assert row.prior_plays == 0
+        assert row.prior_eff == 0
+        assert row.prior_minutes == 0
         assert row.prior_games == 0
 
     def test_a_player_with_no_evidence_is_still_emitted(self):
@@ -697,20 +898,20 @@ class TestPointInTimeDiscipline:
         player who does not exist, so the row is present with a zero prior
         rather than dropped.
         """
-        games = epm.prepare_player_games(self._season_games())
-        ratings = epm.build_player_epm(
+        games = rapm.prepare_player_games(self._season_games())
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-01"]))
         assert list(ratings.player_id) == ["a"]
-        assert pd.isna(ratings.iloc[0].epm_raw)
+        assert pd.isna(ratings.iloc[0].rapm_raw)
 
     def test_a_rating_does_not_see_the_target_game(self):
-        games = epm.prepare_player_games(self._season_games())
-        ratings = epm.build_player_epm(
+        games = rapm.prepare_player_games(self._season_games())
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-02"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
         # Only the opener is prior; the target day's line is not.
-        assert row.prior_pm == 10
-        assert row.prior_plays == pytest.approx(5)
+        assert row.prior_eff == pytest.approx(1.0)
+        assert row.prior_minutes == pytest.approx(48)
 
     def test_a_rating_does_not_carry_the_previous_season(self):
         """The boundary the season partition exists to hold.
@@ -718,39 +919,44 @@ class TestPointInTimeDiscipline:
         A carry-over is invisible in the output: a player with a full
         season of evidence looks equally well-rated either way.
         """
-        games = epm.prepare_player_games(_frame([
+        games = rapm.prepare_player_games(_frame([
             _row("a", "2024-06-01", 40, 20, 0, season="2023-24"),
             _row("a", "2024-11-01", 10, 5, 0, season="2024-25"),
         ]))
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-02"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 10
+        # Only the 2024-25 game counts: one 48-minute game of evidence.
+        assert row.prior_eff == pytest.approx(1.0)
+        assert row.prior_games == 1
 
     def test_the_prior_is_a_running_total_read_not_summed(self):
         """Regression: summing the running total grows with the square of the
         season and returns a number several times the player's real
         plus-minus."""
-        games = epm.prepare_player_games(self._season_games())
-        ratings = epm.build_player_epm(
+        games = rapm.prepare_player_games(self._season_games())
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-04"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 60  # 10 + 30 + 20, not their partial sums
+        # 3 games of 48 minutes each - a plain sum, not a sum of prefixes.
+        assert row.prior_eff == pytest.approx(3.0)
+        assert row.prior_minutes == pytest.approx(144)
 
     def test_duplicate_player_games_do_not_double_count(self):
         """Overlapping fetch windows repeat a player-game, and a duplicate
         would double both sides of the rate - which looks like a much
         better performance than it was."""
-        games = epm.prepare_player_games(_frame([
+        games = rapm.prepare_player_games(_frame([
             _row("a", "2024-11-01", 10, 5, 0),
             _row("a", "2024-11-01", 10, 5, 0),
             _row("a", "2024-11-05", 4, 2, 0),
         ]))
         assert len(games) == 2
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-06"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 14
+        assert row.prior_eff == pytest.approx(2.0)
+        assert row.prior_minutes == pytest.approx(96)
 
     def test_a_season_spanning_new_year_is_one_season_not_two(self):
         """An NBA season runs October to June, so it crosses New Year.
@@ -758,53 +964,81 @@ class TestPointInTimeDiscipline:
         Deriving the season from the calendar year would split every season
         in half at 1 January and hand each half a thin prior.
         """
-        games = epm.prepare_player_games(_frame([
+        games = rapm.prepare_player_games(_frame([
             _row("a", "2024-12-30", 10, 5, 0, season="2024-25"),
             _row("a", "2025-01-02", 10, 5, 0, season="2024-25"),
         ]))
         assert set(games.season) == {"2024-25"}
 
 
-class TestPositionSegmentedLeaguePrior:
-    def _two_position_league(self):
-        """A guard and a centre with deliberately different impact."""
+class TestPositionSegmentedPrior:
+    """The position prior is the mean raw beta among the SAME fit's
+    evidenced members at that position: shrink target and thing shrunk
+    come out of one solve, so they can never disagree about scale or
+    about which date they belong to."""
+
+    @staticmethod
+    def _two_position_league():
+        """A centre-heavy home side versus a full-minute visitor, with the
+        minute split shifting across nights.
+
+        The shift is load-bearing: constant shares make every beta column
+        a scalar copy of the intercept, the free intercept explains the
+        whole margin, and every beta solves to exactly zero - correct,
+        but a fixture that cannot tell two positions apart.
+        """
         rows = []
-        for day in ("2024-11-01", "2024-11-02", "2024-11-03"):
-            rows.append(_row("g", day, 10, 10, 0, position="G"))
-            rows.append(_row("c", day, 30, 10, 0, position="C"))
-        return epm.prepare_player_games(_frame(rows))
+        for index, margin in enumerate((20.0, 6.0, 32.0)):
+            day = f"2024-11-{index + 1:02d}"
+            gid = f"p{index}"
+            c_min = (44.0, 44.0, 8.0)[index]
+            g_min = (4.0, 4.0, 40.0)[index]
+            rows.append(_row("c", day, 0, 0, position="C", team="AA",
+                             minutes=c_min, points=100.0 + margin,
+                             game_id=gid))
+            rows.append(_row("g", day, 0, 0, position="G", team="AA",
+                             minutes=g_min, points=0.0, game_id=gid))
+            rows.append(_row("d", day, 0, 0, position="C", team="BB",
+                             minutes=48.0, points=100.0, game_id=gid))
+        return rapm.prepare_player_games(_frame(rows))
+
+    def _ratings(self):
+        return rapm.build_player_rapm(
+            self._two_position_league(),
+            target_dates=pd.Series(["2024-11-04"]))
 
     def test_the_league_mean_differs_by_position(self):
         """The reason the prior is segmented at all.
 
-        One league mean would rate this centre as an above-average guard
-        and that guard as a below-average centre - the NHL defenceman
+        One league mean would rate this guard as an above-average centre
+        and that centre as a below-average guard - the NHL defenceman
         problem in a different sport.
         """
-        games = self._two_position_league()
-        league = epm.league_prior_table(games, pd.Series(["2024-11-04"]))
-        table = dict(zip(league.position, league.lg_epm))
-        assert table["C"] > table["G"]
-        assert table["G"] == pytest.approx(100.0)  # 100 * 30 / 30
-        assert table["C"] == pytest.approx(300.0)  # 100 * 90 / 30
+        ratings = self._ratings()
+        lg = dict(zip(ratings.position, ratings.lg_rapm))
+        assert lg["G"] > lg["C"]
+        raw = dict(zip(ratings.player_id, ratings.rapm_raw))
+        assert raw["g"] != raw["c"]
 
     def test_a_rating_is_pulled_toward_its_own_position_not_the_league(self):
-        games = self._two_position_league()
-        ratings = epm.build_player_epm(
-            games, target_dates=pd.Series(["2024-11-04"]))
-        by_id = dict(zip(ratings.player_id, ratings.epm_shrunk))
-        # Each player's evidence equals their own position's mean, so each
-        # stays put. A single unsegmented prior would drag both toward one
-        # number between them.
-        assert by_id["g"] == pytest.approx(100.0)
-        assert by_id["c"] == pytest.approx(300.0)
-        assert by_id["g"] != by_id["c"]
+        ratings = self._ratings()
+        row_c = ratings[ratings.player_id == "c"].iloc[0]
+        # Between the player's own raw beta and HIS position's mean, never
+        # past either.
+        assert ((row_c.rapm_shrunk - row_c.lg_rapm)
+                * (row_c.rapm_raw - row_c.lg_rapm) > 0)
+        assert (abs(row_c.rapm_shrunk - row_c.lg_rapm)
+                < abs(row_c.rapm_raw - row_c.lg_rapm))
+        # The sole evidenced guard IS his position's mean, so his rating
+        # stays exactly on his raw beta - a single unsegmented league mean
+        # would drag him toward the centre cell instead.
+        row_g = ratings[ratings.player_id == "g"].iloc[0]
+        assert row_g.rapm_shrunk == pytest.approx(row_g.rapm_raw)
+        assert row_g.rapm_shrunk == pytest.approx(row_g.lg_rapm)
 
     def test_prior_strength_is_defined_for_every_position_in_play(self):
-        games = self._two_position_league()
-        ratings = epm.build_player_epm(
-            games, target_dates=pd.Series(["2024-11-04"]))
-        k = dict(zip(ratings.position, ratings.k_plays))
+        ratings = self._ratings()
+        k = dict(zip(ratings.position, ratings.k_eff))
         assert set(k) == {"G", "C"}
         assert all(value > 0 for value in k.values())
 
@@ -813,42 +1047,62 @@ class TestShrinkageBehaviour:
     def test_a_one_game_rookie_is_pulled_back_toward_the_league(self):
         """The case the prior exists for, as an end-to-end assertion.
 
-        A single game's raw rate is almost pure noise - a 4-point night on
-        two possessions is a 200 EPM - and the rating must not carry that
-        onward. The league here is given realistic season volume so ``k``
-        is a meaningful weight; a two-game league would make every prior
-        negligible and the assertion would pass or fail on the fixture
-        rather than the rating.
+        A single game's beta is almost pure noise. The veterans here split
+        twenty alternating wins and losses (net margin zero, so the
+        league mean sits at 0 by construction), the rookie arrives with
+        one 40-point night, and the rating must carry some - not all - of
+        it onward. With lg == 0 the shrinkage reads exactly
+        ``raw / (1 + k)``, which pins the arithmetic as well as the
+        direction.
         """
-        rows = [_row("rookie", "2024-11-01", 4, 2, 0)]
-        for day in range(1, 21):
-            rows.append(_row(f"vet{day}", f"2024-11-{day:02d}", 22, 20, 4))
-        games = epm.prepare_player_games(_frame(rows))
-        ratings = epm.build_player_epm(
+        rows = []
+        for index in range(20):
+            day = f"2024-11-{index + 1:02d}"
+            gid = f"v{index}"
+            home_pts, away_pts = ((110.0, 100.0) if index % 2 == 0
+                                  else (100.0, 110.0))
+            rows.append(_row("vet1", day, 0, 0, team="V1", minutes=48,
+                             points=home_pts, game_id=gid))
+            rows.append(_row("vet2", day, 0, 0, team="V2", minutes=48,
+                             points=away_pts, game_id=gid))
+        rows.append(_row("rookie", "2024-11-21", 0, 0, team="R",
+                         minutes=48, points=140.0, game_id="r0"))
+        rows.append(_row("opp", "2024-11-21", 0, 0, team="O",
+                         minutes=48, points=100.0, game_id="r0"))
+        games = rapm.prepare_player_games(_frame(rows))
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-12-01"]))
         rookie = ratings[ratings.player_id == "rookie"].iloc[0]
-        assert rookie.epm_raw == pytest.approx(200.0)  # 100 * 4 / 2
-        # Moved off the raw rate, toward the league, but not all the way -
-        # some of the 200 is real.
-        assert rookie.lg_epm < rookie.epm_shrunk < rookie.epm_raw
-        assert rookie.epm_shrunk < (rookie.epm_raw + rookie.lg_epm) / 2
+        assert rookie.rapm_raw > 0
+        assert rookie.lg_rapm == pytest.approx(0.0, abs=1e-9)
+        # Moved off the raw beta, toward the league, but not all the way -
+        # some of it is real, and with a zero league mean the exact
+        # shrinkage is raw * eff / (eff + k).
+        assert 0 < rookie.rapm_shrunk < rookie.rapm_raw
+        assert rookie.rapm_shrunk == pytest.approx(
+            rookie.rapm_raw * rookie.prior_eff
+            / (rookie.prior_eff + rookie.k_eff))
 
     def test_shrinkage_preserves_rank_but_reduces_spread(self):
         """Both halves matter: a prior that reorders players is broken, and
         one that does not reduce spread is not doing anything."""
         rows = []
-        for index, (player, plus_minus) in enumerate(
-                [("a", 40), ("b", 30), ("c", 20), ("d", 10), ("e", 5)]):
-            for day in range(index + 1):
-                rows.append(_row(player, f"2024-11-0{day + 1}",
-                                 plus_minus, 10, 0))
-        games = epm.prepare_player_games(_frame(rows))
-        ratings = epm.build_player_epm(
+        for index, (player, margin) in enumerate(
+                zip("abcde", (40, 32, 24, 16, 8))):
+            day = f"2024-11-{index + 1:02d}"
+            gid = f"r{index}"
+            rows.append(_row(player, day, 0, 0, team="W", minutes=48,
+                             points=100.0 + margin, game_id=gid))
+            rows.append(_row(f"o{index}", day, 0, 0, team="L", minutes=48,
+                             points=100.0, game_id=gid))
+        games = rapm.prepare_player_games(_frame(rows))
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-12-01"]))
-        rated = ratings.dropna(subset=["epm_raw"])
-        assert len(rated) == 5
-        assert rated.epm_raw.corr(rated.epm_shrunk, method="spearman") > 0.9
-        assert rated.epm_shrunk.std() < rated.epm_raw.std()
+        rated = ratings.dropna(subset=["rapm_raw"])
+        # All ten evidenced players: five protagonists and five foils.
+        assert len(rated) == 10
+        assert rated.rapm_raw.corr(rated.rapm_shrunk, method="spearman") > 0.9
+        assert rated.rapm_shrunk.std() < rated.rapm_raw.std()
 
     def test_k_follows_the_target_season_from_completed_priors(self):
         """The per-season strength, end to end.
@@ -858,28 +1112,27 @@ class TestShrinkageBehaviour:
         never enter it. A 2024-25 target has no completed prior season in
         the frame, so it keeps the whole-frame mean (the pre-2026-10-01
         behavior) rather than a constant that ignores the frame's own
-        season scale.
+        season scale. Eff-games per 48-minute game is 1, so the counts
+        read directly: five games and twenty games.
         """
         rows = []
         for day in range(1, 6):
-            rows.append(_row("a", f"2024-11-0{day}", 20, 10, 4))
+            rows.append(_row("a", f"2024-11-0{day}", 0, 0))
         for day in range(1, 21):
-            rows.append(_row("b", f"2025-11-{day:02d}", 20, 10, 4,
+            rows.append(_row("b", f"2025-11-{day:02d}", 0, 0,
                              season="2025-26"))
-        games = epm.prepare_player_games(_frame(rows))
-        one = 10 + 0.44 * 4
+        games = rapm.prepare_player_games(_frame(rows))
         # 2024-25's only player-season is five games; the 2025-26 mean
         # never enters the 2025-26 target's strength.
-        late = epm.build_player_epm(
+        late = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-11-03"]))
-        assert late.k_plays.iloc[0] == pytest.approx(0.20 * 5 * one)
+        assert late.k_eff.iloc[0] == pytest.approx(0.20 * 5)
         # The earliest season keeps the whole-frame mean: both player-
         # seasons, 5 and 20 games, averaged.
-        early = epm.build_player_epm(
+        early = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-03"]))
-        assert early.k_plays.iloc[0] == pytest.approx(
-            0.20 * (5 * one + 20 * one) / 2)
-        assert early.k_plays.iloc[0] != late.k_plays.iloc[0]
+        assert early.k_eff.iloc[0] == pytest.approx(0.20 * (5 + 20) / 2)
+        assert early.k_eff.iloc[0] != late.k_eff.iloc[0]
 
     def test_the_rating_carries_no_availability_multiplier(self):
         """The multiplier is gone, and its absence is the point.
@@ -890,32 +1143,36 @@ class TestShrinkageBehaviour:
         The raw status label is carried for callers that want it; the
         rating itself is byte-identical either way.
         """
-        games = epm.prepare_player_games(_frame([_row("a", "2024-11-01",
-                                                      10, 5, 0)]))
+        games = rapm.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 10, 5, 0, team="A", points=110,
+                 game_id="g1"),
+            _row("b", "2024-11-01", 10, 5, 0, team="B", points=90,
+                 game_id="g1"),
+        ]))
         availability = pd.DataFrame({"player_id": ["a"], "status": ["out"]})
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-02"]),
             availability=availability)
         assert "availability_multiplier" not in ratings.columns
         assert "availability" not in ratings.columns
         # The rating is byte-identical with and without the injury input: a
-        # player still HAS an EPM whether or not he is dressing tonight.
+        # player still HAS an RAPM whether or not he is dressing tonight.
         # Only the pool changes.
-        without = epm.build_player_epm(
+        without = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-02"]))
-        assert ratings.iloc[0].epm_shrunk == pytest.approx(
-            without.iloc[0].epm_shrunk)
+        assert ratings.iloc[0].rapm_shrunk == pytest.approx(
+            without.iloc[0].rapm_shrunk)
 
 
-class TestPlayerEpmWithoutInputs:
+class TestPlayerRapmWithoutInputs:
     @pytest.mark.parametrize("stats", [None, pd.DataFrame()])
     def test_no_log_yields_an_empty_frame_not_none(self, stats):
         """A caller must be able to tell no data from a failed pull."""
-        out = epm.prepare_player_games(stats)
+        out = rapm.prepare_player_games(stats)
         assert out is not None and out.empty
 
     def test_a_log_without_the_rating_columns_yields_nothing(self):
-        out = epm.prepare_player_games(pd.DataFrame(
+        out = rapm.prepare_player_games(pd.DataFrame(
             {"player_id": ["a"], "gameday": ["2024-11-01"],
              "plus_minus": [10]}))
         assert out.empty
@@ -926,186 +1183,198 @@ class TestPlayerEpmWithoutInputs:
         That is the single-league-mean case the segmentation exists to
         avoid, so it is refused rather than quietly produced.
         """
-        games = epm.prepare_player_games(_frame([_row("a", "2024-11-01",
+        games = rapm.prepare_player_games(_frame([_row("a", "2024-11-01",
                                                       10, 5, 0)]))
         games["position"] = np.nan
-        assert epm.build_player_epm(
+        assert rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-02"])).empty
 
     def test_no_prior_date_yields_an_empty_frame(self):
-        games = epm.prepare_player_games(_frame([_row("a", "2024-11-01",
+        games = rapm.prepare_player_games(_frame([_row("a", "2024-11-01",
                                                       10, 5, 0)]))
-        assert epm.build_player_epm(
+        assert rapm.build_player_rapm(
             games, target_dates=pd.Series([])).empty
 
     def test_a_target_before_any_game_yields_nothing(self):
-        games = epm.prepare_player_games(_frame([_row("a", "2024-11-01",
+        games = rapm.prepare_player_games(_frame([_row("a", "2024-11-01",
                                                       10, 5, 0)]))
-        assert epm.build_player_epm(
+        assert rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-10-01"])).empty
 
 
 class TestEvidenceSeasonFallback:
-    """A target whose OWN season has no games yet rates from the last one.
+    """A target whose OWN season has no game yet fits from the last one.
 
-    This is the defect the production run reported as "player EPM skipped:
-    no player had strictly-prior evidence as of 2026-10-20": the games
-    with no result are always the first games of a season, and the season
-    partition refused to look across the boundary, so the artifact and the
-    slate's lineup features were empty on exactly the days they exist to
-    serve.
+    Two seasons read differently on purpose: the ROSTER side is non-strict
+    (the players taking the floor tonight are in the frame to be rated,
+    even though none has played yet) and the FIT side is strict (a game on
+    the target day cannot be evidence for that day's rating). They diverge
+    exactly on a season's first day - the roster is this season's, the
+    solve falls back to last season's - so opening night rates against the
+    completed season's fit rather than against nothing, and day 2 onward
+    is strictly in-season. Every fallback row is still strictly before the
+    target: the point-in-time floor is untouched.
     """
 
     @staticmethod
     def _two_seasons():
-        return epm.prepare_player_games(_frame([
-            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
-            _row("a", "2024-11-05", 10, 5, 0, season="2024-25"),
-        ]))
+        rows = []
+        for index, day in enumerate(("2024-11-01", "2024-11-05")):
+            gid = f"f{index}"
+            rows.append(_row("a", day, 0, 0, team="A", minutes=48,
+                             points=110.0, game_id=gid, season="2024-25"))
+            rows.append(_row("z", day, 0, 0, team="Z", minutes=48,
+                             points=90.0, game_id=gid, season="2024-25"))
+        return rapm.prepare_player_games(_frame(rows))
 
     def test_the_first_game_of_a_season_is_rated_from_the_completed_one(self):
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             self._two_seasons(), target_dates=pd.Series(["2025-10-22"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 30          # both completed-season games
+        assert row.prior_eff == pytest.approx(2.0)  # both completed games
         assert row.prior_games == 2
-        # The shrink target has to exist too, or the fallback returns a row
-        # whose rating is NaN - a rating, in form only.
-        assert pd.notna(row.epm_shrunk)
+        # The fit fell back WITH the prior, so there is a real shrink
+        # target: a rating, not a rating-shaped NaN.
+        assert pd.notna(row.rapm_shrunk)
 
     def test_the_fallback_stops_once_the_own_season_has_evidence(self):
-        games = epm.prepare_player_games(_frame([
-            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
-            _row("a", "2025-10-01", 4, 2, 0, season="2025-26"),
-        ]))
-        ratings = epm.build_player_epm(
+        rows = [
+            _row("a", "2024-11-01", 0, 0, team="A", minutes=48,
+                 points=110.0, game_id="f0", season="2024-25"),
+            _row("z", "2024-11-01", 0, 0, team="Z", minutes=48,
+                 points=90.0, game_id="f0", season="2024-25"),
+            _row("a", "2025-10-01", 0, 0, team="A", minutes=48,
+                 points=105.0, game_id="s0", season="2025-26"),
+            _row("o", "2025-10-01", 0, 0, team="O", minutes=48,
+                 points=100.0, game_id="s0", season="2025-26"),
+        ]
+        games = rapm.prepare_player_games(_frame(rows))
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-22"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
         # The partition still holds: one in-season game, and only that one.
-        assert row.prior_pm == 4
+        assert row.prior_eff == pytest.approx(1.0)
         assert row.prior_games == 1
 
-    def test_season_boundary_opening_night_has_no_prior_and_no_league_mean(
-            self):
-        """A decided opening-night game rates from NOTHING.
+    def test_opening_night_with_no_prior_season_is_honestly_empty(self):
+        """A decided opening-night game with no season to fall back to
+        rates from NOTHING - no prior, no league cell, NaN rating.
 
-        The season-boundary audit (2026-09-29, against MLB's structural
-        guidance): the evidence fallback serves PRE-SEASON slate targets;
-        a target on or after the season's first DECIDED game rates
-        in-season from day one, so opening night's own prior is zero by
-        construction and the league mean has no evidence either -
-        epm_shrunk is NaN, not a rating wearing a prior's clothes.
+        Not a rating wearing a prior's clothes: the row still exists (the
+        players ARE in the frame to be rated), but nothing is invented.
         """
-        games = epm.prepare_player_games(_frame([
-            _row("a", "2025-10-22", 30, 15, 0, season="2025-26"),
-        ]))
-        ratings = epm.build_player_epm(
+        rows = [
+            _row("a", "2025-10-22", 0, 0, team="A", minutes=48,
+                 points=110.0, game_id="o1", season="2025-26"),
+            _row("b", "2025-10-22", 0, 0, team="B", minutes=48,
+                 points=90.0, game_id="o1", season="2025-26"),
+        ]
+        games = rapm.prepare_player_games(_frame(rows))
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-22"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 0 and row.prior_plays == 0
-        # With NO prior season to borrow from, the league cell stays empty
-        # and the rating is honestly undefined. With one, opening night now
-        # shrinks all the way to it - see
-        # test_opening_night_shrinks_all_the_way_to_the_prior_seasons_cell.
-        assert pd.isna(row.epm_shrunk)
+        assert row.prior_eff == 0 and row.prior_minutes == 0
+        assert row.prior_games == 0
+        assert pd.isna(row.rapm_raw)
+        assert pd.isna(row.rapm_shrunk)
 
-    def test_opening_night_shrinks_all_the_way_to_the_prior_seasons_cell(
-            self):
+    def test_opening_night_shrinks_toward_the_prior_seasons_fit(self):
         """Game 1 gets the treatment game 2 already had.
 
-        Game 2 leans heavily on the league prior because a one-game prior
-        is thin. Game 1's player prior is ZERO - thinner still - but until
-        the 2026-09-29 fix the league CELL was also empty on opening
-        night, so the shrink target was NaN and the whole slate's
-        epm_shrunk collapsed. The cell now borrows the most recent season
-        with plays strictly before the target, so a zero-prior player lands
-        EXACTLY on the prior season's position league mean: all-the-way
-        shrinkage, strictly point-in-time (prior-season rows are before the
-        target by construction).
+        The veteran played last season, so opening night his zero OWN
+        prior mixes against last season's fit: his rating exists from the
+        first tip. The debutant has no prior-season row at all, so his
+        rating IS the position prior carried out of that fit - zero prior
+        plus a real shrink target lands exactly on it.
         """
-        games = epm.prepare_player_games(_frame([
-            _row("a", "2024-11-01", 10, 5, 0, season="2024-25"),
-            _row("b", "2024-11-01", 30, 15, 0, season="2024-25"),
-            _row("c", "2025-10-22", 20, 10, 0, season="2025-26"),
-        ]))
-        target = pd.Series(["2025-10-22"])
-        league = epm.league_prior_table(games, target)
-        lrow = league[league.position == "G"].iloc[0]
-        # The borrowed cell names its source and carries the 2024-25 mean.
-        assert lrow.lg_season_source == "2024-25"
-        assert lrow.lg_epm == pytest.approx(
-            100.0 * (10.0 + 30.0) / (5.0 + 15.0))
-        ratings = epm.build_player_epm(games, target_dates=target)
-        row = ratings[ratings.player_id == "c"].iloc[0]
-        assert row.prior_pm == 0 and row.prior_plays == 0
-        # Zero prior + real shrink target = exactly the league mean.
-        assert row.epm_shrunk == pytest.approx(lrow.lg_epm)
-
-    def test_the_borrow_never_touches_a_cell_with_in_season_evidence(self):
-        """Day 2+ reads its OWN season; the borrow is opener-only.
-
-        The season partition is the carryover guard - the borrow widens
-        WHICH season an EMPTY cell reads, never replaces a populated one.
-        """
-        games = epm.prepare_player_games(_frame([
-            _row("a", "2025-10-22", 10, 5, 0, season="2025-26"),
-            _row("b", "2025-10-24", 30, 15, 0, season="2025-26"),
-        ]))
-        league = epm.league_prior_table(games, pd.Series(["2025-10-24"]))
-        lrow = league[league.position == "G"].iloc[0]
-        assert lrow.lg_season_source == "2025-26"
-        assert lrow.lg_plays == pytest.approx(5.0)
+        rows = [
+            _row("c", "2024-11-01", 0, 0, team="A", minutes=48,
+                 points=110.0, game_id="f0", season="2024-25"),
+            _row("z", "2024-11-01", 0, 0, team="Z", minutes=48,
+                 points=90.0, game_id="f0", season="2024-25"),
+            _row("c", "2025-10-22", 0, 0, team="A", minutes=48,
+                 points=100.0, game_id="o1", season="2025-26"),
+            _row("d", "2025-10-22", 0, 0, team="B", minutes=48,
+                 points=90.0, game_id="o1", season="2025-26"),
+        ]
+        games = rapm.prepare_player_games(_frame(rows))
+        ratings = rapm.build_player_rapm(
+            games, target_dates=pd.Series(["2025-10-22"]))
+        debut = ratings[ratings.player_id == "d"].iloc[0]
+        assert debut.prior_eff == 0 and debut.prior_games == 0
+        assert pd.isna(debut.rapm_raw)
+        assert pd.notna(debut.lg_rapm)   # the borrowed fit's cell exists
+        assert debut.rapm_shrunk == pytest.approx(debut.lg_rapm)
+        vet = ratings[ratings.player_id == "c"].iloc[0]
+        assert vet.prior_eff == pytest.approx(1.0)   # last season's game
+        assert pd.notna(vet.rapm_raw)
+        # His rating mixes his (thin, own-0) evidence against the same fit:
+        # the shrinkage arithmetic itself, whatever the fixture's numbers.
+        expected = ((vet.prior_eff * vet.rapm_raw
+                     + vet.lg_rapm * vet.k_eff)
+                    / (vet.prior_eff + vet.k_eff))
+        assert vet.rapm_shrunk == pytest.approx(expected)
 
     def test_season_boundary_day_two_is_in_season_not_carryover(self):
-        """Day two+ rates strictly in-season: prior-season form is dropped.
+        """Day 2+ rates strictly in-season: prior-season form is dropped.
 
-        Pins the carryover answer the drift report's STARVED/LOW pl_epm
+        Pins the carryover answer the drift report's STARVED/LOW pl_rapm
         coverage depends on: early-season thinness is the shrinkage doing
         its job, not missing evidence. The partition exists so a new
         season's rating never blends the previous one's tail - the same
         convention MLB states for its season-to-date ERA/K/9 LAGs.
         """
-        games = epm.prepare_player_games(_frame([
+        games = rapm.prepare_player_games(_frame([
             _row("a", "2025-04-01", 40, 20, 0, season="2024-25"),
             _row("a", "2025-10-21", 10, 5, 0, season="2025-26"),
         ]))
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-23"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_pm == 10
+        assert row.prior_eff == pytest.approx(1.0)
         assert row.prior_games == 1
 
     def test_the_fallback_never_reads_a_game_on_or_after_the_target(self):
         """Point-in-time is about WHEN, not about which season."""
-        games = epm.prepare_player_games(_frame([
-            _row("a", "2024-11-01", 20, 10, 0, season="2024-25"),
-            _row("a", "2025-10-01", 999, 10, 0, season="2025-26"),
+        games = rapm.prepare_player_games(_frame([
+            _row("a", "2024-11-01", 0, 0, minutes=48, season="2024-25"),
+            _row("a", "2025-10-01", 0, 0, minutes=48, season="2025-26"),
         ]))
-        ratings = epm.build_player_epm(
+        ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-22"]))
-        # The 10-01 game is in the target's OWN season, so it is the
-        # evidence season and it is strictly before the target: the
-        # fallback must not prefer last season just because it is further
-        # away.
-        assert ratings[ratings.player_id == "a"].iloc[0].prior_pm == 999
+        # The 10-01 game is in the target's OWN season and strictly before
+        # it: the fallback must not prefer last season just because it is
+        # further away.
+        assert ratings[ratings.player_id == "a"].iloc[0].prior_eff \
+            == pytest.approx(1.0)
         # ...and a target BEFORE that game falls back to the completed
         # season, still strictly earlier.
-        early = epm.build_player_epm(
+        early = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-09-30"]))
-        assert early[early.player_id == "a"].iloc[0].prior_pm == 20
+        assert early[early.player_id == "a"].iloc[0].prior_eff \
+            == pytest.approx(1.0)
+        assert early[early.player_id == "a"].iloc[0].prior_games == 1
 
     def test_a_target_before_every_game_still_rates_nothing(self):
         """No season has evidence before the league's first game, so the
         fallback has nothing to offer and must not invent a prior."""
-        assert epm.build_player_epm(
+        assert rapm.build_player_rapm(
             self._two_seasons(),
             target_dates=pd.Series(["2024-10-01"])).empty
 
-    def test_the_league_prior_follows_the_same_season(self):
-        """The shrink target and the prior must agree on the season, or a
-        fallback row is rated against a league mean from the wrong year."""
+    def test_the_fit_and_the_prior_draw_the_same_evidence(self):
+        """The shrink target and what it shrinks must come out of ONE
+        season's solve: the build's raw rating is the fit's own beta for
+        the strict evidence season, and lg_rapm is the mean of exactly
+        those betas."""
         games = self._two_seasons()
-        league = epm.league_prior_table(
-            games, pd.Series(["2025-10-22"]))
-        assert len(league)
-        assert league.lg_plays.iloc[0] > 0
+        target = pd.Timestamp("2025-10-22")
+        ratings = rapm.build_player_rapm(
+            games, target_dates=pd.Series([target]))
+        season = rapm._evidence_season(games, target, strict=True)
+        entries = rapm.team_game_entries(games)
+        beta, _ = rapm.fit_rapm(entries[entries.season == season],
+                                target=target)
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        assert row.rapm_raw == pytest.approx(beta["a"])
+        assert row.lg_rapm == pytest.approx(float(beta.mean()))
