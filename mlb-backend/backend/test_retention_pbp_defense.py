@@ -8,6 +8,12 @@ every Kaggle run clones the whole set before it starts.
 
 These tests pin the traced facts so the exemption cannot come back on the
 strength of a consumer that does not exist.
+
+2026-10-03 update: the same audit that traced pbp_defense's dead consumers
+traced pbp_chunks/ — its exemption cited build_pbp_defense, which never read
+the directory, while its real producer had been deleted in ff372c3. The
+38-file / 2.1 MB cache and the exemption both went; see
+test_pbp_chunks_are_no_longer_protected.
 """
 from __future__ import annotations
 
@@ -66,9 +72,17 @@ def test_monitor_series_stays_protected():
             == "protected"
 
 
-def test_pbp_chunks_stay_protected():
-    assert _v("mlb-backend/data_delivery/pbp_chunks/pbp_2026-09-01_2026-09-15.parquet") \
-        == "protected"
+def test_pbp_chunks_are_no_longer_protected():
+    """2026-10-03: the chunk cache lost its exemption AND its files. The old
+    exemption cited build_pbp_defense as a cumulative consumer, but that
+    builder reads --source pitches.parquet and never opens the directory,
+    and the only producer (fetch_pbp_chunks.py) was deleted in ff372c3 —
+    so the family could never be refreshed again. Re-adding a NEVER DELETE
+    for a frozen cache with no producer is the same dead-citation failure
+    this module exists to prevent."""
+    rel = "mlb-backend/data_delivery/pbp_chunks/pbp_2026-09-01_2026-09-15.parquet"
+    assert not rp.is_never_delete(rel), rel
+    assert _v(rel) == "stale"
 
 
 def test_no_prefix_match_keeps_pbp_defense_protected():

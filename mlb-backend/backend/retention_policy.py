@@ -31,9 +31,11 @@ classification tables.
 - Adopted-model STATE (mlb_feature_selection_state.json, an ``mlb_*``
   record): holds the adopted RFE serving width. Silent deletion would
   silently revert model behavior — the worst failure mode.
-- SERIES readers (run_engine_monitor_*, pbp_defense_*, pbp_chunks/,
-  models/): producers/readers fold ALL dated members; pruning any member
-  resets rolling history or orphans cumulative stores.
+- SERIES readers (run_engine_monitor_*, models/): producers/readers fold
+  ALL dated members; pruning any member resets rolling history or orphans
+  cumulative stores. (pbp_chunks/ LEFT this list 2026-10-03 — its producer
+  fetch_pbp_chunks.py was deleted in ff372c3, so nothing could extend it and
+  the 2.1 MB / 38-file cache was deleted outright.)
 - test_hygiene_triage_* records: audit trail.
 - mlb_feature_selection_state.json (the ONLY exempt ``mlb_`` file): holds
   the adopted RFE serving width, is dateless, and is read by EVERY serving
@@ -88,7 +90,8 @@ Consumer audit (traced at HEAD 827de1b):
                                     | this row cited (ablation_defense,     |                      |                      |
                                     | runline defense) were deleted in ff372c3, |                      |                      |
                                     | so the NEVER DELETE outlived its consumers |                      |                      |
-  pbp_chunks/                     | build_pbp_defense (cumulative raw chunks)    | **SERIES (cumulative)**             | NEVER DELETE
+  pbp_chunks/                     | DELETED 2026-10-03: producer fetch_pbp_chunks.py| none (RFE slate context only,     | gone (removed)
+                                  | was deleted in ff372c3; build_pbp_defense  | optional + currently RFE-skipped) |
   models/                         | ensemble/monitor loaders (newest)            | newest-only; staged every run       | NEVER DELETE
   mlb_feature_selection_*.json    | RFE engine prior-verdict memory (newest      | newest prior trace                  | 10-day window
                                   | prior); adoption reads the STATE file only   |                                     |
@@ -195,7 +198,14 @@ EXACT_MASTER_NAMES = frozenset({
 # -- reset history, break research ladders, or orphan chunks.               --
 SERIES_PREFIXES = (
     "models/",
-    "pbp_chunks/",
+    # NOT pbp_chunks/ (removed 2026-10-03). It was exempted here citing
+    # build_pbp_defense as a cumulative consumer, but that builder takes
+    # --source <pitches.parquet> and never reads the directory; the only
+    # producer, fetch_pbp_chunks.py, was deleted in ff372c3. The citation
+    # was stale for weeks before the audit that removed it, and the family
+    # could not be refreshed — a NEVER DELETE exemption on a frozen cache
+    # is indistinguishable from a master, which is exactly the failure the
+    # other entries here are guarding against.
     # Producer folds ALL dated monitors into the rolling per-line series
     # (pipeline._run_engine_monitor_json). Never reset the monitor history.
     "run_engine_monitor_",
