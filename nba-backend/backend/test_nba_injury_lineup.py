@@ -1104,3 +1104,16 @@ class TestPositionRapmBuildSurvivesAColdCache:
         assert mp._empty_contract_columns(frame) == ["pl_rapm_f_away"]
         assert mp._empty_contract_columns(None) == []
         assert mp._empty_contract_columns(pd.DataFrame()) == []
+
+
+def test_the_pipeline_refuses_to_run_without_the_filing_parser(
+        monkeypatch, tmp_path):
+    """2026-10-04: the Kaggle runner had no pdfplumber, lost all 696
+    filings, and published a run that still said ok. The entrypoint must
+    stop at second zero - before it writes or reads anything."""
+    import importlib.util
+    import master_pipeline as mp
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(RuntimeError, match="pdfplumber"):
+        mp.run(run_date="2026-01-01", out_dir=tmp_path)
+    assert not any(tmp_path.iterdir())

@@ -677,3 +677,20 @@ def test_rows_that_vanish_after_the_close_fall_back_to_the_last_before(monkeypat
     assert row.published_at == "2026-01-10T12:00:00"
     assert pd.Timestamp(row.published_at) < pd.Timestamp(row.cutoff_at)
     assert pd.Timestamp(row.published_at) < pd.Timestamp(row.tipoff_at)
+
+
+def test_require_pdf_parser_is_a_hard_error_when_the_parser_is_gone(
+        monkeypatch):
+    """2026-10-04: a runner without pdfplumber turned every filing into an
+    ``unparseable`` warning and let the run report ok anyway; the check
+    must raise, so an entrypoint can refuse to start without it."""
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(RuntimeError, match="pdfplumber"):
+        ir.require_pdf_parser()
+
+
+def test_require_pdf_parser_passes_where_the_parser_is_installed():
+    # The suite parses real filings, so this environment has it; this is
+    # the healthy path of the guard above.
+    ir.require_pdf_parser()

@@ -54,6 +54,7 @@ reason: ``Injury Report_`` with a space is a 403 too.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import re
 import time as _time  # aliased: `time` is also imported from datetime below
@@ -375,6 +376,27 @@ def _page_cells(page, edges: dict) -> Iterator[dict]:
             yield {name: "" for name in _FIELDS}
             continue
         yield cells
+
+
+def require_pdf_parser() -> None:
+    """Fail fast when the filing parser (``pdfplumber``) is absent.
+
+    ``parse_report`` imports it lazily, so a runner without it survives
+    every import and then loses each filing one warning at a time: the
+    2026-10-04 Kaggle run logged 696 ``unparseable`` filings, every
+    pending date fell back to the archive, and a slate date past the
+    archive would have shipped UNFILTERED while the run still reported
+    ok. Entrypoints that resolve designations call this at second zero
+    so a missing parser is one clear error, not a silent hole in the
+    point-in-time methodology.
+    """
+    if importlib.util.find_spec("pdfplumber") is None:
+        raise RuntimeError(
+            "pdfplumber is not installed: the league's game-day injury "
+            "filings cannot be parsed, so availability cannot be resolved "
+            "point in time (the 2026-10-04 run lost every filing this way "
+            "and still reported ok). Install the pinned parser: pip install "
+            "-r nba-backend/backend/requirements.txt")
 
 
 def parse_report(path: Path, published_at: datetime) -> list[Designation]:

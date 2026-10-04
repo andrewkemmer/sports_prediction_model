@@ -1034,6 +1034,14 @@ def _sync_data_delivery(repo_root: Path) -> dict:
 
 def run(run_date: str | None = None, out_dir: str | Path | None = None,
         skip_pull: bool = False) -> dict:
+    # PARSER PREFLIGHT, before any work: without pdfplumber not ONE
+    # game-day filing parses, so every pending date silently falls back to
+    # the archive and a slate date past the archive ships UNFILTERED while
+    # the run still reports ok (2026-10-04 lost all 696 filings this way
+    # and filed the run green). Fail at second zero with the install line
+    # instead of after an hour of ingest and fit.
+    import nba_injury_report as ir_mod
+    ir_mod.require_pdf_parser()
     started = time.time()
     out = Path(out_dir) if out_dir else config.DATA_DELIVERY_DIR
     out.mkdir(parents=True, exist_ok=True)

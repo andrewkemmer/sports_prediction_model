@@ -237,6 +237,10 @@ def report(frame: pd.DataFrame) -> None:
 
 
 def main(start: date, end: date, chunk_days: int = CHUNK_DAYS) -> None:
+    # A parser-less backfill fetches every PDF and records NOTHING: the
+    # day comes back empty, the shard still lands, and the consolidated
+    # archive shrinks without anyone deciding it should.
+    ir.require_pdf_parser()
     print(f"backfilling game-day submissions {start} .. {end} "
           f"({chunk_days}-day chunks)")
     expected, schedule = load_schedule(start, end)
