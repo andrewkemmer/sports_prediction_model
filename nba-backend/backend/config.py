@@ -432,13 +432,59 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # The retune harness, ledger (46 recorded runs), study db and verdict are
 # preserved as untracked scratch: tune_full.py / tune_full_verdict.md /
 # tune_full_runs.jsonl / tune_full_study.db.
+#
+# RE-REJECTED 2026-10-03 in the full from-scratch retune (see the LIGHTGBM
+# block below for the protocol): 30 TPE trials over a WIDER space
+# (colsample_bylevel / max_bin / grow_policy / max_leaves now free), top-3
+# verified paired across seeds 42-44 on tune + sealed holdout. All three
+# finalists lost -57 to -15 bps mean paired tune delta with fold win rates
+# 0.36-0.47: the screen's apparent edge reversed under pairing, the same
+# outcome 2026-09-29 recorded. XGBOOST_PARAMS stays exactly as the
+# 2026-10-01 study left it.
+#
+# RETUNE 2026-10-03 (complete from-scratch reassessment, owner directive:
+# every parameter free, machine-stable num_threads=1 on every fit). One TPE
+# study per member, 30 trials xgboost / 29 lightgbm on folds[:-4] seed 42,
+# top-3 per member verified across seeds 42/43/44 on BOTH the tune set and
+# the sealed 4-fold holdout, paired against the incumbent at the same seed.
+#
+# Noise floor first: xgboost 24.7 bps, lightgbm 20.3 bps across seeds 42-46.
+# XGBoost: REJECTED again. Its three finalists spanned -57 to -15 bps mean
+# paired tune delta with fold win rates 0.36-0.47 - every gain the 30-trial
+# screen showed reversed under pairing, exactly the 2026-09-29 pattern. The
+# XGBOOST_PARAMS below are unchanged (still the 2026-10-01 pair that itself
+# replaced the MLB copy).
+#
+# LightGBM: ADOPTED (trial28 below), the only member whose finalists won
+# paired on every seed on both populations. Tune-set deltas +11.7/+28.0/+28.5
+# bps, sealed holdout +14.0/+29.8/+30.7 bps, fold win rate 0.565 - all inside
+# or above the 20.3 bps noise floor, and consistent in sign across all six
+# measurements. Inside the real 3-member blend on the identical frame
+# (56 folds, seed 42): logloss 0.60582 -> 0.60557 (+2.5 bps), Brier 0.20930
+# -> 0.20915 (+1.5 bps) against the incumbent re-run locally; against the
+# shipped OOF the gap is +6.0/+2.5 bps. The xgboost leg of that blend earns
+# no change, so this is member strength plus a small honest served gain.
+#
+# The new search spaces also widened the table the 10-01 study left
+# unsearched: colsample_bylevel, max_bin, grow_policy and max_leaves for
+# xgboost; max_bin and extra_trees for lightgbm. trial28 uses extra_trees
+# and a 3-leaf deep-stump ensemble (max_depth 3, num_leaves 37) - a regime
+# the old space could not express.
+#
+# Harness/ledger/study/verdict (untracked scratch, never commit):
+# tune_full.py / tune_full_build_frame.py / tune_full_verdict.md /
+# tune_full_runs.jsonl / tune_full_study.db / tune_full_finalists.json /
+# tune_full_frame.pkl.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 154, "max_depth": 5, "num_leaves": 28,
-    "min_child_samples": 25, "min_gain_to_split": 2.8457874009806865,
-    "bagging_fraction": 0.7561267287071872, "bagging_freq": 1,
-    "feature_fraction": 0.4814166356845213,
-    "learning_rate": 0.015350543425523649,
-    "reg_lambda": 0.3948372446449729, "reg_alpha": 0.08630597597817809,
+    # 2026-10-03 retune winner (tune_full.py stage "verdict"): beats the
+    # 2026-10-01 params paired on all seeds, tune + seal, both populations.
+    "n_estimators": 391, "max_depth": 3, "num_leaves": 37,
+    "min_child_samples": 47, "min_gain_to_split": 2.4739124591898287,
+    "bagging_fraction": 0.8387482042930909, "bagging_freq": 5,
+    "feature_fraction": 0.4017432423606699, "extra_trees": True,
+    "learning_rate": 0.025907227965815873,
+    "max_bin": 248,
+    "reg_lambda": 0.0029513334318235795, "reg_alpha": 2.2092389706163256,
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 ELASTICNET_PARAMS = {

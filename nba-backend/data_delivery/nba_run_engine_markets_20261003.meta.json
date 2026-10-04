@@ -1,9 +1,9 @@
 {
  "record": "nba_run_engine_markets",
- "written_utc": "2026-10-03T02:32:50.582050+00:00",
+ "written_utc": "2026-10-03T22:49:14.636711+00:00",
  "config": {
   "sport": "nba",
-  "feature_set_version": "nba-prod-v2.5-epm",
+  "feature_set_version": "nba-prod-v2.6-rapm",
   "seed": 42,
   "warmup_days": 30,
   "cadence_days": 7,
@@ -23,12 +23,12 @@
    "play_by_play": "stats.nba.com playbyplayv3",
    "team_events": "stats.nba.com playbyplayv3"
   },
-  "play_by_play_rows": 1712256,
+  "play_by_play_rows": 1712728,
   "event_rows": 6922
  },
  "columns": 478,
- "n_rows": 2136,
- "n_oof": 2133,
+ "n_rows": 2403,
+ "n_oof": 2400,
  "n_slate": 3,
  "grids": {
   "spread": [
@@ -53,20 +53,20 @@
  },
  "run_line_fit_check": {
   "home": {
-   "pearson": 1.2975,
-   "deviance_model": 1.2952,
-   "deviance_baseline": 1.4569,
-   "rmse_model": 12.2106,
-   "rmse_baseline": 12.9578,
-   "n": 2133
+   "pearson": 1.3089,
+   "deviance_model": 1.30954,
+   "deviance_baseline": 1.46759,
+   "rmse_model": 12.2587,
+   "rmse_baseline": 12.9856,
+   "n": 2400
   },
   "away": {
-   "pearson": 1.2932,
-   "deviance_model": 1.28974,
-   "deviance_baseline": 1.46237,
-   "rmse_model": 12.0971,
-   "rmse_baseline": 12.892,
-   "n": 2133
+   "pearson": 1.2936,
+   "deviance_model": 1.29398,
+   "deviance_baseline": 1.48359,
+   "rmse_model": 12.0938,
+   "rmse_baseline": 12.959,
+   "n": 2400
   }
  }
 }
