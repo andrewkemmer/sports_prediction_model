@@ -28,9 +28,9 @@
   "nba_production_cards_history.csv"
  ],
  "weights": {
-  "elasticnet": 0.7663,
-  "lightgbm": 0.2011,
-  "xgboost": 0.0326
+  "elasticnet": 0.7509,
+  "lightgbm": 0.2151,
+  "xgboost": 0.034
  },
  "folds": {
   "n_folds": 56,
@@ -49,34 +49,34 @@
   "min_val_fold_games": 40,
   "oof_regular": {
    "n": 2130,
-   "auc": 0.7336873526152798,
-   "logloss": 0.6023024663422627,
-   "brier": 0.20764034389080693,
-   "ece": 0.025720328089560273,
+   "auc": 0.7331457581612069,
+   "logloss": 0.6026422762748992,
+   "brier": 0.20780806927434675,
+   "ece": 0.021479953645892304,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 169,
-   "auc": 0.6419630156472262,
-   "logloss": 0.6585130447576674,
-   "brier": 0.2333402062959895,
-   "ece": 0.08045953707043801,
+   "auc": 0.643954480796586,
+   "logloss": 0.6568250526441792,
+   "brier": 0.23261766810131118,
+   "ece": 0.06996981901787125,
    "sufficient": true
   },
   "oof_provisional": {
    "n": 270,
-   "auc": 0.6806602983073571,
-   "logloss": 0.6297817034745088,
-   "brier": 0.22066446647497043,
-   "ece": 0.05573838623389481,
+   "auc": 0.6826992905424278,
+   "logloss": 0.6285812155874817,
+   "brier": 0.22014967376125358,
+   "ece": 0.04270538777953367,
    "sufficient": true
   },
   "oof_all": {
    "n": 2400,
-   "auc": 0.7280419109993272,
-   "logloss": 0.6053938805196403,
-   "brier": 0.20910555768152536,
-   "ece": 0.02388473131726748,
+   "auc": 0.7277629570102851,
+   "logloss": 0.6055604069475649,
+   "brier": 0.20919649977912377,
+   "ece": 0.017098716028545072,
    "sufficient": true
   }
  },
@@ -234,7 +234,7 @@
    }
   }
  },
- "elapsed_seconds": 3455.73,
+ "elapsed_seconds": 3479.42,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
