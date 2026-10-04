@@ -59,6 +59,12 @@ EXACT_MASTER_NAMES = frozenset({
     # pruned it mid-run after Phases 3/11 had already loaded it (deleted from
     # the repo by the artifact-sync commit 16108ed).
     "nhl_leave_events.json",
+    # PIT pre-game availability backfill (projected-lineup absences, replayed
+    # as game-scoped intervals by the pregame channel). Dateless cumulative
+    # SOURCE OF RECORD for historical pre-game availability, same contract and
+    # same pruning hazard as the leave ledger: unregistered and dateless it
+    # classifies "stale" and Phase 14 deletes the backfill mid-run.
+    "nhl_pregame_availability_events.parquet",
     # Run log (2026-10-02, MLB/NFL parity): one rolling master file
     # written by run_log_tee.py and delivered with the sync tree.
     # Dateless by design (overwritten in place every run), so blanket

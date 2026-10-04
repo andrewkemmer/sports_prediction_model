@@ -398,6 +398,27 @@ def _combined_exclusions(
     stints, sources = _load_injury_stints(ratings)
     events = ingestion.load_leave_events()
     leaves, laudit = injury_stints.build_leave_stints(events, ratings)
+
+    # Third channel: PIT pre-game projected lineups (backfilled historical
+    # absence events). Same stints contract, same exclusion predicate, so
+    # the historical repull excludes players structurally identically to the
+    # prediction slate. Absent artifact -> channel is unpopulated, not an
+    # error, and never read as "everyone healthy".
+    pregame = None
+    try:
+        from . import pit_availability
+        pregame = pit_availability.load_pregame_stints(ratings)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pre-game availability channel unavailable (%s)", exc)
+    if pregame is not None and len(pregame):
+        sources["pregame_lineups"] = {
+            "stints": pregame,
+            "window_end": pregame.attrs.get("window_end"),
+            "snapshot_based": True,
+            "snapshot_history": bool(pregame.attrs.get("snapshot_times")),
+            "snapshot_times": list(pregame.attrs.get("snapshot_times", [])),
+        }
+        logger.info("pre-game lineup channel: %d interval(s)", len(pregame))
     if len(leaves):
         sources["leave_events"] = {
             "stints": leaves,
@@ -416,7 +437,10 @@ def _combined_exclusions(
     else:
         logger.info("leave channel: no intervals (ledger absent/empty — "
                     "no leave is known, which is not an outage)")
-    return injury_stints.combine_stints(stints, leaves), sources
+    _frames = [stints, leaves]
+    if pregame is not None and len(pregame):
+        _frames.append(pregame)
+    return injury_stints.combine_stints(*_frames), sources
 
 
 def goalie_state(boxscores: pd.DataFrame | None,
