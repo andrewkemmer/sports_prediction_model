@@ -930,7 +930,8 @@ def add_player_pool_features(
         stints.attrs["snapshot_times"] = accepted_snapshot_times
 
     pool, audit = injury_stints.team_game_rates(
-        player_ratings, stints=stints, games=grid)
+        player_ratings, stints=stints, games=grid,
+        rosters=_load_team_rosters(grid))
     if not len(pool):
         logger.warning("player pool produced no rows; every side falls back "
                        "to the position prior")
@@ -1022,11 +1023,43 @@ def add_player_pool_features(
     else:
         df["pl_il_out_fraction"] = np.nan
     logger.info("player pool: %d rows, %d stints, %d player-removals across "
-                "%d sides, il_bound=%s", len(pool),
+                "%d sides, il_bound=%s, roster: %d covered game(s) "
+                "(-%d leavers +%d joiners), wrong-team guard dropped %d",
+                len(pool),
                 0 if stints is None else len(stints), int(removed),
                 len(pool[["_pd", "team"]].drop_duplicates()) if len(pool) else 0,
-                il_bound)
+                il_bound, audit.get("roster_covered_games", 0),
+                audit.get("roster_dropped_players", 0),
+                audit.get("roster_added_players", 0),
+                audit.get("dropped_wrong_team", 0))
     return df.drop(columns=["_d", "_season"])
+
+
+def _load_team_rosters(grid: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Captured roster membership (player → team) for pool gating.
+
+    One capture per TTL window (ingestion.ROSTER_CACHE_TTL_HOURS); the pool
+    applies it only to games whose puck drop is strictly later than the
+    capture, so a stale or partial capture merely covers fewer games. Any
+    fetch failure falls back to row-keyed membership — the team-change guard
+    in ``_expand_to_games`` still binds — and is never fabricated.
+    """
+    if grid is None or not len(grid) or "team" not in grid.columns:
+        return None
+    teams = sorted({str(t) for t in grid["team"].dropna().unique()})
+    try:
+        rosters = ingestion.load_team_roster_snapshot(teams)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("team roster snapshot unavailable (%s); pool membership "
+                       "stays row-keyed with the team-change guard", exc)
+        return None
+    if rosters is None or not len(rosters):
+        return None
+    logger.info("team roster snapshot applied: %d player-team row(s) through "
+                "%s", len(rosters),
+                pd.to_datetime(rosters["snapshot_at"], errors="coerce")
+                .max())
+    return rosters
 
 
 def _load_player_ratings() -> pd.DataFrame:

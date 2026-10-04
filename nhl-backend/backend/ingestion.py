@@ -1466,6 +1466,164 @@ INJURY_HISTORY_ARTIFACT = "nhl_injury_snapshot_history.parquet"
 
 
 # ---------------------------------------------------------------------------
+# Team rosters — player→team membership for pool gating (PIT-stamped)
+# ---------------------------------------------------------------------------
+
+#: Roster snapshots refresh at most this often — the ESPN injury cache TTL,
+#: reused because the same reasoning applies: a roster rarely changes twice
+#: within a run-day, and a cached capture is NEVER re-stamped as fresh.
+ROSTER_CACHE_TTL_HOURS = 6
+ROSTER_VERSION = "v1"
+
+
+def load_team_roster_snapshot(teams, *, use_cache: bool = True,
+                              fetch: bool = True) -> pd.DataFrame | None:
+    """Current NHL roster membership for ``teams``: (player_id, team) + capture.
+
+    Why this exists: the pool's as-of join is keyed on team, so a rating row
+    keeps serving a player to his OLD club after a trade — for up to
+    POOL_LOOKBACK_DAYS in-season, and through every opener-window carry after
+    an off-season move (the 2023 Kane case: 42 days served to Chicago after
+    leaving). The official API publishes no transactions endpoint (verified
+    2026-09-29: every /v1/transactions variant 404s), so the roster-of-record
+    is the per-team roster endpoint — one fetch per requested team, current
+    season.
+
+    PIT IS CAPTURE-BASED, exactly like the ESPN injury snapshots: every row
+    carries the UTC instant the roster was observed, and consumers apply a
+    capture only to games whose puck drop is strictly later than it. The
+    capture is never re-stamped — a cached frame keeps its original
+    ``snapshot_at`` even when served many runs later, so a stale cache fails
+    CLOSED (fewer games covered), never open.
+
+    Failure contract (egress-blocked Kaggle runs are a fact — the 2026-09-28
+    injury endpoint blocked for hours):
+
+    * a team that fails to fetch is recorded, not fatal — the frame comes back
+      flagged ``complete=False`` and consumers restrict themselves to positive
+      membership knowledge (they may move a player they SEE, never drop a
+      player they merely do not see);
+    * a run where every team fails returns the previous capture at its true
+      (older) timestamp, or None when there has never been one — never a
+      fabricated "everyone on their current team" frame;
+    * a failed attempt writes an attempt-stamp so the TTL suppresses retries
+      within the window instead of re-blocking every feature build.
+
+    Columns: ``player_id`` (str, NHL central id — the same id space as
+    MoneyPuck playerId), ``team`` (abbr), ``snapshot_at`` (UTC), ``complete``
+    (bool — every requested team present in this capture).
+    """
+    requested = sorted({str(t) for t in teams if t is not None and str(t)})
+    if not requested:
+        return None
+    rows_path = _cache_path(f"nhl_roster_{ROSTER_VERSION}_latest.parquet")
+    meta_path = _cache_path(f"nhl_roster_{ROSTER_VERSION}_meta.json")
+
+    def _read_meta() -> dict:
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:  # noqa: BLE001 — absent/unreadable meta == no capture
+            return {}
+
+    meta = _read_meta() if use_cache else {}
+    prior: pd.DataFrame | None = None
+    if use_cache and rows_path.exists():
+        try:
+            prior = pd.read_parquet(rows_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("team roster cache unreadable (%s)", exc)
+
+    now = _utc_now()
+    captured = pd.to_datetime(meta.get("captured_at"), errors="coerce", utc=True)
+    ok = bool(meta.get("ok"))
+    fresh_attempt = (pd.notna(captured) and captured <= now
+                     and (now - captured)
+                     <= pd.Timedelta(hours=ROSTER_CACHE_TTL_HOURS))
+    covered = set(meta.get("teams_requested") or []) if ok else set()
+    # Fetch when there is no recent attempt to lean on, when the rows went
+    # missing under an "ok" stamp, or when the cached capture never saw one
+    # of the requested teams — its absence there must not read as "nobody
+    # on that roster". A fresh FAILED attempt suppresses retries until the
+    # TTL passes instead of re-blocking every feature build.
+    needs_fetch = fetch and (
+        not fresh_attempt
+        or (ok and prior is None)
+        or (ok and not set(requested) <= covered)
+    )
+    if needs_fetch:
+        season = int(config.current_nhl_season())
+        season_id = f"{season}{season + 1}"
+        rows: list[dict] = []
+        failed: list[str] = []
+        for team in requested:
+            try:
+                payload = _http_json(
+                    f"{NHL_API_BASE}/roster/{team}/{season_id}",
+                    retries=2, timeout=15.0,
+                    retry_statuses=(403, 429, 500, 502, 503, 504))
+                roster = payload.get("forwards") or []
+                roster = roster + (payload.get("defensemen") or []) \
+                    + (payload.get("goalies") or [])
+                ids = [str(p.get("id")) for p in roster if p.get("id")]
+                if not ids:
+                    raise ValueError("roster payload carries no player ids")
+                rows.extend({"player_id": pid, "team": team} for pid in ids)
+            except Exception as exc:  # noqa: BLE001
+                failed.append(team)
+                logger.warning("team roster fetch failed for %s (%s)", team, exc)
+        attempt_at = now.isoformat()
+        if rows:
+            stamp = now.isoformat()
+            frame = pd.DataFrame(rows)
+            frame["snapshot_at"] = stamp
+            frame["complete"] = not failed
+            ok_teams = sorted(set(requested) - set(failed))
+            try:
+                frame.to_parquet(rows_path, index=False)
+                meta_path.write_text(json.dumps({
+                    "captured_at": attempt_at, "ok": True,
+                    "complete": not failed, "failed_teams": failed,
+                    "teams_requested": ok_teams,
+                    "season_id": season_id,
+                }), encoding="utf-8")
+            except OSError as exc:  # noqa: BLE001
+                logger.warning("team roster cache write failed: %s", exc)
+            if failed:
+                logger.warning("team roster snapshot incomplete: %d/%d teams "
+                               "fetched — membership uses positive knowledge "
+                               "only (absent players keep their row team)",
+                               len(requested) - len(failed), len(requested))
+            logger.info("team roster snapshot: %d player-team row(s) across "
+                        "%d/%d team(s) through %s",
+                        len(frame), len(requested) - len(failed),
+                        len(requested), stamp)
+            return frame
+        # Every team failed: stamp the attempt so the TTL gates retries, then
+        # fall back to the previous capture at ITS OWN timestamp (older
+        # capture = fewer covered games = fail closed).
+        try:
+            meta_path.write_text(json.dumps({
+                "captured_at": attempt_at, "ok": False,
+                "complete": False, "failed_teams": failed,
+                "season_id": season_id,
+            }), encoding="utf-8")
+        except OSError:  # noqa: BLE001 — a failed stamp write changes nothing
+            pass
+        logger.warning("team roster snapshot unavailable (%d/%d teams "
+                       "failed); using the previous capture at its original "
+                       "timestamp, or row-keyed membership when there is none",
+                       len(failed), len(requested))
+
+    if prior is not None and len(prior):
+        prior = prior.copy()
+        prior["snapshot_at"] = pd.to_datetime(
+            prior.get("snapshot_at"), errors="coerce", utc=True)
+        return prior
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Non-medical leave-of-absence events (PIT-legal by construction)
 # ---------------------------------------------------------------------------
 

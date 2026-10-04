@@ -585,6 +585,7 @@ def _expand_to_games(
     game_lookback_days: Optional[int],
     *,
     strict_source_date: bool = False,
+    rosters: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Select each target team's latest prior candidate rating efficiently.
 
@@ -593,6 +594,28 @@ def _expand_to_games(
     game Cartesian product. Calendar dates are conservative: equal source and
     target dates never match because the source feed has no verified publish
     timestamp. Legacy season-grain inputs retain the old serving fallback.
+
+    Two membership guards run on the strict path (the stale-club remediation,
+    2026-10-03):
+
+    * TEAM-CHANGE GUARD — a side may serve a player only while his OWN newest
+      prior row still names that team. Without it the join keyed on team keeps
+      serving a traded player to his OLD club for up to POOL_LOOKBACK_DAYS
+      (the 2023 Kane case: 42 days served to Chicago after he left) and, via
+      the season-boundary carry, through openers after an off-season move. The
+      lookup is as-of per game with no freshness tolerance — knowing WHICH
+      team a player is on does not expire — and an ambiguous same-day two-
+      team date is dropped from the lookup rather than resolved: within-day
+      ordering is not knowable, so it proves nothing.
+    * ROSTER GATING — when callers pass a captured roster snapshot
+      (``rosters``), every game whose puck drop is strictly later than the
+      capture is served membership from the SNAPSHOT instead of row keys:
+      a leaver's pairs re-key to his new team (dropping him from the old
+      side AND adding him to the new side before his debut there), and a
+      player absent from a complete capture is dropped entirely (not on any
+      requested roster). Games at or before the capture, games without a
+      parseable start time, and players missing from an incomplete capture
+      keep row-keyed membership — positive knowledge only, failing closed.
     """
     game_cols = [c for c in ("game_date", "team", "season", "game_id",
                               "start_time_utc") if c in games.columns]
@@ -614,73 +637,193 @@ def _expand_to_games(
         if p.empty:
             return g.iloc[:0].copy()
 
-        # Cross only target sides with distinct candidate skaters, then use an
-        # as-of lookup for the latest source game. This is orders of magnitude
-        # smaller than merging every historical game row to every target game.
-        roster = p[by].drop_duplicates()
-        targets = g.merge(roster, on="team", how="inner", sort=False)
-        if targets.empty:
-            return targets.assign(
-                _source_date=pd.Series(dtype="datetime64[ns]"),
-                rate=pd.Series(dtype=float),
-                n_players=pd.Series(dtype=float),
-                evidence=pd.Series(dtype=float),
-                latest=pd.Series(dtype="datetime64[ns]"),
-            )
-        targets["_target_order"] = np.arange(len(targets), dtype=np.int64)
-        source_cols = by + ["_source_date", "rate", "n_players", "evidence", "latest"]
-        source = p[source_cols].drop_duplicates(
-            by + ["_source_date"], keep="last")
-        targets = targets.sort_values(["game_date"] + by, kind="mergesort")
-        source = source.sort_values(["_source_date"] + by, kind="mergesort")
-        tolerance = (None if game_lookback_days is None else
-                     pd.Timedelta(days=max(0, int(game_lookback_days))))
-        selected = pd.merge_asof(
-            targets, source, left_on="game_date", right_on="_source_date",
-            by=by, direction="backward", tolerance=tolerance,
-            allow_exact_matches=False)
-        # Season-boundary second pass (2026-09-29 review, MLB/NBA structural
-        # guidance): fill ONLY the targets the freshness window could not
-        # cover, from candidates stamped in the immediately previous season.
-        # A prior-season frozen rating is genuine evidence, not staleness —
-        # the NHL offseason legitimately leaves a multi-month gap (the same
-        # reasoning behind STINT_MAX_LAG_DAYS not being "a day"), and the
-        # rating's own shrinkage governs its quality. A same-season rating
-        # past the window stays expired: a mid-season gap that large is
-        # exactly the phantom the recency gate exists for. Fresh matches
-        # always win; the wide pass only fills holes.
-        carry_col = "_boundary_carry"
-        # merge_asof is a LEFT join: unmatched targets survive pass A with a
-        # NaN rate and must be dropped before the wide pass refills them.
-        matched = selected.dropna(subset=["_source_date"])
-        unmatched = targets[~targets["_target_order"].isin(
-            matched["_target_order"].unique())]
-        if tolerance is not None and len(unmatched):
-            wide = pd.merge_asof(
-                unmatched, source, left_on="game_date", right_on="_source_date",
-                by=by, direction="backward",
-                tolerance=pd.Timedelta(
-                    days=int(POOL_SEASON_BOUNDARY_LOOKBACK_DAYS)),
+        def _select(pp: pd.DataFrame, gg: pd.DataFrame) -> pd.DataFrame:
+            """Pass A (freshness-window as-of) + pass B (boundary carry).
+
+            Candidate pairs come from ``pp`` itself, so re-keying ``pp``'s
+            team column re-keys membership wholesale; the target grid ``gg``
+            decides which games see which pairs.
+            """
+            # Cross only target sides with distinct candidate skaters, then use
+            # an as-of lookup for the latest source game. This is orders of
+            # magnitude smaller than merging every historical game row to every
+            # target game.
+            roster = pp[by].drop_duplicates()
+            targets = gg.merge(roster, on="team", how="inner", sort=False)
+            if targets.empty:
+                return targets.assign(
+                    _source_date=pd.Series(dtype="datetime64[ns]"),
+                    rate=pd.Series(dtype=float),
+                    n_players=pd.Series(dtype=float),
+                    evidence=pd.Series(dtype=float),
+                    latest=pd.Series(dtype="datetime64[ns]"),
+                )
+            targets["_target_order"] = np.arange(len(targets), dtype=np.int64)
+            source_cols = by + ["_source_date", "rate", "n_players",
+                                "evidence", "latest"]
+            source = pp[source_cols].drop_duplicates(
+                by + ["_source_date"], keep="last")
+            targets = targets.sort_values(["game_date"] + by, kind="mergesort")
+            source = source.sort_values(["_source_date"] + by, kind="mergesort")
+            tolerance = (None if game_lookback_days is None else
+                         pd.Timedelta(days=max(0, int(game_lookback_days))))
+            selected = pd.merge_asof(
+                targets, source, left_on="game_date", right_on="_source_date",
+                by=by, direction="backward", tolerance=tolerance,
                 allow_exact_matches=False)
-            hit = wide["_source_date"].notna()
-            if hit.any():
-                src_season = pd.to_datetime(
-                    wide.loc[hit, "_source_date"]).map(_nhl_season_id)
-                tgt_season = pd.to_datetime(
-                    wide.loc[hit, "game_date"]).map(_nhl_season_id)
-                hit.loc[hit] = (src_season.to_numpy()
-                                == tgt_season.to_numpy() - 1)
-            wide = wide.loc[hit]
-        else:
-            wide = unmatched.iloc[:0]
-        if len(wide):
-            wide = wide.assign(**{carry_col: True})
-            matched = matched.assign(**{carry_col: False})
-            selected = pd.concat([matched, wide], ignore_index=True)
-        else:
-            selected = matched.assign(**{carry_col: False})
-        return (selected.sort_values("_target_order", kind="mergesort")
-                .drop(columns=["_target_order"]).reset_index(drop=True))
+            # Season-boundary second pass (2026-09-29 review, MLB/NBA
+            # structural guidance): fill ONLY the targets the freshness window
+            # could not cover, from candidates stamped in the immediately
+            # previous season. A prior-season frozen rating is genuine
+            # evidence, not staleness — the NHL offseason legitimately leaves a
+            # multi-month gap (the same reasoning behind STINT_MAX_LAG_DAYS
+            # not being "a day"), and the rating's own shrinkage governs its
+            # quality. A same-season rating past the window stays expired: a
+            # mid-season gap that large is exactly the phantom the recency
+            # gate exists for. Fresh matches always win; the wide pass only
+            # fills holes.
+            carry_col = "_boundary_carry"
+            # merge_asof is a LEFT join: unmatched targets survive pass A with
+            # a NaN rate and must be dropped before the wide pass refills them.
+            matched = selected.dropna(subset=["_source_date"])
+            unmatched = targets[~targets["_target_order"].isin(
+                matched["_target_order"].unique())]
+            if tolerance is not None and len(unmatched):
+                wide = pd.merge_asof(
+                    unmatched, source, left_on="game_date",
+                    right_on="_source_date",
+                    by=by, direction="backward",
+                    tolerance=pd.Timedelta(
+                        days=int(POOL_SEASON_BOUNDARY_LOOKBACK_DAYS)),
+                    allow_exact_matches=False)
+                hit = wide["_source_date"].notna()
+                if hit.any():
+                    src_season = pd.to_datetime(
+                        wide.loc[hit, "_source_date"]).map(_nhl_season_id)
+                    tgt_season = pd.to_datetime(
+                        wide.loc[hit, "game_date"]).map(_nhl_season_id)
+                    hit.loc[hit] = (src_season.to_numpy()
+                                    == tgt_season.to_numpy() - 1)
+                wide = wide.loc[hit]
+            else:
+                wide = unmatched.iloc[:0]
+            if len(wide):
+                wide = wide.assign(**{carry_col: True})
+                matched = matched.assign(**{carry_col: False})
+                selected = pd.concat([matched, wide], ignore_index=True)
+            else:
+                selected = matched.assign(**{carry_col: False})
+            return (selected.sort_values("_target_order", kind="mergesort")
+                    .drop(columns=["_target_order"]).reset_index(drop=True))
+
+        raw = _select(p, g)
+
+        # --- Team-change guard: his newest row names his CURRENT team --------
+        dropped_wrong_team = 0
+        AMBIGUOUS = "__ambiguous__"
+        if len(raw):
+            any_src = p[[OUT_PLAYER, "_source_date", "team"]].drop_duplicates()
+            per_day = (any_src.groupby([OUT_PLAYER, "_source_date"], dropna=False)
+                       ["team"].transform("nunique"))
+            # A date where the player's rows name two teams proves no ordering
+            # WITHIN the day, so it enters the lookup as an explicit sentinel:
+            # the guard abstains whenever the newest knowledge is that date
+            # instead of falling back to an older date and asserting a team the
+            # ambiguity refuses to order. Exactly one row per (player, date).
+            unambiguous = any_src[per_day == 1]
+            ambiguous = (any_src[per_day > 1][[OUT_PLAYER, "_source_date"]]
+                         .drop_duplicates()
+                         .assign(team=AMBIGUOUS))
+            any_src = pd.concat([unambiguous, ambiguous], ignore_index=True) \
+                .sort_values(["_source_date", OUT_PLAYER], kind="mergesort")
+            left = raw[[OUT_PLAYER, "game_date", "team"]].copy()
+            left["_row"] = np.arange(len(raw), dtype=np.int64)
+            left = left.sort_values(
+                ["game_date", OUT_PLAYER, "team"], kind="mergesort")
+            look = pd.merge_asof(
+                left, any_src.rename(columns={"team": "_team_now"}),
+                left_on="game_date", right_on="_source_date",
+                by=OUT_PLAYER, direction="backward",
+                allow_exact_matches=False)
+            now = look["_team_now"].astype(str)
+            stale = (look["_team_now"].notna()
+                     & (now != look["team"].astype(str))
+                     & (now != AMBIGUOUS))
+            if stale.any():
+                dropped_wrong_team = int(stale.sum())
+                raw = raw.drop(raw.index[np.sort(
+                    look.loc[stale, "_row"].to_numpy(dtype=np.int64))])
+
+        # --- Roster-gated membership: capture must predate puck drop --------
+        roster_covered_games = roster_dropped = roster_added = 0
+        if rosters is not None and len(rosters) and "start_time_utc" in g.columns:
+            snap = rosters.copy()
+            snap["snapshot_at"] = pd.to_datetime(
+                snap.get("snapshot_at"), errors="coerce", utc=True)
+            snap = snap.dropna(subset=["snapshot_at"])
+            if len(snap):
+                capture = snap["snapshot_at"].max()
+                starts = pd.to_datetime(g["start_time_utc"],
+                                        errors="coerce", utc=True)
+                covered_g = g[starts.notna() & (starts > capture)]
+                if len(covered_g):
+                    # Positive membership only: re-key every mapped player to
+                    # the team the snapshot names; an unmapped player keeps his
+                    # row team. Absence proves a drop ONLY for a side whose own
+                    # roster was fetched — a side outside the capture says
+                    # nothing about who is on it.
+                    smap = dict(zip(snap[OUT_PLAYER].astype(str),
+                                    snap["team"].astype(str)))
+                    p_r = p.copy()
+                    p_r[OUT_PLAYER] = p_r[OUT_PLAYER].astype(str)
+                    p_r["team"] = p_r[OUT_PLAYER].map(smap).fillna(p_r["team"])
+                    rekeyed = _select(p_r, covered_g)
+                    fetched = set(snap["team"].astype(str))
+                    side_players = set(zip(snap["team"].astype(str),
+                                           snap[OUT_PLAYER].astype(str)))
+                    if len(rekeyed) and fetched:
+                        pair = list(zip(rekeyed["team"].astype(str),
+                                        rekeyed[OUT_PLAYER].astype(str)))
+                        absent = [t in fetched and key not in side_players
+                                  for key, t in pair]
+                        rekeyed = rekeyed[~np.asarray(absent, dtype=bool)]
+                    keycols = ["game_date", "team"]
+                    if "game_id" in g.columns and "game_id" in raw.columns:
+                        keycols.append("game_id")
+                    cov = covered_g[keycols].drop_duplicates().assign(_cov=1)
+                    marked = raw.merge(cov, on=keycols, how="left") \
+                        if len(raw) else raw.assign(_cov=np.nan)
+                    on_covered = marked["_cov"].notna()
+                    pk = keycols + ["situation", "position", OUT_PLAYER]
+                    before, after = (marked.loc[on_covered, pk],
+                                     rekeyed[pk] if len(rekeyed) else rekeyed)
+                    if len(before) and len(after):
+                        kept = after.assign(_in=1).merge(
+                            before, on=pk, how="right")
+                        roster_dropped = int(kept["_in"].isna().sum())
+                        gained = before.assign(_in=1).merge(
+                            after, on=pk, how="right")
+                        roster_added = int(gained["_in"].isna().sum())
+                    elif len(before):
+                        roster_dropped = int(len(before))
+                    elif len(after):
+                        roster_added = int(len(after))
+                    games_key = ("game_id" if "game_id" in covered_g.columns
+                                 else "game_date")
+                    roster_covered_games = int(covered_g[games_key].nunique())
+                    parts = [marked.loc[~on_covered].drop(columns=["_cov"])]
+                    if len(rekeyed):
+                        parts.append(rekeyed)
+                    raw = pd.concat(parts, ignore_index=True) \
+                        if len(parts) > 1 else parts[0]
+
+        raw.attrs.update({
+            "dropped_wrong_team": dropped_wrong_team,
+            "roster_covered_games": roster_covered_games,
+            "roster_dropped_players": roster_dropped,
+            "roster_added_players": roster_added,
+        })
+        return raw
 
     if "season" in g.columns:
         g["_served"] = pd.to_numeric(g["season"], errors="coerce")
@@ -711,6 +854,7 @@ def team_game_rates(
     require_pool: bool = True,
     games: Optional[pd.DataFrame] = None,
     game_lookback_days: Optional[int] = None,
+    rosters: Optional[pd.DataFrame] = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Per (game_date, team, situation, position) healthy-pool mean rate.
 
@@ -762,6 +906,12 @@ def team_game_rates(
     source-date eligibility are evaluated per game, never against rating dates.
     The production source-rating age is bounded by ``POOL_LOOKBACK_DAYS``;
     ``game_lookback_days`` may override that limit for a caller.
+
+    ``rosters`` is a captured team-roster snapshot (player→team + capture
+    time). Games whose puck drop falls strictly after the capture take
+    membership from it — the stale-club remediation; everything else keeps
+    row-keyed membership plus the team-change guard. See
+    ``_expand_to_games`` for both contracts.
     """
     audit = {
         "pool_rows_in": 0, "pool_rows": 0, "dropped_no_rate": 0,
@@ -770,6 +920,10 @@ def team_game_rates(
         "il_filter_active": bool(stints is not None and len(stints)),
         "weighted_sides": 0, "equal_weight_fallback_sides": 0,
         "season_boundary_carried_rows": 0,
+        "dropped_wrong_team": 0,
+        "roster_covered_games": 0,
+        "roster_dropped_players": 0,
+        "roster_added_players": 0,
     }
     if ratings is None or len(ratings) == 0:
         return pd.DataFrame(), audit
@@ -830,7 +984,13 @@ def team_game_rates(
         age_limit = (game_lookback_days if game_lookback_days is not None
                      else (lookback_days if has_pool_date else None))
         agg = _expand_to_games(agg, games, age_limit,
-                               strict_source_date=has_pool_date)
+                               strict_source_date=has_pool_date,
+                               rosters=rosters)
+        # Read the guard/roster receipts BEFORE sort/dedup can drop ``attrs``.
+        receipts = getattr(agg, "attrs", {}) or {}
+        for key in ("dropped_wrong_team", "roster_covered_games",
+                    "roster_dropped_players", "roster_added_players"):
+            audit[key] = int(receipts.get(key, 0))
         player_key = ["game_date", "team"]
         if "game_id" in agg.columns:
             player_key.append("game_id")
