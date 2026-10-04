@@ -480,6 +480,33 @@ def test_no_filing_at_all_leaves_the_game_uncovered(monkeypatch, tmp_path):
     assert ir.submission_filing(_submission_window(), tmp_path) is None
 
 
+def test_a_future_stamp_is_never_sent_to_the_host(monkeypatch, tmp_path):
+    """The network chokepoint behind the 2026-10-04 log repair: a stamp
+    at or after this run's moment has no filing to fetch, so fetch_report
+    must answer None WITHOUT a request. That run's pending slate walked
+    16 days into its own future and the host rate-limited it - a 403 that
+    reads exactly like a blocked archive."""
+    import urllib.error
+    monkeypatch.setattr(ir, "_now", lambda: datetime(2026, 10, 4, 16, 0))
+    monkeypatch.setattr(ir, "FETCH_PAUSE_SEC", 0)
+    attempts = []
+
+    def _refused(request, timeout=30):
+        attempts.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found",
+                                     {}, None)
+
+    monkeypatch.setattr(ir.urllib.request, "urlopen", _refused)
+    before = ir.http_403_count
+    assert ir.fetch_report(datetime(2026, 10, 20, 10, 0), tmp_path) is None
+    assert attempts == [], "the future must never reach the host"
+    assert ir.http_403_count == before
+    # The guard is future-only, not an offline mode: a stamp already
+    # published still goes to the host (404 -> None, as a miss reads).
+    assert ir.fetch_report(datetime(2026, 10, 4, 15, 0), tmp_path) is None
+    assert len(attempts) == 1
+
+
 # ---------------------------------------------------------------------------
 # The resolver: what reaches the feature, and what never does
 # ---------------------------------------------------------------------------
@@ -643,6 +670,47 @@ def test_a_game_never_listed_is_reported_uncovered_not_invented(monkeypatch,
         games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
     assert not len(frame)
     assert "game uncovered" in caplog.text
+
+
+def test_a_future_game_is_pre_submission_not_uncovered(monkeypatch, tmp_path,
+                                                       caplog):
+    """2026-10-04: three games on a 2026-10-20 slate were logged WARNING
+    "game uncovered" while every probe hit a stamp 16 days in the future.
+    A game whose submission window has not closed has nothing to file
+    yet: no rows and an INFO - never the archive-failed warning."""
+    import logging
+    monkeypatch.setattr(ir, "_now", lambda: datetime(2026, 10, 4, 16, 0))
+    archive = _FakeArchive(set())
+    archive.install(monkeypatch)
+    caplog.set_level(logging.INFO)
+    frame = ir.game_day_designations(
+        date(2026, 10, 20), tmp_path,
+        games=[("BOS@DET", datetime(2026, 10, 20, 13, 0)),
+               ("PHI@NYK", datetime(2026, 10, 20, 19, 0)),
+               ("OKC@SAS", datetime(2026, 10, 20, 22, 0))])
+    assert not len(frame)
+    assert "game uncovered" not in caplog.text
+    assert caplog.text.count("pre-submission") == 3
+
+
+def test_a_past_game_with_no_filing_keeps_the_uncovered_warning(
+        monkeypatch, tmp_path, caplog):
+    """The demotion is bounded by the submission window: a past game the
+    archive failed (the 2024-01-19 DAL@GSW gap in this run's own log)
+    must keep its WARNING - silence about a real coverage hole would be
+    worse than the noise it removes."""
+    import logging
+    monkeypatch.setattr(ir, "_now", lambda: datetime(2026, 10, 4, 16, 0))
+    archive = _FakeArchive(set())
+    archive.install(monkeypatch)
+    caplog.set_level(logging.INFO)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert not len(frame)
+    warned = [r for r in caplog.records if r.levelno >= logging.WARNING
+              and "game uncovered" in r.getMessage()]
+    assert warned, "a past uncovered game must still warn"
 
 
 def test_rows_that_vanish_after_the_close_fall_back_to_the_last_before(monkeypatch,

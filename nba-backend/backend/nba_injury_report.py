@@ -254,6 +254,19 @@ _last_network_at = 0.0
 http_403_count = 0
 
 
+def _now() -> datetime:
+    """This run's moment as a naive Eastern stamp.
+
+    Every stamp walked in this module is naive Eastern - submission
+    cutoffs are converted to ``_EASTERN`` and stripped - so the bound
+    that decides what can exist yet must be naive Eastern too. A naive
+    host-local now would be off by the UTC offset on the UTC production
+    host and let a walk probe hours into the Eastern future it exists to
+    refuse.
+    """
+    return datetime.now(_EASTERN).replace(tzinfo=None)
+
+
 def fetch_report(when: datetime, cache_dir: Path,
                  timeout: int = 30) -> Path | None:
     """Download one filing, or return ``None`` if the league never made it.
@@ -263,11 +276,24 @@ def fetch_report(when: datetime, cache_dir: Path,
     hour. It is deliberately not an error - but see ``http_403_count``:
     a rate-limit 403 answers the same way, so a run whose counter ends high
     must not be trusted as complete.
+
+    A stamp at or after this run's moment is answered ``None`` WITHOUT a
+    request: the league has not filed it yet, and the host answers the ask
+    with a 403 indistinguishable from a blocked archive (measured
+    2026-10-04: a pending slate walked 16 days into its own future and
+    rate-limited the run).
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / f"Injury-Report_{report_stamp(when)}.pdf"
     if path.exists() and path.stat().st_size >= MIN_REPORT_BYTES:
         return path
+    if when > _now():
+        # Not published yet, therefore not fetchable: no request, no
+        # pacing, no 403. This is the single guard every walk funnels
+        # through - the submission grid, both backfills, discovery and
+        # the tip-off walk all reach the host here, so a pending slate
+        # stops probing without any walker needing to know the time.
+        return None
     global _last_network_at, http_403_count
     if FETCH_PAUSE_SEC:
         waited = _time.monotonic() - _last_network_at
@@ -958,11 +984,23 @@ def game_day_designations(day: date, cache_dir: Path,
     for matchup, tipoff in sorted(slate.items(), key=lambda kv: kv[1]):
         home = matchup.split("@", 1)[1] if "@" in matchup else ""
         window = submission_window(day, tipoff, home)
+        # A filing at/after this run's moment does not exist yet, so a
+        # game whose submission window has not closed is PRE-SUBMISSION,
+        # not uncovered: "uncovered" says the archive failed this game,
+        # and on a pending slate that is never true - nothing could have
+        # been filed (2026-10-04: three 2026-10-20 games warned
+        # "uncovered" while probing stamps 16 days in the future).
+        pre_submission = window.cutoff > _now()
         chosen = submission_filing(window, cache_dir, how_far_back,
                                    timeout=timeout)
         if chosen is None:
-            logger.warning("no filing for %s on %s: game uncovered",
-                           matchup, day)
+            if pre_submission:
+                logger.info("no filing for %s on %s: pre-submission "
+                            "(window closes %s) - no designations yet",
+                            matchup, day, window.cutoff)
+            else:
+                logger.warning("no filing for %s on %s: game uncovered",
+                               matchup, day)
             continue
         filing_at, provenance = chosen
         submission_records = [r for r in records_at(filing_at)
@@ -1025,8 +1063,13 @@ def game_day_designations(day: date, cache_dir: Path,
                         break
                 current -= timedelta(minutes=step)
         if not submission_records:
-            logger.warning("no filing lists %s before tipoff on %s: "
-                           "game uncovered", matchup, day)
+            if pre_submission:
+                logger.info("no filing lists %s before tipoff on %s: "
+                            "pre-submission - no designations yet",
+                            matchup, day)
+            else:
+                logger.warning("no filing lists %s before tipoff on %s: "
+                               "game uncovered", matchup, day)
             continue
         abbreviations = _team_abbreviations(submission_records, matchup)
         # The pre-tip-off filing feeds status_tipoff ONLY.  Shared across

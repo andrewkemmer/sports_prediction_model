@@ -82,8 +82,20 @@ except ImportError:
         install_run_log_tee,
         RUN_LOG_NAME,
     )
-_log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
-install_crash_log_pusher(_log_path)
+# The tee installs at import so a run - even one that dies before the
+# publish phase - carries its log. The test suite imports this module to
+# reach its functions - and test_nba_rapm_features imports it at MODULE
+# scope, i.e. during collection - and under pytest installing would
+# TRUNCATE the committed rolling log at its own banner (measured
+# 2026-10-04: one pytest batch left nba_pipeline_run_log.txt at 143
+# bytes), so the install is skipped whenever a test run is in progress:
+# PYTEST_CURRENT_TEST covers the in-test imports, pytest being loaded
+# covers collection, and a production launch has neither.
+if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+    _log_path = None
+else:
+    _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+    install_crash_log_pusher(_log_path)
 
 
 # The steps of a run, in order, for the phase bar.  Named once here so the bar
@@ -688,6 +700,13 @@ def _slate_designations(designations, dates, schedule=None):
             continue
         if len(frame):
             rows.append(frame)
+    if ir_mod.http_403_count:
+        # fetch_report's contract: a run whose counter ends high must not
+        # be trusted as complete - a rate-limited filing answers exactly
+        # like an empty archive, so say the count where the result is read.
+        logger.warning("injury-report host answered %d 403(s) resolving "
+                       "the slate; designation coverage may be incomplete",
+                       ir_mod.http_403_count)
     if not rows:
         logger.info("no live slate designations for %s - archive only "
                     "(pre-submission run or no filings yet)",
