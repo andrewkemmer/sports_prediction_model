@@ -1,0 +1,72 @@
+{
+ "record": "nba_run_engine_markets",
+ "written_utc": "2026-10-04T04:34:08.166137+00:00",
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.6-rapm",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 74449,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 1712728,
+  "event_rows": 6922
+ },
+ "columns": 478,
+ "n_rows": 2403,
+ "n_oof": 2400,
+ "n_slate": 3,
+ "grids": {
+  "spread": [
+   -20,
+   20
+  ],
+  "total": [
+   180,
+   280
+  ],
+  "half_stops": [
+   -0.5,
+   0.5
+  ],
+  "totals_push_namespace": "p_push_total_<U>"
+ },
+ "mc_meta": {
+  "n_draws": 10000,
+  "requested_draws": 10000,
+  "mc_se_totals_max": 0.005,
+  "reason": "default"
+ },
+ "run_line_fit_check": {
+  "home": {
+   "pearson": 1.3089,
+   "deviance_model": 1.30954,
+   "deviance_baseline": 1.46759,
+   "rmse_model": 12.2587,
+   "rmse_baseline": 12.9856,
+   "n": 2400
+  },
+  "away": {
+   "pearson": 1.2936,
+   "deviance_model": 1.29398,
+   "deviance_baseline": 1.48359,
+   "rmse_model": 12.0938,
+   "rmse_baseline": 12.959,
+   "n": 2400
+  }
+ }
+}
