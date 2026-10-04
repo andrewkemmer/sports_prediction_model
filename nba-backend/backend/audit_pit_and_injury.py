@@ -180,16 +180,35 @@ def main() -> None:
     # tipoff comes from the report itself. Both are re-checked here.
     import nba_injury_report as ir
     print(f"  designation columns: {list(designations.columns)}")
-    if "game_time_et" in designations.columns:
+    if "tipoff_at" in designations.columns:
+        # The game-day submission archive stores the instant it read at,
+        # so PIT is re-checkable per row rather than trusted: nothing
+        # published at/after tipoff may appear, and every row with a
+        # status must sit inside [cutoff, tipoff) unless it is the
+        # flagged pre-window fallback (published strictly before cutoff).
+        pub = pd.to_datetime(designations.published_at, errors="coerce")
+        tip = pd.to_datetime(designations.tipoff_at, errors="coerce")
+        cut = pd.to_datetime(designations.cutoff_at, errors="coerce")
+        carrying = designations.status.astype(str).str.strip() != ""
+        late = int((pub >= tip).sum())
+        print(f"  designations published at/after tipoff: {late} of {len(pub)}")
+        if carrying.any():
+            after_cutoff = int((pub[carrying] >= cut[carrying]).sum())
+            fallback = int((designations.loc[carrying, "provenance"]
+                            == "pre_window_fallback").sum())
+            print(f"  status rows read at the submission filing: "
+                  f"{after_cutoff}/{int(carrying.sum())}; pre-window "
+                  f"fallbacks: {fallback}")
+    elif "game_time_et" in designations.columns:
         tips = [ir.tipoff_et(d.date(), t)
                 for d, t in zip(designations.gameday, designations.game_time_et)]
         late = sum(1 for p, t in zip(designations.published_at, tips)
                    if pd.notna(t) and p >= t)
         print(f"  designations published at/after tipoff: {late} of {len(tips)}")
     else:
-        print("  game_time_et not stored in the artifact, so tipoff cannot be "
-              "re-derived here; the PIT filter is enforced in "
-              "pre_game_designations (published_at >= tipoff -> skipped)")
+        print("  no tipoff_at in the artifact, so PIT cannot be re-derived "
+              "here; it is enforced in game_day_designations (the chosen "
+              "filing is inside [cutoff, tipoff) by construction)")
 
     print("\n" + "=" * 78)
     print("3. THE BINARY FLAG PATH")

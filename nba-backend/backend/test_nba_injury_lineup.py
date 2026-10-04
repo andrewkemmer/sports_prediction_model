@@ -191,17 +191,19 @@ class TestAppearanceReconciliation:
                               "il_end": pd.Timestamp(end) if end is not pd.NaT
                               else pd.NaT, "status": "out"}])
 
-    def test_an_open_stint_closes_at_the_first_appearance_after_it(self):
+    def test_an_open_stint_closes_at_the_end_of_the_first_appearance_day(self):
         """MLB's highest-value rule, and the one that made the feature safe.
 
-        A player with a player-game row was in the game, so no absence may span
-        it. A status the feed never clears would otherwise suppress a player
-        indefinitely.
+        A player with a player-game row was in the game, so no absence may
+        span PAST it - but the closing edge is the END of that day, because
+        whether he played is knowable only after the game. Releasing him
+        AT the appearance game would let history use who actually played,
+        which the prediction slate could not know pre-game.
         """
         appearances = pd.DataFrame({"player_id": ["1", "1"],
                                    "gameday": ["2026-03-04", "2026-03-06"]})
         out = stints.reconcile_with_appearances(self._stint(), appearances)
-        assert out.iloc[0].il_end == pd.Timestamp("2026-03-04")
+        assert out.iloc[0].il_end == pd.Timestamp("2026-03-04 23:59")
 
     def test_an_appearance_on_the_start_date_is_not_a_return(self):
         """The feed publishes an injury the same day it is reported.
@@ -232,8 +234,12 @@ class TestAppearanceReconciliation:
         out = stints.reconcile_with_appearances(self._stint(), appearances)
         # Still out before the appearance.
         assert stints.out_at(out, "1", "2026-03-02") is True
-        # No longer out after it.
+        # STILL out FOR the appearance game: at decision time the slate
+        # only knew the feed's Out - who actually played is post-game.
+        assert stints.out_at(out, "1", "2026-03-04 19:00") is True
+        # Released the next day, when the appearance is pre-game knowledge.
         assert stints.out_at(out, "1", "2026-03-05") is False
+        assert stints.out_at(out, "1", "2026-03-05 19:00") is False
 
     def test_no_appearances_leaves_the_table_untouched(self):
         assert len(stints.reconcile_with_appearances(self._stint(),

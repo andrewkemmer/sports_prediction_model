@@ -580,6 +580,25 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
     decided = games[decided_mask]
     pending = games[~decided_mask]
 
+    # SLATE PARITY. Pending games resolve availability through the SAME
+    # resolver history was built with: nba_injury_report.
+    # game_day_designations reads the league game-day submission filing,
+    # strictly before tipoff - never a late scratch, never the box
+    # score. Two failure directions this closes: without it, a slate
+    # date past the archive's last shard gets NO removal (the feature
+    # silently off on exactly the games being bet); with a different
+    # source it could read something a historical game never had.
+    # Filings after this run's moment do not exist yet, so a
+    # pre-submission run resolves the flagged pre-window fallback, and
+    # re-running after the submission lands on the identical answer
+    # history used.
+    pending_dates = sorted({pd.Timestamp(d).date() for d in
+                            pd.to_datetime(pending.gameday,
+                                           errors="coerce").dropna().unique()})
+    if pending_dates:
+        designations = _slate_designations(designations, pending_dates,
+                                           _pending_schedule(pending))
+
     dates = pd.Series(sorted(pd.to_datetime(decided.gameday).dropna().unique())
                       + sorted(pd.to_datetime(pending.gameday).dropna().unique()))
     ratings = rapm_mod.build_player_rapm(games_frame,
@@ -602,6 +621,91 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
         return proj_mod.attach_position_rapm(frame, aggregates)
 
     return _attach(decided), _attach(pending)
+
+
+SLATE_PDF_CACHE = Path(os.path.expanduser(
+    "~/.cache/sports_prediction_model/nba/injury_reports"))
+
+
+def _pending_schedule(pending: pd.DataFrame) -> dict:
+    """``{date: [(matchup, tipoff_ET), ...]}`` for the slate being served.
+
+    The same schedule card the backfill hands its resolver: away@home with
+    the tip converted from UTC to Eastern, so a pending game is resolved by
+    its identity instead of by whichever filing happens to mention it -
+    history and slate pass the resolver the same ``games`` argument.  A day
+    missing a start time simply falls back to filing discovery inside the
+    resolver.
+    """
+    schedule: dict = {}
+    needed = ("gameday", "away_team", "home_team", "start_time_utc")
+    if pending is None or not len(pending) or not all(
+            c in pending.columns for c in needed):
+        return schedule
+    for gameday, away, home, start in zip(pending.gameday,
+                                          pending.away_team,
+                                          pending.home_team,
+                                          pending.start_time_utc):
+        day = pd.to_datetime(gameday, errors="coerce")
+        if pd.isna(day):
+            continue
+        try:
+            tip = (pd.Timestamp(start, tz="UTC")
+                   .tz_convert("America/New_York")
+                   .tz_localize(None).to_pydatetime())
+        except Exception:  # noqa: BLE001 - no time: filing discovery
+            continue
+        schedule.setdefault(day.date(), []).append((f"{away}@{home}", tip))
+    return schedule
+
+
+def _slate_designations(designations, dates, schedule=None):
+    """Resolve pending game days with the one resolver history used.
+
+    ``nba_injury_report.game_day_designations`` - the game-day submission
+    window, first filing at/after its close, strictly before tipoff - for
+    each pending date, given the slate's own schedule card (``schedule``,
+    the same ``games`` argument the backfill passes history), unioned with
+    the backfilled archive. The archive is authoritative for the past;
+    this is the same table extended to the present, so train and serve
+    differ only in which days have happened.
+
+    Never raises: a fetch failure or an empty result leaves the archive
+    untouched and logs, because an unfiltered pool is a degraded run, not
+    a failed one. A date with no slate (no games, no filings) contributes
+    nothing by construction.
+    """
+    import nba_injury_report as ir_mod
+    rows = []
+    for day in dates:
+        try:
+            frame = ir_mod.game_day_designations(
+                day, SLATE_PDF_CACHE,
+                games=(schedule or {}).get(day) or None, timeout=10)
+        except Exception as exc:  # noqa: BLE001 - degrade loudly, not fatal
+            logger.warning("slate designations for %s not resolved (%s); "
+                           "that date relies on the archive", day, exc)
+            continue
+        if len(frame):
+            rows.append(frame)
+    if not rows:
+        logger.info("no live slate designations for %s - archive only "
+                    "(pre-submission run or no filings yet)",
+                    ", ".join(str(d) for d in dates))
+        return designations
+    live = pd.concat(rows, ignore_index=True)
+    filled = int((live.status.astype(str).str.strip() != "").sum())
+    logger.info("slate designations resolved live: %d record(s) across "
+                "%d date(s), %d with a submission status", len(live),
+                len(rows), filled)
+    if designations is None or not len(designations):
+        return live
+    # Live rows FIRST: for a pending date the run-time read of the
+    # submission is the fresher authority, and dedupe keeps the first.
+    combined = pd.concat([live, designations], ignore_index=True)
+    subset = [c for c in ("gameday", "team", "player")
+              if c in combined.columns]
+    return combined.drop_duplicates(subset=subset or None)
 
 
 def _power_state(game_df: pd.DataFrame):

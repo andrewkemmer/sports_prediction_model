@@ -308,20 +308,27 @@ def build_stints(records: pd.DataFrame) -> pd.DataFrame:
 
 def reconcile_with_appearances(stints: pd.DataFrame,
                                appearances: pd.DataFrame) -> pd.DataFrame:
-    """End a stint at the player's first observed appearance strictly after start.
+    """End a stint at the END of the player's first appearance day after start.
 
     ``appearances`` is a frame of ``(player_id, gameday)`` player-game rows. A
-    player with a row was in the game, so no absence may span it.
+    player with a row was in the game, so no absence may span PAST it - and
+    the closing edge lands at the END of that day rather than at it, for the
+    same reason the whole module reads strictly point-in-time: whether he
+    played is knowable only AFTER that game. A slate evaluated pre-game
+    still sees him Out, so history must too - releasing him AT his
+    appearance game would let the historical features use who actually
+    played, which is exactly the information the prediction slate does not
+    have. (Measured over a full season, Out players who played: 0 of
+    10,639 - so this costs a false absence almost never and buys exact
+    train/serve symmetry.)
 
-    The rule can only SHORTEN an interval, and only at a date where the player
-    demonstrably played, so it cannot release a genuine absence back into the
-    projection. That asymmetry is the whole reason it is safe: it is strictly
-    subtractive, and every date it leaves flagged is one where the player was
-    genuinely not playing.
-
-    A row on the start date is ignored rather than treated as a close. The feed
-    publishes an injury the same day it is reported, so a same-day appearance
-    is the announcement, not a return.
+    The rule can only SHORTEN an interval, and only from a day where the
+    player demonstrably showed up, so it cannot release a genuine absence
+    back into the projection: every date after the appearance it clears is
+    one where the feed's own status had already lapsed. A row on the start
+    date is ignored rather than treated as a close - the feed publishes an
+    injury the same day it is reported, so a same-day appearance is the
+    announcement, not a return.
     """
     if stints is None or not len(stints):
         return stints
@@ -345,8 +352,18 @@ def reconcile_with_appearances(stints: pd.DataFrame,
             index = int(np.searchsorted(array, np.datetime64(start), "right"))
             if index < len(array):
                 nxt = pd.Timestamp(array[index])
-        if nxt is not None and (pd.isna(end) or nxt < end):
-            end = nxt
+        if nxt is not None:
+            # 23:59 of the appearance day: still AFTER any real tip-off
+            # that day (so the appearance game itself stays suppressed in
+            # tipoff mode) but still BEFORE the prior_end_of_day mode's
+            # read moment for the NEXT day's game (23:59:59 of the day
+            # before, which is the appearance day), so that mode releases
+            # him on time. One edge, correct under both configured
+            # cutoffs; 23:59:59 would leak a day late under the second.
+            appearance_end = (nxt + pd.Timedelta(days=1)
+                              - pd.Timedelta(minutes=1))
+            if pd.isna(end) or appearance_end < end:
+                end = appearance_end
         ends.append(end)
     out = stints.copy()
     out["il_end"] = ends

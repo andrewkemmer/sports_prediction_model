@@ -8,6 +8,7 @@ feature trains, the numbers look fine, and the model is simply better-informed
 than anyone betting on it.
 """
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -318,3 +319,361 @@ def test_player_id_dtype_does_not_defeat_the_key():
 def test_dedupe_passes_through_a_frame_it_cannot_key():
     frame = pd.DataFrame({"points": [1, 2]})
     assert len(ingestion._dedupe_player_games(frame)) == 2
+
+
+# ---------------------------------------------------------------------------
+# The game-day submission: the moment availability is read at
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("home,tip,expected", [
+    # Evening tips: window closes 13:00 in the HOME zone, expressed in ET.
+    ("BOS", datetime(2026, 1, 10, 19, 0), datetime(2026, 1, 10, 13, 0)),
+    ("UTA", datetime(2026, 1, 10, 21, 0), datetime(2026, 1, 10, 15, 0)),
+    ("SAC", datetime(2026, 1, 10, 22, 30), datetime(2026, 1, 10, 16, 0)),
+    # Arizona ignores DST: same wall-clock local close, later ET in June.
+    ("PHX", datetime(2026, 1, 10, 21, 30), datetime(2026, 1, 10, 15, 0)),
+    ("PHX", datetime(2026, 6, 10, 21, 30), datetime(2026, 6, 10, 16, 0)),
+    # Central homes close at 13:00 local = 14:00 ET (the arena map once
+    # said Eastern for CHI/MIL, moving their cutoff an hour EARLY - before
+    # the league's own close - so a pre-submission filing gated the game).
+    ("CHI", datetime(2026, 1, 10, 20, 0), datetime(2026, 1, 10, 14, 0)),
+    ("MIL", datetime(2026, 1, 10, 20, 0), datetime(2026, 1, 10, 14, 0)),
+    ("MIL", datetime(2026, 6, 10, 20, 0), datetime(2026, 6, 10, 14, 0)),
+    # Tips at/before 17:00 local use the 8-10 a.m. window instead.
+    ("SAC", datetime(2026, 1, 10, 15, 30), datetime(2026, 1, 10, 13, 0)),
+    ("BOS", datetime(2026, 1, 10, 13, 0), datetime(2026, 1, 10, 10, 0)),
+])
+def test_the_window_closes_at_one_local_in_the_home_zone(home, tip, expected):
+    """The league's rule, zone by zone: 11-1 local (8-10 for early tips).
+
+    Read in ET because that is what the filing stamps are in - and the
+    conversion must go through the calendar (DST), not a fixed offset, or
+    every summer cutoff lands an hour off and the wrong filing gates.
+    """
+    window = ir.submission_window(tip.date(), tip, home)
+    assert window.cutoff == expected
+    assert window.cutoff < window.tipoff
+
+
+@pytest.mark.parametrize("home,tip_hour,early", [
+    ("BOS", 19, False),
+    ("NYK", 13, True),
+    ("SAC", 13, True),
+    ("PHX", 13, True),
+    # 19:00 ET in Denver/Utah is exactly 5 p.m. local - "5 p.m. or
+    # earlier" puts it in the MORNING window, per the policy sentence.
+    ("UTA", 19, True),
+    ("DEN", 19, True),
+    ("UTA", 20, False),
+    ("DEN", 21, False),
+])
+def test_an_early_tip_selects_the_morning_window(home, tip_hour, early):
+    tip = datetime(2026, 1, 10, tip_hour, 0)
+    window = ir.submission_window(tip.date(), tip, home)
+    assert window.early_tip is early
+    assert window.window == ("08:00-10:00 local" if early
+                             else "11:00-13:00 local")
+
+
+def test_no_arena_window_reaches_tipoff():
+    """A cutoff at/after tip-off would read post-game filings on a real
+    schedule; sweep every arena, both seasons, every tip from 14:00 ET on
+    (no NBA game tips earlier in any arena - the earliest real tips are
+    12:00 ET for eastern homes and 12:00 PT for western ones)."""
+    for home in ir.ARENA_TIMEZONE:
+        for month in (1, 6):
+            for hour in range(14, 24):
+                tip = datetime(2026, month, 15, hour, 0)
+                window = ir.submission_window(tip.date(), tip, home)
+                assert window.cutoff < window.tipoff, (home, tip)
+
+
+def test_an_unknown_home_degrades_to_eastern():
+    """An unlisted club must not lose its game to a KeyError - and Eastern
+    is the conservative direction: a western home mis-zoned closes the
+    window EARLIER, so an older filing is read, never a newer one."""
+    window = ir.submission_window(date(2026, 1, 10),
+                                  datetime(2026, 1, 10, 19, 0), "ZZZ")
+    assert window.cutoff == datetime(2026, 1, 10, 13, 0)
+
+
+# ---------------------------------------------------------------------------
+# Filing selection: first at/after the close, strictly before tip-off
+# ---------------------------------------------------------------------------
+
+
+class _FakeArchive:
+    """A set of filing stamps that "exist", with no network and no PDFs.
+    ``fetch_report`` is replaced by stamp membership (its only contract for
+    the selection walks), and ``parse_report`` by a table, so every test
+    below is deterministic and offline.
+    """
+
+    def __init__(self, stamps, records_by_stamp=None):
+        self.stamps = set(stamps)
+        self.records = records_by_stamp or {}
+        self.fetches = []
+
+    def fetch(self, when, cache_dir, timeout=30):
+        self.fetches.append(when)
+        if ir.report_stamp(when) in self.stamps:
+            return cache_dir / ir._stamp_path(when)
+        return None
+
+    def parse(self, path, published_at):
+        return self.records.get(Path(path).name, [])
+
+    def install(self, monkeypatch):
+        monkeypatch.setattr(ir, "fetch_report", self.fetch)
+        monkeypatch.setattr(ir, "parse_report", self.parse)
+
+
+
+def _submission_window(tip_hour=19):
+    tip = datetime(2026, 1, 10, tip_hour, 0)
+    return ir.submission_window(tip.date(), tip, "BOS")
+
+
+def test_the_first_filing_at_or_after_the_close_is_chosen(monkeypatch, tmp_path):
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_06_15PM"})
+    archive.install(monkeypatch)
+    chosen = ir.submission_filing(_submission_window(), tmp_path)
+    assert chosen is not None
+    filing, provenance = chosen
+    # 13:00 ET is exactly the close: at/after counts.
+    assert filing == datetime(2026, 1, 10, 13, 0)
+    assert provenance == ir.PROVENANCE_SUBMISSION
+
+
+def test_a_gap_after_the_close_walks_forward_to_the_next_filing(monkeypatch,
+                                                                tmp_path):
+    archive = _FakeArchive({"2026-01-10_01_30PM",  # 13:00 does not exist
+                            "2026-01-10_06_15PM"})
+    archive.install(monkeypatch)
+    filing, provenance = ir.submission_filing(_submission_window(), tmp_path)
+    assert filing == datetime(2026, 1, 10, 13, 30)
+    assert provenance == ir.PROVENANCE_SUBMISSION
+
+
+def test_no_filing_after_the_close_falls_back_to_the_last_before_it(monkeypatch,
+                                                                    tmp_path):
+    """The honest degrade: strictly older than the close, flagged - never
+    the evening's filings, which would smuggle the late scratches in.
+
+    (A filing that exists BETWEEN close and tip-off is the submission by
+    definition, even an evening one - so the fallback case here is a day
+    the league published nothing in that band at all.)
+    """
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_12_45PM"})
+    archive.install(monkeypatch)
+    filing, provenance = ir.submission_filing(_submission_window(), tmp_path)
+    assert filing == datetime(2026, 1, 10, 12, 45)
+    assert provenance == ir.PROVENANCE_PRE_WINDOW
+    assert filing < datetime(2026, 1, 10, 13, 0)
+
+
+def test_no_filing_at_all_leaves_the_game_uncovered(monkeypatch, tmp_path):
+    archive = _FakeArchive(set())
+    archive.install(monkeypatch)
+    assert ir.submission_filing(_submission_window(), tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# The resolver: what reaches the feature, and what never does
+# ---------------------------------------------------------------------------
+
+
+def _record(when, player, status, team="Celtics", matchup="NYK@BOS",
+            game_time="07:00"):
+    return ir.Designation(game_date=date(2026, 1, 10),
+                          game_time_et=game_time, matchup=matchup,
+                          team=team, player=player, status=status,
+                          reason="", published_at=when)
+
+
+def _resolver_archive():
+    """Filings for a 19:00 BOS home game: seed, submission, late scratch."""
+    submission = datetime(2026, 1, 10, 13, 0)
+    late = datetime(2026, 1, 10, 18, 15)
+    seed = datetime(2026, 1, 10, 12, 0)
+    records = {
+        # The seed (discovery) carries the slate and the pre-submission state.
+        ir._stamp_path(seed): [_record(seed, "Tatum, Jayson", "Questionable"),
+                               _record(seed, "Brown, Jaylen", "Out"),
+                               _record(seed, "Holiday, Jrue", "Out")],
+        # The submission filing: Brown is cleared mid-day, Holiday stays Out.
+        ir._stamp_path(submission): [
+            _record(submission, "Tatum, Jayson", "Questionable"),
+            _record(submission, "Brown, Jaylen", "Available"),
+            _record(submission, "Holiday, Jrue", "Out")],
+        # After the close: Tatum is a late scratch (18:15 for a 19:00 tip).
+        ir._stamp_path(late): [
+            _record(late, "Tatum, Jayson", "Out"),
+            _record(late, "Brown, Jaylen", "Available"),
+            _record(late, "Holiday, Jrue", "Out")],
+    }
+    archive = _FakeArchive({ir.report_stamp(s)
+                             for s in (seed, submission, late)}, records)
+    return archive
+
+
+def _resolve(monkeypatch, tmp_path):
+    archive = _resolver_archive()
+    archive.install(monkeypatch)
+    return ir.game_day_designations(date(2026, 1, 10), tmp_path)
+
+
+def test_the_submission_status_wins_over_the_late_scratch(monkeypatch, tmp_path):
+    """THE rule, asserted end to end.
+
+    Tatum flips Questionable -> Out at 18:15 for a 19:00 tip. The slate
+    cannot know that at the submission moment, so the feature must not
+    either: ``status`` is what the league had posted by the close, and the
+    scratch lives only in ``status_tipoff`` where nothing that gates a pool
+    reads it.
+    """
+    frame = _resolve(monkeypatch, tmp_path)
+    tatum = frame[frame.player_report == "Tatum, Jayson"].iloc[0]
+    assert tatum.status == "Questionable"
+    assert tatum.status_tipoff == "Out"
+    assert tatum.provenance == ir.PROVENANCE_SUBMISSION
+    assert pd.Timestamp(tatum.published_at) < pd.Timestamp(tatum.tipoff_at)
+
+
+def test_a_clearance_inside_the_submission_window_binds(monkeypatch, tmp_path):
+    """Brown went Out (day before) -> Available in the 13:00 submission.
+
+    Mid-day movement IS knowable at the cutoff - that is what the game-day
+    submission is for - so the removal must be lifted.
+    """
+    frame = _resolve(monkeypatch, tmp_path)
+    brown = frame[frame.player_report == "Brown, Jaylen"].iloc[0]
+    assert brown.status == "Available"
+
+
+def test_the_resolver_is_reproducible_so_history_and_slate_agree(monkeypatch,
+                                                                 tmp_path):
+    """Parity by construction: the output depends only on the filings, never
+    on when the resolver runs - so the historical frame and a pending slate
+    resolve the same game to the same answer."""
+    first = _resolve(monkeypatch, tmp_path)
+    second = ir.game_day_designations(date(2026, 1, 10), tmp_path)
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_discovery_finds_the_slate_from_any_same_day_filing(monkeypatch,
+                                                            tmp_path):
+    archive = _resolver_archive()
+    archive.install(monkeypatch)
+    slate = ir._discover_slate(date(2026, 1, 10), tmp_path, 72)
+    assert slate == {"NYK@BOS": datetime(2026, 1, 10, 19, 0)}
+
+
+def test_a_day_with_no_filings_has_no_slate_and_costs_a_handful_of_probes(monkeypatch,
+                                                                         tmp_path):
+    """Off days cost a bounded number of probes: the league files nothing
+    with no games, and sweeping every stamp across a two-year backfill
+    would be tens of thousands of requests that cannot contribute a row."""
+    archive = _FakeArchive(set())
+    archive.install(monkeypatch)
+    assert ir._discover_slate(date(2026, 1, 10), tmp_path, 72) == {}
+    assert len(archive.fetches) == len(ir._SEED_PROBE_HOURS)
+
+
+def test_no_status_reaches_the_feature_from_after_the_close(monkeypatch,
+                                                           tmp_path):
+    """A second, independent tripwire on the same guarantee: every row that
+    carries a removal status was published in [close, tipoff) - never
+    before the close's own filing and never at/after tip-off."""
+    frame = _resolve(monkeypatch, tmp_path)
+    carrying = frame[frame.status.astype(str).str.lower()
+                     .isin({"out", "doubtful", "recovery"})]
+    assert len(carrying) >= 1  # Holiday: Out AT the submission, not later
+    for row in carrying.itertuples():
+        published = pd.Timestamp(row.published_at)
+        assert pd.Timestamp(row.cutoff_at) <= published
+        assert published < pd.Timestamp(row.tipoff_at)
+
+
+def test_a_game_absent_from_the_first_post_close_filing_walks_forward(monkeypatch,
+                                                                     tmp_path):
+    """The first snapshot at/after the close can predate this game's
+    inclusion: clubs file up TO the close and the league merges as they
+    arrive (a placeholder-only filing parses to no rows at all).  The
+    game's submission is the first filing, still strictly before tip-off,
+    that actually carries it - not the first filing that exists."""
+    records = {
+        ir._stamp_path(datetime(2026, 1, 10, 13, 0)): [],  # no rows yet
+        ir._stamp_path(datetime(2026, 1, 10, 13, 15)): [
+            _record(datetime(2026, 1, 10, 13, 15),
+                    "Tatum, Jayson", "Questionable")],
+    }
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_01_15PM"}, records)
+    archive.install(monkeypatch)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert len(frame) == 1
+    row = frame.iloc[0]
+    assert row.status == "Questionable"
+    assert row.published_at == "2026-01-10T13:15:00"
+    assert row.provenance == ir.PROVENANCE_SUBMISSION
+    assert pd.Timestamp(row.published_at) < pd.Timestamp(row.tipoff_at)
+
+
+def test_a_game_never_listed_is_reported_uncovered_not_invented(monkeypatch,
+                                                                tmp_path,
+                                                                caplog):
+    """A game the league never lists (a real 2026-05-21/23 ECF anomaly:
+    every filing of the day carried only the other conference's game)
+    must yield NO rows and a warning - availability is never invented
+    from silence, for history or for the slate."""
+    other = _record(datetime(2026, 1, 10, 13, 0), "Gilgeous-Alexander, Shai",
+                    "Questionable", matchup="BOS@OKC", team="Celtics")
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_06_15PM"},
+                           {ir._stamp_path(datetime(2026, 1, 10, 13, 0)):
+                            [other]})
+    archive.install(monkeypatch)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert not len(frame)
+    assert "game uncovered" in caplog.text
+
+
+def test_rows_that_vanish_after_the_close_fall_back_to_the_last_before(monkeypatch,
+                                                                     tmp_path):
+    """2025-01-11: the league's morning filings carried HOU@ATL (and
+    CHA@LAC, SAS@LAL) with player rows, then every filing after the
+    window close dropped them.  The submission band carries nothing, so
+    the game reads from the last filing STRICTLY BEFORE the close -
+    older information, honestly flagged, never an invented "healthy"."""
+    morning = datetime(2026, 1, 10, 12, 0)   # pre-close, has the game
+    after_close = datetime(2026, 1, 10, 13, 0)  # close: exists, no game
+    late = datetime(2026, 1, 10, 18, 15)     # exists, no game either
+    records = {
+        ir._stamp_path(morning): [
+            _record(morning, "Tatum, Jayson", "Out")],
+        ir._stamp_path(after_close): [
+            _record(after_close, "Someone, Else", "Out",
+                    matchup="MIA@NYK")],
+        ir._stamp_path(late): [
+            _record(late, "Someone, Else", "Out", matchup="MIA@NYK")],
+    }
+    archive = _FakeArchive({ir.report_stamp(s)
+                             for s in (morning, after_close, late)}, records)
+    archive.install(monkeypatch)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert len(frame) == 1
+    row = frame.iloc[0]
+    assert row.status == "Out"
+    assert row.provenance == ir.PROVENANCE_PRE_WINDOW
+    assert row.published_at == "2026-01-10T12:00:00"
+    assert pd.Timestamp(row.published_at) < pd.Timestamp(row.cutoff_at)
+    assert pd.Timestamp(row.published_at) < pd.Timestamp(row.tipoff_at)
