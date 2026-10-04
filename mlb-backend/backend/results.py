@@ -37,13 +37,15 @@ def fetch_mlb_results(start_date: date, end_date: date,
         game_pk     int64   — matches Statcast game_pk
         game_date   str      — YYYY-MM-DD (ET date of the game)
         home_score  float    — official final runs (NaN until final)
-        away_score  float
-        home_win    float    — 1.0/0.0 once final, else NaN
-        is_final    bool     — abstractGameState == 'Final'
+        away_score  float        home_win    float   — 1.0/0.0 once final, else NaN
+        is_final    bool    — abstractGameState == 'Final'
+        home_team   str     — canonical home abbreviation (StatsAPI
+        away_team   str     — hydrated), so the slate's (game_date,
+                             home, away) fallback match key can exist
     Empty frame (with the same columns) on any network/parse failure.
     """
     cols = ["game_pk", "game_date", "home_score", "away_score",
-            "home_win", "is_final"]
+            "home_win", "is_final", "home_team", "away_team"]
 
     # The schedule endpoint SILENTLY TRUNCATES long date ranges: a full
     # season-pair query returned ~3,000 games vs ~5,900 fetched per year —
@@ -65,6 +67,10 @@ def fetch_mlb_results(start_date: date, end_date: date,
                     "sportId": 1,
                     "startDate": c_start.isoformat(),
                     "endDate": c_end.isoformat(),
+                    # Without this the team object carries NO abbreviation
+                    # field, so the slate's (date+teams) fallback match key
+                    # could never be built (2026-10-03 defect).
+                    "hydrate": "team(abbreviation)",
                 },
                 timeout=timeout,
             )
@@ -84,6 +90,8 @@ def fetch_mlb_results(start_date: date, end_date: date,
                 away = g.get("teams", {}).get("away", {})
                 hs = home.get("score")
                 as_ = away.get("score")
+                h_abbr = (home.get("team") or {}).get("abbreviation")
+                a_abbr = (away.get("team") or {}).get("abbreviation")
                 if is_final and isinstance(hs, int) and isinstance(as_, int):
                     home_score, away_score = float(hs), float(as_)
                     home_win = float(home_score > away_score) \
@@ -97,6 +105,8 @@ def fetch_mlb_results(start_date: date, end_date: date,
                     "away_score": away_score,
                     "home_win": home_win,
                     "is_final": is_final,
+                    "home_team": _canon_team(h_abbr) if h_abbr else None,
+                    "away_team": _canon_team(a_abbr) if a_abbr else None,
                 })
     return _dedupe_prefer_scored(pd.DataFrame(rows, columns=cols))
 
@@ -275,7 +285,7 @@ def merge_result_cache(cached: pd.DataFrame | None,
                        fresh: pd.DataFrame) -> pd.DataFrame:
     """Merge cached results with a fresh pull, newest/final copy wins."""
     cols = ["game_pk", "game_date", "home_score", "away_score",
-            "home_win", "is_final"]
+            "home_win", "is_final", "home_team", "away_team"]
     if fresh.empty:
         return cached if cached is not None else pd.DataFrame(columns=cols)
     if cached is None or cached.empty:

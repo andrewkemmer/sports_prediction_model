@@ -540,6 +540,108 @@ def test_causal_xgb_rounds_fold_semantics():
     assert _causal_xgb_rounds(meas) == 49
 
 
+def test_upcoming_slate_ships_total_runs_for_carried_finals():
+    """2026-10-03 defect: every Final row in todays_games_*.csv shipped
+    an empty total_runs because the row builder hard-coded NaN even when
+    ESPN scores were carried. Finals must ship the derived total; an
+    undecided row must still ship NaN (honest preview, never a guess)."""
+    history = _slate_history_row()
+    schedule = pd.DataFrame([
+        {"game_id": "20261003_CHW@CLE", "game_date": "2026-10-03",
+         "start_time_utc": "2026-10-03T23:10:00", "home_team": "CLE",
+         "away_team": "CHW", "venue": "Test Park",
+         "game_state": "post", "game_status_detail": "Final",
+         "home_score": 3, "away_score": 0, "home_win": 0.0,
+         "sp_id_home": 101, "sp_name_home": "Home Starter",
+         "sp_id_away": 202, "sp_name_away": "Away Starter"},
+        {"game_id": "20261003_NYY@TB", "game_date": "2026-10-03",
+         "start_time_utc": "2026-10-03T22:10:00", "home_team": "TB",
+         "away_team": "NYY", "venue": "Test Park 2",
+         "game_state": "pre", "game_status_detail": "Scheduled",
+         "sp_id_home": 303, "sp_name_home": "A",
+         "sp_id_away": 404, "sp_name_away": "B"},
+    ])
+    schedule["game_date"] = pd.to_datetime(schedule["game_date"])
+    schedule["start_time_utc"] = pd.to_datetime(schedule["start_time_utc"])
+
+    slate = build_upcoming_slate(history, date(2026, 10, 3),
+                                 schedule_df=schedule)
+    assert len(slate) == 2
+    final = slate.loc[slate["game_id"] == "20261003_CHW@CLE"].iloc[0]
+    preview = slate.loc[slate["game_id"] == "20261003_NYY@TB"].iloc[0]
+    assert final["total_runs"] == 3.0
+    assert final["home_score"] == 3 and final["away_score"] == 0
+    assert np.isnan(preview["total_runs"])
+    assert preview["home_score"] is None or np.isnan(preview["home_score"])
+
+
+def test_apply_official_results_matches_pkless_slate_by_date_and_teams():
+    """Slate rows carry no StatsAPI game_pk; the overlay's documented
+    fallback key (game_date, canonical home/away) must match a hydrated
+    results frame — including the board's CHW vs StatsAPI CWS alias — and
+    stamp authoritative scores, total_runs and game_state="post"."""
+    from results import apply_official_results
+
+    slate = pd.DataFrame([{
+        "game_id": "20261003_CHW@CLE",
+        "game_date": pd.Timestamp("2026-10-03"),
+        "home_team": "CLE", "away_team": "CHW",
+        "game_state": "final",
+        "home_win": 0.0, "home_score": 3, "away_score": 0,
+        "total_runs": np.nan,
+    }])
+    res = pd.DataFrame([{
+        "game_pk": None, "game_date": "2026-10-03",
+        "home_score": 3.0, "away_score": 0.0, "home_win": 0.0,
+        "is_final": True,
+        "home_team": "CLE", "away_team": "CWS",
+    }])
+
+    out = apply_official_results(slate, res)
+    assert out.loc[0, "home_score"] == 3.0
+    assert out.loc[0, "away_score"] == 0.0
+    assert out.loc[0, "total_runs"] == 3.0
+    assert out.loc[0, "game_state"] == "post"
+
+
+def test_fetch_mlb_results_hydrates_and_ships_team_columns():
+    """The schedule endpoint returns team objects WITHOUT abbreviations
+    unless hydrated — which made the slate fallback key unbuildable.
+    fetch_mlb_results must request team(abbreviation) and canonicalize
+    the codes it gets (CHW→CWS via _canon_team)."""
+    import results as results_mod
+    from results import fetch_mlb_results
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"dates": [{"date": "2026-10-03", "games": [{
+                "gamePk": 777,
+                "status": {"abstractGameState": "Final"},
+                "teams": {
+                    "home": {"score": 3, "team": {"abbreviation": "CLE"}},
+                    "away": {"score": 0, "team": {"abbreviation": "CHW"}},
+                },
+            }]}]}
+
+    captured: dict = {}
+
+    def _get(url, params=None, timeout=None):
+        captured["params"] = params
+        return _Resp()
+
+    with patch.object(results_mod.requests, "get", side_effect=_get):
+        df = fetch_mlb_results(date(2026, 10, 3), date(2026, 10, 3))
+
+    assert captured["params"]["hydrate"] == "team(abbreviation)"
+    assert "home_team" in df.columns and "away_team" in df.columns
+    assert df.loc[0, "home_team"] == "CLE"
+    assert df.loc[0, "away_team"] == "CWS"  # alias canonicalized
+    assert df.loc[0, "home_score"] == 3.0 and df.loc[0, "is_final"]
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

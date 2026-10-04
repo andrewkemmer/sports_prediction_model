@@ -1864,6 +1864,18 @@ def build_upcoming_slate(
         ]
         for _c in _RAW_INPUTS:
             row.setdefault(_c, np.nan)
+        # ESPN finals carried onto the slate keep their scores — derive
+        # the total here. The hard NaN below shipped EVERY Final row of
+        # todays_games_*.csv with an empty total_runs (2026-10-03 defect;
+        # the official-results overlay's date+teams key never matched,
+        # so nothing downstream repaired it).
+        _hs, _as = s.get("home_score"), s.get("away_score")
+        try:
+            _slate_total = (float(_hs) + float(_as)
+                            if _hs is not None and _as is not None
+                            else np.nan)
+        except (TypeError, ValueError):
+            _slate_total = np.nan
         row.update({
             "game_id": s.get("game_id") or (
                 f"{pd.Timestamp(s.get('game_date') or target_date).strftime('%Y%m%d')}_{away}@{home}"),
@@ -1875,7 +1887,7 @@ def build_upcoming_slate(
             # ESPN game state drives Live/Final/Scheduled on the dashboard
             "game_state": s.get("game_state", ""),
             "game_status_detail": s.get("game_status_detail", ""),
-            "total_runs": np.nan,
+            "total_runs": _slate_total,
             # Results: keep them when ESPN already has a final, else NULL
             "home_win": s.get("home_win"),
             "home_score": s.get("home_score"),
