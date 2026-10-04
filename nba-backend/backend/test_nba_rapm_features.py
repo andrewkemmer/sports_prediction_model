@@ -687,6 +687,39 @@ class TestFeatureImportanceWeights:
         row = mon.feature_drift(baseline, current, weights)[0]
         assert row["weight_pct"] == weights["elo_diff"]
 
+    def test_elasticnet_importance_is_per_sd_not_std_scaled(self):
+        """``coef_`` is fit on z-scored columns, so |coef| already IS
+        the per-SD importance - the decomposition must not multiply by
+        the preprocessor's stds a second time.
+
+        The 2026-09/10 drift tables read elo_diff at 68-94% of MODEL
+        WEIGHT because that second multiplication let the widest column
+        (Elo points, std ~126.8, against rates at std ~0.006) absorb
+        nearly the whole elastic-net profile. A member whose coefficients
+        are uniform over wildly unequal stds must come back uniform:
+        any std weighting puts the fat column on top.
+        """
+        import types
+        cols = feat_mod.linear_feature_columns()
+        active = config.active_moneyline_feature_cols()
+        assert cols[0] in active
+        model = types.SimpleNamespace(coef_=np.ones((1, len(cols))))
+        rng = np.random.default_rng(11)
+        X = pd.DataFrame(rng.normal(size=(400, len(cols))), columns=cols)
+        X[cols[0]] = rng.normal(0.0, 100.0, 400)  # std ~100 against ~1
+        pre = ml_mod.TrainFoldPreprocessor().fit(X)
+        decomp = mp.feature_importance_decomposition(
+            {"elasticnet": {"model": model, "pre": pre}},
+            {"elasticnet": 1.0})
+        assert decomp is not None
+        profile = decomp["member_profiles"]["elasticnet"]
+        matched = [c for c in cols if c in active]
+        expected = round(100.0 / len(matched), 4)
+        for c in matched:
+            assert abs(profile[c] - expected) < 0.01, c
+        # The old coef*std scaling would have given the fat column ~90%.
+        assert profile[cols[0]] < 10.0
+
     def test_members_without_importances_yield_none_not_zeros(self):
         import types
         weights = mp.feature_importance_weights(
@@ -701,7 +734,8 @@ class TestFeatureImportanceWeights:
         ``elo_diff`` at 91.02% of MODEL WEIGHT - the reader's natural
         conclusion being "the model is 91% Elo". It was not: with the blend
         concentrated on elasticnet, that column WAS elasticnet's |coef|*std
-        alone, while xgboost's and lightgbm's own importances put
+        alone (the pre-2026-10-04 reporting scaling, since fixed to per-SD
+        |coef|), while xgboost's and lightgbm's own importances put
         ``elo_diff`` at 12.97% and 15.91%. The trees were not consulted at
         all.
 
@@ -741,8 +775,9 @@ class TestFeatureImportanceWeights:
 
         The 2026-10-01 drift table published ``elo_diff`` at 78.627%
         while the elastic net held 82.56% of the blend with 94.4% of
-        its own mass on that column - arithmetic a reader could
-        previously only verify by rerunning the pipeline. The
+        its own mass on that column under the old coef*std reporting
+        (per-SD: ~17%) - arithmetic a reader could previously only
+        verify by rerunning the pipeline. The
         decomposition is the disclosure: the blended column, the
         member shares, and each member's own profile, with the
         column rebuildable by hand from the other two.
@@ -823,8 +858,9 @@ class TestAdaptiveBlendPolicy:
     The adaptive optimiser minimises pooled OOF logloss on the plain
     simplex, so it is free to put every point of weight on the best
     member - and on the delivered OOF it did (elastic net 0.8256,
-    whose own scaled-coefficient mass is 94.4% ``elo_diff``, making
-    the served model read as ~79% one column). The production
+    whose reported mass - old coef*std scaling, since fixed to
+    per-SD - was 94.4% ``elo_diff``, making the served model read
+    as ~79% one column). The production
     default is the EMPTY box (``ENSEMBLE_MEMBER_CAPS`` /
     ``_FLOORS`` both {} in config): NBA runs the plain simplex for
     MLB/NHL/NFL parity since 2026-10-01. The box machinery stays

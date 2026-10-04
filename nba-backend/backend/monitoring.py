@@ -518,8 +518,8 @@ def _feature_importance_block(decomp) -> dict:
     column is a blend-weighted average, so a concentrated member
     share means the column is that member's own profile, not the
     ensemble's - the difference between "the model is 79% Elo"
-    and "the elastic net is 83% of the blend and 94% of the
-    elastic net is Elo".
+    and "the elastic net holds 83% of the blend, so 79% of the
+    column is that member's opinion rather than the ensemble's".
     """
     if not decomp:
         return {}

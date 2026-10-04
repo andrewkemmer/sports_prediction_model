@@ -851,17 +851,23 @@ def feature_importance_decomposition(
     Mirrors MLB's ``feature_importance_weights``: each member's importances
     are normalised internally, then averaged with the member's share of the
     ensemble blend.  Tree members contribute split-gain importance; the
-    elastic-net member contributes |coefficient| scattered from its scaled,
-    diff-sliced matrix back to active-column positions, weighted by the
-    preprocessor's own stds so a zero-variance column can never smuggle its
-    importance up to an unrelated feature.
+    elastic-net member contributes its STANDARDISED |coefficient| (per-SD
+    importance: ``coef_`` is fit on z-scored columns, so |coef| is the logit
+    swing per 1 SD - scale-free units that sit alongside tree gain) scattered
+    from its diff-sliced matrix back to active-column positions through the
+    preprocessor's fitted column geometry.  Until 2026-10-04 that scatter
+    multiplied by the preprocessor's stds as well, double-counting scale:
+    elo_diff (std ~126.8) absorbed 68-94% of MODEL WEIGHT that way, while
+    per-SD the shipped elastic net puts it at ~17%, in line with the trees'
+    9-16%.
 
     The MODEL WEIGHT column is a blend-weighted average, so when one member
     holds ~all the weight the column IS that member's importance profile
     and the others are absent from it entirely - measured on 2026-10-01, the
     drift table published ``elo_diff`` at 78.627% while the elastic net held
-    82.56% of the blend with 94.4% of its own mass on that column and the
-    trees' own profiles put it at 9-16%. A reader could only reconstruct
+    82.56% of the blend with 94.4% of its own mass on that column under the
+    old coef*std reporting (per-SD: ~17%) and the trees' own profiles put it
+    at 9-16%. A reader could only reconstruct
     that arithmetic by rerunning the pipeline, so the decomposition ships
     beside the column instead:
 
@@ -898,19 +904,26 @@ def feature_importance_decomposition(
                 coef = np.abs(np.asarray(model.coef_, dtype=float)).ravel()
                 imp = coef
                 if name in ml_mod.LINEAR_MEMBERS:
-                    # coef_ is slice-shaped (diff columns only, standardised).
-                    # |mean|*|std| maps each slice position back to its active
-                    # column in the model's own fitted geometry.
+                    # coef_ is slice-shaped (diff columns only, standardised),
+                    # so |coef| already IS the per-SD importance: the slice
+                    # only needs mapping back to its active column through
+                    # the preprocessor's fitted geometry (stds present,
+                    # finite and positive over the slice - a fittedness
+                    # check, NOT a multiplier). Multiplying by std here
+                    # double-counted scale and read elo_diff (std ~126.8)
+                    # as 68-94% of MODEL WEIGHT on 2026-09/10; per-SD the
+                    # shipped member puts it at ~17%.
                     if (pre is None or getattr(pre, "stds", None) is None
                             or len(coef) != len(slice_cols)):
                         continue
-                    scale = (pd.to_numeric(pre.stds, errors="coerce")
-                             .reindex(slice_cols).to_numpy(dtype=float))
-                    if (not np.all(np.isfinite(scale)) or (scale <= 0).any()):
+                    fitted_stds = (pd.to_numeric(pre.stds, errors="coerce")
+                                   .reindex(slice_cols).to_numpy(dtype=float))
+                    if (not np.all(np.isfinite(fitted_stds))
+                            or (fitted_stds <= 0).any()):
                         continue
                     full = np.zeros(nfc)
                     index = {c: i for i, c in enumerate(cols)}
-                    for col, importance in zip(slice_cols, coef * scale):
+                    for col, importance in zip(slice_cols, coef):
                         if col in index:
                             full[index[col]] = importance
                     imp = full
@@ -1475,12 +1488,12 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     imp_weights = imp_decomp["model_weight"] if imp_decomp else None
     # Say out loud which members the MODEL WEIGHT column actually averages.
     # A concentrated blend means the column is one member's profile, and a
-    # reader comparing it against per-member importances (elasticnet put
-    # elo_diff at 94% while the trees put it at 13%/16% on 2026-09-29, and
-    # 94.4% against the trees' 9%/6% on 2026-10-01) would otherwise have no
-    # way to tell a real concentration from a reporting artifact. The
-    # per-member elo_diff importance rides the log line so the decomposition
-    # is visible without opening the artifact.
+    # reader comparing it against per-member importances (elasticnet read
+    # elo_diff at 94% under the old coef*std reporting while the trees put
+    # it at 13%/16% on 2026-09-29; per-SD the member reads ~17%) would
+    # otherwise have no way to tell a real concentration from a reporting
+    # artifact. The per-member elo_diff importance rides the log line so
+    # the decomposition is visible without opening the artifact.
     if ml and imp_decomp:
         _shares = imp_decomp["member_shares"]
         _profiles = imp_decomp["member_profiles"]

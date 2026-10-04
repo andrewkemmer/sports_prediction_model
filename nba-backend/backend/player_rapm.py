@@ -529,10 +529,19 @@ def _evidence_season(games: pd.DataFrame, target,
         return own
     best_label, best_day = None, None
     for season, season_days in index.items():
-        prior = before(season_days)
-        if not len(prior):
+        # Index the eligibility mask back onto the DATES. ``before`` returns
+        # a boolean array, and ``.max()`` of a boolean array is just "was any
+        # row eligible" (np.True_): the first season carrying any pre-target
+        # row became unbeatable and the fallback selected the OLDEST season
+        # in the frame. Two-season fixtures never caught it - first eligible
+        # and most recent eligible coincide there - but every preseason
+        # target walks into it: measured on the 2026-10-04 delivery, the
+        # player board's priors matched 2023-24 minutes for 550/550 players
+        # while the slate was rating 2026-27 games, two seasons stale.
+        eligible = season_days[before(season_days)]
+        if not len(eligible):
             continue
-        latest = prior.max()
+        latest = eligible.max()
         if best_day is None or latest > best_day:
             best_label, best_day = season, latest
     return best_label if best_label is not None else own

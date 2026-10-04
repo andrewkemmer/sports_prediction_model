@@ -384,20 +384,26 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # xgboost a BETTER ELO RECONSTRUCTION, and there is nothing for a better
 # Elo reconstruction to add. The optimiser is correct.
 #
-# NOT a scale artifact, which is the obvious objection and is false here.
-# elo_diff is in Elo points (std 126.8) against rates and EWMs elsewhere
-# (std 0.006-11.5), so |coef| could be flattering the widest column. The
-# tree members refute that, being scale-blind: their own importances give
-# elo_diff 12.97% (xgboost) and 15.91% (lightgbm), not 94%. Elasticnet
-# genuinely concentrates 94.39% of its coefficient mass on one column,
-# 16.8x everything else combined.
+# PARTLY a scale artifact, found and fixed 2026-10-04. The 91%/94.4%
+# elo_diff readings came from the importance report multiplying the elastic
+# net's standardised |coef| by the feature's std a second time: elo_diff is
+# in Elo points (std 126.8) against rates and EWMs elsewhere (std
+# 0.006-11.5), so the widest column absorbed 68-94% of MODEL WEIGHT under
+# that scaling. Per-SD - the units coef_ is actually fit in - the shipped
+# elastic net puts elo_diff at ~17%, in line with the scale-blind trees'
+# 12.97% (xgboost) and 15.91% (lightgbm) on 2026-09-29. The report has
+# reported per-SD since 2026-10-04; monitor artifacts from before that
+# date carry coef*std, not model behaviour. The predictive concentration is
+# separately real (see the ablation above): elo family features still
+# decide the model, just not at 91% of any honest importance measure.
 #
-# So the 91% elo_diff figure in the monitor's MODEL WEIGHT column is
-# elasticnet's number reported as if it were the model's:
+# The remaining half of the old finding stands: the 91% column was also
+# elasticnet's number reported as if it were the model's.
 # feature_importance_weights normalises each member and averages by blend
 # weight, and with both trees at 0.0 they are multiplied out before the
-# sum. The monitor cannot currently distinguish "one member thinks this"
-# from "the model IS this", and that ambiguity is worth its own fix.
+# sum. The monitor cannot distinguish "one member thinks this" from
+# "the model IS this" without the decomposition - which now ships member
+# shares and per-member profiles beside the column.
 #
 # The real next question is therefore not more tuning: it is where the
 # non-Elo signal is and whether it is being extracted. The best non-Elo

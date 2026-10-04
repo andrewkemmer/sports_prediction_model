@@ -1256,6 +1256,44 @@ class TestEvidenceSeasonFallback:
         assert row.prior_eff == pytest.approx(1.0)
         assert row.prior_games == 1
 
+    def test_the_fallback_picks_the_most_recent_eligible_season(self):
+        """Three seasons, own season absent, target after all of them:
+        the fallback must compare DATES and take the most recent eligible
+        season, not the first season the index happens to hold.
+
+        The original loop took ``.max()`` of the boolean eligibility mask -
+        np.True_ for any season with a pre-target row - so the first key in
+        the index was unbeatable and the OLDEST season won every fallback.
+        Two-season fixtures could not see it (first eligible coincides with
+        most recent), but every preseason target does: measured on the
+        2026-10-04 delivery, the player board's priors matched 2023-24
+        minutes for 550/550 players while the slate rated 2026-27 games.
+        """
+        rows = [
+            _row("a", "2024-01-15", 0, 0, minutes=48, season="2023-24",
+                 game_id="o0"),
+            _row("a", "2025-01-15", 0, 0, minutes=48, season="2024-25",
+                 game_id="o1"),
+            _row("a", "2026-01-15", 0, 0, minutes=48, season="2025-26",
+                 game_id="o2"),
+        ]
+        games = rapm.prepare_player_games(_frame(rows))
+        index = rapm._season_evidence_index(games)
+        # The index is chronological - first key oldest - exactly the
+        # production frame's order, and exactly the buggy loop's trap.
+        assert list(index) == ["2023-24", "2024-25", "2025-26"]
+        assert rapm._evidence_season(
+            games, pd.Timestamp("2026-10-20"), index, strict=True) == "2025-26"
+        assert rapm._evidence_season(
+            games, pd.Timestamp("2026-10-20"), index, strict=False) == "2025-26"
+        ratings = rapm.build_player_rapm(
+            games, target_dates=pd.Series(["2026-10-20"]))
+        row = ratings[ratings.player_id == "a"].iloc[0]
+        # The prior is the MOST RECENT season's game, never the oldest's.
+        assert row.prior_games == 1
+        assert row.prior_minutes == pytest.approx(48.0)
+        assert row.prior_eff == pytest.approx(1.0)
+
     def test_opening_night_with_no_prior_season_is_honestly_empty(self):
         """A decided opening-night game with no season to fall back to
         rates from NOTHING - no prior, no league cell, NaN rating.
