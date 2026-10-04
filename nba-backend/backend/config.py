@@ -455,6 +455,22 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # XGBOOST_PARAMS below are unchanged (still the 2026-10-01 pair that itself
 # replaced the MLB copy).
 #
+# REJECTED A FOURTH TIME 2026-10-04 (complete from-scratch retune, owner
+# directive: every parameter free, n_jobs=1 on every fit; harness
+# scratch/nba_tune.py, frame rebuilt locally and verified EXACT against the
+# shipped fold table; noise floor measured first: 5.3 bps tune / ~98 bps on
+# the 29-row sealed holdout across seeds 42-46). Top-3 of a 30-trial TPE
+# screen verified paired against the incumbent re-run at the same seed,
+# seeds 42/43/44, tune + sealed. No finalist cleared BOTH binding gates:
+# trial18 (screen-best) was served-positive (+2.1/+2.2/+0.8 bps logloss/
+# calibrated/Brier) but missed pairing on seed44-sealed (-9.0 bps); trial27
+# won paired on every seed on both populations (tune +28.3/+43.0/+40.0 bps
+# against the 5.3 bps floor, sealed +309.7/+74.9/+141.6, fold win 0.567) but
+# FAILED the served check (logloss -0.6, calibrated -3.3, Brier -0.4 bps;
+# adaptive weight still ends 0.0). Member strength that cannot move the
+# served blend in the right direction is not an adoption - the same two-gate
+# discipline 2026-09-29 and 2026-10-03 applied. XGBOOST_PARAMS stands.
+#
 # LightGBM: ADOPTED (trial28 below), the only member whose finalists won
 # paired on every seed on both populations. Tune-set deltas +11.7/+28.0/+28.5
 # bps, sealed holdout +14.0/+29.8/+30.7 bps, fold win rate 0.565 - all inside
@@ -474,17 +490,50 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # Harness/ledger/study/verdict (untracked scratch, never commit):
 # tune_full.py / tune_full_build_frame.py / tune_full_verdict.md /
 # tune_full_runs.jsonl / tune_full_study.db / tune_full_finalists.json /
-# tune_full_frame.pkl.
+# tune_full_frame.pkl (the 2026-10-03 generation, wiped with the
+# 2026-10-04 clean clone) - and for 2026-10-04:
+# nba-backend/backend/scratch/nba_tune.py + scratch/{base.pkl, frame.pkl,
+# runs.jsonl, tune_study.db, verify.json, serve_*.json, verdict.md}.
+#
+# FULL FROM-SCRATCH RETUNE 2026-10-04 (owner directive: reset every
+# parameter and setting, machine-stable n_jobs=1 / num_threads=1 on every
+# fit, selftest bit-identical before any result was trusted). Frame rebuilt
+# from the warm local cache, zero network: 3,461 settled rows, 71 features,
+# 56 folds, pl_rapm 3,272 attached, fold table EXACT match against the
+# shipped nba_fold_table.csv on all 56 folds x 8 fields (sum n_validation
+# 2400) - production-identical, so the tune transfers.
+#
+# Noise floor FIRST: xgboost 5.3 bps, lightgbm 14.6 bps across seeds 42-46
+# on the pooled tune population; ~98-102 bps on the sealed 29-row holdout
+# (its four windows are all provisional postseason, so the holdout grades
+# EVERY row - evidence about the model, which the 2026-10-03 policy allows;
+# the pooled mask would measure nothing there). 30-trial TPE per member,
+# folds[:-4], seed 42; top-3 verified paired against the incumbent re-run
+# at the same seed across seeds 42/43/44 on BOTH populations.
+#
+# LightGBM ADOPTED (trial17 below): the only finalist winning paired on
+# every seed on both populations - tune +31.2/+2.2/+4.9 bps (mean +12.8;
+# two deltas inside the 14.6 bps floor, sign consistent), sealed
+# +129.2/+115.1/+87.2 bps (mean +110.5), fold win 0.508, tune AUC flat to
+# better, sealed AUC +3.0 to +4.5 points. Inside the real 3-member blend
+# (56 folds, seed 42): logloss 0.60207 -> 0.60193 (+1.4 bps), Brier
+# 0.20758 -> 0.20752 (+0.6 bps) against the incumbent re-run locally.
+# Member strength plus a small honest served gain - the same shape as the
+# 2026-10-03 trial28 adoption this replaces (whose min tune delta, +11.7,
+# was likewise inside its floor). Its space also searched
+# feature_fraction_bynode (used at 0.3885).
 LIGHTGBM_PARAMS = {
-    # 2026-10-03 retune winner (tune_full.py stage "verdict"): beats the
-    # 2026-10-01 params paired on all seeds, tune + seal, both populations.
-    "n_estimators": 391, "max_depth": 3, "num_leaves": 37,
-    "min_child_samples": 47, "min_gain_to_split": 2.4739124591898287,
-    "bagging_fraction": 0.8387482042930909, "bagging_freq": 5,
-    "feature_fraction": 0.4017432423606699, "extra_trees": True,
-    "learning_rate": 0.025907227965815873,
-    "max_bin": 248,
-    "reg_lambda": 0.0029513334318235795, "reg_alpha": 2.2092389706163256,
+    # 2026-10-04 from-scratch winner (scratch/nba_tune.py, stage "verify"):
+    # supersedes the 2026-10-03 trial28, which beat 2026-10-01 the same way.
+    "n_estimators": 191, "max_depth": 3, "num_leaves": 85,
+    "min_child_samples": 96, "min_gain_to_split": 0.04159703099643286,
+    "bagging_fraction": 0.938750119313862, "bagging_freq": 2,
+    "feature_fraction": 0.44095560633943776,
+    "feature_fraction_bynode": 0.38853714661198313,
+    "learning_rate": 0.03131184986120072,
+    "extra_trees": True, "max_bin": 500,
+    "reg_lambda": 0.004103712059528059,
+    "reg_alpha": 0.0006433107716727887,
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 ELASTICNET_PARAMS = {
