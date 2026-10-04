@@ -57,6 +57,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import re
+import sys
 import time as _time  # aliased: `time` is also imported from datetime below
 import urllib.error
 import urllib.request
@@ -378,6 +379,37 @@ def _page_cells(page, edges: dict) -> Iterator[dict]:
         yield cells
 
 
+def _install_pinned_parser() -> str:
+    """One attempt to install the pinned parser from requirements.txt.
+
+    Returns an empty string on success, else a short reason for the
+    caller's error message. This exists because the Kaggle runner
+    executes a hand-kept copy of the notebook: on 2026-10-04 14:49 that
+    copy still predated the fix, the environment had no pdfplumber, and
+    the guard below turned a stale notebook into a red run that shipped
+    nothing. Repairing from the pinned requirements first means a stale
+    runner still produces a correct run, while a genuinely
+    unrepairable environment fails just as loudly as before.
+    """
+    import subprocess
+
+    requirements = Path(__file__).with_name("requirements.txt")
+    if not requirements.exists():
+        return f"no requirements.txt beside {Path(__file__).name}"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q",
+             "--disable-pip-version-check", "-r", str(requirements)],
+            capture_output=True, text=True, timeout=600)
+    except Exception as exc:  # pip unusable, offline, or timed out
+        return f"pip could not run: {exc!r}"
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-400:]
+        return f"pip exited {proc.returncode}: {tail}"
+    importlib.invalidate_caches()
+    return ""
+
+
 def require_pdf_parser() -> None:
     """Fail fast when the filing parser (``pdfplumber``) is absent.
 
@@ -389,14 +421,24 @@ def require_pdf_parser() -> None:
     ok. Entrypoints that resolve designations call this at second zero
     so a missing parser is one clear error, not a silent hole in the
     point-in-time methodology.
+
+    Before raising, it tries the pinned install once, so a runner whose
+    notebook drifted from requirements.txt (2026-10-04 14:49) repairs
+    itself instead of only failing.
     """
-    if importlib.util.find_spec("pdfplumber") is None:
-        raise RuntimeError(
-            "pdfplumber is not installed: the league's game-day injury "
-            "filings cannot be parsed, so availability cannot be resolved "
-            "point in time (the 2026-10-04 run lost every filing this way "
-            "and still reported ok). Install the pinned parser: pip install "
-            "-r nba-backend/backend/requirements.txt")
+    if importlib.util.find_spec("pdfplumber") is not None:
+        return
+    reason = _install_pinned_parser()
+    importlib.invalidate_caches()
+    if importlib.util.find_spec("pdfplumber") is not None:
+        return
+    detail = f" (automatic install failed: {reason})" if reason else ""
+    raise RuntimeError(
+        "pdfplumber is not installed: the league's game-day injury "
+        "filings cannot be parsed, so availability cannot be resolved "
+        "point in time (the 2026-10-04 run lost every filing this way "
+        "and still reported ok)" + detail + ". Install the pinned "
+        "parser: pip install -r nba-backend/backend/requirements.txt")
 
 
 def parse_report(path: Path, published_at: datetime) -> list[Designation]:

@@ -1113,7 +1113,10 @@ def test_the_pipeline_refuses_to_run_without_the_filing_parser(
     stop at second zero - before it writes or reads anything."""
     import importlib.util
     import master_pipeline as mp
+    import nba_injury_report as ir_mod
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(ir_mod, "_install_pinned_parser",
+                        lambda: "simulated: parser unavailable")
     with pytest.raises(RuntimeError, match="pdfplumber"):
         mp.run(run_date="2026-01-01", out_dir=tmp_path)
     assert not any(tmp_path.iterdir())

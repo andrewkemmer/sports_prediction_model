@@ -683,11 +683,39 @@ def test_require_pdf_parser_is_a_hard_error_when_the_parser_is_gone(
         monkeypatch):
     """2026-10-04: a runner without pdfplumber turned every filing into an
     ``unparseable`` warning and let the run report ok anyway; the check
-    must raise, so an entrypoint can refuse to start without it."""
+    must raise, so an entrypoint can refuse to start without it. The
+    pinned-install repair runs first - when it cannot help, the error
+    still fires and says why."""
     import importlib.util
+    attempts = []
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
-    with pytest.raises(RuntimeError, match="pdfplumber"):
+    monkeypatch.setattr(
+        ir, "_install_pinned_parser",
+        lambda: attempts.append("tried") or "simulated: no network")
+    with pytest.raises(RuntimeError, match="pdfplumber") as err:
         ir.require_pdf_parser()
+    assert attempts == ["tried"], "the pinned install must be attempted"
+    assert "automatic install failed" in str(err.value)
+
+
+def test_require_pdf_parser_repairs_a_stale_runner_then_passes(monkeypatch):
+    """2026-10-04 14:49: the Kaggle notebook copy predated the fix, so the
+    environment had no pdfplumber and the guard went red at second zero
+    with nothing shipped. The pinned install must run once and turn that
+    stale runner green instead of only failing."""
+    import importlib.util
+    state = {"installed": False}
+    monkeypatch.setattr(
+        importlib.util, "find_spec",
+        lambda name: object() if state["installed"] else None)
+
+    def _repair():
+        state["installed"] = True
+        return ""
+
+    monkeypatch.setattr(ir, "_install_pinned_parser", _repair)
+    ir.require_pdf_parser()  # must not raise: the repair took
+    assert state["installed"], "the pinned install must have been tried"
 
 
 def test_require_pdf_parser_passes_where_the_parser_is_installed():
