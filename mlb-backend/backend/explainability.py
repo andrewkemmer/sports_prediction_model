@@ -537,6 +537,7 @@ def compute_feature_drift(
     feature_cols: Optional[list[str]] = None,
     out_name: Optional[str] = None,
     phase_frame: Optional[pd.DataFrame] = None,
+    view: str = "moneyline",
 ) -> pd.DataFrame:
     """Compute PSI for each numeric feature and save feature_drift CSV.
 
@@ -546,6 +547,12 @@ def compute_feature_drift(
     enumerates the ACTIVE moneyline serving width (adopted RFE subset,
     else the universe) — SINGLE-LIST RULE: every monitor-facing surface
     reads exactly one list.
+
+    ``view`` labels which model's monitoring surface produced this row
+    set — the moneyline and run-engine wrappers run the SAME function on
+    the SAME windows, and their unlabeled log lines were
+    indistinguishable twins (2026-10-05 log review: "Feature drift: 109
+    features..." printed twice with no way to tell which view reported).
 
     ``phase_frame`` (season-seam guard, 2026-09-30): the frame the
     prior-season phase windows are pulled from. MUST be the full decided
@@ -708,8 +715,9 @@ def compute_feature_drift(
     n_warns = (df["status"] == "WARN").sum()
     n_alerts = (df["status"] == "ALERT").sum()
     logger.info(
-        "Feature drift: %d features, %d warnings, %d alerts, %d seasonal "
-        "(statuses on noise-adjusted PSI; mean noise floor %.3f)",
+        "Feature drift [%s]: %d features, %d warnings, %d alerts, %d "
+        "seasonal (statuses on noise-adjusted PSI; mean noise floor %.3f)",
+        view,
         len(df), n_warns, n_alerts,
         int((df["status"] == "OK-SEASONAL").sum()) if "status" in df.columns else 0,
         float(df["noise_floor"].mean()) if "noise_floor" in df.columns else float("nan"),
@@ -724,6 +732,7 @@ def compute_feature_coverage(
     target_date_str: str,
     feature_cols: Optional[list[str]] = None,
     out_name: Optional[str] = None,
+    view: str = "moneyline",
 ) -> pd.DataFrame:
     """Per-feature non-null coverage per drift window → coverage CSV.
 
@@ -797,9 +806,10 @@ def compute_feature_coverage(
         detail = "; ".join(
             f"{r.feature}/{r.window}={r.pct_measured:.0f}% measured"
             for r in worst.itertuples())
-        logger.warning("Feature coverage gaps: %s", detail)
+        logger.warning("Feature coverage gaps [%s]: %s", view, detail)
     else:
-        logger.info("Feature coverage: all %d feature-window pairs OK", len(df))
+        logger.info("Feature coverage [%s]: all %d feature-window pairs OK",
+                    view, len(df))
     return df
 
 
@@ -851,7 +861,7 @@ def compute_run_engine_feature_drift(
         baseline_games, current_games, target_date_str,
         model_weights=weights, feature_cols=run_engine_feature_cols(),
         out_name=f"run_engine_feature_drift_{target_date_str}.csv",
-        phase_frame=phase_frame)
+        phase_frame=phase_frame, view="run-engine")
 
 
 def compute_run_engine_feature_coverage(
@@ -864,7 +874,8 @@ def compute_run_engine_feature_coverage(
     return compute_feature_coverage(
         baseline_games, current_games, target_date_str,
         feature_cols=run_engine_feature_cols(),
-        out_name=f"run_engine_feature_coverage_{target_date_str}.csv")
+        out_name=f"run_engine_feature_coverage_{target_date_str}.csv",
+        view="run-engine")
 
 
 ROLLING_BRIER_WINDOW_DAYS = 30

@@ -5346,6 +5346,22 @@ def add_diff_features(
 # ── Public API ──────────────────────────────────────────────────────────────
 
 def _mem_mb() -> float:
+    """Current resident set size in MB — NOT the process peak.
+
+    ru_maxrss is a high-water mark: once the run touches it, every later
+    reading is identical, so all six [MEM] lines reported the same
+    number (2026-10-05 log review: 5955 MB six times — flat and
+    meaningless). /proc/self/statm's second field is the LIVE resident
+    page count, so each checkpoint reads what the run actually holds
+    right then. Non-Linux platforms fall back to the peak (at least
+    monotone-honest).
+    """
+    try:
+        with open("/proc/self/statm") as f:
+            resident_pages = int(f.read().split()[1])
+        return resident_pages * os.sysconf("SC_PAGE_SIZE") / 1e6
+    except Exception:
+        pass
     try:
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     except Exception:

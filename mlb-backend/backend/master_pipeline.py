@@ -138,7 +138,16 @@ from run_log_tee import (
     install_run_log_tee,
     RUN_LOG_NAME,
 )
-_log_path = install_run_log_tee(Path.cwd() / "data_delivery")
+# Never tee during a test run (NBA precedent, 5673874c): install opens
+# the rolling log with "w", so importing this module under pytest would
+# TRUNCATE the committed mlb_pipeline_run_log.txt at the tee's own
+# header — measured at 143 bytes for NBA. PYTEST_CURRENT_TEST covers
+# in-test imports, pytest being loaded covers collection/import-time
+# probes, and a production launch (Kaggle/Colab) has neither.
+if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+    _log_path = None
+else:
+    _log_path = install_run_log_tee(Path.cwd() / "data_delivery")
 install_crash_log_pusher(
     _log_path, CONFIG["github_username"], CONFIG["github_repo"],
     CONFIG["github_branch"])
@@ -2964,12 +2973,49 @@ else:
     except Exception as e:
         print(f"  ❌ Cleanup failed: {e}")
 
-if sync_dir.exists():
-    shutil.rmtree(sync_dir, ignore_errors=True)
-
 _banner("DONE ✅" if _phase4_error is None else "DONE — WITH ERRORS ❌")
 print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  Features: {game_df.shape[1]+pbp_df.shape[1]}")
 print(f"  Output: {out_dir}")
+
+# ── Final run-log delivery (2026-10-05 log review) ─────────────────────────
+# Phase 5 stages the run log like any other artifact — a SNAPSHOT copied
+# before the staging list, the push confirmation, and ALL of Phase 6 ever
+# reached the file. Every pushed log therefore ended at the bare
+# "PHASE 5 — GitHub Sync" banner (the 2026-10-05 review found exactly
+# that on remote, 1051 lines ending mid-phase). Re-copy the now-complete
+# log onto the warm sync clone and push it as the run's LAST delivery:
+# the DONE banner above is already flushed, so the pushed file carries the
+# whole run up to this announcement (push progress lines land after the
+# copy and stay local — the file cannot contain its own push). Restage+retry
+# mirrors Phase 5's _restage_artifacts, so a mid-air rejection replays
+# cleanly onto the healed tip. Never fatal: the artifacts are already
+# remotely verified, and a failed log push must not fail a delivered run.
+if _log_path and token:
+    try:
+        print("  📝 Final run-log delivery — pushing the complete log "
+              "(Phase 5 staged a snapshot before Phase 5/6 finished)")
+        repo = _open_sync_repo(token, sync_dir)
+        _log_rel = f"{SPORT_DIR_NAME}/data_delivery/{RUN_LOG_NAME}"
+        _log_dest = sync_dir / _log_rel
+        _log_dest.parent.mkdir(parents=True, exist_ok=True)
+        _log_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        def _restage_run_log() -> None:
+            shutil.copy2(_log_path, _log_dest)
+            repo.index.add([_log_rel])
+            repo.index.commit(f"Pipeline run log: {_log_ts}")
+
+        _restage_run_log()
+        push_with_retry(repo, CONFIG["github_branch"],
+                        restage=_restage_run_log, attempts=2, log=print)
+        verify_pushed_paths(repo, CONFIG["github_branch"], [_log_rel])
+        print("  ✅ Run log pushed and remotely verified — Phase 5/6 "
+              "output included")
+    except Exception as _log_exc:
+        print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}")
+
+if sync_dir.exists():
+    shutil.rmtree(sync_dir, ignore_errors=True)
 
 # Honest exit code: a failed prediction phase must fail the RUN (nonzero
 # exit), even though artifact delivery already pushed whatever existed.

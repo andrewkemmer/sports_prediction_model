@@ -930,7 +930,11 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         if _tc in df.columns:
             df[_tc] = df[_tc].map(normalize_team)
 
-    logger.info("Loaded %d games from %s (columns: %s)", len(df), p.name, list(df.columns))
+    # Count, don't dump: the full column list is a ~7 KB single line in
+    # the run log (2026-10-05 review: lines of 6,953/6,994 chars) that
+    # says nothing a reader can use at a glance.
+    logger.info("Loaded %d games from %s (%d columns)", len(df), p.name,
+                len(df.columns))
 
     # Ensure game_date is datetime
     df["game_date"] = pd.to_datetime(df["game_date"])
@@ -1037,7 +1041,8 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         df["woba_30g_diff"] = (pd.to_numeric(df["woba_30g_home"], errors="coerce")
                                - pd.to_numeric(df["woba_30g_away"], errors="coerce"))
 
-    logger.info("Feature mapping complete: %d games, columns: %s", len(df), list(df.columns))
+    logger.info("Feature mapping complete: %d games, %d columns",
+                len(df), len(df.columns))
     return df
 
 
