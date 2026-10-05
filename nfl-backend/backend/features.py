@@ -1373,15 +1373,23 @@ def _attach_pbp_candidate_features(df: pd.DataFrame,
 
 
 def _record_frame(events: pd.DataFrame) -> pd.DataFrame:
-    """Return each event team's record entering that event's kickoff."""
+    """Return each event team's record entering that event's kickoff.
+
+    CURRENT-SEASON scope (MLB data_ingestion.compute_season_records parity —
+    "records reset across offseasons"): the cumulative counter is grouped by
+    (team, season), so a season opener reads 0-0 instead of carrying the
+    franchise's multi-season tally — the unseasoned groupby printed career
+    numbers like ``69-97-2`` on the game cards.
+    """
     cols = ["game_id", "team", "prior_wins", "prior_losses", "prior_ties", "record"]
     if events.empty:
         return pd.DataFrame(columns=cols)
     time_col = "kickoff_utc" if "kickoff_utc" in events.columns else "gameday"
     srt = events.sort_values(["team", time_col, "gameday", "game_id"]).copy()
+    groups = [srt["team"]] + ([srt["season"]] if "season" in srt.columns else [])
     for name, value in (("wins", 1.0), ("losses", 0.0), ("ties", 0.5)):
         flag = (srt["team_win"] == value).astype(float)
-        cumulative = flag.groupby(srt["team"], sort=False).cumsum()
+        cumulative = flag.groupby(groups, sort=False).cumsum()
         srt[f"prior_{name}"] = cumulative - flag
     srt["record"] = [
         (f"{int(w)}-{int(l)}" if not t else f"{int(w)}-{int(l)}-{int(t)}")

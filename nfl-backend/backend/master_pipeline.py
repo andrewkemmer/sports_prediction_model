@@ -736,15 +736,16 @@ def main(argv: list[str] | None = None) -> int:
         slate["frame_view"] = "slate"
         slate["pred_home"] = slate["mu_h"]
         slate["pred_away"] = slate["mu_a"]
-        # QB enrichment (display only). The trailing window walks back
-        # through PRIOR seasons (a week-1 slate's last-10 window is the end
-        # of the previous season), so load the season before the slate too;
-        # a failed/absent season degrades to missing fields, never an error.
+        # QB enrichment (display only). The card window is CURRENT-SEASON
+        # TO DATE (MLB sp_era/sp_k9 parity: season-partitioned, strictly
+        # prior — a prior-season row never leaks into the slate), so only
+        # the slate's own seasons are loaded; a failed/absent season
+        # degrades to missing fields, never an error.
         qb_stats = {}
         try:
             from nflreadpy import load_player_stats
             seasons = sorted(set(int(x) for x in slate["season"].unique()))
-            for s in [seasons[0] - 1] + seasons:
+            for s in seasons:
                 try:
                     ps = load_player_stats(s)
                     df = ps.to_pandas() if hasattr(ps, "to_pandas") else ps

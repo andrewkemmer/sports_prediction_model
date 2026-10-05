@@ -347,6 +347,44 @@ check("record metadata is entering record, not target/final record",
       and _pit_target_row["away_losses"] == 1.0,
       f"{_pit_target_row['home_record']} / {_pit_target_row['away_record']}")
 
+# Season scoping (MLB data_ingestion.compute_season_records parity —
+# "records reset across offseasons"): the entering counter is PER SEASON,
+# never a multi-season career tally. The unseasoned groupby printed career
+# numbers (69-97-2, 108-59) on the NFL game cards; the cards render this
+# record verbatim, so the w-l(-t) format is pinned with it.
+_rec_games = pd.DataFrame([
+    {"game_id": "RS_24_A", "season": 2024, "week": 1,
+     "gameday": "2024-09-08", "home_team": "AAA", "away_team": "BBB",
+     "home_score": 20.0, "away_score": 17.0},
+    {"game_id": "RS_24_B", "season": 2024, "week": 2,
+     "gameday": "2024-09-15", "home_team": "AAA", "away_team": "CCC",
+     "home_score": 10.0, "away_score": 30.0},
+    {"game_id": "RS_25_A", "season": 2025, "week": 1,
+     "gameday": "2025-09-07", "home_team": "AAA", "away_team": "BBB",
+     "home_score": 24.0, "away_score": 24.0},
+    {"game_id": "RS_25_B", "season": 2025, "week": 2,
+     "gameday": "2025-09-14", "home_team": "AAA", "away_team": "CCC",
+     "home_score": 20.0, "away_score": 20.0},
+])
+_rec_rf = feat_mod._record_frame(feat_mod.team_events(_rec_games))
+
+
+def _rec_of(game_id, team):
+    hit = _rec_rf[(_rec_rf["game_id"] == game_id) & (_rec_rf["team"] == team)]
+    return str(hit.iloc[0]["record"])
+
+
+check("entering record accumulates within its own season",
+      _rec_of("RS_24_A", "AAA") == "0-0"
+      and _rec_of("RS_24_B", "AAA") == "1-0",
+      f"{_rec_of('RS_24_A', 'AAA')} / {_rec_of('RS_24_B', 'AAA')}")
+check("entering record resets across the offseason (current season only)",
+      _rec_of("RS_25_A", "AAA") == "0-0",
+      f"{_rec_of('RS_25_A', 'AAA')} (a career tally would read 1-1 here)")
+check("ties render as the third counter (w-l-t), like the cards",
+      _rec_of("RS_25_B", "AAA") == "0-0-1",
+      f"{_rec_of('RS_25_B', 'AAA')}")
+
 _pit_prior_pbp = _pit_pbp()
 _pit_prior_pbp.loc[_pit_prior_pbp["game_id"].isin(["PIT_G0", "PIT_G1"]),
                   "air_yards"] *= 3.0
@@ -1168,6 +1206,72 @@ check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
 # QB contract fields exist in the enrichment module
 import qb_enrichment  # noqa: E402
 check("QB contract fields", all(f in qb_enrichment._QB_FIELDS for f in config.QB_FIELDS))
+
+# QB card lookback — CURRENT SEASON TO DATE (MLB sp_era/sp_k9 card parity):
+# season-partitioned, strictly prior, regular season only. A prior-season
+# row or a postseason row never enters the card, a week-1 slate has no
+# completed games (the missing representation, like MLB's unresolved
+# pitcher), and the de-facto starter derives from the SAME window.
+def _qb_row(pid, name, team, season, week, stype, att, cmp_, yds, td, it):
+    return {"player_id": pid, "player_name": name, "team": team,
+            "position": "QB", "season": season, "week": week,
+            "season_type": stype, "attempts": att, "completions": cmp_,
+            "passing_yards": yds, "passing_tds": td,
+            "passing_interceptions": it}
+
+
+_qb_2026 = [
+    _qb_row("p_new", "New Starter", "PHI", 2026, 1, "REG", 20, 14, 220, 2, 0),
+    _qb_row("p_new", "New Starter", "PHI", 2026, 2, "REG", 20, 14, 220, 2, 0),
+    _qb_row("p_new", "New Starter", "PHI", 2026, 3, "REG", 20, 14, 220, 2, 0),
+    # POST with a wild line — excluded by BOTH the week gate and the REG
+    # filter; a leak moves td/g to 3.75 and fails the pins below.
+    _qb_row("p_new", "New Starter", "PHI", 2026, 19, "POST", 20, 4, 50, 9, 2),
+    _qb_row("p_bak", "Backup Bob", "PHI", 2026, 3, "REG", 5, 2, 30, 0, 1),
+]
+_qb_2025 = [
+    # Prior season, same franchise — a leak moves td/g to 2.8 and lets the
+    # veteran (800 attempts) outrank the de-facto starter derivation.
+    _qb_row("p_vet", "Veteran V", "PHI", 2025, 16, "REG", 40, 30, 400, 4, 0),
+    _qb_row("p_vet", "Veteran V", "PHI", 2025, 17, "REG", 40, 30, 400, 4, 0),
+]
+_qb_stats = {2025: pd.DataFrame(_qb_2025), 2026: pd.DataFrame(_qb_2026)}
+
+
+def _qb_slate(week, announce=True):
+    return pd.DataFrame([{
+        "game_id": "QBCHK_1", "season": 2026, "week": week,
+        "home_team": "PHI", "away_team": "DAL",
+        "home_qb_id": "p_new" if announce else None,
+        "home_qb_name": "New Starter" if announce else None,
+        "away_qb_id": None, "away_qb_name": None,
+    }])
+
+
+_qb_chk = qb_enrichment.enrich_slate(_qb_slate(20), _qb_stats).iloc[0]
+check("QB card stats are current-season to date (prior season never leaks)",
+      _qb_chk["qb_home_name"] == "New Starter"
+      and np.isclose(float(_qb_chk["qb_home_td_per_game"]), 2.0)
+      and np.isclose(float(_qb_chk["qb_home_rating"]),
+                     qb_enrichment._passer_rating(_qb_2026[0])),
+      f"td/g={_qb_chk['qb_home_td_per_game']} "
+      f"rating={_qb_chk['qb_home_rating']}")
+check("QB card stats exclude postseason rows (regular season only)",
+      np.isclose(float(_qb_chk["qb_home_td_per_game"]), 2.0)
+      and np.isclose(float(_qb_chk["qb_home_ints"]), 0.0),
+      f"td/g={_qb_chk['qb_home_td_per_game']} ints={_qb_chk['qb_home_ints']}")
+_qb_wk1 = qb_enrichment.enrich_slate(_qb_slate(1), _qb_stats).iloc[0]
+check("week-1 slate renders the missing representation, not last season's line",
+      _qb_wk1["qb_home_rating"] is None
+      and _qb_wk1["qb_home_td_per_game"] is None,
+      f"rating={_qb_wk1['qb_home_rating']} "
+      f"td/g={_qb_wk1['qb_home_td_per_game']}")
+_qb_drv = qb_enrichment.enrich_slate(_qb_slate(20, announce=False),
+                                     _qb_stats).iloc[0]
+check("de-facto starter derives from the season-to-date window",
+      _qb_drv["qb_home_name"] == "New Starter",
+      f"name={_qb_drv['qb_home_name']} (franchise history would pick "
+      "Veteran V)")
 
 # calibration JSON contract
 cal_path = tmp / "nfl_calibration_test.json"

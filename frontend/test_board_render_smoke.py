@@ -22,6 +22,10 @@ Asserts the remediation end-to-end at the render level:
     with NO run-engine values, NO SHAP accordion, the archive notice between
     the date nav and the filter pills (MLB element order), NFL team names,
     and the store's own pick grade instead of a fabricated all-MISS card;
+  - every card renders each team's CURRENT-SEASON entering W-L record
+    (MLB compute_season_records parity): own season only, strictly prior —
+    never the artifact's multi-season career tally, never the game's own
+    result, never a prior season's row;
   - the recovery walk refuses any candidate outside the valid (rolling
     10-day) set, and `_decided_mask` never counts a pre-game/live row;
   - the rolling-10-day valid-date rail is built from the dated board
@@ -204,6 +208,46 @@ def _store_rows() -> pd.DataFrame:
             "home_score": 17.0, "away_score": 24.0, "home_win": np.nan,
             "p_home_win": 0.708, "p_away_win": 0.292,
             "model_pick": "NE", "correct": False,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        # Prior-week evidence for the CURRENT-SEASON entering record: the
+        # 2026 rows count, the 2025 row must never leak across the
+        # offseason, and no row's own result may enter its own record
+        # (MLB compute_season_records parity — cards render w-l only).
+        {
+            "game_id": "2026_03_NE_MIA",
+            "game_date": (_YDAY - timedelta(days=7)).isoformat(),
+            "home_team": "NE", "away_team": "MIA",
+            "home_score": 27.0, "away_score": 10.0, "home_win": np.nan,
+            "p_home_win": 0.60, "p_away_win": 0.40,
+            "model_pick": "NE", "correct": True,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        {
+            "game_id": "2026_03_NYG_WAS",
+            "game_date": (_YDAY - timedelta(days=7)).isoformat(),
+            "home_team": "NYG", "away_team": "WAS",
+            "home_score": 24.0, "away_score": 21.0, "home_win": np.nan,
+            "p_home_win": 0.55, "p_away_win": 0.45,
+            "model_pick": "NYG", "correct": True,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        {
+            "game_id": "2026_03_GB_CHI",
+            "game_date": (_YDAY - timedelta(days=7)).isoformat(),
+            "home_team": "CHI", "away_team": "GB",
+            "home_score": 20.0, "away_score": 27.0, "home_win": np.nan,
+            "p_home_win": 0.44, "p_away_win": 0.56,
+            "model_pick": "GB", "correct": True,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        {
+            "game_id": "2025_18_NE_BUF",
+            "game_date": (_YDAY - timedelta(days=300)).isoformat(),
+            "home_team": "NE", "away_team": "BUF",
+            "home_score": 27.0, "away_score": 24.0, "home_win": np.nan,
+            "p_home_win": 0.52, "p_away_win": 0.48,
+            "model_pick": "NE", "correct": True,
             "game_status": "Final", "source_artifact_date": _YDAY_C,
         },
     ])
@@ -439,6 +483,28 @@ def run() -> int:
             problems.append("decided archive board rendered the pre-game/"
                             "empty badge instead of the accuracy badge")
 
+        # (g) CURRENT-SEASON entering records on the cards (MLB
+        # compute_season_records parity): each team's own season only —
+        # never the artifact's multi-season career tally (the board fixture
+        # ships "1-1"/"3-0"), never the same game's own result, and never
+        # the prior season's row (the 2025 NE win must not leak into 2026).
+        for want in ("NYG 2-0", "WAS 0-1", "SF 0-0"):
+            if want not in text:
+                problems.append("today's cards lost the current-season "
+                                f"entering record '{want}'")
+        for stale in ("NYG 1-1", "WAS 2-0", "SF 3-0"):
+            if stale in text:
+                problems.append("today's cards still show the artifact's "
+                                f"record '{stale}' instead of the season record")
+        for want in ("NE 1-0", "BUF 0-0", "NYG 1-0", "ARI 0-0", "KC 0-0"):
+            if want not in atext:
+                problems.append("archive cards lost the current-season "
+                                f"entering record '{want}'")
+        for leak in ("NE 2-0", "NE 1-1"):
+            if leak in atext:
+                problems.append("archive record leaks across the offseason "
+                                f"or counts the game's own result ('{leak}')")
+
         # (f) Recovery walk + decided-mask gates (pure functions, no IO).
         from nfl_todays_page import _decided_mask, _recovered_day
         valid_set = set(valid)
@@ -474,6 +540,8 @@ def run() -> int:
     print("  - pre-game slate renders MLB's honest three-state badge")
     print("  - yesterday renders from the dated snapshot (frozen, not OOF)")
     print("  - archive cards serve the frozen store price, grade, and names")
+    print("  - cards serve each team's CURRENT-SEASON entering record "
+          "(MLB offseason reset)")
     print("  - archive cards carry no run-engine values and no SHAP accordion")
     print("  - archive notice sits between the date nav and the filter pills")
     print("  - recovery and decided-mask gates hold")

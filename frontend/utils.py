@@ -1396,8 +1396,8 @@ def load_nfl_board_games(date_str: str) -> pd.DataFrame:
                 gd = df["game_date"].dropna().astype(str).str.replace("-", "")
                 day = df[gd == requested]
                 if not day.empty:
-                    return nfl_moneyline_to_frame(
-                        {"games": day.to_dict("records")})
+                    return _attach_nfl_season_records(nfl_moneyline_to_frame(
+                        {"games": day.to_dict("records")}))
     current = load_nfl_moneyline("nfl")
     if not current.empty:
         dates = set(_distinct_game_dates(current))
@@ -1413,8 +1413,9 @@ def load_nfl_board_games(date_str: str) -> pd.DataFrame:
     except Exception:
         frozen = pd.DataFrame()
     if not frozen.empty:
-        return frozen
-    return _history_to_board_frame(load_nfl_prediction_history("nfl"), requested)
+        return _attach_nfl_season_records(frozen)
+    return _attach_nfl_season_records(
+        _history_to_board_frame(load_nfl_prediction_history("nfl"), requested))
 
 
 def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
@@ -1432,7 +1433,7 @@ def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
         data = json.loads(path.read_text())
     except Exception:
         return pd.DataFrame(columns=NFL_CARD_COLUMNS)
-    return nfl_moneyline_to_frame(data)
+    return _attach_nfl_season_records(nfl_moneyline_to_frame(data))
 
 
 def load_nfl_moneyline_record(sport: str | None = "nfl") -> dict:
@@ -2197,6 +2198,124 @@ def _load_nfl_cards_store() -> pd.DataFrame:
     return _load_cards_store("nfl")
 
 
+def _attach_nfl_season_records(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach each team's CURRENT-SEASON entering W-L record to an NFL
+    card frame (MLB ``compute_season_records`` parity: the record each team
+    carried INTO the game — wins/losses of its OWN season only, strictly
+    prior, resetting across the offseason, ties as the third counter).
+
+    Why the card derives it here: the delivered board/moneyline artifacts
+    carry the backend's multi-season cumulative tally (a career number like
+    ``69-97-2`` from the unseasoned record counter) and the frozen store
+    ships no record columns at all, so neither source can render a season
+    record honestly. The store's decided results are the authority: a game
+    the store knows uses the store's own stamp for the point-in-time cut;
+    a game it has not seen yet still gets its entering record from the
+    results strictly before its game date. A missing season/team/date keeps
+    the frame's existing value — never fabricated, never raised.
+    """
+    if df is None or df.empty or "game_id" not in df.columns:
+        return df
+    try:
+        store = _load_cards_store("nfl")
+    except Exception:
+        store = pd.DataFrame()
+    need = {"game_id", "game_date", "home_team", "away_team",
+            "home_score", "away_score"}
+    if store is None or store.empty or not need.issubset(store.columns):
+        return df
+
+    def _season_of(gid, gdate):
+        head = str(gid or "").split("_", 1)[0]
+        if head.isdigit() and len(head) == 4:
+            return int(head)
+        try:
+            stamp = pd.Timestamp(str(gdate))
+        except Exception:
+            return None
+        if pd.isna(stamp):
+            return None
+        # NFL seasons run Sep→Jan/Feb: a Jan/Feb game belongs to the PRIOR
+        # season (the same offseason-reset rule MLB applies by year).
+        return int(stamp.year) if stamp.month >= 9 else int(stamp.year) - 1
+
+    def _fmt(w, l, t):
+        return f"{w}-{l}" if t == 0 else f"{w}-{l}-{t}"
+
+    s = store[~store["game_id"].astype(str).duplicated(keep="first")]
+    gdts = pd.to_datetime(s["game_date"], errors="coerce")
+    shs = pd.to_numeric(s["home_score"], errors="coerce")
+    sas = pd.to_numeric(s["away_score"], errors="coerce")
+    # (season, team) -> ordered [(stamp, "W"|"L"|"T")] over DECIDED rows;
+    # the store's own stamp per game id (the PIT cut for known games).
+    idx: dict = {}
+    store_date: dict = {}
+    for gid, gdt, ht, at, h, a in zip(s["game_id"], gdts, s["home_team"],
+                                      s["away_team"], shs, sas):
+        gid = str(gid)
+        store_date.setdefault(gid, gdt)
+        season = _season_of(gid, gdt)
+        if season is None or pd.isna(gdt) or pd.isna(h) or pd.isna(a):
+            continue  # undecided rows never count and never cut a window
+        if h > a:
+            pair = ((ht, "W"), (at, "L"))
+        elif a > h:
+            pair = ((ht, "L"), (at, "W"))
+        else:
+            pair = ((ht, "T"), (at, "T"))
+        for team, res in pair:
+            if team is None or (isinstance(team, float) and pd.isna(team)):
+                continue
+            idx.setdefault((season, str(team)), []).append((gdt, res))
+    for rows in idx.values():
+        rows.sort(key=lambda x: x[0])
+
+    def _entering(season, team, asof):
+        if season is None or asof is None or pd.isna(asof):
+            return None
+        if team is None or (isinstance(team, float) and pd.isna(team)):
+            return None
+        rows = idx.get((season, str(team)))
+        if rows is None:
+            return "0-0"  # no decided games for this team, this season
+        w = l = t = 0
+        for d, res in rows:
+            if d >= asof:
+                break  # strictly before this game (stamps sorted)
+            if res == "W":
+                w += 1
+            elif res == "L":
+                l += 1
+            else:
+                t += 1
+        return _fmt(w, l, t)
+
+    out = df.copy()
+    prev_h = out["home_record"] if "home_record" in out.columns \
+        else pd.Series([None] * len(out), index=out.index)
+    prev_a = out["away_record"] if "away_record" in out.columns \
+        else pd.Series([None] * len(out), index=out.index)
+    gdates = out["game_date"] if "game_date" in out.columns \
+        else pd.Series([None] * len(out), index=out.index)
+    new_h, new_a = [], []
+    for gid, gd, ht, at in zip(out["game_id"], gdates,
+                               out["home_team"], out["away_team"]):
+        asof = store_date.get(str(gid))
+        if asof is None or pd.isna(asof):
+            try:
+                asof = pd.to_datetime(gd, errors="coerce")
+            except Exception:
+                asof = None
+        season = _season_of(gid, asof)
+        new_h.append(_entering(season, ht, asof))
+        new_a.append(_entering(season, at, asof))
+    hs_s = pd.Series(new_h, index=out.index, dtype="object")
+    as_s = pd.Series(new_a, index=out.index, dtype="object")
+    out["home_record"] = hs_s.where(hs_s.notna(), prev_h)
+    out["away_record"] = as_s.where(as_s.notna(), prev_a)
+    return out
+
+
 def _cards_store_to_board_frame(store: pd.DataFrame,
                                 date_str: str) -> pd.DataFrame:
     """Frozen-store rows for ``date_str`` reshaped into card columns.
@@ -2279,9 +2398,11 @@ def load_history_games_v1(date_str: str,
         frozen = _cards_store_to_board_frame(_load_cards_store(s), date_str)
     except Exception:
         frozen = pd.DataFrame()
-    if not frozen.empty:
-        return frozen
-    return _history_to_board_frame(load_nfl_prediction_history(s), date_str)
+    if frozen.empty:
+        frozen = _history_to_board_frame(load_nfl_prediction_history(s), date_str)
+    # NFL cards render the store-derived current-season entering record;
+    # the NHL/MLB v1 families keep their artifact's own record columns.
+    return _attach_nfl_season_records(frozen) if s == "nfl" else frozen
 
 
 def load_nfl_history_games(date_str: str) -> pd.DataFrame:
