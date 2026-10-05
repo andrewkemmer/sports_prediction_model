@@ -133,6 +133,18 @@ ENSEMBLE_WEIGHTS = {
 # per-fold re-earning (fold k weighted by fold k-1 OOF) is now the
 # production behavior. The AUC temperature constant is kept for
 # reversibility but is unused under "logloss".
+# WEIGHT-POLICY SCREEN (2026-10-05 run-log remediation): every softening
+# variant was measured on the production walk (83 folds,
+# min_train_days=30) under the same rolling causal protocol — earned-
+# weight floors 0.05-0.25, shrink-to-priors 0.1/0.25/0.5, trailing-
+# window earning (5/10/20/40 folds) and metric="auc". All neutral to
+# negative inside noise: pooled log-loss within 0.0002 and AUC within
+# 0.0002 either way; trailing strictly worse (pooled AUC 0.5677-0.5701
+# and log-loss 0.6827-0.6834 vs 0.5707/0.6825). NONE adopted — the zero
+# xgboost weight was a member-quality defect (underfit shipped rounds,
+# see the XGBOOST_FOLD0_ROUNDS addendum), fixed at the shipped-rounds
+# layer so the member re-earns its weight honestly. The floor/cap band
+# stays removed; weights stay fully earned.
 ADAPTIVE_WEIGHT_METRIC = "logloss"
 
 # Local BLEND_SPACE experiment retained from the pre-existing worktree change.
@@ -291,18 +303,38 @@ XGBOOST_PARAMS = {
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
 # CAUSAL FOLD ROUNDS (2026-09-30 PIT review): fold k's SHIPPED XGBoost
-# model is fit WITHOUT any eval_set at the median of PRIOR folds'
-# measured best iterations — the fold's own val window never selects the
-# shipped model's round count (the early-stopped fit is only a
-# measurement that later folds may consume). Fold 0 (no prior evidence)
-# and any refit without fold measurements use the static priors here.
-# Fold0/refit statics cover cold-start paths only; the production walk's
-# own probe-median is ~20 rounds at depth 1 and ~19-26 under the adopted
-# depth-2 block. The 50-round prior was kept over a 20-round re-pin: the
+# model is fit WITHOUT any eval_set at the causal transfer (median) of
+# PRIOR folds' measured best iterations — the fold's own val window never
+# selects the shipped model's round count (the early-stopped fit is only
+# a measurement that later folds may consume). Fold 0 (no prior
+# evidence) and any refit without fold measurements use the static
+# priors here. The 50-round prior was kept over a 20-round re-pin: the
 # 2026-09-30 sealed-window check split the verdict (d1@50 ll 0.68013 vs
 # d1@20 0.68107 on folds 70-77; AUC the other way), matching the LGBM
 # rounds precedent — a tune-gain must survive the seal, not just the
 # OOF walk.
+# WALK-SHIP FLOOR ADDENDUM (2026-10-05 run-log remediation): these
+# statics are NO LONGER cold-start-only — they floor the causal transfer
+# on EVERY shipped path (training._shipped_xgb_rounds). The log deep
+# dive found the unfloored transfer shipping early production folds at
+# 4/6/9/11/13 rounds (fold 0's noisy probe best became fold 1's entire
+# prior) and the cumulative median lagging the growing train window all
+# walk (~27-36); the underfit surfaced as the XGB member's collapsed OOF
+# (0.5569 AUC / 0.6853 log-loss, worst of the roster) and its 0.0%
+# earned blend weight. Measured on the production frame (83 folds,
+# min_train_days=30, the exact remote-run protocol):
+#   member OOF AUC 0.5569 -> 0.5638, log-loss 0.6853 -> 0.6844;
+#   blend log-loss 0.6825 -> 0.6824, Brier 0.2448 -> 0.2447, AUC HELD
+#   0.5707; verify window (folds 70-82, never used for selection)
+#   better on all three: AUC 0.5979 -> 0.5990, log-loss 0.6760 ->
+#   0.6759, ECE 0.0228 -> 0.0187; XGB re-earned 13.65% blend weight
+#   with NO weight-policy change (was 0.0%).
+# The honesty contract is unchanged: a fold still NEVER selects its own
+# rounds — the floor is a static config prior and the transfer can only
+# raise a shipped count above it (all 83 measured transfers were <= 36,
+# so every shipped model trained at exactly the static 50). The earlier
+# comment's "cold-start paths only" framing is superseded; the probe
+# early-stopped fit stays measurement-only.
 XGBOOST_FOLD0_ROUNDS = 50
 XGBOOST_REFIT_ROUNDS = 50
 # Optuna-tuned on 4,159-games/44-fold walk-forward (tune_lightgbm_optuna.py,

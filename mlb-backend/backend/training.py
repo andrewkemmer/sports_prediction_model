@@ -852,20 +852,26 @@ def _impute_median(
 _LAST_ADAPTIVE_WEIGHTS: dict[str, float] = {}
 
 # CAUSAL XGB round measurements (2026-09-30): per-fold best iterations
-# from the early-stopped measurement fits, in fold order. Fold k ships
-# at the median of entries STRICTLY BEFORE k; the deployed refit ships
-# at the median of ALL entries. Cleared at each walk_forward_evaluate
-# start (the OOF-scoring-from-priors rule, same as the weights).
+# from the early-stopped measurement fits, in fold order. Transfer rule,
+# FLOORED 2026-10-05 (run-log remediation): fold k ships the median of
+# entries STRICTLY BEFORE k and the deployed refit the median of ALL
+# entries — but neither may ship BELOW the static no-evidence budget
+# (see _shipped_xgb_rounds; the unfloored transfer shipped early
+# production folds at 4/6/9/11/13 rounds). Cleared at each
+# walk_forward_evaluate start (the OOF-scoring-from-priors rule, same
+# as the weights).
 _LAST_XGB_BEST_ROUNDS: list[int] = []
 
 
 def _causal_xgb_rounds(prior_bests: list[int]) -> int:
-    """Shipped round count for a fold/refit from PRIOR measurements only.
+    """Causal TRANSFER of the XGB round count from PRIOR measurements only.
 
     Median of the given best-iteration list (even length: lower median,
     matching statistics.median's behaviour of averaging — kept simple and
     deterministic); falls back to the config priors when no measurements
-    exist. Pure function so the tests pin the selection rule.
+    exist. Pure transfer — SHIPPED models go through
+    _shipped_xgb_rounds, which floors this value at the static budget.
+    Pure function so the tests pin the selection rule.
     """
     from config import XGBOOST_FOLD0_ROUNDS, XGBOOST_REFIT_ROUNDS
     if not prior_bests:
@@ -875,6 +881,31 @@ def _causal_xgb_rounds(prior_bests: list[int]) -> int:
         return XGBOOST_REFIT_ROUNDS
     n = len(s)
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) // 2
+
+
+def _shipped_xgb_rounds(prior_bests: list[int], static_rounds: int) -> int:
+    """Shipped XGB round count: causal transfer FLOORED at the static budget.
+
+    2026-10-05 run-log remediation: on the production frame the unfloored
+    transfer shipped early folds at 4/6/9/11/13 rounds — fold 0's noisy
+    probe best became fold 1's entire prior — and the cumulative median
+    lagged the growing train window all walk (~27-36). The underfit
+    showed up as the XGB member's collapsed OOF (0.5569 AUC / 0.6853
+    log-loss) and its 0.0% earned blend weight. max(transfer, static)
+    keeps the honesty contract intact — a fold STILL never selects its
+    own rounds; the floor is a static config prior and the transfer can
+    only raise a shipped count above it (all 83 measured transfers were
+    <= 36, so every shipped model trained at exactly the static budget).
+
+    Measured (83 folds, min_train_days=30, production frame): member OOF
+    AUC 0.5569 -> 0.5638, log-loss 0.6853 -> 0.6844; blend log-loss
+    0.6825 -> 0.6824, Brier 0.2448 -> 0.2447, AUC held 0.5707; verify
+    window (folds 70-82) better on all three (AUC 0.5979 -> 0.5990,
+    log-loss 0.6760 -> 0.6759, ECE 0.0228 -> 0.0187); the member
+    re-earned 13.65% blend weight with NO weight-policy change. Pure
+    function so the tests pin the rule.
+    """
+    return max(_causal_xgb_rounds(prior_bests), int(static_rounds))
 
 # Post-hoc Platt calibrator from the most recent walk-forward run. Applied
 # to live blended probabilities in predict_games(); restored from a cached
@@ -1628,11 +1659,14 @@ def train_moneyline_ensemble(
         X_train_xgb = _tree_dataframe(X_train, X_cat_train, num_cols_in_data)
         if X_val is not None:
             X_val_xgb = _tree_dataframe(X_val, X_cat_val, num_cols_in_data)
-            # CAUSAL FOLD ROUNDS (2026-09-30 PIT review): the early-stopped
-            # fit below is a MEASUREMENT ONLY — its best_iteration enters
-            # the causal list and informs STRICTLY LATER folds. The SHIPPED
-            # fold model is refit without any eval_set at the median of
-            # PRIOR folds' measurements, so the fold's own val window never
+            # CAUSAL FOLD ROUNDS (2026-09-30 PIT review; FLOORED
+            # 2026-10-05): the early-stopped fit below is a MEASUREMENT
+            # ONLY — its best_iteration enters the causal list and informs
+            # STRICTLY LATER folds. The SHIPPED fold model is refit
+            # without any eval_set at the causal transfer of PRIOR folds'
+            # measurements, FLOORED at the static no-evidence budget
+            # (_shipped_xgb_rounds — the unfloored transfer shipped early
+            # folds at 4-13 rounds), so the fold's own val window never
             # selects the model that scores it (the build_oof_margin
             # fixed-rounds pattern).
             probe = XGBClassifier(
@@ -1651,16 +1685,19 @@ def train_moneyline_ensemble(
                 _best = 0
             if _best > 0:
                 _LAST_XGB_BEST_ROUNDS.append(_best)
-            causal_n = _causal_xgb_rounds(
-                _LAST_XGB_BEST_ROUNDS[:-1])
+            causal_n = _shipped_xgb_rounds(
+                _LAST_XGB_BEST_ROUNDS[:-1], XGBOOST_FOLD0_ROUNDS)
             xgb = XGBClassifier(**XGBOOST_PARAMS, n_estimators=causal_n)
             xgb.fit(X_train_xgb, y_train, verbose=False)
         else:
-            # Fit-only refit (deployed bundle): ship at the median of the
-            # walk's measured fold best rounds (training-side information
-            # only); the static prior covers cache-refit paths with no
-            # walk in the same process.
-            refit_n = _causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
+            # Fit-only refit (deployed bundle): ship at the causal
+            # transfer of the walk's measured fold best rounds (training-
+            # side information only), FLOORED at the static refit budget
+            # so the deployed bundle matches the same operating point the
+            # walk graded; the static prior also covers cache-refit paths
+            # with no walk in the same process.
+            refit_n = _shipped_xgb_rounds(
+                _LAST_XGB_BEST_ROUNDS, XGBOOST_REFIT_ROUNDS)
             xgb = XGBClassifier(**XGBOOST_PARAMS, n_estimators=refit_n)
             xgb.fit(X_train_xgb, y_train, verbose=False)
         models["xgboost"] = xgb
@@ -2160,6 +2197,19 @@ def walk_forward_evaluate(
         logger.info(
             "Rolling blend weights (last fold earned): %s",
             {k: f"{v:.1%}" for k, v in sorted(adaptive.items())},
+        )
+    # Shipped-rounds visibility (2026-10-05 log remediation): the run log
+    # could not show that folds shipped at 4-13 rounds because the causal
+    # transfer was invisible — one summary line makes the measurement,
+    # the transfer and the floored ship count auditable per run.
+    if _LAST_XGB_BEST_ROUNDS:
+        from config import XGBOOST_REFIT_ROUNDS
+        _xfer = _causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
+        logger.info(
+            "XGBoost shipped rounds: %d probe measurement(s), causal transfer "
+            "%d floored at the static budget — refit ships %d",
+            len(_LAST_XGB_BEST_ROUNDS), _xfer,
+            max(_xfer, XGBOOST_REFIT_ROUNDS),
         )
 
     # Candidate-model report: every candidate that ever trained, its blend

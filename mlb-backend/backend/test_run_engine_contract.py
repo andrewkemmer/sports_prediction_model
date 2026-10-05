@@ -486,8 +486,9 @@ def test_xgboost_params_pin_depth2_and_causal_priors():
     replacement of the depth-1 stump, sealed-holdout confirmed at the
     member level (seal folds 70-77: 0.68089/0.5861 vs stump 0.68107/0.5842,
     3 seeds; full-walk 3-seed refit 0.68662/0.5562 vs 0.68755/0.5528)
-    while the walk regime's causal rounds stay the honest-mechanics priors
-    (probe-median ~19-26 rounds; fold0/refit fall back to the static 50).
+    while the walk regime's causal rounds stay the honest-mechanics
+    transfer FLOORED at the static budget (probe-median ~19-30 rounds,
+    every shipped model >= the pinned 50 since 2026-10-05).
     A silent retune that flips max_depth, the shrinkage axes, or the round
     priors must fail here and re-run BOTH operating-point experiments plus
     the sealed window documented in config.XGBOOST_PARAMS provenance —
@@ -538,6 +539,98 @@ def test_causal_xgb_rounds_fold_semantics():
     assert _causal_xgb_rounds(meas[:3]) == 46
     # the deployed refit ships at the all-measurement median
     assert _causal_xgb_rounds(meas) == 49
+
+
+# The 2026-10-05 production walk's measured XGBoost probe best iterations
+# (fold order, 83 folds). Under the incumbent UNFLOORED transfer these
+# shipped folds at 4/6/9/11/13/23... rounds and the refit at the
+# 30-round all-median — the underfit behind the member's 0.0% earned
+# blend weight (model_version_history 2026-10-05).
+_PROD_XGB_PROBE_BESTS_20261005 = [
+    4, 9, 13, 34, 45, 36, 131, 29, 1, 2, 4, 74, 52, 61, 27, 26, 67, 58,
+    13, 41, 106, 13, 24, 43, 74, 37, 30, 3, 76, 36, 59, 180, 14, 15, 100,
+    40, 4, 31, 39, 3, 71, 3, 1, 11, 134, 1, 77, 16, 15, 80, 64, 47, 11, 3,
+    70, 21, 4, 1, 38, 24, 19, 65, 3, 10, 78, 33, 1, 4, 2, 66, 102, 42, 60,
+    36, 27, 14, 79, 17, 44, 23, 152, 23, 8,
+]
+
+
+def test_shipped_xgb_rounds_floor_at_static_budget():
+    """2026-10-05 run-log remediation: SHIPPED round counts go through
+    training._shipped_xgb_rounds — the causal transfer FLOORED at the
+    static no-evidence budget. The transfer itself (_causal_xgb_rounds)
+    stays pure and pinned above; this pins the floor rule: below-budget
+    transfers lift, above-budget transfers pass through (a floor, never a
+    cap), and degenerate priors still land on the static."""
+    import config
+    from training import _shipped_xgb_rounds
+    # no / tiny measurements -> static budget
+    assert _shipped_xgb_rounds([], config.XGBOOST_FOLD0_ROUNDS) == 50
+    assert _shipped_xgb_rounds([4, 8, 13], config.XGBOOST_FOLD0_ROUNDS) == 50
+    # the floor is not a cap: a transfer above budget ships as measured
+    assert _shipped_xgb_rounds([90, 120], config.XGBOOST_FOLD0_ROUNDS) == 105
+    assert _shipped_xgb_rounds([70], config.XGBOOST_REFIT_ROUNDS) == 70
+    # degenerate measurements fall back to the static prior (floored anyway)
+    assert _shipped_xgb_rounds([0], config.XGBOOST_REFIT_ROUNDS) == 50
+
+
+def test_every_production_fold_ships_at_the_static_budget():
+    """Production pin: with the 2026-10-05 walk's 83 real probe bests the
+    incumbent unfloored rule shipped early folds at 4/6/9/11/13/23 rounds
+    (fold 0's noisy probe best became fold 1's whole prior) and the refit
+    at the 30-round all-median. Under the floor every fold AND the
+    deployed refit train at exactly the static 50 — the exact operating
+    point the remediation walk measured (member AUC 0.5569 -> 0.5638,
+    13.65% earned weight)."""
+    import config
+    from training import _causal_xgb_rounds, _shipped_xgb_rounds
+    bests = _PROD_XGB_PROBE_BESTS_20261005
+    assert len(bests) == 83
+    # what the incumbent rule would have shipped for the first folds
+    assert [_causal_xgb_rounds(bests[:k]) for k in range(1, 7)] == \
+        [4, 6, 9, 11, 13, 23]
+    # every fold (fold 0 uses no priors) floors to the static budget
+    assert all(
+        _shipped_xgb_rounds(bests[:k], config.XGBOOST_FOLD0_ROUNDS) == 50
+        for k in range(len(bests) + 1))
+    # the deployed refit: all-measurement transfer is 30 -> floors to 50
+    assert _causal_xgb_rounds(bests) == 30
+    assert _shipped_xgb_rounds(bests, config.XGBOOST_REFIT_ROUNDS) == 50
+
+
+def test_fold_path_ships_xgb_at_floored_rounds_end_to_end():
+    """Wiring pin: train_moneyline_ensemble's fold path must BUILD the
+    XGBoost member at _shipped_xgb_rounds. Seeded probe priors of 4/8
+    (which the incumbent rule ships at 4-6 rounds) must still produce a
+    50-round fold model — a regression that drops the floor at the call
+    site goes red here."""
+    import config
+    import training
+    rng = np.random.default_rng(7)
+
+    def _frame(n: int) -> pd.DataFrame:
+        idx = np.arange(n)
+        return pd.DataFrame({
+            "game_date": pd.Timestamp("2024-03-01")
+            + pd.to_timedelta(idx % 90, unit="D"),
+            "home_win": (idx % 2).astype(float),
+            "home_team": np.where(idx % 2 == 0, "NYY", "BOS"),
+            "away_team": np.where(idx % 2 == 0, "BOS", "NYY"),
+            "elo_diff": rng.normal(0.0, 100.0, n),
+        })
+
+    saved = list(training._LAST_XGB_BEST_ROUNDS)
+    training._LAST_XGB_BEST_ROUNDS.clear()
+    training._LAST_XGB_BEST_ROUNDS.extend([4, 8])  # incumbent -> ship 4/6
+    try:
+        models, _metrics = training.train_moneyline_ensemble(_frame(120),
+                                                             _frame(60))
+        assert {"xgboost", "lightgbm", "elasticnet"} <= set(models)
+        assert models["xgboost"].get_params()["n_estimators"] == \
+            config.XGBOOST_FOLD0_ROUNDS
+    finally:
+        training._LAST_XGB_BEST_ROUNDS.clear()
+        training._LAST_XGB_BEST_ROUNDS.extend(saved)
 
 
 def test_upcoming_slate_ships_total_runs_for_carried_finals():
