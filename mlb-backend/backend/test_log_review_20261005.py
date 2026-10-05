@@ -27,6 +27,11 @@ R6 — kaggle_mlb_run.ipynb pinned MLB_FULL_REPULL=1 ("set once, then
      remove") and a stale MLB_END_DATE=2026-09-29, forcing a full
      Statcast re-pull on every daily run. Both are now commented out;
      the 2024-01-01 start (training history) stays.
+R7 — ``build_side_frame`` re-resolved the run view per call and logged the
+     same "active moneyline feature view (109 features)" line on every
+     one: 6 byte-identical INFO lines per run. Resolution now logs once
+     per DISTINCT resolved view (repeats drop to DEBUG; a changed view
+     logs again).
 
 Plus the guard: installing the tee opens the rolling log with "w", so a
 pytest import of master_pipeline would TRUNCATE the committed log (the
@@ -316,3 +321,44 @@ def test_notebook_daily_run_does_not_pin_a_stale_end_date():
     assert start_lines and not start_lines[0].startswith("#"), (
         "MLB_START_DATE=2024-01-01 is live training history — the "
         "pipeline default (2025-01-01) would silently halve it")
+
+
+# ── R7: the run-view line logs once per distinct view, not once per call ───
+
+def test_run_view_line_logs_once_per_distinct_view(caplog):
+    import distributions
+
+    distributions._LAST_LOGGED_RUN_VIEW = None
+    with caplog.at_level(logging.INFO, logger="distributions"):
+        for _ in range(6):  # production calls build_side_frame 6x/run
+            distributions._log_resolved_view(["a", "b", "c"])
+    msgs = [r.getMessage() for r in caplog.records
+            if "active moneyline feature view" in r.getMessage()]
+    assert len(msgs) == 1, (
+        "six identical resolutions must produce ONE INFO line — the review "
+        "found this printed 6x per run as byte-identical twins")
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="distributions"):
+        distributions._log_resolved_view(["a", "b", "c"])   # repeat
+        distributions._log_resolved_view(["a", "b", "d"])   # changed view
+        distributions._log_resolved_view(["a", "b", "d"])   # repeat
+    msgs = [r.getMessage() for r in caplog.records
+            if "active moneyline feature view" in r.getMessage()]
+    assert len(msgs) == 1 and "(3 features)" in msgs[0], (
+        "a view that CHANGES mid-process must log again — the key is the "
+        "resolved content, not a call counter", msgs)
+
+
+def test_build_side_frame_logs_through_the_distinct_view_helper():
+    src = (BACKEND / "distributions.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "build_side_frame")
+    body = ast.get_source_segment(src, fn) or ""
+    assert "_log_resolved_view(feats)" in body, (
+        "build_side_frame must route its resolution log through "
+        "_log_resolved_view")
+    assert 'logger.info("Run engine: active moneyline feature view' not in body, (
+        "build_side_frame logging directly again would resurrect the "
+        "6x-per-run duplicate")

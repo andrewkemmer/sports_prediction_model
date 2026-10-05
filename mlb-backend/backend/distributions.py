@@ -283,13 +283,44 @@ def split_side_view(run_features: list[str],
     return side_cols, env_cols
 
 
+# Content key of the last run-view resolution already logged at INFO
+# (2026-10-05 log review: the identical "active moneyline feature view"
+# line printed 6x per run — every resolution returns the same list, so the
+# repeats carried no information). Keyed on the RESOLVED CONTENT, not a call
+# counter: a view that changes mid-process (adoption between calls) logs
+# again as a distinct line. See _log_resolved_view.
+_LAST_LOGGED_RUN_VIEW: Optional[tuple[str, ...]] = None
+
+
+def _log_resolved_view(feats: list[str]) -> None:
+    """Log the resolved run-engine feature view once per DISTINCT view.
+
+    ``build_side_frame`` re-resolves the active moneyline list on every call
+    (parity contract), and production calls it six times per run with the
+    same result — six byte-identical INFO lines the reader cannot tell
+    apart. The first resolution of a given view logs at INFO; repeats drop
+    to DEBUG; a *different* view logs at INFO again.
+    """
+    global _LAST_LOGGED_RUN_VIEW
+    key = tuple(feats)
+    if key == _LAST_LOGGED_RUN_VIEW:
+        logger.debug("Run engine: active moneyline feature view unchanged "
+                     "(%d features)", len(feats))
+        return
+    logger.info("Run engine: active moneyline feature view (%d features)",
+                len(feats))
+    _LAST_LOGGED_RUN_VIEW = key
+
+
 def build_side_frame(games: pd.DataFrame, side: str,
                      run_features: Optional[list[str]] = None,
                      dropped: Optional[list[str]] = None,
                      strict_feature_parity: bool = False,
                      ) -> tuple[pd.DataFrame, list[str]]:
     """Materialize the side's model frame from the run view, preserving
-    NaN (LightGBM routes it natively). Logs the derivation once per call.
+    NaN (LightGBM routes it natively). Logs the resolved view once per
+    DISTINCT resolution (see ``_log_resolved_view`` — identical repeats
+    used to print the same line 6x per run).
 
     The side view is EXACTLY the resolved feature list — nothing appended.
     The former env-LEVEL append path (RUN_LEVEL_ENV_FEATURES /
@@ -303,8 +334,7 @@ def build_side_frame(games: pd.DataFrame, side: str,
         # the active moneyline feature list. Resolve it at call time so adopted
         # RFE additions/removals automatically affect run-line serving.
         feats, dropped = _resolve_run_view()
-        logger.info("Run engine: active moneyline feature view (%d features)",
-                    len(feats))
+        _log_resolved_view(feats)
     elif feats is None:
         raise ValueError("run_features and dropped must be supplied together")
     if strict_feature_parity:
