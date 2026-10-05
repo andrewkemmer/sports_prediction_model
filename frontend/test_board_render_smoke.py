@@ -447,11 +447,11 @@ def _fold_checks() -> list[str]:
     ok, _ = _sum100(html, "total")
     if not ok:
         problems.append(f"integer total pair does not sum to 100: {html}")
-    # (1b) Build stamp: every strip carries the process's own source digest
-    # so a stale Streamlit process is identifiable on screen (its chip is
-    # the OLD digest; a fresh process shows the current one).
-    if not sv.BUILD_STAMP or f"build {sv.BUILD_STAMP}" not in html:
-        problems.append(f"run-engine strip missing the build stamp: {html}")
+    # (1b) No build chip (2026-10-05): the run-engine strip must not carry
+    # a "build <digest>" stamp on any game card — the chip was removed at
+    # the user's request from current-day and archive cards alike.
+    if "build " in html:
+        problems.append(f"run-engine strip still renders a build stamp: {html}")
     # (2) Integer spread (home -10): folded pair sums to 100% + push note.
     rl = sv.runline_html(base, "BUF", "LAC", home_spread=-10.0)
     if "BUF \u221210 54%" not in rl or "LAC +10 46%" not in rl \
