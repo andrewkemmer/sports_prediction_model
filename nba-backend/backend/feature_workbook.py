@@ -39,6 +39,12 @@ except ImportError:
 
 BACKEND = Path(__file__).resolve().parent
 DELIVERY = BACKEND.parent / "data_delivery"
+# Training-process residue (2026-09-30 retention audit, NBA parity
+# 2026-10-04): the decision workbook is regenerated every RFE run and
+# nothing reads it back, so it writes to the local gitignored run_diagnostics/
+# dir — never delivery. Only the RFE TRACE stays in delivery (the engine's
+# cross-run prior-verdict memory reads the newest one back).
+DIAGNOSTICS = BACKEND.parent / "run_diagnostics"
 NAVY = "1F3864"
 BLUE = PatternFill("solid", fgColor=NAVY)
 WHITE = Font(color="FFFFFF", bold=True)
@@ -572,7 +578,7 @@ def generate_workbook(trace_path: str | None = None,
     else:
         dated = sorted(DELIVERY.glob("nba_run_engine_markets_*.csv"))
         date_c = dated[-1].stem.rsplit("_", 1)[-1] if dated else "standalone"
-        target = DELIVERY / f"nba_feature_workbook_{date_c}.xlsx"
+        target = DIAGNOSTICS / f"nba_feature_workbook_{date_c}.xlsx"
 
     wb = Workbook()
     ws = wb.active
@@ -642,7 +648,11 @@ def write_feature_workbook(out_dir, date_c: str,
         generated = generate_workbook(trace_path=str(trace_file))
         if generated is None:
             return None
-        target = Path(out_dir) / f"nba_feature_workbook_{date_c}.xlsx"
+        # The workbook is training residue: it lands in the gitignored
+        # run_diagnostics/ dir (NHL 2026-09-30 audit pattern), never the
+        # delivery tree — out_dir is only where the trace is READ from.
+        DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
+        target = DIAGNOSTICS / f"nba_feature_workbook_{date_c}.xlsx"
         if Path(generated) != target:
             Path(generated).replace(target)
         return target.name

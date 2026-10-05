@@ -12,6 +12,10 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
+# Training-process residue (OOF stores, fold table, RFE workbooks) is NOT
+# delivery: nothing reads it back, so it writes to this local gitignored dir
+# (NHL 2026-09-30 retention-audit pattern, adopted for parity 2026-10-04).
+RUN_DIAGNOSTICS_DIR = ROOT_DIR / "run_diagnostics"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 # The normalized cache is deliberately outside the repository.  It is never
 # an input to git or to the frontend artifact resolver.  Respect an explicit
@@ -588,7 +592,7 @@ FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nba_shap_game"
 MODEL_BUNDLE = MODELS_DIR / "nba_ensemble_latest.joblib"
-OOF_STORE_CSV = DATA_DELIVERY_DIR / "nba_oof_store.csv"
+OOF_STORE_CSV = RUN_DIAGNOSTICS_DIR / "nba_oof_store.csv"  # residue, not delivery
 FEATURE_SELECTION_JSON = "nba_feature_selection_{date}.json"
 FEATURE_WORKBOOK_XLSX = "nba_feature_workbook_{date}.xlsx"
 RUN_ENGINE_FEATURE_DRIFT_PREFIX = "nba_run_engine_feature_drift_"

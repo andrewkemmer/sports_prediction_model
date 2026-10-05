@@ -1,6 +1,17 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Training residue (2026-10-04 data_delivery audit): OOF stores, the fold
+# table and the RFE workbook route to run_diagnostics/ (NHL 2026-09-30
+# pattern) — these rules guard against stale runners re-creating them.
+run_diagnostics/
+data_delivery/nba_oof_*.csv
+data_delivery/nba_fold_table.csv
+data_delivery/nba_feature_workbook_*.xlsx
+# Orphaned rating boards from retired schemes (no writer, no reader left).
+data_delivery/nba_player_epm_*
+data_delivery/nba_player_ts_*
 # The normalized cache is written outside the repository (NBA_CACHE_DIR, or
 # ~/.cache/sports_prediction_model/nba). The old .nba_cache/ rule described a
 # location nothing has written to since the cache moved.

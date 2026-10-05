@@ -1406,13 +1406,20 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         serving.write_predictions_history_csv(p_hist, ml_oof,
                                               ml_oof.p_ensemble_calibrated.to_numpy(float))
         artifacts.append(p_hist.name)
-        # Stable OOF stores support audits without making the frontend depend on
-        # an unfiltered in-memory frame.
-        ml_oof.to_csv(out / "nba_oof_moneyline.csv", index=False)
-        dist_oof.to_csv(out / "nba_oof_distribution.csv", index=False)
-        artifacts += ["nba_oof_moneyline.csv", "nba_oof_distribution.csv"]
-    folds_mod.fold_table(game_df, fold_list).to_csv(out / "nba_fold_table.csv", index=False)
-    artifacts.append("nba_fold_table.csv")
+        # Training/diagnostic residue is NOT delivery (NHL 2026-09-30
+        # retention audit, NBA parity 2026-10-04): the OOF stores and the
+        # fold table are model-training dumps nothing reads back, so they
+        # write to the local gitignored run_diagnostics/ dir instead of
+        # data_delivery/ — the delivery tree carries serving artifacts and
+        # cumulative serving state only.
+        config.RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+        ml_oof.to_csv(config.RUN_DIAGNOSTICS_DIR / "nba_oof_moneyline.csv",
+                      index=False)
+        dist_oof.to_csv(config.RUN_DIAGNOSTICS_DIR / "nba_oof_distribution.csv",
+                        index=False)
+    config.RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    folds_mod.fold_table(game_df, fold_list).to_csv(
+        config.RUN_DIAGNOSTICS_DIR / "nba_fold_table.csv", index=False)
 
     if phase_error is None:
         p_markets = out / config.MARKETS_CSV.format(date=date_c)
@@ -1474,9 +1481,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     selection = feature_selection.run_rfe(game_df, out, date_c)
     selection_name = f"nba_feature_selection_{date_c}.json"
-    workbook_name = feature_workbook.write_feature_workbook(out, date_c, selection)
-    if workbook_name:
-        artifacts.append(workbook_name)
+    # The decision workbook is training residue (run_diagnostics/, gitignored)
+    # — written for whoever runs the RFE, never delivered.
+    feature_workbook.write_feature_workbook(out, date_c, selection)
     artifacts.append(selection_name)
     # Drift on MLB's window pair: a recent tail against its like-for-like
     # prior, never the whole history against itself - comparing a

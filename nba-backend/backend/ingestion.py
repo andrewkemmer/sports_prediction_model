@@ -167,7 +167,18 @@ DEFAULT_SEASON_LOG_MAX_FAILURES = 2
 DEFAULT_PBP_MAX_FAILURES = 5
 #: A probe is not a request the pipeline needed, so it gets a short ceiling: its
 #: only job is to fail fast, and 20s is long enough to survive a slow answer.
-DEFAULT_PROBE_TIMEOUT_SEC = 20.0
+DEFAULT_PROBE_TIMEOUT_SEC = 90.0
+
+#: How many times the preflight probe asks before it believes the answer.
+#: A REFUSAL (a non-retryable HTTP error) still costs exactly one request —
+#: it is instant and unambiguous, which is the whole economy the probe was
+#: built for — but a slow host is not a refusing host: the 2026-10-04 23:51
+#: Kaggle run died to a single 20s read timeout while the same endpoint had
+#: been serving it seconds earlier, and the verdict it printed ("a host
+#: refusing this client") was wrong about an unreachable-or-slow network.
+#: The probe now spends the pull's own patience before it pronounces a host
+#: dead, and reports slowness as slowness.
+DEFAULT_PROBE_ATTEMPTS = 3
 #: How far back the stats.nba.com probe asks for a day of game log. Any date
 #: answers; one day is a few hundred rows rather than a season's worth.
 DEFAULT_PROBE_LOOKBACK_DAYS = 90
@@ -411,7 +422,7 @@ def http_json(url: str, headers: dict[str, str] | None = None,
             time.sleep(backoff)
     raise HostUnavailable(
         f"{url.split('?')[0]} did not answer after {attempts} attempt(s): "
-        f"{_short(last)}")
+        f"{_short(last)}") from last
 
 
 def _short(exc: Exception | None) -> str:
@@ -496,12 +507,26 @@ def preflight(hosts: Iterable[str] = ("espn", "stats")) -> dict[str, float]:
         started = time.time()
         try:
             http_json(url, headers, timeout=DEFAULT_PROBE_TIMEOUT_SEC,
-                      attempts=1)
+                      attempts=DEFAULT_PROBE_ATTEMPTS)
         except HostUnavailable as exc:
             # Recorded before raising so a caller that catches this and retries
             # in the same process does not pay for the probe twice.
             _PROBED.add(host)
             cost = HOST_SWEEP_COST.get(host, "the sweep would only repeat it")
+            if not isinstance(exc.__cause__, urllib.error.HTTPError):
+                # No HTTP answer at all — timeouts and connection failures.
+                # That is slowness or unreachability, NOT the client being
+                # refused, and saying so was how the 2026-10-04 crash log
+                # misdiagnosed a read timeout as a blacklist.
+                raise HostUnavailable(
+                    f"{label} did not answer {DEFAULT_PROBE_ATTEMPTS} probe "
+                    f"request(s) made before the pull began: {_short(exc)}. "
+                    f"A host this slow from here repeats that wait across the "
+                    f"whole sweep — {cost} — so the run stops instead of "
+                    f"burning it, but this is a slow or unreachable host, not "
+                    f"a refusal: run where {label} answers, or warm the cache "
+                    f"here and re-run with --skip-pull."
+                ) from exc
             raise HostUnavailable(
                 f"{label} refused a single request made before the pull "
                 f"began: {_short(exc)}. That is a host refusing this client, "

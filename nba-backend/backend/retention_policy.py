@@ -7,9 +7,9 @@ from typing import Optional
 
 EXACT_MASTER_NAMES = frozenset({
     "nba_production_cards_history.csv", "nba_production_cards_history.meta.json",
-    "nba_fold_table.csv", "nba_pipeline_summary.json", "nba_oof_moneyline.csv",
-    "nba_oof_distribution.csv", "nba_feature_selection_state.json",
-    "nba_oof_store.csv", "nba_designations.parquet",
+    "nba_pipeline_summary.json",
+    "nba_feature_selection_state.json",
+    "nba_designations.parquet",
     "nba_projected_lineup_status.json",
     # The shipped play-by-play rollup union: it IS the machine-independent
     # event coverage. Pruning it re-opens the cache hole it exists to close,
@@ -22,6 +22,14 @@ EXACT_MASTER_NAMES = frozenset({
     # or console-only run leaves the previous copy behind).
     "nba_pipeline_run_log.txt",
 })
+# 2026-10-04 retention audit (NHL 2026-09-30 parity): nba_oof_moneyline.csv,
+# nba_oof_distribution.csv, nba_oof_store.csv and nba_fold_table.csv are
+# model-TRAINING residue nothing reads back. They no longer belong in
+# data_delivery at all (the pipeline writes them to the local gitignored
+# run_diagnostics/ dir), so they left this table — if a future change ever
+# writes one here again it is DATELESS and NOT a master, so classify_artifact
+# returns "stale" and the Phase 14 tripwire names it loudly instead of
+# silently protecting it forever like this table used to.
 SERIES_PREFIXES = ("models/", "nba_run_engine_monitor_")
 
 

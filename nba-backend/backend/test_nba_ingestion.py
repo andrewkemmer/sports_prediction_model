@@ -1239,6 +1239,41 @@ class TestRefusedHost:
             ing.preflight(["espn"])
         assert "1024" in str(excinfo.value)
 
+    def test_a_slow_host_is_never_called_a_refusal(self, monkeypatch):
+        """A read timeout is slowness, not a blacklist. The 2026-10-04 23:51
+        crash delivery printed "a host refusing this client" for exactly this
+        failure while the endpoint had been serving the run seconds earlier."""
+        calls: list = []
+
+        def timeout(request, timeout=None):
+            calls.append(request.full_url)
+            raise TimeoutError("The read operation timed out")
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", timeout)
+        with pytest.raises(ing.HostUnavailable) as excinfo:
+            ing.preflight(["espn"])
+        text = str(excinfo.value)
+        assert "did not answer" in text
+        assert "refusing this client" not in text
+        # Slow is retried at the pull's patience, not believed once.
+        assert len(calls) == ing.DEFAULT_PROBE_ATTEMPTS
+
+    def test_the_probe_retries_a_slow_answer_into_a_pass(self, monkeypatch):
+        """One slow read must not condemn a host that answers on the retry —
+        the failure that killed the 2026-10-04 run."""
+        calls: list = []
+
+        def flaky(request, timeout=None):
+            calls.append(request.full_url)
+            if len(calls) == 1:
+                raise TimeoutError("The read operation timed out")
+            return _Response(b'{"events": [], "resultSets": []}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", flaky)
+        report = ing.preflight(["espn"])
+        assert "espn" in report
+        assert len(calls) == 2
+
     def test_a_host_is_probed_once_per_process(self, monkeypatch):
         calls: list = []
         monkeypatch.setattr(ing.urllib.request, "urlopen", _refuse_all(calls))
