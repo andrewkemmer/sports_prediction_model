@@ -2028,7 +2028,8 @@ def _nfl_qb_matchup_family_dates(sport: str | None = None) -> list[str]:
     return _family_dated_dates(s, [(prefix, ext)])
 
 
-def load_nfl_qb_matchup(sport: str | None = "nfl") -> pd.DataFrame:
+def load_nfl_qb_matchup(sport: str | None = "nfl",
+                        date_str: str | None = None) -> pd.DataFrame:
     """Newest starting-QB matchup record as a per-game frame.
 
     NFL: reads the newest ``nfl_qb_matchup_*.json``; NHL: resolves the
@@ -2037,13 +2038,22 @@ def load_nfl_qb_matchup(sport: str | None = "nfl") -> pd.DataFrame:
     fallback and flattens the twin per-side stat blocks into one row per
     game (columns pinned by ``NFL_QB_MATCHUP_COLUMNS``). Missing/invalid →
     empty frame WITH the full schema (never fabricated), exactly like the
-    moneyline adapter."""
+    moneyline adapter.
+
+    ``date_str`` (MLB history parity): resolve THAT date's record only —
+    the archive card's twin of MLB's dated ``sp_*`` card fields. A
+    missing date file degrades to the empty frame (the quiet '—' boxes),
+    never another date's starters; the default keeps the current-slate
+    newest-family behavior.
+    """
     s = normalize_sport_key(sport if sport is not None else get_sport())
     if s == "nhl":
         return load_nhl_goalie_matchup(s)
     cols = NFL_QB_MATCHUP_COLUMNS
     cfg = get_source_config()
-    for d in _nfl_qb_matchup_family_dates(s):
+    dates = ([str(date_str).replace("-", "")] if date_str
+             else _nfl_qb_matchup_family_dates(s))
+    for d in dates:
         raw, _src = _fetch_bytes(f"nfl_qb_matchup_{d}.json", **cfg, sport=s)
         if raw is None:
             continue

@@ -19,16 +19,17 @@ Asserts the remediation end-to-end at the render level:
     prices (no OOF substitution);
   - the ARCHIVE path (frozen card store) serves the store's published
     probability — never the committed OOF history value for the same game —
-    with NO run-engine values, NO SHAP accordion, the archive notice between
-    the date nav and the filter pills (MLB element order), NFL team names,
-    and the store's own pick grade instead of a fabricated all-MISS card;
+    with NO run-engine values, NO SHAP accordion, NO archive banner (the
+    MLB flow renders none: date nav straight into the filter pills),
+    display-only venue/kickoff enrichment from the dated board snapshot,
+    NFL team names, and the store's own pick grade instead of a fabricated
+    all-MISS card;
   - every card renders each team's CURRENT-SEASON entering W-L record
     (MLB compute_season_records parity): own season only, strictly prior —
     never the artifact's multi-season career tally, never the game's own
     result, never a prior season's row;
   - a host-local store miss self-heals through the committed store bytes
-    (GitHub-raw first) instead of silently serving the OOF re-price under
-    the archive banner;
+    (GitHub-raw first) instead of silently serving the OOF re-price;
   - the recovery walk refuses any candidate outside the valid (rolling
     10-day) set, and `_decided_mask` never counts a pre-game/live row;
   - the rolling-10-day valid-date rail is built from the dated board
@@ -69,6 +70,9 @@ CAL_JSON = NFL_DD / f"nfl_calibration_{_TODAY_C}.json"
 # The frozen first-publication store — the ARCHIVE board's only price
 # source. Backed up and restored like the other committed artifacts above.
 STORE = NFL_DD / "nfl_production_cards_history.csv"
+# Yesterday's DATED QB matchup — the archive card's twin of MLB's dated
+# sp_* fields. Shadowed during the run and restored after, like STORE.
+QB_JSON = NFL_DD / f"nfl_qb_matchup_{_YDAY_C}.json"
 
 _BACKUPS: dict[Path, bytes | None] = {}
 WRITTEN: list[Path] = []
@@ -116,10 +120,14 @@ def _moneyline_record() -> dict:
 
 
 def _board_rows() -> pd.DataFrame:
-    """Dated snapshots: yesterday's finished game + today's started game.
+    """Dated snapshots: yesterday's finished game + today's started game,
+    plus display-only rows for yesterday's three STORE ids.
 
     home_win_prob_model is the FROZEN PRE-GAME price the serving horizon
-    published — exactly what the dated board CSV carries.
+    published — exactly what the dated board CSV carries. The three store
+    rows carry the board's LATER re-published price (0.90) deliberately:
+    only their venue/kickoff fields may reach the archive card, so any
+    enrichment that leaks a probability fails the price pins.
     """
     return pd.DataFrame([
         {
@@ -155,6 +163,43 @@ def _board_rows() -> pd.DataFrame:
             "home_score": None, "away_score": None,
             "home_win_prob_model": 0.688, "away_win_prob_model": 0.312,
             "model_pick": "SF", "model_correct": None,
+        },
+        # Display-only rows for yesterday's store ids — the archive card's
+        # venue + kickoff source (the frozen store ships neither). The
+        # prices here are the board's later re-published values: only the
+        # display fields may ever reach the card.
+        {
+            "game_id": "2026_04_ARI_NYG", "game_date": _YDAY.isoformat(),
+            "start_time_utc": _iso(_YDAY, 13),
+            "home_team": "NYG", "away_team": "ARI",
+            "home_team_name": "New York Giants",
+            "away_team_name": "Arizona Cardinals",
+            "venue": "MetLife Stadium", "game_status": "Final",
+            "home_score": 99.0, "away_score": 3.0,
+            "home_win_prob_model": 0.90, "away_win_prob_model": 0.10,
+            "model_pick": "NYG", "model_correct": True,
+        },
+        {
+            "game_id": "SMOKE_ARCH", "game_date": _YDAY.isoformat(),
+            "start_time_utc": _iso(_YDAY, 20),
+            "home_team": "KC", "away_team": "LV",
+            "home_team_name": "Kansas City Chiefs",
+            "away_team_name": "Las Vegas Raiders",
+            "venue": "Arrowhead Stadium", "game_status": "Final",
+            "home_score": 3.0, "away_score": 99.0,
+            "home_win_prob_model": 0.90, "away_win_prob_model": 0.10,
+            "model_pick": "LV", "model_correct": True,
+        },
+        {
+            "game_id": "2026_04_NE_BUF", "game_date": _YDAY.isoformat(),
+            "start_time_utc": _iso(_YDAY, 13),
+            "home_team": "NE", "away_team": "BUF",
+            "home_team_name": "New England Patriots",
+            "away_team_name": "Buffalo Bills",
+            "venue": "Highmark Stadium", "game_status": "Final",
+            "home_score": 3.0, "away_score": 99.0,
+            "home_win_prob_model": 0.90, "away_win_prob_model": 0.10,
+            "model_pick": "BUF", "model_correct": True,
         },
     ])
 
@@ -256,9 +301,29 @@ def _store_rows() -> pd.DataFrame:
     ])
 
 
+def _qb_record() -> dict:
+    """Yesterday's date-keyed QB matchup (flat emitter schema): pins that
+    an archive card serves THIS date's starters — MLB's history boards
+    always render that date's sp_* fields, and the newest-only load used
+    to leave these boxes empty on every frozen card."""
+    game = {
+        "gameday": _YDAY.isoformat(),
+        "qb_home_name": "Frozen Home QB", "qb_home_rating": 91.5,
+        "qb_home_td_per_game": 2.0, "qb_home_cmp_pct": 66.0,
+        "qb_home_yards_per_attempt": 7.5, "qb_home_ints": 0.0,
+        "qb_away_name": "Frozen Away QB", "qb_away_rating": 88.0,
+        "qb_away_td_per_game": 1.5, "qb_away_cmp_pct": 64.0,
+        "qb_away_yards_per_attempt": 7.0, "qb_away_ints": 1.0,
+    }
+    games = [dict(game, game_id=gid) for gid in
+             ("2026_04_ARI_NYG", "SMOKE_ARCH", "2026_04_NE_BUF")]
+    return {"created_utc": datetime.now(timezone.utc).isoformat(),
+            "n_games": len(games), "games": games}
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE):
+    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE, QB_JSON):
         _BACKUPS[p] = p.read_bytes() if p.exists() else None
     _board_rows().to_csv(BOARD_TODAY, index=False)
     _board_rows()[_board_rows()["game_date"] == _YDAY.isoformat()] \
@@ -266,7 +331,8 @@ def _write_artifacts() -> None:
     ML_JSON.write_text(json.dumps(_moneyline_record()))
     CAL_JSON.write_text(json.dumps(_calibration_record()))
     _store_rows().to_csv(STORE, index=False)
-    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE])
+    QB_JSON.write_text(json.dumps(_qb_record()))
+    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE, QB_JSON])
 
 
 def _restore() -> None:
@@ -448,23 +514,28 @@ def run() -> int:
                 f"archive board rendered {len(aa.expander)} SHAP accordion(s) "
                 "— a frozen card must not inherit a later run's attributions")
 
-        # (c) Archive notice in MLB's position: after the date nav, before
-        # the filter pills (it used to render below them).
+        # (c) NO archive banner — MLB's dashboard flow (header strip → date
+        # nav → filter pills) carries no page-level archive notice, so the
+        # mirror must render none either; the date nav still lands directly
+        # in the filter pills.
         seq = list(aa.main)
-        info_i = next((i for i, e in enumerate(seq)
-                       if type(e).__name__ == "Info"), -1)
+        banners = [e for e in seq
+                   if type(e).__name__ == "Info"
+                   and "Archive view" in str(getattr(e, "value", ""))]
+        if banners:
+            problems.append(
+                "archive banner still rendered between the date nav and "
+                "the filter pills — MLB's dashboard flow renders none")
         nav_i = next((i for i, e in enumerate(seq)
                       if type(e).__name__ == "Button"
                       and str(getattr(e, "label", "")).startswith("◀")), -1)
         pills_i = next((i for i, e in enumerate(seq)
                         if type(e).__name__ == "ButtonGroup"
                         and str(getattr(e, "label", "")) == "Filter"), -1)
-        if info_i < 0:
-            problems.append("archive notice missing from the archive board")
-        elif not (0 <= nav_i < info_i < pills_i):
-            problems.append("archive notice is not between the date nav and "
-                            f"the filter pills (nav={nav_i}, notice={info_i}, "
-                            f"pills={pills_i}) — MLB renders it there")
+        if not (0 <= nav_i < pills_i):
+            problems.append("date nav is not ahead of the filter pills "
+                            f"(nav={nav_i}, pills={pills_i}) — MLB renders "
+                            "them in that order")
 
         # (d) NFL team names — the store path used to fall through to the
         # MLB map ("Arizona Diamondbacks" / "Kansas City Royals" on NFL cards).
@@ -547,6 +618,44 @@ def run() -> int:
             problems.append("store self-heal never consulted the committed "
                             "bytes (host-local miss would serve OOF again)")
 
+        # (i) DATED QB matchup on archive cards (MLB sp_* history parity):
+        # an MLB history card always renders THAT date's pitcher fields, so
+        # the NFL twin boxes must show THIS date's starters from
+        # nfl_qb_matchup_<date> — not the empty '—' boxes the current-
+        # slate-only gate produced, and never another date's starters.
+        if "Frozen Home QB" not in atext or "Frozen Away QB" not in atext:
+            problems.append("archive cards lost the DATED QB matchup — the "
+                            "twin boxes must serve this date's starters "
+                            "(MLB history parity)")
+        if "Rating \u2014 \u00b7 TD/g \u2014" in atext:
+            problems.append("archive cards render empty QB boxes despite a "
+                            "dated matchup file for this date")
+
+        # (j) DISPLAY-ONLY archive enrichment (MLB card anatomy): the
+        # frozen store ships no venue/kickoff, so those fill from THIS
+        # date's board snapshot — the stadium renders, the day/night tag
+        # derives from the real kickoff (it used to default every archive
+        # game to 🌙 Night Game), under the NFL serving convention (the
+        # stamp's hour IS ET — never UTC-shifted, or an 8 PM kickoff reads
+        # '☀ Day Game'), and the board's own later re-published price
+        # (0.90) never reaches the card — the store's 62% still shows.
+        if "MetLife Stadium" not in atext:
+            problems.append("archive cards lost the dated board's venue "
+                            "(MLB card anatomy renders the stadium)")
+        if "\U0001f4cd \u2014" in atext:
+            problems.append("archive cards still render the empty venue line")
+        if "\u2600 Day Game" not in atext:
+            problems.append("archive cards did not derive the day/night tag "
+                            "from the dated kickoff stamp")
+        if "\U0001f319 Night Game" not in atext:
+            problems.append("archive evening kickoff lost its night tag — "
+                            "the 20:00 stamp is 8 PM ET under the serving "
+                            "convention and must never UTC-shift to Day")
+        if "90%" in atext:
+            problems.append("archive card served the DATED BOARD's price — "
+                            "display enrichment must never touch "
+                            "probabilities")
+
         # (f) Recovery walk + decided-mask gates (pure functions, no IO).
         from nfl_todays_page import _decided_mask, _recovered_day
         valid_set = set(valid)
@@ -586,8 +695,11 @@ def run() -> int:
           "(MLB offseason reset)")
     print("  - a host-local store miss self-heals to the committed bytes "
           "(never a silent OOF re-price)")
+    print("  - archive cards render THIS date's QB matchup (MLB dated "
+          "sp_* history parity)")
     print("  - archive cards carry no run-engine values and no SHAP accordion")
-    print("  - archive notice sits between the date nav and the filter pills")
+    print("  - archive board renders NO banner; venue + kickoff fill from "
+          "the dated snapshot (prices untouched)")
     print("  - recovery and decided-mask gates hold")
     print("  - valid-date rail includes the dated board family window")
     print("  - no page exceptions")
