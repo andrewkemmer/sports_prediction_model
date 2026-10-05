@@ -19,11 +19,13 @@ Asserts the remediation end-to-end at the render level:
     prices (no OOF substitution);
   - the ARCHIVE path (frozen card store) serves the store's published
     probability — never the committed OOF history value for the same game —
-    with NO run-engine values, NO SHAP accordion, NO archive banner (the
-    MLB flow renders none: date nav straight into the filter pills),
-    display-only venue/kickoff enrichment from the dated board snapshot,
-    NFL team names, and the store's own pick grade instead of a fabricated
-    all-MISS card;
+    with the run-engine totals/run-line values + the per-card O/U and
+    run-line toggles sourced from THIS date's own markets artifact (never
+    the file's kind='oof' rows, never the newest run), NO SHAP accordion,
+    NO archive banner (the MLB flow renders none: date nav straight into
+    the filter pills), display-only venue/kickoff enrichment from the
+    dated board snapshot, NFL team names, and the store's own pick grade
+    instead of a fabricated all-MISS card;
   - every card renders each team's CURRENT-SEASON entering W-L record
     (MLB compute_season_records parity): own season only, strictly prior —
     never the artifact's multi-season career tally, never the game's own
@@ -73,6 +75,10 @@ STORE = NFL_DD / "nfl_production_cards_history.csv"
 # Yesterday's DATED QB matchup — the archive card's twin of MLB's dated
 # sp_* fields. Shadowed during the run and restored after, like STORE.
 QB_JSON = NFL_DD / f"nfl_qb_matchup_{_YDAY_C}.json"
+# Yesterday's DATED run-engine markets artifact — the archive card's
+# distribution-model source (totals + run lines + the toggle grids).
+# Shadowed/restored like the other fixtures.
+RE_CSV = NFL_DD / f"nfl_run_engine_markets_{_YDAY_C}.csv"
 
 _BACKUPS: dict[Path, bytes | None] = {}
 WRITTEN: list[Path] = []
@@ -321,9 +327,57 @@ def _qb_record() -> dict:
             "n_games": len(games), "games": games}
 
 
+def _run_engine_rows() -> pd.DataFrame:
+    """Yesterday's run-engine markets artifact — the archive card's dated
+    distribution-model source (MLB ``_build_slate_map`` parity).
+
+    Shaped to pin the archive contract:
+
+      * ``kind='oof'`` decoy rows FIRST (the committed files sort them
+        first, before the slate rows) carrying distinctive values
+        (fair_total 99 / Proj 99.0) — the card must serve the
+        ``kind='slate'`` rows' published distribution, never the OOF
+        re-price that an unfiltered first-hit match would surface;
+      * slate rows for the three store ids with the COMPLETE MC grid
+        (the usable gate) and per-game fair lines — totals 44 / 47 / 51
+        and fair spreads 3 / 6 / 1.5 — so the O/U toggle defaults pin to
+        44/47/51 and the run-line toggles to the rounded 3 / 6 / 2.
+    """
+    grid: dict = {}
+    for line in range(-14, 15):
+        label = f"m{-line}" if line < 0 else str(line)
+        grid[f"p_home_cover_{label}"] = 0.48
+        grid[f"p_push_{label}"] = 0.04 if line else 0.02
+    for line in range(24, 67):
+        grid[f"p_over_{line}"] = 0.48
+        grid[f"p_under_{line}"] = 0.48
+        grid[f"p_push_{line}"] = 0.04
+    base = {
+        "gameday": _YDAY.isoformat(), "season": 2026, "week": 5,
+        "p_home_win": 0.55, "p_away_win": 0.45,
+        "p_home_win_derived": 0.54, "p_away_win_derived": 0.46,
+        **grid,
+    }
+    games = [
+        # game_id, home, away, mu_h, mu_a, fair_total, fair_spread
+        ("2026_04_ARI_NYG", "NYG", "ARI", 24.0, 17.0, 44.0, 3.0),
+        ("SMOKE_ARCH", "KC", "LV", 21.0, 18.0, 47.0, 6.0),
+        ("2026_04_NE_BUF", "NE", "BUF", 20.0, 25.0, 51.0, 1.5),
+    ]
+    oof = [dict(base, kind="oof", game_id=gid, home_team=h, away_team=a,
+                mu_h=99.0, mu_a=99.0, fair_total=99.0, fair_spread=9.0)
+           for gid, h, a, *_ in games]
+    slate = [dict(base, kind="slate", game_id=gid, home_team=h,
+                  away_team=a, mu_h=mh, mu_a=ma, fair_total=ft,
+                  fair_spread=fs)
+             for gid, h, a, mh, ma, ft, fs in games]
+    return pd.DataFrame(oof + slate)
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE, QB_JSON):
+    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE, QB_JSON,
+              RE_CSV):
         _BACKUPS[p] = p.read_bytes() if p.exists() else None
     _board_rows().to_csv(BOARD_TODAY, index=False)
     _board_rows()[_board_rows()["game_date"] == _YDAY.isoformat()] \
@@ -332,7 +386,9 @@ def _write_artifacts() -> None:
     CAL_JSON.write_text(json.dumps(_calibration_record()))
     _store_rows().to_csv(STORE, index=False)
     QB_JSON.write_text(json.dumps(_qb_record()))
-    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE, QB_JSON])
+    _run_engine_rows().to_csv(RE_CSV, index=False)
+    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE,
+                    QB_JSON, RE_CSV])
 
 
 def _restore() -> None:
@@ -498,17 +554,50 @@ def run() -> int:
                     f"archive board lost the frozen store price {want} "
                     "(serving the OOF history instead?)")
 
-        # (b) No later run's market on a frozen card: every archive card
-        # renders MLB's quiet 'unavailable' strip, never run-engine values.
+        # (b) THE DATE'S OWN RUN-ENGINE DISTRIBUTION with the per-card
+        # toggles (MLB _build_slate_map parity): every archive card
+        # renders Proj / O/U / RL values from THIS date's markets slate
+        # rows — never the quiet 'unavailable' fallback (the dated
+        # artifact exists), never the file's kind='oof' decoy rows (they
+        # sort FIRST in the fixture, carrying fair_total 99 / Proj 99.0),
+        # and never the newest artifact's later run.
         acards = [m.value for m in aa.markdown
                   if isinstance(m.value, str) and '<div class="fb-top">' in m.value]
         if len(acards) != 3:
             problems.append(f"archive board rendered {len(acards)} cards, want 3")
         for c in acards:
-            if 're-na">Run Engine data currently unavailable' not in c:
-                problems.append("archive card rendered run-engine VALUES (a "
-                                "later run's OOF re-price) instead of MLB's "
-                                "quiet unavailable strip")
+            if "fb-runengine" not in c or "Proj: " not in c:
+                problems.append("archive card lacks the run-engine strip "
+                                "values (dated markets not served)")
+            if 're-na">Run Engine data currently unavailable' in c:
+                problems.append("archive card rendered the quiet run-engine "
+                                "fallback despite a dated markets artifact")
+        if "Run Engine data currently unavailable" in atext:
+            problems.append("archive board shows the run-engine unavailable "
+                            "notice while its dated artifact is reachable")
+        if "Proj: ARI 17.0 \u2013 NYG 24.0" not in atext:
+            problems.append("archive cards did not serve the DATED slate "
+                            "row's projection (wrong artifact/row served)")
+        if "O/U 44: Over 50% / Under 50%" not in atext:
+            problems.append("archive card totals did not price the dated "
+                            "fair total 44 from the MC grid")
+        if "99.0" in atext or "O/U 99" in atext:
+            problems.append("archive card served the kind='oof' decoy row "
+                            "(the file's OOF re-price leaked onto a frozen "
+                            "card)")
+        if len(aa.selectbox) != 6:
+            problems.append(f"archive board rendered {len(aa.selectbox)} "
+                            "O/U + run-line toggles, want 6 (one pair per "
+                            "card)")
+        else:
+            _toggles = sorted(float(sb.value) for sb in aa.selectbox)
+            if _toggles != [2.0, 3.0, 6.0, 44.0, 47.0, 51.0]:
+                problems.append("archive O/U + run-line toggle defaults "
+                                f"wrong: {_toggles} (want the dated slate's "
+                                "fair totals 44/47/51 and rounded spreads "
+                                "3/6/2 — an oof leak would show 99)")
+        # SHAP stays CURRENT-SLATE ONLY even though run-engine markets now
+        # populate: that family is game-keyed and re-published every run.
         if len(aa.expander):
             problems.append(
                 f"archive board rendered {len(aa.expander)} SHAP accordion(s) "
@@ -697,7 +786,8 @@ def run() -> int:
           "(never a silent OOF re-price)")
     print("  - archive cards render THIS date's QB matchup (MLB dated "
           "sp_* history parity)")
-    print("  - archive cards carry no run-engine values and no SHAP accordion")
+    print("  - archive cards serve the DATED run-engine markets with O/U "
+          "+ run-line toggles; no SHAP accordion")
     print("  - archive board renders NO banner; venue + kickoff fill from "
           "the dated snapshot (prices untouched)")
     print("  - recovery and decided-mask gates hold")

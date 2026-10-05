@@ -1915,7 +1915,105 @@ def _artifact_key(value) -> str:
     return text
 
 
-def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame, str | None]:
+def _run_engine_grid_usable(frame: pd.DataFrame, sport_key: str) -> bool:
+    """True when a markets frame's ``kind='slate'`` rows carry the sport's
+    COMPLETE MC grid (no null spread/total columns) — the gate that keeps
+    a null-grid snapshot from rendering NaN% on a card.
+
+    NFL grid: spreads −14..+14 (labels m14..m1, 0, 1..14) + totals 24..66.
+    NHL grid: spreads −8..+8 + totals 5/6/7 with pushes in the
+    ``p_push_total_{U}`` namespace — the serving layer's own published
+    contract (serving.write_markets_csv). NHL standalone CSVs carry the
+    NHL grid, not the NFL one — the NHL serving layer ships its grid in
+    the moneyline-v1 board, handled by ``load_nhl_run_engine_markets``.
+    Never raises: a malformed frame is simply unusable.
+    """
+    if frame is None or not len(frame):
+        return False
+    try:
+        slate = frame[frame.get("kind", pd.Series(dtype=str)).eq("slate")]
+        required = []
+        if sport_key == "nhl":
+            for line in range(-8, 9):
+                label = f"m{-line}" if line < 0 else str(line)
+                required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
+            for line in (5, 6, 7):
+                required.extend([f"p_over_{line}", f"p_under_{line}",
+                                 f"p_push_total_{line}"])
+        else:
+            for line in range(-14, 15):
+                label = f"m{-line}" if line < 0 else str(line)
+                required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
+            for line in range(24, 67):
+                required.extend([f"p_over_{line}", f"p_under_{line}",
+                                 f"p_push_{line}"])
+        return bool(len(slate)
+                    and all(c in slate.columns for c in required)
+                    and not slate[required].isna().any().any())
+    except Exception:
+        return False
+
+
+def _load_dated_markets_frame(prefix: str, date_str: str, cfg: dict,
+                              sport_key: str) -> tuple[pd.DataFrame, str | None]:
+    """THIS date's published run-engine slate — the archive card's dated
+    markets load (MLB ``_build_slate_map`` parity), never a newest-first walk.
+
+    Candidates: the exact date's artifact first (the game-day run — the
+    final pre-kickoff pricing), then the ±1-day artifact window MLB's
+    resolver admits (a later run may price the slate pre-game; a GMT-
+    rollover sibling may carry it), in that order. Every candidate is
+    restricted to its ``kind='slate'`` rows whose ``gameday`` IS the
+    requested date, because:
+
+      * the files also carry ``kind='oof'`` rows for the SAME game ids at
+        re-priced values, and they sort FIRST in the file — an unfiltered
+        frame would price the card with the OOF re-price;
+      * a distant run can never bind: the window is ±1 day and the gameday
+        must match (the 2026-09-23 regression — a Sep 11 board rendering
+        Sep 22 prices — is structurally impossible here).
+
+    Each candidate must pass the complete-grid gate; a missing / null-grid
+    file moves to the next candidate, ending in (empty, None) — the card
+    then renders its quiet 'unavailable' strip, never fabricated values.
+    """
+    d0 = str(date_str or "").replace("-", "")
+    if len(d0) != 8 or not d0.isdigit():
+        return pd.DataFrame(), None
+    gameday = f"{d0[:4]}-{d0[4:6]}-{d0[6:8]}"
+    try:
+        base = datetime.strptime(d0, "%Y%m%d").date()
+    except ValueError:
+        base = None
+    near = [d0]
+    if base is not None:
+        near += [(base + timedelta(days=1)).strftime("%Y%m%d"),
+                 (base - timedelta(days=1)).strftime("%Y%m%d")]
+    for d in near:
+        try:
+            raw, _src = _fetch_bytes(f"{prefix}_{d}.csv", **cfg, sport=sport_key)
+        except Exception:
+            continue
+        if raw is None:
+            continue
+        try:
+            frame = pd.read_csv(io.BytesIO(raw))
+        except Exception:
+            continue
+        if "kind" in frame.columns:
+            frame = frame[frame["kind"].astype(str) == "slate"]
+        if frame.empty or "gameday" not in frame.columns:
+            continue
+        frame = frame[frame["gameday"].astype(str).str[:10] == gameday]
+        if frame.empty:
+            continue
+        if _run_engine_grid_usable(frame, sport_key):
+            return frame, d
+    return pd.DataFrame(), None
+
+
+def load_nfl_run_engine_markets(sport: str | None = "nfl",
+                                date_str: str | None = None) -> tuple[pd.DataFrame, str | None]:
     """Newest NFL run-engine slate-serve markets artifact + its YYYYMMDD date.
 
     Walks the family dates (newest first) and fetches the CSV through the
@@ -1928,10 +2026,19 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
     ``nfl_run_engine_markets_*``, NHL ``nhl_run_engine_markets_*``).
     NHL additionally accepts the serving layer's board-carried grid (the
     markets rows written under ``nhl_moneyline_v1_<date>.json``) when no
-    standalone NHL markets CSV exists — same columns, different vessel."""
+    standalone NHL markets CSV exists — same columns, different vessel.
+
+    ``date_str`` (MLB ``_build_slate_map`` parity): resolve THAT date's
+    published slate through ``_load_dated_markets_frame`` instead of the
+    newest-first walk — the archive card's dated run-engine load, so
+    historical cards carry their own date's totals/run-line distribution
+    (with the per-card toggles) and can never bind a later run's prices.
+    """
     s = normalize_sport_key(sport if sport is not None else get_sport())
     cfg = get_source_config()
     prefix = "nfl_run_engine_markets" if s == "nfl" else "nhl_run_engine_markets"
+    if date_str:
+        return _load_dated_markets_frame(prefix, date_str, cfg, s)
     for d in _run_engine_family_dates(s, "markets_csv"):
         raw, _src = _fetch_bytes(f"{prefix}_{d}.csv", **cfg, sport=s)
         if raw is None:
@@ -1941,32 +2048,9 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
             # A markets file is usable for Today's Games only when its current
             # slate rows carry the complete MC grid. Older pipeline runs can
             # contain the file but have null negative spread columns; skip
-            # those snapshots so the board never renders NaN% (NHL standalone
-            # CSVs carry the NHL grid, not the NFL one — the NHL serving
-            # layer ships its grid in the moneyline-v1 board, handled by
-            # ``load_nhl_run_engine_markets``).
-            slate = frame[frame.get("kind", pd.Series(dtype=str)).eq("slate")]
-            required = []
-            for line in range(-14, 15):
-                label = f"m{-line}" if line < 0 else str(line)
-                required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
-            for line in range(24, 67):
-                required.extend([f"p_over_{line}", f"p_under_{line}",
-                                 f"p_push_{line}"])
-            if s == "nhl":
-                # NHL grid: spreads −8..+8 (labels m8..0..8) + totals 4..12
-                # with pushes in the p_push_total_{U} namespace — the serving
-                # layer's own published contract (serving.write_markets_csv).
-                required = []
-                for line in range(-8, 9):
-                    label = f"m{-line}" if line < 0 else str(line)
-                    required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
-                for line in (5, 6, 7):
-                    required.extend([f"p_over_{line}", f"p_under_{line}",
-                                     f"p_push_total_{line}"])
-            usable = bool(len(slate) and all(c in slate.columns for c in required)
-                          and not slate[required].isna().any().any())
-            if usable:
+            # those snapshots so the board never renders NaN% (see
+            # _run_engine_grid_usable for both grids' contracts).
+            if _run_engine_grid_usable(frame, s):
                 return frame, d
         except Exception:
             continue

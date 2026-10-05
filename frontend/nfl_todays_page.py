@@ -47,10 +47,18 @@ marked ⟐):
      renders MLB's quiet 'Run Engine data currently unavailable' strip
      (no later run's OOF re-price on a frozen card) with no SHAP
      accordion — the same guard MLB applies through
-     ``_slate_map_for_view``. The QB matchup is DATED (MLB's ``sp_*``
-     structure): ``history_view`` loads THIS date's
+     ``_slate_map_for_view``. The run-engine markets are DATED (both
+     views): the current view takes the newest markets artifact, an
+     archive card takes THIS date's own
+     ``nfl_run_engine_markets_<date>.csv`` slate rows (MLB's
+     ``_build_slate_map`` window), so its totals/run-line distribution
+     and the per-card O/U + run-line toggles populate without ever
+     binding a later run's re-price. The QB matchup is DATED (MLB's
+     ``sp_*`` structure): ``history_view`` loads THIS date's
      ``nfl_qb_matchup_<date>.json``, so the twin boxes show that slate's
-     starters and only a missing file renders '—' quietly.
+     starters and only a missing file renders '—' quietly. SHAP stays
+     CURRENT-SLATE ONLY (that family is re-published every run, so an
+     archive card never shows it).
   9. Card (⟐ ``_card_html`` mirror): top badge strip (☀/🌙 + LIVE/PRE-GAME/
      FINAL + ✓/X pills) → scoreboard (winner bars; PRE-GAME renders the
      0-0 display exactly like MLB) → team rows (records, PICK badge,
@@ -318,8 +326,9 @@ def _evening_count(day: pd.DataFrame) -> int:
 
 
 # MLB's quiet run-engine fallbacks (todays_games._runengine_html) — the
-# SAME markup an MLB card renders when no slate row resolves, so an archive
-# card keeps the block instead of silently dropping it.
+# SAME markup an MLB card renders when no slate row resolves (including
+# an archive date with no dated markets artifact), so a card keeps the
+# block instead of silently dropping it.
 _RE_UNAVAILABLE = ('<div class="fb-runengine"><span class="re-label">'
                    'RUN ENGINE</span><span class="re-na">Run Engine data '
                    'currently unavailable</span></div>')
@@ -536,12 +545,16 @@ def _render_board(day: pd.DataFrame, date_str: str, valid,
 
     Called by BOTH entry points (``run()`` and the recovery walk), so a
     recovered board is byte-identical to a normally-loaded one apart from
-    the recovery notice. ⟐ Run-engine markets + SHAP stay CURRENT-SLATE
-    ONLY: an archive view renders empty frames, so a frozen card can
-    never inherit a later run's OOF re-price. The QB matchup is DATED
-    (MLB's ``sp_*`` card-field structure): ``history_view`` loads THIS
-    date's ``nfl_qb_matchup_<date>.json`` — never the newest file — so
-    a frozen card shows its own slate's starters or the quiet '—' boxes.
+    the recovery notice. ⟐ Run-engine markets are DATED (both views —
+    the current view's newest artifact, THIS date's own markets slate
+    for an archive card), so the distribution totals/run lines and the
+    per-card toggles populate on a frozen card without ever binding a
+    later run's re-price; SHAP stays CURRENT-SLATE ONLY (its family is
+    re-published every run, so an archive card never shows it). The QB
+    matchup is DATED (MLB's ``sp_*`` card-field structure):
+    ``history_view`` loads THIS date's ``nfl_qb_matchup_<date>.json`` —
+    never the newest file — so a frozen card shows its own slate's
+    starters or the quiet '—' boxes.
     """
     slate = pd.DataFrame()
     qb = pd.DataFrame()
@@ -555,15 +568,31 @@ def _render_board(day: pd.DataFrame, date_str: str, valid,
         except Exception:
             qb = pd.DataFrame()
     else:
-        # MLB history parity: the DATED QB record for THIS date (the twin
-        # of MLB's dated sp_* card fields — a pitcher box always renders
-        # from the frame). Newest-only here would leak another date's
-        # starters onto a frozen card; a missing file degrades to the
-        # quiet '—' boxes, never fabricated names.
+        # MLB history parity — DATED artifacts for THIS date: the
+        # run-engine slate (its totals/run-line distribution + the
+        # per-card O/U and run-line toggles; MLB's _build_slate_map
+        # reads the date's own run_engine_markets window, never a
+        # newest-first walk) and the DATED QB record (the twin of MLB's
+        # dated sp_* card fields — a pitcher box always renders from the
+        # frame). Newest-only here would leak a later run's re-price or
+        # another date's starters onto a frozen card; a missing dated
+        # artifact degrades to the quiet 'unavailable' strip / '—' boxes.
+        try:
+            slate, _sdate = utils.load_nfl_run_engine_markets(
+                "nfl", date_str=date_str)
+        except Exception:
+            slate = pd.DataFrame()
         try:
             qb = utils.load_nfl_qb_matchup("nfl", date_str=date_str)
         except Exception:
             qb = pd.DataFrame()
+    # kind='slate' ROWS ONLY (both views): every markets artifact also
+    # carries re-priced kind='oof' rows for the same game ids and they
+    # sort FIRST in the file — _match_slate_row takes the first hit, so
+    # an unfiltered frame would price a card with the OOF re-price. The
+    # slate rows ARE the published distribution for their date.
+    if slate is not None and len(slate) and "kind" in slate.columns:
+        slate = slate[slate["kind"].astype(str) == "slate"]
 
     # 5. Header strip — SAME markup as MLB (fed by nfl_calibration_*.json),
     # including MLB's THREE-STATE badge: the accuracy pill is a TODAY
@@ -643,9 +672,10 @@ def _render_board(day: pd.DataFrame, date_str: str, valid,
                     kw = {"total_line": sel[0], "home_spread": sel[1],
                           "half_stop": sel[2]}
                 # MLB keeps the block whenever no slate row resolves (its
-                # _runengine_html(None) → quiet 'unavailable'); an archive
-                # card therefore renders the same muted strip instead of
-                # silently dropping the run-engine area.
+                # _runengine_html(None) → quiet 'unavailable'); a card
+                # whose dated markets artifact is missing therefore
+                # renders the same muted strip instead of silently
+                # dropping the run-engine area.
                 re_html = _RE_UNAVAILABLE
                 if srow is not None:
                     try:
