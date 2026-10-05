@@ -1,0 +1,279 @@
+{
+ "schema": "run-engine-monitor/v2",
+ "date": "2026-10-05",
+ "markets_persisted": true,
+ "markets_persist_error": null,
+ "winner_cards": {
+  "over_under": {
+   "n": 2373,
+   "actual_win_rate": 0.5272,
+   "win_rate": 0.5272,
+   "predicted_mean": 0.5264,
+   "auc": 0.4948,
+   "ece_raw": 0.041,
+   "ece_calibrated": 0.041,
+   "brier": 0.2511,
+   "logloss": 0.6955,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "run_line": {
+   "n": 2363,
+   "actual_win_rate": 0.532,
+   "win_rate": 0.532,
+   "predicted_mean": 0.5141,
+   "auc": 0.5118,
+   "ece_raw": 0.0415,
+   "ece_calibrated": 0.0415,
+   "brier": 0.251,
+   "logloss": 0.6953,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "derived_ml": {
+   "n": 2446,
+   "actual_win_rate": 0.6443,
+   "win_rate": 0.6443,
+   "predicted_mean": 0.6113,
+   "auc": 0.6193,
+   "ece_raw": 0.0408,
+   "ece_calibrated": 0.0408,
+   "brier": 0.2215,
+   "logloss": 0.6337,
+   "holdout": {},
+   "source": "oof_decided_store",
+   "ml_reference": {
+    "source": "ml_win_prob",
+    "n": 2446,
+    "win_rate": 0.646,
+    "predicted_mean": 0.5556
+   }
+  }
+ },
+ "slate_history": [
+  {
+   "card": "over_under",
+   "date": "2026-10-05",
+   "ece_calibrated": 0.041,
+   "brier": 0.2511,
+   "logloss": 0.6955,
+   "predicted_mean": 0.5264,
+   "n": 2373
+  },
+  {
+   "card": "run_line",
+   "date": "2026-10-05",
+   "ece_calibrated": 0.0415,
+   "brier": 0.251,
+   "logloss": 0.6953,
+   "predicted_mean": 0.5141,
+   "n": 2363
+  },
+  {
+   "card": "derived_ml",
+   "date": "2026-10-05",
+   "ece_calibrated": 0.0408,
+   "brier": 0.2215,
+   "logloss": 0.6337,
+   "predicted_mean": 0.6113,
+   "n": 2446
+  }
+ ],
+ "fit": {
+  "total_tail": {
+   "k_ge": 60,
+   "obs_ge": 0.1558,
+   "mod_ge": 0.1546,
+   "k_le": 35,
+   "obs_le": 0.2359,
+   "mod_le": 0.2431
+  },
+  "margin_tail": {
+   "obs_home_win": 0.5421,
+   "mod_home_win": 0.5358,
+   "obs_push": 0.0033,
+   "mod_push": 0.007
+  },
+  "variance_obs": {
+   "home": 9.56,
+   "away": 9.38
+  }
+ },
+ "market_metrics": {
+  "over_38": {
+   "engine_ece_raw": 0.021,
+   "engine_ece_calibrated": 0.021,
+   "engine_brier": 0.2071,
+   "engine_logloss": 0.6028,
+   "n": 2401
+  },
+  "over_42": {
+   "engine_ece_raw": 0.0138,
+   "engine_ece_calibrated": 0.0138,
+   "engine_brier": 0.2373,
+   "engine_logloss": 0.6671,
+   "n": 2402
+  },
+  "over_46": {
+   "engine_ece_raw": 0.0126,
+   "engine_ece_calibrated": 0.0126,
+   "engine_brier": 0.2408,
+   "engine_logloss": 0.6744,
+   "n": 2387
+  },
+  "over_50": {
+   "engine_ece_raw": 0.0217,
+   "engine_ece_calibrated": 0.0217,
+   "engine_brier": 0.2204,
+   "engine_logloss": 0.6319,
+   "n": 2390
+  },
+  "over_54": {
+   "engine_ece_raw": 0.021,
+   "engine_ece_calibrated": 0.021,
+   "engine_brier": 0.1849,
+   "engine_logloss": 0.5553,
+   "n": 2397
+  },
+  "home_cover_3": {
+   "engine_ece_raw": 0.0284,
+   "engine_ece_calibrated": 0.0284,
+   "engine_brier": 0.2145,
+   "engine_logloss": 0.6191,
+   "n": 2256
+  },
+  "derived_moneyline": {
+   "engine_ece_raw": 0.0434,
+   "engine_ece_calibrated": 0.0434,
+   "engine_brier": 0.221,
+   "engine_logloss": 0.6327,
+   "n": 2438
+  }
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
+  "warmup_seasons": [
+   2016
+  ],
+  "oof_first_season": 2017,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "rest_short_home",
+    "rest_short_away",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+    "pbp_def_epa_play_ewm_diff",
+    "pbp_def_epa_play_ewm_home",
+    "pbp_def_epa_play_ewm_away",
+    "travel_miles_home",
+    "travel_miles_away",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "pace_plays_min_home",
+    "pace_plays_min_away",
+    "epa_qb_home",
+    "epa_qb_away",
+    "epa_qb_diff",
+    "epa_wr_home",
+    "epa_wr_away",
+    "epa_wr_diff",
+    "epa_te_home",
+    "epa_te_away",
+    "epa_te_diff",
+    "epa_rb_home",
+    "epa_rb_away",
+    "epa_rb_diff",
+    "inj_ol_out_home",
+    "inj_ol_out_away",
+    "inj_ol_out_diff",
+    "ol_snaps_lost_share_home",
+    "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home",
+    "ol_key_out_away",
+    "ol_key_out_diff",
+    "inj_def_out_home",
+    "inj_def_out_away",
+    "inj_def_out_diff",
+    "def_snaps_lost_share_home",
+    "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home",
+    "def_key_out_away",
+    "def_key_out_diff",
+    "is_home"
+   ],
+   "appended_categorical_cols": [
+    "home_team_id",
+    "away_team_id"
+   ]
+  },
+  "random_seed": 42,
+  "weather": {
+   "provider": "Open-Meteo",
+   "cadence": "hourly",
+   "cutoff": "latest weather_time_utc strictly before kickoff_utc",
+   "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
+   "daily_aggregates_allowed": false
+  },
+  "market_independence": true
+ }
+}
