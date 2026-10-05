@@ -25,3 +25,10 @@ __pycache__/
 # Generated per-run internals — re-created by the pipeline, never committed.
 data_delivery/nfl_oof_*.csv
 data_delivery/nfl_pipeline_summary.json
+
+# Training residue / analysis dumps (2026-10-04 data_delivery audit):
+# consumed by nothing — the RFE workbook now writes to run_diagnostics/
+# (NHL 2026-09-30 audit pattern); run-review records are manual output.
+data_delivery/nfl_feature_workbook_*
+data_delivery/nfl_run_review_*
+run_diagnostics/

@@ -55,6 +55,15 @@ import features as feat_mod  # noqa: E402
 import moneyline as ml_mod  # noqa: E402
 import distributions as dist_mod  # noqa: E402
 
+# Import-shape pin (the quirk test_leave_events._patch_dd documents): when
+# the sport root is importable (pytest from nfl-backend/, python -m, etc.),
+# ``backend`` resolves as a namespace package and the production modules'
+# ``from backend import config`` binds the ``backend.config`` module object —
+# a DIFFERENT object from this file's ``import config``. The subset state
+# these checks mutate must land on the instance the production views read,
+# or the views silently answer from the un-subset contract.
+config = feat_mod.config
+
 WARNING_MSG = "X does not have valid feature names"
 
 
@@ -328,12 +337,15 @@ check("subsets rebuild canonically from the pool (duplicates impossible)",
 sub_tree = list(feat_mod.tree_view(feats).columns)
 sub_lin = list(feat_mod.linear_view(feats).columns)
 config.reset_feature_subset()
+exp_tree = ([c for c in subset if c in feats.columns]
+            + config.TREE_CATEGORICAL_COLS)
+exp_lin = [c for c in subset
+           if c not in config.RAW_PER_SIDE_COLS and c in feats.columns]
 check("subset views stay unique and pool-ordered",
       len(set(sub_tree)) == len(sub_tree) and len(set(sub_lin)) == len(sub_lin)
-      and sub_tree == ([c for c in subset if c in feats.columns]
-                       + config.TREE_CATEGORICAL_COLS)
-      and sub_lin == [c for c in subset
-                      if c not in config.RAW_PER_SIDE_COLS and c in feats.columns])
+      and sub_tree == exp_tree
+      and sub_lin == exp_lin,
+      f"tree {sub_tree} != {exp_tree} | lin {sub_lin} != {exp_lin}")
 check("unknown subset names are rejected, not silently intersected",
       _raises(lambda: config.set_feature_subset(["not_a_feature"])))
 check("active contract returns to the full list after reset",
@@ -345,4 +357,9 @@ print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     for name in FAIL:
         print(f"  FAILED: {name}")
-    sys.exit(1)
+    if __name__ == "__main__":
+        sys.exit(1)
+    # Imported (pytest): sys.exit here would abort COLLECTION with an
+    # INTERNALERROR instead of naming the failing check — raise so the
+    # failure surfaces as a normal collection error.
+    raise AssertionError(f"feature-name consistency checks failed: {FAIL}")

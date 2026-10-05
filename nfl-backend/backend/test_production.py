@@ -56,6 +56,14 @@ import distributions as dist_mod  # noqa: E402
 import evaluation as eval_mod  # noqa: E402
 import serving as serve_mod  # noqa: E402
 
+# --- pytest-environment resilience ------------------------------------
+# When the sport root is importable (pytest rootdir/cwd), the production
+# modules bind `backend.config` (package path) while the plain `import
+# config` above binds a second top-level instance; mutating one would
+# leave the other unchanged and make the contract checks fail purely for
+# environment reasons. Pin this module to the instance production reads.
+config = dist_mod.config
+
 # ---------------------------------------------------------------------------
 print("\n== 2. Manifest consistency ==")
 problems = manifest.validate()
@@ -1946,6 +1954,12 @@ try:
     _seen: list[str] = []
     _h = logging.Handler()
     _h.emit = lambda rec: _seen.append(rec.getMessage())
+    # Under pytest the logging plugin holds the root logger at WARNING and
+    # `logging.basicConfig` is a no-op, which silently swallows the
+    # fallback's INFO lines; force the level so the capture sees them in
+    # any environment.
+    _prev_level = ingest_mod.logger.level
+    ingest_mod.logger.setLevel(logging.INFO)
     with mock.patch.object(ingest_mod.StageProgress, "_make_bar",
                            return_value=None):
         _fb = ingest_mod.StageProgress(4, "smoke")
@@ -1956,6 +1970,7 @@ try:
             _fb.close()
         finally:
             ingest_mod.logger.removeHandler(_h)
+            ingest_mod.logger.setLevel(_prev_level)
     check("without tqdm the bar still reports its work (never silence)",
           bool(_seen) and "4/4" in _seen[-1], str(_seen[-1:]))
     check("the fallback reaches 100% and uses MLB's bar glyphs",
