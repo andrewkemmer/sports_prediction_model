@@ -59,7 +59,7 @@ def test_install_overwrites_previous_run(tmp_path, monkeypatch):
     print("NEW RUN line one")
     sys.stderr.write("stderr line\n")
     sys.stdout.flush()
-    text = log_path.read_text()
+    text = log_path.read_text(encoding="utf-8")
     assert "NEW RUN line one" in text
     assert "stderr line" in text
     assert "PREVIOUS RUN CONTENT" not in text  # overwritten, not appended
@@ -111,7 +111,7 @@ def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
     tee.flush()
     tee.close()
     assert "\r" in console.getvalue()  # console keeps tqdm's raw frames
-    text = (tmp_path / "log.txt").read_text()
+    text = (tmp_path / "log.txt").read_text(encoding="utf-8")
     assert "\r" not in text  # the file stays line-oriented
     assert " 83%|########  | 5/6 [..]" in text  # every frame is its own line
 
@@ -141,7 +141,7 @@ def test_install_rebinds_logging_handlers_so_records_reach_the_log(
         for h in root.handlers:
             if hasattr(h, "flush"):
                 h.flush()
-        text = log_path.read_text()
+        text = log_path.read_text(encoding="utf-8")
         assert "fold line the tee must capture" in text
         assert "gate WARNING the tee must capture" in text
         # re-pointed in place, not replaced: the console copy survives

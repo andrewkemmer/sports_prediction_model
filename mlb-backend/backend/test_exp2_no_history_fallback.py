@@ -266,7 +266,7 @@ def _statement_execution_order() -> list[tuple[int, str]]:
     every con.execute(MODULE_CONSTANT) statement inside
     features._build_game_level, in source order — the execution order."""
     import ast
-    tree = ast.parse(Path(features.__file__).read_text())
+    tree = ast.parse(Path(features.__file__).read_text(encoding="utf-8"))
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef)
               and n.name == "_build_game_level")

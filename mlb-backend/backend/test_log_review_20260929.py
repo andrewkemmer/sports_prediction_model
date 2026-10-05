@@ -35,7 +35,7 @@ def _clean_drift_junk():
     """The drift smoke calls write _t_*.csv probes into data_delivery;
     remove them (and any stale ones) around every test."""
     yield
-    for junk in DD.glob("_t_seam_*.csv"):
+    for junk in DD.glob("_t_*.csv"):
         junk.unlink(missing_ok=True)
 
 # ── D1: known gameless windows are skipped before the first attempt ──────────

@@ -343,7 +343,8 @@ def test_adopted_state_binds_the_new_width():
     from config import DATA_DELIVERY_DIR
     import json
     state = json.loads(
-        (DATA_DELIVERY_DIR / "mlb_feature_selection_state.json").read_text())
+        (DATA_DELIVERY_DIR / "mlb_feature_selection_state.json").read_text(
+            encoding="utf-8"))
     cols = state["cols"]
     unknown = [c for c in cols if c not in training.KNOWN_FEATURE_COLS]
     assert not unknown, f"adopted state references non-pool columns: {unknown}"

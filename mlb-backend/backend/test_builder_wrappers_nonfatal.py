@@ -26,7 +26,9 @@ BACKEND = Path(__file__).resolve().parent
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-TREE = ast.parse((BACKEND / "master_pipeline.py").read_text())
+# encoding pinned: master_pipeline.py is UTF-8 (em-dashes in prose) and the
+# Windows default codec (cp1252) raises UnicodeDecodeError at collection.
+TREE = ast.parse((BACKEND / "master_pipeline.py").read_text(encoding="utf-8"))
 
 
 def _try_nodes_calling(*builder_names: str) -> list[ast.Try]:

@@ -3,3 +3,16 @@ __pycache__/
 *.pyo
 .env
 *.joblib
+
+# Training residue / manual analysis dumps (2026-10-04 data_delivery audit):
+# consumed by nothing, produced by runs or by hand — never delivered. The
+# RFE workbook now writes to run_diagnostics/ (NHL 2026-09-30 audit pattern);
+# these rules are guards against stale runners and manual tools.
+run_diagnostics/
+data_delivery/lineup_il_ab_*
+data_delivery/mlb_tune_*
+data_delivery/mlb_exp2_fallback_*
+data_delivery/mlb_replication_*
+data_delivery/mlb_run_review_*
+data_delivery/mlb_feature_workbook_*
+data_delivery/_t_*.csv

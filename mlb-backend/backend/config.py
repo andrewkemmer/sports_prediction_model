@@ -12,6 +12,10 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
+# Training-process residue (RFE workbooks, tune/analysis dumps) is NOT
+# delivery: nothing reads it back, so it writes to this local gitignored dir
+# (NHL 2026-09-30 retention-audit pattern, adopted for parity 2026-10-04).
+RUN_DIAGNOSTICS_DIR = ROOT_DIR / "run_diagnostics"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 
 # Multi-sport restructure (Phase A): repo-relative directory holding this

@@ -21,6 +21,7 @@ import numpy as np
 
 BACKEND_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND_DIR))
+PROBE_DIR = BACKEND_DIR.parent / "data_delivery"
 
 from feature_selection import _grid_edge_verdict, _grid_window, _state_label
 
@@ -262,9 +263,13 @@ def test_drift_default_enumerates_active_width():
         columns=cols + ["run_margin_diff"])  # poison: column present in frame
     cur = base * 1.01
     df = compute_feature_drift(base, cur, "2099-01-01", out_name="_t_drift.csv")
-    assert "run_margin_diff" not in set(df["feature"]), (
-        "drift emitted a PSI row for a non-serving feature")
-    assert len(df) == len(cols), f"expected {len(cols)} rows, got {len(df)}"
+    try:
+        assert "run_margin_diff" not in set(df["feature"]), (
+            "drift emitted a PSI row for a non-serving feature")
+        assert len(df) == len(cols), f"expected {len(cols)} rows, got {len(df)}"
+    finally:
+        # Probe output is test scratch — never leave it in data_delivery.
+        (PROBE_DIR / "_t_drift.csv").unlink(missing_ok=True)
 
 def test_coverage_default_enumerates_active_width():
     """compute_feature_coverage's default enumeration matches the serving
@@ -284,11 +289,15 @@ def test_coverage_default_enumerates_active_width():
     cur = base
     df = compute_feature_coverage(base, cur, "2099-01-01",
                                   out_name="_t_coverage.csv")
-    assert "run_margin_diff" not in set(df["feature"]), (
-        "coverage emitted a row for a non-serving feature")
-    # Coverage emits one row per feature per window (current + baseline).
-    assert len(df) == 2 * len(cols), (
-        f"expected {2 * len(cols)} rows (2 windows x {len(cols)}), got {len(df)}")
+    try:
+        assert "run_margin_diff" not in set(df["feature"]), (
+            "coverage emitted a row for a non-serving feature")
+        # Coverage emits one row per feature per window (current + baseline).
+        assert len(df) == 2 * len(cols), (
+            f"expected {2 * len(cols)} rows (2 windows x {len(cols)}), got {len(df)}")
+    finally:
+        # Probe output is test scratch — never leave it in data_delivery.
+        (PROBE_DIR / "_t_coverage.csv").unlink(missing_ok=True)
 
 if __name__ == "__main__":
     fns = [(n, f) for n, f in sorted(globals().items())

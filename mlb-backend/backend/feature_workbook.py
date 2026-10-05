@@ -34,6 +34,10 @@ import pandas as pd
 BACKEND = Path(__file__).resolve().parent            # mlb-backend/backend
 ROOT = BACKEND.parent                                 # mlb-backend/
 DATA_DELIVERY = ROOT / "data_delivery"                # artifact home (synced)
+# Training-process residue (2026-09-30 retention audit): the decision
+# workbook is regenerated every RFE run and nothing reads it back, so it
+# writes to the local gitignored run_diagnostics/ dir — never delivery.
+RUN_DIAGNOSTICS = ROOT / "run_diagnostics"
 
 from openpyxl import Workbook  # noqa: E402
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: E402
@@ -1244,7 +1248,7 @@ def generate_workbook(trace_path: Optional[Path] = None,
                          trace_path.stem)
         day, suffix = (m.group(1), m.group(2)) if m else (
             str(trace.get("date", "unknown")), "")
-        out = DATA_DELIVERY / f"mlb_feature_workbook_{day}{suffix}.xlsx"
+        out = RUN_DIAGNOSTICS / f"mlb_feature_workbook_{day}{suffix}.xlsx"
     wb.save(out)
     grid = trace.get("grid") or {}
     n_tests = (f"{len(grid.get('states', []))} grid states, "
