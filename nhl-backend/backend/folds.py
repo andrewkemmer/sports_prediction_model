@@ -33,6 +33,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+#: How many provisional windows the thin-population warning names before
+#: summarising the rest as "+N more" (NFL parity, 2026-10-05 run-log
+#: review): the unbounded full join measured 840 characters at production
+#: length (14 windows) — the same one-line dump class NFL's review flagged.
+_THIN_WINDOW_SAMPLE = 5
+
 # Every frame that feeds fold generation MUST be put in this order first.
 # Why a helper and not a bare sort_values(date_col): make_folds returns
 # df.index[mask] (labels), and the OOF consumers index those labels
@@ -185,16 +191,28 @@ def make_folds(df: pd.DataFrame,
     # separates the two: scored, reported, never a grader.
     provisional = [f for f in folds if f.provisional]
     if provisional:
+        # Bounded (2026-10-05 run-log review): the COUNTS carry the verdict
+        # (the fold summary right below repeats them as
+        # provisional_windows/provisional_games); a sample of the first few
+        # windows shows the shape WITH its season-type label, and the rest
+        # collapses to "+N more" instead of extending the line forever.
+        # This is also the ONLY thin-window emission: master_pipeline used
+        # to re-log the same verdict a second time, unbounded here and
+        # sampled there, two warnings for one condition.
+        sample = ", ".join(
+            f"[{f.val_start.date()}..{f.val_end.date()} "
+            f"n={len(f.val_idx)} {f.season_type}]"
+            for f in provisional[:_THIN_WINDOW_SAMPLE])
+        rest = len(provisional) - _THIN_WINDOW_SAMPLE
+        if rest > 0:
+            sample += f", +{rest} more"
         logger.warning(
             "OOF validation population is thin on %d of %d window(s) "
             "(< MIN_VAL_FOLD_GAMES=%d games): %s - retained for evidence, "
             "but PROVISIONAL: excluded from pooled metrics, blend weights "
             "and calibration (playoff weeks and season ramps are the usual "
             "cause)",
-            len(provisional), len(folds), minimum,
-            ", ".join(f"[{f.val_start.date()}..{f.val_end.date()} "
-                      f"n={len(f.val_idx)} {f.season_type}]"
-                      for f in provisional),
+            len(provisional), len(folds), minimum, sample,
         )
     non_regular = [f for f in folds if f.season_type != "regular"]
     if non_regular and post is not None:

@@ -161,7 +161,16 @@ def main(argv: list[str] | None = None) -> int:
         install_crash_log_pusher,
         install_run_log_tee,
     )
-    _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+    # Never tee during a test run (NBA 5673874c / MLB / NFL parity):
+    # install opens the rolling log with "w", so a pytest run that reaches
+    # main() would TRUNCATE the committed nhl_pipeline_run_log.txt at the
+    # tee's own header — the only record of the latest production run.
+    # PYTEST_CURRENT_TEST covers in-test calls, pytest being loaded covers
+    # collection-time probes, and a production launch (Kaggle) has neither.
+    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+        _log_path = None
+    else:
+        _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
     # Same hardcoded coordinates _sync_data_delivery pushes to.
     install_crash_log_pusher(
         _log_path, "andrewkemmer", "sports_prediction_model")
@@ -374,18 +383,12 @@ def main(argv: list[str] | None = None) -> int:
     # MIN_VAL_FOLD_GAMES are RETAINED, not skipped — the old skip silently
     # removed the playoff and season-ramp stretches from the OOF population
     # (366 of 2795 core games trained on but never validated). What cannot
-    # happen is the OLD silent drop: the disclosure and the reach gate below
-    # turn a shrinking population into a loud one.
-    thin = folds_mod.undersized_windows(fold_list)
-    if thin:
-        logger.warning(
-            "OOF validation population is thin on %d of %d window(s) "
-            "(< MIN_VAL_FOLD_GAMES=%d games): %s — retained for evidence, "
-            "not skipped (playoff weeks and season ramps are the usual cause)",
-            len(thin), len(fold_list), config.MIN_VAL_FOLD_GAMES,
-            ", ".join(
-                f"[{f.val_start.date()}..{f.val_end.date()} n={len(f.val_idx)}]"
-                for f in thin[:8]) + (" …" if len(thin) > 8 else ""))
+    # happen is the OLD silent drop: the disclosure logged ONCE at fold
+    # generation (folds.make_folds, bounded sample — 2026-10-05 run-log
+    # review found this block re-logging the same verdict a second time,
+    # lines 7003/7014 of nhl_pipeline_run_log.txt, the first an 840-char
+    # full join of all 14 windows) and the reach gate below turn a
+    # shrinking population into a loud one.
     reach = (fold_info["total_val_games"] / len(game_df)
              if len(game_df) else 0.0)
     logger.info("OOF reach: %d of %d eligible games validated (%.1f%%)",

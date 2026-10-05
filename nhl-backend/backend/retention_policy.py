@@ -65,6 +65,14 @@ EXACT_MASTER_NAMES = frozenset({
     # same pruning hazard as the leave ledger: unregistered and dateless it
     # classifies "stale" and Phase 14 deletes the backfill mid-run.
     "nhl_pregame_availability_events.parquet",
+    # PIT pre-game availability COVERAGE STATUS — coverage_gate's per-run
+    # verdict (games by label, coverage fraction, uncovered game_ids), the
+    # human-readable half of the availability gap (2026-10-05 run-log
+    # review: the gate was unreachable outside tests, so this file never
+    # existed; wired into backfill and protected here in the same pass).
+    # Dateless by design, so it carries the same unregistered-dateless
+    # pruning hazard as the leave ledger above.
+    "nhl_availability_coverage.json",
     # Run log (2026-10-02, MLB/NFL parity): one rolling master file
     # written by run_log_tee.py and delivered with the sync tree.
     # Dateless by design (overwritten in place every run), so blanket

@@ -404,7 +404,16 @@ def _combined_exclusions(
     # the historical repull excludes players structurally identically to the
     # prediction slate. Absent artifact -> channel is unpopulated, not an
     # error, and never read as "everyone healthy".
+    #
+    # 2026-10-05 run-log review: "unpopulated" used to be SILENT — the
+    # populated branch logged an interval count and the absent branch logged
+    # nothing at all, so the production log (2026-10-05, zero occurrences of
+    # "pre-game lineup channel") could not distinguish "channel healthy, no
+    # absences" from "channel dead, artifact never backfilled". The gap must
+    # be as loud as the coverage gate it mirrors: log the unpopulated state
+    # with the artifact name so a reviewer sees WHICH input is missing.
     pregame = None
+    _pregame_loaded = False
     try:
         try:  # pragma: no cover - import shape depends on run context
             from . import pit_availability
@@ -416,6 +425,7 @@ def _combined_exclusions(
             # fallback the channel was silently dead in every production run.
             import pit_availability  # type: ignore
         pregame = pit_availability.load_pregame_stints(ratings)
+        _pregame_loaded = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("pre-game availability channel unavailable (%s)", exc)
     if pregame is not None and len(pregame):
@@ -427,6 +437,18 @@ def _combined_exclusions(
             "snapshot_times": list(pregame.attrs.get("snapshot_times", [])),
         }
         logger.info("pre-game lineup channel: %d interval(s)", len(pregame))
+    elif _pregame_loaded:
+        # Loaded fine, replayed nothing: the frozen backfill is absent or
+        # empty. The other channels (espn, leave_events) still bind, so the
+        # pool is NOT fabricated — but the historical absence gap this
+        # channel exists to close is open, and the log must say so.
+        logger.warning(
+            "pre-game lineup channel: UNPOPULATED — 0 interval(s); the "
+            "frozen backfill artifact (%s) is absent or empty, so the "
+            "historical pl_* availability gap stays OPEN in production. "
+            "Absences read as 'no absences known', never as healthy; espn "
+            "and leave_events channels are unaffected.",
+            pit_availability.PREGAME_AVAILABILITY_ARTIFACT)
     if len(leaves):
         sources["leave_events"] = {
             "stints": leaves,

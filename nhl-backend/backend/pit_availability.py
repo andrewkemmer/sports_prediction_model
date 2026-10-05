@@ -1097,6 +1097,15 @@ def backfill(games, session, *, write_artifact: bool = True,
                 events.to_parquet(path, index=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not persist pre-game availability: %s", exc)
+    # 2026-10-05 run-log review: coverage_gate — the machinery whose own
+    # docstring promises the gap is "LOUD, never silent" and the status
+    # artifact "written every run" — was reachable only from tests, so the
+    # THIN warning and nhl_availability_coverage.json never fired anywhere.
+    # THIS is the only call site where the per-game reports exist: a daily
+    # run replays the frozen events and cannot re-derive NO_EVIDENCE labels.
+    # write_status follows write_artifact so a dry-run backfill never leaves
+    # a status file claiming coverage it did not freeze.
+    coverage_gate(reports, write_status=write_artifact)
     return coverage_report(reports)
 
 
