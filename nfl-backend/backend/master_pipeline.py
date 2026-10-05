@@ -142,7 +142,16 @@ def main(argv: list[str] | None = None) -> int:
         install_crash_log_pusher,
         install_run_log_tee,
     )
-    _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+    # Never tee during a test run (NBA precedent, 5673874c): the install
+    # opens the rolling log with "w", so a pytest that reaches main()
+    # would TRUNCATE the committed nfl_pipeline_run_log.txt at the tee's
+    # own header (measured at 143 bytes for NBA). PYTEST_CURRENT_TEST
+    # covers in-test calls, pytest being loaded covers collection-time
+    # probes, and a production launch (Kaggle/Colab) has neither.
+    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+        _log_path = None
+    else:
+        _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
     # Same hardcoded coordinates _sync_data_delivery pushes to.
     install_crash_log_pusher(
         _log_path, "andrewkemmer", "sports_prediction_model")

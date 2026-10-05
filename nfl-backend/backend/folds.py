@@ -34,6 +34,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# How many provisional windows the thin-population WARNING names inline.
+# The 2026-10-05 run listed all 57 in ONE 2,516-char line; counts plus a
+# short sample carry the same verdict (run-log review, 2026-10-05).
+_THIN_WINDOW_SAMPLE = 5
+
 # Every frame that feeds fold generation MUST be put in this order first.
 # Why a helper and not a bare sort_values(date_col): make_folds returns
 # df.index[mask] (labels), and the OOF consumers index those labels
@@ -172,16 +177,27 @@ def make_folds(df: pd.DataFrame,
 
     provisional = [f for f in folds if f.provisional]
     if provisional:
+        # The window list is bounded: at production length the full join
+        # was a 2,516-char single line (57 windows, 2026-10-05 run) — the
+        # same one-line dump class the run-log review flagged. The COUNTS
+        # carry the verdict (the fold summary right below repeats them as
+        # provisional_windows/provisional_games); a sample of the first
+        # few windows shows the shape, and the per-window detail stays in
+        # nfl_fold_table.csv.
+        sample = ", ".join(
+            f"[{f.val_start.date()}..{f.val_end.date()} "
+            f"n={len(f.val_idx)} {f.season_type}]"
+            for f in provisional[:_THIN_WINDOW_SAMPLE])
+        rest = len(provisional) - _THIN_WINDOW_SAMPLE
+        if rest > 0:
+            sample += f", +{rest} more (per-window detail: nfl_fold_table.csv)"
         logger.warning(
             "OOF validation population is thin on %d of %d window(s) "
             "(< MIN_VAL_FOLD_GAMES=%d games): %s - retained and scored, "
             "but PROVISIONAL: excluded from pooled metrics, blend weights "
             "and calibration (playoff weeks, bye weeks and week-straddling "
             "blocks are the usual cause)",
-            len(provisional), len(folds), min_val_games,
-            ", ".join(f"[{f.val_start.date()}..{f.val_end.date()} "
-                      f"n={len(f.val_idx)} {f.season_type}]"
-                      for f in provisional),
+            len(provisional), len(folds), min_val_games, sample,
         )
     non_regular = [f for f in folds if f.season_type != "regular"]
     if non_regular and post is not None:
