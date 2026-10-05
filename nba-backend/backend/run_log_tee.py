@@ -16,10 +16,13 @@ artifact, and retention_policy keeps it because the name is protected
 CRASH DELIVERY: a run that dies BEFORE the publish phase would never
 push the log — the traceback would sit on the VM with everything else.
 install_crash_log_pusher registers a sys.excepthook that, on any
-uncaught exception AFTER the default traceback printer runs, clones the
-remote tip and pushes just the log file (subject: 'crash delivery').
-Like the tee, every failure mode degrades silently — a failed crash
-push must never mask the original error.
+uncaught exception AFTER the default traceback printer runs, appends a
+PIPELINE CRASH marker + full traceback STRAIGHT TO THE FILE (a stream a
+harness re-bound after the tee installed must not be able to keep the
+failure context out of the delivered copy), then clones the remote tip
+and pushes just the log file (subject: 'crash delivery'). Like the tee,
+every failure mode degrades silently — a failed crash push must never
+mask the original error.
 """
 from __future__ import annotations
 
@@ -27,6 +30,7 @@ import logging
 import os
 import subprocess
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -184,10 +188,36 @@ def push_log_on_crash(log_path: Path, branch: str = "main") -> bool:
     return True
 
 
+def _record_failure(log_path: Path, exc_type, exc, tb) -> None:
+    """Append a terminal crash marker + full traceback DIRECTLY to the log.
+
+    The default excepthook prints to whatever ``sys.stderr`` holds at
+    crash time. If a harness rebound stdout/stderr AFTER the tee
+    installed, that traceback bypasses the file — and the crash delivery
+    would ship a log that stops mid-run with no failure line at all (the
+    2026-10-05 run-log review class: a delivered log with no crash
+    context is indistinguishable from a run that was simply cut off).
+    Writing straight to the file cannot be re-routed, so every delivered
+    crash log states what killed the run. Appends (never truncates) and
+    degrades silently: recording must never mask the original error.
+    """
+    try:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = "".join(traceback.format_exception(exc_type, exc, tb))
+        with open(log_path, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"\n  ❌ PIPELINE CRASH {stamp} — "
+                    f"{exc_type.__name__}: {exc}\n")
+            f.write(body.rstrip() + "\n")
+            f.flush()
+    except Exception:
+        pass  # the marker is a courtesy; the original error is the point
+
+
 def install_crash_log_pusher(log_path: Path | None,
                              branch: str = "main") -> None:
     """On any uncaught exception, print the traceback (the ORIGINAL hook's
-    job — never skipped), then best-effort push the captured log."""
+    job — never skipped), record it in the log file, then best-effort push
+    the captured log."""
     if not log_path:
         return
     previous = sys.excepthook
@@ -196,6 +226,19 @@ def install_crash_log_pusher(log_path: Path | None,
         previous(exc_type, exc, tb)  # traceback to console (and tee) first
         if isinstance(exc, SystemExit):
             return  # deliberate exits are not crashes
+        # Flush whatever streams the process currently holds, then append
+        # the failure marker straight to the file — a stream re-bound by a
+        # harness must not be able to keep the traceback out of the copy
+        # that crash delivery ships.
+        for _s in (sys.stdout, sys.stderr):
+            try:
+                _s.flush()
+            except Exception:
+                pass
+        try:
+            _record_failure(log_path, exc_type, exc, tb)
+        except Exception:
+            pass  # marker failure must never block the delivery itself
         try:
             if push_log_on_crash(log_path, branch):
                 print("  📝 Crash log pushed to "

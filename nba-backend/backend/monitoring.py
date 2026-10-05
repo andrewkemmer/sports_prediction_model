@@ -224,6 +224,39 @@ def _composition_matched_baseline(baseline: pd.DataFrame, prior: pd.DataFrame,
     return matched_baseline
 
 
+#: Content key of the last "feature drift" headline already logged at INFO
+#: (2026-10-05 run-log review: the delivered log carried the SAME line twice,
+#: 217 ms apart — the feature-report CSV pass and the model-monitor JSON pass
+#: both call feature_drift with the identical window pair and blend
+#: importances, so the repeats were byte-identical and tellable apart by no
+#: one). Keyed on the RENDERED CONTENT, not a call counter: a window that
+#: moves between calls logs again as a distinct line. See _log_feature_drift.
+_LAST_LOGGED_DRIFT: tuple | None = None
+
+
+def _log_feature_drift(n_features: int, n_warns: int, n_alerts: int,
+                       detail: str) -> None:
+    """Log the drift headline once per DISTINCT verdict, not per call.
+
+    ``write_run_engine_feature_artifacts`` (feature report phase) and the
+    monitor-JSON pass in master_pipeline compute the SAME drift table — same
+    ``drift_windows`` pair, same blend importances — so their two calls
+    rendered an identical line in the 2026-10-05 run. The first verdict of a
+    given content logs at INFO; an identical repeat drops to DEBUG; a
+    verdict that changed logs at INFO again.
+    """
+    global _LAST_LOGGED_DRIFT
+    key = (int(n_features), int(n_warns), int(n_alerts), detail)
+    if key == _LAST_LOGGED_DRIFT:
+        logger.debug("feature drift unchanged: %d features, %d warning(s), "
+                     "%d alert(s)", n_features, n_warns, n_alerts)
+        return
+    logger.info("feature drift: %d features, %d warning(s), %d alert(s); "
+                "statuses on noise-adjusted PSI with a location gate%s",
+                n_features, n_warns, n_alerts, detail)
+    _LAST_LOGGED_DRIFT = key
+
+
 def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
     """Per-feature drift status, structured like MLB's ``compute_feature_drift``.
@@ -315,9 +348,7 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
             _shown += f" (+{len(_names) - 25} more)"
         _named.append(f"{_label}: {_shown}")
     _detail = f" [{'; '.join(_named)}]" if _named else ""
-    logger.info("feature drift: %d features, %d warning(s), %d alert(s); "
-                "statuses on noise-adjusted PSI with a location gate%s",
-                len(out), n_warns, n_alerts, _detail)
+    _log_feature_drift(len(out), n_warns, n_alerts, _detail)
     return out
 
 
