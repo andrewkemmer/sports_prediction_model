@@ -124,6 +124,43 @@ MLB_TEAM_NAMES = {
     "ARI": "Arizona Diamondbacks", "COL": "Colorado Rockies",
 }
 
+# NFL full names, keyed by the codes the nflverse artifacts actually ship.
+# Every pair below is taken verbatim from the committed board snapshots
+# (nfl_board_<date>.csv / nfl_moneyline_v1_*.json home_team_name), so the
+# card renders the same string the pipeline publishes. Without this map
+# ``normalize_games`` filled NFL rows from MLB_TEAM_NAMES and an archive
+# card read "Arizona Diamondbacks" / "Kansas City Royals" for ARI / KC
+# (the frozen card store carries no *_team_name columns).
+NFL_TEAM_NAMES = {
+    "ARI": "Arizona Cardinals", "ATL": "Atlanta Falcons", "BAL": "Baltimore Ravens",
+    "BUF": "Buffalo Bills", "CAR": "Carolina Panthers", "CHI": "Chicago Bears",
+    "CIN": "Cincinnati Bengals", "CLE": "Cleveland Browns", "DAL": "Dallas Cowboys",
+    "DEN": "Denver Broncos", "DET": "Detroit Lions", "GB": "Green Bay Packers",
+    "HOU": "Houston Texans", "IND": "Indianapolis Colts", "JAX": "Jacksonville Jaguars",
+    "KC": "Kansas City Chiefs", "LA": "Los Angeles Rams", "LAC": "Los Angeles Chargers",
+    "LV": "Las Vegas Raiders", "MIA": "Miami Dolphins", "MIN": "Minnesota Vikings",
+    "NE": "New England Patriots", "NO": "New Orleans Saints", "NYG": "New York Giants",
+    "NYJ": "New York Jets", "PHI": "Philadelphia Eagles", "PIT": "Pittsburgh Steelers",
+    "SEA": "Seattle Seahawks", "SF": "San Francisco 49ers", "TB": "Tampa Bay Buccaneers",
+    "TEN": "Tennessee Titans", "WAS": "Washington Commanders",
+}
+
+
+def _team_name_map(sport: str) -> dict[str, str]:
+    """Sport-dispatched abbreviation → full-name map for ``normalize_games``.
+
+    NBA and NFL ship their own maps; everything else keeps the MLB map it
+    rendered with before this dispatch existed (NHL's display-name parity
+    is a separate, still-open gap — codes the MLB map lacks already fall
+    back to the bare abbreviation, never a fabricated name).
+    """
+    if sport == "nfl":
+        return NFL_TEAM_NAMES
+    if sport == "nba":
+        return NBA_TEAM_NAMES
+    return MLB_TEAM_NAMES
+
+
 COIN_FLIP_THRESHOLD = 0.02   # |p − 0.5| below this → coin flip
 UPSET_PROB_THRESHOLD = 0.35  # winner's model prob below this → upset
 
@@ -195,7 +232,7 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     for abbr_col, name_col in (("home_team", "home_team_name"),
                                ("away_team", "away_team_name")):
         if name_col not in df.columns and abbr_col in df.columns:
-            names = NBA_TEAM_NAMES if active_sport == "nba" else MLB_TEAM_NAMES
+            names = _team_name_map(active_sport)
             df[name_col] = df[abbr_col].map(names).fillna("")
 
     if "final_inning" not in df.columns:
@@ -2165,7 +2202,17 @@ def _cards_store_to_board_frame(store: pd.DataFrame,
     """Frozen-store rows for ``date_str`` reshaped into card columns.
 
     p_home_win IS the production-as-published probability — it maps onto the
-    card contract verbatim (no re-pricing, no OOF substitution)."""
+    card contract verbatim (no re-pricing, no OOF substitution).
+
+    RESULT + GRADE (2026-10-05 archive review): the store carries the final
+    score and the AUTHORITATIVE first-published grade in ``correct`` but
+    ships ``home_win`` NaN — ``normalize_games`` then derives
+    ``model_correct`` from a result it cannot see and every archive card
+    rendered "X MISS" (13 MISS pills + 12 "X <winner> Won — Model picked
+    <winner>" banners on a card the store grades 10–4 correct). Deriving
+    ``home_win`` from the score and carrying ``correct`` through as
+    ``model_correct`` lets the card show the grade it was published with.
+    """
     if store is None or store.empty:
         return pd.DataFrame()
     gd = store["game_date"].dropna().astype(str).str.replace("-", "")
@@ -2177,6 +2224,17 @@ def _cards_store_to_board_frame(store: pd.DataFrame,
         "p_away_win", (1.0 - day["p_home_win"]).clip(0, 1))
     if "game_status" not in day.columns:
         day["game_status"] = "Final"
+    if {"home_score", "away_score"}.issubset(day.columns):
+        hs = pd.to_numeric(day["home_score"], errors="coerce")
+        as_ = pd.to_numeric(day["away_score"], errors="coerce")
+        decided = hs.notna() & as_.notna()
+        home_win = pd.Series(float("nan"), index=day.index, dtype="float64")
+        home_win[decided & (hs > as_)] = 1.0
+        home_win[decided & (as_ > hs)] = 0.0
+        home_win[decided & (hs == as_)] = 0.5   # decided tie, never "no result"
+        day["home_win"] = home_win
+    if "model_correct" not in day.columns and "correct" in day.columns:
+        day["model_correct"] = day["correct"].map(_correct_bool)
     return normalize_games(day)
 
 

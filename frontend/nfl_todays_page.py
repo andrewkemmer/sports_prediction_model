@@ -16,14 +16,20 @@ marked ⟐):
   4. Board load: ⟐ ``utils.load_nfl_moneyline()`` filtered to the selected
      game date (MLB loads todays_games_<date>.csv + calibration + the
      run-engine slate map).
-  5. Header strip: `· N of M games shown` + evening-games pill +
-     `✓ W-L Today · acc% accuracy` badge — SAME markup, fed by ⟐
-     ``utils.load_calibration(date, sport='nfl')`` (nfl_calibration_*.json;
-     its record shape has no today_record yet → honest zeros, identical
-     markup); evening count computed from the start times with the shared
+  5. Header strip: `· N of M games shown` + evening-games pill + the
+     MLB THREE-STATE badge — `✓ W-L Today · acc% accuracy` only when THIS
+     board carries decided games, otherwise `No results yet — pre-game
+     slate` / `No games on this date` (never a fabricated `✓ 0-0 · 0.0%`);
+     fed by ⟐ ``utils.load_calibration(date, sport='nfl')``
+     (nfl_calibration_*.json) with the decided count resolved by
+     ``_decided_mask`` (``home_win`` when the artifact grades it, else a
+     Final row's score pair — the store ships NaN ``home_win``);
+     evening count computed from the start times with the shared
      ``utils._is_evening_start`` convention.
   6. ``_render_date_nav`` — the SHARED date navigation (arrows + calendar
      + mobile rail), imported, not duplicated.
+  6b. Archive notice sits exactly where MLB puts it — after the date nav,
+     before the filter pills — and only for ``history_view``.
   7. Filter pills `All Games (n) / Final (n) / Live (n)` — same
      ``st.pills``/``segmented_control`` fallback pair, same session key
      shape (namespaced ``nfl_game_filter``), same counts math.
@@ -34,6 +40,12 @@ marked ⟐):
      imported from the shared board module; the backend emits
      ``nfl_shap_game_<game_id>.csv`` attributions from the deployed
      ensemble's tree members).
+     ⟐ ENRICHMENT IS CURRENT-SLATE ONLY: the run-engine slate and QB
+     matchup load when ``not history_view`` and an archive card renders
+     MLB's quiet 'Run Engine data currently unavailable' strip (no later
+     run's OOF re-price on a frozen card) with no SHAP accordion — the
+     same guard MLB applies through ``_slate_map_for_view`` and NHL
+     applies to its goalie/SHAP enrichment.
   9. Card (⟐ ``_card_html`` mirror): top badge strip (☀/🌙 + LIVE/PRE-GAME/
      FINAL + ✓/X pills) → scoreboard (winner bars; PRE-GAME renders the
      0-0 display exactly like MLB) → team rows (records, PICK badge,
@@ -48,12 +60,14 @@ marked ⟐):
 Board title / artifact caption: the MLB board renders neither (the header
 strip IS the page header), so the NFL mirror renders neither either —
 the extra 'NFL moneyline board' line and the ⟐ title from earlier
-iterations were removed for byte-parity with the MLB element tree.
-
-Empty / missing states: no board → the shared notice; no games on the
-selected date → the shared nearest-valid fallback; missing QB record →
-each QB box renders '—' quietly (never fabricated); missing run-engine
-slate row → the existing quiet 'unavailable' strip.
+iterations were removed for byte-parity with the MLB element tree.Empty / missing states: no board → the shared notice; a date outside the
+valid set, or a valid date whose own snapshot/store fetch fails → MLB's
+backward recovery walk first (newest renderable date inside the rolling
+10-day window, under a labelled notice — a retention-pruned candidate is
+refused, so a stale date never renders another date's board), then the
+shared nearest-valid fallback; missing QB record → each QB box renders
+'—' quietly (never fabricated); missing run-engine slate row → MLB's
+quiet 'unavailable' strip.
 """
 
 from __future__ import annotations
@@ -71,6 +85,7 @@ from todays_games import (  # noqa: E402
     _nfl_run_engine_selectors,
     _nfl_start_time_et,
     _nfl_shap_expander,
+    _recovery_dates,
     _render_date_nav,
     _render_nearest_valid_fallback,
 )
@@ -278,8 +293,122 @@ def _evening_count(day: pd.DataFrame) -> int:
     return n
 
 
+# MLB's quiet run-engine fallbacks (todays_games._runengine_html) — the
+# SAME markup an MLB card renders when no slate row resolves, so an archive
+# card keeps the block instead of silently dropping it.
+_RE_UNAVAILABLE = ('<div class="fb-runengine"><span class="re-label">'
+                   'RUN ENGINE</span><span class="re-na">Run Engine data '
+                   'currently unavailable</span></div>')
+_RE_NA = ('<div class="fb-runengine"><span class="re-label">RUN ENGINE'
+          '</span><span class="re-na">n/a</span></div>')
+
+
+def _load_day(date_str: str) -> tuple[pd.DataFrame, bool]:
+    """Resolve one NFL board date — MLB's ``load_todays_games`` →
+    ``load_history_games`` two-step, over the NFL artifact families.
+
+    Returns ``(frame, history_view)``: the current-slate moneyline record
+    filtered to ``date_str`` when it covers that date (production view),
+    otherwise the frozen first-publication card store (archive view — the
+    production-as-published prediction, never an OOF re-price; the OOF
+    history CSV only seeds dates the store has never seen).
+    """
+    try:
+        frame = utils.load_nfl_moneyline()
+    except Exception:
+        frame = pd.DataFrame()
+    if frame is None or frame.empty:
+        frame = pd.DataFrame()
+    else:
+        frame = frame.dropna(subset=["home_team", "away_team"])
+    if len(frame):
+        day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
+        if not day.empty:
+            return day, False
+    try:
+        day = utils.load_nfl_history_games(date_str)
+    except Exception:
+        day = pd.DataFrame()
+    if day is None or day.empty:
+        return pd.DataFrame(), False
+    return day, True
+
+
+def _decided_mask(day: pd.DataFrame) -> pd.Series:
+    """MLB's decided-game test over an NFL frame (the accuracy badge's gate).
+
+    MLB's board CSV grades a ``home_win`` per game; the NFL families
+    populate it inconsistently — the frozen card store ships it NaN — so
+    fall back to a Final row's score pair. Same honesty rule (the badge may
+    only claim results THIS board carries), artifact-tolerant test:
+    pre-game and live rows never count.
+    """
+    if day is None or not len(day):
+        return pd.Series(dtype="object").notna()
+    if "home_win" in day.columns:
+        win = pd.to_numeric(day["home_win"], errors="coerce")
+        if win.notna().any():
+            return win.notna()
+    if {"home_score", "away_score"}.issubset(day.columns):
+        hs = pd.to_numeric(day["home_score"], errors="coerce")
+        as_ = pd.to_numeric(day["away_score"], errors="coerce")
+        final = (day["game_status"].astype(str) == "Final"
+                 if "game_status" in day.columns
+                 else pd.Series(True, index=day.index))
+        return (hs.notna() & as_.notna()).where(final, False)
+    return pd.Series(False, index=day.index)
+
+
+def _recovered_day(date_str: str, cand: str, valid_set: set[str]):
+    """A renderable ``(frame, history_view)`` for ``cand``, or None — the
+    MLB ``_recovered_board`` shape with the NFL resolution order.
+
+    Candidates outside the valid set never render: the valid set IS the
+    rolling 10-day window (dated board family ∪ current slate ∪ retained
+    history), so a retention-pruned or never-boarded date is refused
+    outright and a stale date can never render another date's board.
+    """
+    if cand == date_str or cand not in valid_set:
+        return None
+    day, history_view = _load_day(cand)
+    if day is None or day.empty:
+        return None
+    return day, history_view
+
+
+def _walk_recovery(date_str: str, valid: list[str], valid_set: set[str]) -> bool:
+    """MLB's backward recovery walk (its ``_recovery_dates`` loop), NFL
+    loaders: when the requested date is unreachable, render the newest
+    renderable recent board UNDER A NOTICE instead of dead-ending at the
+    substitute-date fallback. Each candidate is probed through the same
+    ``_load_day`` resolution, so a lagging fetch heals on a rerun without
+    user action. False when nothing renders (caller falls back).
+    """
+    for cand in _recovery_dates(date_str):
+        got = _recovered_day(date_str, cand, valid_set)
+        if got is None:
+            continue
+        day, history_view = got
+        st.info(
+            f"🗂 Recovery view — no game board was reachable for "
+            f"{utils.format_date_long(date_str)} right now, so the most "
+            f"recent available board ({utils.format_date_long(cand)}) is "
+            "shown. Re-select the original date once its snapshot lands "
+            "(usually within minutes of the next push)."
+        )
+        _render_board(day, cand, valid, history_view)
+        return True
+    return False
+
+
 def run() -> None:
-    """Render the NFL Today's Games board — the MLB page mirror."""
+    """Render the NFL Today's Games board — the MLB page mirror.
+
+    Anatomy mirrors MLB's two functions: this is ``main()`` (date
+    resolution + the recovery walk) and ``_render_board()`` below is the
+    shared renderer, so a recovered board and a normal one are rendered by
+    the same code.
+    """
     # CSS is already injected by Home.py and the shared board module
     # (todays_games.py imports run it at module level) — exactly the two
     # <style> blocks the MLB render emits. Calling it again here would add
@@ -302,32 +431,54 @@ def run() -> None:
         st.session_state["_nav_sport"] = "nfl"
     date_str = st.session_state["selected_date"]
     if date_str not in valid_set:
+        if _walk_recovery(date_str, valid, valid_set):
+            return
         _render_nearest_valid_fallback(valid, date_str)
         st.stop()
 
-    # 4. Board load (NFL artifact family)
-    try:
-        frame = utils.load_nfl_moneyline()
-    except Exception:
-        frame = pd.DataFrame()
-    frame = frame.dropna(subset=["home_team", "away_team"]) if frame is not None else pd.DataFrame()
-    day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
-    history_view = False
+    # 4. Board load — MLB's snapshot-then-history step over the NFL
+    # artifact families (current slate → frozen first-publication store).
+    day, history_view = _load_day(date_str)
     if day.empty:
-        # The moneyline JSON is current-slate-only. Rebuild retained NFL
-        # season cards from the frozen first-publication card store (the
-        # production-as-published prediction — never an OOF re-price);
-        # the OOF history CSV is only a pre-seed fallback.
+        # A union-listed date whose own fetch failed: walk backward through
+        # recent dates (inside the retention window) before the honest empty
+        # state — MLB's structure, NFL loaders.
+        if _walk_recovery(date_str, valid, valid_set):
+            return
+        _render_nearest_valid_fallback(valid, date_str)
+        st.stop()
+
+    _render_board(day, date_str, valid, history_view)
+
+
+def _render_board(day: pd.DataFrame, date_str: str, valid,
+                  history_view: bool = False) -> None:
+    """Shared NFL board renderer — MLB's ``_render_board`` anatomy:
+    accuracy header strip → date nav → archive notice → filter pills →
+    two-per-row cards → point-in-time caption.
+
+    Called by BOTH entry points (``run()`` and the recovery walk), so a
+    recovered board is byte-identical to a normally-loaded one apart from
+    the notice. ⟐ Enrichment (run-engine markets, QB matchup, SHAP) is
+    CURRENT-SLATE ONLY: an archive view renders empty frames, so a frozen
+    card can never inherit a later run's OOF re-price.
+    """
+    slate = pd.DataFrame()
+    qb = pd.DataFrame()
+    if not history_view:
         try:
-            day = utils.load_nfl_history_games(date_str)
+            slate, _sdate = utils.load_nfl_run_engine_markets("nfl")
         except Exception:
-            day = pd.DataFrame()
-        history_view = not day.empty
-    if day.empty:
-        _render_nearest_valid_fallback(valid, date_str)
-        st.stop()
+            slate = pd.DataFrame()
+        try:
+            qb = utils.load_nfl_qb_matchup("nfl")
+        except Exception:
+            qb = pd.DataFrame()
 
-    # 5. Header strip — SAME markup as MLB (fed by nfl_calibration_*.json)
+    # 5. Header strip — SAME markup as MLB (fed by nfl_calibration_*.json),
+    # including MLB's THREE-STATE badge: the accuracy pill is a TODAY
+    # claim, so it renders only when THIS board carries decided games (a
+    # pre-game slate never claims "✓ 0-0 · 0.0% accuracy").
     cal = utils.load_calibration(date_str, sport="nfl") or {}
     record = cal.get("today_record", {}) or {}
     wins, losses = record.get("wins", 0), record.get("losses", 0)
@@ -335,6 +486,16 @@ def run() -> None:
     acc = (wins / completed * 100) if completed else 0.0
     league_total = cal.get("league_total", len(day))
     evening_league = cal.get("evening_games_league", _evening_count(day))
+    _n_decided = int(_decided_mask(day).sum())
+    if _n_decided:
+        _badge = f"✓ {wins}-{losses} Today · {acc:.1f}% accuracy"
+        _badge_bg, _badge_fg = "rgba(16,185,129,.18)", "#34D399"
+    elif len(day):
+        _badge = "No results yet — pre-game slate"
+        _badge_bg, _badge_fg = "rgba(59,130,246,.18)", "#93C5FD"
+    else:
+        _badge = "No games on this date"
+        _badge_bg, _badge_fg = "rgba(148,163,184,.18)", "#94A3B8"
     st.markdown(
         f"""
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:2px;">
@@ -342,8 +503,8 @@ def run() -> None:
           <span style="background:rgba(59,130,246,.18);color:#93C5FD;border-radius:999px;padding:2px 10px;font-size:0.78rem;font-weight:700;">
             {evening_league} evening games begin 7 PM ET+
           </span>
-          <span style="margin-left:auto;background:rgba(16,185,129,.18);color:#34D399;border-radius:999px;padding:2px 10px;font-size:0.8rem;font-weight:700;">
-            ✓ {wins}-{losses} Today · {acc:.1f}% accuracy
+          <span style="margin-left:auto;background:{_badge_bg};color:{_badge_fg};border-radius:999px;padding:2px 10px;font-size:0.8rem;font-weight:700;">
+            {_badge}
           </span>
         </div>
         """,
@@ -353,10 +514,16 @@ def run() -> None:
     # 6. Shared date nav (arrows + calendar + mobile rail)
     _render_date_nav(valid, date_str)
 
-    fdate = utils.latest_artifact_date("nfl", "moneyline_json")
-    tag = f"v1_{fdate}" if fdate else "—"
-    # (the artifact tag stays resolved for the empty-state message below; the
-    # MLB board renders no artifact caption line, so neither does NFL)
+    # 6b. Archive notice — MLB renders it HERE (after the date nav, before
+    # the filter pills); the mirror previously parked it below the pills.
+    if history_view:
+        st.info(
+            "🗂 Archive view — this historical NFL card serves the production "
+            "prediction as first published (frozen card store; never an OOF "
+            "re-price). Scores, picks, probabilities, and results are "
+            "preserved; current-slate market and SHAP enrichment is "
+            "unavailable for this retained date."
+        )
 
     # 7. Filter pills — same widget pair + counts math as MLB
     counts = {
@@ -383,25 +550,6 @@ def run() -> None:
     elif selected == "Live":
         filtered = day[day["game_status"] == "Live"]
 
-    # ⟐ per-date enrichment: run-engine slate + QB matchup (NFL families)
-    try:
-        slate, _sdate = utils.load_nfl_run_engine_markets("nfl")
-    except Exception:
-        slate = pd.DataFrame()
-    try:
-        qb = utils.load_nfl_qb_matchup("nfl")
-    except Exception:
-        qb = pd.DataFrame()
-
-    if history_view:
-        st.info(
-            "🗂 Archive view — this historical NFL card serves the production "
-            "prediction as first published (frozen card store; never an OOF "
-            "re-price). Scores, picks, probabilities, and results are "
-            "preserved; current-slate market and SHAP enrichment is "
-            "unavailable for this retained date."
-        )
-
     st.divider()
 
     # 8. Two-per-row card loop — same geometry as MLB
@@ -415,16 +563,18 @@ def run() -> None:
                 if sel is not None:
                     kw = {"total_line": sel[0], "home_spread": sel[1],
                           "half_stop": sel[2]}
-                re_html = ""
+                # MLB keeps the block whenever no slate row resolves (its
+                # _runengine_html(None) → quiet 'unavailable'); an archive
+                # card therefore renders the same muted strip instead of
+                # silently dropping the run-engine area.
+                re_html = _RE_UNAVAILABLE
                 if srow is not None:
                     try:
                         re_html = nfl_sv.runengine_html(
                             srow, str(g.get("home_team", "")),
                             str(g.get("away_team", "")), **kw)
                     except Exception:
-                        re_html = ('<div class="fb-runengine">'
-                                   '<span class="re-label">RUN ENGINE</span>'
-                                   '<span class="re-na">n/a</span></div>')
+                        re_html = _RE_NA
                 qb_row = None
                 if qb is not None and len(qb):
                     gid = str(g.get("game_id", "") or "")
@@ -434,9 +584,14 @@ def run() -> None:
                 st.markdown(_nfl_mirror_card_html(g, qb_row, re_html),
                             unsafe_allow_html=True)
                 # SAME per-card expander as MLB (📈 SHAP Features) — the
-                # backend now emits nfl_shap_game_<game_id>.csv attributions
+                # backend emits nfl_shap_game_<game_id>.csv attributions
                 # from the deployed ensemble, so the identical chart renders.
-                _nfl_shap_expander(g)
+                # A frozen ARCHIVE card never shows them: the family is
+                # game-keyed (not date-keyed), so it WOULD resolve to the
+                # latest run's OOF attributions — the notice above says SHAP
+                # is unavailable for this retained date (NHL mirror parity).
+                if not history_view:
+                    _nfl_shap_expander(g)
 
     # 10. Same point-in-time caption
     st.caption("Model outputs are point-in-time — only data available before each "

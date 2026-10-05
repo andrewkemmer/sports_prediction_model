@@ -13,9 +13,17 @@ representative committed artifacts:
 
 Asserts the remediation end-to-end at the render level:
   - today's board shows the started game (not removed) with its frozen
-    pre-game price and a Live/started card;
+    pre-game price and a Live/started card, under MLB's THREE-STATE badge
+    (a pre-game slate never claims an accuracy record);
   - yesterday's date is navigable and renders the dated snapshot's frozen
     prices (no OOF substitution);
+  - the ARCHIVE path (frozen card store) serves the store's published
+    probability — never the committed OOF history value for the same game —
+    with NO run-engine values, NO SHAP accordion, the archive notice between
+    the date nav and the filter pills (MLB element order), NFL team names,
+    and the store's own pick grade instead of a fabricated all-MISS card;
+  - the recovery walk refuses any candidate outside the valid (rolling
+    10-day) set, and `_decided_mask` never counts a pre-game/live row;
   - the rolling-10-day valid-date rail is built from the dated board
     family (structurally aligned with MLB's board-family navigation);
   - no page exceptions.
@@ -51,6 +59,9 @@ BOARD_TODAY = NFL_DD / f"nfl_board_{_TODAY_C}.csv"
 BOARD_YDAY = NFL_DD / f"nfl_board_{_YDAY_C}.csv"
 ML_JSON = NFL_DD / f"nfl_moneyline_v1_{_TODAY_C}.json"
 CAL_JSON = NFL_DD / f"nfl_calibration_{_TODAY_C}.json"
+# The frozen first-publication store — the ARCHIVE board's only price
+# source. Backed up and restored like the other committed artifacts above.
+STORE = NFL_DD / "nfl_production_cards_history.csv"
 
 _BACKUPS: dict[Path, bytes | None] = {}
 WRITTEN: list[Path] = []
@@ -152,16 +163,63 @@ def _calibration_record() -> dict:
     }
 
 
+def _store_rows() -> pd.DataFrame:
+    """Frozen first-publication store rows for yesterday (the archive board).
+
+    Deliberately shaped to pin the archive contract:
+
+      * ``2026_04_ARI_NYG`` is a REAL id the committed OOF history carries
+        at a different probability (~0.575 calibrated vs the frozen 0.617
+        here), so a page that ever serves the OOF re-price fails the
+        "62%" assertion below;
+      * ``SMOKE_ARCH`` is a store-only id (the OOF fallback could never
+        produce it);
+      * ``2026_04_NE_BUF`` is graded WRONG in ``correct`` while its scores
+        agree with the pick — pinning the STORE's grade as the displayed
+        one (a score-derived grade would render 3 ✓ / 0 ✗);
+      * abbreviations are MLB-colliding (ARI / KC / NE-adjacent) so the
+        NFL name map is pinned too;
+      * ``home_win`` is NaN, exactly as the committed store ships it.
+    """
+    return pd.DataFrame([
+        {
+            "game_id": "2026_04_ARI_NYG", "game_date": _YDAY.isoformat(),
+            "home_team": "NYG", "away_team": "ARI",
+            "home_score": 24.0, "away_score": 17.0, "home_win": np.nan,
+            "p_home_win": 0.617, "p_away_win": 0.383,
+            "model_pick": "NYG", "correct": True,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        {
+            "game_id": "SMOKE_ARCH", "game_date": _YDAY.isoformat(),
+            "home_team": "KC", "away_team": "LV",
+            "home_score": 20.0, "away_score": 23.0, "home_win": np.nan,
+            "p_home_win": 0.412, "p_away_win": 0.588,
+            "model_pick": "LV", "correct": True,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+        {
+            "game_id": "2026_04_NE_BUF", "game_date": _YDAY.isoformat(),
+            "home_team": "NE", "away_team": "BUF",
+            "home_score": 17.0, "away_score": 24.0, "home_win": np.nan,
+            "p_home_win": 0.708, "p_away_win": 0.292,
+            "model_pick": "NE", "correct": False,
+            "game_status": "Final", "source_artifact_date": _YDAY_C,
+        },
+    ])
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON):
+    for p in (BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE):
         _BACKUPS[p] = p.read_bytes() if p.exists() else None
     _board_rows().to_csv(BOARD_TODAY, index=False)
     _board_rows()[_board_rows()["game_date"] == _YDAY.isoformat()] \
         .to_csv(BOARD_YDAY, index=False)
     ML_JSON.write_text(json.dumps(_moneyline_record()))
     CAL_JSON.write_text(json.dumps(_calibration_record()))
-    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON])
+    _store_rows().to_csv(STORE, index=False)
+    WRITTEN.extend([BOARD_TODAY, BOARD_YDAY, ML_JSON, CAL_JSON, STORE])
 
 
 def _restore() -> None:
@@ -274,6 +332,12 @@ def run() -> int:
         if "of 3 games shown" not in text:
             problems.append("header strip does not count 3 games (started "
                             "game missing from the board frame?)")
+        # MLB's THREE-STATE badge: neither shadow card is decided, so the
+        # accuracy pill must not claim a record (it used to render
+        # "✓ 0-0 Today · 0.0% accuracy" on every pre-game slate).
+        if "No results yet — pre-game slate" not in text:
+            problems.append("pre-game slate still claims an accuracy badge "
+                            "(MLB three-state badge not applied)")
 
         # ---- Yesterday navigates to the dated snapshot (frozen price) ----
         import utils
@@ -296,6 +360,107 @@ def run() -> int:
                     f"(got {fin.iloc[0]['home_win_prob_model']})")
         # A date with no board/history must NOT resurrect OOF rows for it.
         utils.load_nfl_prediction_history  # (attr presence; OOF gate is structural)
+
+        # ---- Archive date: frozen slate prediction + MLB element anatomy ----
+        # The moneyline record covers today only, so yesterday resolves
+        # through the FROZEN CARD STORE — driven here with the store rows
+        # above (a real id the committed OOF history prices differently).
+        aa = AppTest.from_file(str(FRONTEND_DIR / "todays_games.py"),
+                               default_timeout=120)
+        aa.session_state["sport"] = "nfl"
+        aa.session_state["selected_date"] = _YDAY_C
+        aa.session_state["_nav_sport"] = "nfl"
+        aa.run()
+        if aa.exception:
+            problems.append("NFL ARCHIVE BOARD RAISED EXCEPTIONS:\n  "
+                            + "\n  ".join(str(e.value) for e in aa.exception))
+        atext = _all_text(aa)
+
+        # (a) THE SLATE PREDICTION, NOT THE OOF RE-PRICE: the frozen
+        # p_home_win renders, not the committed history's calibrated value
+        # for the same real id (0.575 → "57%", which must never appear).
+        for want in ("62%", "41%", "71%"):
+            if want not in atext:
+                problems.append(
+                    f"archive board lost the frozen store price {want} "
+                    "(serving the OOF history instead?)")
+
+        # (b) No later run's market on a frozen card: every archive card
+        # renders MLB's quiet 'unavailable' strip, never run-engine values.
+        acards = [m.value for m in aa.markdown
+                  if isinstance(m.value, str) and '<div class="fb-top">' in m.value]
+        if len(acards) != 3:
+            problems.append(f"archive board rendered {len(acards)} cards, want 3")
+        for c in acards:
+            if 're-na">Run Engine data currently unavailable' not in c:
+                problems.append("archive card rendered run-engine VALUES (a "
+                                "later run's OOF re-price) instead of MLB's "
+                                "quiet unavailable strip")
+        if len(aa.expander):
+            problems.append(
+                f"archive board rendered {len(aa.expander)} SHAP accordion(s) "
+                "— a frozen card must not inherit a later run's attributions")
+
+        # (c) Archive notice in MLB's position: after the date nav, before
+        # the filter pills (it used to render below them).
+        seq = list(aa.main)
+        info_i = next((i for i, e in enumerate(seq)
+                       if type(e).__name__ == "Info"), -1)
+        nav_i = next((i for i, e in enumerate(seq)
+                      if type(e).__name__ == "Button"
+                      and str(getattr(e, "label", "")).startswith("◀")), -1)
+        pills_i = next((i for i, e in enumerate(seq)
+                        if type(e).__name__ == "ButtonGroup"
+                        and str(getattr(e, "label", "")) == "Filter"), -1)
+        if info_i < 0:
+            problems.append("archive notice missing from the archive board")
+        elif not (0 <= nav_i < info_i < pills_i):
+            problems.append("archive notice is not between the date nav and "
+                            f"the filter pills (nav={nav_i}, notice={info_i}, "
+                            f"pills={pills_i}) — MLB renders it there")
+
+        # (d) NFL team names — the store path used to fall through to the
+        # MLB map ("Arizona Diamondbacks" / "Kansas City Royals" on NFL cards).
+        if "Kansas City Chiefs" not in atext or "Arizona Cardinals" not in atext:
+            problems.append("archive cards lost the NFL full team names")
+        if "Kansas City Royals" in atext or "Arizona Diamondbacks" in atext:
+            problems.append("archive cards rendered MLB team names")
+
+        # (e) Pick grade preserved: the store's `correct` column drives the
+        # pills (2 correct + 1 graded wrong), never the fabricated all-MISS
+        # card the NaN `home_win` used to derive.
+        n_ok = atext.count("✓ CORRECT PICK")
+        n_miss = atext.count("X MISS")
+        if (n_ok, n_miss) != (2, 1):
+            problems.append("archive pick grades do not match the store's "
+                            f"published `correct` column (correct={n_ok}, "
+                            f"miss={n_miss}, want 2/1)")
+        if "No results yet" in atext or "No games on this date" in atext:
+            problems.append("decided archive board rendered the pre-game/"
+                            "empty badge instead of the accuracy badge")
+
+        # (f) Recovery walk + decided-mask gates (pure functions, no IO).
+        from nfl_todays_page import _decided_mask, _recovered_day
+        valid_set = set(valid)
+        if _recovered_day(_YDAY_C, _YDAY_C, valid_set) is not None:
+            problems.append("recovery would re-render the failed date itself")
+        if _recovered_day(_YDAY_C, "19990101", valid_set) is not None:
+            problems.append("recovery accepted a date outside the valid "
+                            "(rolling 10-day) set — a pruned date must never "
+                            "render another date's board")
+        _fin = pd.DataFrame({"game_status": ["Final", "Final"],
+                             "home_score": [20.0, 17.0],
+                             "away_score": [23.0, 21.0],
+                             "home_win": [np.nan, np.nan]})
+        if int(_decided_mask(_fin).sum()) != 2:
+            problems.append("_decided_mask missed a Final row carrying scores")
+        _pre = pd.DataFrame({"game_status": ["Scheduled", "Live"],
+                             "home_score": [None, None],
+                             "away_score": [None, None]})
+        if int(_decided_mask(_pre).sum()) != 0:
+            problems.append("_decided_mask counted a pre-game/live row")
+        if int(_decided_mask(pd.DataFrame()).sum()) != 0:
+            problems.append("_decided_mask must be 0 on an empty frame")
     finally:
         _restore()
 
@@ -306,7 +471,12 @@ def run() -> int:
         return 1
     print("BOARD RENDER SMOKE [PASS]")
     print("  - today's board includes the started game with its frozen price")
+    print("  - pre-game slate renders MLB's honest three-state badge")
     print("  - yesterday renders from the dated snapshot (frozen, not OOF)")
+    print("  - archive cards serve the frozen store price, grade, and names")
+    print("  - archive cards carry no run-engine values and no SHAP accordion")
+    print("  - archive notice sits between the date nav and the filter pills")
+    print("  - recovery and decided-mask gates hold")
     print("  - valid-date rail includes the dated board family window")
     print("  - no page exceptions")
     return 0
