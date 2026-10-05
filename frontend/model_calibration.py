@@ -279,11 +279,31 @@ else:
     if n_tot > 0:
         mp_tot = float((curve_df["mean_predicted"] * curve_df["count"]).sum() / n_tot)
         ma_tot = float((curve_df["mean_actual"] * curve_df["count"]).sum() / n_tot)
+        # TOTAL calibrated win probability: count-weighted mean over the
+        # prequential calibrated buckets — each game sits in the bucket its
+        # CALIBRATED probability falls in (re-binned vs the raw view, so
+        # per-bucket counts differ while the grand total stays n_tot).
+        # Shown only when the calibrated partition covers every displayed
+        # bucket AND counts the same games; a partial partition keeps the
+        # honest em-dash instead of masquerading as a total (2026-10-05).
+        _cal_cov = [_cal_buckets.get(b) for b in curve_df["bucket"]]
+        mp_cal_tot = None
+        if all(_cal_cov):
+            _n_cal = sum(int(b["count"]) for b in _cal_cov)
+            if _n_cal == n_tot:
+                mp_cal_tot = (
+                    sum(float(b["mean_predicted"]) * int(b["count"])
+                        for b in _cal_cov) / _n_cal)
+        cal_tot_cell = (
+            f"<td style='color:#34D399;'>{mp_cal_tot:.3f}</td>"
+            if mp_cal_tot is not None
+            else "<td style='color:#64748B;'>—</td>"
+        )
         gap_tot = mp_tot - ma_tot
         tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
         rows.append(
             f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
-            f"<td>{mp_tot:.3f}</td><td style='color:#64748B;'>—</td>"
+            f"<td>{mp_tot:.3f}</td>{cal_tot_cell}"
             f"<td>{ma_tot:.3f}</td><td>{n_tot}</td>"
             f"<td style='color:{tot_color};font-weight:700;'>{gap_tot:+.3f}</td></tr>"
         )
@@ -298,7 +318,7 @@ else:
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
-          CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment.
+          CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment. TOTAL CALIBRATED = count-weighted mean across those calibrated buckets (each game counted once in the bucket its calibrated probability falls in).
         </div>
         """,
         unsafe_allow_html=True,

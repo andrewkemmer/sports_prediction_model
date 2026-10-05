@@ -11,8 +11,9 @@ path). This test:
    the MLB-identical seven sections: header pill, today's-record summary
    card, the four KPI cards (AUC/Brier/Log-Loss/Cal. Error raw→calibrated),
    the Platt recalibration banner, the per-1% calibration CURVE as a real
-   Altair chart, the reliability table WITH rows + a TOTAL row, and the
-   populated prediction-history table — with no exceptions.
+   Altair chart, the reliability table WITH rows + a TOTAL row carrying the
+   total calibrated win probability, and the populated prediction-history
+   table — with no exceptions.
 3. Runs the same page under ``sport=mlb`` and asserts it also runs clean
    (the shared path; locally it halts/warns on missing MLB artifacts rather
    than crashing).
@@ -24,6 +25,7 @@ Run from the frontend/ directory:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -354,6 +356,54 @@ def test_calibration_curve_is_the_production_oof_calibration():
     assert not problems, "; ".join(problems)
 
 
+def _total_calibrated_cell_problems(text: str) -> list[str]:
+    """The reliability table's TOTAL row must show the total calibrated win
+    probability (count-weighted mean over the calibrated buckets), rendered
+    in the same green as the per-bucket calibrated cells — not the old
+    em-dash. Pure text contract so both the script smoke and the pytest
+    render test assert the same thing."""
+    tot = re.search(
+        r"<tr style='border-top:2px solid #334155[^']*'[^>]*>.*?</tr>",
+        text, re.S)
+    if not tot:
+        return ["reliability table missing TOTAL row markup"]
+    row = tot.group(0)
+    problems: list[str] = []
+    if "color:#34D399" not in row:
+        problems.append("TOTAL row lacks the calibrated cell (em-dash regression): "
+                        + row[:200])
+    rec = _calibration_record()
+    cbs = rec["calibration"]["calibration_buckets_calibrated"]
+    n = sum(int(b["count"]) for b in cbs)
+    expected = sum(float(b["mean_predicted"]) * int(b["count"]) for b in cbs) / n
+    if f"{expected:.3f}" not in row:
+        problems.append(
+            f"TOTAL row does not show the count-weighted calibrated total "
+            f"{expected:.3f}: {row[:200]}")
+    return problems
+
+
+def test_total_calibrated_win_probability_renders_in_reliability_table():
+    """2026-10-05: render the REAL page under AppTest and pin the TOTAL
+    row's calibrated cell — count-weighted over the calibrated buckets
+    (each game once, at its calibrated pick probability)."""
+    _write_artifacts()
+    try:
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        assert "Reliability Diagram" in text, "reliability section missing"
+        problems = _total_calibrated_cell_problems(text)
+        assert not problems, "; ".join(problems)
+        assert "TOTAL CALIBRATED" in text, \
+            "caption must document the total-calibrated cell"
+    finally:
+        _remove_artifacts()
+
+
 def run() -> int:
     _write_artifacts()
     problems: list[str] = []
@@ -419,6 +469,11 @@ def run() -> int:
         if "52%-60%" not in text:
             problems.append("reliability table missing a >=50% favored bucket")
 
+        # (5c) TOTAL row carries the TOTAL CALIBRATED win probability —
+        #     count-weighted over the calibrated buckets (2026-10-05). The
+        #     old em-dash in that cell is the regression this pins.
+        problems.extend(_total_calibrated_cell_problems(text))
+
         # (6) prediction-history table populated (with real rows, not the empty info)
         if "Prediction History" not in text:
             problems.append("missing prediction-history section")
@@ -454,7 +509,7 @@ def run() -> int:
         n_curves = len(vcl)
         print(f"  - no exceptions; {n_curves} Altair curve chart(s) rendered")
         print("  - record summary + 4 KPIs + Platt banner + reliability table"
-              " (w/ TOTAL) + populated history table")
+              " (w/ TOTAL + calibrated total) + populated history table")
         print("  - green reference layer is the deployed pooled Platt map "
               "(no frontend refit; shared 0-100 right axis)")
 
