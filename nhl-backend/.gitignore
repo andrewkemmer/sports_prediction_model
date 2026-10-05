@@ -31,8 +31,12 @@ __pycache__/
 !data_delivery/nhl_injury_snapshot_history.parquet
 !data_delivery/nhl_leave_events.json
 !data_delivery/nhl_feature_selection_*.json
-!data_delivery/nhl_feature_workbook_*.xlsx
 !data_delivery/nhl_pipeline_run_log.txt
+
+# The RFE workbook is training residue (2026-10-04 audit): regenerated every
+# RFE run, nothing reads it back — writes to run_diagnostics/ and is never
+# committed (this rule was a negation until the audit removed it).
+data_delivery/nhl_feature_workbook_*.xlsx
 
 # Generated per-run internals — never committed.
 #   nhl_pipeline_summary.json / nhl_feature_selection_state.json are still

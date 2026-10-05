@@ -276,7 +276,9 @@ FEATURE_MANIFEST = {
         "lookback": "decaying (halflife=3 starts) over the season's starts",
         "aggregation": "per-goalie EWM of the per-start save fraction",
         "point_in_time_rule": "each goalie's strictly-prior starts only; the expected starter is "
-                              "the highest-prior-workload AVAILABLE goalie — goalies known "
+                              "the highest SEASON-TO-DATE prior-workload AVAILABLE goalie "
+                              "(season-scoped, so a prior-season workhorse cannot be served "
+                              "as tonight's starter) — goalies known "
                               "unavailable strictly before puck drop (Out/IR/Doubtful from the "
                               "ESPN snapshot replay, or an announced non-medical leave from the "
                               "versioned nhl_leave_events.json ledger, replayed as intervals) are "

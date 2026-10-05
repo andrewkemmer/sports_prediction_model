@@ -50,6 +50,7 @@ from unittest.mock import patch as _mock_patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 BACKEND = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND))
@@ -2463,6 +2464,124 @@ def test_expected_starter_is_the_prior_workload_leader_not_tonights_goalie():
         "expected starter tracked tonight's decision goalie"
     # ...and the workload it reports is the primary's, not the backup's one.
     assert pd.to_numeric(warm["goalie_starts_home"], errors="coerce").max() >= 5
+
+
+def _season_split_goalie_frame():
+    """Two seasons for one team (ANA): G. Alpha is the 2025-26 workhorse
+    (5 starts), G. Bravo starts the 2026-27 games. The 2026-10-04 FLA@ANA
+    card served S. Bobrovsky (129 career starts, 0 this season) over the
+    goalies the team was actually using — this is that shape."""
+    games_rows, bs_rows = [], []
+
+    def add(gid, day, season, home_goalie, home_line, away_goalie, away_line):
+        games_rows.append({"game_id": gid, "season": season, "gameday": day,
+                           "home_team": "ANA", "away_team": "BOS",
+                           "home_score": 3, "away_score": 2})
+        hid, hname, hga, hsa = home_goalie + home_line
+        aid, aname, aga, asa = away_goalie + away_line
+        bs_rows.append({"game_id": gid,
+                        "home_goalie_id": hid, "home_goalie_name": hname,
+                        "home_goalie_toi": 60.0,
+                        "home_goals_against": hga, "home_shots_against": hsa,
+                        "away_goalie_id": aid, "away_goalie_name": aname,
+                        "away_goalie_toi": 60.0,
+                        "away_goals_against": aga, "away_shots_against": asa})
+
+    for i, day in enumerate(("2025-10-05", "2025-10-12", "2025-10-19",
+                             "2025-10-26", "2025-11-02")):
+        add(f"P{i}", day, 2025,
+            ("ga", "G. Alpha"), (2.0, 30.0),
+            ("bx", "B. Xray"), (3.0, 28.0))
+    add("N0", "2026-10-03", 2026,
+        ("gb", "G. Bravo"), (1.0, 25.0),
+        ("bx", "B. Xray"), (3.0, 28.0))
+    add("N1", "2026-10-05", 2026,
+        ("gb", "G. Bravo"), (2.0, 30.0),
+        ("bx", "B. Xray"), (3.0, 28.0))
+    add("N2", "2026-10-07", 2026,
+        ("gb", "G. Bravo"), (1.0, 20.0),
+        ("bx", "B. Xray"), (3.0, 28.0))
+    return pd.DataFrame(games_rows), pd.DataFrame(bs_rows)
+
+
+def test_expected_starter_vote_is_season_scoped():
+    """Season-to-date workload (the manifest contract): a prior-season
+    workhorse with ZERO starts this season must never be served as tonight's
+    expected starter over the goalies the team is actually using."""
+    games, bs = _season_split_goalie_frame()
+    per_game, _ = feat_mod.goalie_state(bs, games, games)
+    per_game = per_game.assign(game_id=games["game_id"])
+    late = per_game[per_game["game_id"] == "N1"].iloc[0]
+    assert late["g_home_name"] == "G. Bravo", \
+        "season-scoped vote picked the prior-season workhorse"
+    # Prior season keeps its own answer: Alpha was the man back then.
+    old = per_game[per_game["game_id"] == "P3"].iloc[0]
+    assert old["g_home_name"] == "G. Alpha"
+
+
+def test_expected_starter_vote_season_falls_back_to_the_calendar_rule():
+    """A frame without a ``season`` column (the pure-calendar case) scopes
+    the vote the same way — July boundary, config.current_nhl_season."""
+    games, bs = _season_split_goalie_frame()
+    no_season = games.drop(columns=["season"])
+    per_game, _ = feat_mod.goalie_state(bs, no_season, no_season)
+    per_game = per_game.assign(game_id=games["game_id"])
+    late = per_game[per_game["game_id"] == "N1"].iloc[0]
+    assert late["g_home_name"] == "G. Bravo"
+
+
+def test_opening_night_is_honest_nan_not_last_seasons_workhorse():
+    """The manifest's opening-night unknown starter: a team with no start
+    this season resolves NaN — never fabricated from last season's #1."""
+    games, bs = _season_split_goalie_frame()
+    per_game, _ = feat_mod.goalie_state(bs, games, games)
+    per_game = per_game.assign(game_id=games["game_id"])
+    night = per_game[per_game["game_id"] == "N0"].iloc[0]
+    assert night["g_home_name"] == ""
+    for col in ("goalie_sv_pct_home", "goalie_gaa_home", "goalie_starts_home",
+                "g_home_sv_pct", "g_home_gaa", "g_home_starts"):
+        assert pd.isna(pd.to_numeric(night[col], errors="coerce")) or \
+            night[col] == "", f"{col} fabricated an opening-night value"
+
+
+def test_goalie_card_pair_is_the_season_line_not_the_form_ewm():
+    """The g_* serving pair (the card's SV% · GAA, display-only like NFL's
+    QB enrichment) is the season-to-date POOLED line a reader compares
+    against the league's season table; the model form feature stays the
+    strictly-prior season-scoped EWM. They are different numbers and the
+    card must carry the season one."""
+    games, bs = _season_split_goalie_frame()
+    per_game, _ = feat_mod.goalie_state(bs, games, games)
+    per_game = per_game.assign(game_id=games["game_id"])
+    row = per_game[per_game["game_id"] == "N2"].iloc[0]
+    # Bravo's strictly-prior 2026-27 starts entering N2: N0 (1 GA/25 SA) and
+    # N1 (2 GA/30 SA) -> pooled 1 - 3/55.
+    assert row["g_home_sv_pct"] == pytest.approx(1.0 - 3.0 / 55.0)
+    assert row["g_home_gaa"] == pytest.approx(3.0 / 2.0)  # 3 GA in 120 min
+    assert row["g_home_starts"] == 2                      # season starts
+    assert row["goalie_starts_home"] == 2                  # manifest: season
+    # Teeth: the model form is the EWM, not the pooled season line.
+    form = float(row["goalie_sv_pct_home"])
+    assert abs(form - (1.0 - 3.0 / 55.0)) > 1e-6, \
+        "form and season line collapsed to the same number; test is vacuous"
+
+
+def test_goalie_card_pair_is_strictly_prior():
+    """PIT: game t's own boxscore must not move game t's card pair."""
+    games, bs = _season_split_goalie_frame()
+    clean, _ = feat_mod.goalie_state(bs, games, games)
+    dirty_bs = bs.copy()
+    mask = dirty_bs["game_id"] == "N2"
+    dirty_bs.loc[mask, "home_goals_against"] = 20.0
+    dirty_bs.loc[mask, "home_shots_against"] = 20.0
+    dirty, _ = feat_mod.goalie_state(dirty_bs, games, games)
+    clean = clean.assign(game_id=games["game_id"])
+    dirty = dirty.assign(game_id=games["game_id"])
+    for col in ("g_home_sv_pct", "g_home_gaa", "g_home_starts", "g_home_name"):
+        a = clean.loc[clean["game_id"] == "N2", col].iloc[0]
+        b = dirty.loc[dirty["game_id"] == "N2", col].iloc[0]
+        assert (a == b) or (pd.isna(a) and pd.isna(b)), \
+            f"{col} read the game it is predicting"
 
 
 def test_pp_conversion_trail_pools_counts_across_a_zero_opportunity_game():

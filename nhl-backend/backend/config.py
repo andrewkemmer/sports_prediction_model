@@ -562,7 +562,12 @@ FEATURE_JSON = "nhl_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nhl_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nhl_shap_game"
 MODEL_BUNDLE = MODELS_DIR / "nhl_ensemble_latest.joblib"
-OOF_STORE_CSV = DATA_DELIVERY_DIR / "nhl_oof_store.csv"
+# 2026-10-04 audit: this constant still pointed at data_delivery while the
+# 2026-09-30 retention audit routed every OOF store to run_diagnostics/ — a
+# future writer using it would have put training residue back in delivery
+# (and a dateless unregistered file gets eaten mid-run by the Phase 14
+# pruner). Repointed to match the audited routing.
+OOF_STORE_CSV = RUN_DIAGNOSTICS_DIR / "nhl_oof_store.csv"
 
 # Goalie serving contract (enrichment only — never fabricated). The NHL
 # analog of the NFL QB matchup: per-side starting-goalie blocks rendered as

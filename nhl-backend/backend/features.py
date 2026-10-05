@@ -406,7 +406,15 @@ def _combined_exclusions(
     # error, and never read as "everyone healthy".
     pregame = None
     try:
-        from . import pit_availability
+        try:  # pragma: no cover - import shape depends on run context
+            from . import pit_availability
+        except Exception:  # noqa: BLE001
+            # master_pipeline puts the backend/ dir itself on sys.path and
+            # imports this module as top-level ``features`` (no package), so
+            # the relative import above raises "no known parent package" and
+            # the flat import is the one that resolves there. Without this
+            # fallback the channel was silently dead in every production run.
+            import pit_availability  # type: ignore
         pregame = pit_availability.load_pregame_stints(ratings)
     except Exception as exc:  # noqa: BLE001
         logger.warning("pre-game availability channel unavailable (%s)", exc)
@@ -443,6 +451,19 @@ def _combined_exclusions(
     return injury_stints.combine_stints(*_frames), sources
 
 
+def _nhl_season_of(gameday) -> float:
+    """Season START-year of a gameday (July boundary — config.current_nhl_season).
+
+    The calendar fallback for frames whose ``season`` cell is absent or
+    unparseable, so a start can always be scoped to the season it happened
+    in. 2026-10-03 -> 2026, 2026-04-15 -> 2025.
+    """
+    ts = pd.to_datetime(gameday, errors="coerce")
+    if pd.isna(ts):
+        return float("nan")
+    return float(ts.year) - (1.0 if int(ts.month) < 7 else 0.0)
+
+
 def goalie_state(boxscores: pd.DataFrame | None,
                  games: pd.DataFrame,
                  team_source: pd.DataFrame | None = None,
@@ -455,17 +476,37 @@ def goalie_state(boxscores: pd.DataFrame | None,
     save fraction for a goalie = 1 - (goals against / shots against), and
     per-start GAA = goals against / (TOI minutes / 60).
 
-    Every goalie statistic is shifted strictly prior on the GOALIE's own
-    start timeline, then EWM'd (halflife = EWM_HALFLIFE starts). The
-    EXPECTED STARTER entering game t is the goalie with the most STARTS for
-    that team strictly before t (season-to-date workload) — resolved purely
-    from prior starts, never from game t's own boxscore, so the same rule
-    serves decided history and a scheduled slate alike.
+    Two distinct statistics leave this function, and they are deliberately
+    not the same number:
+
+    * MODEL form (``goalie_sv_pct_*`` / ``goalie_gaa_*``): the goalie's own
+      per-start save fraction / GAA, shifted strictly prior on HIS start
+      timeline, then EWM'd over the SEASON's starts (halflife =
+      EWM_HALFLIFE starts — the manifest's "season-to-date rolling EWM").
+    * SERVING contract (``g_*_sv_pct`` / ``g_*_gaa`` — the game-card
+      ``SV% · GAA`` pair, the pitcher ERA · K/9 analog, display only like
+      NFL's QB enrichment): the expected starter's SEASON-TO-DATE,
+      strictly-prior pooled line (1 - sum(GA) / sum(SA),
+      sum(GA) / (sum(TOI)/60)) — the number a reader compares against the
+      league's own season table. Served as NaN when the pick has no starts
+      this season yet.
+
+    The EXPECTED STARTER entering game t is the AVAILABLE goalie with the
+    most STARTS for that team strictly before t WITHIN t's SEASON
+    (season-to-date workload) — resolved purely from prior starts, never
+    from game t's own boxscore, so the same rule serves decided history and
+    a scheduled slate alike. Scoping the vote to t's season is what keeps a
+    prior-season workhorse (129 career starts, 0 this season) from being
+    served as tonight's starter over the goalies the team is actually using
+    (the 2026-10-04 FLA@ANA card named S. Bobrovsky over Markstrom/Schmid
+    exactly this way). A team with no start this season yet resolves honest
+    NaN (the manifest's opening-night unknown starter), never last season's
+    workhorse.
 
     Returns (per_game_frame, ladder_frame):
       per_game_frame: one row per game with the HOME/AWAY side's expected
-        starter's rolling sv_pct / gaa / starts (NaN when unresolvable —
-        honest degradation, the MLB TBD-pitcher analog).
+        starter's form (``goalie_*``), season line (``g_*``) and name (NaN
+        when unresolvable — honest degradation, the MLB TBD-pitcher analog).
       ladder_frame: per-(game_id, team) goalie starts state (for the
         workload diff and the goalie-matchup artifact).
     """
@@ -486,8 +527,15 @@ def goalie_state(boxscores: pd.DataFrame | None,
     bs["game_id"] = bs["game_id"].astype(str)
 
     # Long-form per-start rows: (game_id, team, goalie_id, name, goals_against,
-    # shots_faced, toi_min, gameday).
+    # shots_faced, toi_min, gameday, season).
     starts = []
+    # Season start-year per game, resolved from the frames' own ``season``
+    # cells (authoritative) with the July-boundary calendar rule as fallback.
+    season_by_game: dict[str, object] = {}
+    for _src in (team_source, games):
+        if _src is not None and "season" in getattr(_src, "columns", ()):
+            for _g, _s in zip(_src["game_id"].astype(str), _src["season"]):
+                season_by_game.setdefault(_g, _s)
     # The gameday lookup MUST span every boxscored game, not just the rows
     # being emitted. ``build_slate_features`` emits only pending games, so a
     # map built from ``games`` alone would date no historical start at all —
@@ -523,6 +571,9 @@ def goalie_state(boxscores: pd.DataFrame | None,
                 toi_min = float("nan")
             if not (np.isfinite(toi_min) and toi_min >= config.MIN_GOALIE_TOI_MINUTES):
                 ga = shots = toi_min = float("nan")
+            seas = season_by_game.get(gid)
+            if seas is None or (isinstance(seas, float) and pd.isna(seas)):
+                seas = _nhl_season_of(gd)
             starts.append({
                 "game_id": gid, "team": side, "goalie_id": str(g_id),
                 "goalie_name": str(getattr(r, f"{side}_goalie_name", "") or ""),
@@ -530,6 +581,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
                 "shots_faced": shots,
                 "toi_min": toi_min,
                 "gameday": pd.to_datetime(gd, errors="coerce"),
+                "season": seas,
             })
     st = pd.DataFrame(starts)
     if st.empty:
@@ -565,20 +617,26 @@ def goalie_state(boxscores: pd.DataFrame | None,
 
     st = st.sort_values(["goalie_id", "gameday", "game_id"]).reset_index(drop=True)
     st["prior_starts"] = st.groupby("goalie_id").cumcount()
-    st["sv_pct"] = st.groupby("goalie_id", sort=False)["save_fraction"].transform(
+    # The form EWM runs over the goalie's starts WITHIN THE SEASON (the
+    # manifest's "decaying (halflife=3 starts) over the season's starts"):
+    # a career-window EWM rates a January target off three-year-old starts,
+    # which is the same staleness the season-scoped workload vote removes.
+    st["sv_pct"] = st.groupby(["goalie_id", "season"], sort=False)["save_fraction"].transform(
         lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean().shift(1)
     )
-    st["gaa"] = st.groupby("goalie_id", sort=False)["gaa_game"].transform(
+    st["gaa"] = st.groupby(["goalie_id", "season"], sort=False)["gaa_game"].transform(
         lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean().shift(1)
     )
-    # Quality ENTERING THE NEXT game: the same EWM over this goalie's starts
-    # THROUGH this one. Used to report the expected starter of a LATER game so
-    # his most recent start stays inside the window (the ``shift(1)`` columns
-    # above would drop it).
-    st["sv_pct_incl"] = st.groupby("goalie_id", sort=False)["save_fraction"].transform(
-        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean())
-    st["gaa_incl"] = st.groupby("goalie_id", sort=False)["gaa_game"].transform(
-        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean())
+    # Quality ENTERING THE NEXT game: the same EWM over this goalie's season
+    # starts THROUGH this one. Used to report the expected starter of a LATER
+    # game so his most recent start stays inside the window (the ``shift(1)``
+    # columns above would drop it).
+    st["sv_pct_incl"] = st.groupby(["goalie_id", "season"], sort=False)["save_fraction"].transform(
+        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean()
+    )
+    st["gaa_incl"] = st.groupby(["goalie_id", "season"], sort=False)["gaa_game"].transform(
+        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean()
+    )
 
     # ---------------------------------------------------------------------
     # EXPECTED STARTER, resolved from STRICTLY-PRIOR workload AND
@@ -604,12 +662,20 @@ def goalie_state(boxscores: pd.DataFrame | None,
     g_dates: dict[str, np.ndarray] = {}
     g_sv: dict[str, np.ndarray] = {}
     g_gaa: dict[str, np.ndarray] = {}
+    g_season: dict[str, np.ndarray] = {}
+    g_ga: dict[str, np.ndarray] = {}
+    g_sa: dict[str, np.ndarray] = {}
+    g_toi: dict[str, np.ndarray] = {}
     g_name: dict[str, str] = {}
     for gid_, grp in _starts.groupby("goalie_id", sort=False):
         grp = grp.sort_values(["gameday", "game_id"])
         g_dates[gid_] = grp["gameday"].to_numpy(dtype="datetime64[ns]")
         g_sv[gid_] = pd.to_numeric(grp["sv_pct_incl"], errors="coerce").to_numpy(float)
         g_gaa[gid_] = pd.to_numeric(grp["gaa_incl"], errors="coerce").to_numpy(float)
+        g_season[gid_] = pd.to_numeric(grp["season"], errors="coerce").to_numpy(float)
+        g_ga[gid_] = pd.to_numeric(grp["goals_against"], errors="coerce").to_numpy(float)
+        g_sa[gid_] = pd.to_numeric(grp["shots_faced"], errors="coerce").to_numpy(float)
+        g_toi[gid_] = pd.to_numeric(grp["toi_min"], errors="coerce").to_numpy(float)
         nm = [str(x or "") for x in grp["goalie_name"]]
         g_name[gid_] = nm[-1] if nm else ""
     # team -> (gameday, goalie_id) sorted, for the candidate scan
@@ -670,17 +736,40 @@ def goalie_state(boxscores: pd.DataFrame | None,
         return bool(injury_stints.is_unavailable(
             stints, hits[0], pd.Timestamp(cut), strict_start=True))
 
-    def _expected(team: str, when) -> tuple[float, float, float, str]:
-        """(sv_pct, gaa, prior_starts, name) of the AVAILABLE expected starter
-        entering ``when`` for ``team`` — strictly-prior workload vote, gated
-        by strictly-prior availability; the fallback follows the same
-        opportunity order (most prior starts, then recency, then id) over
-        the remaining goalies. Every candidate excluded -> honest NaN."""
+    def _season_line(gid_: str, seas: float, n_before: int) -> tuple[float, float, float]:
+        """(sv_pct, gaa, starts) of ``gid_`` in season ``seas`` over his
+        strictly-prior start prefix — pooled counts, so the line a reader
+        compares against the league's season table is the season line."""
+        if not (isinstance(seas, float) and np.isfinite(seas)):
+            return np.nan, np.nan, 0.0
+        mask = g_season[gid_][:n_before] == seas
+        n_season = int(np.count_nonzero(mask))
+        if n_season <= 0:
+            return np.nan, np.nan, 0.0
+        ga = np.nansum(g_ga[gid_][:n_before][mask])
+        sa = np.nansum(g_sa[gid_][:n_before][mask])
+        toi = np.nansum(g_toi[gid_][:n_before][mask])
+        sv = 1.0 - (ga / sa) if sa > 0 else np.nan
+        gaa = ga / (toi / 60.0) if toi > 0 else np.nan
+        return float(sv), float(gaa), float(n_season)
+
+    def _expected(team: str, when, seas=float("nan")):
+        """(name, form_sv, form_gaa, season_sv, season_gaa, season_starts) of
+        the AVAILABLE expected starter entering ``when`` for ``team``.
+
+        Strictly-prior SEASON-scoped workload vote (most starts in t's own
+        season before t), gated by strictly-prior availability; the fallback
+        follows the same opportunity order over the remaining goalies. A
+        team with no start this season yet (opening night) resolves honest
+        NaN — the manifest's "opening-night unknown starter" — rather than
+        naming last season's workhorse who may not even be on the roster
+        anymore. Every candidate excluded -> honest NaN.
+        """
         entries = team_goals.get(str(team) or "")
         if not entries or when is None or pd.isna(when):
-            return np.nan, np.nan, np.nan, ""
+            return "", np.nan, np.nan, np.nan, np.nan, np.nan
         cut = pd.Timestamp(when).to_datetime64()
-        candidates: list[tuple[tuple, str, int]] = []
+        candidates: list[tuple[tuple, str, int, int]] = []
         for day, gid_ in entries:
             if day >= cut:            # strictly prior only
                 continue
@@ -690,37 +779,51 @@ def goalie_state(boxscores: pd.DataFrame | None,
             n_before = int(np.searchsorted(dates, cut, side="left"))
             if n_before <= 0:
                 continue
-            candidates.append(((n_before, day, gid_), gid_, n_before))
-        # Opportunity order: most prior starts first, then recency, then id.
+            n_season = int(np.count_nonzero(g_season[gid_][:n_before] == seas)) \
+                if np.isfinite(seas) else 0
+            if n_season > 0:
+                candidates.append(((n_season, day, gid_), gid_, n_before))
+        # Opportunity order: most season starts first, then recency, then id.
         candidates.sort(key=lambda c: c[0], reverse=True)
         for _, gid_, n_before in candidates:
             if _goalie_excluded(gid_, cut):
                 continue
-            return (float(g_sv[gid_][n_before - 1]),
+            s_sv, s_gaa, n_season = _season_line(gid_, seas, n_before)
+            return (g_name.get(gid_, ""),
+                    float(g_sv[gid_][n_before - 1]),
                     float(g_gaa[gid_][n_before - 1]),
-                    float(n_before), g_name.get(gid_, ""))
+                    s_sv, s_gaa, n_season)
         # No available candidate (or none resolvable): honest NaN.
-        return np.nan, np.nan, np.nan, ""
+        return "", np.nan, np.nan, np.nan, np.nan, np.nan
 
     ladder_rows = []
     for side in ("home", "away"):
-        sv, gaa, starts_n, names = [], [], [], []
+        f_sv, f_gaa, names = [], [], []
+        s_sv, s_gaa, s_starts = [], [], []
         for r in games.itertuples(index=False):
             gid = str(getattr(r, "game_id", ""))
             team = str(getattr(r, f"{side}_team", "") or "")
             when = pd.to_datetime(getattr(r, "gameday", None), errors="coerce")
-            s_, g_, n_, nm_ = _expected(team, when)
-            sv.append(s_); gaa.append(g_); starts_n.append(n_); names.append(nm_)
-            if pd.notna(n_):
+            seas_num = pd.to_numeric(getattr(r, "season", None), errors="coerce")
+            seas = float(seas_num) if pd.notna(seas_num) else _nhl_season_of(when)
+            nm_, form_sv, form_gaa, ss, sg, ns = _expected(team, when, seas)
+            f_sv.append(form_sv); f_gaa.append(form_gaa); names.append(nm_)
+            s_sv.append(ss); s_gaa.append(sg); s_starts.append(ns)
+            if pd.notna(ns):
                 ladder_rows.append({"game_id": gid, "team": team,
-                                    "goalie_starts": n_})
-        per_game[f"goalie_sv_pct_{side}"] = sv
-        per_game[f"goalie_gaa_{side}"] = gaa
-        per_game[f"goalie_starts_{side}"] = starts_n
+                                    "goalie_starts": ns})
+        # MODEL features: the expected starter's strictly-prior season-scoped
+        # EWM form and season-to-date starts (the workload/experience diff).
+        per_game[f"goalie_sv_pct_{side}"] = f_sv
+        per_game[f"goalie_gaa_{side}"] = f_gaa
+        per_game[f"goalie_starts_{side}"] = s_starts
+        # SERVING contract (the game-card pair, display only): his
+        # SEASON-TO-DATE pooled line — the number a reader compares against
+        # the league's own season table.
         per_game[f"g_{side}_name"] = names
-        per_game[f"g_{side}_sv_pct"] = per_game[f"goalie_sv_pct_{side}"]
-        per_game[f"g_{side}_gaa"] = per_game[f"goalie_gaa_{side}"]
-        per_game[f"g_{side}_starts"] = per_game[f"goalie_starts_{side}"]
+        per_game[f"g_{side}_sv_pct"] = s_sv
+        per_game[f"g_{side}_gaa"] = s_gaa
+        per_game[f"g_{side}_starts"] = s_starts
     ladder = pd.DataFrame(ladder_rows, columns=["game_id", "team", "goalie_starts"])
     return per_game, ladder
 

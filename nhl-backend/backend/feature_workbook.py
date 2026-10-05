@@ -28,6 +28,10 @@ except ImportError:
 
 BACKEND = Path(__file__).resolve().parent
 DELIVERY = BACKEND.parent / "data_delivery"
+# Training-process residue (2026-09-30 retention audit): the decision
+# workbook is regenerated every RFE run and nothing reads it back, so it
+# writes to the local gitignored run_diagnostics/ dir — never delivery.
+DIAGNOSTICS = BACKEND.parent / "run_diagnostics"
 NAVY = "1F3864"
 BLUE = PatternFill("solid", fgColor=NAVY)
 WHITE = Font(color="FFFFFF", bold=True)
@@ -427,7 +431,7 @@ def generate_workbook(trace_path: str | None = None, out_path: str | None = None
     if path is None or not path.exists():
         return None
     trace = _load_trace(path)
-    target = Path(out_path) if out_path else DELIVERY / workbook_filename(trace, path)
+    target = Path(out_path) if out_path else DIAGNOSTICS / workbook_filename(trace, path)
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
