@@ -26,6 +26,9 @@ Asserts the remediation end-to-end at the render level:
     (MLB compute_season_records parity): own season only, strictly prior —
     never the artifact's multi-season career tally, never the game's own
     result, never a prior season's row;
+  - a host-local store miss self-heals through the committed store bytes
+    (GitHub-raw first) instead of silently serving the OOF re-price under
+    the archive banner;
   - the recovery walk refuses any candidate outside the valid (rolling
     10-day) set, and `_decided_mask` never counts a pre-game/live row;
   - the rolling-10-day valid-date rail is built from the dated board
@@ -505,6 +508,45 @@ def run() -> int:
                 problems.append("archive record leaks across the offseason "
                                 f"or counts the game's own result ('{leak}')")
 
+        # (h) Store self-heal: a HOST-LOCAL store miss (the failure mode
+        # behind "Oct 4 still serves the OOF re-price" — a failed or stale
+        # local read silently swapped in the OOF CSV) must recover the
+        # COMMITTED store bytes and serve the frozen prices. The fetch is
+        # patched to the fixture so the check is deterministic and offline.
+        import nfl_todays_page as _nflp
+        import utils as _u
+        _real_root, _real_fetch = _u.REPO_ROOT, _u._fetch_bytes
+        _fixture = STORE.read_bytes()
+        _heal_calls: list[str] = []
+
+        def _fake_fetch(relpath, *a, **k):
+            _heal_calls.append(relpath)
+            if relpath.endswith("production_cards_history.csv"):
+                return _fixture, "test"
+            return None, "missing"
+
+        _u.REPO_ROOT = FRONTEND_DIR / "__no_such_checkout__"
+        _u._fetch_bytes = _fake_fetch
+        try:
+            _healed, _healed_hist = _nflp._load_day(_YDAY_C)
+        finally:
+            _u.REPO_ROOT, _u._fetch_bytes = _real_root, _real_fetch
+        if not _healed_hist or _healed is None or len(_healed) != 3:
+            problems.append("store self-heal did not serve the archive day "
+                            f"(rows={0 if _healed is None else len(_healed)}, "
+                            f"hist={_healed_hist})")
+        else:
+            _g = _healed[_healed["game_id"] == "2026_04_ARI_NYG"]
+            if _g.empty or abs(float(_g.iloc[0]["home_win_prob_model"])
+                               - 0.617) > 1e-9:
+                problems.append("store self-heal served a non-frozen price: "
+                                + str(None if _g.empty
+                                      else _g.iloc[0]["home_win_prob_model"]))
+        if not any(c.endswith("production_cards_history.csv")
+                   for c in _heal_calls):
+            problems.append("store self-heal never consulted the committed "
+                            "bytes (host-local miss would serve OOF again)")
+
         # (f) Recovery walk + decided-mask gates (pure functions, no IO).
         from nfl_todays_page import _decided_mask, _recovered_day
         valid_set = set(valid)
@@ -542,6 +584,8 @@ def run() -> int:
     print("  - archive cards serve the frozen store price, grade, and names")
     print("  - cards serve each team's CURRENT-SEASON entering record "
           "(MLB offseason reset)")
+    print("  - a host-local store miss self-heals to the committed bytes "
+          "(never a silent OOF re-price)")
     print("  - archive cards carry no run-engine values and no SHAP accordion")
     print("  - archive notice sits between the date nav and the filter pills")
     print("  - recovery and decided-mask gates hold")

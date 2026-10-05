@@ -78,6 +78,25 @@ def get_source_config() -> dict:
     }
 
 
+# Last-resort artifact source: the repo this frontend ships in. Used ONLY
+# when no GITHUB_OWNER/GITHUB_REPO source is configured AND a local read
+# failed — the committed frozen store must stay reachable even on an
+# unconfigured host, so a host-local miss can never silently swap in the
+# OOF re-price. A configured source always wins.
+_FALLBACK_SOURCE = {"owner": "andrewkemmer", "repo": "sports_prediction_model",
+                    "branch": "main"}
+
+
+def _source_cfg() -> dict:
+    """``get_source_config()`` with this repo as the last-resort source."""
+    cfg = dict(get_source_config())
+    if not (cfg.get("owner") and cfg.get("repo")):
+        cfg = dict(_FALLBACK_SOURCE)
+    if not cfg.get("branch"):
+        cfg["branch"] = "main"
+    return cfg
+
+
 def source_label() -> str:
     cfg = get_source_config()
     if cfg["owner"] and cfg["repo"]:
@@ -2169,6 +2188,20 @@ def _history_for_date(date_str: str, owner: str, repo: str, branch: str) -> byte
     return None
 
 
+def _store_from_bytes(raw: bytes) -> pd.DataFrame:
+    """Parse + schema-validate store bytes; empty frame on any problem so
+    the caller can decide whether another source is worth trying."""
+    try:
+        df = pd.read_csv(io.BytesIO(raw), dtype={"game_id": str})
+    except Exception:
+        return pd.DataFrame()
+    if df.empty or "game_id" not in df.columns or "p_home_win" not in df.columns:
+        return pd.DataFrame()
+    df["p_home_win"] = pd.to_numeric(df["p_home_win"], errors="coerce")
+    df["p_away_win"] = pd.to_numeric(df.get("p_away_win"), errors="coerce")
+    return df
+
+
 def _load_cards_store(sport: str | None = None) -> pd.DataFrame:
     """The frozen first-publication card store (MLB parity with the
     adopted totals-history store): every game's PRODUCTION prediction,
@@ -2176,21 +2209,32 @@ def _load_cards_store(sport: str | None = None) -> pd.DataFrame:
     from this store so they can never revert to OOF re-prices. Resolves
     the store path through the active sport's registry subdir
     (``{sport}_production_cards_history.csv``); keep
-    ``_load_nfl_cards_store`` as an NFL-compatible alias."""
+    ``_load_nfl_cards_store`` as an NFL-compatible alias.
+
+    READ ORDER (2026-10-05, Oct-4 archive review): the local file first,
+    then the COMMITTED bytes through the GitHub-raw-first fetch. A failed
+    or absent local read used to return an empty frame, which the history
+    loader silently replaced with the OOF re-price — under a banner
+    promising the frozen store — so a host-local miss now self-heals.
+    Only when neither source has the store (the pre-seed state) does the
+    caller see an empty frame.
+    """
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    path = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery" \
-        / f"{s}_production_cards_history.csv"
-    if not path.exists():
-        return pd.DataFrame()
+    relpath = f"{s}_production_cards_history.csv"
+    path = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery" / relpath
+    if path.exists():
+        try:
+            parsed = _store_from_bytes(path.read_bytes())
+        except OSError:
+            parsed = pd.DataFrame()
+        if not parsed.empty:
+            return parsed
+    # Local missing / unreadable / schema-bad → the committed store.
     try:
-        df = pd.read_csv(path, dtype={"game_id": str})
+        remote, _src = _fetch_bytes(relpath, **_source_cfg(), sport=s)
     except Exception:
-        return pd.DataFrame()
-    if df.empty or "game_id" not in df.columns:
-        return pd.DataFrame()
-    df["p_home_win"] = pd.to_numeric(df["p_home_win"], errors="coerce")
-    df["p_away_win"] = pd.to_numeric(df.get("p_away_win"), errors="coerce")
-    return df
+        remote = None
+    return _store_from_bytes(remote) if remote else pd.DataFrame()
 
 
 def _load_nfl_cards_store() -> pd.DataFrame:
@@ -2198,7 +2242,8 @@ def _load_nfl_cards_store() -> pd.DataFrame:
     return _load_cards_store("nfl")
 
 
-def _attach_nfl_season_records(df: pd.DataFrame) -> pd.DataFrame:
+def _attach_nfl_season_records(df: pd.DataFrame,
+                               store: pd.DataFrame | None = None) -> pd.DataFrame:
     """Attach each team's CURRENT-SEASON entering W-L record to an NFL
     card frame (MLB ``compute_season_records`` parity: the record each team
     carried INTO the game — wins/losses of its OWN season only, strictly
@@ -2216,10 +2261,11 @@ def _attach_nfl_season_records(df: pd.DataFrame) -> pd.DataFrame:
     """
     if df is None or df.empty or "game_id" not in df.columns:
         return df
-    try:
-        store = _load_cards_store("nfl")
-    except Exception:
-        store = pd.DataFrame()
+    if store is None:
+        try:
+            store = _load_cards_store("nfl")
+        except Exception:
+            store = pd.DataFrame()
     need = {"game_id", "game_date", "home_team", "away_team",
             "home_score", "away_score"}
     if store is None or store.empty or not need.issubset(store.columns):
@@ -2394,15 +2440,33 @@ def load_history_games_v1(date_str: str,
     (pre-seed state); it is never allowed to overwrite frozen picks.
     ``load_nfl_history_games`` stays as an NFL-compatible alias."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
+    store = None
     try:
-        frozen = _cards_store_to_board_frame(_load_cards_store(s), date_str)
+        store = _load_cards_store(s)
+        frozen = _cards_store_to_board_frame(store, date_str)
     except Exception:
-        frozen = pd.DataFrame()
+        store, frozen = None, pd.DataFrame()
+    if frozen.empty:
+        # A stale or unreadable LOCAL checkout must heal through the
+        # committed store bytes (GitHub-raw-first) BEFORE the OOF
+        # fallback ever runs — the archive banner promises the frozen
+        # store, so a host-local miss may never silently serve an OOF
+        # re-price for a date the store covers.
+        try:
+            remote, _src = _fetch_bytes(
+                f"{s}_production_cards_history.csv", **_source_cfg(), sport=s)
+            rstore = _store_from_bytes(remote) if remote else pd.DataFrame()
+            rframe = _cards_store_to_board_frame(rstore, date_str)
+            if not rframe.empty:
+                store, frozen = rstore, rframe
+        except Exception:
+            pass
     if frozen.empty:
         frozen = _history_to_board_frame(load_nfl_prediction_history(s), date_str)
     # NFL cards render the store-derived current-season entering record;
     # the NHL/MLB v1 families keep their artifact's own record columns.
-    return _attach_nfl_season_records(frozen) if s == "nfl" else frozen
+    return (_attach_nfl_season_records(frozen, store=store) if s == "nfl"
+            else frozen)
 
 
 def load_nfl_history_games(date_str: str) -> pd.DataFrame:
