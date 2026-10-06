@@ -44,8 +44,9 @@ import json
 import ast
 import logging
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from unittest.mock import patch as _mock_patch
 
 import numpy as np
@@ -4009,6 +4010,225 @@ def test_run_diagnostics_writes_are_guaranteed_their_directory():
     assert not failures, (
         "functions constructing paths under config.RUN_DIAGNOSTICS_DIR "
         f"without a preceding mkdir(exist_ok=True): {failures}")
+
+
+# ---------------------------------------------------------------------------
+# 12. 2026-10-06 run-log review remediation (T2-T7)
+# ---------------------------------------------------------------------------
+def test_coverage_writer_receives_the_drift_baseline_not_the_full_pool():
+    """T2: the drift/coverage CSV writer must get the SAME ``drift_baseline``
+    slice the log verdict and the monitor JSON are computed on.
+
+    Commit 01b9345e moved ``cov_rows`` onto the trailing-tail window but
+    left ``write_run_engine_feature_artifacts`` on the full ``game_df`` —
+    so the 2026-10-06 log said "baseline: no warm nulls" (250-game tail)
+    while the coverage CSV beside it reported 285 warm nulls over 2,827
+    games, and the drift CSV's n_baseline (2,827) disagreed with the JSON
+    drift's (250). Two tables answering different questions is exactly the
+    MLB 08-28 incident this call site's own comment claims is impossible.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    call = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "write_run_engine_feature_artifacts")
+    assert call.args, "writer call has no positional frame arguments"
+    frame_arg = call.args[2]  # (out_dir, date_c, full_df, ...)
+    assert isinstance(frame_arg, ast.Name) and frame_arg.id == "drift_baseline", (
+        "the drift/coverage writer must be fed the once-sliced "
+        f"drift_baseline frame, not {ast.unparse(frame_arg)} — the log "
+        "verdict, the monitor JSON and the CSVs would describe different "
+        "populations again")
+
+
+def test_published_blend_line_names_the_deployed_weights():
+    """T3: the published-blend pass must announce itself in the run log.
+
+    moneyline.walk_forward_oof re-pools ``p_ensemble`` with the deployed
+    weights (the DEPLOYED bundle's blend), but left no trace — a reviewer
+    could not tell whether Phase 9's headline metrics graded the rolling
+    training-time blend or the serving one (MLB 2026-10-06 parity).
+    """
+    src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
+    assert "Published blend:" in src, (
+        "moneyline.py no longer logs the published-blend re-pool — the "
+        "headline metrics' blend claim is unauditable from the run log")
+    assert "headline metrics grade THE serving blend" in src
+
+
+def test_degenerate_platt_warning_carries_the_sample_size():
+    """T4: the degenerate-Platt warning must report n= (MLB 2026-10-06
+    parity): "a=%s" alone left the sample size behind a degenerate fit
+    unknowable, and fit_platt keeps uncapped _fit_total/_degen_total
+    counters so a block summary can report the true denominator behind the
+    capped WARNING lines."""
+    src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
+    assert "degenerate Platt params (a=%s, n=%d)" in src, (
+        "the degenerate-Platt warning lost its n= — a degenerate fit's "
+        "sample size must be visible in the log")
+    assert 'fit_platt._fit_total' in src and 'fit_platt._degen_total' in src, (
+        "fit_platt must keep uncapped attempt/degenerate counters for the "
+        "per-block summary")
+    assert "prequential Platt fits degenerated" in src, (
+        "prequential_fold_calibrators must report the block's own "
+        "degenerate-fit total behind the 3-line cap")
+
+
+def test_folds_line_excludes_zero_placeholders_and_real_blocks_are_logged():
+    """T5: the Phase-4 ``folds:`` line must not print the four oof_*
+    placeholder blocks as {\"n\": 0, \"sufficient\": false}.
+
+    Those setdefaults exist so later readers always find the keys, but
+    _oof_blocks only fills them after Phase 5 — the 2026-10-06 log's early
+    line read as "no OOF population" on a run that published 2,635 scored
+    rows. The early line excludes the placeholders (with a note saying
+    where they come from) and the REAL blocks are logged at the
+    fold_info.update(_oof_blocks(...)) site."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    folds_logs = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "info" and n.args
+                  and isinstance(n.args[0], ast.Constant)
+                  and str(n.args[0].value).startswith("folds:")]
+    assert folds_logs, "the Phase-4 folds: line is gone"
+    early = folds_logs[0]
+    early_src = ast.unparse(early)
+    assert "_OOF_BLOCK_KEYS" in early_src, (
+        "the early folds: line dumps fold_info verbatim — the four oof_* "
+        "placeholder zeros read as 'no OOF population'")
+
+    update = next((n for n in ast.walk(tree)
+                   if isinstance(n, ast.Expr)
+                   and isinstance(n.value, ast.Call)
+                   and isinstance(n.value.func, ast.Attribute)
+                   and n.value.func.attr == "update"
+                   and ast.unparse(n.value).startswith(
+                       "fold_info.update(_oof_blocks")),
+                  None)
+    assert update is not None, "fold_info.update(_oof_blocks(...)) is gone"
+    block_logs = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "info" and n.args
+                  and isinstance(n.args[0], ast.Constant)
+                  and "folds oof blocks" in str(n.args[0].value)]
+    assert block_logs, "the real oof blocks are never logged"
+    assert block_logs[0].lineno > update.lineno, (
+        "the oof blocks line must come AFTER fold_info.update(_oof_blocks) "
+        "or it logs the placeholders again")
+
+
+def test_duplicate_loader_lines_are_logged_once_per_distinct_content():
+    """T6: Phase 3's feature build and Phase 11's slate build run the same
+    loaders over the same caches, so 11 byte-identical lines printed twice
+    per run (2026-10-06 log review) — a reader could not tell a replay
+    from a re-run. The _log_once idiom (MLB _log_resolved_view parity)
+    keys on the RENDERED message: first occurrence logs at its level, an
+    identical repeat drops to DEBUG, and changed content logs as a new
+    line at its level again."""
+    for mod in (feat_mod, ing):
+        assert hasattr(mod, "_log_once") and hasattr(mod, "_LOG_ONCE_SEEN"), (
+            f"{mod.__name__} lost its content-keyed log-once helper")
+
+    caplog_records = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            caplog_records.append(record)
+
+    # First occurrence at WARNING stays loud; identical repeat drops to
+    # DEBUG; changed content (same shape, new numbers) logs at WARNING again.
+    feat_mod._LOG_ONCE_SEEN.clear()
+    fake = logging.getLogger("pit_log_once_probe")
+    fake.handlers[:] = []
+    fake.addHandler(_Sink())
+    fake.setLevel(logging.DEBUG)
+    fake.propagate = False
+    saved = feat_mod.logger
+    feat_mod.logger = fake
+    try:
+        feat_mod._log_once(logging.WARNING, "probe %s: %d rows", "x", 3)
+        feat_mod._log_once(logging.WARNING, "probe %s: %d rows", "x", 3)
+        feat_mod._log_once(logging.WARNING, "probe %s: %d rows", "x", 4)
+    finally:
+        feat_mod.logger = saved
+        feat_mod._LOG_ONCE_SEEN.clear()
+    levels = [r.levelno for r in caplog_records]
+    assert levels == [logging.WARNING, logging.DEBUG, logging.WARNING], (
+        f"_log_once must log first at level, repeat at DEBUG, changed "
+        f"content at level again — got {levels}")
+    assert caplog_records[0].getMessage() == "probe x: 3 rows"
+
+
+def test_stale_end_date_pin_extends_to_today_and_passes_others_through():
+    """T7: a literal NHL_END_DATE pin before today must extend to today.
+
+    The Kaggle notebook (Kaggle-owned — never edited from the repo) pins
+    NHL_END_DATE for rebuilds and leaves it active; the pin bounds BOTH
+    the seasons range and the gameday window, so an unguarded stale pin
+    would freeze the daily slate on the pinned day forever (MLB
+    config.resolve_run_end_date parity). Same-day pins, future windows
+    (the deliberate lookahead), season aliases and malformed input all
+    pass through untouched."""
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    stale = (today - timedelta(days=1)).isoformat()
+    assert config.resolve_run_end_date(stale) == today.isoformat(), (
+        "a stale literal pin must extend to today (ET clock) or the daily "
+        "slate freezes on the notebook's rebuild date")
+    assert config.resolve_run_end_date(today.isoformat()) == today.isoformat(), (
+        "a same-day rebuild pin must keep working exactly as written")
+    assert config.resolve_run_end_date("2099-01-01") == "2099-01-01", (
+        "a deliberate future lookahead window must pass through")
+    assert config.resolve_run_end_date("not-a-date") == "not-a-date", (
+        "malformed input must pass through so _env_date keeps failing loudly")
+
+    # The guard must sit INSIDE _env_end_bounds, below the season-alias
+    # branch (a 4-digit season alias is never rewritten) and above the
+    # return — and the Phase-1 re-announce must exist so the extension is
+    # visible in the pushed run log.
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_env_end_bounds")
+    # Body only — the docstring mentions the guard by name, which would
+    # make a naive full-function search report the guard above the branch.
+    fn_src = "\n".join(ast.unparse(s) for s in fn.body
+                      if not (isinstance(s, ast.Expr)
+                              and isinstance(s.value, ast.Constant)
+                              and isinstance(s.value.value, str)))
+    alias_at = fn_src.index("raw.isdigit()")
+    guard_at = fn_src.index("config.resolve_run_end_date")
+    assert alias_at < guard_at, (
+        "the season-alias branch must return BEFORE the stale-pin guard — "
+        "a 4-digit NHL_END_SEASON must never be extended to today")
+    assert "stale (before today)" in src, (
+        "the stale-pin extension is never announced — a reviewer of the "
+        "pushed log cannot tell the window no longer matches the pin")
+
+
+def test_final_run_log_delivery_repushes_the_complete_log():
+    """T8: _sync_data_delivery stages the run log like any artifact — a
+    SNAPSHOT taken before the push confirmation ever reached the file, so
+    every pushed log ends at the DONE banner (the 2026-10-06 review found
+    exactly that on remote: 7,262 lines ending at DONE, sync prints
+    absent). MLB's fix: after the sync, re-stage the now-complete log and
+    push it as the run's LAST delivery, never fatal (MLB 'Final run-log
+    delivery', 2026-10-05 log review)."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "Final run-log delivery" in src, (
+        "the pushed run log ends at the DONE banner — the sync's own "
+        "confirmation can never be inside the snapshot it stages")
+    assert "NHL pipeline run log (final delivery)" in src
+    # Never fatal: the artifacts are already delivered.
+    tree = ast.parse(src)
+    main_fn = next(n for n in ast.walk(tree)
+                   if isinstance(n, ast.FunctionDef) and n.name == "main")
+    log_push_src = "\n".join(ast.unparse(s) for s in main_fn.body
+                            if "Final run-log delivery" in ast.unparse(s))
+    assert log_push_src, "the final log delivery block is not in main()"
+    assert "except Exception" in log_push_src, (
+        "a failed final log push must not fail a delivered run")
 
 
 def _run_all() -> int:

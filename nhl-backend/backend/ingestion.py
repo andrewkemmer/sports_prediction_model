@@ -41,6 +41,23 @@ except ImportError:  # running as a top-level module
 
 logger = logging.getLogger(__name__)
 
+# Content-keyed repeat suppression (2026-10-06 NHL log review; MLB's
+# _log_resolved_view idiom): the Phase-3 decided-pool build and the
+# Phase-11 slate build call these loaders over the same caches, so two of
+# these lines printed TWICE per run, byte-identical both times. Keyed on
+# the RENDERED message: first occurrence logs at its level, an identical
+# repeat drops to DEBUG, changed content logs as a distinct line again.
+_LOG_ONCE_SEEN: set[str] = set()
+
+
+def _log_once(level: int, msg: str, *args) -> None:
+    text = msg % args if args else str(msg)
+    if text in _LOG_ONCE_SEEN:
+        logger.debug("%s", text)
+        return
+    _LOG_ONCE_SEEN.add(text)
+    logger.log(level, text)
+
 # Cache directory: OUTSIDE the git tree (repo root's parent) so caches never
 # pollute the working tree; overridable for tests.
 CACHE_DIR = Path(config.ROOT_DIR.parent) / ".nhl_cache"
@@ -1188,8 +1205,8 @@ def load_moneypuck_player_games(
                     raise ValueError(
                         f"archive has no regular-season skater rows for {season}")
                 frame.to_parquet(path, index=False)
-                logger.info("MoneyPuck player games %s: cached %d rows",
-                            season, len(frame))
+                _log_once(logging.INFO, "MoneyPuck player games %s: cached %d rows",
+                          season, len(frame))
             except Exception as exc:  # noqa: BLE001
                 stale = _cached(season, path) if live else None
                 if stale is not None:
@@ -1695,9 +1712,9 @@ def load_leave_events() -> pd.DataFrame:
         out = out.sort_values("announced_at_utc").reset_index(drop=True)
     out.attrs["ledger_updated_utc"] = payload.get(
         "ledger_updated_utc") if isinstance(payload, dict) else None
-    logger.info("leave-events ledger: %d event(s) loaded (%d refused; "
-                "ledger as-of %s)", len(out), refused,
-                out.attrs["ledger_updated_utc"])
+    _log_once(logging.INFO, "leave-events ledger: %d event(s) loaded (%d refused; "
+              "ledger as-of %s)", len(out), refused,
+              out.attrs["ledger_updated_utc"])
     return out
 
 

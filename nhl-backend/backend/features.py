@@ -45,6 +45,32 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Content-keyed repeat suppression (2026-10-06 NHL log review; MLB's
+# _log_resolved_view idiom): the Phase-3 decided-pool build and the
+# Phase-11 slate build run the SAME loaders over the same caches, so these
+# lines printed TWICE per run, byte-identical both times — a reader could
+# not tell whether the second block was new evidence or a replay (11 such
+# lines in the 2026-10-06 run log, including the UNPOPULATED lineup
+# WARNING). Keyed on the RENDERED message, not a call counter: a loader
+# whose numbers change between calls logs again as a distinct line at its
+# own level; only the byte-identical repeat drops to DEBUG.
+_LOG_ONCE_SEEN: set[str] = set()
+
+
+def _log_once(level: int, msg: str, *args) -> None:
+    """Emit ``msg % args`` at ``level`` once per distinct rendered text.
+
+    First occurrence logs at ``level`` (so the UNPOPULATED warning stays
+    loud); an identical repeat drops to DEBUG (no args → logging never
+    %-formats, so a rendered text containing '%72.8' is safe).
+    """
+    text = msg % args if args else str(msg)
+    if text in _LOG_ONCE_SEEN:
+        logger.debug("%s", text)
+        return
+    _LOG_ONCE_SEEN.add(text)
+    logger.log(level, text)
+
 # ---------------------------------------------------------------------------
 # Events: long-form (team, game) view
 # ---------------------------------------------------------------------------
@@ -442,7 +468,11 @@ def _combined_exclusions(
         # empty. The other channels (espn, leave_events) still bind, so the
         # pool is NOT fabricated — but the historical absence gap this
         # channel exists to close is open, and the log must say so.
-        logger.warning(
+        # Once per distinct content (Phase 11's slate build re-runs this
+        # loader): the byte-identical repeat drops to DEBUG, the warning
+        # itself stays loud on first sight.
+        _log_once(
+            logging.WARNING,
             "pre-game lineup channel: UNPOPULATED — 0 interval(s); the "
             "frozen backfill artifact (%s) is absent or empty, so the "
             "historical pl_* availability gap stays OPEN in production. "
@@ -457,13 +487,13 @@ def _combined_exclusions(
             "snapshot_history": bool(leaves.attrs.get("snapshot_times")),
             "snapshot_times": list(leaves.attrs.get("snapshot_times", [])),
         }
-        logger.info("leave channel: %d interval(s) (%d resolved by id, "
-                    "%d by name, %d unresolved; ledger as-of %s)",
-                    laudit.get("intervals", 0),
-                    laudit.get("resolved_by_id", 0),
-                    laudit.get("resolved_by_name", 0),
-                    laudit.get("unresolved", 0),
-                    leaves.attrs.get("window_end"))
+        _log_once(logging.INFO, "leave channel: %d interval(s) (%d resolved by id, "
+                  "%d by name, %d unresolved; ledger as-of %s)",
+                  laudit.get("intervals", 0),
+                  laudit.get("resolved_by_id", 0),
+                  laudit.get("resolved_by_name", 0),
+                  laudit.get("unresolved", 0),
+                  leaves.attrs.get("window_end"))
     else:
         logger.info("leave channel: no intervals (ledger absent/empty — "
                     "no leave is known, which is not an outage)")
@@ -1063,8 +1093,9 @@ def add_player_pool_features(
                     injury_stints._utc_naive(t)
                     for t in src.get("snapshot_times", [])
                     if pd.notna(injury_stints._utc_naive(t)))
-                logger.info("injury source %r: %d stints bound through %s",
-                            name, len(part), src.get("window_end"))
+                _log_once(logging.INFO,
+                          "injury source %r: %d stints bound through %s",
+                          name, len(part), src.get("window_end"))
             except injury_stints.PitViolation as exc:
                 logger.warning(
                     "injury source %r dropped; the unfiltered pool is used "
@@ -1231,10 +1262,11 @@ def _load_team_rosters(grid: pd.DataFrame | None) -> pd.DataFrame | None:
         return None
     if rosters is None or not len(rosters):
         return None
-    logger.info("team roster snapshot applied: %d player-team row(s) through "
-                "%s", len(rosters),
-                pd.to_datetime(rosters["snapshot_at"], errors="coerce")
-                .max())
+    _log_once(logging.INFO,
+              "team roster snapshot applied: %d player-team row(s) through "
+              "%s", len(rosters),
+              pd.to_datetime(rosters["snapshot_at"], errors="coerce")
+              .max())
     return rosters
 
 
@@ -1266,18 +1298,18 @@ def _load_player_ratings() -> pd.DataFrame:
     })
     ratings, audit = _pr.build_player_ratings(
         frame, id_col="player_id", window=config.PLAYER_RATING_PRIOR_ROWS)
-    logger.info("player ratings: %d raw game rows -> %d rolling rows across "
-                "%d players (%d bad/dropped source rows)",
-                len(frame), len(ratings), ratings["player_id"].nunique()
-                if len(ratings) else 0,
-                int(audit.get("dropped_bad_values", 0)
-                    + audit.get("dropped_unknown_position", 0)
-                    + audit.get("dropped_bad_situation", 0)))
-    logger.info("player rating shrinkage arm: %s (k = %.2f * mean "
-                "prior-season ice time per position/situation)",
-                audit.get("shrink_arm", _pr.NHL_SHRINK_ARM),
-                float(audit.get("shrink_fraction_of_season",
-                                _pr.SHRINK_FRACTION_OF_SEASON)))
+    _log_once(logging.INFO, "player ratings: %d raw game rows -> %d rolling rows across "
+              "%d players (%d bad/dropped source rows)",
+              len(frame), len(ratings), ratings["player_id"].nunique()
+              if len(ratings) else 0,
+              int(audit.get("dropped_bad_values", 0)
+                  + audit.get("dropped_unknown_position", 0)
+                  + audit.get("dropped_bad_situation", 0)))
+    _log_once(logging.INFO, "player rating shrinkage arm: %s (k = %.2f * mean "
+              "prior-season ice time per position/situation)",
+              audit.get("shrink_arm", _pr.NHL_SHRINK_ARM),
+              float(audit.get("shrink_fraction_of_season",
+                              _pr.SHRINK_FRACTION_OF_SEASON)))
     return ratings
 
 
@@ -1352,7 +1384,8 @@ def _load_espn_stints(ratings: pd.DataFrame | None
 
     snapshot_times = sorted(pd.Timestamp(t) for t in reports["snapshot_at"].dropna().unique())
     if snapshot_times:
-        logger.info(
+        _log_once(
+            logging.INFO,
             "ESPN injury archive: %d row(s) over %d captured snapshot(s), "
             "window %s .. %s — exclusions can bind only on games after the "
             "first captured snapshot", len(reports), len(snapshot_times),
@@ -1371,11 +1404,12 @@ def _load_espn_stints(ratings: pd.DataFrame | None
         if ratings_by_name is not None and len(ratings_by_name):
             actual, maudit = injury_stints.map_reports_to_rating_ids(
                 actual, ratings_by_name)
-            logger.info("injury id bridge: %d/%d reports matched (%.1f%%), "
-                        "%d ambiguous, %d unmatched",
-                        maudit["matched"], maudit["report_rows"],
-                        100.0 * maudit["match_rate"], maudit["ambiguous"],
-                        maudit["unmatched"])
+            _log_once(logging.INFO,
+                      "injury id bridge: %d/%d reports matched (%.1f%%), "
+                      "%d ambiguous, %d unmatched",
+                      maudit["matched"], maudit["report_rows"],
+                      100.0 * maudit["match_rate"], maudit["ambiguous"],
+                      maudit["unmatched"])
     reports = pd.concat([actual, markers], ignore_index=True, sort=False)
     stints, audit = injury_stints.build_stint_intervals(reports)
     stints.attrs["snapshot_based"] = bool(audit.get("snapshot_based"))

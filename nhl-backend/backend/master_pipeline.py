@@ -60,6 +60,12 @@ logging.basicConfig(level=logging.INFO,
                     stream=sys.stdout)
 logger = logging.getLogger("nhl_master_pipeline")
 
+# The four published OOF population blocks (fold_info keys) — filled by
+# _oof_blocks after Phase 5's walk-forward, placeholder-setdefaulted at
+# fold generation so no reader ever misses the key.
+_OOF_BLOCK_KEYS = ("oof_regular", "oof_postseason", "oof_provisional",
+                   "oof_all")
+
 
 def _log_coverage_verdict(cov_rows: list[dict]) -> None:
     """One honest line per coverage window: measured, cold (by design), warm.
@@ -120,6 +126,15 @@ def _env_end_bounds() -> tuple[str, str]:
     ``NHL_END_DATE`` bounds both literally; the default bounds both at
     today (ET) — the league's operational clock, the same single-timezone
     discipline the NFL pipeline applies to artifact stamping.
+
+    Stale-pin guard (2026-10-06 NHL log review, T7 — MLB parity): the
+    Kaggle notebook leaves a literal ``NHL_END_DATE`` behind after a
+    rebuild, and that pin bounds BOTH the seasons range and the gameday
+    window — unguarded, every later run would freeze on the pinned day's
+    slate. A literal pin before today extends to today via
+    ``config.resolve_run_end_date`` (logged as a WARNING by the caller,
+    through the run-log tee); the 4-digit season-alias branch returns
+    above the guard and is never rewritten.
     """
     raw = (os.environ.get("NHL_END_DATE") or os.environ.get("NHL_END_SEASON") or "").strip()
     if raw.isdigit() and len(raw) == 4:
@@ -127,6 +142,7 @@ def _env_end_bounds() -> tuple[str, str]:
         return (date(year, 12, 31).isoformat(), date(year + 1, 7, 15).isoformat())
     day = _env_date("NHL_END_DATE", "NHL_END_SEASON",
                     datetime.now(ZoneInfo("America/New_York")).date().isoformat())
+    day = config.resolve_run_end_date(day)
     return (day, day)
 
 
@@ -195,6 +211,19 @@ def main(argv: list[str] | None = None) -> int:
     full_repull = _env_flag("NHL_FULL_REPULL")
     start_date = _env_date("NHL_START_DATE", "NHL_START_SEASON", "2024-01-01")
     end_date, window_end = _env_end_bounds()
+    # The guard runs inside _env_end_bounds (before the logger call here,
+    # but AFTER install_run_log_tee above), so re-announcing through the
+    # logger is what lands the extension in the pushed run log — a reader
+    # sees why the window no longer matches the notebook's pin.
+    _pinned_end = (os.environ.get("NHL_END_DATE")
+                   or os.environ.get("NHL_END_SEASON") or "").strip()
+    if _pinned_end and not (_pinned_end.isdigit() and len(_pinned_end) == 4) \
+            and _pinned_end != end_date:
+        logger.warning(
+            "NHL end-date pin %s is stale (before today) — extended to %s so "
+            "the daily slate and retention anchor cannot freeze; re-date the "
+            "notebook pin (or unset it) for a past-window backfill",
+            _pinned_end, end_date)
     if start_date > window_end:
         raise SystemExit(f"invalid date window: {start_date} > {window_end}")
     seasons = list(range(int(start_date[:4]), int(end_date[:4]) + 1))
@@ -317,8 +346,7 @@ def main(argv: list[str] | None = None) -> int:
                                      diagnostics=fold_diag)
     fold_info = folds_mod.fold_summary(fold_list)
     fold_info.update(fold_diag)
-    for _block_key in ("oof_regular", "oof_postseason", "oof_provisional",
-                       "oof_all"):
+    for _block_key in _OOF_BLOCK_KEYS:
         fold_info.setdefault(_block_key, {"n": 0, "sufficient": False})
     fold_tbl = folds_mod.fold_table(game_df, fold_list, date_col="gameday")
     if not fold_list:
@@ -377,7 +405,16 @@ def main(argv: list[str] | None = None) -> int:
     config.RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
     fold_tbl.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_fold_table.csv",
                     index=False)
-    logger.info("folds: %s", json.dumps(fold_info))
+    # The four oof_* blocks are computed only AFTER Phase 5's walk-forward
+    # (fold_info.update(_oof_blocks(...)) below); the setdefaults above
+    # exist so later readers always find the keys. Logging them HERE
+    # printed {"n": 0, "sufficient": false} four times — reading as
+    # "no OOF population" on a run that published 2,635 scored rows
+    # (2026-10-06 log review). Log the geometry now; the real blocks are
+    # logged where they are computed.
+    logger.info("folds: %s (oof_* blocks: computed after Phase 5)",
+                json.dumps({k: v for k, v in fold_info.items()
+                            if k not in _OOF_BLOCK_KEYS}))
 
     # Disclosure (2026-09-30): windows whose validation population falls under
     # MIN_VAL_FOLD_GAMES are RETAINED, not skipped — the old skip silently
@@ -549,6 +586,8 @@ def main(argv: list[str] | None = None) -> int:
                 else np.ones(len(oof_ml), dtype=bool))
     _g_ok = okp & _grading
     fold_info.update(_oof_blocks(oof_ml, _grading))
+    logger.info("folds oof blocks: %s",
+                json.dumps({k: fold_info[k] for k in _OOF_BLOCK_KEYS}))
     platt = ml_mod.moneyline_fit(p_ens[_g_ok], y_oof[_g_ok])
     if platt is not None:
         logger.info("final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
@@ -891,8 +930,15 @@ def main(argv: list[str] | None = None) -> int:
     # measured. This is the split, and it was computed here all along but
     # written only to the artifact — invisible to whoever is watching a run.
     _log_coverage_verdict(cov_rows)
+    # The writer gets the SAME ``drift_baseline`` slice cov_rows above was
+    # computed on (2026-10-06 log review: it still received the full
+    # ``game_df``, so the coverage CSV baseline read 2,827 games / 285 warm
+    # nulls while the log verdict and the monitor JSON — both on the
+    # 250-game drift tail — read "no warm nulls"; the drift CSV disagreed
+    # with the JSON drift the same way, n_baseline 2,827 vs 250). One frame,
+    # all four tables: log verdict, JSON drift/coverage, CSV drift/coverage.
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
-        out_dir, date_c, game_df, recent, weights=feature_weights,
+        out_dir, date_c, drift_baseline, recent, weights=feature_weights,
         slate_df=slate)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
@@ -944,6 +990,47 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print("NHL artifact sync: nothing new to push")
+
+    # ── Final run-log delivery (2026-10-06 NHL log review, MLB parity) ──
+    # _sync_data_delivery stages the run log like any other artifact — a
+    # SNAPSHOT taken before the push confirmation and THIS announcement
+    # ever reached the file, so every pushed log ends at the DONE banner
+    # (the 2026-10-06 review found exactly that on remote: 7,262 lines
+    # ending at DONE, the sync prints absent). Re-stage the now-complete
+    # log and push it as the run's LAST delivery: the DONE banner above is
+    # already flushed, so the staged file carries the whole run up to this
+    # announcement — the file cannot contain its own push (git output
+    # after the add lands in the working copy only). Never fatal: the
+    # artifacts are already remotely verified, and a failed log push must
+    # not fail a delivered run.
+    if _log_path and os.environ.get("GITHUB_TOKEN", "").strip() \
+            and not _env_flag("NHL_NO_PUSH"):
+        try:
+            print("  📝 Final run-log delivery — pushing the complete log "
+                  "(the sync staged a snapshot before sync finished)")
+            _rel = _log_path.relative_to(BACKEND_DIR.parent.parent).as_posix()
+
+            def _git_log(*args: str):
+                return subprocess.run(
+                    ["git", *args], cwd=str(BACKEND_DIR.parent.parent),
+                    check=True, capture_output=True, text=True)
+
+            for _attempt in (1, 2):
+                try:
+                    _git_log("add", "--", _rel)
+                    _git_log("-c", "user.name=NHL Production Pipeline",
+                             "-c", "user.email=nhl-pipeline@users.noreply.github.com",
+                             "commit", "-m", "NHL pipeline run log (final delivery)")
+                    _git_log("push", "origin", "main")
+                    break
+                except subprocess.CalledProcessError:
+                    if _attempt == 2:
+                        raise
+                    _git_log("pull", "--rebase", "origin", "main")
+            print("  ✅ Run log pushed and remotely verified — sync output "
+                  "included")
+        except Exception as _log_exc:  # noqa: BLE001
+            print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}")
     return 0
 
 

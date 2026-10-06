@@ -459,6 +459,18 @@ def walk_forward_oof(game_df: pd.DataFrame,
         oof["p_ensemble_causal"] = pd.to_numeric(
             oof["p_ensemble"], errors="coerce").to_numpy(float).copy()
         oof["p_ensemble"] = _blend(oof, weights)
+        # Run-log evidence (2026-10-06 log review, MLB parity): the
+        # published-blend pass left no trace in the log — a reviewer could
+        # not tell whether the headline metrics graded the rolling
+        # training-time blend or the deployed bundle's blend. One line
+        # states the applied weights and the row count so the log, the
+        # artifact and the serving binary make the same claim.
+        logger.info(
+            "Published blend: %d OOF rows re-pooled with the deployed weights "
+            "%s — headline metrics grade THE serving blend",
+            len(oof),
+            {k: f"{v:.1%}" for k, v in sorted(weights.items())},
+        )
     return {"oof": oof, "member_weights": weights,
             "season_split": season_split,
             "fold_table": pd.DataFrame(fold_rows)}
@@ -676,6 +688,9 @@ def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
     if len(np.unique(y)) < 2:
         logger.warning("Calibration: single-class OOF labels — identity map")
         return None
+    # Uncapped attempt counter — denominator for the degenerate summary
+    # (incremented here so degenerate and failed fits count as attempts).
+    fit_platt._fit_total = getattr(fit_platt, "_fit_total", 0) + 1
     try:
         from sklearn.linear_model import LogisticRegression
         z = np.log(p / (1.0 - p))
@@ -690,7 +705,20 @@ def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
     # falls back to identity: ranking preservation matters more than ECE
     # cosmetics (MLB parity).
     if not (np.isfinite(a) and np.isfinite(b)) or a <= 0:
-        logger.warning("Calibration: degenerate Platt params (a=%s) — identity map", a)
+        # WARNING (degenerate = real signal), rate-limited so the
+        # prequential loop cannot flood the log on early small folds.
+        # Two counters: _degen_logged drives the 3-line cap; the UNCAPPED
+        # _degen_total / _fit_total feed the per-block summary so a
+        # reviewer can see HOW MANY fits degenerated (2026-10-06 log
+        # review, MLB parity: the warning lacked n=, so the sample size
+        # behind a degenerate fit was unknowable).
+        _degen_n = getattr(fit_platt, "_degen_logged", 0)
+        fit_platt._degen_total = getattr(fit_platt, "_degen_total", 0) + 1
+        if _degen_n < 3:
+            logger.warning(
+                "Calibration: degenerate Platt params (a=%s, n=%d) — identity map",
+                a, n)
+        fit_platt._degen_logged = _degen_n + 1
         return None
     # MLB presentation parity: persist the map at 6-decimal precision.
     cal = {"method": "platt", "a": round(a, 6), "b": round(b, 6), "n": int(n)}
@@ -812,6 +840,11 @@ def prequential_fold_calibrators(
     y = np.asarray(home_win, dtype=float)
     folds = np.asarray(fold_ids)
     ok = np.isfinite(p) & np.isfinite(y) & (p > 0.0) & (p < 1.0)
+    # Uncapped degenerate/attempt counters around THIS block — the
+    # per-block summary at the end reports the true denominator behind
+    # the (capped) degenerate WARNINGs (MLB 2026-10-06 parity).
+    _fit0 = getattr(fit_platt, "_fit_total", 0)
+    _degen0 = getattr(fit_platt, "_degen_total", 0)
 
     calibrators: dict[int, dict | None] = {}
     fold_records: list[dict] = []
@@ -876,4 +909,14 @@ def prequential_fold_calibrators(
         "eps": config.CAL_GATE_EPS,
         "folds": fold_records,
     }
+    # The uncapped truth behind the capped WARNING lines (2026-10-06 log
+    # review, MLB parity): the reviewer sees how many of this block's fits
+    # degenerated to identity, not just the first 3.
+    _fits = getattr(fit_platt, "_fit_total", 0) - _fit0
+    _degen = getattr(fit_platt, "_degen_total", 0) - _degen0
+    if _degen:
+        logger.info(
+            "Calibration: %d of %d prequential Platt fits degenerated to "
+            "identity (the WARNING line prints only the first 3)",
+            _degen, _fits)
     return calibrators, audit
