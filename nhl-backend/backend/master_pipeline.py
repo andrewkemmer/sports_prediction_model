@@ -1254,6 +1254,16 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     return gates
 
 
+# Serving-era boundary for the frozen card store: the first published
+# slate's game date (nhl_moneyline_v1_20260926.json's 2026-09-29 slate —
+# the day the NHL serving horizon started publishing pre-game prices).
+# Post-era games may only enter the store at their PUBLISHED price; OOF
+# walk-forward seeding is confined to the pre-serving-era population (NFL
+# store parity: "OOF seed is era-confined — post-2026-09-26 games never
+# enter via OOF").
+NHL_SERVING_ERA_GAME_DATE = 20260929
+
+
 def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                                 slate: pd.DataFrame, date_c: str) -> str | None:
     """Append newly-decided games to the frozen card store (once).
@@ -1286,34 +1296,80 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
             store = (pd.concat(frames, ignore_index=True) if frames
                      else pd.DataFrame())
         added = 0
+        # PUBLISHED LEDGER + OOF ERA GATE (NFL store parity: "the frozen-
+        # price sources run FIRST … the OOF seed runs last, era-confined" —
+        # the 2026-09-28 lesson: the old OOF-first order priced settle-
+        # between-runs games at walk-forward re-prices instead of the
+        # production prices the board had already published). The dated
+        # ``nhl_moneyline_v1_*`` records ARE this pipeline's board ledger:
+        # the serving horizon's own pre-game price per game (the newest
+        # retained publication — exactly what the dashboard's dated board
+        # serves). A decided game the ledger covers is priced FROM THE
+        # LEDGER (the OOF re-price never touches the store row); a game it
+        # never covered may enter via OOF only when the game PREDATES the
+        # serving era — a post-era game with no publication never enters
+        # the store.
+        ledger: dict[str, tuple[float, str]] = {}
+        for art in sorted(out_dir.glob("nhl_moneyline_v1_*.json"), reverse=True):
+            try:
+                rec = json.loads(art.read_text())
+            except Exception:
+                continue
+            for g in (rec.get("games") if isinstance(rec, dict) else None) or []:
+                if not isinstance(g, dict):
+                    continue
+                gid = str(g.get("game_id") or "")
+                try:
+                    lph = float(g.get("home_win_prob_model"))
+                except (TypeError, ValueError):
+                    continue
+                if gid and gid not in ledger:
+                    ledger[gid] = (lph, str(g.get("model_pick") or "").strip())
         if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
             dec = oof_ml[oof_ml["game_id"].astype(str).isin(known) == False].copy()  # noqa: E712
             dec = dec[dec[["home_score", "away_score"]].notna().all(axis=1)] \
                 if {"home_score", "away_score"}.issubset(dec.columns) else dec
             if len(dec):
-                ph = pd.to_numeric(dec["p_ensemble_calibrated"], errors="coerce") \
+                gids = dec["game_id"].astype(str)
+                pub_ph = gids.map({k: v[0] for k, v in ledger.items()})
+                pub_pick = gids.map({k: v[1] for k, v in ledger.items()})
+                oof_ph = pd.to_numeric(dec["p_ensemble_calibrated"], errors="coerce") \
                     if "p_ensemble_calibrated" in dec.columns \
                     else pd.to_numeric(dec["p_ensemble"], errors="coerce")
-                pick = np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
-                winner = np.where(dec["home_win"] > 0.5, dec["home_team"],
-                                  np.where(dec["home_win"] < 0.5, dec["away_team"], "TIE"))
-                out = pd.DataFrame({
-                    "game_id": dec["game_id"].astype(str),
-                    "game_date": pd.to_datetime(dec["gameday"]).dt.strftime("%Y-%m-%d"),
-                    "home_team": dec["home_team"], "away_team": dec["away_team"],
-                    "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
-                    "model_pick": pick,
-                    "correct": np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
-                    == winner,
-                    "home_score": dec["home_score"], "away_score": dec["away_score"],
-                    "actual_winner": winner,
-                    "game_status": "Final",
-                    "source_artifact_date": date_c,
-                })
-                out = out[~out["game_id"].isin(set(store["game_id"].astype(str)))] \
-                    if len(store) else out
-                added += len(out)
-                store = pd.concat([store, out], ignore_index=True)
+                gdates = pd.to_datetime(dec["gameday"], errors="coerce")
+                post_era = ((gdates.dt.year * 10000 + gdates.dt.month * 100
+                             + gdates.dt.day) >= NHL_SERVING_ERA_GAME_DATE)
+                use_pub = pub_ph.notna()
+                keep = (use_pub | ~post_era).to_numpy()
+                dec = dec[keep]
+                pub_ph, pub_pick = pub_ph[keep], pub_pick[keep]
+                oof_ph, use_pub = oof_ph[keep], use_pub[keep]
+                if len(dec):
+                    # Published price first; the OOF walk-forward value only
+                    # where the ledger has no row AND the game is pre-era.
+                    ph = pub_ph.where(use_pub, oof_ph)
+                    derived = np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
+                    _lp = pub_pick.fillna("").to_numpy()
+                    pick = np.where(use_pub.to_numpy() & (_lp != ""), _lp, derived)
+                    winner = np.where(dec["home_win"] > 0.5, dec["home_team"],
+                                      np.where(dec["home_win"] < 0.5, dec["away_team"], "TIE"))
+                    out = pd.DataFrame({
+                        "game_id": dec["game_id"].astype(str),
+                        "game_date": pd.to_datetime(dec["gameday"]).dt.strftime("%Y-%m-%d"),
+                        "home_team": dec["home_team"],
+                        "away_team": dec["away_team"],
+                        "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                        "model_pick": pick,
+                        "correct": pick == winner,
+                        "home_score": dec["home_score"], "away_score": dec["away_score"],
+                        "actual_winner": winner,
+                        "game_status": "Final",
+                        "source_artifact_date": date_c,
+                    })
+                    out = out[~out["game_id"].isin(set(store["game_id"].astype(str)))] \
+                        if len(store) else out
+                    added += len(out)
+                    store = pd.concat([store, out], ignore_index=True)
         if slate is not None and len(slate):
             dec_s = slate[slate[["home_score", "away_score"]].notna().all(axis=1)] \
                 if {"home_score", "away_score"}.issubset(slate.columns) \

@@ -876,20 +876,47 @@ def _attach_candidate_features(df: pd.DataFrame, ladder: pd.DataFrame,
     return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
 
-def _records_string(events: pd.DataFrame) -> pd.Series:
-    """Cumulative W-L record string per team over the decided timeline."""
-    rec = events.groupby("team").agg(
-        wins=("team_win", lambda s: float((s == 1).sum())),
-        losses=("team_win", lambda s: float((s == 0).sum())),
-    )
+def _record_frame(events: pd.DataFrame) -> pd.DataFrame:
+    """One row per (game_id, team): the record that team ENTERED the game
+    with, CURRENT-SEASON scoped (MLB ``compute_season_records`` / NFL
+    ``features._record_frame`` parity — records reset across the
+    offseason): the cumulative counter is grouped by (team, season) and
+    taken strictly prior (the row's own flag subtracted), so a season
+    opener reads 0-0 instead of the franchise's multi-season tally — the
+    unseasoned groupby printed career numbers like ``102-76`` on the game
+    cards, and a game's own result never enters its own record. Ties are
+    never counted (no ties in the shootout era; a 0.5 flag is an
+    undecided row and contributes to neither counter).
+    """
+    cols = ["game_id", "team", "record"]
+    if events is None or not len(events):
+        return pd.DataFrame(columns=cols)
+    srt = events.sort_values(["gameday", "game_id"]).copy()
+    groups = [srt["team"], srt["season"]]
+    flags = pd.to_numeric(srt["team_win"], errors="coerce")
+    win = (flags == 1.0).astype(float)
+    loss = (flags == 0.0).astype(float)
+    prior_w = win.groupby(groups, sort=False).cumsum() - win
+    prior_l = loss.groupby(groups, sort=False).cumsum() - loss
+    srt["record"] = [f"{int(w)}-{int(l)}" for w, l in zip(prior_w, prior_l)]
+    return srt[cols].reset_index(drop=True)
 
-    def _fmt(team: str) -> str:
-        if team not in rec.index:
-            return ""
-        r = rec.loc[team]
-        return f"{int(r['wins'])}-{int(r['losses'])}"
 
-    return rec, _fmt
+def _attach_records(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    """Attach each row's entering current-season W-L record (keyed by
+    game_id + team). A missing entry renders quiet (never fabricated)."""
+    out = df.copy()
+    rec = _record_frame(events)
+    if rec.empty or "game_id" not in out.columns:
+        return out
+    key = (rec.astype({"game_id": str})
+           .drop_duplicates(["game_id", "team"])
+           .set_index(["game_id", "team"])["record"])
+    for side in ("home", "away"):
+        idx = pd.MultiIndex.from_arrays([
+            out["game_id"].astype(str), out[f"{side}_team"].astype(str)])
+        out[f"{side}_record"] = key.reindex(idx).to_numpy()
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1444,9 +1471,7 @@ def build_game_features(games: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
-    rec, fmt = _records_string(ev)
-    df["home_record"] = df["home_team"].map(fmt)
-    df["away_record"] = df["away_team"].map(fmt)
+    df = _attach_records(df, ev)
 
     # Player-pool features (MLB's roster -> injury flag -> healthy-pool mean).
     df = add_player_pool_features(df, player_ratings=player_ratings,
@@ -1564,9 +1589,7 @@ def build_slate_features(schedule: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
-    rec, fmt = _records_string(ev_decided)
-    df["home_record"] = df["home_team"].map(fmt)
-    df["away_record"] = df["away_team"].map(fmt)
+    df = _attach_records(df, ev_decided)
 
     # The slate is what production actually SHIPS for upcoming games, so the
     # player pool has to be attached here too. Leaving it on the decided-frame

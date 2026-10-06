@@ -114,6 +114,25 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             "model_pick": pick,
             "model_correct": None,
         }))
+    # SAME-DATE PRESERVATION (the 2026-10-03 overwrite defect): a re-run on
+    # the same date publishes its OWN narrower horizon slate and used to
+    # replace the file outright, dropping games earlier runs had already
+    # published (11 of the 13 Oct-3 games vanished from the record, leaving
+    # their cards no published source — only the OOF history). Existing rows
+    # for game ids this slate does not carry are PRESERVED (their
+    # publication stands); ids this run prices take the new row (the latest
+    # pre-game price). Never mutates ids outside this slate's window.
+    try:
+        if path.exists():
+            prior = json.loads(path.read_text())
+            new_ids = {str(x.get("game_id") or "") for x in games}
+            preserved = [g for g in (prior.get("games") or [])
+                         if isinstance(g, dict)
+                         and str(g.get("game_id") or "") not in new_ids]
+            if preserved:
+                games = preserved + games
+    except Exception:
+        pass
     record = {
         "created_utc": _now_utc(),
         "config": config_meta,
@@ -321,6 +340,26 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         cols += [f"p_over_{U}", f"p_under_{U}", f"p_push_total_{U}"]
 
     out = pd.concat([oof_rows, slate_rows], ignore_index=True)
+    # SAME-DATE PRESERVATION (the 2026-10-03 overwrite defect): a re-run's
+    # narrower horizon slate used to replace the file, dropping the
+    # kind='slate' rows earlier runs had published for game ids this run no
+    # longer prices (an archive card for those games then had NO published
+    # distribution to render — the quiet 'unavailable' strip at best, an OOF
+    # re-price at worst). Preserve prior kind='slate' rows for ids this
+    # slate does not carry; ids this run prices take the new row.
+    try:
+        if path.exists():
+            prior = pd.read_csv(path)
+            if len(prior) and "kind" in prior.columns and "game_id" in prior.columns:
+                prior = prior[prior["kind"].astype(str) == "slate"]
+                new_ids = set()
+                if "game_id" in slate_rows.columns and len(slate_rows):
+                    new_ids = set(slate_rows["game_id"].astype(str))
+                preserved = prior[~prior["game_id"].astype(str).isin(new_ids)]
+                if len(preserved):
+                    out = pd.concat([preserved, out], ignore_index=True)
+    except Exception:
+        pass
     # Normalize legacy in-memory spellings before selecting the published
     # contract (the same guard the NFL writer applies). Totals pushes ride
     # p_push_total_{U}; any legacy p_push_{U} totals column (and the spread
