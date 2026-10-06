@@ -1195,8 +1195,11 @@ def _predictions_history_csv(
     prediction with its actual result.
 
     Feeds the Calibration page's per-game history table (the same games that
-    feed the reliability diagram). Point-in-time safe by construction: each
-    prediction comes from the fold trained strictly on prior games.
+    feed the reliability diagram). Point-in-time safe on the MODEL side by
+    construction: each member prediction comes from the fold trained
+    strictly on prior games. The blend weights are the DEPLOYED earning
+    applied uniformly (walk_forward_evaluate's published-blend pass), so
+    the history matches the production binary's blend pooled OOF exactly.
 
     Column semantics (see README "The three probability quantities"):
       * home_win_prob_model            → (1) RAW OOF blend. Input to maps.

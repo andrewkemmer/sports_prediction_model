@@ -597,12 +597,19 @@ if ensemble:
         )
     total_ok = abs(total_weight - 1.0) < 0.001
     total_color = "#34D399" if total_ok else utils.AMBER
+    # TOTAL row = the deployed blend's OWN pooled OOF scores (the artifact's
+    # headline metrics block — the same numbers the KPI cards show), so the
+    # blend-vs-strongest-member comparison is visible in the table itself.
+    blend_m = mon.get("metrics") or {}
+    blend_txt = lambda v: (f"{v:.4f}" if isinstance(v, (int, float)) else "—")  # noqa: E731
     ens_rows.append(
         f"<tr>"
         f"<td style='font-weight:800;color:#E2E8F0;'>TOTAL (blended ensemble)</td>"
-        f"<td style='color:#64748B;'>Logit-space blend of deployed members, weights re-earned per fold by SLSQP log-loss optimization; per-row weights renormalize when a member fails.</td>"
+        f"<td style='color:#64748B;'>Logit-space blend of the deployed members at the deployed earning weights (SLSQP log-loss optimization, re-earned per fold) — the exact blend the production binary serves, scored on pooled out-of-fold member predictions. Per-row weights renormalize when a member fails.</td>"
         f"<td style='font-weight:800;color:{total_color};'>{total_weight * 100:.0f}%</td>"
-        f"<td colspan='3'></td>"
+        f"<td style='color:#E2E8F0;font-weight:700;'>{blend_txt(blend_m.get('auc'))}</td>"
+        f"<td>{blend_txt(blend_m.get('brier'))}</td>"
+        f"<td>{blend_txt(blend_m.get('logloss'))}</td>"
         f"</tr>"
     )
     st.markdown(
@@ -616,7 +623,8 @@ if ensemble:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Every candidate from the walk-forward roster is listed — including zero-weight
           candidates. AUC/Brier/Log-Loss are each model's own pooled out-of-fold scores;
-          the blended ensemble's headline metrics are shown in the KPI cards above.
+          the TOTAL row carries the deployed blend's pooled scores (the same headline
+          metrics shown in the KPI cards above).
         </div>
         """,
         unsafe_allow_html=True,

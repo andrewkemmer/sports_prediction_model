@@ -137,6 +137,13 @@ def _monitor_record() -> dict:
         },
         "feature_coverage": coverage,
         "ensemble": ensemble,
+        # Headline block = the deployed blend's own pooled OOF scores; the
+        # Model Ensemble TOTAL row must render them next to the members so
+        # blend-vs-strongest-member is visible in the table itself.
+        "metrics": {"auc": 0.6995, "brier": 0.2035, "logloss": 0.6321,
+                    "ece": 0.0211, "brier_calibrated": 0.2039,
+                    "logloss_calibrated": 0.6328, "ece_calibrated": 0.0207,
+                    "calibrator_gated_out": False},
         "rolling_brier": rolling_brier,
         "rolling_brier_meta": {"window_days": 30, "min_games_per_day": 2,
                                "excluded_sparse_days": 0,
@@ -369,6 +376,18 @@ def run() -> int:
             problems.append("missing model-ensemble section")
         if "XGBOOST" not in text.upper() and "xgboost" not in text.lower():
             problems.append("ensemble table missing the xgboost member row")
+
+        # (5b) TOTAL row carries the deployed blend's OWN pooled scores —
+        #      the 2026-10-05 binary-parity remediation: the blend row is
+        #      comparable to the member rows at a glance.
+        if "TOTAL (blended ensemble)" not in text:
+            problems.append("ensemble table missing the TOTAL blended row")
+        for key, val in (("AUC", "0.6995"), ("Brier", "0.2035"),
+                         ("log-loss", "0.6321")):
+            if val not in text:
+                problems.append(f"TOTAL row missing the blend's pooled {key} ({val})")
+        if "the exact blend the production binary serves" not in text:
+            problems.append("TOTAL row missing the deployed-blend provenance note")
 
         # (6) rolling Brier timeline renders a real Altair chart
         if len(vcl) == 0:

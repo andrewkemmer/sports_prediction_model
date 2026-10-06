@@ -1249,11 +1249,14 @@ def compute_adaptive_weights(
     when its own pooled OOF log-loss beats the optimized blend's;
     otherwise the optimized weights stand. In production the caller
     re-earns these weights after every walk-forward fold (rolling
-    per-fold weighting — each fold's blend is weighted by the PRIOR
-    folds' OOF evidence only), so this function sees one fold's OOF
-    window at a time. The result sums to exactly 1.0 and feeds both
-    prediction blending and reporting so the ensemble visibly
-    self-corrects as features improve.
+    per-fold weighting — each earning is fit on the PRIOR folds' OOF
+    evidence only), so this function sees one fold's OOF window at a
+    time. The LAST fold's earning is what the deployed bundle stores
+    and serves with, and the walk's published-blend pass applies exactly
+    that vector to every OOF row, so the reported blend is the deployed
+    binary's blend pooled OOF (2026-10-05). The result sums to exactly
+    1.0 and feeds both prediction blending and reporting so the ensemble
+    visibly self-corrects as features improve.
 
     Constrained stacking meta-learner ablation (DON'T ADOPT, 2026-08-27):
     an L2-regularized logistic stack (scipy SLSQP; standardized member
@@ -1439,6 +1442,32 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
     return {f: round(float(w), 4) for f, w in zip(active_moneyline_feature_cols(), agg / agg.sum() * 100.0)}
 
 
+def _pool_member_probs(
+    members: dict[str, np.ndarray], weights: dict[str, float]
+) -> np.ndarray:
+    """Logit-space weighted pooling — THE deployed blend formula.
+
+    Shared by serving (``ensemble_predict``) and the walk-forward
+    published-blend pass so the OOF history and the served probability are
+    the same quantity by construction. Zero/absent-weight members drop out
+    and the remainder renormalizes per row; rows with no active member
+    fall back to 0.5, mirroring serving.
+    """
+    if not members:
+        return np.empty(0)
+    n = len(next(iter(members.values())))
+    active = {name: p for name, p in members.items()
+              if weights.get(name, 0.0) > 0}
+    if not active:
+        return np.full(n, 0.5)
+    tot = sum(weights[name] for name in active)
+    z = np.zeros(n)
+    for name, p in active.items():
+        pc = np.clip(np.asarray(p, dtype=float), 1e-7, 1 - 1e-7)
+        z += (weights[name] / tot) * np.log(pc / (1 - pc))
+    return 1.0 / (1.0 + np.exp(-z))
+
+
 def ensemble_predict(
     ml_models: dict[str, Any], games: pd.DataFrame
 ) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float]]:
@@ -1526,15 +1555,10 @@ def ensemble_predict(
     # Logit-space pooling (2026-09-21): the earned weights are fit by
     # minimizing OOF log-loss of the sigmoid of the weighted logit mean,
     # so serving pools the same way. Members with zero weight drop out.
-    active = {n: p for n, p in members.items() if weights.get(n, 0.0) > 0}
-    if not active:
-        return np.full(len(games), 0.5), members, weights
-    tot = sum(weights[n] for n in active)
-    z = np.zeros(len(games))
-    for name, p in active.items():
-        pc = np.clip(np.asarray(p, dtype=float), 1e-7, 1 - 1e-7)
-        z += (weights[name] / tot) * np.log(pc / (1 - pc))
-    blend = 1.0 / (1.0 + np.exp(-z))
+    # The SAME formula pools the published OOF blend (walk_forward_evaluate
+    # re-blend pass) so the dashboard's TOTAL row describes what serving
+    # actually does.
+    blend = _pool_member_probs(members, weights)
     return blend, members, weights
 
 
@@ -1988,6 +2012,11 @@ def walk_forward_evaluate(
 
     all_preds = []
     fold_metrics_list = []
+    # Per-fold full-row member probabilities and grade masks, aligned with
+    # all_preds; the published-blend pass re-blends these with the deployed
+    # weights (row order = fold order).
+    fold_member_full: list[dict[str, np.ndarray]] = []
+    fold_grades: list[np.ndarray] = []
     oof_members: dict[str, list[float]] = {}
     # Per-member prequential calibrated twins: fold k's map (fitted strictly
     # on PRIOR folds' blend pairs — the same map already applied to the blend)
@@ -2044,19 +2073,13 @@ def walk_forward_evaluate(
             split["fold_idx"],
             str(split["val_start"])[:10], str(split["val_end"])[:10],
             len(train), len(val), ml_metrics.get("auc", 0.5), ml_metrics.get("brier", 0.25),
-        )
-
-        # Weighted-blend prediction; keep each member's probabilities so we
-        # can score candidates individually out of sample.
+        )        # Weighted-blend prediction; keep each member's probabilities so we
+        # can score candidates individually out of sample. The per-fold
+        # blend is a training-time diagnostic only — the published OOF
+        # blend is rebuilt after the loop with the DEPLOYED weights (see the
+        # published-blend pass below).
         ensemble_prob, member_probs, _wts = ensemble_predict(ml_models, val)
         y_val = val["home_win"].values.tolist()
-
-        # Prequential calibration: fit on everything out-of-sample BEFORE
-        # this fold, then transform this fold's predictions.
-        fold_cal = None
-        if len(oof_blend) >= MIN_OOF_FOR_FIT:
-            fold_cal = moneyline_fit(oof_y, oof_blend)
-        fold_calibrated = moneyline_apply(ensemble_prob, fold_cal)
 
         # Grading-gated accumulators: only GRADES rows feed the prequential
         # calibrator, the shipped Platt map, the adaptive weights and the
@@ -2064,30 +2087,31 @@ def walk_forward_evaluate(
         # published — via val_pred/combined below (CSV, predictions_history,
         # calibration curve) and via the season-split blocks.
         oof_y.extend(np.asarray(y_val, dtype=float)[grades].tolist())
-        oof_blend.extend(
-            np.asarray(ensemble_prob, dtype=float)[grades].tolist())
-        oof_blend_calibrated.extend(
-            np.asarray(fold_calibrated, dtype=float)[grades].tolist()
-        )
         for name, p in member_probs.items():
             p_arr = np.asarray(p, dtype=float)
-            pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
             oof_members.setdefault(name, []).extend(p_arr[grades].tolist())
-            oof_members_cal.setdefault(name, []).extend(pc[grades].tolist())
 
         # Rolling per-fold blend weighting (2026-09-16 spec): after each
         # fold, re-earn the blend weights from the accumulated PRIOR+current
         # fold OOF member log-loss, so the NEXT fold's blend is weighted by
         # evidence strictly before it (causal — never sees what it scores).
-        # Fold 0 blended on the static priors (cleared at run start).
+        # Fold 0 blended on the static priors (cleared at run start). This
+        # rolling earning is what the deployed bundle ships (last fold's
+        # vector) — the published-blend pass applies it to every OOF row.
         _rolling = compute_adaptive_weights(oof_members, oof_y) if oof_y else {}
         if _rolling:
             _LAST_ADAPTIVE_WEIGHTS.clear()
             _LAST_ADAPTIVE_WEIGHTS.update(_rolling)
 
+        fold_member_full.append({
+            n: np.asarray(p, dtype=float) for n, p in member_probs.items()
+        })
+        fold_grades.append(np.asarray(grades, dtype=bool))
+
         val_pred = val.copy()
+        # Placeholder (this fold's rolling earning) — overwritten by the
+        # published-blend pass with the DEPLOYED bundle's blend.
         val_pred["home_win_prob_model"] = ensemble_prob
-        val_pred["home_win_prob_model_calibrated"] = np.round(fold_calibrated, 4)
         val_pred["fold_idx"] = split["fold_idx"]
         # Season-split disclosure columns: row-level where the fact is
         # row-level (is_playoffs, grades_pooled), fold-level broadcast
@@ -2098,6 +2122,55 @@ def walk_forward_evaluate(
         val_pred["grades_pooled"] = grades
         all_preds.append(val_pred)
         fold_metrics_list.append(ml_metrics)
+
+    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05) ─────────
+    # The OOF frame — headline metrics, calibration curve/buckets, the
+    # shipped Platt map, predictions_history — publishes the blend THE
+    # DEPLOYED BINARY SERVES: each row's member probabilities come from
+    # that fold's strictly-prior models (never refit here, always
+    # out-of-sample), combined with the deployed earning weights (the
+    # ``_LAST_ADAPTIVE_WEIGHTS`` vector ``persist_ensemble`` stores and
+    # ``ensemble_predict`` serves with), renormalized per row when a member
+    # is missing exactly like serving. Before this pass each row carried
+    # its fold's rolling earning — the training-time policy — which put
+    # weight-learning transients (fold-0 priors, early thin evidence) into
+    # the published history even though no deployed model ever served them:
+    # on the 2026-10-05 snapshot that diluted the pooled blend to 0.5711
+    # AUC / 0.6825 log-loss against the deployed blend's 0.5726 / 0.6819,
+    # flipping the blend-vs-strongest-member comparison that the Model
+    # Ensemble table publishes. Weight EARNING stays strictly causal (the
+    # fold loop above); only the published application changed, and it now
+    # matches the production binary's blend pooled OOF by construction.
+    if all_preds:
+        deployed_w = _member_weights(sorted(oof_members))
+        for val_pred, member_full in zip(all_preds, fold_member_full):
+            val_pred["home_win_prob_model"] = (
+                _pool_member_probs(member_full, deployed_w)
+                if member_full else np.full(len(val_pred), 0.5)
+            )
+        # Prequential calibration of the published blend: fold k is scored
+        # by a map fitted strictly on folds < k's published pairs (the
+        # dashboard's honesty claim), then the shipped map is fitted on ALL
+        # published pairs below. The per-member calibrated twins ride the
+        # SAME per-fold maps so the table's calibrated columns compare like
+        # with like.
+        for val_pred, member_full, grades_k in zip(
+                all_preds, fold_member_full, fold_grades):
+            blend_k = np.asarray(val_pred["home_win_prob_model"], dtype=float)
+            fold_cal = None
+            if len(oof_blend) >= MIN_OOF_FOR_FIT:
+                # oof_y (graded rows, fold order) is complete before this
+                # pass runs; its prefix of len(oof_blend) is exactly the
+                # labels of the pairs accumulated so far.
+                fold_cal = moneyline_fit(oof_y[:len(oof_blend)], oof_blend)
+            cal_k = np.asarray(moneyline_apply(blend_k, fold_cal), dtype=float)
+            val_pred["home_win_prob_model_calibrated"] = np.round(cal_k, 4)
+            oof_blend.extend(blend_k[grades_k].tolist())
+            oof_blend_calibrated.extend(cal_k[grades_k].tolist())
+            for name, p_arr in member_full.items():
+                pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
+                oof_members_cal.setdefault(name, []).extend(
+                    pc[grades_k].tolist())
 
     # Pool metrics across the GRADING population only — regular-season
     # rows of non-provisional folds (2026-10-03 season-split remediation).

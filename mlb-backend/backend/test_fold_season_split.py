@@ -73,6 +73,127 @@ def _patch_trainers(monkeypatch) -> None:
     monkeypatch.setattr(training, "ensemble_predict", _fake_predict)
 
 
+def _fake_train_multi(train, val=None, *args, **kwargs):
+    return {"m1": object(), "m2": object()}, {
+        "auc": 0.6, "brier": 0.3, "logloss": 0.5, "ece": 0.01}
+
+
+_PRED_CALLS: list[dict[int, float]] = []
+
+
+def _fake_predict_multi(models, games, *args, **kwargs):
+    """Row-stable member probs + WILDLY varying per-fold weights.
+
+    The per-fold blend alternates between pure-m1 and pure-m2 across
+    folds, so any published column that carries fold-time weights is
+    trivially distinguishable from the deployed-weights blend.
+    """
+    pk = games["game_pk"].to_numpy(float)
+    p1 = 0.25 + (pk % 89) / 200.0
+    p2 = 0.65 - (pk % 61) / 200.0
+    k = len(_PRED_CALLS)
+    if k % 2 == 0:
+        w, blend = {"m1": 1.0, "m2": 0.0}, p1
+    else:
+        w, blend = {"m1": 0.0, "m2": 1.0}, p2
+    _PRED_CALLS.append(dict(zip(games["game_pk"].tolist(),
+                                np.asarray(blend, float).tolist())))
+    return blend, {"m1": p1.copy(), "m2": p2.copy()}, w
+
+
+def test_published_blend_is_the_deployed_bundle_blend(monkeypatch, tmp_path):
+    """2026-10-05 binary-parity remediation: the published OOF blend —
+    headline metrics, calibration curve, shipped Platt map,
+    predictions_history — is THE blend the deployed binary serves (its
+    stored ``adaptive_weights`` + the shared logit pooling), not the
+    fold-time rolling earning that carries weight-learning transients.
+
+    The bundled-persist roundtrip pins the user-facing acceptance exactly:
+    the persisted bundle's ``metrics`` are reproducible from its OWN
+    ``adaptive_weights`` applied to the pooled member OOF.
+    """
+    import joblib
+    from calibration import MIN_OOF_FOR_FIT, moneyline_apply, moneyline_fit
+
+    _PRED_CALLS.clear()
+    monkeypatch.setattr(training, "train_moneyline_ensemble", _fake_train_multi)
+    monkeypatch.setattr(training, "ensemble_predict", _fake_predict_multi)
+    # Big enough that the prequential map fits part-way through (graded
+    # rows > MIN_OOF_FOR_FIT), with labels carrying REAL signal so the
+    # Platt fit is non-degenerate and the calibrated column is NOT
+    # trivially the rounded raw column (pure-noise labels make fit_platt
+    # reject a<0 and fall back to identity).
+    frame = _frame(n_days=110, games_per_day=5, post_from=101)
+    pk_f = frame["game_pk"].to_numpy(float)
+    p1_f = 0.25 + (pk_f % 89) / 200.0
+    p2_f = 0.65 - (pk_f % 61) / 200.0
+    u = (pk_f * 0.6180339887) % 1.0
+    frame["home_win"] = (u < 0.5 * (p1_f + p2_f)).astype(float)
+    _, pooled, combined = training.walk_forward_evaluate(
+        frame, retrain_cadence_days=CADENCE, min_val_games=20)
+
+    deployed = dict(training._LAST_ADAPTIVE_WEIGHTS)
+    assert deployed, "the walk must leave the deployed earning weights"
+
+    # (1) Every published row equals the deployed-weights blend of ITS
+    # member probabilities (the serving formula, shared helper).
+    pk = combined["game_pk"].to_numpy(float)
+    p1 = 0.25 + (pk % 89) / 200.0
+    p2 = 0.65 - (pk % 61) / 200.0
+    expected = training._pool_member_probs(
+        {"m1": p1, "m2": p2}, training._member_weights(["m1", "m2"]))
+    got = combined["home_win_prob_model"].to_numpy(float)
+    assert np.allclose(got, expected, atol=1e-12, rtol=0)
+
+    # (2) Discriminating: the published column is NOT the fold-time blend
+    # (the fakes alternate pure-m1 / pure-m2 per fold).
+    fold_blend_map: dict[int, float] = {}
+    for call in _PRED_CALLS:
+        fold_blend_map.update(call)
+    fold_blend = np.array([fold_blend_map[int(k_)]
+                           for k_ in combined["game_pk"].tolist()])
+    assert not np.allclose(got, fold_blend, atol=1e-9), \
+        "published blend still carries fold-time rolling weights"
+
+    # (3) Prequential honesty kept: fold k's calibrated column comes from
+    # a map fitted strictly on folds < k's published pairs.
+    g = combined["grades_pooled"].astype(bool).to_numpy()
+    assert int(g.sum()) > MIN_OOF_FOR_FIT, "fixture must exercise the map path"
+    acc_y: list[float] = []
+    acc_p: list[float] = []
+    exp_cal = np.zeros(len(combined))
+    for _, frows in combined.groupby("fold_idx", sort=False):
+        blend_k = frows["home_win_prob_model"].to_numpy(float)
+        cal = moneyline_fit(np.asarray(acc_y, float), np.asarray(acc_p, float)) \
+            if len(acc_p) >= MIN_OOF_FOR_FIT else None
+        exp_cal[frows.index] = np.round(moneyline_apply(blend_k, cal), 4)
+        gk = frows["grades_pooled"].astype(bool).to_numpy()
+        acc_y.extend(frows["home_win"].to_numpy(float)[gk].tolist())
+        acc_p.extend(blend_k[gk].tolist())
+    assert np.allclose(
+        combined["home_win_prob_model_calibrated"].to_numpy(float),
+        exp_cal, atol=5e-5, rtol=0)
+    assert not np.allclose(exp_cal, np.round(got, 4), atol=5e-5), \
+        "fixture never fitted a map — the prequential pin is vacuous"
+
+    # (4) The persisted bundle ("the artifact") is self-consistent: its
+    # metrics are the pooled OOF of ITS OWN blend — the acceptance that
+    # the artifact matches the production binary's blend pooled OOF.
+    monkeypatch.setattr(training, "MODELS_DIR", tmp_path)
+    training.persist_ensemble({"m1": object(), "m2": object()}, pooled)
+    bundle = joblib.load(tmp_path / training.ENSEMBLE_FILE)
+    assert bundle["adaptive_weights"] == deployed
+    # Replay through the SERVING path (restore + _member_weights) exactly
+    # as predict_games would blend a future game.
+    training.set_adaptive_weights(bundle["adaptive_weights"])
+    y_g = combined["home_win"].to_numpy(float)[g]
+    p_g = training._pool_member_probs(
+        {"m1": p1[g], "m2": p2[g]}, training._member_weights(["m1", "m2"]))
+    replay = training.compute_metrics(y_g, p_g)
+    for k in ("auc", "brier", "logloss", "ece"):
+        assert bundle["metrics"][k] == replay[k] == pooled[k], k
+
+
 def test_postseason_flag_recognizes_round_codes_and_text():
     got = postseason_flag(["R", "F", "D", "L", "W", "P",
                            "playoff", "POSTSEASON", "S"])
