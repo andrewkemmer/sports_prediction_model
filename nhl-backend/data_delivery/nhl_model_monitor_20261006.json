@@ -6653,6 +6653,16 @@
   "calibrator_is_identity": false,
   "map_scope_note": "Points use the prequential per-fold calibration layer (fit on prior OOF folds only); the pooled all-OOF Platt map is the serving layer and is not in this series."
  },
+ "metrics": {
+  "auc": 0.5989,
+  "brier": 0.2408,
+  "logloss": 0.6745,
+  "ece": 0.0181,
+  "ece_calibrated": 0.0167,
+  "auc_calibrated": 0.5978,
+  "brier_calibrated": 0.241,
+  "logloss_calibrated": 0.6748
+ },
  "version_history": [
   {
    "version": "20261006",
@@ -6662,9 +6672,9 @@
     "lightgbm": 0.2245,
     "elasticnet": 0.4294
    },
-   "auc": 0.5978052432443979,
-   "logloss": 0.6748461453625271,
-   "ece_calibrated": 0.01667933103867321,
+   "auc": 0.5989,
+   "logloss": 0.6745,
+   "ece_calibrated": 0.0167,
    "note": "rebuild run",
    "calibration": {
     "a": 1.154382,
