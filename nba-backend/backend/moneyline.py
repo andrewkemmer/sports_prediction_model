@@ -580,6 +580,13 @@ def walk_forward_oof(
     # pooled OOF.
     if parts:
         deployed_w = dict(prior_weights)
+        # Uncapped denominators around the published-blend prequential
+        # calibrator loop — the summary below reports the true fallback
+        # count behind fit_platt's capped WARNING lines (2026-10-06 NBA
+        # log review, MLB/NHL parity).
+        _fit0 = getattr(fit_platt, "_fit_total", 0)
+        _min0 = getattr(fit_platt, "_min_total", 0)
+        _degen0 = getattr(fit_platt, "_degen_total", 0)
         for row in parts:
             row["p_ensemble_causal"] = row["p_ensemble"].to_numpy(float).copy()
             row["p_ensemble"] = _blend(row, deployed_w)
@@ -600,6 +607,28 @@ def walk_forward_oof(
                   else np.ones(len(row), dtype=bool))
             pub_p.extend(p_k[gk].tolist())
             pub_y.extend(row["home_win"].to_numpy(float)[gk].tolist())
+
+        # Run-log evidence (2026-10-06 NBA log review, MLB/NHL parity): the
+        # published-blend pass left no trace in the log — a reviewer could
+        # not tell whether the headline metrics graded the rolling
+        # training-time blend or the deployed bundle's blend. One line
+        # states the applied weights and the row count so the log, the
+        # artifact and the serving binary make the same claim.
+        logger.info(
+            "Published blend: %d OOF rows re-pooled with the deployed weights "
+            "%s — headline metrics grade THE serving blend",
+            sum(len(r) for r in parts),
+            {k: f"{v:.1%}" for k, v in sorted(deployed_w.items())},
+        )
+        _fits = getattr(fit_platt, "_fit_total", 0) - _fit0
+        _mins = getattr(fit_platt, "_min_total", 0) - _min0
+        _degens = getattr(fit_platt, "_degen_total", 0) - _degen0
+        if _mins or _degens:
+            logger.info(
+                "Calibration: %d of %d published-blend prequential Platt fits "
+                "fell back to identity (%d below minimum or single-class, "
+                "%d degenerate; the WARNING lines print only the first 3)",
+                _mins + _degens, _fits + _mins, _mins, _degens)
 
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     if len(oof):
@@ -702,12 +731,47 @@ def fit_platt(p_fav, y_fav):
     ok = np.isfinite(p) & np.isfinite(y) & (p > 0) & (p < 1)
     p, y = p[ok], y[ok]
     if len(y) < config.MIN_OOF_FOR_FIT or len(np.unique(y)) < 2:
+        # Evidence (2026-10-06 NBA log review, MLB/NHL parity): this
+        # fallback used to be SILENT — the delivered log carried no
+        # calibration line at all, so a reviewer could not tell a fitted
+        # map from an identity fallback. Capped at 3 because the
+        # published-blend prequential loop calls fit_platt once per fold
+        # and early small folds miss the minimum repeatedly; the UNCAPPED
+        # _min_total feeds the per-block summary in walk_forward_oof.
+        _n = getattr(fit_platt, "_min_logged", 0)
+        fit_platt._min_total = getattr(fit_platt, "_min_total", 0) + 1
+        if _n < 3:
+            if len(y) < config.MIN_OOF_FOR_FIT:
+                logger.warning(
+                    "Calibration: %d OOF games < %d minimum — identity map",
+                    len(y), config.MIN_OOF_FOR_FIT)
+            else:
+                logger.warning(
+                    "Calibration: single-class OOF labels (n=%d) — identity "
+                    "map", len(y))
+        fit_platt._min_logged = _n + 1
         return None
+    # Uncapped attempt counter — denominator for the fallback summary
+    # (incremented here so degenerate fits count as attempts too).
+    fit_platt._fit_total = getattr(fit_platt, "_fit_total", 0) + 1
     from sklearn.linear_model import LogisticRegression
     z = np.log(p / (1 - p)).reshape(-1, 1)
     model = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000).fit(z, y.astype(int))
     a, b = float(model.coef_[0, 0]), float(model.intercept_[0])
     if not np.isfinite(a) or not np.isfinite(b) or a <= 0:
+        # WARNING (degenerate = real signal), rate-limited so the
+        # prequential loop cannot flood the log on early small folds.
+        # Two counters: _degen_logged drives the 3-line cap; the UNCAPPED
+        # _degen_total feeds the summary so a reviewer can see HOW MANY
+        # fits degenerated (2026-10-06 NBA log review, MLB/NHL parity: a
+        # degenerate fit's sample size must be visible in the log).
+        _degen_n = getattr(fit_platt, "_degen_logged", 0)
+        fit_platt._degen_total = getattr(fit_platt, "_degen_total", 0) + 1
+        if _degen_n < 3:
+            logger.warning(
+                "Calibration: degenerate Platt params (a=%s, n=%d) — identity map",
+                a, len(y))
+        fit_platt._degen_logged = _degen_n + 1
         return None
     return {"method": "platt", "a": round(a, 6), "b": round(b, 6), "n": int(len(y))}
 

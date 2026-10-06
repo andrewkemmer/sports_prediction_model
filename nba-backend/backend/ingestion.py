@@ -336,6 +336,21 @@ def window() -> tuple[date, date]:
     start = start_raw or (today - timedelta(days=DEFAULT_WINDOW_DAYS))
     start = max(start, date(config.OOF_FIRST_SEASON, 1, 1))
     end = end_raw or today
+    if end_raw is not None and end < today:
+        # Stale-pin guard (2026-10-06 NBA log review, MLB/NHL/NFL parity):
+        # the Kaggle notebook pins a literal NBA_END_DATE for rebuilds and
+        # leaves the pin there afterwards — the notebook is Kaggle-owned
+        # (standing guardrail: never edit it from the repo), so the
+        # PIPELINE defends itself: a pin before today extends to TODAY,
+        # the SAME clock as the no-pin default above, so the daily slate
+        # cannot freeze on the day after the pin's day. Malformed input
+        # already resolves to None (→ today) in _to_date, and a same-day
+        # or forward-looking pin passes through untouched.
+        logger.warning(
+            "%s %s is stale (before today) — extended to %s so the daily "
+            "slate cannot freeze; re-date the notebook pin (or unset it) "
+            "for a past-window backfill", WINDOW_END_ENV, end, today)
+        end = today
     if end < start:
         logger.warning("%s (%s) precedes %s (%s); swapping",
                        WINDOW_END_ENV, end, WINDOW_START_ENV, start)

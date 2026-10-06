@@ -1285,6 +1285,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         _grade = ml_oof[_grades]
         platt = ml_mod.moneyline_fit(_grade.p_ensemble.to_numpy(float),
                                      _grade.home_win.to_numpy(float))
+        # The shipped map states itself (2026-10-06 NBA log review, MLB/
+        # NHL parity): the delivered log carried no calibration line at
+        # all — a reviewer could not tell a fitted map from an identity
+        # fallback. fit_platt's capped WARNINGs cover WHY a fit fell
+        # back; this line says which one actually ships.
+        if platt is not None:
+            logger.info(
+                "final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
+                platt["a"], platt["b"], platt["n"], platt.get("method"))
+        else:
+            logger.info(
+                "final pooled calibrator: identity map "
+                "(no fitted correction)")
         _post = (ml_oof[ml_oof.is_playoffs.astype(bool)]
                  if "is_playoffs" in ml_oof else ml_oof.iloc[:0])
         fold_info["oof_regular"] = _oof_block(_grade)
@@ -1683,13 +1696,78 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # only on this machine, which is why every delivered log ended mid-bar at
     # "monitor 9/10" with no completion line (both 2026-10-02 runs - the
     # banner, the final tick, and this result line all landed after the
-    # staged snapshot). The sync RESULT stays stdout-only under the same
-    # rule the summary's "sync" key already accepts.
+    # staged snapshot). The sync's own prints still land only in the
+    # working copy at that point — the final run-log delivery below
+    # re-stages the complete log afterwards so they ship anyway; the
+    # summary's "sync" key remains the machine-readable record.
     _step("publish", f"status {summary['status']}, "
                      f"{summary['elapsed_seconds']}s")
     sync = _sync_data_delivery(config.ROOT_DIR.parent)
     summary["sync"] = sync
     prog.close()
+
+    # ── Final run-log delivery (2026-10-06 NBA log review, MLB/NHL/NFL
+    # parity) ──
+    # _sync_data_delivery copies the run log into a throwaway clone — a
+    # SNAPSHOT taken before the push confirmation, prog.close()'s last
+    # frame and every later line ever reached the file, so every pushed
+    # log ends at the publish ✅ (the 2026-10-06 review found exactly
+    # that on remote: 5,654 lines ending there, the sync prints and the
+    # summary absent). Re-stage the now-complete log from this checkout
+    # and push it as the run's LAST delivery: prog.close() above is
+    # already flushed and the tees' partials are committed first, so the
+    # staged file carries the whole run up to this announcement — the
+    # file cannot contain its own push (git output after the copy lands
+    # in the throwaway clone only). Never fatal: the artifacts are
+    # already remotely verified, and a failed log push must not fail a
+    # delivered run.
+    if _log_path and _push_enabled()[0]:
+        _token = str(os.environ.get(TOKEN_ENV, "")).strip()
+        try:
+            print("  📝 Final run-log delivery — pushing the complete log "
+                  "(the sync staged a snapshot before sync finished)")
+            # A harness re-binding stdout/stderr after the tee installed
+            # would leave a half-written line unlanded; commit whatever
+            # the tees still hold before the file is copied.
+            for _s in (sys.stdout, sys.stderr):
+                _commit = getattr(_s, "_commit_partial", None)
+                if callable(_commit):
+                    _commit()
+            _repo_root = config.ROOT_DIR.parent
+            _url = _remote_url(_repo_root)
+            if not _token or not _url.startswith("https://"):
+                raise RuntimeError("no https remote + token for the log push")
+            # Same token-inlined clone URL _sync_data_delivery pushes
+            # with; the working checkout's origin stays the plain URL.
+            _auth_url = _url.replace("https://", f"https://{_token}@", 1)
+            import git
+            from github_sync import push_with_retry
+            _tmp = tempfile.mkdtemp(prefix="nba_log_final_")
+            try:
+                _repo = git.Repo.clone_from(_auth_url, _tmp, branch=BRANCH,
+                                            depth=1)
+                _rel = f"{DELIVERY_REL}/{RUN_LOG_NAME}"
+                _dest = Path(_tmp) / _rel
+
+                def _stage() -> None:
+                    _dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(_log_path, _dest)
+                    _repo.index.add([_rel])
+                    _repo.index.commit(
+                        "NBA pipeline run log (final delivery, "
+                        f"{datetime.now().strftime('%Y-%m-%d %H:%M')})")
+
+                _stage()
+                push_with_retry(_repo, BRANCH, restage=_stage, log=print)
+            finally:
+                shutil.rmtree(_tmp, ignore_errors=True)
+            print("  ✅ Run log pushed and remotely verified — sync output "
+                  "included")
+        except Exception as _log_exc:  # noqa: BLE001 - never fatal
+            _msg = str(_log_exc)
+            if _token:
+                _msg = _msg.replace(_token, "***")  # a token never reaches the log
+            print(f"  ⚠️  Final run-log delivery did not complete: {_msg}")
     return summary
 
 

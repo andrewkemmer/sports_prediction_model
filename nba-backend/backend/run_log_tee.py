@@ -23,6 +23,14 @@ failure context out of the delivered copy), then clones the remote tip
 and pushes just the log file (subject: 'crash delivery'). Like the tee,
 every failure mode degrades silently — a failed crash push must never
 mask the original error.
+
+PROGRESS FRAMES (2026-10-06 log review): the file side used to turn
+every carriage return into a newline, so each tqdm frame became its
+own line — 4,849 of the 5,654 committed lines were superseded
+progress frames (the play-by-play backfill bar alone wrote 3,463).
+The file side now COLLAPSES CR runs: a ``\\r`` supersedes the partial
+line before it, so a bar lands as ONE line (its final frame) while the
+console keeps raw ``\\r`` for tqdm's graphical widget.
 """
 from __future__ import annotations
 
@@ -38,25 +46,79 @@ RUN_LOG_NAME = "nba_pipeline_run_log.txt"
 
 
 class _Tee:
-    """File+stream duplicator with an explicit closing contract."""
+    """File+stream duplicator with an explicit closing contract.
+
+    The console keeps RAW ``\\r`` (tqdm's graphical-bar contract — Kaggle
+    coalesces \\r-frames into the black progress widget); the FILE is
+    line-oriented and, since the 2026-10-06 log review, COLLAPSES CR runs:
+    every ``\\r`` supersedes the partial line before it, so a progress bar
+    lands as ONE line — its final frame — instead of one line per frame
+    (4,849 of the 5,654 lines in the 2026-10-06 log were superseded
+    frames). Content without ``\\r`` reassembles exactly as written: a torn
+    write (no newline yet) waits for its terminator, so multi-arg prints
+    never split across lines.
+    """
 
     def __init__(self, stream, file) -> None:
         self._stream = stream
         self._file = file
+        self._partial = ""        # current line assembled so far
+        self._in_cr_run = False   # last terminator was \r (partial = a frame)
 
     def write(self, data: str) -> int:
+        orig = data  # the console contract: ALWAYS the caller's bytes, verbatim
         try:
-            # The console keeps RAW \r (tqdm's graphical-bar contract —
-            # Kaggle coalesces \r-frames into the black progress widget);
-            # the FILE is line-oriented, so carriage returns become
-            # newlines instead of each frame overwriting the previous one.
-            self._file.write(data.replace("\r", "\n"))
+            if data and self._in_cr_run and data[0] != "\r":
+                # The CR-run ended at this write boundary: the final frame
+                # becomes a line of its own — unless data opens with the
+                # newline that completes it. tqdm emits each frame as one
+                # write, so no real line can be split by this commit.
+                if data[0] == "\n":
+                    data = self._partial + data
+                elif self._partial:
+                    self._file.write(self._partial + "\n")
+                self._partial = ""
+                self._in_cr_run = False
+            if "\r" in data:
+                for ch in data:  # rare path — progress-bar frames only
+                    if ch == "\r":
+                        self._partial = ""  # supersede the frame before it
+                        self._in_cr_run = True
+                    elif ch == "\n":
+                        self._file.write(self._partial + "\n")
+                        self._partial = ""
+                        self._in_cr_run = False
+                    else:
+                        self._partial += ch
+            else:
+                if self._partial:
+                    data = self._partial + data  # torn line: wait for \n
+                    self._partial = ""
+                if "\n" in data:
+                    cut = data.rfind("\n")
+                    self._file.write(data[:cut + 1])
+                    data = data[cut + 1:]
+                self._partial = data
             self._file.flush()
         except (OSError, ValueError):
             pass  # disk full/removed mid-run: console keeps working
-        return self._stream.write(data)
+        return self._stream.write(orig)
+
+    def _commit_partial(self) -> None:
+        """Land whatever line is half-written (close / atexit delivery)."""
+        try:
+            if self._partial:
+                self._file.write(self._partial + "\n")
+            self._partial = ""
+            self._in_cr_run = False
+        except (OSError, ValueError):
+            pass
 
     def flush(self) -> None:
+        # Deliberately does NOT commit an open CR-run: tqdm flushes after
+        # every frame, and committing would flood the file with exactly
+        # the superseded frames the collapse removes. Torn plain lines
+        # behave like the line-buffered file underneath (flush on \n).
         try:
             self._file.flush()
         except (OSError, ValueError):
@@ -76,6 +138,7 @@ class _Tee:
         return self._stream.fileno()
 
     def close(self) -> None:  # the FILE is tee-owned; the console never is
+        self._commit_partial()  # a run that ends on a frame still lands it
         self._file.close()
 
 
@@ -127,7 +190,16 @@ def install_run_log_tee(data_delivery_dir: Path) -> Path | None:
             elif _h.stream is orig_stderr:
                 _h.stream = tee_stderr
     import atexit
-    atexit.register(log_file.close)
+    out_tee, err_tee = sys.stdout, sys.stderr  # the _Tee objects just installed
+
+    def _close_log() -> None:
+        # Commit any half-written line FIRST — the atexit target is the raw
+        # file object, which does not know about the tees' pending partials.
+        for _t in (out_tee, err_tee):
+            _t._commit_partial()
+        log_file.close()
+
+    atexit.register(_close_log)
     print(f"  📝 Run log tee: {log_path} (one rolling master file, "
           f"overwritten every run)")
     return log_path

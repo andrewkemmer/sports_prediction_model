@@ -1530,14 +1530,32 @@ class TestWindow:
         assert end >= start
 
     def test_an_explicit_window_is_honoured(self, monkeypatch):
+        """An explicit window that still reaches today is honoured exactly
+        as written — a forward-looking rebuild pin (the notebook's
+        season-opening pin) passes through untouched (2026-10-06
+        stale-pin guard, MLB/NHL/NFL parity: only pins BEFORE today are
+        extended, and those are pinned in the stale-pin tests)."""
         monkeypatch.setenv(ing.WINDOW_START_ENV, "2024-01-01")
-        monkeypatch.setenv(ing.WINDOW_END_ENV, "2024-06-01")
-        assert ing.window() == (date(2024, 1, 1), date(2024, 6, 1))
+        monkeypatch.setenv(ing.WINDOW_END_ENV, "2099-06-01")
+        assert ing.window() == (date(2024, 1, 1), date(2099, 6, 1))
 
     def test_a_reversed_window_is_swapped(self, monkeypatch):
-        monkeypatch.setenv(ing.WINDOW_START_ENV, "2024-06-01")
-        monkeypatch.setenv(ing.WINDOW_END_ENV, "2024-01-01")
-        assert ing.window() == (date(2024, 1, 1), date(2024, 6, 1))
+        """Reversed ends still swap — exercised on a forward pair so the
+        2026-10-06 stale-pin guard (which extends a past END before the
+        swap check) does not mask the swap itself."""
+        monkeypatch.setenv(ing.WINDOW_START_ENV, "2099-06-01")
+        monkeypatch.setenv(ing.WINDOW_END_ENV, "2099-01-01")
+        assert ing.window() == (date(2099, 1, 1), date(2099, 6, 1))
+
+    def test_a_stale_explicit_end_extends_to_today(self, monkeypatch):
+        """Stale-pin guard (MLB/NHL/NFL parity): a literal NBA_END_DATE
+        pin before today extends to today so the daily slate cannot
+        freeze when the pin's day passes — the notebook is Kaggle-owned
+        (never edited from the repo), so the PIPELINE defends itself."""
+        monkeypatch.setenv(ing.WINDOW_START_ENV, "2024-01-01")
+        monkeypatch.setenv(ing.WINDOW_END_ENV, "2024-06-01")
+        _start, end = ing.window()
+        assert end == date.today()  # stale → today
 
     def test_a_season_label_turns_over_in_july(self):
         assert ing.season_label(date(2024, 10, 22)) == "2024-25"
