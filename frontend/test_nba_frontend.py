@@ -410,6 +410,27 @@ def test_nba_todays_games_app_dispatches_and_renders_player(nba_artifacts) -> No
     assert not [item for item in app.exception]
 
 
+def test_nba_card_ou_ladder_offers_half_point_rungs(nba_artifacts) -> None:
+    """The card's totals selector exposes 0.5-point increments (NFL/NHL
+    card parity): the artifact's 180…280 integer grid on the half ladder,
+    every rung on the .0/.5 grid, defaulting to the model's fair total."""
+    app = _run_page("todays_games.py")
+
+    def _labels(sb) -> list[str]:
+        return [str(o) for o in sb.options]
+
+    # AppTest exposes each option through the card's format_func, so the
+    # ladder is asserted on its rendered labels ("180", "219.5", …).
+    ladders = [_labels(sb) for sb in app.selectbox if "180" in _labels(sb)]
+    assert ladders, "the O/U ladder selectbox must render on the NBA card"
+    ladder = ladders[0]
+    assert ladder[0] == "180" and ladder[-1] == "280.5"
+    assert "219.5" in ladder and "220.5" in ladder, "half-point rungs must exist"
+    assert all(abs(float(o) * 2 - round(float(o) * 2)) < 1e-9 for o in ladder)
+    default = next(sb for sb in app.selectbox if _labels(sb) == ladder)
+    assert float(str(default.value)) == 220.0, "fair total stays the default"
+
+
 def test_nba_power_rankings_tab_renders_point_diff(nba_artifacts) -> None:
     app = _run_page("power_rankings.py")
     text = _all_text(app)
@@ -729,6 +750,21 @@ class TestRunEngineDisplayNormalization:
         assert "O/U 216.5: Over 58% / Under 42%" in text
         spread_seg = text.split("SPREAD:", 1)[1]
         assert "push" not in spread_seg.split("<span", 1)[0]
+
+    def test_half_total_with_an_odd_whole_reads_its_own_floor_column(self):
+        """Regression for the 0.5 ladder (2026-10-06): the old helper
+        banker-rounded the half line, so 215.5 priced from p_over_216 —
+        every OTHER rung quoted the threshold one step up. Over integer
+        score support the FLOOR column is exact: P(total > 215.5) =
+        P(total ≥ 216) = P(total > 215)."""
+        row = self._row()
+        row["p_over_215"] = 0.4431
+        over, under, push = nba_sv.price_total(row, 215.5)
+        assert (round(over, 4), round(under, 4), push) == (0.4431, 0.5569, 0.0)
+        # The even half read the same column before (round == floor there)
+        # and must keep doing so.
+        over, under, push = nba_sv.price_total(row, 216.5)
+        assert (round(over, 4), round(under, 4), push) == (0.5798, 0.4202, 0.0)
 
     def test_integer_spread_folds_the_push_into_the_displayed_pair(self):
         text = nba_sv.runengine_html(self._row(), "DET", "BOS")

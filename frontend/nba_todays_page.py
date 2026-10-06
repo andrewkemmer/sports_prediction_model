@@ -65,7 +65,11 @@ def _nba_run_engine_selectors(row, slate_row):
     if fair_total is None or fair_spread is None:
         return None
     gid = _widget_key(row)
-    totals = [float(x) for x in range(180, 281)]
+    # The NBA artifact carries integer-support distributions, but the card
+    # should expose the same half-point ladder a bettor sees (NFL/NHL card
+    # parity). Half lines are priced from the adjacent integer threshold in
+    # nba_slate_view.price_total — a .5 total can never push.
+    totals = [float(v) / 2.0 for v in range(360, 562)]  # 180.0 … 280.5
     if fair_total not in totals:
         totals.append(float(fair_total)); totals.sort()
     fair_magnitude = min(20.0, max(0.5, abs(float(fair_spread))))
@@ -74,9 +78,13 @@ def _nba_run_engine_selectors(row, slate_row):
         spreads.append(fair_magnitude); spreads.sort()
     c_ou, c_spread = st.columns([1.35, 1], gap="small")
     with c_ou:
-        total = st.selectbox("O/U line", totals, index=totals.index(float(fair_total)),
-                            format_func=lambda x: f"{x:.0f}", key=f"nba_ou_{gid}",
-                            label_visibility="collapsed")
+        total = st.selectbox(
+            "O/U line", totals, index=totals.index(float(fair_total)),
+            format_func=lambda u: (f"{u:.1f}" if float(u) % 1 else f"{int(u)}"),
+            key=f"nba_ou_{gid}", label_visibility="collapsed",
+            help=("Totals line to price this game at — defaults to the "
+                  "model's fair total; 0.5-point increments are priced from "
+                  "the NBA score distribution."))
     with c_spread:
         magnitude = st.selectbox("Point spread", spreads,
                                  index=spreads.index(fair_magnitude),

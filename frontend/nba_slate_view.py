@@ -83,16 +83,32 @@ def _f(row, *keys: str) -> float | None:
 
 
 def price_total(row, total: float) -> tuple[float | None, float | None, float | None]:
+    """(P(over), P(under), P(push)) at an integer or half-point total.
+
+    The NBA artifact has integer-support score distributions. A half-point
+    line therefore uses the adjacent integer threshold:
+
+      Over U.5 = P(total > U); Under U.5 = P(total <= U); Push = 0.
+
+    Whole-number lines retain their explicit over/under/push split.
+    """
     value = float(total)
     if not math.isfinite(value):
         return None, None, None
-    whole = int(round(value))
-    if abs(value - whole) > 1e-9:
-        # Total scores are integer-valued: a .5 line has no push.
-        over_key = f"p_over_{whole}"
-        over = _f(row, over_key)
-        return (over, None if over is None else 1 - over, 0.0) if over is not None else (None, None, None)
-    cols = total_columns().get(float(whole))
+    if abs(value - round(value)) > 1e-9:
+        # Total scores are integer-valued: a .5 line has no push. The FLOOR
+        # whole threshold is the exact column — over integer support,
+        # P(total > L) for a fractional L equals P(total > floor(L)). The
+        # old ``int(round(value))`` banker-rounded halves with an ODD whole
+        # part UP (201.5 → p_over_202 = P(total ≥ 203)), mispricing every
+        # other rung of the 0.5 ladder the card now offers.
+        cols = total_columns().get(float(math.floor(value)),
+                                   (None, None, None))
+        over = _f(row, cols[0]) if cols[0] else None
+        if over is None:
+            return None, None, None
+        return over, 1.0 - over, 0.0
+    cols = total_columns().get(float(int(round(value))))
     if cols is None:
         return None, None, None
     return tuple(_f(row, col) for col in cols)  # type: ignore[return-value]
