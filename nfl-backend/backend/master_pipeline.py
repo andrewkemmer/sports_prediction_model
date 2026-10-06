@@ -838,7 +838,7 @@ def main(argv: list[str] | None = None) -> int:
     # MLB convention: the pooled reliability buckets are built from the RAW
     # blend (the table renders MEAN PREDICTED (RAW)) with the calibrated
     # twin carried separately in calibration.calibration_buckets_calibrated.
-    serve_mod.write_calibration_json(
+    cal_rec = serve_mod.write_calibration_json(
         p, raw_m, cal_m,
         eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
         daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
@@ -1016,9 +1016,15 @@ def main(argv: list[str] | None = None) -> int:
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier
     p = out_dir / config.MODEL_MONITOR_JSON.format(date=date_c)
+    # The shared Model Monitor page's TOTAL row reads the artifact's headline
+    # `metrics` block (the same numbers the Calibration KPI cards show), so
+    # hand it the block write_calibration_json just persisted -- the same dict,
+    # not a second computation of the same numbers. The key was missing
+    # entirely before, so the TOTAL (blended ensemble) row rendered em-dashes
+    # next to fully-populated member rows.
     monitoring.write_monitor_json(p, date_c, drift, cov_rows, member_rows,
                                   rb, baseline, config_meta, fold_info,
-                                  metrics=cal_m, platt=platt)
+                                  metrics=cal_rec["metrics"], platt=platt)
     artifacts.append(p.name)
     # Say what the monitoring phase actually found. A banner and a filename are
     # not a result: a drifted or starved feature is exactly what an operator

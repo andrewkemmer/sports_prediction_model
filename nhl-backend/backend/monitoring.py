@@ -932,6 +932,13 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
                                "only); the pooled all-OOF Platt map is the "
                                "serving layer and is not in this series."),
         },
+        # Headline block = the deployed blend's OWN pooled OOF scores (the
+        # same numbers the Calibration KPI cards show — the caller passes the
+        # calibration artifact's metrics block verbatim). The shared Model
+        # Monitor page's TOTAL row reads it for the blend-vs-strongest-member
+        # comparison; MLB/NBA emit this key and NHL/NFL omitted it, so that
+        # row rendered em-dashes against perfectly good member rows.
+        "metrics": m,
         "version_history": [version_row],
         "fold_geometry": fold_info,
         "config": config_meta,

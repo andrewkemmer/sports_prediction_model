@@ -737,7 +737,7 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.append(p.name)
 
     p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
-    serve_mod.write_calibration_json(
+    cal_rec = serve_mod.write_calibration_json(
         p, raw_m, cal_m,
         eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
         daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
@@ -898,9 +898,15 @@ def main(argv: list[str] | None = None) -> int:
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())
     p = out_dir / config.MODEL_MONITOR_JSON.format(date=date_c)
+    # The shared Model Monitor page's TOTAL row reads the artifact's headline
+    # `metrics` block (the same numbers the Calibration KPI cards show), so
+    # hand it the block write_calibration_json just persisted -- the same dict,
+    # not a second computation of the same numbers. The key was missing
+    # entirely before, so the TOTAL (blended ensemble) row rendered em-dashes
+    # next to fully-populated member rows.
     monitoring.write_monitor_json(p, date_c, drift, cov_rows, member_rows,
                                   rb, baseline, config_meta, fold_info,
-                                  metrics=cal_m, platt=platt)
+                                  metrics=cal_rec["metrics"], platt=platt)
     artifacts.append(p.name)
 
     # retention: enforce the rolling-retention policy (retention_policy.py).
