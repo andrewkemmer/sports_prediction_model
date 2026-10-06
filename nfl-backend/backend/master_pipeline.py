@@ -84,6 +84,16 @@ def _env_end_bounds() -> tuple[str, str]:
     own playoff games (the 20260919 run lost the 31 games of Jan 2027).
     An explicit ``NFL_END_DATE`` bounds both literally; the default bounds
     both at today (ET).
+
+    Stale-pin guard (2026-10-06 NFL log review, T7 — MLB/NHL parity): the
+    Kaggle notebook leaves a literal ``NFL_END_DATE`` behind after a
+    rebuild, and that pin bounds BOTH the seasons range and the gameday
+    window — unguarded, every later run would freeze on the pinned day's
+    slate. A literal pin before today extends to today via
+    ``config.resolve_run_end_date`` (logged as a WARNING by the caller,
+    through the run-log tee); the 4-digit season-alias branch returns
+    above the guard and is never rewritten. The daily runner's forward-
+    looking pin (>= today) passes through untouched.
     """
     raw = (os.environ.get("NFL_END_DATE") or os.environ.get("NFL_END_SEASON") or "").strip()
     if raw.isdigit() and len(raw) == 4:
@@ -97,6 +107,7 @@ def _env_end_bounds() -> tuple[str, str]:
     # the artifact date claimed a day the window never covered.
     day = _env_date("NFL_END_DATE", "NFL_END_SEASON",
                     datetime.now(ZoneInfo("America/New_York")).date().isoformat())
+    day = config.resolve_run_end_date(day)
     return (day, day)
 
 
@@ -182,6 +193,19 @@ def main(argv: list[str] | None = None) -> int:
         "NFL_START_DATE", "NFL_START_SEASON",
         f"{min(config.WARMUP_SEASONS)}-01-01")
     end_date, window_end = _env_end_bounds()
+    # The guard runs inside _env_end_bounds (before the logger call here,
+    # but AFTER install_run_log_tee above), so re-announcing through the
+    # logger is what lands the extension in the pushed run log — a reader
+    # sees why the window no longer matches the notebook's pin.
+    _pinned_end = (os.environ.get("NFL_END_DATE")
+                   or os.environ.get("NFL_END_SEASON") or "").strip()
+    if _pinned_end and not (_pinned_end.isdigit() and len(_pinned_end) == 4) \
+            and _pinned_end != end_date:
+        logger.warning(
+            "NFL end-date pin %s is stale (before today) — extended to %s so "
+            "the daily slate and retention anchor cannot freeze; re-date the "
+            "notebook pin (or unset it) for a past-window backfill",
+            _pinned_end, end_date)
     if start_date > window_end:
         raise SystemExit(f"invalid date window: {start_date} > {window_end}")
     seasons = list(range(int(start_date[:4]), int(end_date[:4]) + 1))
@@ -519,6 +543,11 @@ def main(argv: list[str] | None = None) -> int:
     fold_calibrators: dict[int, dict | None] = {}
     cal_fitted = 0
     cal_identity = 0
+    # Uncapped degenerate/attempt counters around THIS block — the
+    # per-block summary at the end reports the true denominator behind the
+    # (capped) degenerate WARNINGs (MLB/NHL 2026-10-06 parity).
+    _fit0 = getattr(ml_mod.fit_platt, "_fit_total", 0)
+    _degen0 = getattr(ml_mod.fit_platt, "_degen_total", 0)
     p_cal_prequential = np.full(len(oof_ml), np.nan)
     fold_ids = oof_ml["fold_id"].to_numpy()
     for fold in fold_list:
@@ -554,6 +583,16 @@ def main(argv: list[str] | None = None) -> int:
             oof_ml[f"p_{name}_calibrated"] = twin
     logger.info("prequential per-fold calibration: %d fitted, %d identity",
                 cal_fitted, cal_identity)
+    # The uncapped truth behind the capped WARNING lines (2026-10-06 NFL
+    # log review, MLB/NHL parity): the reviewer sees how many of this
+    # block's fits degenerated to identity, not just the first 3.
+    _fits = getattr(ml_mod.fit_platt, "_fit_total", 0) - _fit0
+    _degen = getattr(ml_mod.fit_platt, "_degen_total", 0) - _degen0
+    if _degen:
+        logger.info(
+            "Calibration: %d of %d prequential Platt fits degenerated to "
+            "identity (the WARNING line prints only the first 3)",
+            _degen, _fits)
 
     # 8b. POOLED final calibrator — the serving layer (never used to score
     # its own fitting population). Identical favored-space guardrails apply.
@@ -1170,6 +1209,47 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print("NFL artifact sync: nothing new to push")
+
+    # ── Final run-log delivery (2026-10-06 NFL log review, MLB/NHL parity) ──
+    # _sync_data_delivery stages the run log like any other artifact — a
+    # SNAPSHOT taken before the push confirmation and THIS announcement
+    # ever reached the file, so every pushed log ends at the DONE banner
+    # (the 2026-10-06 review found exactly that on remote: 1,431 lines
+    # ending at DONE, the sync prints absent). Re-stage the now-complete
+    # log and push it as the run's LAST delivery: the DONE banner above is
+    # already flushed, so the staged file carries the whole run up to this
+    # announcement — the file cannot contain its own push (git output
+    # after the add lands in the working copy only). Never fatal: the
+    # artifacts are already remotely verified, and a failed log push must
+    # not fail a delivered run.
+    if _log_path and os.environ.get("GITHUB_TOKEN", "").strip() \
+            and not _env_flag("NFL_NO_PUSH"):
+        try:
+            print("  📝 Final run-log delivery — pushing the complete log "
+                  "(the sync staged a snapshot before sync finished)")
+            _rel = _log_path.relative_to(BACKEND_DIR.parent.parent).as_posix()
+
+            def _git_log(*args: str):
+                return subprocess.run(
+                    ["git", *args], cwd=str(BACKEND_DIR.parent.parent),
+                    check=True, capture_output=True, text=True)
+
+            for _attempt in (1, 2):
+                try:
+                    _git_log("add", "--", _rel)
+                    _git_log("-c", "user.name=NFL Production Pipeline",
+                             "-c", "user.email=nfl-pipeline@users.noreply.github.com",
+                             "commit", "-m", "NFL pipeline run log (final delivery)")
+                    _git_log("push", "origin", "main")
+                    break
+                except subprocess.CalledProcessError:
+                    if _attempt == 2:
+                        raise
+                    _git_log("pull", "--rebase", "origin", "main")
+            print("  ✅ Run log pushed and remotely verified — sync output "
+                  "included")
+        except Exception as _log_exc:  # noqa: BLE001
+            print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}")
     return 0
 
 

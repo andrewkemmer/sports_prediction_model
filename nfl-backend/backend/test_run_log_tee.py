@@ -8,7 +8,10 @@ reviewable from a plain git pull. Each test pins one contract:
 * the tee duplicates console output into the file and keeps the console
   return contract (bytes-written passthrough);
 * tty-ness and carriage returns pass through to the CONSOLE untouched
-  (tqdm's graphical black bar), while the FILE stays line-oriented;
+  (tqdm's graphical black bar), while the FILE collapses CR runs to each
+  bar's final frame — one line per bar, never one line per frame (the
+  2026-10-06 review found 860 of 1,431 committed lines were superseded
+  tqdm frames);
 * logging handlers are re-pointed at the tee, so INFO/WARNING records
   reach the log (basicConfig captures the pre-tee stderr otherwise);
 * installation overwrites the previous run's file (one rolling master);
@@ -16,7 +19,10 @@ reviewable from a plain git pull. Each test pins one contract:
   console-only when the destination is unwritable;
 * the retention policy classifies the log as protected even on a run that
   did not stage it (the dateless-name eviction trap), and stays stale-
-  classification clean for genuinely dated artifacts.
+  classification clean for genuinely dated artifacts;
+* the 2026-10-06 run-log review remediation stays pinned: CR-frame
+  collapse (file side), the published-blend line, the degenerate-Platt
+  n=, the stale END_DATE guard, and the final run-log delivery.
 """
 from __future__ import annotations
 
@@ -143,6 +149,10 @@ def test_tee_isatty_delegates_to_the_console_stream(tmp_path):
 
 
 def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
+    """Console keeps tqdm's raw \r frames; the FILE collapses the CR run
+    to ONE line — the bar's FINAL frame (2026-10-06 log review: the old
+    \r→\n conversion turned every superseded frame into its own line, 860
+    of the 1,431 committed log lines; MLB/NHL CR-collapse parity)."""
     console = io.StringIO()
     log_file = open(tmp_path / "log.txt", "w")
     tee = run_log_tee._Tee(console, log_file)
@@ -152,7 +162,7 @@ def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
     assert "\r" in console.getvalue()  # console keeps tqdm's raw frames
     text = (tmp_path / "log.txt").read_text()
     assert "\r" not in text  # the file stays line-oriented
-    assert " 83%|########  | 5/6 [..]" in text  # every frame is its own line
+    assert text == "100%| done\n"  # ONE line per bar: the final frame only
 
 
 # ── logging rebind (basicConfig captures the pre-tee stderr) ─────────
@@ -271,3 +281,116 @@ def test_crash_hook_never_masks_the_original_error(tmp_path, monkeypatch):
     run_log_tee.install_crash_log_pusher(log, "u", "r")
     err = ValueError("original")
     sys.excepthook(type(err), err, None)  # must NOT raise despite push failure
+
+
+# ── 2026-10-06 run-log review remediation ───────────────────────────
+
+def test_tee_flush_does_not_flood_the_file_with_superseded_frames(tmp_path):
+    """An open CR-run commits NOTHING on flush — tqdm flushes after every
+    frame, so committing there would land exactly the superseded frames
+    the collapse removes."""
+    console = io.StringIO()
+    tee = run_log_tee._Tee(console, open(tmp_path / "f.txt", "w"))
+    tee.write("\r10%|x| 1/9 [..]")
+    tee.write("\r50%|x| 5/9 [..]")
+    tee.flush()
+    tee.flush()
+    assert (tmp_path / "f.txt").read_text() == ""  # nothing landed
+    assert "50%|x| 5/9 [..]" in console.getvalue()  # console saw the frames
+    tee.write("\r100%| done\n")
+    tee.close()
+    assert (tmp_path / "f.txt").read_text() == "100%| done\n"
+
+
+def test_tee_close_commits_a_bar_that_ends_without_a_newline(tmp_path):
+    """A run that dies (or ends) on a half-written line still lands it —
+    close / atexit commit the pending partial."""
+    console = io.StringIO()
+    tee = run_log_tee._Tee(console, open(tmp_path / "c.txt", "w"))
+    tee.write("\rfinal frame")  # no trailing newline
+    tee.close()
+    assert (tmp_path / "c.txt").read_text() == "final frame\n"
+
+
+def test_tee_lands_a_log_record_after_a_frame_on_its_own_line(tmp_path):
+    """The glue case the old _is_log_record patch worked around: a logging
+    record arriving while a bar is open must open its own line — the
+    frame becomes the bar's final line, the record follows intact."""
+    console = io.StringIO()
+    tee = run_log_tee._Tee(console, open(tmp_path / "r.txt", "w"))
+    tee.write("\r40%|z| 4/9 [..]")  # tqdm frames LEAD each frame with \r
+    tee.write("2026-10-06 04:00:00,000 INFO something fetched=7\n")
+    tee.close()
+    assert (tmp_path / "r.txt").read_text() == (
+        "40%|z| 4/9 [..]\n"
+        "2026-10-06 04:00:00,000 INFO something fetched=7\n")
+
+
+def test_stale_end_date_pin_extends_to_today_and_passes_others_through():
+    """T7 (MLB/NHL parity): a literal NFL_END_DATE pin before today must
+    extend to today so the daily slate cannot freeze. The notebook is
+    Kaggle-owned (never edited from the repo), so the PIPELINE defends
+    itself. Same-day pins, the forward-looking runner window, and
+    malformed input all pass through untouched."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import config
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    assert config.resolve_run_end_date("2001-01-01") == today  # stale → today
+    assert config.resolve_run_end_date(today) == today          # same-day passes
+    future = "2099-12-31"
+    assert config.resolve_run_end_date(future) == future  # forward window passes
+    assert config.resolve_run_end_date("not-a-date") == "not-a-date"  # malformed
+
+
+def test_end_bounds_and_phase1_wire_the_stale_pin_guard():
+    """The guard must be WIRED: _env_end_bounds runs every resolved day
+    through config.resolve_run_end_date, and main() re-announces an
+    extension through the logger so the pushed run log states why the
+    window no longer matches the notebook's pin."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "day = config.resolve_run_end_date(day)" in src
+    assert "end-date pin %s is stale" in src  # Phase-1 WARNING into the log
+
+
+def test_published_blend_line_names_the_deployed_weights():
+    """T3 (MLB/NHL parity): the published-blend pass must announce itself
+    in the run log — one line with the applied weights and the row count,
+    stating that headline metrics grade THE serving blend. The 2026-10-06
+    log's re-pool left no trace."""
+    src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
+    assert "Published blend:" in src, (
+        "moneyline.py no longer logs the published-blend re-pool — the "
+        "headline metrics' blend claim is unauditable from the run log")
+    assert "headline metrics grade THE serving blend" in src
+
+
+def test_degenerate_platt_warning_carries_the_sample_size():
+    """T4 (MLB/NHL parity): the degenerate-Platt warning must report n=,
+    fit_platt keeps uncapped _fit_total/_degen_total counters, and the
+    8a prequential block reports its own degenerate total behind the
+    3-line cap."""
+    src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
+    assert "degenerate Platt params (a=%s, n=%d)" in src, (
+        "the degenerate-Platt warning lost its n= — a degenerate fit's "
+        "sample size must be visible in the log")
+    assert "fit_platt._fit_total" in src and "fit_platt._degen_total" in src
+    msrc = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "prequential Platt fits degenerated" in msrc, (
+        "the prequential block must report the uncapped degenerate total")
+
+
+def test_final_run_log_delivery_pushes_the_complete_log_after_sync():
+    """Final delivery (MLB/NHL parity): _sync_data_delivery stages a
+    SNAPSHOT of the log taken before its own push prints, so every pushed
+    log ended at the DONE banner (2026-10-06 review: 1,431 lines ending
+    at DONE, sync prints absent). The complete log is re-staged and pushed
+    as the run's LAST delivery — after sync, token-guarded, never fatal."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert "Final run-log delivery" in src
+    assert "NFL pipeline run log (final delivery)" in src
+    sync_at = src.index("_sync_data_delivery(repo_root=")
+    final_at = src.index("Final run-log delivery")
+    assert sync_at < final_at, "the final log push must come after the sync"
+    assert 'os.environ.get("GITHUB_TOKEN"' in src  # token-guarded push
+    assert '_env_flag("NFL_NO_PUSH")' in src       # local runs never push

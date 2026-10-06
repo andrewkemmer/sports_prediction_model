@@ -7,7 +7,45 @@ geometry, model hyperparameters, grids, and artifact paths.
 Market-independence policy: no sportsbook/market data is ingested or used
 anywhere in this backend. All outputs are model-derived/fair.
 """
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+
+def resolve_run_end_date(pinned: str) -> str:
+    """Resolve an NFL end-date pin with a stale-pin guard (T7, MLB parity).
+
+    The Kaggle notebook pins a literal ``NFL_END_DATE`` for rebuilds
+    ("omit = runs through today") and leaves the pin there afterwards —
+    the window end (and the gameday bound derived from it) is that pin, so
+    a pin that resolves before today would freeze the daily slate on every
+    later run: the schedule filter keeps ``gameday <= window_end``, so from
+    the day after a stale pin the pipeline would keep re-predicting the
+    pinned day's slate. (The daily runner's FORWARD-looking
+    ``NFL_END_DATE`` — set to cover the upcoming slate — never trips this
+    guard.) The notebook is Kaggle-owned (standing guardrail: never edit
+    it from the repo), so the PIPELINE defends itself instead: a pin before
+    today extends to TODAY, keeping daily runs fresh.
+
+    Semantics pinned to ``master_pipeline._env_end_bounds``:
+      * only literal ``YYYY-MM-DD`` pins are ever extended — the 4-digit
+        season-alias path (NFL_END_SEASON=2026 → Dec 31 / Feb 28 bounds)
+        returns before this guard runs and is never rewritten;
+      * "today" is the SAME clock as the default fallback (ET, the
+        league's operational clock), so the guard cannot disagree with the
+        no-pin default across a timezone boundary;
+      * a pin that still reaches today, a deliberate future window (the
+        forward-slate runner pin), and malformed input all pass through
+        untouched — ``_env_date`` keeps failing loudly on malformed input
+        before this runs, and a same-day rebuild pin keeps working exactly
+        as written.
+    """
+    try:
+        pin = datetime.strptime(pinned, "%Y-%m-%d").date()
+    except ValueError:
+        return pinned
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    return today.isoformat() if pin < today else pinned
 
 # ---------------------------------------------------------------------------
 # Paths
