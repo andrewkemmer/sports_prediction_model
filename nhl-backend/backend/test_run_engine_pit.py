@@ -845,7 +845,13 @@ def test_moneyline_fold_trainer_runs_all_three_members_with_fold_validation():
 
 
 def test_moneyline_blend_uses_prior_fold_weights_only():
-    """Fold 0 uses thirds; fold 1 uses the optimizer result from fold 0."""
+    """Fold 0 uses thirds; fold 1 uses the optimizer result from fold 0.
+
+    The fold-time (causal) blend lives in p_ensemble_causal since the
+    2026-10-05 alignment: the published p_ensemble is the DEPLOYED bundle's
+    blend (the optimizer's final vector over every row) — asserted below as
+    binary parity.
+    """
     games = feat_mod.build_game_features(_synth_games(n_days=40))
     folds = folds_mod.make_folds(games)
     member_p = {"xgboost": 0.8, "lightgbm": 0.2, "elasticnet": 0.5}
@@ -877,10 +883,14 @@ def test_moneyline_blend_uses_prior_fold_weights_only():
 
     assert len(calls) == len(folds)
     oof = out["oof"]
-    first = oof[oof["fold_id"] == folds[0].fold_id]["p_ensemble"].to_numpy()
-    second = oof[oof["fold_id"] == folds[1].fold_id]["p_ensemble"].to_numpy()
+    causal = "p_ensemble_causal"
+    first = oof[oof["fold_id"] == folds[0].fold_id][causal].to_numpy()
+    second = oof[oof["fold_id"] == folds[1].fold_id][causal].to_numpy()
     np.testing.assert_allclose(first, 0.5, atol=1e-7)
     np.testing.assert_allclose(second, 0.8, atol=1e-7)
+    # Binary parity: the published column is the deployed blend — the
+    # optimizer's final vector ({xgboost: 1.0}) on EVERY row.
+    np.testing.assert_allclose(oof["p_ensemble"].to_numpy(), 0.8, atol=1e-7)
 
 
 def test_causal_xgb_rounds_selection_rule():

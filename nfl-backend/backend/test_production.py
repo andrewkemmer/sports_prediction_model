@@ -1625,12 +1625,15 @@ try:
             np.array([wmap.get(n, 0.0) for n in config.ENSEMBLE_MEMBERS]))
 
     _f0 = _pit_oof[_pit_oof["fold_id"] == small_folds[0].fold_id]
+    # The fold-time blend now lives in p_ensemble_causal (2026-10-05: the
+    # published p_ensemble is the deployed blend); the causal-chain
+    # contract below is unchanged.
     check("fold 0 blends with the static prior weights (causal start)",
-          np.allclose(_f0["p_ensemble"].to_numpy(dtype=float),
+          np.allclose(_f0["p_ensemble_causal"].to_numpy(dtype=float),
                       _blend_expected(_f0, config.ENSEMBLE_WEIGHTS),
                       atol=1e-10),
           "max dev=%.2e" % np.max(np.abs(
-              _f0["p_ensemble"].to_numpy(dtype=float)
+              _f0["p_ensemble_causal"].to_numpy(dtype=float)
               - _blend_expected(_f0, config.ENSEMBLE_WEIGHTS))))
 
     if len(small_folds) > 1:
@@ -1653,10 +1656,10 @@ try:
             _w1 = dict(config.ENSEMBLE_WEIGHTS)
         _f1 = _pit_oof[_pit_oof["fold_id"] == small_folds[1].fold_id]
         check("fold 1 blends with weights earned on fold 0 only (causal chain)",
-              np.allclose(_f1["p_ensemble"].to_numpy(dtype=float),
+              np.allclose(_f1["p_ensemble_causal"].to_numpy(dtype=float),
                           _blend_expected(_f1, _w1), atol=1e-10),
               "max dev=%.2e" % np.max(np.abs(
-                  _f1["p_ensemble"].to_numpy(dtype=float)
+                  _f1["p_ensemble_causal"].to_numpy(dtype=float)
                   - _blend_expected(_f1, _w1))))
 
     # Run-to-run determinism (2026-09-29 log review): canonical_sort exists
@@ -1733,12 +1736,16 @@ for _name, _mod in (("moneyline", ml_mod2), ("distributions", dist_mod2)):
 
 
 # ---- Shipped-weight blend diagnostic -------------------------------------
-# Phase 9's "moneyline OOF raw" scores the CAUSAL per-fold blend (each fold
-# mixed with the weights earned on PRIOR folds only). That is the honest
-# evaluation layer, but it is NOT the ensemble this run serves, and the
-# per-member rows beside it are full-population scores. walk_forward_oof must
-# hand back the shipped replay so blend and members are scored on ONE
-# population — otherwise a healthy blend reads as "lost to elasticnet".
+# 2026-10-05 alignment (MLB parity, deliberately reversing the earlier
+# "diagnostic added, not swapped" rule): the PUBLISHED p_ensemble is the
+# deployed binary's blend — the artifact's metrics, calibration curve and
+# shipped Platt fit must describe what serving actually does — and the
+# per-member rows are scored on the same grading population, so the blend
+# and the members it is built from are compared on ONE population and ONE
+# blend (otherwise a healthy blend reads as "lost to elasticnet"). The
+# fold-time CAUSAL blend (each fold mixed with the weights earned on PRIOR
+# folds only — the honesty audit of the walk-forward process) is preserved
+# in p_ensemble_causal, and the causal-chain checks above pin it there.
 _ship = np.asarray(res["blend_full"], dtype=float)
 _ship_w = res["member_weights"]
 check("walk_forward_oof returns the shipped-weight blend (blend_full)",
@@ -1747,17 +1754,22 @@ check("blend_full is row-aligned to the OOF frame",
       len(_ship) == len(oof) and int(np.isfinite(_ship).sum()) == len(oof))
 check("blend_full == the logit-space blend of the shipped weights",
       np.allclose(_ship, ml_mod2._blend(oof, _ship_w), equal_nan=True))
-_causal = pd.to_numeric(oof["p_ensemble"], errors="coerce").to_numpy(float)
-check("blend_full is a separate array, not an alias of the causal column",
-      _ship is not _causal and not np.shares_memory(_ship, _causal))
-# The shipped replay must be ADDED to the report, never substituted for the
-# honest causal column — swapping p_ensemble out would quietly leak the
-# full-population weights into the evaluation layer.
-check("Phase 9 still scores the CAUSAL column (diagnostic added, not swapped)",
+_pub = pd.to_numeric(oof["p_ensemble"], errors="coerce").to_numpy(float)
+_causal = pd.to_numeric(
+    oof["p_ensemble_causal"], errors="coerce").to_numpy(float)
+check("published p_ensemble IS the deployed-weight blend (binary parity)",
+      np.allclose(_ship, _pub, equal_nan=True, atol=1e-12))
+check("the causal column survives as p_ensemble_causal (honesty audit)",
+      _causal.shape == (len(oof),)
+      and int(np.isfinite(_causal).sum()) == len(oof))
+check("published and causal blends are separate arrays",
+      _pub is not _causal and not np.shares_memory(_pub, _causal))
+# Phase 9 scores the PUBLISHED column — the deployed blend — over the
+# GRADING population (2026-10-03), so the metrics block, the member rows
+# and the shipped Platt fit all describe one population and one blend.
+check("Phase 9 scores the published (deployed) column on the grading population",
       'binary_metrics(oof_ml["p_ensemble"]' in mp_src
       and 'binary_metrics(oof_ml["p_ensemble_calibrated"]' in mp_src
-      # ... and it scores the causal column over the GRADING population
-      # (2026-10-03), never the shipped blend and never the whole frame.
       and 'oof_ml["p_ensemble"][_grading]' in mp_src
       and '_oof_blocks(oof_ml, _grading)' in mp_src)
 # Phase 4 seeds the four oof_* keys with {"n": 0, "sufficient": False}
@@ -1770,10 +1782,20 @@ check("the run log reports real oof_* blocks, not the Phase-4 placeholders",
       "_OOF_BLOCK_KEYS" in mp_src
       and "if k not in _OOF_BLOCK_KEYS" in mp_src
       and '"oof blocks: %s"' in mp_src)
-check("shipped blend is never written into the OOF frame as a column",
+# master_pipeline must never reassign or re-blend the published column ad
+# hoc — the walk owns the definition (deployed blend in p_ensemble, causal
+# blend in p_ensemble_causal) and the pipeline only reads it. (2026-10-05:
+# this replaced the old "shipped blend is never written into the OOF frame"
+# rule — the artifact must describe the deployed binary's blend now.)
+check("master_pipeline never reassigns/re-blends the published column",
       "p_ensemble_shipped" not in mp_src
       and 'oof_ml["p_ensemble"] =' not in mp_src
       and "oof_ml['p_ensemble'] =" not in mp_src)
+with open(ml_mod2.__file__, "r", encoding="utf-8") as _fh:
+    _walk_src = _fh.read()
+check("the walk owns the published/causal column split",
+      'oof["p_ensemble_causal"]' in _walk_src
+      and 'oof["p_ensemble"] =' in _walk_src)
 
 # ---- Phase 9 report path must be executable, not just parseable -----------
 # The shipped-blend report reads an optional key through dict.get with a

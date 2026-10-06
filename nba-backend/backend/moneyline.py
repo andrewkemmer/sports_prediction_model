@@ -465,10 +465,6 @@ def walk_forward_oof(
     prior_weights = dict(config.ENSEMBLE_WEIGHTS)
     pooled: dict[str, list[float]] = {name: [] for name in config.ENSEMBLE_MEMBERS}
     pooled_y: list[float] = []
-    prior_blend: list[float] = []
-    # These are intentionally separate: the current fold may enter the next
-    # fold's weight/calibration fit only after it has been scored.
-    prior_y: list[float] = []
 
     for fold in folds:
         train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
@@ -536,24 +532,16 @@ def walk_forward_oof(
         row["provisional"] = fold_provisional
         row["grades_pooled"] = grades
 
-        # This fold's blend uses only the prior weights.
+        # This fold's blend uses only the prior weights. The fold-time
+        # (causal) blend is preserved as p_ensemble_causal below; the
+        # published p_ensemble is the DEPLOYED bundle's blend.
         row["p_ensemble"] = _blend(row, prior_weights)
-        prior_cal = moneyline_fit(
-            np.asarray(prior_blend, dtype=float),
-            np.asarray(prior_y, dtype=float),
-        )
-        calibrated = moneyline_apply(row.p_ensemble.to_numpy(float), prior_cal)
-        row["p_ensemble_calibrated"] = np.where(
-            np.isfinite(calibrated), calibrated, row.p_ensemble.to_numpy(float)
-        )
 
-        # Add the scored fold only after its prediction and calibration values
-        # have been fixed.  These values can train the next fold.
+        # Add the scored fold only after its prediction has been fixed.
+        # These values can train the next fold.
         for name in config.ENSEMBLE_MEMBERS:
             pooled[name].extend(row[f"p_{name}"].to_numpy(float)[grades].tolist())
         pooled_y.extend(row.home_win.to_numpy(float)[grades].tolist())
-        prior_blend.extend(row.p_ensemble.to_numpy(float)[grades].tolist())
-        prior_y.extend(row.home_win.to_numpy(float)[grades].tolist())
         earned = compute_adaptive_weights(pooled, np.asarray(pooled_y, dtype=float))
         if earned:
             prior_weights = earned
@@ -575,6 +563,43 @@ def walk_forward_oof(
         parts.append(row)
         if progress_every and (fold.fold_id + 1) % progress_every == 0:
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1, len(folds))
+
+    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05, MLB parity)
+    # ─────────────────────────────────────────────────────────────────────
+    # The published OOF blend — the artifact's headline metrics, calibration
+    # curve/buckets, the shipped Platt fit, predictions_history — is THE
+    # blend the deployed binary serves: member probabilities from each
+    # fold's strictly-prior models, combined with the deployed earning
+    # weights (the ``member_weights`` vector the bundle stores and predict
+    # serves with). The fold-time blend above (weights earned on PRIOR folds
+    # only) stays available as ``p_ensemble_causal`` — the honesty audit of
+    # the walk-forward process — but it is no longer what the dashboard
+    # claims to measure. Weight EARNING stays strictly causal; only the
+    # published application changed. Mirrors MLB's walk_forward_evaluate
+    # published-blend pass so all four sports report the binary's blend
+    # pooled OOF.
+    if parts:
+        deployed_w = dict(prior_weights)
+        for row in parts:
+            row["p_ensemble_causal"] = row["p_ensemble"].to_numpy(float).copy()
+            row["p_ensemble"] = _blend(row, deployed_w)
+        # Prequential calibrated twin of the published blend: fold k is
+        # scored by a map fitted strictly on folds < k's published pairs.
+        pub_p: list[float] = []
+        pub_y: list[float] = []
+        for row in parts:
+            p_k = row["p_ensemble"].to_numpy(float)
+            cal_k = (moneyline_fit(np.asarray(pub_p, dtype=float),
+                                   np.asarray(pub_y, dtype=float))
+                     if pub_p else None)
+            calibrated = moneyline_apply(p_k, cal_k)
+            row["p_ensemble_calibrated"] = np.where(
+                np.isfinite(calibrated), calibrated, p_k)
+            gk = (row["grades_pooled"].astype(bool).to_numpy()
+                  if "grades_pooled" in row.columns
+                  else np.ones(len(row), dtype=bool))
+            pub_p.extend(p_k[gk].tolist())
+            pub_y.extend(row["home_win"].to_numpy(float)[gk].tolist())
 
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     if len(oof):

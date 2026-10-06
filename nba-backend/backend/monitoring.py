@@ -452,17 +452,28 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
 
 
 def ensemble_table(oof: pd.DataFrame, weights: dict[str, float]) -> list[dict]:
+    """Per-member OOF diagnostics on the GRADING population.
+
+    Members and the published (deployed) blend must be scored on the SAME
+    rows — regular-season rows of non-provisional folds — so the Model
+    Ensemble table's blend-vs-strongest-member comparison is apples-to-
+    apples (2026-10-05 alignment; MLB parity). Frames without a
+    grades_pooled column fall back to the full frame.
+    """
     try:
         from backend.evaluation import binary_metrics
     except ImportError:
         from evaluation import binary_metrics
-    y = oof.home_win.to_numpy(float)
+    grade = (oof["grades_pooled"].astype(bool).to_numpy()
+             if "grades_pooled" in oof.columns
+             else np.ones(len(oof), dtype=bool))
+    y = oof.home_win.to_numpy(float)[grade]
     rows = []
     for name in config.ENSEMBLE_MEMBERS:
         col = f"p_{name}"
         if col not in oof:
             continue
-        metrics = binary_metrics(oof[col].to_numpy(float), y)
+        metrics = binary_metrics(oof[col].to_numpy(float)[grade], y)
         rows.append({
             "name": name,
             "weight": round(float(weights.get(name, 0)), 4),

@@ -439,14 +439,24 @@ def test_nba_monitor_tab_uses_nba_config_and_renders_sections(nba_artifacts) -> 
     assert "Rolling Brier Score" in text
     assert "Model Version History" in text
     assert "config unavailable" not in text
-    assert "max depth 3" in text and "lr 0.1097" in text
+    # Values from NBA's own LIGHTGBM_PARAMS (per-sport isolation pin): the
+    # lr literal was updated after the 2026-10-04 NBA LightGBM retune
+    # (learning_rate 0.1097 -> 0.03131184986120072) — the old literal
+    # asserted a config value that no longer exists.
+    assert "max depth 3" in text and "lr 0.03131184986120072" in text
     # Member cards derive from the NBA backend's own config, and the
     # protocol narrative matches the trainer (2026-09-29 remediation: the
     # old card shipped whichever sport's `config` module won the sys.path
     # race — MLB's numbers on the NBA lgbm card — plus a backwards
     # imputation claim; trees receive raw NaN, median imputation is the
     # linear members' path, and the early-stop watch is the train-fold tail).
-    assert "max depth 4" in text and "lr 0.03" in text and "61 rounds" in text
+    # NBA-config exact reprs: the xgboost card's depth/lr and the lightgbm
+    # card's round count. The earlier literals ("max depth 4", "61 rounds")
+    # predate the NBA XGBOOST_PARAMS/LIGHTGBM retunes and asserted values
+    # that no longer exist (xgb now carries no n_estimators, so its card
+    # correctly shows no rounds segment).
+    assert ("max depth 3" in text and "lr 0.03216955918004776" in text
+            and "191 rounds" in text)
     assert "TAIL OF THE TRAINING FOLD" in text
     assert "Trees receive raw NaN" in text
     assert ("Train-median imputation replaces the old native-NaN routing"

@@ -276,18 +276,22 @@ def walk_forward_oof(game_df: pd.DataFrame,
     # The last rolling update is the full-population optimum — the shipped
     # weight for serving and the dashboard.
     weights = dict(_last_weights)
-    # blend_full replays the SHIPPED weight vector over the whole OOF frame.
-    # It is NOT the oof["p_ensemble"] column and the two are not on the same
-    # scale: that column is the CAUSAL blend, mixed fold by fold from the
-    # weights earned on PRIOR folds only, and it answers "how honest was the
-    # walk-forward process"; blend_full answers "how good is the ensemble we
-    # actually serve", scoring the same logit-space blend predict_slate
-    # applies at serve. Row-aligned with oof so callers can score it against
-    # oof["home_win"] directly. Deliberately not written into the frame —
-    # shipping it as a column would invite it to be mistaken for, or to
-    # replace, the honest causal column downstream.
+    # blend_full replays the SHIPPED weight vector over the whole OOF frame —
+    # the same logit-space blend predict_slate applies at serve. Published as
+    # the frame's p_ensemble (2026-10-05, MLB parity): the artifact's
+    # headline metrics, calibration curve/buckets and shipped Platt fit must
+    # describe THE blend the deployed binary serves, so blend-vs-member in
+    # the Model Ensemble table compares one population honestly. The
+    # fold-time CAUSAL blend (weights earned on PRIOR folds only — "how
+    # honest was the walk-forward process") is preserved as the
+    # p_ensemble_causal column so that audit is never lost. Weight EARNING
+    # stays strictly causal; only the published application changed.
     blend_full = (_blend(oof, weights) if len(oof)
                   else np.full(0, dtype=float))
+    if len(oof):
+        oof["p_ensemble_causal"] = pd.to_numeric(
+            oof["p_ensemble"], errors="coerce").to_numpy(float).copy()
+        oof["p_ensemble"] = np.asarray(blend_full, dtype=float).copy()
     if len(oof) and "is_playoffs" in oof:
         season_split = {
             "regular_rows": int((~oof["is_playoffs"].astype(bool)).sum()),

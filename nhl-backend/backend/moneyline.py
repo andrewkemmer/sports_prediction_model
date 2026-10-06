@@ -445,6 +445,20 @@ def walk_forward_oof(game_df: pd.DataFrame,
     # The last rolling update is the full-population optimum — the shipped
     # weight for serving and the dashboard.
     weights = dict(_last_weights)
+    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05, MLB parity)
+    # ─────────────────────────────────────────────────────────────────────
+    # The artifact's headline metrics, calibration curve/buckets and shipped
+    # Platt fit describe THE blend the deployed binary serves: member
+    # probabilities from each fold's strictly-prior models combined with the
+    # shipped weight vector (the same logit blend predict_slate applies at
+    # serve). The fold-time CAUSAL blend (weights earned on PRIOR folds
+    # only) is preserved as p_ensemble_causal so the walk-forward honesty
+    # audit stays available. Weight EARNING stays strictly causal; only the
+    # published application changed.
+    if len(oof):
+        oof["p_ensemble_causal"] = pd.to_numeric(
+            oof["p_ensemble"], errors="coerce").to_numpy(float).copy()
+        oof["p_ensemble"] = _blend(oof, weights)
     return {"oof": oof, "member_weights": weights,
             "season_split": season_split,
             "fold_table": pd.DataFrame(fold_rows)}

@@ -602,16 +602,24 @@ def coverage(full_df: pd.DataFrame,
 
 def ensemble_table(oof: pd.DataFrame, weights: dict[str, float],
                    cal_p: np.ndarray | None = None) -> list[dict]:
-    """Per-member OOF diagnostics + earned adaptive weights."""
-    y = oof["home_win"].to_numpy(float)
+    """Per-member OOF diagnostics + earned adaptive weights.
+
+    Scored on the GRADING population — the same rows as the published
+    (deployed) blend — so blend-vs-strongest-member reads apples-to-
+    apples (2026-10-05 alignment; MLB parity). Frames without a
+    grades_pooled column fall back to the full frame.
+    """
+    grade = (oof["grades_pooled"].astype(bool).to_numpy()
+             if "grades_pooled" in oof.columns
+             else np.ones(len(oof), dtype=bool))
+    y = oof["home_win"].to_numpy(float)[grade]
     rows = []
-    n = len(oof)
     for name in config.ENSEMBLE_MEMBERS:
         col = f"p_{name}"
         if col not in oof.columns:
             continue
         from evaluation import binary_metrics  # local import avoids cycles
-        m = binary_metrics(oof[col].to_numpy(float), y)
+        m = binary_metrics(oof[col].to_numpy(float)[grade], y)
         rows.append({
             "name": name, "weight": round(float(weights.get(name, 0.0)), 4),
             "auc": m.get("auc"), "brier": m.get("brier"),
