@@ -2069,11 +2069,17 @@ def walk_forward_evaluate(
             continue
 
         logger.info(
-            "Fold %d [%s → %s]: train=%d val=%d auc=%.4f brier=%.4f",
+            "Fold %d [%s → %s]: train=%d val=%d auc=%.4f brier=%.4f%s",
             split["fold_idx"],
             str(split["val_start"])[:10], str(split["val_end"])[:10],
             len(train), len(val), ml_metrics.get("auc", 0.5), ml_metrics.get("brier", 0.25),
-        )        # Weighted-blend prediction; keep each member's probabilities so we
+            # 2026-10-06 log review: a grep for "auc=" used to sweep in the
+            # provisional folds' numbers as if they graded — mark them here,
+            # not only on the separate PROVISIONAL line above.
+            "  [PROVISIONAL — excluded from grading]" if provisional else "",
+        )
+
+        # Weighted-blend prediction; keep each member's probabilities so we
         # can score candidates individually out of sample. The per-fold
         # blend is a training-time diagnostic only — the published OOF
         # blend is rebuilt after the loop with the DEPLOYED weights (see the
@@ -2171,6 +2177,18 @@ def walk_forward_evaluate(
                 pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
                 oof_members_cal.setdefault(name, []).extend(
                     pc[grades_k].tolist())
+        # Run-log evidence (2026-10-06 log review): the published-blend
+        # pass left no trace in the log — a reviewer could not tell whether
+        # the headline metrics graded the rolling training-time blend or
+        # the deployed bundle's blend. One line states the applied weights
+        # and the row count so the log, the artifact and the serving binary
+        # make the same claim.
+        logger.info(
+            "Published blend: %d OOF rows re-pooled with the deployed weights "
+            "%s — headline metrics grade THE serving blend",
+            sum(len(vp) for vp in all_preds),
+            {k: f"{v:.1%}" for k, v in sorted(deployed_w.items())},
+        )
 
     # Pool metrics across the GRADING population only — regular-season
     # rows of non-provisional folds (2026-10-03 season-split remediation).

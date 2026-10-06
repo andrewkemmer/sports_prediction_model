@@ -27,6 +27,13 @@ R6 — kaggle_mlb_run.ipynb pinned MLB_FULL_REPULL=1 ("set once, then
      remove") and a stale MLB_END_DATE=2026-09-29, forcing a full
      Statcast re-pull on every daily run. Both are now commented out;
      the 2024-01-01 start (training history) stays.
+     SUPERSEDED 2026-10-06 (T7, test_log_review_20261006): Kaggle
+     Version 5 (89bd0879) restored the ACTIVE MLB_FULL_REPULL /
+     MLB_END_DATE pins, and the standing guardrail is that the notebook
+     is Kaggle-owned — never edited from the repo. The pipeline must run
+     successfully against this notebook AS-IS, so the comment-state pins
+     became: documentation pins here + the behavioral stale-END_DATE
+     defense in config.resolve_run_end_date (T7).
 R7 — ``build_side_frame`` re-resolved the run view per call and logged the
      same "active moneyline feature view (109 features)" line on every
      one: 6 byte-identical INFO lines per run. Resolution now logs once
@@ -291,30 +298,19 @@ def _notebook_run_option_lines(nb, needle: str) -> list[str]:
     return [l.strip() for l in text.splitlines() if needle in l]
 
 
-def test_notebook_daily_run_does_not_force_full_repull():
+def test_notebook_still_documents_the_run_option_switches():
     nb = json.loads(
         (REPO_ROOT / "kaggle_mlb_run.ipynb").read_text(encoding="utf-8"))
-    lines = [l for l in _notebook_run_option_lines(nb, "MLB_FULL_REPULL")
-             if "os.environ" in l]
-    assert lines, "notebook must still document MLB_FULL_REPULL"
-    for line in lines:
-        assert line.startswith("#"), (
-            "MLB_FULL_REPULL must be commented out for daily runs — this "
-            "pin discarded the chunk cache and re-pulled full Statcast "
-            "history on EVERY run (log line: '♻️ MLB_FULL_REPULL set')")
+    for var in ("MLB_START_DATE", "MLB_END_DATE", "MLB_FULL_REPULL"):
+        assert _notebook_run_option_lines(nb, var), (
+            f"the notebook must keep documenting {var} — if a Kaggle "
+            "re-upload drops the switch entirely there is no way to run a "
+            "backfill/rebuild from it")
 
 
-def test_notebook_daily_run_does_not_pin_a_stale_end_date():
+def test_notebook_keeps_the_training_history_start_active():
     nb = json.loads(
         (REPO_ROOT / "kaggle_mlb_run.ipynb").read_text(encoding="utf-8"))
-    end_lines = [l for l in _notebook_run_option_lines(nb, "MLB_END_DATE")
-                 if "os.environ" in l]
-    assert end_lines, "notebook must still document MLB_END_DATE"
-    for line in end_lines:
-        assert line.startswith("#"), (
-            "MLB_END_DATE must be commented out for daily runs — a pinned "
-            "date goes stale (2026-09-29 committed while runs ran "
-            "2026-10-04) and the default already resolves to today")
     # the training-history start stays active
     start_lines = [l for l in _notebook_run_option_lines(nb, "MLB_START_DATE")
                    if "os.environ" in l]

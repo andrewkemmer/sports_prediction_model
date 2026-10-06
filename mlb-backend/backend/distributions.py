@@ -2598,6 +2598,14 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     # prices on exactly the moneyline's active feature list. (The P1
     # projection attach adopted by gate 7e4c529 was removed here so both
     # models see identical features.)
+    # Degenerate-fit accounting (2026-10-06 log review): fit_platt's WARNING
+    # line is capped at 3 process-wide, so the log showed three identity-map
+    # fallbacks with no way to tell whether there were three or thirty, or
+    # from which block. Snapshot the uncapped counters before this block fits
+    # and report the block's own totals before returning.
+    from calibration import fit_platt as _fit_platt_counted
+    _fit0 = getattr(_fit_platt_counted, "_fit_total", 0)
+    _degen0 = getattr(_fit_platt_counted, "_degen_total", 0)
     result = run_oof(decided, decided_snapshot=decided)
     oof = result["oof"]
 
@@ -2740,6 +2748,14 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         artifacts.append(
             str(DATA_DELIVERY_DIR
                 / f"run_engine_markets_{target_date_str}.meta.json"))
+    # The uncapped truth behind the capped WARNING line (2026-10-06 review).
+    _fits = getattr(_fit_platt_counted, "_fit_total", 0) - _fit0
+    _degen = getattr(_fit_platt_counted, "_degen_total", 0) - _degen0
+    if _degen:
+        logger.info(
+            "Calibration: %d of %d prequential Platt fits degenerated to "
+            "identity in the run-engine block (the WARNING line prints only "
+            "the first 3)", _degen, _fits)
     return {"block": monitor_block, "artifacts": artifacts,
             "markets_persisted": markets_persisted,
             "markets_persist_error": markets_persist_error}

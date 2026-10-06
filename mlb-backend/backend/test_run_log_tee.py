@@ -7,8 +7,10 @@ a plain git pull. Each test pins one contract:
 
 * the tee duplicates console output into the file and keeps the console
   return contract (bytes-written passthrough);
-* tty-ness and carriage returns pass through to the CONSOLE untouched
-  (tqdm's graphical black bar), while the FILE stays line-oriented;
+* tty-ness passes through to the CONSOLE untouched (tqdm's graphical
+  black bar), while the FILE stays line-oriented — and collapses CR runs
+  to the bar's final frame (2026-10-06 review: 665 of 1,105 log lines
+  were superseded tqdm frames);
 * logging handlers are re-pointed at the tee, so INFO/WARNING records
   reach the log (basicConfig captures the pre-tee stderr otherwise);
 * installation overwrites the previous run's file (one rolling master);
@@ -83,7 +85,8 @@ def test_install_degrades_to_console_on_unwritable_dir(tmp_path, monkeypatch):
 
 
 # ── tty passthrough + \r contract (2026-10-01 loading-bar regression) ──────
-
+# + CR-run collapse (2026-10-06 log review: 665 of 1,105 log lines were
+# superseded tqdm frames, one per progress-bar update).
 def test_tee_isatty_delegates_to_the_console_stream(tmp_path):
     console = io.StringIO()
     tee = run_log_tee._Tee(console, open(tmp_path / "a.txt", "w"))
@@ -103,7 +106,7 @@ def test_tee_isatty_delegates_to_the_console_stream(tmp_path):
     assert tty_tee.isatty() is True  # tqdm must see what it saw pre-tee
 
 
-def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
+def test_tee_collapses_cr_frames_to_the_final_one_on_the_file_only(tmp_path):
     console = io.StringIO()
     log_file = open(tmp_path / "log.txt", "w")
     tee = run_log_tee._Tee(console, log_file)
@@ -113,7 +116,50 @@ def test_tee_keeps_raw_carriage_returns_on_console_only(tmp_path):
     assert "\r" in console.getvalue()  # console keeps tqdm's raw frames
     text = (tmp_path / "log.txt").read_text(encoding="utf-8")
     assert "\r" not in text  # the file stays line-oriented
-    assert " 83%|########  | 5/6 [..]" in text  # every frame is its own line
+    assert "100%| done" in text  # the bar's final frame lands
+    # superseded frames collapse — they must NOT flood the file one-per-line
+    assert " 83%|" not in text
+    assert " 50%|" not in text
+
+
+def test_frame_run_then_log_line_lands_as_two_clean_lines(tmp_path):
+    """A bar that ends without a newline must not merge into the log line
+    that follows it (the exact interleaving the 2026-10-06 log shows:
+    final frame, then `INFO → N pitches`)."""
+    log_file = open(tmp_path / "log.txt", "w")
+    tee = run_log_tee._Tee(io.StringIO(), log_file)
+    tee.write("\r 42%|##       | 21/50 [..]\r100%|##########| 50/50 [00:53<00:00]")
+    tee.write("  INFO     → 231114 pitches\n")
+    tee.close()
+    text = (tmp_path / "log.txt").read_text(encoding="utf-8")
+    assert text.splitlines() == [
+        "100%|##########| 50/50 [00:53<00:00]",
+        "  INFO     → 231114 pitches",
+    ]
+
+
+def test_torn_plain_line_waits_for_its_terminator(tmp_path):
+    """Multi-arg prints arrive as several writes without newlines; they
+    must reassemble into ONE line, not split at write boundaries."""
+    log_file = open(tmp_path / "log.txt", "w")
+    tee = run_log_tee._Tee(io.StringIO(), log_file)
+    tee.write("  Games: 7393  |  Pitches: ")
+    tee.write("2,172,664")
+    tee.write("\n")
+    tee.close()
+    assert (tmp_path / "log.txt").read_text(encoding="utf-8") == \
+        "  Games: 7393  |  Pitches: 2,172,664\n"
+
+
+def test_close_lands_a_pending_final_frame(tmp_path):
+    """A run that ends on a bar frame still delivers that frame (close
+    commits the partial; the file can never silently drop its last line)."""
+    log_file = open(tmp_path / "log.txt", "w")
+    tee = run_log_tee._Tee(io.StringIO(), log_file)
+    tee.write("\r100%| done")  # no newline ever arrives
+    tee.close()
+    assert (tmp_path / "log.txt").read_text(encoding="utf-8") == \
+        "100%| done\n"
 
 
 # ── logging rebind (2026-10-01: pushed log was prints-only, no INFO/WARNING) ─

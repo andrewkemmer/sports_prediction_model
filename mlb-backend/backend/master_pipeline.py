@@ -43,9 +43,19 @@ def _env_date(key: str, fallback: str) -> str:
     val = os.environ.get(key, "").strip()
     return val or fallback
 
+# config is a leaf module (os/pathlib only) — safe to import this early,
+# before the Phase 1 imports.
+from config import resolve_run_end_date
+
 CONFIG = {
     "start_date": _env_date("MLB_START_DATE", "2025-01-01"),
-    "end_date":   _env_date("MLB_END_DATE", __import__("datetime").date.today().strftime("%Y-%m-%d")),
+    # Stale-pin guard (2026-10-06 log review, T7): the Kaggle notebook
+    # leaves a literal MLB_END_DATE behind after a rebuild — target=end,
+    # so an unguarded stale pin would freeze the daily slate. The notebook
+    # is Kaggle-owned and must not be edited from here; extend instead.
+    "end_date":   resolve_run_end_date(
+        _env_date("MLB_END_DATE",
+                  __import__("datetime").date.today().strftime("%Y-%m-%d"))),
     "github_username": "andrewkemmer",
     "github_repo":     "sports_prediction_model",
     "github_branch":   "main",
@@ -164,6 +174,15 @@ getattr(os, "environ").setdefault("MLB_CACHE_DIR", str(out_dir))
 pitches_path = out_dir / "pitches.parquet"
 
 print(f"📅 {start} → {end}")
+# The guard runs at CONFIG build (before the tee); re-announce through the
+# logger HERE so the extension lands in the pushed run log (Phase 1 is
+# after install_run_log_tee).
+_pinned_end = os.environ.get("MLB_END_DATE", "").strip()
+if _pinned_end and _pinned_end != CONFIG["end_date"]:
+    logging.warning(
+        "MLB_END_DATE=%s is stale (before today) — extended to %s so the "
+        "daily slate cannot freeze; re-date the notebook pin (or unset it) "
+        "for a past-window backfill", _pinned_end, CONFIG["end_date"])
 full_repull = os.environ.get("MLB_FULL_REPULL", "").strip().lower() in ("1", "true", "yes")
 if full_repull:
     print("  ♻️  MLB_FULL_REPULL set — discarding cache and re-pulling full history")
@@ -2556,7 +2575,8 @@ def run_daily_pipeline(
             if not sync_result["pushed"]:
                 logger.warning("GitHub sync failed: %s", sync_result.get("error"))
         else:
-            logger.info("Step 7: Skipping GitHub sync")
+            logger.info("Step 7: Skipping GitHub sync (Phase 5 owns the "
+                        "artifact push)")
 
     except Exception as e:
         logger.error("Pipeline failed: %s", e, exc_info=True)
@@ -2977,7 +2997,12 @@ else:
         print(f"  ❌ Cleanup failed: {e}")
 
 _banner("DONE ✅" if _phase4_error is None else "DONE — WITH ERRORS ❌")
-print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  Features: {game_df.shape[1]+pbp_df.shape[1]}")
+# 2026-10-06 log review: "Features: 378" summed the game + pbp COLUMN counts
+# and read like a feature width, contradicting "Feature width: RFE subset
+# (109 cols)" and "Training data: ... 293 features" in the same log — label
+# the split so the three numbers reconcile.
+print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  "
+      f"Columns: {game_df.shape[1]} game + {pbp_df.shape[1]} pbp")
 print(f"  Output: {out_dir}")
 
 # ── Final run-log delivery (2026-10-05 log review) ─────────────────────────

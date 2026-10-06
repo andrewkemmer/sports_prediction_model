@@ -260,6 +260,10 @@ def fit_platt(y_true, y_prob) -> dict | None:
         logger.warning("Calibration: single-class OOF labels — identity map")
         return None
 
+    # Uncapped attempt counter — denominator for the degenerate summary
+    # (incremented here so degenerate and failed fits count as attempts).
+    fit_platt._fit_total = getattr(fit_platt, "_fit_total", 0) + 1
+
     try:
         from sklearn.linear_model import LogisticRegression
 
@@ -276,11 +280,16 @@ def fit_platt(y_true, y_prob) -> dict | None:
     if not (np.isfinite(a) and np.isfinite(b)) or a <= 0:
         # WARNING (degenerate = real signal), rate-limited so the
         # prequential loop cannot flood the log on early small folds.
+        # Two counters: _degen_logged drives the 3-line cap; the UNCAPPED
+        # _degen_total / _fit_total feed the per-block summary so a
+        # reviewer can see HOW MANY fits degenerated (2026-10-06 log
+        # review: three warnings were visible, the true count unknowable).
         _degen_n = getattr(fit_platt, "_degen_logged", 0)
+        fit_platt._degen_total = getattr(fit_platt, "_degen_total", 0) + 1
         if _degen_n < 3:
             logger.warning(
-                "Calibration: degenerate Platt params (a=%s) — identity map",
-                a)
+                "Calibration: degenerate Platt params (a=%s, n=%d) — identity map",
+                a, n)
         fit_platt._degen_logged = _degen_n + 1
         return None
 

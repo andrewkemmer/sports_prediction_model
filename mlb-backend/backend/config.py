@@ -4,7 +4,40 @@ All paths, hyperparameters, seeds, PSI thresholds, and version metadata
 keys live here. Import from this module to avoid hardcoding values.
 """
 import os
+from datetime import date, datetime
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Run window — stale-pin guard (2026-10-06 log review, T7)
+# ---------------------------------------------------------------------------
+
+def resolve_run_end_date(pinned: str) -> str:
+    """Resolve MLB_END_DATE with a stale-pin guard.
+
+    The Kaggle notebook pins a literal ``MLB_END_DATE`` for rebuilds
+    ("set ONLY for a backfill") and leaves the pin there afterwards — the
+    run target is ``end`` (master_pipeline: "predict the last date in the
+    range"), so a pin that resolves before today would freeze the daily
+    slate on every later run: the 2026-10-06 rebuild pinned 2026-10-06,
+    and from 2026-10-07 on the pipeline would keep re-predicting 10-06.
+    The notebook is Kaggle-owned (standing guardrail: never edit it from
+    the repo — Kaggle Version 5 restored the active pin the moment we
+    commented it out), so the PIPELINE defends itself instead: a pin
+    before today extends to TODAY, keeping daily runs fresh. Today is the
+    same clock as the default fallback (server-local ``date.today()``).
+
+    A pin that still reaches today, a deliberate future window, and
+    malformed input all pass through untouched — Phase 1's ``strptime``
+    keeps failing loudly on malformed input instead of silently defaulting,
+    and a same-day rebuild pin keeps working exactly as written.
+    """
+    try:
+        pin = datetime.strptime(pinned, "%Y-%m-%d").date()
+    except ValueError:
+        return pinned
+    today = date.today()
+    return today.isoformat() if pin < today else pinned
 
 # ---------------------------------------------------------------------------
 # Paths

@@ -817,6 +817,33 @@ def compute_feature_coverage(
 # Run-engine feature view (same dynamic contract as moneyline)
 # ---------------------------------------------------------------------------
 
+# Content key of the last monitoring-view resolution already logged at INFO
+# (2026-10-06 log review: the "Run-engine monitoring view" line printed twice
+# per run — once for drift, once for coverage — byte-identical). Keyed on the
+# RESOLVED CONTENT, not a call counter: a view that changes mid-process logs
+# again as a distinct line (same idiom as distributions._log_resolved_view).
+_LAST_LOGGED_MON_VIEW: Optional[tuple[str, ...]] = None
+
+
+def _log_resolved_mon_view(feats: list) -> None:
+    """Log the resolved run-engine monitoring view once per DISTINCT view.
+
+    ``run_engine_feature_cols`` re-resolves on every call (drift + coverage
+    each need the live contract) and used to log the byte-identical INFO
+    both times — the same defect distributions._log_resolved_view fixed for
+    ``build_side_frame``. First resolution of a view logs at INFO; repeats
+    drop to DEBUG; a *different* view logs at INFO again.
+    """
+    global _LAST_LOGGED_MON_VIEW
+    key = tuple(feats)
+    if key == _LAST_LOGGED_MON_VIEW:
+        logger.debug("Run-engine monitoring view: %d active moneyline features "
+                     "(unchanged)", len(feats))
+        return
+    logger.info("Run-engine monitoring view: %d active moneyline features",
+                len(feats))
+    _LAST_LOGGED_MON_VIEW = key
+
 
 def run_engine_feature_cols() -> list[str]:
     """Return the active run-engine inputs used by production monitoring.
@@ -827,8 +854,10 @@ def run_engine_feature_cols() -> list[str]:
     """
     from training import active_moneyline_feature_cols
     feats = list(active_moneyline_feature_cols())
-    logger.info("Run-engine monitoring view: %d active moneyline features",
-                len(feats))
+    # 2026-10-06 log review: this resolver runs twice per run (drift +
+    # coverage) and logged the byte-identical INFO both times — the same
+    # defect R7 fixed for distributions.build_side_frame.
+    _log_resolved_mon_view(feats)
     return feats
 
 
