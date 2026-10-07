@@ -30,6 +30,12 @@ path). This test:
    panel renders MLB's columns, and the Model Version History table renders
    the accumulated retrain rows under MLB's exact columns (the
    "model version history is missing" defect).
+5. Runs the same page under ``sport=nhl`` against a staged NHL fixture in
+   the same report contract (the 2026-10-07 structure-parity work): served
+   metadata labels + tooltips on NHL's drift rows (the label path served
+   only mlb/nba/nfl before, so every NHL row rendered "(no detailed
+   metadata)"), MLB's exact report-table columns, the 9-key coverage panel,
+   and a populated Model Version History.
 
 Run from the frontend/ directory:
     python -m test_monitor_smoke
@@ -49,6 +55,7 @@ REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
 MLB_DD = REPO_ROOT / "mlb-backend" / "data_delivery"
 NBA_DD = REPO_ROOT / "nba-backend" / "data_delivery"
+NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
@@ -64,6 +71,7 @@ PREV_ARTIFACT_DATE = "20260922"
 PREV_MONITOR_NAME = f"nfl_model_monitor_{PREV_ARTIFACT_DATE}.json"
 PREV_MONITOR_PATH = NFL_DD / PREV_MONITOR_NAME
 NBA_MONITOR_PATH = NBA_DD / f"nba_model_monitor_{ARTIFACT_DATE}.json"
+NHL_MONITOR_PATH = NHL_DD / f"nhl_model_monitor_{ARTIFACT_DATE}.json"
 
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
@@ -390,6 +398,116 @@ def _nba_monitor_record() -> dict:
     }
 
 
+def _nhl_monitor_record() -> dict:
+    """NHL fixture in the MLB report contract (the 2026-10-07 parity work).
+
+    Pins the NHL dashboard against MLB's structure:
+    - served-metadata labels + tooltips on NHL's drift rows — the page's
+      label path served only mlb/nba/nfl before this work, so NHL's
+      features_metadata was ignored and every row rendered "(no detailed
+      metadata)" (fix: model_monitor._served_meta now includes nhl);
+    - feature coverage rows in MLB's 9-key structure;
+    - a POPULATED Model Version History in MLB's snapshot schema.
+    """
+    drift = [
+        {"feature": "elo_diff", "current_mean": 12.5, "baseline_mean": 8.1,
+         "psi": 0.21, "psi_adjusted": 0.15, "noise_floor": 0.06,
+         "mean_shift": 4.4, "shift_se": 1.2, "location_shift": True,
+         "status": "WARN", "weight_pct": 45.0,
+         "n_baseline": 250, "n_current": 31},
+        {"feature": "goalie_sv_pct_diff", "current_mean": 0.905,
+         "baseline_mean": 0.912, "psi": 0.32, "psi_adjusted": 0.26,
+         "noise_floor": 0.06, "mean_shift": -0.007, "shift_se": 0.003,
+         "location_shift": True, "status": "ALERT", "weight_pct": 12.0,
+         "n_baseline": 250, "n_current": 31},
+        # Unserved row: the static-dict / no-metadata fallback stays honest.
+        {"feature": "is_playoffs", "current_mean": 0.0, "baseline_mean": 0.0,
+         "psi": None, "psi_adjusted": None, "noise_floor": 0.06,
+         "mean_shift": 0.0, "shift_se": 0.0, "location_shift": False,
+         "status": "OK", "weight_pct": 0.0,
+         "n_baseline": 250, "n_current": 31},
+    ]
+    coverage = [
+        {"feature": "elo_diff", "window": "baseline", "n_games": 250,
+         "n_nonnull": 250, "pct_nonnull": 100.0, "n_measured": 250,
+         "pct_measured": 100.0, "n_default_zero": 0, "status": "OK"},
+        {"feature": "goalie_sv_pct_diff", "window": "current",
+         "n_games": 31, "n_nonnull": 31, "pct_nonnull": 100.0,
+         "n_measured": 8, "pct_measured": 25.8, "n_default_zero": 0,
+         "status": "STARVED"},
+    ]
+    served = {
+        # Served summary WINS for NHL too (the 2026-10-07 defect: the page
+        # read served metadata only for mlb/nba/nfl).
+        "elo_diff": {
+            "summary": "Home minus away pre-game Elo rating",
+            "tooltip": "What: Home minus away pre-game Elo rating."},
+        "goalie_sv_pct_diff": {
+            "summary": "Home minus away starting-goalie save percentage",
+            "tooltip": "What: Home minus away starting-goalie save "
+                       "percentage."},
+    }
+    return {
+        "date": ARTIFACT_DATE,
+        "version": "v2026.09.23",
+        "last_retrained": ARTIFACT_DATE,
+        "last_retrained_note": "Fresh NHL model trained this run",
+        "next_retrain": "20260930",
+        "next_retrain_note": "next expected run in 7 day(s)",
+        "upset_note": "NHL upset rate is computed from settled walk-forward "
+                      "history.",
+        "feature_drift": drift,
+        "features_metadata": served,
+        "feature_coverage": coverage,
+        "ensemble": [
+            {"name": "xgboost", "weight": 0.265, "auc": 0.6104,
+             "brier": 0.2415, "logloss": 0.6651, "n_eval": 1210},
+            {"name": "lightgbm", "weight": 0.2911, "auc": 0.6098,
+             "brier": 0.2418, "logloss": 0.6655, "n_eval": 1210},
+            {"name": "elasticnet", "weight": 0.4439, "auc": 0.6051,
+             "brier": 0.2431, "logloss": 0.6689, "n_eval": 1210},
+        ],
+        # Headline block = MLB's shape (raw + calibrated twins).
+        "metrics": {"auc": 0.6107, "brier": 0.2412, "logloss": 0.6644,
+                    "ece": 0.0098, "brier_calibrated": 0.2412,
+                    "logloss_calibrated": 0.6644, "ece_calibrated": 0.0098,
+                    "calibrator_gated_out": False},
+        "rolling_brier": [
+            {"date": "2026-09-%02d" % d, "brier": round(0.238 + 0.001 * d, 4),
+             "games": 9}
+            for d in range(1, 16)
+        ],
+        "rolling_brier_meta": {"window_days": 30, "min_games_per_day": 1,
+                               "excluded_sparse_days": 0,
+                               "calibrator_is_identity": False,
+                               "map_scope_note": "Points use the prequential "
+                               "per-fold calibration layer (fit on prior OOF "
+                               "folds only)."},
+        "brier_baseline": 0.4801,
+        "brier_baseline_label": "Constant home-edge",
+        "version_history": [
+            {"version": "v2026.09.22", "date": "2026-09-22",
+             "weights": {"xgboost": 0.26, "lightgbm": 0.29,
+                         "elasticnet": 0.45},
+             "auc": 0.6102, "brier": 0.2414, "logloss": 0.6648,
+             "ece": 0.0099, "brier_calibrated": 0.2413,
+             "logloss_calibrated": 0.6647, "ece_calibrated": 0.0098,
+             "calibration": {"a": 1.103, "b": 0.028, "n": 1210,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}},
+            {"version": "v2026.09.23", "date": "2026-09-23",
+             "weights": {"xgboost": 0.265, "lightgbm": 0.2911,
+                         "elasticnet": 0.4439},
+             "auc": 0.6107, "brier": 0.2412, "logloss": 0.6644,
+             "ece": 0.0098, "brier_calibrated": 0.2412,
+             "logloss_calibrated": 0.6644, "ece_calibrated": 0.0098,
+             "calibration": {"a": 1.110, "b": 0.029, "n": 1210,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}},
+        ],
+    }
+
+
 def _stage(path: Path, data: bytes) -> None:
     """Write a fixture over ``path``, preserving any pre-existing (committed)
     artifact's bytes so cleanup can restore it rather than delete it."""
@@ -410,6 +528,9 @@ def _write_artifacts() -> None:
     NBA_DD.mkdir(parents=True, exist_ok=True)
     _stage(NBA_MONITOR_PATH,
            json.dumps(_nba_monitor_record(), indent=2).encode("utf-8"))
+    NHL_DD.mkdir(parents=True, exist_ok=True)
+    _stage(NHL_MONITOR_PATH,
+           json.dumps(_nhl_monitor_record(), indent=2).encode("utf-8"))
 
 
 def _remove_artifacts() -> None:
@@ -440,6 +561,13 @@ def _all_text(at: AppTest) -> str:
 
 
 def run() -> int:
+    # Windows consoles default to cp1252; failure diagnostics interpolate
+    # artifact-derived labels (e.g. "Home Elo − away Elo ...") that would
+    # crash the report mid-print.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     _write_artifacts()
     problems: list[str] = []
     try:
@@ -796,6 +924,125 @@ def run() -> int:
         print("  - sport=nba path clean (no exception)")
         print("  - MLB-identical report structure: drift labels + tooltips, "
               "coverage columns, populated version history")
+
+        # sport=nhl — the 2026-10-07 structure-parity leg: the NHL report
+        # must be structurally identical to MLB's, and the page must READ
+        # NHL's served features_metadata (the label path served only
+        # mlb/nba/nfl before this work, so NHL rows rendered "(no detailed
+        # metadata)").
+        nhl = AppTest.from_file(str(FRONTEND_DIR / "model_monitor.py"),
+                                default_timeout=60)
+        nhl.session_state["sport"] = "nhl"
+        nhl.session_state["selected_date"] = ARTIFACT_DATE
+        nhl.run()
+        nhl_problems: list[str] = []
+        if nhl.exception:
+            nhl_problems.append(
+                "nhl page raised:\n    "
+                + "\n    ".join(str(e.value) for e in nhl.exception))
+        nhl_text = _all_text(nhl)
+
+        # (H1) structure parity: the three report tables carry MLB's
+        #      rendered column sets exactly.
+        _nhl_headers = []
+        for el in nhl.markdown:
+            m = re.search(r"<thead>(.*?)</thead>", str(el.value), re.S)
+            if m:
+                _nhl_headers.append(re.findall(r"<th>(.*?)</th>", m.group(1)))
+        if _nhl_headers != _expected_headers:
+            nhl_problems.append(
+                f"report table headers {_nhl_headers} != MLB's "
+                f"{_expected_headers}")
+
+        # (H2) drift report: served-metadata LABELS on NHL rows — the
+        #      label div under each feature name is the only output that
+        #      depends on _served_meta (the tooltip reads features_metadata
+        #      unconditionally), so assert on the label divs, not on any
+        #      text that a tooltip could also carry. The one unserved row
+        #      keeps the honest no-metadata fallback — exactly once, never
+        #      once per row.
+        nhl_md = "\n".join(str(el.value) for el in nhl.markdown)
+        _label_divs = re.findall(
+            r"color:#94A3B8;font-size:0\.72rem;font-weight:400;"
+            r"margin-top:1px;'>([^<]*)</div>", nhl_md)
+        if "Home minus away pre-game Elo rating" not in _label_divs:
+            nhl_problems.append(
+                "drift label div missing the served elo_diff summary "
+                f"(labels rendered: {_label_divs})")
+        if "Home minus away starting-goalie save percentage" not in _label_divs:
+            nhl_problems.append(
+                "drift label div missing the served goalie summary "
+                f"(labels rendered: {_label_divs})")
+        if "Home Elo − away Elo (pre-game rating gap)" in nhl_text:
+            nhl_problems.append(
+                "served elo_diff row fell back to the static-dict label")
+        if nhl_text.count("no detailed metadata") != 1:
+            nhl_problems.append(
+                "drift tooltips fell back to '(no detailed metadata)' on "
+                f"{nhl_text.count('no detailed metadata')} rows — exactly "
+                "the one unserved row may fall back")
+        if nhl_text.count("What:") < 2:
+            nhl_problems.append("drift table missing the served tooltips")
+
+        # (H3) drift card splits Alert/Warning like MLB's.
+        if "1 Alert · 1 Warning" not in nhl_text:
+            nhl_problems.append("drift card missing the split Alert/Warning counts")
+
+        # (H4) coverage panel: MLB's columns + statuses render.
+        if "Feature Coverage (non-null / measured)" not in nhl_text:
+            nhl_problems.append("missing feature-coverage section")
+        if "STARVED" not in nhl_text:
+            nhl_problems.append("coverage panel missing STARVED status")
+        if "% MEASURED" not in nhl_text or "% NON-NULL" not in nhl_text:
+            nhl_problems.append("coverage panel missing MLB's percentage columns")
+
+        # (H5) ensemble TOTAL row carries the blend's pooled scores.
+        if "TOTAL (blended ensemble)" not in nhl_text:
+            nhl_problems.append("ensemble table missing the TOTAL blended row")
+        for val in ("0.6107", "0.6644"):
+            if val not in nhl_text:
+                nhl_problems.append(
+                    f"TOTAL row missing the blend's pooled metric ({val})")
+
+        # (H6) rolling Brier chart + calibrated-series caption.
+        if len(nhl.get("vega_lite_chart")) == 0:
+            nhl_problems.append("rolling-Brier timeline did NOT render a chart")
+        if "calibrated probabilities" not in nhl_text:
+            nhl_problems.append(
+                "rolling-Brier caption missing the calibrated-series label")
+
+        # (H7) Model Version History — populated rows under MLB's exact
+        #      columns, oldest first, with the deployed map rendered.
+        if "No version history yet" in nhl_text:
+            nhl_problems.append("version history empty instead of populated rows")
+        if len(nhl.table) != 1:
+            nhl_problems.append(
+                f"expected ONE version-history st.table, got {len(nhl.table)}")
+        else:
+            vh = nhl.table[0].value
+            mlb_cols = ["VERSION", "DATE", "WEIGHTS", "AUC", "LOGLOSS",
+                        "CAL. ECE", "CAL. MAP"]
+            if list(vh.columns) != mlb_cols:
+                nhl_problems.append(
+                    f"version-history columns {list(vh.columns)} != MLB's "
+                    f"{mlb_cols}")
+            vers = list(vh["VERSION"]) if "VERSION" in vh.columns else []
+            if vers != ["v2026.09.22", "v2026.09.23"]:
+                nhl_problems.append(
+                    f"version history not oldest-first retrain rows: {vers}")
+            cal_map = list(vh["CAL. MAP"]) if "CAL. MAP" in vh.columns else []
+            if not cal_map or "a=1.103, b=0.028" not in str(cal_map[0]):
+                nhl_problems.append(
+                    f"CAL. MAP cell missing the deployed Platt map: {cal_map}")
+
+        if nhl_problems:
+            print("MONITOR SMOKE TEST — FAIL (sport=nhl)")
+            for p in nhl_problems:
+                print("  -", p)
+            return 1
+        print("  - sport=nhl path clean (no exception)")
+        print("  - MLB-identical report structure: served drift labels + "
+              "tooltips, coverage columns, populated version history")
         return 0
     finally:
         _remove_artifacts()

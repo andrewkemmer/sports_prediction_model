@@ -859,6 +859,11 @@ def feature_tooltips(names: list[str] | None = None) -> dict:
         if not entry:
             continue
         out[name] = {"tooltip": format_tooltip(entry),
+                     # ``summary`` is the one-line drift-table label the
+                     # shared page reads through describe_feature's
+                     # served_metadata path (MLB features_metadata parity);
+                     # the manifest's own description is that line.
+                     "summary": entry.get("description"),
                      "description": entry.get("description"),
                      "definition": entry.get("definition"),
                      "source": entry.get("source"),

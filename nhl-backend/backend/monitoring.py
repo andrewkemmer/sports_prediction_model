@@ -871,6 +871,144 @@ def write_markets_monitor_json(path, run_date: str,
     return record
 
 
+# ---------------------------------------------------------------------------
+# Model Monitor report contract (MLB parity)
+# ---------------------------------------------------------------------------
+# The shared Model Monitor page renders the SAME tables for every sport, so
+# the monitor artifact's report blocks must carry MLB's row structure
+# verbatim (mlb-backend/master_pipeline._model_monitor_json +
+# training.update_model_version_history are the reference):
+#
+#   * feature_drift -- already MLB's 13-key row in this builder (psi = raw
+#     PSI, psi_adjusted = the judged excess); passed through unchanged.
+#   * feature_coverage -- MLB's 9-key row. The builder's richer cold/warm
+#     null split (``cause`` / ``n_cold_null`` / ``n_warm_null`` /
+#     ``pct_measured_eligible``) stays in the run-log verdict and the
+#     run-engine CSVs; MLB ships no such keys in the report block and the
+#     page renders no such columns.
+#   * version_history -- MLB's model_version_history.json snapshot row
+#     (version vYYYY.MM.DD, ISO date, roster weights at 4 decimals, pooled
+#     raw + calibrated metrics, the deployed map's {a, b, n, method, floor}),
+#     accumulated into MLB's rolling-20 window by folding the dated artifact
+#     family (merge by version, THIS run's row wins, never a later run's
+#     record), plus MLB's top-level date/version stamps.
+#
+# Reporting-only: no training, serving, or prediction value changes.
+
+VERSION_HISTORY_CAP = 20  # MLB training.VERSION_HISTORY_CAP parity
+
+
+def _mlb_coverage_report_row(r: dict) -> dict:
+    """One Feature Coverage report row in MLB's exact 9-key structure.
+
+    ``n_nonnull`` is exact from the builder's null count and recovered from
+    the published percentage otherwise (the percentage is
+    round(100 * n / n_games, 2), so the reverse map is exact at these window
+    sizes). The builder's cold/warm diagnostics stay out of the report block.
+    """
+    n_games = int(r.get("n_games") or 0)
+    if isinstance(r.get("n_null"), (int, float)):
+        n_nonnull = n_games - int(r["n_null"])
+    else:
+        try:
+            n_nonnull = int(round(float(r.get("pct_nonnull")) * n_games / 100.0))
+        except (TypeError, ValueError):
+            n_nonnull = 0
+    out = {
+        "feature": r.get("feature"),
+        "window": r.get("window"),
+        "n_games": n_games,
+        "n_nonnull": max(n_nonnull, 0),
+        "pct_nonnull": r.get("pct_nonnull"),
+        "n_measured": int(r.get("n_measured") or 0),
+        "pct_measured": r.get("pct_measured"),
+        "n_default_zero": r.get("n_default_zero", 0),
+        "status": r.get("status", "OK"),
+    }
+    if r.get("structural_reason"):
+        out["structural_reason"] = r["structural_reason"]
+    return out
+
+
+def _version_history_row(iso_date: str, ensemble: list[dict],
+                         m: dict, cal: dict | None) -> dict:
+    """One Model Version History snapshot row in MLB's exact structure
+    (``training.update_model_version_history``'s row contract): the version
+    stamp, the ISO date, the roster weights at 4 decimals, the pooled metric
+    keys MLB ships, and the deployed map's {a, b, n, method, floor}. Values
+    missing from this run stay ABSENT -- never fabricated (MLB writes no
+    partial snapshots; the shared page renders an absent cell as '—')."""
+    row: dict = {
+        "version": "v" + iso_date.replace("-", "."),
+        "date": iso_date,
+        "weights": {str(r.get("name")): round(float(r.get("weight") or 0.0), 4)
+                    for r in ensemble
+                    if isinstance(r, dict) and r.get("name") is not None},
+    }
+    for k in ("auc", "brier", "logloss", "ece",
+              "brier_calibrated", "logloss_calibrated", "ece_calibrated"):
+        v = m.get(k)
+        if isinstance(v, (int, float)) and np.isfinite(v):
+            row[k] = v
+    if (isinstance(cal, dict) and cal.get("a") is not None
+            and cal.get("b") is not None):
+        row["calibration"] = {
+            "a": cal["a"], "b": cal["b"],
+            **({"n": int(cal["n"])}
+               if isinstance(cal.get("n"), (int, float)) else {}),
+            **({"method": str(cal["method"])} if cal.get("method") else {}),
+            **({"floor": float(cal["floor"])}
+               if cal.get("floor") is not None else {}),
+        }
+    return row
+
+
+def _rolling_version_history(path, current_row: dict) -> list[dict]:
+    """The rolling Model Version History -- MLB's model_version_history.json
+    semantics with the dated monitor family as the store (NHL ships no
+    separate master file).
+
+    Every dated ``nhl_model_monitor_*.json`` beside ``path`` carries the rows
+    it knew, so folding them preserves every record that ever shipped: merge
+    by ``version`` (this run's row always wins), never pull a record dated
+    after this run (a fold over a mixed-age dir must not leak a later run
+    into an earlier report), order oldest-first, keep the last
+    VERSION_HISTORY_CAP rows. Records survive retention because each new
+    artifact embeds the rows this fold recovered."""
+    prefix = str(config.MODEL_MONITOR_JSON).split("{")[0]
+    cur_date = str(current_row.get("date") or "")
+
+    def _key(row: dict):
+        return str(row.get("version") or
+                   (row.get("date"), str(row.get("weights"))))
+
+    rows: dict = {}
+    try:
+        files = sorted(path.parent.glob(f"{prefix}*.json"),
+                       key=lambda p: p.name, reverse=True)[:60]
+    except OSError:  # pragma: no cover - unreadable artifact dir
+        files = []
+    for f in files:
+        if f.name == path.name:
+            continue  # the file being written now; its row comes from the caller
+        try:
+            prior = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for row in (prior.get("version_history") or []):
+            if not isinstance(row, dict):
+                continue
+            rd = str(row.get("date") or "")
+            if cur_date and (not rd or rd > cur_date):
+                continue  # no date / future date: not this report's history
+            rows.setdefault(_key(row), row)
+    rows[_key(current_row)] = current_row  # this run's row wins its version
+    ordered = sorted(rows.values(),
+                     key=lambda r: (str(r.get("date") or ""),
+                                    str(r.get("version") or "")))
+    return ordered[-VERSION_HISTORY_CAP:]
+
+
 def write_monitor_json(path, run_date: str, drift: list[dict],
                        cov: list[dict], ensemble: list[dict],
                        rb: list[dict], baseline: float,
@@ -885,16 +1023,9 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     m = metrics or {}
     cal = (platt if isinstance(platt, dict) and platt.get("a") is not None
            and platt.get("b") is not None else None)
-    version_row: dict = {
-        "version": run_date, "date": iso_date,
-        "weights": {r["name"]: r["weight"] for r in ensemble},
-        "auc": m.get("auc") or (ensemble[0].get("auc") if ensemble else None),
-        "logloss": m.get("logloss"),
-        "ece_calibrated": m.get("ece_calibrated") or m.get("ece"),
-        "note": "rebuild run",
-    }
-    if cal:
-        version_row["calibration"] = {"a": cal["a"], "b": cal["b"]}
+    # One snapshot row for THIS run in MLB's schema, accumulated with the
+    # rows the dated family already carries (MLB's rolling-20 presentation).
+    version_row = _version_history_row(iso_date, ensemble or [], m, cal)
     # The monitor's feature tooltips come from the manifest, which documents
     # every served feature (definition / source / lookback / PIT rule). This
     # block used to emit "see backend/manifest.py" for all of them -- a
@@ -907,6 +1038,8 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     except Exception:  # pragma: no cover - metadata only
         features_meta = {}
     record = {
+        "date": run_date,
+        "version": version_row["version"],
         "last_retrained": iso_date,
         "last_retrained_note": None,
         "next_retrain": next_date,
@@ -914,7 +1047,8 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         "upset_note": None,
         "feature_drift": drift,
         "features_metadata": features_meta,
-        "feature_coverage": cov,
+        "feature_coverage": [_mlb_coverage_report_row(r) for r in cov
+                             if isinstance(r, dict)],
         "ensemble": ensemble,
         "rolling_brier": rb,
         "brier_baseline": baseline,
@@ -940,7 +1074,7 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         # comparison; MLB/NBA emit this key and NHL/NFL omitted it, so that
         # row rendered em-dashes against perfectly good member rows.
         "metrics": m,
-        "version_history": [version_row],
+        "version_history": _rolling_version_history(path, version_row),
         "fold_geometry": fold_info,
         "config": config_meta,
     }

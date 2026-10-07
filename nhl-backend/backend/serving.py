@@ -87,7 +87,42 @@ def _date_compact(run_date: str) -> str:
 # ---------------------------------------------------------------------------
 def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
                          p_home_cal: np.ndarray, team_names: dict[str, str],
-                         config_meta: dict) -> dict:
+                         config_meta: dict, run_date: str = "") -> dict:
+    """Publish the current-slate record — ONE exact board date.
+
+    The strict current-slate resolver (frontend utils._nhl_current_slate_record)
+    accepts a record only when every game's ``game_date`` equals the published
+    ``slate_date`` and that date is not already past in ET: "a multi-day
+    pending frame is not a live slate artifact".  The 2026-10-07 run's slate
+    still carried the previous evening's carry-over games (published for the
+    first time in the 20261007 file), so ``slate_date = min(gameday)`` was
+    2026-10-06 while three real 2026-10-07 games sat in the same record — the
+    resolver rejected the whole file, the date never entered the navigable
+    rail, and Today's Games showed no Oct 7 board at all.
+
+    Board rule (reporting/serving only — pricing and markets are untouched):
+    the board is the FIRST game date at or after ``run_date`` (the run's own
+    Eastern date; a lookahead slate's first night), falling back to the slate's
+    earliest date when the whole slate is carry-over.  Only that date's games
+    publish; later-dated preview games publish with their own day's run.
+    Same-date preservation then keeps prior rows ONLY for this board date, so
+    a same-day re-run can never re-introduce another date's rows.
+    """
+    # Align the probability arrays to whatever rows survive the board filter.
+    slate_df = slate_df if slate_df is not None else pd.DataFrame()
+    board_date = ""
+    if len(slate_df):
+        dates = [_date_str(v) for v in slate_df["gameday"]]
+        run_iso = str(run_date or "").strip()
+        if len(run_iso) == 10 and run_iso[4] == "-":
+            upcoming = [d for d in dates if d and d >= run_iso]
+            board_date = min(upcoming) if upcoming else min(d for d in dates if d)
+        else:
+            board_date = min((d for d in dates if d), default="")
+        keep = np.array([bool(d) and d == board_date for d in dates])
+        slate_df = slate_df[keep]
+        p_home = np.asarray(p_home)[keep]
+        p_home_cal = np.asarray(p_home_cal)[keep]
     games = []
     for i, (_, g) in enumerate(slate_df.reset_index(drop=True).iterrows()):
         ph = _clean(p_home[i]) if i < len(p_home) else None
@@ -128,7 +163,9 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             new_ids = {str(x.get("game_id") or "") for x in games}
             preserved = [g for g in (prior.get("games") or [])
                          if isinstance(g, dict)
-                         and str(g.get("game_id") or "") not in new_ids]
+                         and str(g.get("game_id") or "") not in new_ids
+                         and (not board_date
+                              or str(g.get("game_date") or "") == board_date)]
             if preserved:
                 games = preserved + games
     except Exception:
@@ -196,28 +233,42 @@ def write_calibration_json(path, moneyline_metrics: dict,
                            calibrated_buckets: list[dict] | None = None,
                            distribution_calibration: dict | None = None,
                            prequential_gate: dict | None = None) -> dict:
-    """MLB-shaped calibration artifact (frontend presentation contract)."""
-    cal_sec: dict = {}
-    if isinstance(platt, dict) and platt.get("a") is not None \
-            and platt.get("b") is not None:
-        n = int(platt.get("n") or n_games or 0)
-        cal_sec = {
-            "method": "favored_platt_floor",
-            "params": {"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
-                       "n": n},
-            "metrics_raw": {
-                "brier": _r4(moneyline_metrics.get("brier")),
-                "logloss": _r4(moneyline_metrics.get("logloss")),
-                "ece": _r4(moneyline_metrics.get("ece")),
-            },
-            "metrics_calibrated": {
-                "brier": _r4(calibrated_metrics.get("brier")),
-                "logloss": _r4(calibrated_metrics.get("logloss")),
-                "ece": _r4(calibrated_metrics.get("ece")),
-            },
-        }
-        if calibrated_buckets:
-            cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
+    """MLB-shaped calibration artifact (frontend presentation contract).
+
+    Carries the MLB schema keys the shared Calibration page renders: the
+    ``calibration`` section with the Platt ``params`` + ``metrics_raw`` /
+    ``metrics_calibrated`` for the recalibration banner and green deployed
+    curve, and ``calibration.calibration_buckets_calibrated`` — the
+    prequential calibrated twin per bucket (the reliability table's
+    CALIBRATED column renders '—' without it).
+
+    Provenance is written on EVERY run, including gated ones. The 2026-10-07
+    gated run (``platt=None``, ``gated_no_gain``) persisted ``{}`` here, which
+    dropped the banner state AND the calibrated bucket twins — the NHL
+    reliability table's CALIBRATED win rates vanished beside MLB's. MLB
+    parity records ``method="identity"`` with ``params`` null when the gate
+    ships the raw blend (the NFL 2026-10-03 gated-run fix, same contract).
+    """
+    _has_platt = (isinstance(platt, dict) and platt.get("a") is not None
+                  and platt.get("b") is not None)
+    cal_sec = {
+        "method": "favored_platt_floor" if _has_platt else "identity",
+        "params": ({"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
+                    "n": int(platt.get("n") or n_games or 0)}
+                   if _has_platt else None),
+        "metrics_raw": {
+            "brier": _r4(moneyline_metrics.get("brier")),
+            "logloss": _r4(moneyline_metrics.get("logloss")),
+            "ece": _r4(moneyline_metrics.get("ece")),
+        },
+        "metrics_calibrated": {
+            "brier": _r4(calibrated_metrics.get("brier")),
+            "logloss": _r4(calibrated_metrics.get("logloss")),
+            "ece": _r4(calibrated_metrics.get("ece")),
+        },
+    }
+    if calibrated_buckets:
+        cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
     record = {
         "date": run_date,
         "trained_at": _now_utc(),
@@ -233,6 +284,12 @@ def write_calibration_json(path, moneyline_metrics: dict,
             "auc_calibrated": _r4(calibrated_metrics.get("auc")),
             "brier_calibrated": _r4(calibrated_metrics.get("brier")),
             "logloss_calibrated": _r4(calibrated_metrics.get("logloss")),
+            # Deployed-calibrator gate decision (MLB/NFL parity): True = the
+            # nested prior-evidence gate declined the pooled map, so this run
+            # serves the raw blend (identity). The calibration block records
+            # the same verdict as method="identity".
+            "calibrator_gated_out": bool(
+                moneyline_metrics.get("calibrator_gated_out", False)),
         },
         "calibration": cal_sec,
         "distribution_calibration": distribution_calibration or {},
@@ -422,7 +479,35 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
 # Goalie matchup JSON — enrichment contract (the QB-matchup analog)
 # ---------------------------------------------------------------------------
 def write_goalie_matchup_json(path, goalie_df: pd.DataFrame,
-                              slate_df: pd.DataFrame) -> dict:
+                              slate_df: pd.DataFrame, run_date: str = "") -> dict:
+    """Publish the dated goalie matchup — ONE exact board date.
+
+    Same board rule as ``write_moneyline_json``: the board is the first
+    game date at or after ``run_date`` (fallback: the slate's earliest
+    date), so a lookahead slate's carry-over games never leak into the
+    run's own dated file. The 2026-10-07 run's slate carried two
+    2026-10-06 carry-over games; publishing them in the 20261007 file made
+    that file disagree with the one-file-one-date contract every other
+    dated NHL artifact holds (and broke the dated loader's exact-date
+    expectations downstream). Pricing is untouched — this filters the
+    published rows only, positionally aligned with ``goalie_df``.
+    """
+    slate_df = slate_df if slate_df is not None else pd.DataFrame()
+    if len(slate_df) and "gameday" in slate_df.columns:
+        dates = [_date_str(v) for v in slate_df["gameday"]]
+        run_iso = str(run_date or "").strip()
+        if len(run_iso) == 10 and run_iso[4] == "-":
+            upcoming = [d for d in dates if d and d >= run_iso]
+            board_date = (min(upcoming) if upcoming
+                          else min((d for d in dates if d), default=""))
+        else:
+            board_date = min((d for d in dates if d), default="")
+        keep = np.array([bool(d) and d == board_date for d in dates])
+        slate_df = slate_df[keep]
+        if isinstance(goalie_df, pd.DataFrame) and len(goalie_df) == len(keep):
+            goalie_df = goalie_df[keep]
+    gdf = (goalie_df.reset_index(drop=True)
+           if isinstance(goalie_df, pd.DataFrame) else pd.DataFrame())
     base = slate_df.reset_index(drop=True)
     games = []
     for i, row in base.iterrows():
@@ -433,7 +518,8 @@ def write_goalie_matchup_json(path, goalie_df: pd.DataFrame,
             "away_team": str(row.get("away_team", "") or ""),
         }
         for f in config.GOALIE_FIELDS:
-            rec[f] = _clean(goalie_df.iloc[i][f]) if f in goalie_df.columns else None
+            rec[f] = (_clean(gdf.iloc[i][f])
+                      if i < len(gdf) and f in gdf.columns else None)
         games.append(rec)
     record = {
         "created_utc": _now_utc(),

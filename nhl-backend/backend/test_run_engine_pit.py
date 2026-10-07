@@ -1184,6 +1184,243 @@ def test_write_calibration_json_carries_the_gate_audit():
         assert record["prequential_gate"] == {}
 
 
+def test_calibration_section_survives_a_gated_run():
+    """A gated run (``platt=None``, the 2026-10-07 production verdict
+    ``gated_no_gain``) must still publish MLB's ``calibration`` section:
+    identity provenance, raw/calibrated metrics, and the calibrated bucket
+    twins. Persisting ``{}`` dropped the recalibration banner state AND the
+    shared page's CALIBRATED win-rate column beside MLB's."""
+    buckets = [{"bucket": "50–60%", "mean_predicted": 0.55,
+                "mean_actual": 0.53, "count": 10, "gap": 0.02}]
+    cal_buckets = [{"bucket": "50–60%", "mean_predicted": 0.56,
+                    "mean_calibrated": 0.56, "mean_predicted_raw": 0.55,
+                    "mean_actual": 0.53, "count": 10, "gap": 0.02,
+                    "gap_calibrated": 0.03}]
+    raw = {"auc": 0.60, "brier": 0.24, "logloss": 0.68, "ece": 0.010,
+           "calibrator_gated_out": True}
+    cal_m = {"auc": 0.60, "brier": 0.2401, "logloss": 0.6801,
+             "ece": 0.0099}
+    with tempfile.TemporaryDirectory() as td:
+        record = serving_mod.write_calibration_json(
+            Path(td) / "cal.json", raw, cal_m, buckets, [], {},
+            platt=None, run_date="20261007", n_games=10,
+            calibrated_buckets=cal_buckets)
+        sec = record["calibration"]
+        assert sec["method"] == "identity"
+        assert sec["params"] is None
+        assert sec["metrics_raw"]["brier"] == 0.24
+        assert sec["metrics_calibrated"]["brier"] == 0.2401
+        assert sec["calibration_buckets_calibrated"] == cal_buckets
+        assert record["metrics"]["calibrator_gated_out"] is True
+        # A fitted run keeps the deployed-map tag MLB ships (the pipeline
+        # stamps the flag from ``platt is None`` on the same run).
+        fitted = serving_mod.write_calibration_json(
+            Path(td) / "fit.json", {**raw, "calibrator_gated_out": False},
+            cal_m, buckets, [], {},
+            platt={"a": 1.1, "b": -0.02, "n": 2418},
+            run_date="20261006", n_games=10)
+        assert fitted["calibration"]["method"] == "favored_platt_floor"
+        assert fitted["calibration"]["params"] == {
+            "a": 1.1, "b": -0.02, "n": 2418}
+        assert fitted["metrics"]["calibrator_gated_out"] is False
+
+
+def test_monitor_report_blocks_are_mlb_rows_with_a_rolling_history():
+    """``write_monitor_json`` publishes MLB's report contract: 9-key
+    coverage rows (the builder's cold/warm split stays out of the report
+    block), top-level ``date``/``version`` stamps, and a rolling-20
+    version history whose rows are ``training.update_model_version_history``
+    snapshots folded from the dated family — never leaking a later run's
+    record into an earlier report."""
+    cov = [{"feature": "elo_diff", "window": "baseline", "n_games": 100,
+            "pct_measured": 99.0, "pct_nonnull": 99.0,
+            "n_default_zero": 0, "status": "OK", "n_measured": 99,
+            "n_null": 1, "n_cold_null": 1, "n_warm_null": 0,
+            "pct_measured_eligible": 100.0, "cause": "cold_start"}]
+    drift = [{"feature": "elo_diff", "current_mean": 1.0,
+              "baseline_mean": 1.0, "psi": 0.01, "psi_adjusted": 0.0,
+              "noise_floor": 0.01, "mean_shift": 0.0, "shift_se": 0.0,
+              "location_shift": False, "status": "OK", "weight_pct": 5.0,
+              "n_baseline": 100, "n_current": 20}]
+    ens = [{"name": "xgboost", "weight": 0.5, "auc": 0.6,
+            "brier": 0.24, "logloss": 0.68, "n_eval": 100}]
+    m = {"auc": 0.6, "brier": 0.24, "logloss": 0.68, "ece": 0.01,
+         "brier_calibrated": 0.2401, "logloss_calibrated": 0.6801,
+         "ece_calibrated": 0.0099}
+    platt = {"a": 1.0, "b": 0.05, "n": 2418,
+             "method": "favored_platt_floor", "floor": 0.5}
+    with tempfile.TemporaryDirectory() as td:
+        prior = Path(td) / "nhl_model_monitor_20981231.json"
+        prior.write_text(json.dumps({
+            "version_history": [{"version": "20981231",
+                                 "date": "2098-12-31", "weights": {},
+                                 "note": "rebuild run"}]}), encoding="utf-8")
+        path = Path(td) / "nhl_model_monitor_20990101.json"
+        with _mock_patch.object(mon, "_dump_json"):
+            rec = mon.write_monitor_json(
+                path, "20990101", drift, cov, ens, [], 0.5, {}, {},
+                metrics=m, platt=platt)
+        assert rec["date"] == "20990101"
+        assert rec["version"] == "v2099.01.01"
+        # Coverage: MLB's exact 9 keys; the builder extras stay out.
+        row = rec["feature_coverage"][0]
+        assert set(row) == {"feature", "window", "n_games", "n_nonnull",
+                            "pct_nonnull", "n_measured", "pct_measured",
+                            "n_default_zero", "status"}
+        assert row["n_nonnull"] == 99  # n_games - n_null, exact
+        # Version history: prior family row folded + this run's snapshot
+        # in MLB's row schema, oldest-first. A prior row rides AS PUBLISHED
+        # (the emitter folds, never rewrites — the published family is kept
+        # canonical by the artifact backfill), this run's row is reshaped.
+        vh = rec["version_history"]
+        assert [r["version"] for r in vh] == ["20981231", "v2099.01.01"]
+        cur = vh[-1]
+        assert set(cur) == {"version", "date", "weights", "auc", "brier",
+                            "logloss", "ece", "brier_calibrated",
+                            "logloss_calibrated", "ece_calibrated",
+                            "calibration"}
+        assert cur["calibration"] == {"a": 1.0, "b": 0.05, "n": 2418,
+                                      "method": "favored_platt_floor",
+                                      "floor": 0.5}
+        # A later-dated artifact never leaks into this report.
+        (Path(td) / "nhl_model_monitor_20990102.json").write_text(
+            json.dumps({"version_history": [
+                {"version": "v2099.01.02", "date": "2099-01-02",
+                 "weights": {}}]}), encoding="utf-8")
+        with _mock_patch.object(mon, "_dump_json"):
+            rec2 = mon.write_monitor_json(
+                path, "20990101", drift, cov, ens, [], 0.5, {}, {},
+                metrics=m, platt=platt)
+        assert "v2099.01.02" not in [r["version"]
+                                     for r in rec2["version_history"]]
+        # A gated run's snapshot carries no calibration map at all.
+        with _mock_patch.object(mon, "_dump_json"):
+            rec3 = mon.write_monitor_json(
+                path, "20990101", drift, cov, ens, [], 0.5, {}, {},
+                metrics=m, platt=None)
+        assert "calibration" not in rec3["version_history"][-1]
+
+
+def test_moneyline_record_is_one_exact_board_date():
+    """The published current-slate record carries ONE board date — the first
+    game date at or after the run's own date. The 2026-10-07 run's slate
+    still held the previous evening's carry-over games, so
+    ``slate_date=min(gameday)`` named 2026-10-06 while 2026-10-07 games sat
+    in the same record: the strict resolver rejected the file and Today's
+    Games showed no Oct 7 board at all. Pricing arrays must stay aligned to
+    the surviving rows, and a same-day re-run must never re-introduce
+    another date's preserved rows."""
+    def _slate(days):
+        rows = []
+        for i, d in enumerate(days):
+            rows.append({
+                "game_id": f"g{d}{i}", "gameday": d,
+                "home_team": "BOS", "away_team": "TOR",
+                "venue": "TD Garden", "start_time_utc": None,
+            })
+        return pd.DataFrame(rows)
+
+    with tempfile.TemporaryDirectory() as td:
+        # Mixed slate: yesterday's carry-over + tonight's board.
+        slate = _slate(["2026-10-06", "2026-10-06", "2026-10-07",
+                        "2026-10-07"])
+        p_home = np.array([0.10, 0.20, 0.61, 0.72])
+        p_cal = np.array([0.11, 0.21, 0.63, 0.74])  # the served array
+        rec = serving_mod.write_moneyline_json(
+            Path(td) / "nhl_moneyline_v1_20261007.json", slate,
+            p_home, p_cal, {}, {}, run_date="2026-10-07")
+        assert rec["slate_date"] == "2026-10-07"
+        assert rec["n_games"] == 2
+        assert {g["game_date"] for g in rec["games"]} == {"2026-10-07"}
+        # Row/probability alignment survives the filter positionally (the
+        # record serves the calibrated array's values).
+        assert [g["home_win_prob_model"] for g in rec["games"]] == [0.63, 0.74]
+
+        # Preview slate: only the FIRST upcoming night publishes; the later
+        # night ships with its own day's run.
+        rec2 = serving_mod.write_moneyline_json(
+            Path(td) / "nhl_moneyline_v1_20261008.json",
+            _slate(["2026-10-09", "2026-10-10"]),
+            np.array([0.55, 0.65]), np.array([0.45, 0.35]), {}, {},
+            run_date="2026-10-08")
+        assert rec2["slate_date"] == "2026-10-09"
+        assert rec2["n_games"] == 1
+
+        # Same-day re-run: preserved prior rows must stay ON the board date
+        # (the delivered 20261007 file carried Oct-6 rows a re-run must not
+        # re-inherit).
+        path = Path(td) / "nhl_moneyline_v1_20261009.json"
+        path.write_text(json.dumps({
+            "created_utc": "2026-10-09T05:00:00+00:00",
+            "slate_date": "2026-10-08",
+            "n_games": 2,
+            "games": [
+                {"game_id": "carry", "game_date": "2026-10-08",
+                 "home_team": "BOS", "away_team": "TOR",
+                 "home_win_prob_model": 0.5, "away_win_prob_model": 0.5},
+                {"game_id": "boardearlier", "game_date": "2026-10-09",
+                 "home_team": "BOS", "away_team": "TOR",
+                 "home_win_prob_model": 0.55, "away_win_prob_model": 0.45},
+            ]}), encoding="utf-8")
+        rec3 = serving_mod.write_moneyline_json(
+            path, _slate(["2026-10-09", "2026-10-10"]),
+            np.array([0.56, 0.65]), np.array([0.44, 0.35]), {}, {},
+            run_date="2026-10-09")
+        assert rec3["slate_date"] == "2026-10-09"
+        # Off-date prior rows are not re-inherited; the same-date row IS
+        # preserved (publication stands) and this run's price replaces it
+        # for ids it re-prices.
+        ids = {g["game_id"] for g in rec3["games"]}
+        assert "carry" not in ids
+        assert all(g["game_date"] == "2026-10-09" for g in rec3["games"])
+
+
+def test_goalie_matchup_record_is_one_exact_board_date():
+    """The dated goalie matchup file carries ONE board date too.
+
+    The delivered ``nhl_goalie_matchup_20261007.json`` held two 2026-10-06
+    carry-over games beside the three real Oct-7 games — the only dated NHL
+    artifact whose rows disagreed with its own file date, and the reason the
+    board smoke's exact-date goalie load saw foreign rows when walking the
+    family. Same board rule as the moneyline record: first game date at or
+    after ``run_date``, goalie rows filtered positionally alongside."""
+    fields = list(serving_mod.config.GOALIE_FIELDS)
+    slate = pd.DataFrame([
+        {"game_id": "carry1", "gameday": "2026-10-06",
+         "home_team": "SEA", "away_team": "VGK"},
+        {"game_id": "carry2", "gameday": "2026-10-06",
+         "home_team": "LAK", "away_team": "FLA"},
+        {"game_id": "board1", "gameday": "2026-10-07",
+         "home_team": "WSH", "away_team": "PIT"},
+        {"game_id": "board2", "gameday": "2026-10-07",
+         "home_team": "ANA", "away_team": "EDM"},
+    ])
+    # Positional sentinel in every goalie field: row i carries "g<i>".
+    goalie_df = pd.DataFrame(
+        [[f"g{i}" for _ in fields] for i in range(len(slate))],
+        columns=fields)
+
+    with tempfile.TemporaryDirectory() as td:
+        rec = serving_mod.write_goalie_matchup_json(
+            Path(td) / "nhl_goalie_matchup_20261007.json",
+            goalie_df, slate, run_date="2026-10-07")
+        assert rec["n_games"] == 2
+        assert [g["game_id"] for g in rec["games"]] == ["board1", "board2"]
+        assert {g["gameday"] for g in rec["games"]} == {"2026-10-07"}
+        # Goalie rows stay positionally aligned with the surviving slate.
+        name_col = "g_home_name" if "g_home_name" in fields else fields[0]
+        assert [g[name_col] for g in rec["games"]] == ["g2", "g3"]
+
+        # Whole slate is carry-over: earliest date is the board (the
+        # moneyline writer's documented fallback), still ONE date.
+        rec2 = serving_mod.write_goalie_matchup_json(
+            Path(td) / "nhl_goalie_matchup_20261006.json",
+            goalie_df.iloc[:2].reset_index(drop=True), slate.iloc[:2],
+            run_date="2026-10-06")
+        assert rec2["n_games"] == 2
+        assert {g["gameday"] for g in rec2["games"]} == {"2026-10-06"}
+
+
 def test_adaptive_weights_are_logloss_simplex_and_logit_optimal():
     """The optimizer contract is pooled binary log loss in logit space."""
     assert config.ADAPTIVE_WEIGHT_METRIC == "logloss"
@@ -3981,7 +4218,10 @@ def test_run_diagnostics_writes_are_guaranteed_their_directory():
     mkdir it (exist_ok=True) before its first such construction."""
     import master_pipeline as mp
 
-    src = Path(mp.__file__).read_text()
+    # encoding pinned: this test also runs on Windows, where the default
+    # locale codec cannot decode master_pipeline.py's UTF-8 (the 📝 emoji
+    # made a bare read_text() raise UnicodeDecodeError on cp1252).
+    src = Path(mp.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     def _attr_chain(node) -> str:

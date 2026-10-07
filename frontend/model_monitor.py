@@ -231,14 +231,17 @@ if drift:
                     "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
-        # served_metadata first (MLB + NBA): the backend-authored per-side
-        # summaries match the exact feature name (sp_era_home gets its own
+        # served_metadata first (MLB + NBA + NHL): the backend-authored
+        # per-side summaries match the exact feature name (sp_era_home gets its own
         # wording, not the diff twin's text with a tacked-on side); the static
         # dict remains the fallback for rows absent from the run's
-        # features_metadata artifact. NFL/NHL keep the legacy dict+suffix
-        # labels until their own dicts adopt the served-metadata source.
+        # features_metadata artifact. NHL adopted the served-metadata source
+        # when its manifest began emitting ``summary`` (the pl_evo/pl_ppo
+        # families have no static-dict entries and used to render their bare
+        # column name as the label). NFL keeps the legacy dict+suffix labels
+        # until its dict adopts the served-metadata source.
         _served_meta = (features_metadata
-                        if utils.get_sport() in ("mlb", "nba") else None)
+                        if utils.get_sport() in ("mlb", "nba", "nhl") else None)
         label = utils.describe_feature(r.get("feature", ""),
                                        sport=utils.get_sport(),
                                        served_metadata=_served_meta) \

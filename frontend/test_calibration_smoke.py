@@ -17,6 +17,12 @@ path). This test:
 3. Runs the same page under ``sport=mlb`` and asserts it also runs clean
    (the shared path; locally it halts/warns on missing MLB artifacts rather
    than crashing).
+4. Runs the same page under ``sport=nhl`` against staged NHL fixtures in
+   the MLB contract (the 2026-10-07 calibration-parity work) and asserts
+   every section MLB renders — including the per-bucket CALIBRATED
+   win-rate column in the reliability table that was MISSING for NHL (the
+   old gated run wrote ``calibration: {}``, so every calibrated cell was an
+   em-dash), the Platt banner, and the populated prediction history.
 
 Run from the frontend/ directory:
     python -m test_calibration_smoke
@@ -36,6 +42,7 @@ from streamlit.testing.v1 import AppTest
 FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
+NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
@@ -44,6 +51,8 @@ CALIBRATION_NAME = f"nfl_calibration_{ARTIFACT_DATE}.json"
 HISTORY_NAME = f"nfl_predictions_history_{ARTIFACT_DATE}.csv"
 CALIBRATION_PATH = NFL_DD / CALIBRATION_NAME
 HISTORY_PATH = NFL_DD / HISTORY_NAME
+NHL_CALIBRATION_PATH = NHL_DD / f"nhl_calibration_{ARTIFACT_DATE}.json"
+NHL_HISTORY_PATH = NHL_DD / f"nhl_predictions_history_{ARTIFACT_DATE}.csv"
 
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING artifact this test overwrites with a
@@ -147,6 +156,9 @@ def _write_artifacts() -> None:
     hist = _history_frame().to_csv(index=False).encode("utf-8")
     _stage(CALIBRATION_PATH, cal)
     _stage(HISTORY_PATH, hist)
+    NHL_DD.mkdir(parents=True, exist_ok=True)
+    _stage(NHL_CALIBRATION_PATH, cal)
+    _stage(NHL_HISTORY_PATH, hist)
 
 
 def _remove_artifacts() -> None:
@@ -405,6 +417,12 @@ def test_total_calibrated_win_probability_renders_in_reliability_table():
 
 
 def run() -> int:
+    # Windows consoles default to cp1252; failure diagnostics interpolate
+    # artifact-derived markup that would crash the report mid-print.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     _write_artifacts()
     problems: list[str] = []
     try:
@@ -524,6 +542,89 @@ def run() -> int:
             print("  - mlb path raised:\n    " + prob)
             return 1
         print("  - sport=mlb path clean (no exception)")
+
+        # sport=nhl — the 2026-10-07 calibration-parity leg. The reported
+        # defect: NHL's calibrated win rates were MISSING (the gated run's
+        # writer emitted ``calibration: {}``, so every per-bucket CALIBRATED
+        # cell rendered the em-dash fallback). The staged NHL fixtures are
+        # the MLB contract, so this pins that the shared page resolves
+        # ``nhl_calibration_*`` / ``nhl_predictions_history_*`` and renders
+        # every MLB section with the win rates present.
+        nhl = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                                default_timeout=60)
+        nhl.session_state["sport"] = "nhl"
+        nhl.run()
+        nhl_problems: list[str] = []
+        if nhl.exception:
+            nhl_problems.append(
+                "nhl page raised:\n    "
+                + "\n    ".join(str(e.value) for e in nhl.exception))
+        nhl_text = _all_text(nhl)
+
+        # (C1) header + record summary + four KPI cards (raw -> calibrated).
+        for key, needle in [("header", "Model Calibration Dashboard"),
+                            ("record", "Today's Record:"),
+                            ("auc", "AUC-ROC"), ("brier", "BRIER SCORE"),
+                            ("logloss", "LOG-LOSS"),
+                            ("ece", "CAL. ERROR")]:
+            if needle not in nhl_text:
+                nhl_problems.append(f"missing [{key}] = {needle!r}")
+
+        # (C2) Platt recalibration banner (the fixture carries a fitted map;
+        #      the identity/gated provenance renders without the banner by
+        #      design — pinned by the NFL gated-run precedent).
+        if "Post-Hoc Recalibration" not in nhl_text:
+            nhl_problems.append("missing Platt recalibration banner")
+
+        # (C3) per-1% curve as a REAL Altair chart, not an info line.
+        if len(nhl.get("vega_lite_chart")) == 0:
+            nhl_problems.append("curve did NOT render an Altair chart")
+        if "Calibration Curve" not in nhl_text:
+            nhl_problems.append("missing calibration-curve section")
+        if "Per-1% favored-team calibration curve ships when" in nhl_text:
+            nhl_problems.append("curve section degraded (info line)")
+        if "deployed pooled Platt map" not in nhl_text:
+            nhl_problems.append(
+                "curve caption missing the deployed-pooled-Platt wording")
+
+        # (C4) THE DEFECT: the reliability table's per-bucket CALIBRATED
+        #      win-rate column must render green values — not the em-dash
+        #      fallback every row showed while ``calibration: {}``.
+        if "Reliability Diagram" not in nhl_text:
+            nhl_problems.append("missing reliability-diagram section")
+        if "CALIBRATED" not in nhl_text:
+            nhl_problems.append("reliability table missing the CALIBRATED column")
+        if "color:#475569" in nhl_text:
+            nhl_problems.append(
+                "reliability table carries an em-dash CALIBRATED cell — the "
+                "calibrated win rates are missing")
+        for val in ("0.555", "0.635", "0.715", "0.795", "0.875", "0.955"):
+            if val not in nhl_text:
+                nhl_problems.append(
+                    f"per-bucket calibrated win rate {val} not rendered")
+        if "42%-50%" in nhl_text:
+            nhl_problems.append("reliability table shows a sub-50% bucket")
+        if "52%-60%" not in nhl_text:
+            nhl_problems.append("reliability table missing a >=50% favored bucket")
+        # TOTAL row: count-weighted calibrated total (shared contract).
+        nhl_problems.extend(_total_calibrated_cell_problems(nhl_text))
+        if "TOTAL CALIBRATED" not in nhl_text:
+            nhl_problems.append("missing TOTAL CALIBRATED caption")
+
+        # (C5) prediction-history table populated.
+        if "Prediction History" not in nhl_text:
+            nhl_problems.append("missing prediction-history section")
+        if "No per-game prediction history" in nhl_text:
+            nhl_problems.append("history table empty/info line instead of rows")
+
+        if nhl_problems:
+            print("CALIBRATION SMOKE TEST — FAIL (sport=nhl)")
+            for p in nhl_problems:
+                print("  -", p)
+            return 1
+        print("  - sport=nhl path clean (no exception)")
+        print("  - MLB-identical sections incl. the per-bucket CALIBRATED "
+              "win rates + TOTAL CALIBRATED + populated history")
         return 0
     finally:
         _remove_artifacts()

@@ -345,6 +345,12 @@ def _all_text(at: AppTest) -> str:
 
 
 def run() -> int:
+    # Windows consoles default to cp1252; the success summary prints ✓/✗
+    # (and would crash AFTER every assertion passed without this).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     problems: list[str] = []
     _write_artifacts()
     try:

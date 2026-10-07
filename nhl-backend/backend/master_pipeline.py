@@ -623,6 +623,10 @@ def main(argv: list[str] | None = None) -> int:
     # oof_postseason / oof_provisional / oof_all.
     raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"][_grading],
                                     y_oof[_grading])
+    # Deployed-calibrator gate decision (MLB parity): True when the nested
+    # prior-evidence gate declined the pooled map and this run serves the
+    # raw blend — the calibration artifact records it as method="identity".
+    raw_m["calibrator_gated_out"] = bool(platt is None)
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"][_grading],
                                     y_oof[_grading])
     logger.info("moneyline OOF raw:    %s (causal rolling blend)", json.dumps(raw_m))
@@ -674,19 +678,34 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("run-line OOF:  %s", json.dumps(dist_metrics["run_line"]))
     logger.info("totals OOF:    %s", json.dumps(dist_metrics["totals"]))
 
-    # daily calibration rows (frontend contract)
+    # daily calibration rows (frontend contract) — MLB's
+    # _daily_calibration_rows semantics: the RAW series owns the ``metrics``
+    # raw keys and ``buckets``, and the prequential per-fold twin rides the
+    # ``*_calibrated`` metric keys plus ``buckets_calibrated`` (the shared
+    # page's raw→calibrated KPI arrows and the MLB-identical row shape). The
+    # old builder scored the CALIBRATED series under the raw keys and had no
+    # twin at all, so the daily row could never show the calibrated side.
     daily = []
     oof_ml["gd_date"] = pd.to_datetime(oof_ml["gameday"]).dt.strftime("%Y%m%d")
     for day, grp in oof_ml.groupby("gd_date"):
-        m = eval_mod.binary_metrics(grp["p_ensemble_calibrated"], grp["home_win"])
+        m = eval_mod.binary_metrics(grp["p_ensemble"], grp["home_win"])
+        mc = eval_mod.binary_metrics(grp["p_ensemble_calibrated"],
+                                     grp["home_win"])
+        n_correct = int(((grp["p_ensemble_calibrated"] >= 0.5)
+                         == (grp["home_win"] > 0.5)).sum())
         daily.append({
             "date": day, "n_games": m["n"],
-            "wins": int(((grp["p_ensemble_calibrated"] >= 0.5)
-                         == (grp["home_win"] > 0.5)).sum()),
-            "losses": int(m["n"] - ((grp["p_ensemble_calibrated"] >= 0.5)
-                                    == (grp["home_win"] > 0.5)).sum()),
-            "metrics": {k: m[k] for k in ("auc", "brier", "logloss", "ece")},
+            "wins": n_correct,
+            "losses": int(m["n"] - n_correct),
+            "metrics": {
+                **{k: m[k] for k in ("auc", "brier", "logloss", "ece")},
+                "brier_calibrated": mc["brier"],
+                "logloss_calibrated": mc["logloss"],
+                "ece_calibrated": mc["ece"],
+            },
             "buckets": eval_mod.calibration_buckets(
+                grp["p_ensemble"], grp["home_win"]),
+            "buckets_calibrated": eval_mod.calibration_buckets(
                 grp["p_ensemble_calibrated"], grp["home_win"]),
         })
 
@@ -792,11 +811,13 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
         serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
-                                       _team_names(), config_meta)
+                                       _team_names(), config_meta,
+                                       run_date=run_date)
         artifacts.append(p.name)
 
         p = out_dir / config.GOALIE_MATCHUP_JSON.format(date=date_c)
-        serve_mod.write_goalie_matchup_json(p, goalie_df, slate)
+        serve_mod.write_goalie_matchup_json(p, goalie_df, slate,
+                                             run_date=run_date)
         artifacts.append(p.name)
 
     p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
