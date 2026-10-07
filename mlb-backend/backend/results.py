@@ -183,7 +183,13 @@ def apply_official_results(games: pd.DataFrame,
                 continue
             key = (str(d.date()), _canon_team(r.get("home_team")),
                    _canon_team(r.get("away_team")))
-            date_team_lookup[key] = r
+            # Matchup/date is NOT unique on doubleheaders. Without a real
+            # game_pk, leave ambiguous legs untouched rather than copying
+            # game two's final onto game one.
+            if key in date_team_lookup:
+                date_team_lookup[key] = None
+            else:
+                date_team_lookup[key] = r
 
     def _apply(row_idx, r) -> None:
         if bool(r["is_final"]):
@@ -194,8 +200,8 @@ def apply_official_results(games: pd.DataFrame,
             if pd.notna(r.get("home_win")):
                 df.at[row_idx, "home_win"] = r["home_win"]
             df.at[row_idx, "total_runs"] = (
-                (pd.to_numeric(r.get("home_score"), errors="coerce") or 0)
-                + (pd.to_numeric(r.get("away_score"), errors="coerce") or 0))
+                pd.to_numeric(hs, errors="coerce")
+                + pd.to_numeric(as_, errors="coerce"))
             if "game_state" in df.columns:
                 df.at[row_idx, "game_state"] = "post"
         else:
@@ -210,7 +216,8 @@ def apply_official_results(games: pd.DataFrame,
             pk = int(row["_pk"])
             if pk in pk_lookup:
                 r = pk_lookup[pk]
-        if r is None and has_dt_cols:
+        has_real_pk = "_pk" in df.columns and pd.notna(row.get("_pk"))
+        if r is None and has_dt_cols and not has_real_pk:
             d = pd.to_datetime(row.get("game_date"), errors="coerce")
             if pd.notna(d):
                 key = (str(d.date()), _canon_team(row.get("home_team")),

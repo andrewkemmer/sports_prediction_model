@@ -408,6 +408,7 @@ from config import (
     NEXT_RUN_HEURISTIC_DAYS,
     POWER_RANKINGS,
     RETRAIN_CADENCE_DAYS,
+    RUN_DIAGNOSTICS_DIR,
     TODAYS_GAMES,
     VERSION_KEY,
     TRAINED_AT_KEY,
@@ -1198,7 +1199,7 @@ def _calibration_json(
 ) -> Path:
     """Write calibration_YYYYMMDD.json artifact.
 
-    Headline buckets use ALL walk-forward out-of-sample predictions when
+    Headline buckets use the same GRADING walk-forward population as metrics when
     available (a far richer curve than the target day alone); ``daily``
     carries per-day predicted-vs-actual for the date selector.
     ``evening_games``: count of slate games beginning at/after 7 PM ET
@@ -1213,8 +1214,9 @@ def _calibration_json(
         ot = pd.to_numeric(oof["home_win"], errors="coerce")
         op = pd.to_numeric(oof["home_win_prob_model"], errors="coerce")
         ok = ot.notna() & op.notna()
-        if int(ok.sum()) >= len(y_true):
-            y_true, y_pred = ot[ok].values, op[ok].values
+        if "grades_pooled" in oof:
+            ok &= oof["grades_pooled"].astype(bool)
+        y_true, y_pred = ot[ok].values, op[ok].values
     buckets = calibration_buckets(np.asarray(y_true), np.asarray(y_pred))
 
     # Post-hoc recalibration report: raw vs calibrated quality over the
@@ -1231,6 +1233,8 @@ def _calibration_json(
             else None
         )
         ok = ot.notna() & op.notna()
+        if "grades_pooled" in oof:
+            ok &= oof["grades_pooled"].astype(bool)
         if oc is not None:
             ok &= oc.notna()
         if int(ok.sum()) > 0:
@@ -1262,6 +1266,8 @@ def _calibration_json(
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "metrics": metrics,
         "calibration_buckets": buckets,
+        "n_eval": int(len(y_true)),
+        "probability_view": "causal_rolling_blend",
         "calibration": cal_section,
         "daily": _daily_calibration_rows(oof),
         "league_total": n_games,
@@ -1282,9 +1288,9 @@ def _predictions_history_csv(
     Feeds the Calibration page's per-game history table (the same games that
     feed the reliability diagram). Point-in-time safe on the MODEL side by
     construction: each member prediction comes from the fold trained
-    strictly on prior games. The blend weights are the DEPLOYED earning
-    applied uniformly (walk_forward_evaluate's published-blend pass), so
-    the history matches the production binary's blend pooled OOF exactly.
+    strictly on prior games. Each blend uses that origin's strictly-prior
+    learned weights. Final serving-weight replay is retrospective, never
+    substituted into this OOF history.
 
     Column semantics (see README "The three probability quantities"):
       * home_win_prob_model            → (1) RAW OOF blend. Input to maps.
@@ -1394,6 +1400,7 @@ def _model_monitor_json(
         # blocks (regular/postseason/provisional/all) make every scored
         # population reconcilable against the headline instead of hidden.
         "season_split": season_split or {},
+        "probability_view": "causal_rolling_blend",
         "drift_summary": {
             "warnings": n_warns,
             "alerts": n_alerts,
@@ -2085,25 +2092,21 @@ def run_daily_pipeline(
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see
             # _attach_weather_history) -- no reliance on the trailing window.
-            # add_diff_features may assign legacy dome-neutral defaults before
-            # the real weather pass. Air density is not safely neutral indoors
-            # without an observation, so clear it before applying cache data.
-            games["air_density_velocity_boost"] = pd.NA
+            # Diff reconstruction uses only observed density levels. Preserve
+            # them if the cache/provider only returns a partial history.
             try:
                 games = _attach_weather_history(games, target_date)
             except Exception as exc:
                 logger.warning(
-                    "Full weather backfill failed (features stay null): %s", exc
+                    "Full weather backfill failed (prior observed levels retained): %s", exc
                 )
                 try:
                     games = _attach_recent_weather(games, target_date)
                 except Exception:
                     pass
         else:
-            # Apply observed weather separately from diffs: this prevents the
-            # legacy dome default from fabricating an air-density value when
-            # the provider returns no observation.
-            games["air_density_velocity_boost"] = pd.NA
+            # Apply fresh observations without erasing level-backed weather
+            # already reconstructed by add_diff_features.
             if "start_time_utc" in games.columns:
                 real_start = games["start_time_utc"].notna()
                 if "start_time_observed" in games.columns:
@@ -2114,7 +2117,7 @@ def run_daily_pipeline(
                         weather = fetch_games_weather(games.loc[real_start])
                     except Exception as e:
                         logger.warning(
-                            "Weather fetch failed for history (features 30--31 stay NULL): %s", e
+                            "Weather fetch failed for history (prior observed levels retained): %s", e
                         )
                     # apply_weather_features is imported at module level; do NOT
                     # re-import it here -- a branch-local binding makes the name
@@ -2171,6 +2174,16 @@ def run_daily_pipeline(
         # official results on target_games) cannot create a fold-signature
         # desync between training and drift.
         _decided_snapshot = get_decided_frame(games)
+        # Full generation universe, even when a governed serving subset is
+        # active. Schema absence / wholly starved history is not acceptable
+        # as a successful production rebuild. Individual warm-null rows remain
+        # honest missing observations and are not zero-filled.
+        _absent = [c for c in MONEYLINE_FEATURE_COLS if c not in _decided_snapshot]
+        _starved = [c for c in MONEYLINE_FEATURE_COLS if c in _decided_snapshot
+                    and not pd.to_numeric(_decided_snapshot[c], errors="coerce").notna().any()]
+        if _absent or _starved:
+            raise ValueError(f"MLB feature coverage contract failed: missing={_absent}, "
+                             f"entirely_unobserved={_starved}; repair sources before training")
         # Training-frame integrity tripwire, checked on the RAW frame:
         # get_decided_frame dedups by game_pk (Rule 3), so a fanned frame
         # is silently collapsed there — keeping whichever duplicate copy
@@ -2267,7 +2280,9 @@ def run_daily_pipeline(
                 min_train_days=min_train_days,
                 decided_snapshot=_decided_snapshot,
             )
-            logger.info("Walk-forward metrics: %s", pooled_metrics)
+            logger.info("Walk-forward metrics (causal rolling blend): %s", pooled_metrics)
+            RUN_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+            all_predictions.to_csv(RUN_DIAGNOSTICS_DIR / "mlb_oof_moneyline.csv", index=False)
 
             # Persist ensemble
             persist_ensemble(best_models, pooled_metrics, version=version, data_cutoff=target_date_str)
@@ -2283,6 +2298,7 @@ def run_daily_pipeline(
                 calibrator=get_last_calibrator(),
             )
             summary["metrics"] = pooled_metrics
+            summary["evaluation"] = get_last_season_split()
         else:
             best_models = ensemble["models"] if ensemble else {}
             pooled_metrics = ensemble["metrics"] if ensemble else {}

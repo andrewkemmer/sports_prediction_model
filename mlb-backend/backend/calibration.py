@@ -38,7 +38,13 @@ and improves ECE-cal (0.0559 -> 0.0455), but pooled OOF ECE-cal DEGRADES
 still helps in-distribution pooled calibration, so the flip fails the gate.
 Full table: data_delivery/calibration_flip_20260827.json.
 
-DYNAMIC DEPLOYED-CALIBRATOR GATE (2026-10-01): the flip-test verdict was a
+NESTED CAUSAL GATE (2026-10-07, NHL parity): gated_moneyline_fit now uses
+one policy at every fold and final origin: early prior evidence fits the
+candidate; the recent prior tail must improve logloss by >0.005 nats before
+refitting on all prior evidence. The historical aggregate harm-check helper
+below remains for compatibility but no longer decides production deployment.
+
+HISTORICAL DEPLOYED-CALIBRATOR GATE (2026-10-01): the flip-test verdict was a
 static one-frame read, and the v2026.09.29 and v2026.09.30 runs then showed
 the shipped map hurting on the honest prequential view both runs in a row
 (v09.30: ECE 0.0068 -> 0.0088, log-loss 0.6843 -> 0.6847; the 09-30 run
@@ -109,6 +115,44 @@ def moneyline_fit(y_true, y_prob):
             "raw blend (no Platt map)")
         return None
     return fit_favored_platt(y_true, y_prob)
+
+
+def gated_moneyline_fit(y_true, y_prob) -> tuple[dict | None, dict]:
+    """NHL-parity nested gate on chronological strictly-prior blend evidence.
+
+    Fit on the early portion, require >0.005 nats logloss gain on the recent
+    25% (at least 200 games), then refit on all prior evidence. The same
+    policy runs at every OOF origin and final serving, never on future labels.
+    """
+    y, p = np.asarray(y_true, dtype=float), np.asarray(y_prob, dtype=float)
+    if y.ndim != 1 or y.shape != p.shape:
+        raise ValueError("moneyline calibration requires aligned vectors")
+    ok = np.isfinite(y) & np.isfinite(p) & (p > 0) & (p < 1)
+    y, p = y[ok], p[ok]
+    record = {"n_prior": len(p), "decision": "identity",
+              "reason": "insufficient_prior_evidence"}
+    hold = max(200, int(round(0.25 * len(p))))
+    n_fit = len(p) - hold
+    if n_fit < MIN_OOF_FOR_FIT:
+        return None, record
+    candidate = moneyline_fit(y[:n_fit], p[:n_fit])
+    if candidate is None:
+        record["reason"] = "candidate_declined"
+        return None, record
+    def loss(prob):
+        prob = np.clip(np.asarray(prob, dtype=float), _EPS, 1 - _EPS)
+        return float(-(y[n_fit:] * np.log(prob)
+                       + (1 - y[n_fit:]) * np.log1p(-prob)).mean())
+    raw_loss = loss(p[n_fit:])
+    cal_loss = loss(moneyline_apply(p[n_fit:], candidate))
+    record.update(raw_logloss=raw_loss, calibrated_logloss=cal_loss)
+    if cal_loss >= raw_loss - 0.005:
+        record["reason"] = "gated_no_gain"
+        return None, record
+    final = moneyline_fit(y, p)
+    record.update(decision="fitted" if final else "identity",
+                  reason="accepted" if final else "final_fit_declined")
+    return final, record
 
 
 def moneyline_apply(y_prob, calibrator: dict | None) -> np.ndarray:

@@ -1,0 +1,269 @@
+{
+  "schema": "mlb-input-quality-audit/v1",
+  "n_games": 7397,
+  "feature_width": 109,
+  "duplicate_game_pk": 0,
+  "raw_rebuild_performed": false,
+  "hyperparameters_changed": false,
+  "experiments": {
+    "old_recompute": {
+      "seconds": 12.341318899998441,
+      "metrics": {
+        "auc": 0.6021,
+        "brier": 0.2408,
+        "logloss": 0.6745,
+        "ece": 0.0241,
+        "brier_calibrated": 0.2408,
+        "logloss_calibrated": 0.6745,
+        "ece_calibrated": 0.0241,
+        "calibrator_gated_out": true
+      },
+      "split": {
+        "probability_view": "causal_rolling_blend",
+        "final_calibration_gate": {
+          "n_prior": 1016,
+          "decision": "identity",
+          "reason": "gated_no_gain",
+          "raw_logloss": 0.6690751390103407,
+          "calibrated_logloss": 0.6664382693034323
+        },
+        "retrospective_metrics_not_oof": {
+          "auc": 0.6063,
+          "brier": 0.2401,
+          "logloss": 0.6732,
+          "ece": 0.0326
+        },
+        "counts": {
+          "regular_rows": 1016,
+          "postseason_rows": 19,
+          "provisional_rows": 15,
+          "grading_rows": 1016,
+          "oof_rows": 1035
+        },
+        "blocks": {
+          "oof_regular": {
+            "auc": 0.6021,
+            "brier": 0.2408,
+            "logloss": 0.6745,
+            "ece": 0.0241,
+            "n": 1016,
+            "sufficient": true
+          },
+          "oof_postseason": {
+            "auc": 0.2976,
+            "brier": 0.2527,
+            "logloss": 0.6991,
+            "ece": 0.2879,
+            "n": 19,
+            "sufficient": false
+          },
+          "oof_provisional": {
+            "auc": 0.3704,
+            "brier": 0.2511,
+            "logloss": 0.6958,
+            "ece": 0.2301,
+            "n": 15,
+            "sufficient": false
+          },
+          "oof_all": {
+            "auc": 0.5989,
+            "brier": 0.241,
+            "logloss": 0.675,
+            "ece": 0.0239,
+            "n": 1035,
+            "sufficient": true
+          }
+        }
+      },
+      "member_metrics": [
+        {
+          "name": "xgboost",
+          "weight": 0.6453,
+          "auc": 0.6059,
+          "brier": 0.2404,
+          "logloss": 0.6737,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2404,
+          "logloss_calibrated": 0.6737,
+          "ece_calibrated": 0.0254
+        },
+        {
+          "name": "lightgbm",
+          "weight": 0.1167,
+          "auc": 0.5967,
+          "brier": 0.2408,
+          "logloss": 0.6746,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2408,
+          "logloss_calibrated": 0.6746,
+          "ece_calibrated": 0.0194
+        },
+        {
+          "name": "elasticnet",
+          "weight": 0.238,
+          "auc": 0.5915,
+          "brier": 0.2419,
+          "logloss": 0.6766,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2419,
+          "logloss_calibrated": 0.6766,
+          "ece_calibrated": 0.0218
+        }
+      ],
+      "xgb_probe_rounds": [
+        46,
+        69,
+        58,
+        38,
+        22,
+        89,
+        83,
+        92,
+        89,
+        130,
+        9,
+        12
+      ],
+      "final_weights": {
+        "elasticnet": 0.238,
+        "lightgbm": 0.1167,
+        "xgboost": 0.6453
+      }
+    },
+    "preserved_weather": {
+      "seconds": 9.764729900052771,
+      "metrics": {
+        "auc": 0.5988,
+        "brier": 0.2409,
+        "logloss": 0.6747,
+        "ece": 0.025,
+        "brier_calibrated": 0.2409,
+        "logloss_calibrated": 0.6747,
+        "ece_calibrated": 0.025,
+        "calibrator_gated_out": true
+      },
+      "split": {
+        "probability_view": "causal_rolling_blend",
+        "final_calibration_gate": {
+          "n_prior": 1016,
+          "decision": "identity",
+          "reason": "gated_no_gain",
+          "raw_logloss": 0.6690733640394425,
+          "calibrated_logloss": 0.6657998459133454
+        },
+        "retrospective_metrics_not_oof": {
+          "auc": 0.6013,
+          "brier": 0.2405,
+          "logloss": 0.6738,
+          "ece": 0.0247
+        },
+        "counts": {
+          "regular_rows": 1016,
+          "postseason_rows": 19,
+          "provisional_rows": 15,
+          "grading_rows": 1016,
+          "oof_rows": 1035
+        },
+        "blocks": {
+          "oof_regular": {
+            "auc": 0.5988,
+            "brier": 0.2409,
+            "logloss": 0.6747,
+            "ece": 0.025,
+            "n": 1016,
+            "sufficient": true
+          },
+          "oof_postseason": {
+            "auc": 0.3452,
+            "brier": 0.2504,
+            "logloss": 0.6945,
+            "ece": 0.077,
+            "n": 19,
+            "sufficient": false
+          },
+          "oof_provisional": {
+            "auc": 0.3889,
+            "brier": 0.2513,
+            "logloss": 0.6961,
+            "ece": 0.0456,
+            "n": 15,
+            "sufficient": false
+          },
+          "oof_all": {
+            "auc": 0.5961,
+            "brier": 0.2411,
+            "logloss": 0.6751,
+            "ece": 0.0257,
+            "n": 1035,
+            "sufficient": true
+          }
+        }
+      },
+      "member_metrics": [
+        {
+          "name": "xgboost",
+          "weight": 0.4096,
+          "auc": 0.5996,
+          "brier": 0.2409,
+          "logloss": 0.6748,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2409,
+          "logloss_calibrated": 0.6748,
+          "ece_calibrated": 0.0217
+        },
+        {
+          "name": "lightgbm",
+          "weight": 0.3708,
+          "auc": 0.5969,
+          "brier": 0.2408,
+          "logloss": 0.6744,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2408,
+          "logloss_calibrated": 0.6744,
+          "ece_calibrated": 0.0226
+        },
+        {
+          "name": "elasticnet",
+          "weight": 0.2196,
+          "auc": 0.5906,
+          "brier": 0.2419,
+          "logloss": 0.6768,
+          "n_eval": 1016,
+          "brier_calibrated": 0.2419,
+          "logloss_calibrated": 0.6768,
+          "ece_calibrated": 0.0207
+        }
+      ],
+      "xgb_probe_rounds": [
+        35,
+        69,
+        61,
+        34,
+        22,
+        89,
+        83,
+        63,
+        89,
+        130,
+        9,
+        1
+      ],
+      "final_weights": {
+        "elasticnet": 0.2196,
+        "lightgbm": 0.3708,
+        "xgboost": 0.4096
+      }
+    }
+  },
+  "serving_smoke": {
+    "bundle_reloaded": true,
+    "games_scored": 4,
+    "probabilities_finite": true,
+    "feature_width": 109
+  },
+  "artifact_smoke": {
+    "calibration_grading_rows": 1016,
+    "history_rows": 1035,
+    "probability_view": "causal_rolling_blend"
+  }
+}

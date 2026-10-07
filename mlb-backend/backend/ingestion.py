@@ -41,8 +41,8 @@ STATCAST_COLS = [
     "hit_distance_sc", "launch_speed", "launch_angle",
     "estimated_ba_using_speedangle", "estimated_woba_using_speedangle",
     "woba_value", "babip_value", "iso_value",
-    "barrel", "hard_contact",
-    "home_score", "away_score",
+    "barrel", "hard_contact", "launch_speed_angle",
+    "home_score", "away_score", "post_home_score", "post_away_score",
     "delta_home_win_exp", "delta_run_exp",
 ]
 
@@ -62,8 +62,7 @@ UNUSED_COLS = [
     "fielder_2", "fielder_3", "fielder_4", "fielder_5",
     "fielder_6", "fielder_7", "fielder_8", "fielder_9",
     "if_fielding_alignment", "of_fielding_alignment",
-    "post_home_score", "post_away_score",
-    "event", "type", "launch_speed_angle",
+    "event", "type",
 ]
 
 
@@ -364,6 +363,20 @@ def pull_statcast(
     end = _to_date(end_date)
 
     if resume and out.exists():
+        import pyarrow.parquet as pq
+        semantic_cols = {"post_home_score", "post_away_score", "launch_speed_angle"}
+        try:
+            cached_cols = set(pq.read_schema(out).names)
+        except Exception:
+            cached_cols = set()
+        if not semantic_cols <= cached_cols:
+            logger.warning("Statcast cache lacks observed post-pitch scores / barrel "
+                           "classification (%s) — rebuilding requested history; "
+                           "never synthesize these from pre-pitch scores or EV proxies",
+                           sorted(semantic_cols - cached_cols))
+            resume = False
+
+    if resume and out.exists():
         cached_lo, cached_hi = _cache_bounds(out)
         if cached_hi is None:
             logger.warning("Existing cache unreadable — re-pulling full range")
@@ -506,14 +519,22 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
             logger.info("Dropped %d non-regular-season pitches (game_type S/E)", dropped)
     else:
         logger.warning("game_type column missing — cannot filter spring training games")
-    rename_map = {}
-    for col in df.columns:
+    # Apply aliases sequentially: two aliases of an absent canonical column
+    # must coalesce, not both rename into duplicate model input columns.
+    renamed = {}
+    df = df.copy()
+    for col in list(df.columns):
         canonical = COLUMN_ALIASES.get(col)
         if canonical and canonical != col:
-            rename_map[col] = canonical
-    if rename_map:
-        logger.info("Renamed aliased columns: %s", rename_map)
-        df = df.rename(columns=rename_map)
+            if canonical in df.columns:
+                # Canonical observations win; aliases may only fill holes.
+                df[canonical] = df[canonical].combine_first(df[col])
+                df = df.drop(columns=[col])
+            else:
+                df = df.rename(columns={col: canonical})
+                renamed[col] = canonical
+    if renamed:
+        logger.info("Renamed aliased columns: %s", renamed)
 
     for col in STATCAST_COLS:
         if col not in df.columns:

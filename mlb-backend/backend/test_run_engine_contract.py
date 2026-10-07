@@ -735,10 +735,224 @@ def test_fetch_mlb_results_hydrates_and_ships_team_columns():
     assert df.loc[0, "home_score"] == 3.0 and df.loc[0, "is_final"]
 
 
+def test_official_results_never_alias_doubleheader_legs():
+    from results import apply_official_results
+    games = pd.DataFrame([
+        {"game_pk": np.nan, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_win": np.nan},
+        {"game_pk": 999, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_win": np.nan}])
+    results = pd.DataFrame([
+        {"game_pk": 1, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_score": 2, "away_score": 1,
+         "home_win": 1.0, "is_final": True},
+        {"game_pk": 2, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_score": 1, "away_score": 2,
+         "home_win": 0.0, "is_final": True}])
+    out = apply_official_results(games, results)
+    assert out.home_win.isna().all()
+    keyed = games.copy()
+    keyed["game_pk"] = [1, 2]
+    out = apply_official_results(keyed, results)
+    assert out.home_win.tolist() == [1.0, 0.0]
+
+
+def test_slate_carries_bullpen_three_game_family_and_unknown_opener_rate():
+    from features import add_diff_features
+    history = pd.DataFrame([{
+        "game_date": pd.Timestamp("2025-10-01"), "home_team": "NYY",
+        "away_team": "BOS", "home_win": 1.0, "home_score": 3, "away_score": 1,
+        "bullpen_whip_3g_home": 1.1, "bullpen_whip_3g_away": 1.4}])
+    schedule = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-03-25"), "home_team": "NYY",
+        "away_team": "BOS", "start_time_utc": pd.Timestamp("2026-03-25T19:00:00")}])
+    slate = build_upcoming_slate(history, date(2026, 3, 25), schedule_df=schedule)
+    assert slate.home_win_pct.isna().all() and slate.away_win_pct.isna().all()
+    assert slate.home_record.tolist() == ["0-0"]
+    out = add_diff_features(slate)
+    np.testing.assert_allclose(out.bullpen_whip_3g_diff, -0.3)
+
+
+def test_slate_handedness_uses_opposing_probable_starter():
+    from features import add_diff_features
+    history = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-09-01"), "home_team": "NYY",
+        "away_team": "BOS", "home_win": 1.0, "home_score": 3, "away_score": 1,
+        "home_starter_id": 101, "away_starter_id": 202,
+        "home_starter_hand": "R", "away_starter_hand": "L",
+        "lineup_ops_vs_l_home": 0.8, "lineup_ops_vs_r_home": 0.7,
+        "lineup_ops_vs_l_away": 0.6, "lineup_ops_vs_r_away": 0.5}])
+    schedule = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-09-02"), "home_team": "NYY",
+        "away_team": "BOS", "start_time_utc": pd.Timestamp("2026-09-02T19:00:00"),
+        "sp_id_home": 101, "sp_id_away": 202}])
+    slate = build_upcoming_slate(history, date(2026, 9, 2), schedule_df=schedule)
+    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage, 0.3)
+    # Fresh probable-hand evidence takes priority over older observed starts.
+    schedule["sp_hand_home"], schedule["sp_hand_away"] = "L", "R"
+    slate = build_upcoming_slate(history, date(2026, 9, 2), schedule_df=schedule)
+    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage, 0.1)
+
+
+def test_prior_filter_handles_nullable_strings_and_utc_boundaries():
+    frame = pd.DataFrame({"start_time_utc": pd.Series(
+        ["2026-09-01T18:59:59Z", "2026-09-01T19:00:00Z", None], dtype="string")})
+    out = ingestion.filter_prior(frame, pd.Timestamp("2026-09-01T19:00:00Z"))
+    assert out.index.tolist() == [0]
+
+
+def test_probable_starter_categories_match_historical_identity():
+    import training
+    base = pd.DataFrame({"home_team": ["NYY"], "away_team": ["BOS"],
+                         "home_starter_id": [101], "away_starter_id": [202]})
+    historical = training._add_team_ids(base)
+    slate = training._add_team_ids(base.rename(columns={
+        "home_starter_id": "sp_id_home", "away_starter_id": "sp_id_away"}))
+    for c in ("home_starter_cat_id", "away_starter_cat_id"):
+        np.testing.assert_array_equal(historical[c], slate[c])
+        assert int(slate[c].iloc[0]) != training.UNK_STARTER_ID
+
+
+def test_legacy_pitch_cache_requires_observed_schema_rebuild(monkeypatch, tmp_path):
+    import ingestion as source
+    cache = tmp_path / "pitches.parquet"
+    pd.DataFrame({"game_pk": [1], "game_date": ["2026-09-01"],
+                  "at_bat_number": [1], "pitch_number": [1]}).to_parquet(cache, index=False)
+    fresh = pd.DataFrame({"game_pk": [2], "game_date": ["2026-09-01"],
+                          "at_bat_number": [1], "pitch_number": [1], "game_type": ["R"],
+                          "post_home_score": [1], "post_away_score": [0], "launch_speed_angle": [6]})
+    seen = []
+    def chunks(start, end, chunk_days, pause):
+        seen.append((start, end))
+        return [fresh]
+    monkeypatch.setattr(source, "_chunked_statcast", chunks)
+    source.pull_statcast("2026-08-01", "2026-09-01", out_path=cache)
+    assert seen == [(date(2026, 8, 1), date(2026, 9, 1))]
+    assert pd.read_parquet(cache).game_pk.tolist() == [2]
+
+
+def test_statcast_source_sql_uses_post_scores_and_observed_barrels(tmp_path):
+    """Execute actual production stage SQL against discriminating events."""
+    import ast
+    import features
+    source = (BACKEND / "features.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(source))
+              if isinstance(n, ast.FunctionDef) and n.name == "_build_game_level")
+    rows = pd.DataFrame([
+        {"game_pk": 1, "game_date": "2026-09-01", "game_type": "R", "home_team": "NYY",
+         "away_team": "BOS", "inning": 1, "inning_topbot": "Top", "at_bat_number": 1,
+         "pitch_number": 1, "pitcher": 101, "batter": 201, "events": "home_run",
+         "description": "hit_into_play", "home_score": 0, "away_score": 0,
+         "post_home_score": 0, "post_away_score": 1, "launch_speed": 110,
+         "launch_angle": 35, "launch_speed_angle": 6},
+        {"game_pk": 1, "game_date": "2026-09-01", "game_type": "R", "home_team": "NYY",
+         "away_team": "BOS", "inning": 1, "inning_topbot": "Bot", "at_bat_number": 2,
+         "pitch_number": 1, "pitcher": 102, "batter": 202, "events": "home_run",
+         "description": "hit_into_play", "home_score": 0, "away_score": 1,
+         "post_home_score": 2, "post_away_score": 1, "launch_speed": 100,
+         "launch_angle": 28, "launch_speed_angle": np.nan}])
+    unknown_baseline = rows.iloc[[0]].copy()
+    unknown_baseline["game_pk"], unknown_baseline["pitcher"] = 2, 103
+    unknown_baseline[["home_score", "away_score"]] = np.nan
+    rows = pd.concat([rows, unknown_baseline], ignore_index=True)
+    path = tmp_path / "pitches.parquet"
+    rows.to_parquet(path, index=False)
+    con = features._connect(path)
+    env = {"PA_END_EVENTS": features.PA_END_EVENTS, "_pa_events": features.PA_END_EVENTS,
+           "_outs_fix_whens": "", "_batters_ok": False,
+           "_batter_excl": features._batter_excl}
+    try:
+        for node in fn.body:
+            if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+                continue
+            call = node.value
+            if not isinstance(call.func, ast.Attribute) or call.func.attr != "execute":
+                continue
+            arg_source = ast.get_source_segment(source, call.args[0]) or ""
+            if any(f"CREATE TABLE {table} AS" in arg_source for table in
+                   ("game_winners", "pa_boundary", "team_contact_raw")):
+                sql = eval(compile(ast.Expression(call.args[0]), "production_sql", "eval"), env)
+                con.execute(sql)
+        win = con.execute("SELECT home_score, away_score, home_win, total_runs FROM game_winners WHERE game_pk = 1").fetchone()
+        assert win == (2, 1, 1.0, 3)
+        pa = con.execute("SELECT pitcher, runs_on_pa, barrel_flag FROM pa_boundary ORDER BY pitcher").fetchall()
+        assert pa == [(101, 1, 1.0), (102, 2, None), (103, None, 1.0)]
+        contact = con.execute("SELECT batting_team, barrel_rate FROM team_contact_raw WHERE game_pk = 1 ORDER BY batting_team").fetchall()
+        assert contact == [("BOS", 1.0), ("NYY", None)]
+    finally:
+        con.close()
+
+
+def test_ingestion_retains_event_semantics_and_unique_aliases():
+    from ingestion import _normalize_columns, UNUSED_COLS
+    raw = pd.DataFrame({"game_type": ["R"], "game_date": ["2026-09-01"],
+                        "launch_speed": [100.0], "exit_velocity": [99.0],
+                        "launch_speed_angle": [6], "post_home_score": [4],
+                        "post_away_score": [3]})
+    out = _normalize_columns(raw)
+    assert out.columns.is_unique and out.launch_speed.iloc[0] == 100.0
+    assert not {"launch_speed_angle", "post_home_score", "post_away_score"} & set(UNUSED_COLS)
+    # Multiple aliases when the canonical is absent must still yield one
+    # column, with the first observation taking precedence and holes filled.
+    aliases = _normalize_columns(pd.DataFrame({
+        "exit_velocity": [100.0, np.nan], "exit_velo": [99.0, 101.0]}))
+    assert aliases.columns.is_unique
+    assert aliases.launch_speed.tolist() == [100.0, 101.0]
+
+
+def test_master_full_universe_coverage_gate():
+    """Run the exact master gate without executing notebook setup/push."""
+    import ast
+    import pytest
+    import training
+    tree = ast.parse((BACKEND / "master_pipeline.py").read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+              and n.name == "run_daily_pipeline")
+    nodes = list(ast.walk(fn))
+    assignments = [n for n in nodes if isinstance(n, ast.Assign)
+                   and any(isinstance(t, ast.Name) and t.id in {"_absent", "_starved"}
+                           for t in n.targets)]
+    gate = next(n for n in nodes if isinstance(n, ast.If)
+                and isinstance(n.test, ast.BoolOp)
+                and {x.id for x in n.test.values if isinstance(x, ast.Name)}
+                == {"_absent", "_starved"})
+    code = compile(ast.Module(body=assignments + [gate], type_ignores=[]), "master_gate", "exec")
+    cols = training.MONEYLINE_FEATURE_COLS
+    complete = pd.DataFrame({c: [np.nan, 1.0] for c in cols})
+    def run(frame):
+        exec(code, {"pd": pd, "MONEYLINE_FEATURE_COLS": cols, "_decided_snapshot": frame})
+    run(complete)  # Row-level warm NULLs are allowed; universe starvation is not.
+    with pytest.raises(ValueError, match="missing="):
+        run(complete.drop(columns=[cols[-1]]))
+    starved = complete.copy()
+    starved[cols[-1]] = np.nan
+    with pytest.raises(ValueError, match="entirely_unobserved="):
+        run(starved)
+
+
+def test_source_schema_guard_rejects_legacy_engineering(tmp_path):
+    import pytest
+    import features
+    path = tmp_path / "legacy.parquet"
+    pd.DataFrame({"game_pk": [1]}).to_parquet(path, index=False)
+    with pytest.raises(ValueError, match="Statcast source schema missing observed fields"):
+        features.build_features(path, tmp_path / "features")
+
+
+def test_load_features_preserves_false_start_provenance(tmp_path):
+    path = tmp_path / "features.csv"
+    pd.DataFrame({"game_date": ["2026-09-01"], "home_team": ["NYY"],
+                  "away_team": ["BOS"], "home_win": [1.0],
+                  "start_time_utc": ["2026-09-01T19:00:00Z"],
+                  "start_time_observed": [False]}).to_csv(path, index=False)
+    loaded = ingestion.load_game_features(path)
+    assert not loaded.start_time_observed.any()
+    assert str(loaded.start_time_utc.dtype) == "datetime64[us, UTC]" or \
+        str(loaded.start_time_utc.dtype) == "datetime64[ns, UTC]"
+
+
 if __name__ == "__main__":
-    tests = [(n, f) for n, f in sorted(globals().items())
-             if n.startswith("test_") and callable(f)]
-    for name, fn in tests:
-        fn()
-        print("PASS", name)
-    print(f"\n{len(tests)} run-engine contract tests passed")
+    # Run through pytest so production contract cases receive isolated
+    # tmp_path/monkeypatch fixtures in the documented direct CLI too.
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-q"]))

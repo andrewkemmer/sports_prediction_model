@@ -1,0 +1,6 @@
+{
+  "tracked_changed_export_exit_code": 0,
+  "tracked_changed_export_output": "OK: every file in backend/ is production-reachable or allowlisted (27 modules)\n",
+  "workspace_exit_code": 1,
+  "workspace_output": "FAIL: 1 file(s) in backend/ are NOT reachable from master_pipeline.py and not allowlisted:\n  measure_blend_views.py\n\nResearch/ablation/diagnostic code must NOT be committed here \u2014 run it from a scratch workspace and, if a verdict matters, record it as an mlb_* artifact in data_delivery/ (see README.md). To legitimately add a production-adjacent file, extend PRODUCTION_ALLOWLIST with a justification.\n"
+}

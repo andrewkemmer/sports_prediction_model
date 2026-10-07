@@ -39,7 +39,7 @@ from retention_policy import classify_artifact  # noqa: E402
 # ── tee mechanics ───────────────────────────────────────────────────────────
 
 def test_tee_duplicates_into_file_and_returns_console_count(tmp_path, capsys):
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     console = io.StringIO()
     tee = run_log_tee._Tee(console, log_file)
     n = tee.write("hello tee\n")
@@ -108,7 +108,7 @@ def test_tee_isatty_delegates_to_the_console_stream(tmp_path):
 
 def test_tee_collapses_cr_frames_to_the_final_one_on_the_file_only(tmp_path):
     console = io.StringIO()
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     tee = run_log_tee._Tee(console, log_file)
     tee.write(" 50%|#####     | 3/6 [..]\r 83%|########  | 5/6 [..]\r100%| done\n")
     tee.flush()
@@ -126,7 +126,7 @@ def test_frame_run_then_log_line_lands_as_two_clean_lines(tmp_path):
     """A bar that ends without a newline must not merge into the log line
     that follows it (the exact interleaving the 2026-10-06 log shows:
     final frame, then `INFO → N pitches`)."""
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     tee = run_log_tee._Tee(io.StringIO(), log_file)
     tee.write("\r 42%|##       | 21/50 [..]\r100%|##########| 50/50 [00:53<00:00]")
     tee.write("  INFO     → 231114 pitches\n")
@@ -141,7 +141,7 @@ def test_frame_run_then_log_line_lands_as_two_clean_lines(tmp_path):
 def test_torn_plain_line_waits_for_its_terminator(tmp_path):
     """Multi-arg prints arrive as several writes without newlines; they
     must reassemble into ONE line, not split at write boundaries."""
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     tee = run_log_tee._Tee(io.StringIO(), log_file)
     tee.write("  Games: 7393  |  Pitches: ")
     tee.write("2,172,664")
@@ -154,7 +154,7 @@ def test_torn_plain_line_waits_for_its_terminator(tmp_path):
 def test_close_lands_a_pending_final_frame(tmp_path):
     """A run that ends on a bar frame still delivers that frame (close
     commits the partial; the file can never silently drop its last line)."""
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     tee = run_log_tee._Tee(io.StringIO(), log_file)
     tee.write("\r100%| done")  # no newline ever arrives
     tee.close()

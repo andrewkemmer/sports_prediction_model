@@ -748,9 +748,11 @@ def compute_feature_coverage(
         non-null value came from a fetched record (a real dome observation
         is wm×era ≈ tiny-but-nonzero float, so exact 0.0 + dome is a
         reliable default signature).
-      * air_density_velocity_boost: only ever written from a fetched
-        observation (domes stay NULL) — non-null ⇒ measured.
-    All other features: non-null is reported as measured. The default
+      * air_density_velocity_boost: level-backed outdoor observations are
+        measured; closed-roof policy zeros are reported as neutral defaults.
+    All other features: finite non-null is reported as measured. Missing
+    columns emit explicit MISSING_COLUMN rows; infinities never count as
+    observations. Empty windows still write a readable schema. The default
     enumerates the ACTIVE moneyline serving width (adopted RFE subset,
     else the universe) — SINGLE-LIST RULE: every monitor-facing surface
     reads exactly one list.
@@ -763,17 +765,20 @@ def compute_feature_coverage(
         rows: list[dict] = []
         if games is None or games.empty:
             return rows
-        dome = pd.to_numeric(games.get("dome_is_neutral"), errors="coerce") \
-            if "dome_is_neutral" in games.columns else pd.Series(np.nan, index=games.index)
+        dome_col = ("dome_is_neutral_game" if "dome_is_neutral_game" in games
+                    else "dome_is_neutral")
+        dome = pd.to_numeric(games[dome_col], errors="coerce") \
+            if dome_col in games.columns else pd.Series(np.nan, index=games.index)
         for col in cols:
-            if col not in games.columns:
-                continue
-            vals = pd.to_numeric(games[col], errors="coerce")
+            present = col in games.columns
+            vals = (pd.to_numeric(games[col], errors="coerce") if present
+                    else pd.Series(np.nan, index=games.index, dtype=float))
             n_total = int(len(vals))
-            nonnull = vals.notna()
+            nonnull = vals.notna() & np.isfinite(vals)
+            n_invalid = int((vals.notna() & ~np.isfinite(vals)).sum())
             n_nonnull = int(nonnull.sum())
             n_default = 0
-            if col == "wind_advantage_flyball_factor":
+            if col in ("wind_advantage_flyball_factor", "air_density_velocity_boost"):
                 n_default = int((nonnull & (vals == 0.0) & (dome == 1)).sum())
             n_measured = n_nonnull - n_default
             pct_nonnull = round(100.0 * n_nonnull / n_total, 1) if n_total else 0.0
@@ -789,13 +794,19 @@ def compute_feature_coverage(
                 "n_measured": n_measured,
                 "pct_measured": pct_measured,
                 "n_default_zero": n_default,
-                "status": status,
+                "status": "MISSING_COLUMN" if not present else status,
+                "column_present": present,
+                "n_invalid": n_invalid,
             })
         return rows
 
     cov_rows = _window_rows(current_games, "current")
     cov_rows += _window_rows(baseline_games, "baseline")
-    df = pd.DataFrame(cov_rows)
+    df = pd.DataFrame(cov_rows, columns=[
+        "feature", "window", "n_games", "n_nonnull", "pct_nonnull",
+        "n_measured", "pct_measured", "n_default_zero", "status",
+        "column_present", "n_invalid",
+    ])
     out_path = DATA_DELIVERY_DIR / (out_name or
                                     f"feature_coverage_{target_date_str}.csv")
     df.to_csv(out_path, index=False)

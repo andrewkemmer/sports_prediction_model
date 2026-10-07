@@ -1,0 +1,143 @@
+{
+  "schema": "mlb-input-quality-summary/v1",
+  "audit_date": "2026-10-07",
+  "scope": "existing-code semantic and causal-evaluation repairs; no new programs; production data/model not replaced",
+  "feature_schema_version": "mlb-v2-observed-statcast-causal-blend",
+  "feature_width": 109,
+  "cached_games": 7397,
+  "corrected_full_history_rebuild_performed": false,
+  "hyperparameters_changed": false,
+  "evaluation_policy": "causal_rolling_blend",
+  "full_comparison": {
+    "old_recompute": {
+      "metrics": {
+        "auc": 0.5721,
+        "brier": 0.2446,
+        "logloss": 0.6821,
+        "ece": 0.0082,
+        "brier_calibrated": 0.2446,
+        "logloss_calibrated": 0.6821,
+        "ece_calibrated": 0.0082,
+        "calibrator_gated_out": true
+      },
+      "seconds": 40.86791289993562,
+      "scored_folds": 83,
+      "counts": {
+        "regular_rows": 6917,
+        "postseason_rows": 109,
+        "provisional_rows": 139,
+        "grading_rows": 6879,
+        "oof_rows": 7026
+      }
+    },
+    "preserved_weather": {
+      "metrics": {
+        "auc": 0.5729,
+        "brier": 0.2445,
+        "logloss": 0.682,
+        "ece": 0.0072,
+        "brier_calibrated": 0.2445,
+        "logloss_calibrated": 0.682,
+        "ece_calibrated": 0.0072,
+        "calibrator_gated_out": true
+      },
+      "seconds": 38.61523579992354,
+      "scored_folds": 83,
+      "counts": {
+        "regular_rows": 6917,
+        "postseason_rows": 109,
+        "provisional_rows": 139,
+        "grading_rows": 6879,
+        "oof_rows": 7026
+      }
+    }
+  },
+  "paired_uncertainty": {
+    "method": "paired fold-block bootstrap, 1000 resamples, seed 42; descriptive, not a sealed holdout",
+    "n_rows": 6879,
+    "n_graded_fold_blocks": 74,
+    "auc_delta": 0.0007162537990489382,
+    "auc_delta_95pct_interval": [
+      -0.0013346834568977643,
+      0.0026826065778466105
+    ],
+    "logloss_delta": -9.819061814930752e-05,
+    "logloss_delta_95pct_interval": [
+      -0.0005940543517041847,
+      0.0004640588105129878
+    ]
+  },
+  "recent_slice_direction": "reverses: auc 0.6021 -> 0.5988; logloss 0.6745 -> 0.6747",
+  "verified_backend_tests": 337,
+  "verified_contract_cli_tests": 36,
+  "interface": {
+    "schema": "mlb-interface-smoke/v1",
+    "bundle_schema": "mlb-v2-observed-statcast-causal-blend",
+    "feature_width": 109,
+    "games_scored": 4,
+    "handedness_matchup_coverage": 3,
+    "bullpen_3g_coverage": 4,
+    "n_eval": 6879,
+    "history_rows": 7026,
+    "frontend_pages": {
+      "model_calibration.py": {
+        "exceptions": 0,
+        "markdown_blocks": 13,
+        "generated_artifact_content_verified": true
+      },
+      "model_monitor.py": {
+        "exceptions": 0,
+        "markdown_blocks": 16,
+        "generated_artifact_content_verified": true
+      },
+      "todays_games.py": {
+        "exceptions": 0,
+        "markdown_blocks": 6,
+        "generated_artifact_content_verified": true
+      }
+    },
+    "weather_fetch_included": false,
+    "unresolved_starter_slots": 1
+  },
+  "source_checks": {
+    "sample_date": "2024-04-01",
+    "pitches": 4190,
+    "games": 14,
+    "game_rows_unique": true,
+    "source_stage_post_scores_verified": true,
+    "last_pitch_pre_score_wrong_games": 1,
+    "official_barrels": 61,
+    "narrow_proxy_barrels": 20,
+    "official_barrels_missed_by_proxy": 41,
+    "post_score_coverage": 1.0,
+    "classification_bip_coverage": 0.9985652797704447,
+    "full_build_pbp_rows": 4190,
+    "source": "https://baseballsavant.mlb.com/csv-docs"
+  },
+  "rollout": "Full requested-history Statcast refresh, feature rebuild, causal OOF/blend/calibration and final refit together; older model schemas rejected.",
+  "limitations": [
+    "No full corrected three-season raw rebuild or end-to-end master/deployment run.",
+    "Inner historical gaps, date-only doubleheader rolling ties, carried entering-state lag, pregame availability provenance, and ERA/outs approximations remain.",
+    "Interface smoke excludes weather fetch, run-engine market regeneration and SHAP.",
+    "Workspace production graph fails solely for a pre-existing untracked user research script; tracked export passes.",
+    "No installed/configured mypy or pyright.",
+    "Both bootstrap intervals cross zero; no proven gain or speedup."
+  ],
+  "report": "docs/mlb_input_quality_20261007.md",
+  "evidence_dir": "docs/mlb_input_quality_20261007",
+  "provenance": {
+    "input_csv_sha256": "c0534d6b0431717f9658ce0288ae247d2e650acfc33383b601305d6796693ff7",
+    "baseline_features_snapshot_sha256": "21dd466976493646d6b72d4e1804d8891cb40b7ad42d9d41e2b993805c173758",
+    "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+    "libraries": {
+      "numpy": "2.4.3",
+      "pandas": "3.0.1",
+      "scikit-learn": "1.9.0",
+      "xgboost": "3.4.0",
+      "lightgbm": "4.7.0",
+      "duckdb": "1.5.5",
+      "pyarrow": "24.0.0",
+      "streamlit": "1.61.1"
+    }
+  }
+}

@@ -286,7 +286,7 @@ _RICH: dict[str, dict[str, str]] = {
     # ---- contact form -----------------------------------------------------
     "team_barrel_diff": {
         "summary": "Home barrel% (15g) − away barrel% (quality of contact)",
-        "definition": "Barreled-ball rate gap (optimal exit velo × launch angle buckets).",
+        "definition": "Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.",
         "formula": "team_barrel_15g_home − team_barrel_15g_away",
         "source": "Statcast batted-ball data",
         "window": "15g",

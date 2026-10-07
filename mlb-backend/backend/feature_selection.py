@@ -170,8 +170,22 @@ def _nearest_names(name: str, limit: int = 3) -> list[str]:
 # ── Fold scoring on the real ensemble ───────────────────────────────────────
 
 
-def _score_splits(splits: list[dict[str, Any]],
-                  return_losses: bool = False):
+def _score_splits(splits: list[dict[str, Any]], return_losses: bool = False):
+    """Isolate each candidate walk from serving / previous-candidate state."""
+    import training
+    prior_weights = dict(training._LAST_ADAPTIVE_WEIGHTS)
+    prior_rounds = list(training._LAST_XGB_BEST_ROUNDS)
+    training.set_adaptive_weights(None)
+    training._LAST_XGB_BEST_ROUNDS.clear()
+    try:
+        return _score_splits_causal(splits, return_losses)
+    finally:
+        training.set_adaptive_weights(prior_weights)
+        training._LAST_XGB_BEST_ROUNDS[:] = prior_rounds
+
+
+def _score_splits_causal(splits: list[dict[str, Any]],
+                         return_losses: bool = False):
     """Train + score the full ensemble on every fold; return pooled metrics.
 
     Mirrors the daily walk-forward loop's per-fold contract: train each fold's
@@ -191,22 +205,34 @@ def _score_splits(splits: list[dict[str, Any]],
     y_all: list[np.ndarray] = []
     p_all: list[np.ndarray] = []
     n_used = 0
+    prior_y: list[float] = []
+    prior_members: dict[str, list[float]] = {}
+    from training import compute_adaptive_weights, postseason_flag, set_adaptive_weights
+    from config import MIN_VAL_FOLD_GAMES
     for split in splits:
         train = split["train_games"]
         val = split["val_games"]
         if train.empty or val.empty:
             continue
-        try:
-            models, _fold_metrics = train_moneyline_ensemble(train, val)
-        except Exception as exc:
-            logger.warning("Fold training failed (skipped): %s", exc)
-            continue
+        models, _fold_metrics = train_moneyline_ensemble(train, val)
         if not models:
-            continue
-        blend, _members, _wts = ensemble_predict(models, val)
+            raise RuntimeError("RFE fold produced no fitted members")
+        blend, members, _wts = ensemble_predict(models, val)
         y = val["home_win"].astype(int).to_numpy()
         if len(y) != len(blend):
+            raise ValueError("RFE fold predictions do not align with labels")
+        post = (postseason_flag(val["game_type"].to_numpy())
+                if "game_type" in val else np.zeros(len(val), dtype=bool))
+        grades = (~post) if len(val) >= MIN_VAL_FOLD_GAMES else np.zeros(len(val), dtype=bool)
+        prior_y.extend(y[grades].tolist())
+        for name, prob in members.items():
+            prior_members.setdefault(name, []).extend(np.asarray(prob)[grades].tolist())
+        # Current labels may affect the NEXT origin only, never this blend.
+        if prior_y:
+            set_adaptive_weights(compute_adaptive_weights(prior_members, prior_y))
+        if not grades.any():
             continue
+        y, blend = y[grades], np.asarray(blend)[grades]
         eps = 1e-7
         p = np.clip(np.asarray(blend, dtype=float), eps, 1 - eps)
         losses = -(y * np.log(p) + (1 - y) * np.log(1 - p))
@@ -1841,6 +1867,8 @@ def load_games_for_date(day: date) -> pd.DataFrame:
     csv = Path(os.environ.get("MLB_FEATURES_CSV") or
                (DATA_DELIVERY_DIR / "game_level_features.csv"))
     games = load_game_features(csv)
+    # The requested origin is a real cutoff, not just a label on a trace.
+    games = games.loc[pd.to_datetime(games["game_date"]).dt.date <= day].copy()
     decided = get_decided_frame(games)
     if decided.empty:
         raise RuntimeError(

@@ -30,8 +30,7 @@ from calibration import (
     is_identity,
     MIN_OOF_FOR_FIT,
     moneyline_apply,
-    moneyline_fit,
-    should_gate_calibrator,
+    gated_moneyline_fit,
 )
 from config import (
     ADAPTIVE_WEIGHT_METRIC,
@@ -40,6 +39,7 @@ from config import (
     DATE_FMT,
     ENSEMBLE_FILE,
     ENSEMBLE_WEIGHTS,
+    FEATURE_SCHEMA_VERSION,
     LIGHTGBM_PARAMS,
     MIN_VAL_FOLD_GAMES,
     MODELS_DIR,
@@ -607,7 +607,7 @@ def walk_forward_splits(
     # not individual timestamps. Without this, each game with a unique start time
     # becomes its own "date" and 7-day validation windows collapse to 1 game.
     df["game_date"] = df["game_date"].dt.normalize()
-    df = df.sort_values("game_date").reset_index(drop=True)
+    df = df.sort_values("game_date", kind="stable").reset_index(drop=True)
 
     if df.empty:
         return []
@@ -721,7 +721,7 @@ def compute_metrics(y_true: np.ndarray, y_pred_prob: np.ndarray) -> dict[str, fl
         result["auc"] = 0.5
 
     result["brier"] = round(float(brier_score_loss(y_true, y_pred_prob)), 4)
-    result["logloss"] = round(float(log_loss(y_true, y_pred_prob)), 4)
+    result["logloss"] = round(float(log_loss(y_true, y_pred_prob, labels=[0, 1])), 4)
     result["ece"] = round(float(_expected_calibration_error(y_true, y_pred_prob)), 4)
 
     return result
@@ -810,7 +810,11 @@ def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
             len(missing), len(cols), ", ".join(missing[:6]),
             " …" if len(missing) > 6 else "",
         )
-    return df.reindex(columns=cols).to_numpy(dtype=float)
+    matrix = df.reindex(columns=cols).to_numpy(dtype=float)
+    if np.isinf(matrix).any():
+        bad = [c for c, invalid in zip(cols, np.isinf(matrix).any(axis=0)) if invalid]
+        raise ValueError(f"Feature matrix contains infinite observations: {bad}")
+    return matrix
 
 
 def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1162,14 +1166,14 @@ def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
     df["away_team_id"] = df["away_team"].apply(_team_id)
     df["venue_id"] = (df["venue"].apply(_venue_id)
                        if "venue" in df.columns else UNK_VENUE_ID)
-    if "home_starter_id" in df.columns:
-        df["home_starter_cat_id"] = df["home_starter_id"].apply(_starter_id)
-    else:
-        df["home_starter_cat_id"] = UNK_STARTER_ID
-    if "away_starter_id" in df.columns:
-        df["away_starter_cat_id"] = df["away_starter_id"].apply(_starter_id)
-    else:
-        df["away_starter_cat_id"] = UNK_STARTER_ID
+    for side in ("home", "away"):
+        historical, probable = f"{side}_starter_id", f"sp_id_{side}"
+        ids = (df[historical] if historical in df
+               else pd.Series(np.nan, index=df.index))
+        if probable in df:
+            ids = ids.combine_first(df[probable])
+        # Same StatsAPI person ID in historical and probable-starter paths.
+        df[f"{side}_starter_cat_id"] = ids.apply(_starter_id)
     # Belt-and-suspenders: no real team abbreviation may map to the
     # reserved UNK slot.  The auto-generation skip prevents this in
     # normal operation; this guard catches corruption before training.
@@ -1252,9 +1256,9 @@ def compute_adaptive_weights(
     per-fold weighting — each earning is fit on the PRIOR folds' OOF
     evidence only), so this function sees one fold's OOF window at a
     time. The LAST fold's earning is what the deployed bundle stores
-    and serves with, and the walk's published-blend pass applies exactly
-    that vector to every OOF row, so the reported blend is the deployed
-    binary's blend pooled OOF (2026-10-05). The result sums to exactly
+    and serves with. Final-weight replay is a retrospective diagnostic;
+    headline OOF uses each fold's strictly-prior entering weights.
+    The result sums to exactly
     1.0 and feeds both prediction blending and reporting so the ensemble
     visibly self-corrects as features improve.
 
@@ -1474,7 +1478,7 @@ def ensemble_predict(
     """Weighted-blend prediction plus per-member probabilities and weights.
 
     Returns (blended_prob, {member_name: prob_vector}, {member_name: weight}).
-    Falls back to 0.5 when no member can predict.
+    Prediction failures abort rather than silently drop a fitted member.
     """
     games = _add_team_ids(games)
     X = _feature_matrix(games)
@@ -1544,12 +1548,16 @@ def ensemble_predict(
                     Xuse = X_tree  # production: numeric + int team IDs
             else:
                 Xuse = X
-            members[name] = model.predict_proba(Xuse)[:, 1]
+            p = np.asarray(model.predict_proba(Xuse)[:, 1], dtype=float)
+            if p.shape != (len(games),) or not np.isfinite(p).all() or ((p < 0) | (p > 1)).any():
+                raise ValueError("member probabilities must be finite aligned values in [0, 1]")
+            members[name] = p
         except Exception as e:
-            logger.warning("Member %s failed to predict: %s", name, e)
+            raise RuntimeError(f"Member {name} failed to predict; refusing a "
+                               "silently renormalized partial ensemble") from e
 
     if not members:
-        return np.full(len(games), 0.5), {}, {}
+        raise ValueError("No fitted ensemble members available for prediction")
 
     weights = _member_weights(list(members.keys()))
     # Logit-space pooling (2026-09-21): the earned weights are fit by
@@ -1747,11 +1755,9 @@ def train_moneyline_ensemble(
                 X_val_lgbm[c] = np.where(
                     X_cat_val[:, i] < 0, _cat_unk_for(c), X_cat_val[:, i]
                 ).astype(int)
-            lgbm.fit(X_train_lgbm, y_train, eval_set=[(X_val_lgbm, y_val)],
-                     categorical_feature=TREE_CATEGORICAL_COLS)
-        else:
-            lgbm.fit(X_train_lgbm, y_train,
-                     categorical_feature=TREE_CATEGORICAL_COLS)
+        # Fixed-budget learner: no scored labels in fit, just like final refit.
+        lgbm.fit(X_train_lgbm, y_train,
+                 categorical_feature=TREE_CATEGORICAL_COLS)
         models["lightgbm"] = lgbm
     except ImportError:
         logger.warning("lightgbm not available, skipping LGBM member")
@@ -1776,9 +1782,8 @@ def train_moneyline_ensemble(
     # (RandomForest and MLP members removed from the roster 2026-09-16;
     # legacy bundles carrying them still serve via the predict-time
     # routing in ensemble_predict until the next retrain.)
-    # Record the categorical vocabulary the tree members were FIT with (the
-    # global ID maps as of this fit, i.e. train+val for fold fits, train for
-    # fit-only refits). Predict-time frames clamp unseen values to UNK against
+    # Record the categorical vocabulary the tree members were FIT with.
+    # Predict-time frames clamp unseen values to UNK against
     # this vocabulary, so a callup starter at slate time can never crash
     # XGBoost or alias a training category.
     models["categorical_vocab"] = {
@@ -1789,29 +1794,10 @@ def train_moneyline_ensemble(
     if X_val is None:
         return models, {}
 
-    # Weighted ensemble prediction (weights renormalized over trained members)
-    weights = _member_weights(list(models.keys()))
-    probs, wts = [], []
-    for name, model in models.items():
-        if name in ("scaler", "impute_median", "categorical_vocab"):
-            continue
-        if name == "elasticnet":
-            Xuse = X_val_scaled[:, _lr_idx]
-        elif name == "xgboost":
-            Xuse = X_val_xgb  # DataFrame with pd.Categorical team IDs
-        elif name == "randomforest":
-            if RF_WITH_TEAM_IDS:
-                Xuse = X_val_lr_tree
-            else:
-                Xuse = X_val_lr  # ablation: numeric only
-        elif name == "lightgbm":
-            Xuse = X_val_lgbm  # DataFrame with int team IDs + cat names
-        else:
-            Xuse = X_val
-        probs.append(model.predict_proba(Xuse)[:, 1])
-        wts.append(weights[name])
-
-    ensemble_prob = np.average(probs, axis=0, weights=wts) if probs else np.full(len(y_val), 0.5)
+    # Score through the actual serving interface: same category vocabulary,
+    # numeric representation, logistic routing and pooling, not a second
+    # subtly different prediction implementation.
+    ensemble_prob, _, _ = ensemble_predict(models, val)
 
     metrics = compute_metrics(y_val, ensemble_prob)
     return models, metrics
@@ -2000,21 +1986,13 @@ def walk_forward_evaluate(
     set_last_walk_forward_splits(splits)
 
     if not splits:
-        logger.warning("No walk-forward splits generated; training on full data")
-        # Fall back to train on everything
-        splits = [{
-            "train_games": games.dropna(subset=["home_win"]),
-            "val_games": games.dropna(subset=["home_win"]).tail(min(50, len(games.dropna(subset=["home_win"])))),
-            "fold_idx": 0,
-            "val_start": games["game_date"].min(),
-            "val_end": games["game_date"].max(),
-        }]
+        raise ValueError("No strictly-prior walk-forward splits; refusing to report "
+                         "in-sample predictions as OOF. Supply more decided history.")
 
     all_preds = []
     fold_metrics_list = []
-    # Per-fold full-row member probabilities and grade masks, aligned with
-    # all_preds; the published-blend pass re-blends these with the deployed
-    # weights (row order = fold order).
+    # Full-row member probabilities and grade masks, aligned with all_preds.
+    # Final-weight replay is diagnostic only; causal headlines never change.
     fold_member_full: list[dict[str, np.ndarray]] = []
     fold_grades: list[np.ndarray] = []
     oof_members: dict[str, list[float]] = {}
@@ -2034,7 +2012,9 @@ def walk_forward_evaluate(
         train = split["train_games"]
         val = split["val_games"]
 
-        if len(train) < 10 or len(val) < 5:
+        if len(train) < 10:
+            logger.warning("Fold %d lacks training warm-up (%d rows); not OOF",
+                           split["fold_idx"], len(train))
             continue
         # Season-split remediation (2026-10-03): no window is skipped for
         # size anymore. Sub-gate windows stay in the run as PROVISIONAL
@@ -2065,8 +2045,8 @@ def walk_forward_evaluate(
         try:
             ml_models, ml_metrics = train_moneyline_ensemble(train, val)
         except Exception as e:
-            logger.warning("Fold %d moneyline training failed: %s", split["fold_idx"], e)
-            continue
+            raise RuntimeError(f"Fold {split['fold_idx']} moneyline training failed; "
+                               "refusing partial OOF evidence") from e
 
         logger.info(
             "Fold %d [%s → %s]: train=%d val=%d auc=%.4f brier=%.4f%s",
@@ -2079,11 +2059,9 @@ def walk_forward_evaluate(
             "  [PROVISIONAL — excluded from grading]" if provisional else "",
         )
 
-        # Weighted-blend prediction; keep each member's probabilities so we
-        # can score candidates individually out of sample. The per-fold
-        # blend is a training-time diagnostic only — the published OOF
-        # blend is rebuilt after the loop with the DEPLOYED weights (see the
-        # published-blend pass below).
+        # Entering weights use only prior-fold evidence. Preserve this blend
+        # for headlines, calibration and selection — never rewrite it using
+        # weights fitted on the outcomes being reported.
         ensemble_prob, member_probs, _wts = ensemble_predict(ml_models, val)
         y_val = val["home_win"].values.tolist()
 
@@ -2103,7 +2081,7 @@ def walk_forward_evaluate(
         # evidence strictly before it (causal — never sees what it scores).
         # Fold 0 blended on the static priors (cleared at run start). This
         # rolling earning is what the deployed bundle ships (last fold's
-        # vector) — the published-blend pass applies it to every OOF row.
+        # vector), valid for FUTURE forecasts, not historical headline replay.
         _rolling = compute_adaptive_weights(oof_members, oof_y) if oof_y else {}
         if _rolling:
             _LAST_ADAPTIVE_WEIGHTS.clear()
@@ -2115,9 +2093,11 @@ def walk_forward_evaluate(
         fold_grades.append(np.asarray(grades, dtype=bool))
 
         val_pred = val.copy()
-        # Placeholder (this fold's rolling earning) — overwritten by the
-        # published-blend pass with the DEPLOYED bundle's blend.
         val_pred["home_win_prob_model"] = ensemble_prob
+        val_pred["home_win_prob_model_causal"] = ensemble_prob
+        for name, p in member_probs.items():
+            val_pred[f"prob_{name}"] = np.asarray(p, dtype=float)
+            val_pred[f"weight_{name}"] = float(_wts.get(name, 0.0))
         val_pred["fold_idx"] = split["fold_idx"]
         # Season-split disclosure columns: row-level where the fact is
         # row-level (is_playoffs, grades_pooled), fold-level broadcast
@@ -2129,28 +2109,14 @@ def walk_forward_evaluate(
         all_preds.append(val_pred)
         fold_metrics_list.append(ml_metrics)
 
-    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05) ─────────
-    # The OOF frame — headline metrics, calibration curve/buckets, the
-    # shipped Platt map, predictions_history — publishes the blend THE
-    # DEPLOYED BINARY SERVES: each row's member probabilities come from
-    # that fold's strictly-prior models (never refit here, always
-    # out-of-sample), combined with the deployed earning weights (the
-    # ``_LAST_ADAPTIVE_WEIGHTS`` vector ``persist_ensemble`` stores and
-    # ``ensemble_predict`` serves with), renormalized per row when a member
-    # is missing exactly like serving. Before this pass each row carried
-    # its fold's rolling earning — the training-time policy — which put
-    # weight-learning transients (fold-0 priors, early thin evidence) into
-    # the published history even though no deployed model ever served them:
-    # on the 2026-10-05 snapshot that diluted the pooled blend to 0.5711
-    # AUC / 0.6825 log-loss against the deployed blend's 0.5726 / 0.6819,
-    # flipping the blend-vs-strongest-member comparison that the Model
-    # Ensemble table publishes. Weight EARNING stays strictly causal (the
-    # fold loop above); only the published application changed, and it now
-    # matches the production binary's blend pooled OOF by construction.
+    # Causal evaluation (NHL 42027979 parity): retain fold-origin blends.
+    # Final learned weights replay the same member OOF only in a separately
+    # named retrospective column. Those weights saw these labels, so that
+    # replay cannot grade headlines, calibration or model selection.
     if all_preds:
         deployed_w = _member_weights(sorted(oof_members))
         for val_pred, member_full in zip(all_preds, fold_member_full):
-            val_pred["home_win_prob_model"] = (
+            val_pred["home_win_prob_model_retrospective"] = (
                 _pool_member_probs(member_full, deployed_w)
                 if member_full else np.full(len(val_pred), 0.5)
             )
@@ -2168,7 +2134,7 @@ def walk_forward_evaluate(
                 # oof_y (graded rows, fold order) is complete before this
                 # pass runs; its prefix of len(oof_blend) is exactly the
                 # labels of the pairs accumulated so far.
-                fold_cal = moneyline_fit(oof_y[:len(oof_blend)], oof_blend)
+                fold_cal, _ = gated_moneyline_fit(oof_y[:len(oof_blend)], oof_blend)
             cal_k = np.asarray(moneyline_apply(blend_k, fold_cal), dtype=float)
             val_pred["home_win_prob_model_calibrated"] = np.round(cal_k, 4)
             oof_blend.extend(blend_k[grades_k].tolist())
@@ -2177,15 +2143,12 @@ def walk_forward_evaluate(
                 pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
                 oof_members_cal.setdefault(name, []).extend(
                     pc[grades_k].tolist())
-        # Run-log evidence (2026-10-06 log review): the published-blend
-        # pass left no trace in the log — a reviewer could not tell whether
-        # the headline metrics graded the rolling training-time blend or
-        # the deployed bundle's blend. One line states the applied weights
-        # and the row count so the log, the artifact and the serving binary
-        # make the same claim.
+        # State both views explicitly: prior-origin headline vs final-weight
+        # retrospective replay. The shared pooling formula is unchanged.
         logger.info(
-            "Published blend: %d OOF rows re-pooled with the deployed weights "
-            "%s — headline metrics grade THE serving blend",
+            "Published blend: %d OOF rows use strictly-prior rolling weights; "
+            "deployed weights %s replay THE serving blend in a separate "
+            "retrospective diagnostic — NOT OOF, never headline metrics",
             sum(len(vp) for vp in all_preds),
             {k: f"{v:.1%}" for k, v in sorted(deployed_w.items())},
         )
@@ -2216,21 +2179,28 @@ def walk_forward_evaluate(
         combined = pd.DataFrame()
         pooled = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
 
-    # Post-hoc calibration: fit the shipped Platt map on ALL pooled OOF
-    # pairs, and score it against the raw blend using the prequential
-    # calibrated predictions (fold k corrected only by folds < k — never
-    # self-calibrated). Raw headline metrics stay untouched; calibrated
-    # twins ride alongside so dashboards can show both.
+    if len(combined) and combined["grades_pooled"].any():
+        _g = combined["grades_pooled"].to_numpy(dtype=bool)
+        retrospective = compute_metrics(
+            combined["home_win"].to_numpy(dtype=float)[_g],
+            combined["home_win_prob_model_retrospective"].to_numpy(dtype=float)[_g])
+        logger.info("Retrospective final-weight replay (NOT OOF): %s", retrospective)
+    else:
+        retrospective = {}
+
+    # Final origin uses the same nested prior-evidence gate as every fold;
+    # an accepted map refits on all eligible causal pairs. Score only the
+    # prequential maps (fold k corrected by folds < k), never the final map
+    # on its fitting outcomes. Raw headlines and calibrated twins stay separate.
     y_oof_all = np.asarray(oof_y, dtype=float) if oof_y else np.empty(0)
     p_raw_all = np.asarray(oof_blend, dtype=float) if oof_blend else np.empty(0)
     p_cal_prequential = (
         np.asarray(oof_blend_calibrated, dtype=float)
         if oof_blend_calibrated else np.empty(0)
     )
-    final_calibrator = moneyline_fit(y_oof_all, p_raw_all)
+    final_calibrator, final_calibration_audit = gated_moneyline_fit(y_oof_all, p_raw_all)
     global _LAST_CALIBRATOR
     _LAST_CALIBRATOR = final_calibrator
-    gated_out = False
     if p_cal_prequential.size == len(y_oof_all) and len(y_oof_all) > 0:
         # Score the PREQUENTIAL column directly. Each point was corrected by
         # a map fitted strictly on PRIOR folds — exactly how the deployed
@@ -2247,33 +2217,18 @@ def walk_forward_evaluate(
             pooled.get("ece", 0.0), m_cal["ece"],
             pooled.get("logloss", 0.0), m_cal["logloss"],
         )
-        # Deployed-calibrator gate (2026-10-01): the shipped map above is
-        # fitted on ALL pooled OOF, so its only honest rehearsal is the
-        # prequential column just scored. When that rehearsal is worse than
-        # the raw blend on BOTH log-loss and ECE, the map demonstrably hurts
-        # every headline metric — ship the raw blend (identity) instead of a
-        # harmful correction. Mixed evidence keeps the fitted map (the
-        # 2026-08-27 flip-test status quo). Fully reversible: a later run
-        # whose prequential column improves ships the fitted map again.
-        gated_out, gate_reason = should_gate_calibrator(pooled, m_cal)
-        pooled["calibrator_gated_out"] = gated_out
-        if gated_out:
-            _LAST_CALIBRATOR = None
-            logger.warning(
-                "Calibration: prequential calibrated metrics worse than raw "
-                "(%s) — shipping the raw blend (identity calibrator)",
-                gate_reason,
-            )
+        # The next-origin gate is identical to each fold's nested gate.
+        # Aggregate prequential metrics remain diagnostics, not a different
+        # final-only decision rule.
+        pooled["calibrator_gated_out"] = final_calibrator is None
+    logger.info("Calibration final-origin gate: %s", final_calibration_audit)
 
     # Fit the deployed bundle on every decided game. The walk-forward folds
     # remain the only source of honest OOF metrics; no final validation holdout
     # is needed once evaluation is complete.
-    full_train = games.dropna(subset=["home_win"])
+    full_train = games.dropna(subset=["home_win"]).sort_values("game_date", kind="stable")
     if len(full_train) >= 20:
-        try:
-            best_models, _ = train_moneyline_ensemble(full_train)
-        except Exception:
-            best_models = {}
+        best_models, _ = train_moneyline_ensemble(full_train)
     else:
         best_models = {}
 
@@ -2376,6 +2331,9 @@ def walk_forward_evaluate(
         _p = np.zeros(len(combined), dtype=bool)
         _v = np.zeros(len(combined), dtype=bool)
     season_split: dict[str, Any] = {
+        "probability_view": "causal_rolling_blend",
+        "final_calibration_gate": final_calibration_audit,
+        "retrospective_metrics_not_oof": retrospective,
         "counts": {
             "regular_rows": int((~_p).sum()),
             "postseason_rows": int(_p.sum()),
@@ -2451,6 +2409,9 @@ def persist_ensemble(
         # apply_bundle_feature_cols. Bundles persisted before this field
         # existed were trained at universe width (key absent → universe).
         "feature_cols": active_moneyline_feature_cols(),
+        "evaluation_policy": "causal_rolling_blend",
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "season_split": get_last_season_split(),
     }
 
     path = MODELS_DIR / ENSEMBLE_FILE
@@ -2480,6 +2441,9 @@ def apply_bundle_feature_cols(bundle: Optional[dict[str, Any]]) -> None:
     if not bundle:
         reset_feature_subset()
         return
+    if bundle.get("feature_schema_version") != FEATURE_SCHEMA_VERSION:
+        raise ValueError("Cached MLB model uses an older feature schema; rebuild "
+                         "Statcast features, causal OOF and final refit together")
     cols = bundle.get("feature_cols")
     if cols is None:
         reset_feature_subset()

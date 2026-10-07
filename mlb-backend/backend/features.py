@@ -1633,8 +1633,7 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
         "fielder_2", "fielder_3", "fielder_4", "fielder_5",
         "fielder_6", "fielder_7", "fielder_8", "fielder_9",
         "if_fielding_alignment", "of_fielding_alignment",
-        "post_home_score", "post_away_score",
-        "event", "type", "launch_speed_angle",
+        "event", "type",
     ]:
         if col in existing:
             con.execute(f'ALTER TABLE pitches DROP COLUMN "{col}"')
@@ -1651,6 +1650,7 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
         "barrel", "hard_contact", "launch_speed", "launch_angle",
         "estimated_woba_using_speedangle", "estimated_ba_using_speedangle",
         "zone", "home_score", "away_score", "spin_rate",
+        "post_home_score", "post_away_score", "launch_speed_angle",
         "woba_value", "babip_value", "iso_value",
         "delta_home_win_exp", "delta_run_exp", "player_name",
         "hit_distance_sc", "release_pos_x", "release_pos_z",
@@ -1989,7 +1989,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         CREATE TABLE game_winners AS
         WITH last_pitch AS (
             SELECT game_pk, game_date, game_type, home_team, away_team,
-                   home_score, away_score,
+                   post_home_score AS home_score,
+                   post_away_score AS away_score,
                    ROW_NUMBER() OVER (
                        PARTITION BY game_pk
                        ORDER BY at_bat_number DESC, pitch_number DESC
@@ -2004,7 +2005,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                CASE WHEN home_score > away_score THEN 1.0
                     WHEN away_score > home_score THEN 0.0
                     ELSE NULL END AS home_win,
-               (COALESCE(home_score, 0) + COALESCE(away_score, 0)) AS total_runs
+               (home_score + away_score) AS total_runs
         FROM last_pitch WHERE rn = 1
     """)
 
@@ -2069,7 +2070,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    game_pk, inning, inning_topbot, at_bat_number,
                    pitcher, events,
                    launch_speed, launch_angle,
-                   COALESCE(home_score, 0) + COALESCE(away_score, 0) AS tot_score,
+                   home_score + away_score AS pre_tot_score,
+                   post_home_score + post_away_score AS tot_score,
+                   launch_speed_angle,
                    estimated_woba_using_speedangle AS xwoba_val,
                    ROW_NUMBER() OVER (
                        PARTITION BY game_pk, inning, inning_topbot, at_bat_number
@@ -2095,9 +2098,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             FROM lp
         )
         SELECT game_date, game_pk, pitcher, events,
-               -- First PA of the game: score starts 0-0, so its runs = tot_score.
-               CASE WHEN prev_tot IS NULL THEN tot_score
-                    ELSE GREATEST(tot_score - prev_tot, 0) END AS runs_on_pa,
+               -- Scores are POST-pitch, not the pre-pitch snapshot. Missing
+               -- post scores remain unknown; never shift scoring to the next PA.
+               CASE WHEN tot_score IS NULL OR COALESCE(prev_tot, pre_tot_score) IS NULL
+                    THEN NULL
+                    ELSE GREATEST(tot_score - COALESCE(prev_tot, pre_tot_score), 0)
+                    END AS runs_on_pa,
                CASE events
                     WHEN 'field_out' THEN 1
                     WHEN 'strikeout' THEN 1
@@ -2113,14 +2119,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                     {_outs_fix_whens}
                     ELSE 0 END AS outs_on_pa,
                xwoba_val,
-               -- Barrel proxy: EV>=98 with LA in [22,36]. Calibrated on live
-               -- pulls: the official core band (LA 26-30) alone yields ~2.3%
-               -- of BBE (real league rate is ~8%), while this widened band
-               -- lands at ~7% here. The EV+LA sum-rule overcounts (~19%) in
-               -- our data, so the angle-band form is used.
-               CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 22 AND 36
-                    THEN 1.0 ELSE 0.0 END AS barrel_flag,
-               CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
+               -- Savant's observed classification: 6 = Barrel. Missing
+               -- classification is unknown, not a non-barrel observation.
+               CASE WHEN launch_speed_angle BETWEEN 1 AND 6
+                    THEN CASE WHEN launch_speed_angle = 6 THEN 1.0 ELSE 0.0 END
+                    ELSE NULL END AS barrel_flag,
+               CASE WHEN launch_speed IS NULL THEN NULL
+                    WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
         FROM seq
     """)
     con.execute(f"""
@@ -2884,17 +2889,18 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # the trailing 15 games (LAG-shifted, excludes current game).
     # Balls in play ONLY: launch_speed is also populated on foul balls
     # (~76 mph avg vs ~87 on BIP), which dragged the old mean to ~83.
-    # Barrel/hard-hit are derived from the official Statcast definitions —
-    # the `barrel`/`hard_contact` columns don't exist in real Statcast pulls,
-    # so the old AVG() over them silently produced all-NULL features.
+    # Barrel uses Savant's observed launch_speed_angle classification (6),
+    # not the narrow 98-mph/26-30-degree proxy. Missing classifications stay
+    # NULL. Hard-hit uses measured exit velocity >=95 mph.
     con.execute(f"""
         CREATE TABLE team_contact_raw AS
         WITH bip AS (
             SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
                    CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
                         ELSE p.home_team END AS batting_team,
-                   CASE WHEN p.launch_speed >= 98 AND p.launch_angle BETWEEN 26 AND 30
-                        THEN 1.0 ELSE 0.0 END AS barrel_flag,
+                   CASE WHEN p.launch_speed_angle BETWEEN 1 AND 6
+                        THEN CASE WHEN p.launch_speed_angle = 6 THEN 1.0 ELSE 0.0 END
+                        ELSE NULL END AS barrel_flag,
                    CASE WHEN p.launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag,
                    p.launch_speed
             FROM pitches p
@@ -4333,7 +4339,9 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
     if "air_density_velocity_boost" in df.columns:
         _velo_ok = pd.to_numeric(df.get("sp_fbvelo_diff"),
                                  errors="coerce").notna()
-        df.loc[dome_flag & _velo_ok, "air_density_velocity_boost"] = 0.0
+        _density_ok = pd.to_numeric(df["air_density_level"], errors="coerce").notna()
+        df.loc[dome_flag & _velo_ok & _density_ok, "air_density_velocity_boost"] = 0.0
+        df.loc[dome_flag & ~_density_ok, "air_density_velocity_boost"] = np.nan
 
     n_w = int(df["park_wind_factor"].notna().sum())
     n_a = int(df["air_density_level"].notna().sum())
@@ -5212,6 +5220,14 @@ def add_diff_features(
     df["park_factor_slug_diff"] = pf * pd.to_numeric(
         df["lineup_re24_top3_diff"], errors="coerce")
 
+    # Capture observed weather LEVELS before recomputing interactions. Saved
+    # frames / RFE must not erase valid weather or freeze products of stale SP
+    # diffs. Only level-backed observations can be reconstructed safely.
+    _wind_level = (pd.to_numeric(df["park_wind_factor"], errors="coerce")
+                   if "park_wind_factor" in df else pd.Series(np.nan, index=df.index))
+    _air_level = (pd.to_numeric(df["air_density_level"], errors="coerce")
+                  if "air_density_level" in df else pd.Series(np.nan, index=df.index))
+
     # ── 30. wind_advantage_flyball_factor
     # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
     # Flags when mistake-prone pitchers are at risk of wind-blown home runs.
@@ -5271,6 +5287,10 @@ def add_diff_features(
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
+        # This pass writes levels too, so repeated calls share the same
+        # representation as weather.apply_weather_features.
+        df["park_wind_factor"] = wm.combine_first(_wind_level)
+        df["air_density_level"] = ad.combine_first(_air_level)
         n_weather = int((wm.notna() & ad.notna()).sum())
         logger.info("Weather applied to %d/%d games", n_weather, len(df))
     else:
@@ -5282,6 +5302,25 @@ def add_diff_features(
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
+
+    # Recompute from current factors, preserving absent-from-fetch observed
+    # levels. Air density is not neutral merely because a roof is closed.
+    _wm = pd.to_numeric(df.get("park_wind_factor", _wind_level), errors="coerce")
+    _ad = pd.to_numeric(df.get("air_density_level", _air_level), errors="coerce")
+    df["wind_advantage_flyball_factor"] = (
+        _wm * pd.to_numeric(df["sp_era_diff"], errors="coerce")
+    ).combine_first(df["wind_advantage_flyball_factor"])
+    df["air_density_velocity_boost"] = (
+        (_ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce")
+    )
+    _dome_col = "dome_is_neutral_game" if "dome_is_neutral_game" in df else "dome_is_neutral"
+    _closed = pd.to_numeric(df[_dome_col], errors="coerce").eq(1)
+    # Preserve the production indoor-neutral policy, but never claim density
+    # is observed when the input level is absent. Coverage labels these zeros.
+    df.loc[_closed & df["air_density_velocity_boost"].notna(),
+           "air_density_velocity_boost"] = 0.0
+    df.loc[_closed & df["sp_era_diff"].notna(),
+           "wind_advantage_flyball_factor"] = 0.0
 
     # ── 32. bullpen_meltdown_risk_diff (RENAMED 2026-09-30): the family's
     # cross-side form, bullpen_pitches_diff × bullpen_whip_10g_diff.
@@ -5362,6 +5401,28 @@ def _mem_mb() -> float:
         return resident_pages * os.sysconf("SC_PAGE_SIZE") / 1e6
     except Exception:
         pass
+    if os.name == "nt":
+        # Windows has no /proc or resource; query the LIVE working set.
+        import ctypes
+        from ctypes import wintypes
+
+        class MemoryCounters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                        *[(name, ctypes.c_size_t) for name in (
+                            "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                            "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                            "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        psapi.GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE, ctypes.POINTER(MemoryCounters), wintypes.DWORD]
+        counters = MemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        if psapi.GetProcessMemoryInfo(kernel.GetCurrentProcess(),
+                                      ctypes.byref(counters), counters.cb):
+            return float(counters.WorkingSetSize / 1e6)
     try:
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     except Exception:
@@ -5382,7 +5443,7 @@ def build_features(
     Args:
         pitches_path: Path to pitches.parquet (from ingestion.py).
         output_dir:   Where to write output Parquet files.
-        validate:     Reserved for future validation checks.
+        validate:     Enforce observed source-schema and unique game contracts.
         corrected_outs: EXPERIMENTAL (pitcher-stats ablation only). When
             True, pa_boundary credits force_out / fielders_choice /
             batter_interference outs and keeps intent_walk / truncated_pa
@@ -5404,6 +5465,17 @@ def build_features(
 
     game_out = out_dir / "game_level_features.parquet"
     pbp_out = out_dir / "pbp_level_features.parquet"
+
+    if validate:
+        import pyarrow.parquet as pq
+        source_cols = set(pq.read_schema(pitches_path).names)
+        required = {"game_pk", "game_date", "at_bat_number", "pitch_number",
+                    "home_team", "away_team", "post_home_score",
+                    "post_away_score", "launch_speed_angle"}
+        if not required <= source_cols:
+            raise ValueError("Statcast source schema missing observed fields "
+                             f"{sorted(required - source_cols)}; re-pull historical "
+                             "pitches before building corrected features")
 
     logger.info("=== DuckDB Feature Engineering ===")
     logger.info("[MEM] Start: %.0f MB", _mem_mb())
@@ -5435,6 +5507,8 @@ def build_features(
     # Phase 3: Load into pandas (model-ready only)
     game_df = pd.read_parquet(game_out)
     pbp_df = pd.read_parquet(pbp_out)
+    if validate and game_df["game_pk"].duplicated().any():
+        raise ValueError("Feature engineering fanned game_pk identities; refusing training")
 
     # ── Official results overlay ────────────────────────────────────────
     # Statcast pitch rows derive scores from the last cached pitch — a

@@ -181,6 +181,8 @@ CALIBRATION_MODE = os.getenv("CALIBRATION_MODE", "platt").strip().lower()
 # Reproducibility
 # ---------------------------------------------------------------------------
 RANDOM_SEED = 42
+# Same 109 numeric names, corrected source meanings; rebuild + refit together.
+FEATURE_SCHEMA_VERSION = "mlb-v2-observed-statcast-causal-blend"
 ELO_SEED = 1500  # Starting Elo for every team
 
 # ---------------------------------------------------------------------------

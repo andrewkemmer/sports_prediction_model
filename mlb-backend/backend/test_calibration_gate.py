@@ -18,6 +18,7 @@ one side of that boundary:
 from __future__ import annotations
 
 import sys
+import numpy as np
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent
@@ -25,6 +26,40 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import calibration  # noqa: E402
+
+
+def test_nested_gate_requires_prior_holdout_gain(monkeypatch):
+    y = np.tile([0.0, 1.0], 500)
+    p = np.where(y == 1, 0.99, 0.01)
+    monkeypatch.setattr(calibration, "moneyline_fit",
+                        lambda y, p: {"method": "test"})
+    monkeypatch.setattr(calibration, "moneyline_apply", lambda p, cal: p * 0 + 0.5)
+    cal, rec = calibration.gated_moneyline_fit(y, p)
+    assert cal is None and rec["reason"] == "gated_no_gain"
+    monkeypatch.setattr(calibration, "moneyline_apply", lambda p, cal: p)
+    cal, rec = calibration.gated_moneyline_fit(y, p * 0.6 + 0.2)
+    assert cal is None  # ties are not evidence of improvement
+
+
+def test_nested_gate_accepts_and_refits_only_prior_evidence(monkeypatch):
+    y = np.tile([0.0, 1.0], 500)
+    p = np.where(y == 1, 0.55, 0.45)
+    seen = []
+    def fit(y, p):
+        seen.append(len(y))
+        return {"method": "test"}
+    monkeypatch.setattr(calibration, "moneyline_fit", fit)
+    monkeypatch.setattr(calibration, "moneyline_apply",
+                        lambda p, cal: np.where(p > 0.5, 0.9, 0.1))
+    cal, rec = calibration.gated_moneyline_fit(y, p)
+    assert cal and rec["decision"] == "fitted"
+    assert seen == [750, 1000]
+
+
+def test_nested_gate_rejects_misaligned_vectors():
+    import pytest
+    with pytest.raises(ValueError, match="aligned"):
+        calibration.gated_moneyline_fit([0, 1], [0.5])
 
 
 def _metrics(ll: float, ece: float) -> dict:

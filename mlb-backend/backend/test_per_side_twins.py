@@ -122,6 +122,34 @@ def _diff_frame(n: int = 4) -> pd.DataFrame:
     return df
 
 
+def test_weather_recompute_preserves_levels_and_updates_products():
+    from weather import apply_weather_features
+    df = _diff_frame()
+    df["sp_era_home"], df["sp_era_away"] = 4.5, 3.0
+    df["park_wind_factor"], df["air_density_level"] = 0.8, 1.1
+    out = features.add_diff_features(df)
+    np.testing.assert_allclose(out.wind_advantage_flyball_factor, 0.8 * out.sp_era_diff)
+    np.testing.assert_allclose(out.air_density_velocity_boost, -0.125 * out.sp_fbvelo_diff)
+    changed = out.copy()
+    changed["sp_era_home"] = 6.0
+    changed["sp_fbvelo_3g_home"] += 1
+    again = features.add_diff_features(changed)
+    np.testing.assert_allclose(again.wind_advantage_flyball_factor, 2.4)
+    np.testing.assert_allclose(again.air_density_velocity_boost, -0.125 * again.sp_fbvelo_diff)
+    partial = apply_weather_features(again, {})
+    np.testing.assert_array_equal(partial.air_density_level, again.air_density_level)
+    np.testing.assert_array_equal(partial.park_wind_factor, again.park_wind_factor)
+    np.testing.assert_array_equal(features.add_diff_features(partial).air_density_velocity_boost,
+                                  again.air_density_velocity_boost)
+
+
+def test_dome_without_density_observation_stays_unknown():
+    df = _diff_frame()
+    df["home_team"] = "TB"
+    out = features.add_diff_features(df)
+    assert out.air_density_velocity_boost.isna().all()
+
+
 def _exp2_frame(n: int = 4) -> pd.DataFrame:
     """Frame carrying every add_exp2_features source column, jittered."""
     rng = np.random.default_rng(11)

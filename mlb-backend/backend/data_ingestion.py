@@ -145,10 +145,13 @@ def filter_prior(games: pd.DataFrame, as_of: datetime) -> pd.DataFrame:
     This is the single enforcement point for point-in-time integrity.
     Adding a future game must never change the output for earlier games.
     """
-    if not np.issubdtype(games["start_time_utc"].dtype, np.datetime64):
-        games = games.copy()
-        games["start_time_utc"] = pd.to_datetime(games["start_time_utc"])
-    return games[games["start_time_utc"] < as_of].copy()
+    # pandas StringDtype / timezone-aware timestamps are not numpy dtypes.
+    # Normalize both sides to UTC; unknown timestamps are never prior evidence.
+    games = games.copy()
+    games["start_time_utc"] = pd.to_datetime(games["start_time_utc"], utc=True, errors="coerce")
+    cutoff = pd.Timestamp(as_of)
+    cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+    return games.loc[games["start_time_utc"] < cutoff].copy()
 
 
 # ── Rolling helpers (PIT-safe) ───────────────────────────────────────────────
@@ -376,6 +379,8 @@ def compute_elos_up_to(games: pd.DataFrame, as_of: datetime) -> dict[str, float]
         exp_home = 1.0 / (1.0 + 10 ** ((a_elo - h_elo - ELO_HOME_ADV) / 400))
         elos[home] = h_elo + ELO_K * (actual - exp_home)
         elos[away] = a_elo + ELO_K * ((1 - actual) - (1 - exp_home))
+    if prev_year is not None and pd.Timestamp(as_of).year > prev_year:
+        elos = {t: _revert_elo(e) for t, e in elos.items()}
     return elos
 
 
@@ -938,7 +943,8 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     # Ensure game_date is datetime
     df["game_date"] = pd.to_datetime(df["game_date"])
-    df = df.sort_values("game_date").reset_index(drop=True)
+    # Stable tie order makes historical ids, records and Elo reproducible.
+    df = df.sort_values("game_date", kind="stable").reset_index(drop=True)
 
     # Add game_id if missing
     if "game_id" not in df.columns:
@@ -979,7 +985,11 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         )
         df["start_time_observed"] = False
     else:
-        df["start_time_observed"] = df["start_time_utc"].notna()
+        df["start_time_utc"] = pd.to_datetime(df["start_time_utc"], utc=True, errors="coerce")
+        observed = df["start_time_utc"].notna()
+        if "start_time_observed" in df:
+            observed &= df["start_time_observed"].fillna(False).astype(bool)
+        df["start_time_observed"] = observed
 
     # Compute ELO from game results (PIT-safe: chronological)
     elo_entries = compute_elo_entries(df)
@@ -1202,6 +1212,8 @@ def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], list[di
             "away_name": ap.get("fullName"),
             "home_id": hp.get("id"),
             "away_id": ap.get("id"),
+            "home_hand": (hp.get("pitchHand") or {}).get("code"),
+            "away_hand": (ap.get("pitchHand") or {}).get("code"),
             "game_pk": g.get("gamePk"),
             "game_date_utc": g.get("gameDate"),
         })
@@ -1235,6 +1247,8 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
     if sp:
         df["sp_id_home"] = np.nan
         df["sp_id_away"] = np.nan
+        df["sp_hand_home"] = pd.Series(None, index=df.index, dtype="object")
+        df["sp_hand_away"] = pd.Series(None, index=df.index, dtype="object")
         for idx, row in df.iterrows():
             legs = sp.get((str(row["home_team"]), str(row["away_team"])))
             if not legs:
@@ -1251,6 +1265,9 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
             if info.get("away_name"):
                 df.at[idx, "sp_name_away"] = info["away_name"]
                 df.at[idx, "sp_id_away"] = info.get("away_id")
+            for side in ("home", "away"):
+                if info.get(f"{side}_hand") in ("L", "R"):
+                    df.at[idx, f"sp_hand_{side}"] = info[f"{side}_hand"]
     # Doubleheader legs share the matchup-based game_id — re-key every row to
     # a DISTINCT per-game id (deterministic start-time ordinal suffix) and
     # drop exact duplicates (a true upstream bug).
@@ -1811,6 +1828,9 @@ def build_upcoming_slate(
     as_of = datetime.combine(target_date, datetime.min.time())
     elos = compute_elos_up_to(hist, as_of=as_of)
     records = _final_team_records(hist)
+    if not hist.empty and hist["game_date"].max().year != target_date.year:
+        # A new season's first slate must not inherit last October's W/L.
+        records = {}
 
     # Carry forward the raw input columns that add_diff_features() needs
     # to compute the model's diff MONEYLINE_FEATURE_COLS.  (MONEYLINE_FEATURE_COLS itself now
@@ -1833,6 +1853,7 @@ def build_upcoming_slate(
         *[f"pl_{p}_xwoba_{side}"
           for p in _pl_pools for side in ("home", "away")],
         "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home", "bullpen_whip_3g_away",
         "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
         "bullpen_ip_3d_home", "bullpen_ip_3d_away",
         # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
@@ -1875,6 +1896,13 @@ def build_upcoming_slate(
     exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
+    pitcher_hands: dict[int, str] = {}
+    for _, prior_row in hist.sort_values("game_date", kind="stable").iterrows():
+        for side in ("home", "away"):
+            pid = prior_row.get(f"{side}_starter_id")
+            hand = prior_row.get(f"{side}_starter_hand")
+            if pd.notna(pid) and hand in ("L", "R"):
+                pitcher_hands[int(pid)] = hand
     # SP staleness gate: pitchers whose latest pre-slate appearance is a
     # post-stint return have their carried SP lines withheld below (the
     # "latest non-null" picker would otherwise serve their pre-stint form).
@@ -1931,6 +1959,7 @@ def build_upcoming_slate(
             *[f"pl_{p}_xwoba_{side}"
               for p in _pl_pools for side in ("home", "away")],
             "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+            "bullpen_whip_3g_home", "bullpen_whip_3g_away",
             "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
             "bullpen_ip_3d_home", "bullpen_ip_3d_away",
             "team_barrel_15g_home", "team_barrel_15g_away",
@@ -2015,7 +2044,7 @@ def build_upcoming_slate(
             row[f"{side}_wins"] = r["w"]
             row[f"{side}_losses"] = r["l"]
             row[f"{side}_record"] = f"{r['w']}-{r['l']}"
-            row[f"{side}_win_pct"] = round(r["w"] / max(total, 1), 3)
+            row[f"{side}_win_pct"] = round(r["w"] / total, 3) if total else np.nan
             row[f"{side}_run_diff"] = r["rs"] - r["ra"]
             row[f"rest_days_{side}"] = _rest_days(team)
             # Re-suffix the side-agnostic latest values onto this game's slot
@@ -2078,6 +2107,10 @@ def build_upcoming_slate(
                 pid = name_to_id.get(_norm_player_name(row[f"sp_name_{side}"]))
             if pid is None:
                 continue
+            hand = s.get(f"sp_hand_{side}")
+            if hand not in ("L", "R"):
+                hand = pitcher_hands.get(int(pid))
+            row[f"sp_hand_{side}"] = hand
             if pid in sp_stale_ids:
                 logger.warning(
                     "SP staleness gate: %s-side probable starter %s (%s) last "
@@ -2099,6 +2132,14 @@ def build_upcoming_slate(
                 row[f"{base}_{side}"] = val
             resolved[side] = str(pid)
 
+        # Historical SQL chooses each batting lineup's OPS against the
+        # OPPOSING starter's hand. Resolve that same matchup on the slate;
+        # carrying L/R splits without selecting one starved this feature.
+        for side, opponent in (("home", "away"), ("away", "home")):
+            hand = row.get(f"sp_hand_{opponent}")
+            row[f"lineup_ops_vs_starter_hand_{side}"] = (
+                row.get(f"lineup_ops_vs_{hand.lower()}_{side}", np.nan)
+                if hand in ("L", "R") else np.nan)
         rows.append(row)
 
         # Observability: an unannounced probable pitcher (TBD) leaves every

@@ -77,7 +77,7 @@ import calibration  # noqa: E402
 def test_a_whole_bar_lands_as_one_file_line(tmp_path):
     """46 frames of one statcast chunk → exactly ONE line in the file
     (the 2026-10-06 log wrote all 46, ×14 bars = 665 frame lines)."""
-    log_file = open(tmp_path / "log.txt", "w")
+    log_file = open(tmp_path / "log.txt", "w", encoding="utf-8")
     tee = run_log_tee._Tee(io.StringIO(), log_file)
     for i in range(46):
         tee.write(f"\r{i}/46")
@@ -170,6 +170,7 @@ def test_published_blend_pass_logs_its_evidence_line():
     fmt = next(a.value for a in calls[0].args
                if isinstance(a, ast.Constant) and isinstance(a.value, str))
     assert "deployed weights" in fmt and "THE serving blend" in fmt
+    assert "strictly-prior" in fmt and "NOT OOF" in fmt
     # ordering: announced AFTER the re-pool with the deployed weights and
     # BEFORE the calibration/metrics lines the announcement describes
     # (match the FORMAT STRING — the pass's comment banner also starts

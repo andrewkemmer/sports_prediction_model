@@ -1132,8 +1132,11 @@ def apply_weather_features(
             # observation, not derived from any interaction. Non-dome
             # without weather: leave NULL (never fabricated).
             dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
-            park_wind.append(0.0 if dome else np.nan)
-            air_level.append(np.nan)
+            prior_wind = pd.to_numeric(row.get("park_wind_factor"), errors="coerce")
+            prior_air = pd.to_numeric(row.get("air_density_level"), errors="coerce")
+            park_wind.append(prior_wind if pd.notna(prior_wind)
+                             else (0.0 if dome else np.nan))
+            air_level.append(prior_air if pd.notna(prior_air) else np.nan)
     df["park_wind_factor"] = pd.Series(park_wind, index=df.index, dtype="float64")
     df["air_density_level"] = pd.Series(air_level, index=df.index, dtype="float64")
     logger.info("Weather features applied to %d/%d games", n_applied, len(df))

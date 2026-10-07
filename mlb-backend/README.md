@@ -177,6 +177,26 @@ forward week by week; each training fold is the *entire expanding* history
 strictly before that window. Metrics (AUC, Brier, LogLoss, ECE, calibration
 buckets) are pooled across validation folds — never from data the model saw.
 
+### Corrected MLB input/evaluation rollout (2026-10-07)
+
+The current bundle schema is **`mlb-v2-observed-statcast-causal-blend`**.
+Run the full established master pipeline after pulling these changes: historical
+Statcast ingestion, feature rebuild, causal OOF/blend/calibration, and final
+refit must move together. Old-schema bundles are rejected, even though feature
+names and the **109-feature generation universe** are unchanged. Legacy pitch
+caches missing post-pitch scores or barrel classification automatically re-pull
+the requested history; budget for this first-run network/memory cost. Do not
+score corrected features through the old bundle or treat the cached-data audit
+as a completed historical rebuild.
+
+The pipeline fails on absent or wholly unobserved universe columns and infinite
+model inputs. Individual warm-up/TBD/failed-source observations remain NULL;
+coverage is reported, never fabricated to claim 100%. Local
+`run_diagnostics/mlb_oof_moneyline.csv` retains causal and retrospective blend
+views, member predictions, and entering weights (gitignored, not delivery).
+See the [accuracy/structure audit](../docs/mlb_input_quality_20261007.md) for
+measured coverage, source checks, smoke scope, and remaining limitations.
+
 ### The three probability quantities (read this before charting)
 
 `predictions_history_<date>.csv` and the ensemble expose **three distinct
@@ -184,14 +204,22 @@ probabilities**. Every consumer must know which one it holds:
 
 | # | Quantity | Where | Use for |
 |---|---|---|---|
-| 1 | **Raw blend** | `home_win_prob_model` column | Internal: input to the deployed map; the axis the reliability diagram bins on |
-| 2 | **Prequential calibrated** | `home_win_prob_model_calibrated` column | Honest scoring ONLY (each game scored by the Platt map fitted on prior folds). Metrics — never display |
-| 3 | **Deployed / user-facing** | σ(a·logit(p_raw)+b) with the global map from `calibration_<date>.json → params` (fit on ALL OOF games) | Display everywhere: Today's Games win %, Prediction History MODEL PICK %, rolling Brier |
+| 1 | **Causal raw blend** | `home_win_prob_model` column (alias `_causal` in local diagnostics) | Headline OOF metrics, history, selection, reliability buckets; each fold uses only entering prior-fold blend evidence |
+| 2 | **Prequential calibrated** | `home_win_prob_model_calibrated` column | Honest calibrated metrics; each origin applies the same nested gate to eligible prior evidence |
+| 3 | **Deployed / user-facing** | Global gated map from `calibration_<date>.json → params`, or identity | Future forecasts; historical final-map display is retrospective, not honest OOF grading |
 
 **Never mix (2) and (3) in the same chart or comparison.** They are different
-maps fitted on different data (up to ~0.11 apart per game): (2) is honest for
-scoring but was never deployed; (3) is what users see but is mildly optimistic
-on recent OOF games because its map saw them during fitting.
+maps fitted on different evidence: (2) is honest for historical scoring;
+(3) is appropriate for future forecasts, but replaying it on fitting outcomes
+is optimistic. The final map and each prior-origin map share one gate: fit on
+early prior evidence, require >0.005 nats logloss improvement on the recent
+25% (minimum 200 games, fit minimum 300), then refit on all eligible prior rows.
+
+`home_win_prob_model_retrospective` is an additional **diagnostic-only** local
+column: final learned blend weights replayed over member OOF. Those weights saw
+the reported outcomes; this is **NOT OOF** and cannot replace (1) or (2).
+Calibration buckets and headline metrics use the same regular/non-provisional
+grading population; postseason/provisional rows remain scored and reported.
 
 ## 4. Backend hygiene: what belongs in `backend/` (enforced)
 

@@ -299,6 +299,77 @@ def test_coverage_default_enumerates_active_width():
         # Probe output is test scratch — never leave it in data_delivery.
         (PROBE_DIR / "_t_coverage.csv").unlink(missing_ok=True)
 
+def test_coverage_reports_missing_invalid_and_empty(monkeypatch, tmp_path):
+    import pandas as pd
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = pd.DataFrame({"observed": [1.0, np.inf, np.nan]})
+    cov = explainability.compute_feature_coverage(
+        frame, frame, "20990101", feature_cols=["observed", "missing"])
+    assert len(cov) == 4
+    missing = cov[cov.feature == "missing"]
+    assert (missing.status == "MISSING_COLUMN").all()
+    assert (missing.n_measured == 0).all()
+    observed = cov[cov.feature == "observed"]
+    assert (observed.n_measured == 1).all()
+    assert (observed.n_invalid == 1).all()
+    empty = explainability.compute_feature_coverage(
+        frame.iloc[:0], frame.iloc[:0], "20990102", feature_cols=["observed"])
+    assert empty.empty and "status" in empty
+
+
+def test_rfe_rolls_prior_weights_and_grades_only_regular_rows(monkeypatch):
+    import pandas as pd
+    import feature_selection as fs
+    import training
+    training.set_adaptive_weights({"elasticnet": 1.0})
+    def train(tr, val):
+        return {"m1": object(), "m2": object()}, {}
+    calls = []
+    def predict(models, val):
+        weights = training._member_weights(["m1", "m2"])
+        calls.append(weights)
+        members = {"m1": np.linspace(0.2, 0.8, len(val)),
+                   "m2": np.linspace(0.8, 0.2, len(val))}
+        return training._pool_member_probs(members, weights), members, weights
+    def fold(k, types):
+        val = pd.DataFrame({"home_win": np.tile([0, 1], 25), "game_type": types,
+                            "game_date": pd.Timestamp("2026-06-01") + pd.Timedelta(days=k * 7)})
+        return {"train_games": val.copy(), "val_games": val, "fold_idx": k}
+    monkeypatch.setattr(fs, "train_moneyline_ensemble", train)
+    monkeypatch.setattr(fs, "ensemble_predict", predict)
+    try:
+        scored = fs._score_splits([fold(0, ["R"] * 50), fold(1, ["W"] * 50),
+                                  fold(2, ["R"] * 50)])
+        assert scored["games_scored"] == 100 and scored["folds_used"] == 2
+        assert calls[0] == {"m1": 0.5, "m2": 0.5}
+        assert calls[1] == calls[2]  # postseason outcomes cannot earn weights
+        assert training._LAST_ADAPTIVE_WEIGHTS == {"elasticnet": 1.0}
+    finally:
+        training.set_adaptive_weights(None)
+
+
+def test_rfe_candidate_state_is_isolated_and_restored(monkeypatch):
+    import feature_selection as fs
+    import training
+    training.set_adaptive_weights({"elasticnet": 1.0})
+    training._LAST_XGB_BEST_ROUNDS[:] = [999]
+    def score(splits, return_losses):
+        assert training._LAST_ADAPTIVE_WEIGHTS == {}
+        assert training._LAST_XGB_BEST_ROUNDS == []
+        training.set_adaptive_weights({"xgboost": 1.0})
+        training._LAST_XGB_BEST_ROUNDS.append(2)
+        return {"auc": 0.5}
+    monkeypatch.setattr(fs, "_score_splits_causal", score)
+    try:
+        assert fs._score_splits([]) == {"auc": 0.5}
+        assert training._LAST_ADAPTIVE_WEIGHTS == {"elasticnet": 1.0}
+        assert training._LAST_XGB_BEST_ROUNDS == [999]
+    finally:
+        training.set_adaptive_weights(None)
+        training._LAST_XGB_BEST_ROUNDS.clear()
+
+
 if __name__ == "__main__":
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]
