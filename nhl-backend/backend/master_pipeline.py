@@ -953,7 +953,9 @@ def main(argv: list[str] | None = None) -> int:
     # free: a failed gate now aborts BEFORE monitoring writes a word.
     _banner("PHASE 13", "schema validation")
     gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info,
-                              sig=sig, n_eligible=len(game_df))
+                              sig=sig, n_eligible=len(game_df),
+                              schedule=schedule, window_start=start_date,
+                              window_end=window_end)
     for name, ok in gates.items():
         logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
     if not all(gates.values()):
@@ -1295,15 +1297,84 @@ def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
     serve_mod._dump_json(path, record)
 
 
+def _season_openers_ingested(schedule: pd.DataFrame | None,
+                             window_start: str | None,
+                             window_end: str | None) -> bool:
+    """Ingestion-coverage gate: every in-window season opener is present.
+
+    2026-10-07 run review: ``season_dates`` used to start at Oct 1, so the
+    2026-09-29/30 slate (8 regular-season games, gameType 2) was never
+    requested — the hole shipped silently because every downstream gate
+    only reads frames that ARE present. NHL game numbers are dense and
+    chronological per season (the first regular-season game of season S is
+    ``S020001`` — verified against api-web.nhle.com), so the earliest
+    ingested regular-season number being > 1 PROVES leading games are
+    missing from the frame, whatever the cause: a date-span regression, a
+    clipped window, a dropped page.
+
+    Seasons whose span the window never covers are skipped (an operator's
+    mid-season ``NHL_START_DATE`` legitimately excludes openers). A season
+    with zero regular-season rows fails only once the window end passes
+    Oct 20 — after every modern NHL opener — so a pre-season run still
+    passes. Fail-closed on missing inputs: without the schedule frame or
+    the window bounds the coverage claim cannot be certified.
+    """
+    if schedule is None or window_start is None or window_end is None:
+        return False
+    if not len(schedule) or "game_id" not in schedule.columns \
+            or "season" not in schedule.columns:
+        return False
+    try:
+        start = pd.Timestamp(window_start)
+        end = pd.Timestamp(window_end)
+    except (TypeError, ValueError):
+        return False
+    ids = pd.to_numeric(schedule["game_id"], errors="coerce")
+    seasons = pd.to_numeric(schedule["season"], errors="coerce")
+    gtypes = (pd.to_numeric(schedule["game_type"], errors="coerce")
+              if "game_type" in schedule.columns
+              else pd.Series(2.0, index=schedule.index))
+    ok = True
+    for season in config.ALL_SEASONS:
+        # An operator window opening after Sep 1 of the season was never
+        # meant to cover that season's opener band — skip, don't fail.
+        if start > pd.Timestamp(year=int(season), month=9, day=1):
+            continue
+        first = ids[(seasons == season) & (gtypes == 2) & ids.notna()]
+        if len(first):
+            # YYYY TT NNNN: the NNNN block is the id modulo 10000.
+            number = int((first.astype("int64") % 10000).min())
+            if number != 1:
+                logger.error(
+                    "season %d opener coverage: earliest ingested "
+                    "regular-season game number is %04d — leading games "
+                    "are missing from the ingested frame", season, number)
+                ok = False
+        elif end >= pd.Timestamp(year=int(season), month=10, day=20):
+            logger.error(
+                "season %d: window ends %s with zero regular-season games "
+                "ingested — the season's dates were never requested",
+                season, end.date())
+            ok = False
+    return ok
+
+
 def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
                       slate: pd.DataFrame, fold_info: dict,
                       sig: dict | None = None,
-                      n_eligible: int = 0) -> dict:
+                      n_eligible: int = 0,
+                      schedule: pd.DataFrame | None = None,
+                      window_start: str | None = None,
+                      window_end: str | None = None) -> dict:
     """Schema/coherence gates over the written artifacts.
 
     ``n_eligible`` is the caller's eligible settled-game count (the 2026-09-30
     15:43 run crashed with NameError: game_df here — a main()-local name
     referenced from a helper that never receives it).
+    ``schedule`` / ``window_start`` / ``window_end`` feed the ingestion-
+    coverage gate (``season_openers_ingested``); absent, that gate fails
+    closed — coverage can only be certified from the frame that was pulled
+    and the window that was asked for.
     """
     gates: dict[str, bool] = {}
     p = oof_ml["p_ensemble_calibrated"].to_numpy(float)
@@ -1371,6 +1442,13 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
         gates["slate_contract_fields"] = bool(
             need.issubset(slate.columns) and _records_populated(slate))
     gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
+    # Ingestion coverage (2026-10-07 run review): the Sep 1 ``season_dates``
+    # fix is only as durable as this gate. Every prior gate reads frames
+    # that ARE present, so an unrequested date span (the late-September
+    # slate hole) passed all of them silently; this one asks whether the
+    # season openers the window claims to cover actually arrived.
+    gates["season_openers_ingested"] = _season_openers_ingested(
+        schedule, window_start, window_end)
     # OOF reach (2026-09-30): the validation population must cover the
     # eligible games. The MIN_VAL_FOLD_GAMES skip once removed 366 of 2795
     # core games — every playoff stretch — from OOF without a single warning.

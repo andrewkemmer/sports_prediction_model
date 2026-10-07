@@ -4321,6 +4321,80 @@ def test_slate_contract_gate_rejects_null_records():
     assert _gate(pd.DataFrame()) is True
 
 
+def test_season_opener_gate_catches_unrequested_leading_games():
+    """The ingestion-coverage gate fails the 2026-10-07 defect frame.
+
+    ``season_dates`` once started at Oct 1, so the 2026-09-29/30 slate
+    (game numbers 0001-0008) was never requested and every downstream
+    gate still passed — they only read frames that ARE present. NHL game
+    numbers are dense and chronological per season (first regular-season
+    game = ``S020001``), so an ingested earliest number > 1 proves
+    leading games are missing. The gate must fail that frame, pass a
+    complete one, skip operator windows that open mid-season, fail a
+    missing season only once the window end is past every modern opener,
+    and fail closed when the frame or window bounds are absent.
+    """
+    import master_pipeline as mp
+
+    def _frame(pairs):
+        """pairs: list of (season, first_game_number, n_games)."""
+        rows = {"game_id": [], "season": [], "game_type": [], "gameday": []}
+        for season, first, n in pairs:
+            for k in range(n):
+                rows["game_id"].append(int(f"{season}02{first + k:04d}"))
+                rows["season"].append(season)
+                rows["game_type"].append(2)
+                rows["gameday"].append(f"{season + 1}-01-01")
+        return pd.DataFrame(rows)
+
+    all_seasons = [(2024, 1, 3), (2025, 1, 3), (2026, 1, 3)]
+
+    def _gate(schedule, start="2024-01-01", end="2026-10-07"):
+        return mp._season_openers_ingested(schedule, start, end)
+
+    # The defect frame: season 2026 openers (0001-0008, Sep 29-30) were
+    # never requested, so the earliest ingested regular-season game is
+    # 0009 (Oct 1) — exactly what the Oct 7 review found in production.
+    holed = _frame([(2024, 1, 3), (2025, 1, 3), (2026, 9, 3)])
+    assert _gate(holed) is False
+    # Complete spans pass.
+    assert _gate(_frame(all_seasons)) is True
+    # Fail closed: no frame, no window start, or no window end means the
+    # coverage claim cannot be certified — never a silent pass.
+    assert _gate(None) is False
+    assert mp._season_openers_ingested(
+        _frame(all_seasons), None, "2026-10-07") is False
+    assert mp._season_openers_ingested(
+        _frame(all_seasons), "2024-01-01", None) is False
+    # Operator mid-season window: opener rows were never in scope.
+    midseason = _frame([(2026, 9, 3)])
+    assert _gate(midseason, start="2026-10-05") is True
+    # Zero rows for a season: fine while the window stops before the
+    # season could have started (pre-October-20), fatal after it —
+    # including a whole season's dates never being requested.
+    no_2026 = _frame([(2024, 1, 3), (2025, 1, 3)])
+    assert _gate(no_2026, end="2026-10-07") is True
+    assert _gate(no_2026, end="2026-10-25") is False
+    # Through the Phase 13 entry point: the gate rides _validate_outputs.
+    fold_info = {"n_folds": 1, "total_val_games": 100}
+    oof = pd.DataFrame({"p_ensemble_calibrated": [0.5],
+                        "season": [config.OOF_FIRST_SEASON]})
+    with tempfile.TemporaryDirectory() as td:
+        gates = mp._validate_outputs(
+            Path(td), "20261007", oof, pd.DataFrame(), fold_info,
+            sig={"holdout": {"cutoff": "2026-05-24"}}, n_eligible=100,
+            schedule=holed, window_start="2024-01-01",
+            window_end="2026-10-07")
+    assert gates["season_openers_ingested"] is False, gates
+    with tempfile.TemporaryDirectory() as td:
+        gates = mp._validate_outputs(
+            Path(td), "20261007", oof, pd.DataFrame(), fold_info,
+            sig={"holdout": {"cutoff": "2026-05-24"}}, n_eligible=100,
+            schedule=_frame(all_seasons), window_start="2024-01-01",
+            window_end="2026-10-07")
+    assert gates["season_openers_ingested"] is True, gates
+
+
 def test_run_diagnostics_writes_are_guaranteed_their_directory():
     """Phase 4 crashed the 2026-10-01 03:35 Kaggle run: 23f1f0c moved the fold
     table into the gitignored run_diagnostics/ dir but left the only mkdir in
