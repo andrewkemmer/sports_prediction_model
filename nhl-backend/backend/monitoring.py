@@ -387,9 +387,10 @@ def ensemble_table(oof: pd.DataFrame, weights: dict[str, float],
                    cal_p: np.ndarray | None = None) -> list[dict]:
     """Per-member OOF diagnostics + earned adaptive weights.
 
-    Scored on the GRADING population — the same rows as the published
-    (deployed) blend — so blend-vs-strongest-member reads apples-to-
-    apples (2026-10-05 alignment; MLB parity). Frames without a
+    Scored on the GRADING population — the same rows as the causal
+    rolling blend — so blend-vs-strongest-member reads apples-to-apples.
+    Weights shown are final future-serving weights, not per-row weights.
+    Frames without a
     grades_pooled column fall back to the full frame.
     """
     grade = (oof["grades_pooled"].astype(bool).to_numpy()

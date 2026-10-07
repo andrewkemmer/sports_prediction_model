@@ -1,0 +1,23 @@
+{
+  "scope": "bounded synthetic interface smoke, not NHL accuracy evidence",
+  "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
+  "n_folds": 5,
+  "n_oof": 272,
+  "n_grading": 189,
+  "causal_alias_identical": true,
+  "xgb_probe_ledger": [
+    8,
+    8,
+    7,
+    2,
+    2
+  ],
+  "final_xgb_rounds": 7,
+  "actual_booster_rounds": 7,
+  "prediction_history_causal_replay_verified": true,
+  "calibration_json_causal_metrics_verified": true,
+  "final_calibration_reason": "insufficient_prior_evidence",
+  "finite_unknown_team_predictions": true,
+  "shap_artifacts": 2,
+  "master_fold_table_earned_columns_persisted": true
+}

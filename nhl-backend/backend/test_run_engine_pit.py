@@ -834,7 +834,7 @@ def test_moneyline_fold_trainer_runs_all_three_members_with_fold_validation():
             # read, and that value may only inform STRICTLY LATER folds.
             assert "eval_set" in model.fit_calls[0]
         elif name == "lightgbm":
-            assert "eval_set" in model.fit_calls[0]
+            assert "eval_set" not in model.fit_calls[0]
             assert model.fit_calls[0]["categorical_feature"] == config.TREE_CATEGORICAL_COLS
         else:
             assert "eval_set" not in model.fit_calls[0]
@@ -852,10 +852,8 @@ def test_moneyline_fold_trainer_runs_all_three_members_with_fold_validation():
 def test_moneyline_blend_uses_prior_fold_weights_only():
     """Fold 0 uses thirds; fold 1 uses the optimizer result from fold 0.
 
-    The fold-time (causal) blend lives in p_ensemble_causal since the
-    2026-10-05 alignment: the published p_ensemble is the DEPLOYED bundle's
-    blend (the optimizer's final vector over every row) — asserted below as
-    binary parity.
+    Published p_ensemble is the causal blend; final-weight replay is an
+    explicitly retrospective diagnostic, never the headline or gate input.
     """
     games = feat_mod.build_game_features(_synth_games(n_days=40))
     folds = folds_mod.make_folds(games)
@@ -893,9 +891,10 @@ def test_moneyline_blend_uses_prior_fold_weights_only():
     second = oof[oof["fold_id"] == folds[1].fold_id][causal].to_numpy()
     np.testing.assert_allclose(first, 0.5, atol=1e-7)
     np.testing.assert_allclose(second, 0.8, atol=1e-7)
-    # Binary parity: the published column is the deployed blend — the
-    # optimizer's final vector ({xgboost: 1.0}) on EVERY row.
-    np.testing.assert_allclose(oof["p_ensemble"].to_numpy(), 0.8, atol=1e-7)
+    np.testing.assert_array_equal(oof["p_ensemble"], oof[causal])
+    # Final all-prior weights only describe future serving. Replaying them
+    # on their own fitting outcomes is diagnostic, not OOF evidence.
+    np.testing.assert_allclose(oof["p_ensemble_retrospective"], 0.8, atol=1e-7)
 
 
 def test_causal_xgb_rounds_selection_rule():
@@ -4053,19 +4052,12 @@ def test_coverage_writer_receives_the_drift_baseline_not_the_full_pool():
         "populations again")
 
 
-def test_published_blend_line_names_the_deployed_weights():
-    """T3: the published-blend pass must announce itself in the run log.
-
-    moneyline.walk_forward_oof re-pools ``p_ensemble`` with the deployed
-    weights (the DEPLOYED bundle's blend), but left no trace — a reviewer
-    could not tell whether Phase 9's headline metrics graded the rolling
-    training-time blend or the serving one (MLB 2026-10-06 parity).
-    """
+def test_published_blend_line_distinguishes_causal_metrics_from_replay():
+    """The log must label causal headline evidence and retrospective replay."""
     src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
-    assert "Published blend:" in src, (
-        "moneyline.py no longer logs the published-blend re-pool — the "
-        "headline metrics' blend claim is unauditable from the run log")
-    assert "headline metrics grade THE serving blend" in src
+    assert "Published blend:" in src
+    assert "headline metrics grade the causal rolling blend" in src
+    assert "p_ensemble_retrospective (not OOF)" in src
 
 
 def test_degenerate_platt_warning_carries_the_sample_size():

@@ -442,6 +442,13 @@ def main(argv: list[str] | None = None) -> int:
     ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_ml = ml["oof"]
     weights = ml["member_weights"]
+    # Phase 4's geometry table cannot contain budgets/weights until the walk
+    # has earned them. Enrich the SAME diagnostic file after Phase 5.
+    learned_cols = [c for c in ml["fold_table"].columns
+                    if c == "xgb_rounds" or c.startswith("weight_")]
+    fold_tbl = fold_tbl.merge(ml["fold_table"][["fold_id", *learned_cols]],
+                              on="fold_id", how="left", validate="one_to_one")
+    fold_tbl.to_csv(config.RUN_DIAGNOSTICS_DIR / "nhl_fold_table.csv", index=False)
     logger.info("moneyline OOF rows: %d; adaptive weights: %s",
                 len(oof_ml), json.dumps({k: round(v, 3) for k, v in weights.items()}))
 
@@ -509,6 +516,19 @@ def main(argv: list[str] | None = None) -> int:
     y_oof = oof_ml["home_win"].to_numpy(float)
     p_ens = oof_ml["p_ensemble"].to_numpy(float)
     okp = np.isfinite(p_ens)
+    _grading = (oof_ml["grades_pooled"].to_numpy(bool)
+                if "grades_pooled" in oof_ml
+                else np.ones(len(oof_ml), dtype=bool))
+    config_meta["moneyline_evaluation"] = {
+        "headline_view": "causal_rolling_blend",
+        "calibration_view": "gated_prequential_causal_blend",
+        "training_population": "grades_pooled",
+        "retrospective_column": "p_ensemble_retrospective",
+        "retrospective_is_oof": False,
+        "final_xgb_rounds": ml["final_xgb_rounds"],
+        "xgb_best_rounds": ml["xgb_best_rounds"],
+        "xgb_round_policy": "median_prior_probe_rounds",
+    }
 
     # Two distinct calibration layers (MLB structural parity):
     #   1. PREQUENTIAL per-fold OOF calibration (evaluation layer): fold k's
@@ -520,11 +540,12 @@ def main(argv: list[str] | None = None) -> int:
     #      signal: the ungated layer moved logloss 0.67583->0.67731 and ECE
     #      0.01036->0.01466 on this same OOF while the pooled calibrator
     #      sat at a=1.0124 b=-0.0069.
-    #   2. POOLED final calibrator (serving layer): one favored-space map fit
-    #      on ALL OOF pairs, applied ONLY to tonight's slate.
+    #   2. FINAL serving calibrator: the same eligibility and nested gate
+    #      evaluated at the next origin on all prior causal OOF pairs.
+    #      Retrospective final-weight replay never fits or grades a map.
     fold_ids = oof_ml["fold_id"].to_numpy()
     fold_calibrators, cal_audit = ml_mod.prequential_fold_calibrators(
-        p_ens, y_oof, fold_ids)
+        p_ens, y_oof, fold_ids, grades=_grading)
     cal_identity_ids = sorted(fid for fid, cal
                               in fold_calibrators.items() if cal is None)
     cal_fitted = len(fold_calibrators) - len(cal_identity_ids)
@@ -581,19 +602,18 @@ def main(argv: list[str] | None = None) -> int:
     # Postseason and provisional rows stay in ``oof_ml`` -- scored, shipped,
     # reported below as their own blocks -- but they must not move a map that
     # then serves regular season.
-    _grading = (oof_ml["grades_pooled"].to_numpy(bool)
-                if "grades_pooled" in oof_ml
-                else np.ones(len(oof_ml), dtype=bool))
     _g_ok = okp & _grading
     fold_info.update(_oof_blocks(oof_ml, _grading))
     logger.info("folds oof blocks: %s",
                 json.dumps({k: fold_info[k] for k in _OOF_BLOCK_KEYS}))
-    platt = ml_mod.moneyline_fit(p_ens[_g_ok], y_oof[_g_ok])
+    platt, final_cal_audit = ml_mod.gated_calibrator(p_ens, y_oof, grades=_grading)
+    cal_audit["final_serving"] = final_cal_audit
     if platt is not None:
         logger.info("final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
                     platt["a"], platt["b"], platt["n"], platt["method"])
     else:
-        logger.info("final pooled calibrator: identity (raw blend is served)")
+        logger.info("final pooled calibrator: identity (raw blend is served); "
+                    "same causal gate: %s", final_cal_audit["reason"])
 
     # ── 9. Evaluation ─────────────────────────────────────────────────────
     _banner("PHASE 9", "evaluation / diagnostics")
@@ -605,13 +625,16 @@ def main(argv: list[str] | None = None) -> int:
                                     y_oof[_grading])
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"][_grading],
                                     y_oof[_grading])
-    logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
+    logger.info("moneyline OOF raw:    %s (causal rolling blend)", json.dumps(raw_m))
+    retrospective_m = eval_mod.binary_metrics(
+        oof_ml["p_ensemble_retrospective"][_grading], y_oof[_grading])
+    logger.info("moneyline retrospective final-weight replay (NOT OOF / "
+                "not selection evidence): %s", json.dumps(retrospective_m))
     # Name the layer. `cal_m` is the PREQUENTIAL per-fold map (fold k fitted on
     # folds < k only), NOT the pooled calibrator that serves tonight's slate
-    # (logged one phase earlier). The two are different monotone maps, so the
-    # two AUCs are not comparable and a pooled map would preserve the raw AUC
-    # exactly — reading "calib AUC < raw AUC" as "calibration hurt the model"
-    # is a misreading of which number this is.
+    # (logged one phase earlier). Different fold maps can change ranking;
+    # raw/calibrated AUC on these same rows ARE comparable. The favored
+    # probability floor can also create ties even under a single map.
     logger.info("moneyline OOF calib:  %s (prequential per-fold layer; the "
                 "pooled calibrator is what serves the slate)", json.dumps(cal_m))
     # Disclosure, not a gate (2026-09-30; layer gated 2026-10-01): the
@@ -623,9 +646,9 @@ def main(argv: list[str] | None = None) -> int:
     # variance-adding map. When the layer still measures WORSE than raw —
     # the 2026-09-30 run moved logloss 0.6747->0.6762 and ECE 0.0098->
     # 0.0137 on the same rows while the pooled serving calibrator sat
-    # near-identity (a=0.968 b=0.026) — say so loudly: favored-space
-    # per-fold Platt adds variance, not signal, when the rolling re-earned
-    # blend is already near-calibrated. Serving is unaffected either way.
+    # near-identity (a=0.968 b=0.026) — say so loudly. This is disclosure,
+    # not a retrospective gate; final serving uses the same nested prior-
+    # evidence gate at its own origin, never this headline comparison.
     _worse = [m for m in ("logloss", "brier", "ece")
               if isinstance(raw_m.get(m), (int, float))
               and isinstance(cal_m.get(m), (int, float))
@@ -634,8 +657,8 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning(
             "prequential calibration layer measures WORSE than raw on %s "
             "(%s) — per-fold Platt fit on rolling prior evidence is adding "
-            "variance without signal; the pooled serving calibrator is "
-            "unaffected",
+            "variance without signal; final serving uses the same prior-"
+            "evidence gate at the next origin",
             " and ".join(_worse),
             ", ".join(f"{m} {raw_m[m]:.5f}->{cal_m[m]:.5f}" for m in _worse))
     member_rows = monitoring.ensemble_table(oof_ml, weights)
@@ -669,7 +692,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 10. Final full-history refit ──────────────────────────────────────
     _banner("PHASE 10", "final full-history refit")
-    final_models, _ = ml_mod.fit_final_models(game_df)
+    final_models, _ = ml_mod.fit_final_models(game_df,
+                                             xgb_best_rounds=ml["xgb_best_rounds"])
     final_reg = dist_mod.fit_final(game_df)
     # This phase builds the models that ACTUALLY SERVE tonight. It used to log
     # nothing at all, so a silently degraded refit (an all-NaN regressor, a
@@ -778,10 +802,10 @@ def main(argv: list[str] | None = None) -> int:
     p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
     cal_rec = serve_mod.write_calibration_json(
         p, raw_m, cal_m,
-        eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
-        daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
+        eval_mod.calibration_buckets(p_ens[_grading], y_oof[_grading]),
+        daily, config_meta, platt=platt, run_date=date_c, n_games=int(_g_ok.sum()),
         calibrated_buckets=eval_mod.calibration_buckets_pair(
-            oof_ml["p_ensemble"], oof_ml["p_ensemble_calibrated"], y_oof),
+            p_ens[_grading], p_cal_prequential[_grading], y_oof[_grading]),
         distribution_calibration=market_calibration,
         prequential_gate=cal_audit)
     artifacts.append(p.name)
@@ -870,6 +894,7 @@ def main(argv: list[str] | None = None) -> int:
         "moneyline_preprocessors": {k: v["pre"] for k, v in final_models.items()},
         "ensemble_weights": weights,
         "platt": platt,
+        "moneyline_fit_policy": config_meta["moneyline_evaluation"],
         "score_regressor": final_reg,
         "distribution": sig,
         "market_calibration": market_calibration,
@@ -972,6 +997,8 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts": artifacts,
         "moneyline_oof": raw_m,
         "moneyline_oof_calibrated": cal_m,
+        "moneyline_retrospective_not_oof": retrospective_m,
+        "moneyline_evaluation": config_meta["moneyline_evaluation"],
         "run_line_oof": dist_metrics["run_line"],
         "totals_oof": dist_metrics["totals"],
         "weights": weights,

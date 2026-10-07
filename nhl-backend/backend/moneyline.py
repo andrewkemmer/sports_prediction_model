@@ -83,8 +83,8 @@ _LAST_XGB_BEST_ROUNDS: list[int] = []
 def causal_xgb_rounds(prior_bests: list[int]) -> int:
     """Shipped round count for a fold from PRIOR measurements only.
 
-    Median of the given best-iteration list (even length: lower median,
-    kept simple and deterministic); falls back to the config priors when no
+    Median of the given best-iteration list (even length: integer average
+    of the two central values); falls back to the config priors when no
     measurements exist. Pure function so the tests pin the selection rule.
     """
     if not prior_bests:
@@ -169,7 +169,42 @@ def member_fit_input(name: str, X_raw: pd.DataFrame,
     """
     if name in LINEAR_MEMBERS:
         return pre.transform(X_raw)
+    if name == "xgboost":
+        # enable_categorical alone does not turn integer IDs into categories.
+        # Pin the vocabulary from configuration, not the observed fold, so
+        # validation/slate-only clubs and UNK have identical codes everywhere.
+        X = X_raw.copy()
+        vocabulary = sorted(set(config.NHL_TEAM_ID.values()) | {config.UNK_TEAM_ID})
+        for col in config.TREE_CATEGORICAL_COLS:
+            if col in X:
+                values = pd.to_numeric(X[col], errors="coerce")
+                values = values.where(values.isin(vocabulary), config.UNK_TEAM_ID)
+                X[col] = pd.Categorical(values, categories=vocabulary)
+        return X
     return X_raw
+
+
+def _fit_member(name: str, X_raw: pd.DataFrame, y: np.ndarray, *,
+                fold: bool, xgb_rounds: int | None = None) -> dict:
+    """Shared scored-fold/final fit; neither may depend on its scored window."""
+    pre = TrainFoldPreprocessor().fit(X_raw) if name in LINEAR_MEMBERS else None
+    model = _make_member(name, fold=fold,
+                         n_estimators=xgb_rounds if name == "xgboost" else None,
+                         causal=name == "xgboost")
+    X = member_fit_input(name, X_raw, pre)
+    kwargs = ({"verbose": False} if name == "xgboost" else
+              {"categorical_feature": list(config.TREE_CATEGORICAL_COLS)}
+              if name == "lightgbm" else {})
+    model.fit(X, y, **kwargs)
+    # Check actual booster semantics, not just the constructor flag. Test
+    # doubles without a booster still exercise the shared fit interface.
+    if name == "xgboost" and hasattr(model, "get_booster"):
+        booster = model.get_booster()
+        types = dict(zip(booster.feature_names, booster.feature_types))
+        for col in config.TREE_CATEGORICAL_COLS:
+            if types.get(col) != "c":
+                raise ValueError(f"XGBoost must fit {col} as categorical")
+    return {"model": model, "pre": pre}
 
 
 def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
@@ -230,41 +265,19 @@ def walk_forward_oof(game_df: pd.DataFrame,
 
         member_p: dict[str, np.ndarray] = {}
         y_val = val["home_win"].astype(int).to_numpy()
+        fold_xgb_rounds = causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
         for name in config.ENSEMBLE_MEMBERS:
             X_tr_raw = member_matrix(name, train)
             X_va_raw = member_matrix(name, val)
             refit_rounds: int | None = None
-            if name in LINEAR_MEMBERS:
-                pre = TrainFoldPreprocessor().fit(X_tr_raw)
-            else:
-                pre = None
-                if name == "xgboost":
-                    # CAUSAL FOLD ROUNDS (MLB's 2026-09-30 PIT remediation,
-                    # ported): the fold's own val window must never select
-                    # the model that scores it. The shipped model below is
-                    # refit at the median of PRIOR folds' measured rounds.
-                    refit_rounds = causal_xgb_rounds(_LAST_XGB_BEST_ROUNDS)
+            if name == "xgboost":
+                refit_rounds = fold_xgb_rounds
             try:
-                model = _make_member(name, fold=True,
-                                     n_estimators=refit_rounds,
-                                     causal=bool(refit_rounds is not None))
+                entry = _fit_member(name, X_tr_raw, y_train, fold=True,
+                                    xgb_rounds=refit_rounds)
+                model, pre = entry["model"], entry["pre"]
                 X_tr = member_fit_input(name, X_tr_raw, pre)
                 X_va = member_fit_input(name, X_va_raw, pre)
-                fit_kwargs = {}
-                if name == "xgboost":
-                    # The SHIPPED fold model: FIXED round budget from strictly
-                    # prior folds, no eval_set — it cannot be steered by the
-                    # window it is about to be scored on.
-                    fit_kwargs = {"verbose": False}
-                elif name == "lightgbm":
-                    # MLB supplies the same fold evaluation set to LightGBM.
-                    # (Inert for round selection: LIGHTGBM_PARAMS has no
-                    # early stopping, so nothing is tuned on the window.)
-                    fit_kwargs = {
-                        "eval_set": [(X_va, y_val)],
-                        "categorical_feature": config.TREE_CATEGORICAL_COLS,
-                    }
-                model.fit(X_tr, y_train, **fit_kwargs)
                 if name == "xgboost":
                     # The early-stopped probe runs AFTER the shipped fit and
                     # is a MEASUREMENT ONLY: its best_iteration enters the
@@ -293,8 +306,8 @@ def walk_forward_oof(game_df: pd.DataFrame,
         # they land in ``oof`` and therefore in ``*_predictions_history`` --
         # but they are never evidence FOR the model, only evidence ABOUT it.
         # NHL retained every window on 2026-09-30; this makes that retention
-        # meaningful by keeping a 7-game Stanley Cup week from carrying the
-        # same SLSQP vote as a 70-game week.
+        # explicit. The objective is pooled per GAME, not equal per fold;
+        # this is a population policy, not a correction for fold weighting.
         if "game_type" in val:
             is_post = folds_mod.postseason_flag(val["game_type"]).to_numpy()
         elif "is_playoffs" in val:
@@ -328,6 +341,8 @@ def walk_forward_oof(game_df: pd.DataFrame,
         # (fold 0 rides the static 1/3 priors).
         fold_weights = dict(_last_weights)
         rows["p_ensemble"] = _blend(rows, fold_weights)
+        for name in config.ENSEMBLE_MEMBERS:
+            rows[f"weight_{name}"] = fold_weights.get(name, 0.0)
         # Only after scoring the fold may its outcomes enter the weight
         # window: accumulate this fold's GRADING member predictions, then
         # re-earn the blend weights for the NEXT fold (causal walk-forward
@@ -352,6 +367,9 @@ def walk_forward_oof(game_df: pd.DataFrame,
             "season_type": getattr(fold, "season_type", "regular"),
             "provisional": fold_provisional,
             "n_grading": int(grades.sum()),
+            "xgb_rounds": fold_xgb_rounds,
+            **{f"weight_{name}": fold_weights.get(name, 0.0)
+               for name in config.ENSEMBLE_MEMBERS},
         })
         oof_parts.append(rows)
         if (fold.fold_id + 1) in announce:
@@ -445,34 +463,22 @@ def walk_forward_oof(game_df: pd.DataFrame,
     # The last rolling update is the full-population optimum — the shipped
     # weight for serving and the dashboard.
     weights = dict(_last_weights)
-    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05, MLB parity)
-    # ─────────────────────────────────────────────────────────────────────
-    # The artifact's headline metrics, calibration curve/buckets and shipped
-    # Platt fit describe THE blend the deployed binary serves: member
-    # probabilities from each fold's strictly-prior models combined with the
-    # shipped weight vector (the same logit blend predict_slate applies at
-    # serve). The fold-time CAUSAL blend (weights earned on PRIOR folds
-    # only) is preserved as p_ensemble_causal so the walk-forward honesty
-    # audit stays available. Weight EARNING stays strictly causal; only the
-    # published application changed.
+    # Headline/backtest/calibration inputs stay causal. The final all-prior
+    # serving weights are valid for FUTURE games, not an OOF meta-learner on
+    # their own fitting outcomes. Preserve their replay only as a diagnostic.
     if len(oof):
-        oof["p_ensemble_causal"] = pd.to_numeric(
-            oof["p_ensemble"], errors="coerce").to_numpy(float).copy()
-        oof["p_ensemble"] = _blend(oof, weights)
-        # Run-log evidence (2026-10-06 log review, MLB parity): the
-        # published-blend pass left no trace in the log — a reviewer could
-        # not tell whether the headline metrics graded the rolling
-        # training-time blend or the deployed bundle's blend. One line
-        # states the applied weights and the row count so the log, the
-        # artifact and the serving binary make the same claim.
+        oof["p_ensemble_causal"] = oof["p_ensemble"].to_numpy(float).copy()
+        oof["p_ensemble_retrospective"] = _blend(oof, weights)
         logger.info(
-            "Published blend: %d OOF rows re-pooled with the deployed weights "
-            "%s — headline metrics grade THE serving blend",
-            len(oof),
-            {k: f"{v:.1%}" for k, v in sorted(weights.items())},
-        )
+            "Published blend: %d OOF rows retain strictly-prior fold weights "
+            "— headline metrics grade the causal rolling blend; final serving "
+            "weights %s replay only in p_ensemble_retrospective (not OOF)",
+            len(oof), {k: f"{v:.1%}" for k, v in sorted(weights.items())})
+    best_rounds = list(_LAST_XGB_BEST_ROUNDS)
     return {"oof": oof, "member_weights": weights,
             "season_split": season_split,
+            "xgb_best_rounds": best_rounds,
+            "final_xgb_rounds": causal_xgb_rounds(best_rounds),
             "fold_table": pd.DataFrame(fold_rows)}
 
 
@@ -600,23 +606,26 @@ def _blend(oof: pd.DataFrame, weights: dict[str, float]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Final full-history refit (production serving models)
 # ---------------------------------------------------------------------------
-def fit_final_models(game_df: pd.DataFrame) -> tuple[dict, TrainFoldPreprocessor]:
-    """Fit every member on ALL eligible settled history. Returns
-    ({name: model}, fitted_preprocessor)."""
+def fit_final_models(game_df: pd.DataFrame,
+                     xgb_best_rounds: list[int] | None = None
+                     ) -> tuple[dict, TrainFoldPreprocessor]:
+    """Refit the next-origin policy on all settled history.
+
+    Pass THIS walk's probe ledger explicitly; never read mutable state left
+    by another walk. Without a ledger, use the same no-evidence fold prior.
+    All measured OOF windows are prior evidence relative to future serving.
+    """
+    df = folds_mod.canonical_sort(game_df, "gameday")
+    rounds = causal_xgb_rounds(xgb_best_rounds or [])
     models: dict = {}
-    pre = TrainFoldPreprocessor()
-    y = game_df["home_win"].astype(int).to_numpy()
+    y = df["home_win"].astype(int).to_numpy()
     for name in config.ENSEMBLE_MEMBERS:
-        X_raw = member_matrix(name, game_df)
-        if name in LINEAR_MEMBERS:
-            member_pre = TrainFoldPreprocessor().fit(X_raw)
-            model = _make_member(name)
-            model.fit(member_fit_input(name, X_raw, member_pre), y)
-            models[name] = {"model": model, "pre": member_pre}
-        else:
-            model = _make_member(name)
-            model.fit(member_fit_input(name, X_raw, None), y)
-            models[name] = {"model": model, "pre": None}
+        models[name] = _fit_member(name, member_matrix(name, df), y,
+                                   fold=False, xgb_rounds=rounds)
+    logger.info("final moneyline policy: xgb %d fixed rounds from %d prior "
+                "probe(s); shared fit representation/categoricals", rounds,
+                len(xgb_best_rounds or []))
+    pre = models.get("elasticnet", {}).get("pre") or TrainFoldPreprocessor()
     return models, pre
 
 
@@ -812,9 +821,56 @@ def _logloss(p: np.ndarray, y: np.ndarray) -> float:
     return float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
 
 
+def gated_calibrator(p_home: np.ndarray, home_win: np.ndarray,
+                     grades: np.ndarray | None = None) -> tuple[dict | None, dict]:
+    """The same nested prior-evidence gate at every fold and final origin.
+
+    Input is chronological CAUSAL blend evidence. Final serving never fits
+    an ungated map or uses retrospective replay to flatter its gate.
+    """
+    p = np.asarray(p_home, dtype=float)
+    y = np.asarray(home_win, dtype=float)
+    if p.ndim != 1 or p.shape != y.shape:
+        raise ValueError("calibration probabilities/targets must be aligned vectors")
+    eligible = np.ones(len(p), dtype=bool) if grades is None else np.asarray(grades, dtype=bool)
+    if eligible.shape != p.shape:
+        raise ValueError("calibration grading mask must align with predictions")
+    ok = eligible & np.isfinite(p) & np.isfinite(y) & (p > 0) & (p < 1)
+    p, y = p[ok], y[ok]
+    n_prior = len(p)
+    rec = {"n_prior": n_prior, "decision": "identity", "reason": "no_prior_evidence",
+           "nested_holdout_logloss": None, "raw_logloss": None, "params": None}
+    if n_prior < 2:
+        return None, rec
+    hold = max(config.CAL_GATE_MIN_HOLDOUT,
+               int(round(config.CAL_GATE_HOLDOUT_FRAC * n_prior)))
+    n_fit = n_prior - hold
+    if n_fit < config.MIN_OOF_FOR_FIT or hold < 2:
+        rec["reason"] = "insufficient_prior_evidence"
+        return None, rec
+    cand = moneyline_fit(p[:n_fit], y[:n_fit])
+    if cand is None:
+        rec["reason"] = "candidate_declined"
+        return None, rec
+    ll_cal = _logloss(moneyline_apply(p[n_fit:], cand), y[n_fit:])
+    ll_raw = _logloss(p[n_fit:], y[n_fit:])
+    rec.update(nested_holdout_logloss=round(ll_cal, 6), raw_logloss=round(ll_raw, 6))
+    if ll_cal >= ll_raw - config.CAL_GATE_EPS:
+        rec["reason"] = "gated_no_gain"
+        return None, rec
+    final = moneyline_fit(p, y)
+    if final is None:
+        rec["reason"] = "final_fit_declined"
+        return None, rec
+    rec.update(decision="fitted", reason="accepted",
+               params={"a": final["a"], "b": final["b"]})
+    return final, rec
+
+
 def prequential_fold_calibrators(
         p_home: np.ndarray, home_win: np.ndarray,
-        fold_ids: np.ndarray) -> tuple[dict[int, dict | None], dict]:
+        fold_ids: np.ndarray, grades: np.ndarray | None = None
+        ) -> tuple[dict[int, dict | None], dict]:
     """Per-fold favored-space calibrators, GATED by a nested prequential
     holdout (2026-10-01 remediation).
 
@@ -839,7 +895,10 @@ def prequential_fold_calibrators(
     p = np.asarray(p_home, dtype=float)
     y = np.asarray(home_win, dtype=float)
     folds = np.asarray(fold_ids)
-    ok = np.isfinite(p) & np.isfinite(y) & (p > 0.0) & (p < 1.0)
+    eligible = np.ones(len(p), dtype=bool) if grades is None else np.asarray(grades, dtype=bool)
+    if p.ndim != 1 or p.shape != y.shape or folds.shape != p.shape or eligible.shape != p.shape:
+        raise ValueError("prequential calibration vectors and grading mask must align")
+    ok = eligible & np.isfinite(p) & np.isfinite(y) & (p > 0.0) & (p < 1.0)
     # Uncapped degenerate/attempt counters around THIS block — the
     # per-block summary at the end reports the true denominator behind
     # the (capped) degenerate WARNINGs (MLB 2026-10-06 parity).
@@ -851,49 +910,16 @@ def prequential_fold_calibrators(
     for fold in np.unique(folds):
         fid = int(fold)
         prior_idx = np.flatnonzero(ok & (folds < fold))
-        rec: dict[str, Any] = {
-            "fold_id": fid, "n_prior": int(len(prior_idx)),
-            "decision": "identity", "reason": "no_prior_evidence",
-            "nested_holdout_logloss": None, "raw_logloss": None,
-            "params": None,
-        }
-        if len(prior_idx) >= 2:
-            # Temporal split of the strictly-prior evidence.
-            n_prior = len(prior_idx)
-            hold = max(config.CAL_GATE_MIN_HOLDOUT,
-                       int(round(config.CAL_GATE_HOLDOUT_FRAC * n_prior)))
-            fit_idx = prior_idx[:n_prior - hold] if n_prior > hold else []
-            hold_idx = prior_idx[-hold:] if hold else prior_idx
-            if (not len(fit_idx)
-                    or len(fit_idx) < config.MIN_OOF_FOR_FIT
-                    or len(hold_idx) < 2):
-                rec["reason"] = "insufficient_prior_evidence"
-            else:
-                cand = moneyline_fit(p[fit_idx], y[fit_idx])
-                if cand is None:
-                    rec["reason"] = "candidate_declined"
-                else:
-                    ll_cal = _logloss(
-                        apply_favored_platt(p[hold_idx], cand), y[hold_idx])
-                    ll_raw = _logloss(p[hold_idx], y[hold_idx])
-                    rec["nested_holdout_logloss"] = round(ll_cal, 6)
-                    rec["raw_logloss"] = round(ll_raw, 6)
-                    if ll_cal < ll_raw - config.CAL_GATE_EPS:
-                        final = moneyline_fit(p[prior_idx], y[prior_idx])
-                        if final is not None:
-                            calibrators[fid] = final
-                            rec.update(decision="fitted", reason="accepted",
-                                       params={"a": final["a"],
-                                               "b": final["b"]})
-                        else:
-                            rec["reason"] = "final_fit_declined"
-                    else:
-                        rec["reason"] = "gated_no_gain"
+        cal, rec = gated_calibrator(p[prior_idx], y[prior_idx])
+        rec["fold_id"] = fid
         fold_records.append(rec)
-        calibrators.setdefault(fid, None)
+        calibrators[fid] = cal
 
     audit: dict[str, Any] = {
         "method": "prequential_platt_gated",
+        "input_view": "causal_rolling_blend",
+        "training_population": "grades_pooled",
+        "n_eligible": int(eligible.sum()),
         "n_folds": len(fold_records),
         "n_fitted": sum(1 for r in fold_records if r["decision"] == "fitted"),
         "n_identity": sum(1 for r in fold_records if r["decision"] == "identity"),

@@ -160,9 +160,9 @@ MIN_VAL_FOLD_GAMES = 40
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-# Corrected Elo + official team PP/faceoff counts + team-aware goalie vote.
-# Existing v1.1 bundles require a full feature rebuild/OOF/refit, not reuse.
-FEATURE_SET_VERSION = "nhl-prod-v1.2-input-semantics"
+# Corrected hockey inputs + true XGB categories and shared fit/refit policy.
+# Existing v1.1/v1.2 bundles require a full feature rebuild/OOF/refit, not reuse.
+FEATURE_SET_VERSION = "nhl-prod-v1.3-causal-evaluation"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)

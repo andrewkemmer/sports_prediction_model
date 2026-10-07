@@ -92,7 +92,10 @@ def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
         for name, ex in explainers.items():
             pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
             try:
-                X = ml_mod.member_matrix_ndarray(name, one, pre)
+                # XGB's true pandas categories must retain their static
+                # vocabulary at explanation time, just as at predict time.
+                X = (ml_mod.member_fit_input(name, ml_mod.member_matrix(name, one), pre)
+                     if name == "xgboost" else ml_mod.member_matrix_ndarray(name, one, pre))
                 # The list-output notice also fires from ``shap_values`` per
                 # call, not only at explainer init — suppress both seams or
                 # the log drowns again (the 2026-09-28 01:30 run showed the

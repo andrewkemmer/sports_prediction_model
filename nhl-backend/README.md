@@ -51,6 +51,38 @@ NHL_NO_PUSH=1 python backend/master_pipeline.py --skip-pull
 See [repair verification](../docs/nhl_input_repairs.md). The original audit's
 historical measurements remain a record of the pre-repair artifacts.
 
+## Causal evaluation and refit policy (feature version v1.3)
+
+Current runs use `nhl-prod-v1.3-causal-evaluation` (including the v1.2 input
+repairs above). A full pipeline rerun is required; do not reuse v1.1/v1.2 bundles.
+
+* Headline `p_ensemble` and its compatibility alias `p_ensemble_causal` retain
+  each fold's strictly-prior learned weights. Final all-prior weights serve
+  future games; their `p_ensemble_retrospective` replay is diagnostic **not OOF**.
+* Both prequential and final serving calibration use causal blend evidence,
+  the same `grades_pooled` eligibility, and the same nested prior-evidence
+  acceptance gate. No gain means identity, including for final serving.
+* XGBoost consumes true pandas categories with a fixed team vocabulary and
+  reserved unknown slot at fit, predict, and explanation time. LightGBM's
+  categorical declarations are identical in scored folds and final refits.
+* The final XGBoost refit receives this walk's probe-round ledger explicitly
+  and uses the same median-prior policy as the next fold, never the estimator's
+  implicit 100-tree default. Fold budgets and learned weights are persisted
+  with the OOF diagnostics.
+* Prediction history keeps its existing columns but now contains causal
+  backtest probabilities. Existing frozen live-card history remains unchanged.
+  Calibration buckets use the same grading population as headline metrics;
+  daily/postseason/provisional views are separate, still causal reports.
+
+Expect headline metrics to change because both inputs and evaluation policy
+changed. Do not interpret a higher honest loss than the old retrospective score
+as proof of worse predictive skill; compare like-for-like causal views.
+See [evaluation verification and rerun checklist](../docs/nhl_causal_evaluation.md).
+The Kaggle-owned notebook was not edited. Ensure its existing clone/update
+step pulls the latest `main` code before rerunning the **full** pipeline.
+The v5 cache namespace refetches corrected boxscore/team counts without deleting
+other caches; no blanket cache purge is needed.
+
 ## Model family (identical to MLB/NFL)
 
 * **Moneyline**: XGBoost + LightGBM + elastic-net ensemble, MLB-tuned member
