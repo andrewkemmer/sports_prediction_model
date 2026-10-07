@@ -688,6 +688,20 @@ else:
 # ---------------------------------------------------------------------------
 st.markdown("### Model Version History")
 history = mon.get("version_history", []) or []
+# NFL bridge (2026-10-07): the published nfl_model_monitor_*.json artifacts
+# each carry ONE run's snapshot row (the emitter's rolling-20 block ships
+# from the next pipeline run, and delivered artifacts stay as delivered), so
+# this table read as "missing records" beside MLB's rolling history. Fold
+# the dated artifact family — the load_nfl_run_engine_monitor_series
+# pattern — so every record the artifacts still carry renders in MLB's
+# exact oldest-first rolling presentation. MLB/NHL/NBA are untouched: MLB's
+# artifact already carries its history inline, and their folds stay out of
+# this NFL-scoped bridge.
+if utils.get_sport() == "nfl":
+    history = utils.load_model_monitor_version_history(
+        "nfl", mon,
+        as_of=st.session_state.get("monitor_served_date") or date_str,
+    ) or history
 if history:
     _W_ABBR = {
         "xgboost": "xgb", "lightgbm": "lgb",

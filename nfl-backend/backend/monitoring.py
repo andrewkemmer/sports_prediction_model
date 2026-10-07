@@ -1175,6 +1175,171 @@ def write_markets_monitor_json(path, run_date: str,
     return record
 
 
+# ---------------------------------------------------------------------------
+# Model Monitor report contract (MLB parity)
+# ---------------------------------------------------------------------------
+# The shared Model Monitor page renders the SAME tables for every sport, so
+# the monitor artifact's report blocks must carry MLB's row structure and
+# field SEMANTICS verbatim (mlb-backend/backend/explainability.py builds
+# these rows; that file is the reference):
+#
+#   * feature_drift -- MLB's 13-key row. ``psi`` is the RAW PSI and
+#     ``psi_adjusted`` is the judged excess (max(psi - noise_floor, 0)); the
+#     NFL builder's own fields use ``psi`` for the judged value and park the
+#     raw figure in ``psi_raw``, which made the report's PSI column mean
+#     something different from MLB's beside the same caption. The
+#     null-draw diagnostics (psi_raw / psi_null_median / psi_null_draws)
+#     stay OUT of the report block (the run-engine drift CSV keeps them) --
+#     MLB ships no such keys and the page renders no such columns.
+#   * feature_coverage -- MLB's 9-key row, including ``n_nonnull`` /
+#     ``n_measured`` counts (the engine never default-fills, so the two are
+#     equal and n_default_zero is 0).
+#   * version_history -- MLB's model_version_history.json snapshot row
+#     (version vYYYY.MM.DD, ISO date, roster weights at 4 decimals, the
+#     pooled metric keys, the deployed map's {a, b, n, method, floor}),
+#     accumulated across runs into MLB's rolling window exactly like
+#     training.update_model_version_history (merge by version, last
+#     VERSION_HISTORY_CAP rows, newest run's row wins).
+#
+# ``structural_reason`` rides along ONLY when truthy -- it is the shared
+# page's documented STRUCTURAL overlay (a stable constant / declared
+# missing-value policy with its reason), which MLB's emitters simply never
+# have cause to fill. Nothing here changes any model output: this is the
+# monitoring report's shape only.
+
+VERSION_HISTORY_CAP = 20  # MLB training.VERSION_HISTORY_CAP parity
+
+_DRIFT_REPORT_KEYS = (
+    "feature", "current_mean", "baseline_mean", "psi", "psi_adjusted",
+    "noise_floor", "mean_shift", "shift_se", "location_shift", "status",
+    "weight_pct", "n_baseline", "n_current",
+)
+
+
+def _mlb_drift_report_row(r: dict) -> dict:
+    """One Feature Drift report row in MLB's exact structure."""
+    out = {k: r.get(k) for k in _DRIFT_REPORT_KEYS}
+    # psi <- the RAW PSI (MLB semantics); the NFL builder ships the judged
+    # value under "psi" and the raw figure under "psi_raw".
+    out["psi"] = r.get("psi_raw", r.get("psi"))
+    if r.get("structural_reason"):
+        out["structural_reason"] = r.get("structural_reason")
+    return out
+
+
+def _mlb_coverage_report_row(r: dict) -> dict:
+    """One Feature Coverage report row in MLB's exact structure.
+
+    ``n_nonnull`` / ``n_measured`` are exact when the builder shipped them
+    and recovered from the published percentages otherwise (the percentages
+    are round(100 * n / n_games, 2), so the reverse map is exact at these
+    window sizes). The NFL engine never default-fills -- a non-null value is
+    always a measurement -- so the two counts are equal by construction.
+    """
+    n_games = int(r.get("n_games") or 0)
+
+    def _count(pct_key: str, n_key: str) -> int:
+        if isinstance(r.get(n_key), (int, float)):
+            return int(r[n_key])
+        try:
+            return int(round(float(r.get(pct_key)) * n_games / 100.0))
+        except (TypeError, ValueError):
+            return 0
+
+    out = {
+        "feature": r.get("feature"),
+        "window": r.get("window"),
+        "n_games": n_games,
+        "n_nonnull": _count("pct_nonnull", "n_nonnull"),
+        "pct_nonnull": r.get("pct_nonnull"),
+        "n_measured": _count("pct_measured", "n_measured"),
+        "pct_measured": r.get("pct_measured"),
+        "n_default_zero": r.get("n_default_zero", 0),
+        "status": r.get("status", "OK"),
+    }
+    if r.get("structural_reason"):
+        out["structural_reason"] = r.get("structural_reason")
+    return out
+
+
+def _version_history_row(iso_date: str, ensemble: list[dict],
+                         m: dict, cal: dict | None) -> dict:
+    """One Model Version History snapshot row in MLB's exact structure
+    (``training.update_model_version_history``'s row contract): the version
+    stamp, the ISO date, the roster weights at 4 decimals, the pooled metric
+    keys MLB ships, and the deployed map's {a, b, n, method, floor}. Values
+    missing from this run stay ABSENT -- never fabricated (MLB writes no
+    partial snapshots; the shared page renders an absent cell as '—')."""
+    row: dict = {
+        "version": "v" + iso_date.replace("-", "."),
+        "date": iso_date,
+        "weights": {str(r.get("name")): round(float(r.get("weight") or 0.0), 4)
+                    for r in ensemble
+                    if isinstance(r, dict) and r.get("name") is not None},
+    }
+    for k in ("auc", "brier", "logloss", "ece",
+              "brier_calibrated", "logloss_calibrated", "ece_calibrated"):
+        if isinstance(m.get(k), (int, float)):
+            row[k] = m[k]
+    if (isinstance(cal, dict) and cal.get("a") is not None
+            and cal.get("b") is not None):
+        row["calibration"] = {
+            "a": cal["a"], "b": cal["b"],
+            **({"n": int(cal["n"])}
+               if isinstance(cal.get("n"), (int, float)) else {}),
+            **({"method": str(cal["method"])} if cal.get("method") else {}),
+            **({"floor": float(cal["floor"])}
+               if cal.get("floor") is not None else {}),
+        }
+    return row
+
+
+def _rolling_version_history(path, current_row: dict) -> list[dict]:
+    """The rolling Model Version History -- MLB's model_version_history.json
+    semantics with the dated monitor family as the store (NFL ships no
+    separate master file).
+
+    Every dated ``nfl_model_monitor_*.json`` beside ``path`` carries the rows
+    it knew, so folding them preserves every record that ever shipped: merge
+    by ``version`` (newest artifact wins, THIS run's row always wins), never
+    pull a record dated after this run (a fold over a mixed-age dir must not
+    leak a later run into an earlier report), order oldest-first, keep the
+    last VERSION_HISTORY_CAP rows. Records survive retention because each
+    new artifact embeds the rows this fold recovered."""
+    prefix = str(config.MODEL_MONITOR_JSON).split("{")[0]
+    cur_date = str(current_row.get("date") or "")
+
+    def _key(row: dict):
+        return str(row.get("version") or
+                   (row.get("date"), str(row.get("weights"))))
+
+    rows: dict = {}
+    try:
+        files = sorted(path.parent.glob(f"{prefix}*.json"),
+                       key=lambda p: p.name, reverse=True)[:60]
+    except OSError:  # pragma: no cover - unreadable artifact dir
+        files = []
+    for f in files:
+        if f.name == path.name:
+            continue  # the file being written now; its row comes from the caller
+        try:
+            prior = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for row in (prior.get("version_history") or []):
+            if not isinstance(row, dict):
+                continue
+            rd = str(row.get("date") or "")
+            if cur_date and (not rd or rd > cur_date):
+                continue  # no date / future date: not this report's history
+            rows.setdefault(_key(row), row)
+    rows[_key(current_row)] = current_row  # this run's row wins its version
+    ordered = sorted(rows.values(),
+                     key=lambda r: (str(r.get("date") or ""),
+                                    str(r.get("version") or "")))
+    return ordered[-VERSION_HISTORY_CAP:]
+
+
 def write_monitor_json(path, run_date: str, drift: list[dict],
                        cov: list[dict], ensemble: list[dict],
                        rb: dict, baseline: float,
@@ -1186,11 +1351,13 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
     All rendering fields the shared monitor page reads are present:
     ISO retrain dates (+ same-day notes), the dense ``rolling_brier_meta``
     (window_days / min_games_per_day / excluded_sparse_days /
-    calibrator_is_identity / map_scope_note), and a version-history row with
-    pooled AUC / logloss / calibrated ECE + the deployed Platt map. All
-    values are the NFL pipeline's own outputs. The *_note fields are None
-    (MLB's emitter ships no notes) so the shared page renders the identical
-    fallback presentation for both sports.
+    calibrator_is_identity / map_scope_note), the MLB-identical report
+    blocks (:func:`_mlb_drift_report_row` / :func:`_mlb_coverage_report_row`)
+    and the rolling version history (:func:`_version_history_row` /
+    :func:`_rolling_version_history`) with pooled metrics + the deployed
+    Platt map. All values are the NFL pipeline's own outputs. The *_note
+    fields are None (MLB's emitter ships no notes) so the shared page
+    renders the identical fallback presentation for both sports.
 
     ``rb`` is the ``rolling_brier`` RECORD, and ``rolling_brier_meta`` is
     populated from it. The meta block used to be hardcoded 30/1/0 -- numbers
@@ -1236,17 +1403,12 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         features_meta = feature_tooltips(_tool_names)
     except Exception:  # pragma: no cover - metadata only
         features_meta = {}
-    version_row: dict = {
-        "version": run_date, "date": iso_date,
-        "weights": {r["name"]: r["weight"] for r in ensemble},
-        "auc": m.get("auc") or (ensemble[0].get("auc") if ensemble else None),
-        "logloss": m.get("logloss"),
-        "ece_calibrated": m.get("ece_calibrated") or m.get("ece"),
-        "note": "rebuild run",
-    }
-    if cal:
-        version_row["calibration"] = {"a": cal["a"], "b": cal["b"]}
+    # One snapshot row for THIS run in MLB's schema, accumulated with the
+    # rows the dated family already carries (MLB's rolling-20 presentation).
+    version_row = _version_history_row(iso_date, ensemble or [], m, cal)
     record = {
+        "date": run_date,
+        "version": version_row["version"],
         "last_retrained": iso_date,
         # MLB's emitter ships no *_note fields — the shared frontend falls
         # back to its own presentation ("Model healthy — today" / "tonight"),
@@ -1259,9 +1421,11 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         # 'No note available.' empty state. Match it (the NFL upset-rate
         # context lives in the artifact's fold/metrics blocks, not here).
         "upset_note": None,
-        "feature_drift": drift,
+        "feature_drift": [_mlb_drift_report_row(r) for r in drift
+                          if isinstance(r, dict)],
         "features_metadata": features_meta,
-        "feature_coverage": cov,
+        "feature_coverage": [_mlb_coverage_report_row(r) for r in cov
+                             if isinstance(r, dict)],
         "ensemble": ensemble,
         "rolling_brier": rb.get("series", []),
         "brier_baseline": baseline,
@@ -1283,7 +1447,7 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
         # comparison; MLB/NBA emit this key and NHL/NFL omitted it, so that
         # row rendered em-dashes against perfectly good member rows.
         "metrics": m,
-        "version_history": [version_row],
+        "version_history": _rolling_version_history(path, version_row),
         "fold_geometry": fold_info,
         "config": config_meta,
     }

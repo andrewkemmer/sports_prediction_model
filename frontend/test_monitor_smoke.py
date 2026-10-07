@@ -4,9 +4,11 @@ The NFL Model Monitor page now runs the SAME code as MLB (no sport-special
 path). This test:
 
 1. Writes a REPRESENTATIVE ``nfl_model_monitor_*.json`` (matching the exact
-   shape the NFL backend ``nfl_monitor.build_model_monitor`` emits) into the
-   real ``nfl-backend/data_delivery`` dir, so the page renders with real
-   data (removed after the run).
+   MLB-identical shape the NFL backend ``monitoring.write_monitor_json``
+   emits) into the real ``nfl-backend/data_delivery`` dir, so the page
+   renders with real data (removed after the run) — plus the DATED artifact
+   before it, carrying one version-history row each, so the family fold is
+   exercised against the shape the published artifacts actually have.
 2. Runs the ACTUAL ``model_monitor.py`` under ``sport=nfl`` and asserts the
    MLB-identical sections render: the last/next retrain + drift-alert health
    boxes, the upset-monitoring callout, the Feature Drift (PSI) matrix with
@@ -29,6 +31,7 @@ Run from the frontend/ directory:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -45,6 +48,13 @@ ARTIFACT_DATE = "20260923"
 MONITOR_NAME = f"nfl_model_monitor_{ARTIFACT_DATE}.json"
 MONITOR_PATH = NFL_DD / MONITOR_NAME
 MLB_MONITOR_PATH = MLB_DD / f"model_monitor_{ARTIFACT_DATE}.json"
+# A second dated NFL artifact carrying ONE version-history row (the shape
+# the published nfl_model_monitor_* family actually has) — the page must
+# fold the family so the history table shows BOTH records, MLB's rolling
+# presentation, instead of the served artifact's single row.
+PREV_ARTIFACT_DATE = "20260922"
+PREV_MONITOR_NAME = f"nfl_model_monitor_{PREV_ARTIFACT_DATE}.json"
+PREV_MONITOR_PATH = NFL_DD / PREV_MONITOR_NAME
 
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
@@ -82,25 +92,33 @@ def _monitor_record() -> dict:
          "status": "OK", "weight_pct": 0.0,
          "n_baseline": 1930, "n_current": 285},
     ]
+    # MLB's exact 9-key coverage row (feature, window, n_games, n_nonnull,
+    # pct_nonnull, n_measured, pct_measured, n_default_zero, status) — the
+    # 2026-10-07 structure parity: the report must carry the same fields
+    # MLB's model_monitor ships, counts included.
     coverage = [
         {"feature": "elo_diff", "window": "decided pool", "n_games": 1960,
-         "pct_measured": 100.0, "pct_nonnull": 100.0, "n_default_zero": 0,
+         "n_nonnull": 1960, "pct_nonnull": 100.0,
+         "n_measured": 1960, "pct_measured": 100.0, "n_default_zero": 0,
          "status": "OK"},
         {"feature": "temp_f", "window": "decided pool", "n_games": 1960,
-         "pct_measured": 3.0, "pct_nonnull": 3.0, "n_default_zero": 0,
+         "n_nonnull": 59, "pct_nonnull": 3.0,
+         "n_measured": 59, "pct_measured": 3.0, "n_default_zero": 0,
          "status": "STARVED"},
         # Real 2026-09-29 MLB artifact shape: the offspeed exp2 category
         # measures ~56% in BOTH windows BY CONSTRUCTION (sparse offspeed
         # PA vs the category PA floor) — the panel must label it
         # structural rather than paging it as a fetch regression.
         {"feature": "exp2_cat_k_offspeed_diff", "window": "current",
-         "n_games": 87, "pct_measured": 56.0, "pct_nonnull": 56.0,
-         "n_default_zero": 0, "status": "LOW_COVERAGE"},
+         "n_games": 87, "n_nonnull": 49, "pct_nonnull": 56.0,
+         "n_measured": 49, "pct_measured": 56.0, "n_default_zero": 0,
+         "status": "LOW_COVERAGE"},
         # NFL 2026-09-29: documented-policy absence arrives pre-classified as
         # STRUCTURAL with the backend-declared reason — the panel must render
         # it calm (reason text present) while starved/low rows still page.
         {"feature": "temp_f", "window": "current", "n_games": 60,
-         "pct_measured": 68.33, "pct_nonnull": 68.33, "n_default_zero": 0,
+         "n_nonnull": 41, "pct_nonnull": 68.33,
+         "n_measured": 41, "pct_measured": 68.33, "n_default_zero": 0,
          "status": "STRUCTURAL", "structural_reason": "indoor/closed"},
     ]
     ensemble = [
@@ -151,12 +169,40 @@ def _monitor_record() -> dict:
                                "map_scope_note": "Platt map deployed"},
         "brier_baseline": 0.23,
         "brier_baseline_label": "Constant home-edge",
+        # MLB's model_version_history row schema (version vYYYY.MM.DD, ISO
+        # date, roster weights, the pooled metric keys, the deployed map's
+        # {a, b, n, method, floor}) — the 2026-10-07 structure parity.
         "version_history": [
-            {"version": ARTIFACT_DATE, "date": "2026-08-31",
+            {"version": "v2026.08.31", "date": "2026-08-31",
              "weights": {"xgboost": 0.45, "lightgbm": 0.0, "elasticnet": 0.0,
                          "randomforest": 0.0, "mlp": 0.0},
-             "auc": 0.6911, "logloss": 0.6329, "ece_calibrated": 0.0290,
-             "calibration": {"a": 1.233, "b": 0.130}}],
+             "auc": 0.6911, "brier": 0.2040, "logloss": 0.6329,
+             "ece": 0.0211, "brier_calibrated": 0.2039,
+             "logloss_calibrated": 0.6328, "ece_calibrated": 0.0290,
+             "calibration": {"a": 1.233, "b": 0.130, "n": 1200,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}}],
+    }
+
+
+def _prev_monitor_record() -> dict:
+    """The dated artifact BEFORE the served one, carrying exactly one
+    version-history row — the shape every published ``nfl_model_monitor_*``
+    artifact has. The page's family fold must surface it beside the served
+    row (the "model version history is missing records" defect)."""
+    return {
+        "date": PREV_ARTIFACT_DATE,
+        "version": "v2026.08.30",
+        "version_history": [
+            {"version": "v2026.08.30", "date": "2026-08-30",
+             "weights": {"xgboost": 0.50, "lightgbm": 0.0, "elasticnet": 0.0,
+                         "randomforest": 0.0, "mlp": 0.0},
+             "auc": 0.6880, "brier": 0.2055, "logloss": 0.6344,
+             "ece": 0.0220, "brier_calibrated": 0.2058,
+             "logloss_calibrated": 0.6349, "ece_calibrated": 0.0301,
+             "calibration": {"a": 1.201, "b": 0.118, "n": 1150,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}}],
     }
 
 
@@ -239,6 +285,8 @@ def _stage(path: Path, data: bytes) -> None:
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
     _stage(MONITOR_PATH, json.dumps(_monitor_record(), indent=2).encode("utf-8"))
+    _stage(PREV_MONITOR_PATH,
+           json.dumps(_prev_monitor_record(), indent=2).encode("utf-8"))
     MLB_DD.mkdir(parents=True, exist_ok=True)
     _stage(MLB_MONITOR_PATH,
            json.dumps(_mlb_monitor_record(), indent=2).encode("utf-8"))
@@ -400,6 +448,49 @@ def run() -> int:
             problems.append("missing version-history section")
         if "No version history yet" in text:
             problems.append("version history empty instead of a populated row")
+
+        # (7b) MLB-identical ROLLING history: each published NFL artifact
+        #      carries one run's row, so the page must fold the dated family
+        #      (the 2026-10-07 defect: the table showed 1 record beside
+        #      MLB's 20). Both staged rows must render, oldest first, under
+        #      MLB's column structure.
+        if len(at.table) != 1:
+            problems.append(
+                f"expected ONE version-history st.table, got {len(at.table)}")
+        else:
+            vh = at.table[0].value
+            mlb_cols = ["VERSION", "DATE", "WEIGHTS", "AUC", "LOGLOSS",
+                        "CAL. ECE", "CAL. MAP"]
+            if list(vh.columns) != mlb_cols:
+                problems.append(
+                    f"version-history columns {list(vh.columns)} != MLB's "
+                    f"{mlb_cols}")
+            vers = list(vh["VERSION"]) if "VERSION" in vh.columns else []
+            if vers != ["v2026.08.30", "v2026.08.31"]:
+                problems.append(
+                    f"version history not the folded family (oldest-first): "
+                    f"{vers}")
+
+        # (7c) structure parity with MLB: the report tables carry MLB's
+        #      rendered column sets exactly (drift incl. the decision
+        #      columns + MODEL WEIGHT, coverage incl. % MEASURED / %
+        #      NON-NULL, ensemble incl. the blend metrics columns).
+        _expected_headers = [
+            ["FEATURE", "CURRENT MEAN", "BASELINE MEAN", "PSI", "PSI ADJ.",
+             "SHIFT SE", "MODEL WEIGHT", "STATUS"],
+            ["FEATURE", "WINDOW", "GAMES", "% MEASURED", "% NON-NULL",
+             "STATUS"],
+            ["MODEL", "DESCRIPTION", "WEIGHT", "AUC", "BRIER", "LOG LOSS"],
+        ]
+        _headers = []
+        for el in at.markdown:
+            m = re.search(r"<thead>(.*?)</thead>", str(el.value), re.S)
+            if m:
+                _headers.append(re.findall(r"<th>(.*?)</th>", m.group(1)))
+        if _headers != _expected_headers:
+            problems.append(
+                f"report table headers { _headers } != MLB's "
+                f"{_expected_headers}")
 
         if problems:
             print("MONITOR SMOKE TEST — FAIL (sport=nfl)")

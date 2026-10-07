@@ -2945,6 +2945,79 @@ def load_model_monitor(date_str: str,
     return json.loads(data)
 
 
+def load_model_monitor_version_history(sport: str | None,
+                                       served: dict,
+                                       as_of: str,
+                                       limit: int = 20) -> list[dict]:
+    """Rolling Model Version History, folded across the dated monitor family.
+
+    MLB's ``model_monitor_*.json`` carries its rolling history inline (its
+    backend merges ``model_version_history.json``), but the published
+    ``nfl_model_monitor_*.json`` artifacts each carry ONE run's row — the
+    emitter's rolling block ships from the next pipeline run, and delivered
+    artifacts stay as delivered — so the table read as "missing records"
+    beside MLB's rolling 20. This fold (the
+    ``load_nfl_run_engine_monitor_series`` pattern applied to the monitor
+    family) recovers every record the family still carries:
+
+    * rows merge by ``version`` (the served artifact's copy wins — the
+      screen shows that artifact),
+    * a record dated after ``as_of`` (the SERVED artifact's date) is never
+      pulled in from the future,
+    * the result is oldest-first and capped at ``limit`` — the exact
+      presentation MLB's emitter ships (20 rows).
+
+    Records survive retention because each new artifact embeds the rows
+    this fold recovered."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix = {"mlb": "model_monitor", "nfl": "nfl_model_monitor",
+              "nhl": "nhl_model_monitor", "nba": "nba_model_monitor"}.get(
+                  s, "model_monitor")
+
+    def _iso(v) -> str:
+        t = str(v or "").replace("-", "")
+        return (f"{t[:4]}-{t[4:6]}-{t[6:8]}"
+                if len(t) >= 8 and t[:8].isdigit() else str(v or ""))
+
+    served_rows = [r for r in (served.get("version_history") or [])
+                   if isinstance(r, dict)]
+    cutoff = _iso(as_of)
+    as_of_compact = cutoff.replace("-", "")
+
+    def _key(row: dict):
+        return str(row.get("version") or
+                   (row.get("date"), str(row.get("weights"))))
+
+    merged: dict = {}
+    cfg = get_source_config()
+    # Newest-first walk (bounded): the first artifact to carry a version
+    # wins among the family copies. Local reads and fetch misses are cached
+    # by _fetch_bytes, so the walk is cheap on reruns.
+    family_dates = [d for d in _family_dated_dates(s, [(prefix, ".json")])[:25]
+                    if d != as_of_compact]
+    for d in family_dates:
+        raw, _src = _fetch_bytes(f"{prefix}_{d}.json", **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            prior = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        for row in (prior.get("version_history") or []):
+            if not isinstance(row, dict):
+                continue
+            rd = _iso(row.get("date"))
+            if not rd or not cutoff or rd > cutoff:
+                continue
+            merged.setdefault(_key(row), row)
+    for row in served_rows:  # the artifact on screen wins its versions
+        merged[_key(row)] = row
+    ordered = sorted(merged.values(),
+                     key=lambda r: (_iso(r.get("date")),
+                                    str(r.get("version") or "")))
+    return ordered[-limit:]
+
+
 def load_shap(game_id: str, date_str: str,
               sport: str | None = None) -> pd.DataFrame:
     """Per-game SHAP attributions (feature, shap_value, signed_effect,

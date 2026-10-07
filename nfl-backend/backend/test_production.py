@@ -3558,6 +3558,100 @@ try:
             Path("probe.json"), "20260927", [], _cov, [], _rb, 0.4547, {}, {},
             platt=None)
 
+    # ── Model Monitor report contract (MLB structure parity) ────────────
+    # The shared page renders one table per report block and MLB's emitter
+    # (explainability.compute_feature_drift / compute_feature_coverage +
+    # training.update_model_version_history) is the reference shape. The
+    # report blocks must therefore carry MLB's keys with MLB's SEMANTICS:
+    # psi = RAW PSI (the judged value lives in psi_adjusted), coverage rows
+    # carry the n_nonnull / n_measured counts, and the version history is
+    # MLB's rolling snapshot window folded across the dated family.
+    _drift_probe = [{
+        "feature": "elo_diff", "current_mean": 6.21, "baseline_mean": -1.33,
+        "psi": 0.12, "psi_raw": 0.126, "psi_adjusted": 0.12,
+        "noise_floor": 0.17, "psi_null_median": 0.138, "psi_null_draws": 200,
+        "mean_shift": 7.5, "shift_se": 13.2, "location_shift": False,
+        "status": "OK", "structural_reason": None,
+        "weight_pct": 13.78, "n_baseline": 250, "n_current": 60}]
+    _cov_probe = [{
+        "feature": "temp_f", "window": "current", "n_games": 60,
+        "pct_measured": 68.33, "pct_nonnull": 68.33, "n_default_zero": 0,
+        "status": "STRUCTURAL", "structural_reason": "indoor/closed"}]
+    import tempfile as _tempfile
+    with _tempfile.TemporaryDirectory() as _td:
+        _tdp = Path(_td)
+        for _d in ("20260925", "20260926"):
+            (_tdp / f"nfl_model_monitor_{_d}.json").write_text(json.dumps({
+                "version_history": [{
+                    "version": "v%s.%s.%s" % (_d[:4], _d[4:6], _d[6:8]),
+                    "date": f"{_d[:4]}-{_d[4:6]}-{_d[6:8]}"}]}))
+        _fold_rec = monitoring_mod.write_monitor_json(
+            _tdp / "nfl_model_monitor_20260927.json", "20260927",
+            _drift_probe, _cov_probe, [{"name": "xgboost", "weight": 0.5}],
+            _rb, 0.4547, {}, {},
+            metrics={"auc": 0.7, "brier": 0.21, "logloss": 0.63, "ece": 0.02,
+                     "brier_calibrated": 0.211, "logloss_calibrated": 0.631,
+                     "ece_calibrated": 0.021},
+            platt={"method": "favored_platt_floor", "a": 1.01, "b": 0.02,
+                   "n": 100, "floor": 0.5})
+    _d0 = _fold_rec["feature_drift"][0]
+    check("the drift report is MLB's 13-key row (psi = RAW PSI, judged "
+          "value in psi_adjusted)",
+          set(_d0) == {"feature", "current_mean", "baseline_mean", "psi",
+                       "psi_adjusted", "noise_floor", "mean_shift",
+                       "shift_se", "location_shift", "status", "weight_pct",
+                       "n_baseline", "n_current"}
+          and _d0["psi"] == 0.126 and _d0["psi_adjusted"] == 0.12,
+          f"keys={sorted(_d0)} psi={_d0.get('psi')}")
+    check("no NFL-only null-draw diagnostics leak into the report block",
+          not ({"psi_raw", "psi_null_median", "psi_null_draws"} & set(_d0)),
+          f"keys={sorted(_d0)}")
+    _c0 = _fold_rec["feature_coverage"][0]
+    check("the coverage report carries MLB's n_nonnull/n_measured counts",
+          _c0.get("n_nonnull") == 41 and _c0.get("n_measured") == 41
+          and set(_c0) >= {"feature", "window", "n_games", "n_nonnull",
+                           "pct_nonnull", "n_measured", "pct_measured",
+                           "n_default_zero", "status"},
+          f"row={_c0}")
+    check("the coverage STRUCTURAL reason rides along as the page's overlay",
+          _c0.get("structural_reason") == "indoor/closed", f"row={_c0}")
+    _vh = _fold_rec["version_history"]
+    check("version_history folds the dated family into MLB's rolling window",
+          [r.get("version") for r in _vh]
+          == ["v2026.09.25", "v2026.09.26", "v2026.09.27"],
+          f"rows={[r.get('version') for r in _vh]}")
+    _v0 = _vh[-1]
+    check("the version row is MLB's model_version_history snapshot schema",
+          set(_v0) == {"version", "date", "weights", "auc", "brier",
+                       "logloss", "ece", "brier_calibrated",
+                       "logloss_calibrated", "ece_calibrated", "calibration"}
+          and _v0["version"] == "v2026.09.27"
+          and _v0["weights"] == {"xgboost": 0.5}
+          and _v0["calibration"] == {"a": 1.01, "b": 0.02, "n": 100,
+                                    "method": "favored_platt_floor",
+                                    "floor": 0.5},
+          f"row={_v0}")
+    check("the artifact carries MLB's top-level date/version stamps",
+          _fold_rec.get("date") == "20260927"
+          and _fold_rec.get("version") == "v2026.09.27",
+          f"date={_fold_rec.get('date')!r} version={_fold_rec.get('version')!r}")
+    _future = _tempfile.TemporaryDirectory()
+    try:
+        _fdp = Path(_future.name)
+        (_fdp / "nfl_model_monitor_20260928.json").write_text(json.dumps({
+            "version_history": [{"version": "v2026.09.28",
+                                "date": "2026-09-28"}]}))
+        _norec = monitoring_mod.write_monitor_json(
+            _fdp / "nfl_model_monitor_20260927.json", "20260927",
+            [], [], [], _rb, 0.4547, {}, {})
+        check("the fold never leaks a LATER run's record into an earlier "
+              "report",
+              all(str(r.get("date") or "") <= "2026-09-27"
+                  for r in _norec["version_history"]),
+              f"rows={[r.get('date') for r in _norec['version_history']]}")
+    finally:
+        _future.cleanup()
+
     # The monitor's feature tooltips must be real documentation.
     _cov_names = list(config.active_moneyline_feature_cols())
     _meta = manifest_mod.feature_tooltips(_cov_names)
