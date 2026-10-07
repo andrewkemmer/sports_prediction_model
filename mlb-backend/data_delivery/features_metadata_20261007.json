@@ -182,7 +182,7 @@
     "team_barrel_diff": {
       "name": "team_barrel_diff",
       "summary": "Home barrel% (15g) \u2212 away barrel% (quality of contact)",
-      "definition": "Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).",
+      "definition": "Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.",
       "formula": "team_barrel_15g_home \u2212 team_barrel_15g_away",
       "source": "Statcast batted-ball data",
       "window": "15g",
@@ -193,7 +193,7 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "team_hardhit_diff": {
       "name": "team_hardhit_diff",
