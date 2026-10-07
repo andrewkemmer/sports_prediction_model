@@ -1368,14 +1368,16 @@ def derive_markets(oof: pd.DataFrame,
         p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
         base_p = float(np.asarray(y, float).mean())
         p_cal = prequential_calibrate(y, p, fold_idx)
+        # labels=[0.0, 1.0]: a degenerate window (all overs, all covers) must
+        # score, not crash — sklearn raises on single-class y_true.
         row = {
-            "engine_logloss": round(log_loss(y, p), 5),
+            "engine_logloss": round(log_loss(y, p, labels=[0.0, 1.0]), 5),
             "engine_brier": round(brier_score(y, p), 5),
             "engine_ece_raw": ece_score(y, p),
             "engine_ece_calibrated": ece_score(y, p_cal),
-            "engine_logloss_calibrated": round(log_loss(y, p_cal), 5),
+            "engine_logloss_calibrated": round(log_loss(y, p_cal, labels=[0.0, 1.0]), 5),
             "baseline_rate": round(base_p, 4),
-            "baseline_logloss": round(log_loss(y, np.full(len(y), base_p)), 5),
+            "baseline_logloss": round(log_loss(y, np.full(len(y), base_p), labels=[0.0, 1.0]), 5),
             "baseline_brier": round(brier_score(y, np.full(len(y), base_p)), 5),
         }
         row["beats_baseline_logloss"] = bool(row["engine_logloss"] < row["baseline_logloss"])
@@ -2133,10 +2135,13 @@ def _winner_card_stats(p: np.ndarray, y: np.ndarray,
         "ece_raw": ece_score(y, p),
         "ece_calibrated": ece_score(y, p_cal),
         "brier": round(brier_score(y, p), 5),
-        "logloss": round(log_loss(y, p), 5),
-        "logloss_calibrated": round(log_loss(y, p_cal), 5),
+        "logloss": round(log_loss(y, p, labels=[0.0, 1.0]), 5),
+        "logloss_calibrated": round(log_loss(y, p_cal, labels=[0.0, 1.0]), 5),
+        # Single-class cards (a holdout where every favored pick won, or every
+        # lost) are degenerate but valid — never a ValueError in an artifact.
         "beats_baseline_logloss": bool(
-            log_loss(y, p) < log_loss(y, np.full(len(y), base))),
+            log_loss(y, p, labels=[0.0, 1.0])
+            < log_loss(y, np.full(len(y), base), labels=[0.0, 1.0])),
     }
     if pick_mask is not None and len(pick_mask) == len(y):
         pm = np.asarray(pick_mask, bool)
@@ -2163,11 +2168,13 @@ def _winner_card_stats(p: np.ndarray, y: np.ndarray,
             "ece_raw": ece_score(yh, ph),
             "ece_calibrated": ece_score(yh, p_cal[hold_mask]),
             "brier": round(brier_score(yh, ph), 5),
-            "logloss": round(log_loss(yh, ph), 5),
+            "logloss": round(log_loss(yh, ph, labels=[0.0, 1.0]), 5),
             "baseline_rate": round(base_h, 4),
-            "baseline_logloss": round(log_loss(yh, np.full(len(yh), base_h)), 5),
+            "baseline_logloss": round(
+                log_loss(yh, np.full(len(yh), base_h), labels=[0.0, 1.0]), 5),
             "beats_baseline_logloss": bool(
-                log_loss(yh, ph) < log_loss(yh, np.full(len(yh), base_h))),
+                log_loss(yh, ph, labels=[0.0, 1.0])
+                < log_loss(yh, np.full(len(yh), base_h), labels=[0.0, 1.0])),
         }
     return row
 

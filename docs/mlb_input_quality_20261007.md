@@ -229,3 +229,87 @@ roofs, weather and starter availability need production-run coverage review.
 These limitations prevent any assertion that all MLB inputs now have universal
 row-level accuracy or coverage. No unknown values were fabricated to satisfy the
 coverage guardrail.
+
+## Second-pass structural review (2026-10-07, same day)
+
+A follow-up defect-hunting pass — classic-bug pattern sweeps plus a
+data-driven audit of the committed feature CSV — found and fixed five more
+issues in existing files. No new programs; hyperparameters and blend policy
+remain untouched. The delivery summary JSON carries the machine-readable
+record (`second_pass_review`).
+
+### Defects found and fixed
+
+1. **Run-engine single-class crash (9 call sites).** `score_market` and
+   `_winner_card_stats` called `log_loss` without `labels=[0.0, 1.0]`.
+   Verified empirically in this environment: sklearn **raises**
+   `ValueError: y_true contains only one label` on single-class input. A
+   holdout where every favored pick won, or an all-over/all-cover window,
+   would abort winner-card and market artifact generation mid-run. All nine
+   calls now carry explicit labels — the same contract
+   `training.compute_metrics` already enforces. Regression tests cover both
+   functions with all-ones targets (they fail before the fix).
+2. **`merge_result_cache` NaN finality.** `astype(bool)` alone maps NaN to
+   `True`, so a fresh partial row with unverifiable `is_final` could win the
+   merge and ship stale scores as a verified final. Now `fillna(False)` with
+   a stable tie order (cached-then-fresh precedence is deterministic); a new
+   test pins both the verified-final-wins and newest-non-final-wins cases.
+3. **Fabricated historical start times never repaired.** All **7,397** rows
+   of the committed `game_level_features.csv` carry the documented 19:00-UTC
+   fallback with `start_time_observed=False`. Consequences: the non-backfill
+   history weather gate (`MLB_WEATHER_BACKFILL_ALL=0`) is permanently dead
+   behind `observed=False`; within-day PIT ordering collapses to equal
+   timestamps (doubleheader ties); evening-game counts and line as-of joins
+   read placeholder hours. New `results.refresh_start_times` backfills
+   authoritative StatsAPI first pitches for **unobserved rows only** —
+   never overwrites an observed timestamp, never marks an unmatched row
+   observed, and stops querying once everything is observed. It is wired
+   into `run_daily_pipeline` before diffs/weather, best-effort on network
+   failure (the default `WEATHER_BACKFILL_ALL=1` weather path already
+   fetches real times on demand and is unchanged). **Live-verified** against
+   real 2024-04-01 game pks: `744875 → 20:05Z`, `745109 → 22:50Z` replacing
+   the fabricated 19:00; fabricated/unmatched pks correctly stayed
+   unobserved (honest no-match logged).
+4. **Weather gate provenance.** The master's observed-time gate used
+   `fillna(True)` — unknown provenance treated as observed, inconsistent
+   with `load_game_features`' round-one `fillna(False)` rule — and would
+   re-fetch every observed row each run. It now treats unknown as unobserved
+   and skips rows already carrying a wind observation (only genuinely
+   unweathered observed rows fetch). Behavior-neutral in the default
+   backfill mode (this branch is not taken).
+5. **Non-stable sorts on ordering-sensitive paths.** Added `kind="stable"`
+   to the market-line pick (equal `line_posted_at`), slate doubleheader
+   re-key (tied/NaT start times → deterministic ordinal suffixes), the team
+   records walk, and the slate export order.
+
+### Data-driven audit of the committed frame
+
+- 109/109 universe columns present; zero duplicate or case-insensitive
+  duplicate column names; no outcome columns (`home_score`, `home_win`,
+  `total_runs`, `correct`, …) inside the universe.
+- `home_win` is **100%** consistent with final scores across all 7,397
+  decided rows.
+- Leakage scan: max absolute feature–target correlation is **0.114**
+  (`win_pct_diff`, followed by `elo_diff` 0.111) — no column leaks the label;
+  no all-null features; the only constant column is the by-design `is_home`
+  indicator (PSI/drift is constant-safe: `min==max → 0.0`).
+- Elo season-revert parity confirmed between the historical
+  (`compute_elo_entries`) and slate (`compute_elos_up_to`) paths; pitch-cache
+  merge precedence confirmed correct in both directions (newer copy wins).
+
+### Verification
+
+- [Final backend suite](mlb_input_quality_20261007/test_results.txt):
+  **342 passed** (337 from round one + 5 new regression tests), 3 warnings,
+  exit 0 — the linked log is the second-pass run; round one's own run was
+  337 passed.
+- Production artifact/frontend interface smoke re-run after the slate/sort
+  changes: **exit 0**, identical reconciliation (6,879 grading / 7,026
+  history, 4 games scored, 3 pages, 0 exceptions).
+- Live StatsAPI start-time refresh: **exit 0** (recorded above).
+- `compileall` and `git diff --check`: clean.
+- Remaining round-one limitations are unchanged: no full corrected
+  three-season rebuild, no end-to-end notebook run, workspace production
+  graph still reports only the pre-existing untracked
+  `measure_blend_views.py`, no mypy/pyright, and no proven AUC/log-loss
+  gain.

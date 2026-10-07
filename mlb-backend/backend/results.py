@@ -288,6 +288,63 @@ def fetch_game_start_times(start_date: date, end_date: date,
     return out
 
 
+def refresh_start_times(games: pd.DataFrame) -> pd.DataFrame:
+    """Persist authoritative first-pitch UTC for rows carrying placeholders.
+
+    Statcast-derived history is born with load_game_features' fabricated
+    19:00-UTC fallback and ``start_time_observed=False``; slate rows born
+    from the ESPN schedule carry real times but no flag. This refresh fills
+    ``start_time_utc`` from the StatsAPI schedule for every row WITHOUT an
+    observed flag and marks only matched rows observed — never overwrites
+    an already-observed timestamp, never marks an unmatched row observed.
+    Idempotent: once every row is observed the schedule is not queried.
+    Failure is best-effort: the frame returns unchanged with a warning so
+    fabricated placeholders (which the weather paths already know how to
+    work around) never kill a run.
+    """
+    if games is None or games.empty or "game_pk" not in games.columns \
+            or "game_date" not in games.columns:
+        return games
+    pk = pd.to_numeric(games["game_pk"], errors="coerce")
+    if "start_time_observed" in games.columns:
+        observed = games["start_time_observed"].fillna(False).astype(bool)
+    else:
+        observed = pd.Series(False, index=games.index)
+    need = pk.notna() & ~observed
+    if not need.any():
+        return games
+    dates = pd.to_datetime(games.loc[need, "game_date"], errors="coerce").dropna()
+    if dates.empty:
+        return games
+    try:
+        times = fetch_game_start_times(dates.min().date(), dates.max().date())
+    except Exception as exc:  # network/auth failures must not kill the run
+        logger.warning("Start-time refresh unavailable (%s); fabricated "
+                       "placeholders retained", exc)
+        return games
+    if not times:
+        return games
+    mapped = pk.map(lambda k: times.get(int(k)) if pd.notna(k) else None)
+    parsed = pd.to_datetime(mapped, utc=True, errors="coerce")
+    fill = need & parsed.notna()
+    if not fill.any():
+        logger.warning("Start-time refresh matched 0/%d unobserved games", int(need.sum()))
+        return games
+    games = games.copy()
+    if "start_time_utc" not in games.columns:
+        games["start_time_utc"] = pd.NaT
+    elif not pd.api.types.is_datetime64_any_dtype(games["start_time_utc"]):
+        games["start_time_utc"] = pd.to_datetime(games["start_time_utc"],
+                                                  utc=True, errors="coerce")
+    games.loc[fill, "start_time_utc"] = parsed[fill]
+    if "start_time_observed" not in games.columns:
+        games["start_time_observed"] = False
+    games.loc[fill, "start_time_observed"] = True
+    logger.info("Start-time refresh: %d/%d games now carry observed first "
+                "pitches (StatsAPI schedule)", int(fill.sum()), len(games))
+    return games
+
+
 def merge_result_cache(cached: pd.DataFrame | None,
                        fresh: pd.DataFrame) -> pd.DataFrame:
     """Merge cached results with a fresh pull, newest/final copy wins."""
@@ -298,9 +355,14 @@ def merge_result_cache(cached: pd.DataFrame | None,
     if cached is None or cached.empty:
         return fresh
     both = pd.concat([cached, fresh], ignore_index=True)
-    both["is_final"] = both["is_final"].astype(bool)
+    # NaN is_final must sort/compare as NOT final: astype(bool) alone maps
+    # NaN -> True, which would let an unverifiable row win the merge and
+    # carry stale scores forward as a "final".
+    both["is_final"] = both["is_final"].fillna(False).astype(bool)
     # Sort so final rows sort last within each game_pk, then take the last.
-    both = both.sort_values(["game_pk", "is_final"])
+    # Stable: within equal finality the concat order (cached, then fresh)
+    # decides, so the NEWER copy wins deterministically.
+    both = both.sort_values(["game_pk", "is_final"], kind="stable")
     return both.groupby("game_pk", as_index=False).last()
 
 

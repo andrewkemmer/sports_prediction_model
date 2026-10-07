@@ -951,6 +951,119 @@ def test_load_features_preserves_false_start_provenance(tmp_path):
         str(loaded.start_time_utc.dtype) == "datetime64[ns, UTC]"
 
 
+def test_refresh_start_times_fills_fabricated_rows_only(monkeypatch):
+    """StatsAPI refresh repairs the 19:00-UTC fallback, never overwrites an
+    observed timestamp, never marks an unmatched row observed, and is
+    idempotent (no schedule query once everything is observed)."""
+    import results as results_mod
+    from results import refresh_start_times
+    calls = []
+    def fake(start, end):
+        calls.append((start, end))
+        return {101: "2026-04-01T23:10:00Z", 103: "2026-04-02T01:10:00Z"}
+    monkeypatch.setattr(results_mod, "fetch_game_start_times", fake)
+    frame = pd.DataFrame({
+        "game_pk": [101, 102, 103, np.nan],
+        "game_date": ["2026-04-01", "2026-04-01", "2026-04-02", "2026-04-02"],
+        "start_time_utc": pd.to_datetime(
+            ["2026-04-01 19:00", "2026-04-01 23:00", "2026-04-02 19:00",
+             "2026-04-02 19:00"], utc=True),
+        "start_time_observed": [False, True, False, False],
+    })
+    out = refresh_start_times(frame)
+    utc = lambda s: pd.Timestamp(s, tz="UTC")
+    assert out.loc[0, "start_time_utc"] == utc("2026-04-01 23:10")  # filled
+    assert out.loc[0, "start_time_observed"]
+    assert out.loc[1, "start_time_utc"] == utc("2026-04-01 23:00")  # untouched
+    assert out.loc[1, "start_time_observed"]
+    assert out.loc[2, "start_time_utc"] == utc("2026-04-02 01:10")  # next day
+    assert out.loc[3, "start_time_utc"] == utc("2026-04-02 19:00")  # no pk match
+    assert not out.loc[3, "start_time_observed"]
+    # 2 freshly filled + 1 already observed; unmatched row stays unobserved.
+    assert int(out.start_time_observed.sum()) == 3
+    assert len(calls) == 1
+    again = refresh_start_times(out)
+    assert len(calls) == 1, "fully-observed frames must not re-query the schedule"
+    assert again.start_time_utc.equals(out.start_time_utc)
+    # Failure is best-effort: frame unchanged, no exception.
+    monkeypatch.setattr(results_mod, "fetch_game_start_times",
+                        lambda s, e: (_ for _ in ()).throw(RuntimeError("offline")))
+    kept = refresh_start_times(out.iloc[:1].assign(start_time_observed=False))
+    assert int(kept.start_time_observed.sum()) == 0
+
+
+def test_master_wires_start_time_refresh():
+    """The daily orchestrator must call the refresh before weather/diffs,
+    not leave the fabricated-19:00 repair as dead code."""
+    import ast
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and n.name == "run_daily_pipeline")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and getattr(n.func, "id", None) == "refresh_start_times"]
+    assert calls, "run_daily_pipeline must wire results.refresh_start_times"
+
+
+def test_winner_card_scores_single_class_holdout_without_crash():
+    """A holdout where every favored pick won (all-ones y) must score, not
+    raise ValueError from log_loss — the production winner-card path."""
+    n = 20
+    y = np.ones(n)
+    p = np.linspace(0.55, 0.90, n)
+    folds = np.repeat([0, 1, 2], [7, 7, 6])
+    hold = np.zeros(n, dtype=bool)
+    hold[14:] = True
+    row = re._winner_card_stats(p, y, folds, hold)
+    assert np.isfinite(row["logloss"]) and np.isfinite(row["logloss_calibrated"])
+    assert np.isfinite(row["holdout"]["logloss"])
+    assert np.isfinite(row["holdout"]["baseline_logloss"])
+    assert row["holdout"]["n"] == 6 and row["n"] == n
+
+
+def test_derive_markets_single_class_window_scores():
+    """An all-over window (single-class y_over/y_win) must produce the
+    market summary, not crash score_market — same labels contract as
+    training.compute_metrics."""
+    n = 12
+    oof = pd.DataFrame({
+        "game_pk": np.arange(1001, 1001 + n),
+        "game_date": pd.date_range("2026-06-01", periods=n, freq="D"),
+        "home_expected_runs": np.full(n, 4.6),
+        "away_expected_runs": np.full(n, 4.3),
+        "home_score": [0, 2, 11, 3, 9, 1, 12, 4, 10, 2, 8, 5],
+        "away_score": [10, 9, 1, 7, 2, 9, 0, 6, 1, 8, 3, 5],
+        "fold_idx": np.zeros(n, dtype=int),
+    })
+    assert ((oof.home_score + oof.away_score) >= 9).all()  # y_over all 1.0
+    summary = re.derive_markets(oof, n_draws=24)["summary"]
+    m = summary["market_over_8_5"]
+    assert np.isfinite(m["engine_logloss"]) and np.isfinite(m["baseline_logloss"])
+    assert np.isfinite(summary["market_derived_moneyline"]["engine_logloss"])
+
+
+def test_merge_result_cache_nan_is_final_loses_to_verified_final():
+    """A fresh row with scores but unverifiable finality (NaN) must never
+    displace a verified final: astype(bool) alone mapped NaN -> True."""
+    from results import merge_result_cache
+    cached = pd.DataFrame([{
+        "game_pk": 7, "game_date": "2026-09-01", "home_team": "NYY",
+        "away_team": "BOS", "home_score": 3, "away_score": 1,
+        "home_win": 1.0, "is_final": True}])
+    fresh = pd.DataFrame([{
+        "game_pk": 7, "game_date": "2026-09-01", "home_team": "NYY",
+        "away_team": "BOS", "home_score": 2, "away_score": 1,
+        "home_win": np.nan, "is_final": np.nan}])
+    out = merge_result_cache(cached, fresh)
+    assert len(out) == 1
+    assert bool(out.loc[0, "is_final"]) is True
+    assert out.loc[0, "home_score"] == 3  # verified final, not the partial
+    assert out.loc[0, "home_win"] == 1.0
+    # Newest non-final copy still wins when no verified final exists.
+    out2 = merge_result_cache(cached.assign(is_final=False), fresh)
+    assert out2.loc[0, "home_score"] == 2
+
+
 if __name__ == "__main__":
     # Run through pytest so production contract cases receive isolated
     # tmp_path/monkeypatch fixtures in the documented direct CLI too.

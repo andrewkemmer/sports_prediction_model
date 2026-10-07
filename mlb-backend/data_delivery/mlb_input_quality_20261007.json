@@ -68,7 +68,7 @@
     ]
   },
   "recent_slice_direction": "reverses: auc 0.6021 -> 0.5988; logloss 0.6745 -> 0.6747",
-  "verified_backend_tests": 337,
+  "verified_backend_tests": 342,
   "verified_contract_cli_tests": 36,
   "interface": {
     "schema": "mlb-interface-smoke/v1",
@@ -139,5 +139,24 @@
       "pyarrow": "24.0.0",
       "streamlit": "1.61.1"
     }
+  },
+  "second_pass_review": {
+    "date": "2026-10-07",
+    "findings": [
+      "run-engine score_market and _winner_card_stats called log_loss without labels=[0,1]; a single-class window (all-over, all-cover, or holdout sweep) crashed artifact generation",
+      "merge_result_cache astype(bool) mapped NaN is_final to True; an unverifiable partial could displace a verified final",
+      "all 7397 committed feature rows carried fabricated 19:00-UTC start times with observed=False, disabling the non-backfill history weather gate and collapsing within-day PIT ordering",
+      "non-stable sorts on market-line pick, slate re-key, records walk and slate export could reorder ties",
+      "master weather gate treated unknown start-time provenance as observed (fillna(True))"
+    ],
+    "fixes": [
+      "labels=[0.0,1.0] on all nine run-engine log_loss calls",
+      "merge_result_cache fillna(False) + stable tie order",
+      "results.refresh_start_times backfills authoritative StatsAPI first pitches for unobserved rows only; wired into run_daily_pipeline before diffs/weather; idempotent and best-effort",
+      "weather gate now fillna(False) and skips rows already carrying wind observations",
+      "kind=stable on four ordering-sensitive sorts"
+    ],
+    "live_verification": "StatsAPI refresh on real 2024-04-01 pks: 744875 -> 20:05Z, 745109 -> 22:50Z; unmatched pks left unobserved",
+    "data_audit": "109/109 columns present, no duplicate names, no outcome columns in universe, home_win 100% score-consistent, max |feature-target| correlation 0.114 (win_pct_diff), no leakage, no all-null features"
   }
 }

@@ -662,7 +662,8 @@ def attach_market_lines(games: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFram
                            "total_line": None, "run_line_home": None, "run_line_away": None,
                            "juice": 0.04})
         else:
-            latest = game_lines.sort_values("line_posted_at").iloc[-1]
+            latest = game_lines.sort_values(
+                "line_posted_at", kind="stable").iloc[-1]
             merged.append({**game.to_dict(), **latest.drop(["game_id", "line_posted_at"]).to_dict()})
 
     return pd.DataFrame(merged)
@@ -1127,7 +1128,9 @@ def _disambiguate_slate_keys(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     if "start_time_utc" in df.columns:
-        df = df.sort_values("start_time_utc").reset_index(drop=True)
+        # Stable: tied/NaT start times keep input order so doubleheader
+        # ordinal suffixes are deterministic run to run.
+        df = df.sort_values("start_time_utc", kind="stable").reset_index(drop=True)
     # Exact duplicates: the same game listed twice (same matchup AND same
     # start time AND same game_id) is a true upstream bug — keep one row.
     # (Two rows that share a matchup but differ in start time are REAL
@@ -1283,7 +1286,7 @@ def _final_team_records(hist: pd.DataFrame) -> dict[str, dict[str, int]]:
     """
     rec: dict[str, dict[str, int]] = {}
     prev_year = None
-    for _, row in hist.sort_values("game_date").iterrows():
+    for _, row in hist.sort_values("game_date", kind="stable").iterrows():
         hw = row.get("home_win")
         if pd.isna(hw):
             continue  # undecided: no record/run impact
@@ -2174,6 +2177,6 @@ def build_upcoming_slate(
             len(unresolved_slots), 2 * len(rows),
             ", ".join(f"{gid}:{side}" for gid, side in unresolved_slots),
         )
-    slate = slate.sort_values("start_time_utc").reset_index(drop=True)
+    slate = slate.sort_values("start_time_utc", kind="stable").reset_index(drop=True)
     logger.info("Upcoming slate built: %d games for %s", len(slate), target_date)
     return slate

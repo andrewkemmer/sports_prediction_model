@@ -2054,6 +2054,19 @@ def run_daily_pipeline(
         except Exception as exc:
             logger.warning("Official results overlay failed on history: %s", exc)
 
+        # Authoritative first pitches for fabricated history rows (the
+        # 19:00-UTC fallback). Real times fix within-day PIT ordering,
+        # evening-game counts, line as-of joins, and let the observed-time
+        # weather gate below cover history instead of staying permanently
+        # dead behind start_time_observed=False. Best-effort: weather paths
+        # already fetch real times on demand when this fails.
+        try:
+            from results import refresh_start_times
+            games = refresh_start_times(games)
+        except Exception as exc:
+            logger.warning("Historical start-time refresh failed "
+                           "(fabricated placeholders retained): %s", exc)
+
 
         # Real point-in-time weather for features 30--31 (wind advantage,
         # air density).  One Open-Meteo request per (stadium, day); games
@@ -2110,7 +2123,15 @@ def run_daily_pipeline(
             if "start_time_utc" in games.columns:
                 real_start = games["start_time_utc"].notna()
                 if "start_time_observed" in games.columns:
-                    real_start &= games["start_time_observed"].fillna(True).astype(bool)
+                    # Unknown provenance is NOT observed (load_game_features'
+                    # fabricated fallback must never be fetched for the wrong
+                    # hour), and rows already carrying a wind observation are
+                    # not re-fetched every run.
+                    real_start &= games["start_time_observed"].fillna(False).astype(bool)
+                if "wind_advantage_flyball_factor" in games.columns:
+                    real_start &= pd.to_numeric(
+                        games["wind_advantage_flyball_factor"],
+                        errors="coerce").isna()
                 if real_start.any():
                     weather = {}
                     try:
