@@ -1,17 +1,17 @@
 {
  "status": "ok",
  "errors": [],
- "run_date": "2026-10-06",
+ "run_date": "2026-10-07",
  "artifacts": [
-  "nba_moneyline_v1_20261006.json",
-  "nba_player_leader_matchup_20261006.json",
-  "nba_calibration_20261006.json",
-  "nba_predictions_history_20261006.csv",
-  "nba_run_engine_markets_20261006.csv",
-  "nba_run_engine_markets_20261006.meta.json",
-  "nba_power_rankings_20261006.csv",
-  "nba_player_rapm_20261006.csv",
-  "nba_feature_v1_20261006.json",
+  "nba_moneyline_v1_20261007.json",
+  "nba_player_leader_matchup_20261007.json",
+  "nba_calibration_20261007.json",
+  "nba_predictions_history_20261007.csv",
+  "nba_run_engine_markets_20261007.csv",
+  "nba_run_engine_markets_20261007.meta.json",
+  "nba_power_rankings_20261007.csv",
+  "nba_player_rapm_20261007.csv",
+  "nba_feature_v1_20261007.json",
   "nba_shap_game_401909088.csv",
   "nba_shap_game_401909089.csv",
   "nba_shap_game_401909090.csv",
@@ -26,12 +26,12 @@
   "nba_shap_game_401909840.csv",
   "nba_shap_game_401909841.csv",
   "nba_shap_game_401909842.csv",
-  "nba_feature_selection_20261006.json",
-  "nba_run_engine_feature_drift_20261006.csv",
-  "nba_run_engine_feature_coverage_20261006.csv",
+  "nba_feature_selection_20261007.json",
+  "nba_run_engine_feature_drift_20261007.csv",
+  "nba_run_engine_feature_coverage_20261007.csv",
   "models/nba_ensemble_latest.joblib",
-  "nba_model_monitor_20261006.json",
-  "nba_run_engine_monitor_20261006.json",
+  "nba_model_monitor_20261007.json",
+  "nba_run_engine_monitor_20261007.json",
   "nba_production_cards_history.csv"
  ],
  "weights": {
@@ -58,8 +58,8 @@
    "n": 2130,
    "auc": 0.7339972156717902,
    "logloss": 0.6013070663106242,
-   "brier": 0.20729625683039823,
-   "ece": 0.027582491637778414,
+   "brier": 0.2072962568303982,
+   "ece": 0.027582491637778424,
    "sufficient": true
   },
   "oof_postseason": {
@@ -67,22 +67,22 @@
    "auc": 0.6472261735419629,
    "logloss": 0.6584383828277113,
    "brier": 0.23318832213489787,
-   "ece": 0.08068123775949997,
+   "ece": 0.08068123775949994,
    "sufficient": true
   },
   "oof_provisional": {
    "n": 270,
    "auc": 0.6815820345232111,
    "logloss": 0.6310455237468525,
-   "brier": 0.22128940144396467,
-   "ece": 0.04488215541393778,
+   "brier": 0.22128940144396472,
+   "ece": 0.04488215541393775,
    "sufficient": true
   },
   "oof_all": {
    "n": 2400,
    "auc": 0.7281945131815385,
    "logloss": 0.6046526427721999,
-   "brier": 0.20887048559942445,
+   "brier": 0.20887048559942448,
    "ece": 0.02254692078992281,
    "sufficient": true
   }
@@ -241,7 +241,7 @@
    }
   }
  },
- "elapsed_seconds": 3472.89,
+ "elapsed_seconds": 3621.06,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
