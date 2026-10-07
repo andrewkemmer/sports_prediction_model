@@ -1,6 +1,6 @@
 {
  "record": "nhl_run_engine_markets",
- "written_utc": "2026-10-07T17:39:06.457148+00:00",
+ "written_utc": "2026-10-07T20:22:02.670790+00:00",
  "config": {
   "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
   "warmup_days": 30,
@@ -177,15 +177,15 @@
     99,
     9,
     195,
-    110,
-    212
+    142,
+    217
    ],
    "xgb_round_policy": "median_prior_probe_rounds"
   }
  },
  "columns": 114,
- "n_rows": 2649,
- "n_oof": 2644,
+ "n_rows": 2657,
+ "n_oof": 2652,
  "n_slate": 5,
  "grids": {
   "spread": [
@@ -209,20 +209,20 @@
  },
  "run_line_fit_check": {
   "home": {
-   "pearson": 0.9655,
-   "deviance_model": 1.07014,
-   "deviance_baseline": 1.07994,
-   "rmse_model": 1.7486,
-   "rmse_baseline": 1.7575,
-   "n": 2644
+   "pearson": 0.9682,
+   "deviance_model": 1.07406,
+   "deviance_baseline": 1.08446,
+   "rmse_model": 1.7511,
+   "rmse_baseline": 1.7605,
+   "n": 2652
   },
   "away": {
-   "pearson": 0.984,
-   "deviance_model": 1.09558,
-   "deviance_baseline": 1.1039,
-   "rmse_model": 1.69,
-   "rmse_baseline": 1.697,
-   "n": 2644
+   "pearson": 0.9868,
+   "deviance_model": 1.0987,
+   "deviance_baseline": 1.10678,
+   "rmse_model": 1.6925,
+   "rmse_baseline": 1.6993,
+   "n": 2652
   }
  }
 }
