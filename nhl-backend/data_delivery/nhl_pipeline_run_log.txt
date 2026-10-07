@@ -4,363 +4,428 @@
   PHASE 1 - configuration (date window, repull, library stack)
 ----------------------------------------------------------------------
 
-2026-10-07 00:30:39,350 INFO NHL API date window: 2024-01-01..2026-10-06 (seasons 2024..2026)
-2026-10-07 00:30:39,351 INFO NHL_FULL_REPULL=1 — NHL API cache cleared for full rebuild
-2026-10-07 00:30:39,374 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
+2026-10-07 04:19:24,878 INFO NHL API date window: 2024-01-01..2026-10-07 (seasons 2024..2026)
+2026-10-07 04:19:24,878 INFO NHL_FULL_REPULL=1 — NHL API cache cleared for full rebuild
+2026-10-07 04:19:24,895 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
 
 ----------------------------------------------------------------------
   PHASE 2 - official NHL API ingestion
 ----------------------------------------------------------------------
 
-2026-10-07 00:30:39,406 INFO score-date span clipped to the 2026-10-06 window: 582 dates (dropped 282 dates the window would discard anyway)
-2026-10-07 00:30:39,447 INFO score chunk 1/11 [2024-10-01..2024-11-29]: 60 dates
-2026-10-07 00:30:41,977 INFO score page 2024-10-07: 1 game(s) never produced a result (cancelled/postponed) — page cached, games excluded from the decided population
-2026-10-07 00:30:54,159 INFO score chunk 1/11 [2024-10-01..2024-11-29] 50/60 (0 cached, 50 fetched) 14.7s 3.40/s eta 3s
-2026-10-07 00:30:56,640 INFO score chunk 1/11 [2024-10-01..2024-11-29] 60/60 (0 cached, 60 fetched) 17.2s 3.49/s
-score chunk 1/11 [2024-10-01..2024-11-29]: 100%|##########| 60/60 [00:17<00:00,  3.49game/s, cached=0, fetched=60]
-2026-10-07 00:30:56,647 INFO score chunk 2/11 [2024-11-30..2025-01-28]: 60 dates
-2026-10-07 00:31:10,035 INFO score chunk 2/11 [2024-11-30..2025-01-28] 50/60 (0 cached, 50 fetched) 13.4s 3.73/s eta 3s
-2026-10-07 00:31:12,639 INFO score chunk 2/11 [2024-11-30..2025-01-28] 60/60 (0 cached, 60 fetched) 16.0s 3.75/s
-score chunk 2/11 [2024-11-30..2025-01-28]: 100%|##########| 60/60 [00:15<00:00,  3.75game/s, cached=0, fetched=60]
-2026-10-07 00:31:12,645 INFO score chunk 3/11 [2025-01-29..2025-03-29]: 60 dates
-2026-10-07 00:31:24,898 INFO score chunk 3/11 [2025-01-29..2025-03-29] 50/60 (0 cached, 50 fetched) 12.3s 4.08/s eta 2s
-2026-10-07 00:31:27,563 INFO score chunk 3/11 [2025-01-29..2025-03-29] 60/60 (0 cached, 60 fetched) 14.9s 4.02/s
-score chunk 3/11 [2025-01-29..2025-03-29]: 100%|##########| 60/60 [00:14<00:00,  4.02game/s, cached=0, fetched=60]
-2026-10-07 00:31:27,569 INFO score chunk 4/11 [2025-03-30..2025-05-28]: 60 dates
-2026-10-07 00:31:39,804 INFO score chunk 4/11 [2025-03-30..2025-05-28] 50/60 (0 cached, 50 fetched) 12.2s 4.09/s eta 2s
-2026-10-07 00:31:42,089 INFO score chunk 4/11 [2025-03-30..2025-05-28] 60/60 (0 cached, 60 fetched) 14.5s 4.13/s
-score chunk 4/11 [2025-03-30..2025-05-28]: 100%|##########| 60/60 [00:14<00:00,  4.13game/s, cached=0, fetched=60]
-2026-10-07 00:31:42,095 INFO score chunk 5/11 [2025-05-29..2025-07-27]: 48 dates
-2026-10-07 00:31:49,758 INFO score chunk 5/11 [2025-05-29..2025-07-27] 48/48 (0 cached, 48 fetched) 7.7s 6.26/s
-score chunk 5/11 [2025-05-29..2025-07-27]: 100%|##########| 48/48 [00:07<00:00,  6.26game/s, cached=0, fetched=48]
-2026-10-07 00:31:49,764 INFO score chunk 6/11 [2025-09-26..2025-11-24]: 55 dates
-2026-10-07 00:32:03,858 INFO score chunk 6/11 [2025-09-26..2025-11-24] 50/55 (0 cached, 50 fetched) 14.1s 3.55/s eta 1s
-2026-10-07 00:32:05,109 INFO score chunk 6/11 [2025-09-26..2025-11-24] 55/55 (0 cached, 55 fetched) 15.3s 3.58/s
-score chunk 6/11 [2025-09-26..2025-11-24]: 100%|##########| 55/55 [00:15<00:00,  3.58game/s, cached=0, fetched=55]
-2026-10-07 00:32:05,116 INFO score chunk 7/11 [2025-11-25..2026-01-23]: 60 dates
-2026-10-07 00:32:17,617 INFO score chunk 7/11 [2025-11-25..2026-01-23] 50/60 (0 cached, 50 fetched) 12.5s 4.00/s eta 3s
-2026-10-07 00:32:19,838 INFO score chunk 7/11 [2025-11-25..2026-01-23] 60/60 (0 cached, 60 fetched) 14.7s 4.08/s
-score chunk 7/11 [2025-11-25..2026-01-23]: 100%|##########| 60/60 [00:14<00:00,  4.07game/s, cached=0, fetched=60]
-2026-10-07 00:32:19,844 INFO score chunk 8/11 [2026-01-24..2026-03-24]: 60 dates
-2026-10-07 00:32:31,731 INFO score chunk 8/11 [2026-01-24..2026-03-24] 50/60 (0 cached, 50 fetched) 11.9s 4.21/s eta 2s
-2026-10-07 00:32:34,324 INFO score chunk 8/11 [2026-01-24..2026-03-24] 60/60 (0 cached, 60 fetched) 14.5s 4.14/s
-score chunk 8/11 [2026-01-24..2026-03-24]: 100%|##########| 60/60 [00:14<00:00,  4.14game/s, cached=0, fetched=60]
-2026-10-07 00:32:34,331 INFO score chunk 9/11 [2026-03-25..2026-05-23]: 60 dates
-2026-10-07 00:32:46,301 INFO score chunk 9/11 [2026-03-25..2026-05-23] 50/60 (0 cached, 50 fetched) 12.0s 4.18/s eta 2s
-2026-10-07 00:32:48,305 INFO score chunk 9/11 [2026-03-25..2026-05-23] 60/60 (0 cached, 60 fetched) 14.0s 4.29/s
-score chunk 9/11 [2026-03-25..2026-05-23]: 100%|##########| 60/60 [00:13<00:00,  4.29game/s, cached=0, fetched=60]
-2026-10-07 00:32:48,313 INFO score chunk 10/11 [2026-05-24..2026-07-22]: 53 dates
-2026-10-07 00:32:56,545 INFO score chunk 10/11 [2026-05-24..2026-07-22] 50/53 (0 cached, 50 fetched) 8.2s 6.07/s eta 0s
-2026-10-07 00:32:56,951 INFO score chunk 10/11 [2026-05-24..2026-07-22] 53/53 (0 cached, 53 fetched) 8.6s 6.14/s
-score chunk 10/11 [2026-05-24..2026-07-22]: 100%|##########| 53/53 [00:08<00:00,  6.13game/s, cached=0, fetched=53]
-2026-10-07 00:32:56,957 INFO score chunk 11/11 [2026-09-21..2026-11-19]: 6 dates
-2026-10-07 00:32:57,403 INFO score chunk 11/11 [2026-09-21..2026-11-19] 6/6 (0 cached, 6 fetched) 0.4s 13.45/s
-2026-10-07 00:32:57,408 INFO score page 2026-10-06 carries 9 unplayed or in-progress game(s) — not cached, within the 2-day posting lag
-score chunk 11/11 [2026-09-21..2026-11-19]: 100%|##########| 6/6 [00:00<00:00, 13.30game/s, cached=0, fetched=6]
-2026-10-07 00:32:57,409 INFO score dates resolved: 582 requested in 11 chunk(s), 0 cache hits, 582 fetched
-2026-10-07 00:32:57,409 INFO games with no result (excluded from the decided population): 1 — 2024010044@2024-10-07
-2026-10-07 00:32:57,499 INFO schedule rows (date window): 2836
-2026-10-07 00:32:57,502 INFO decided games: core (OOF population) 2827
+2026-10-07 04:19:24,916 INFO score-date span clipped to the 2026-10-07 window: 583 dates (dropped 281 dates the window would discard anyway)
+2026-10-07 04:19:24,942 INFO score chunk 1/11 [2024-10-01..2024-11-29]: 60 dates
+2026-10-07 04:19:28,565 INFO score page 2024-10-07: 1 game(s) never produced a result (cancelled/postponed) — page cached, games excluded from the decided population
+2026-10-07 04:19:47,191 INFO score chunk 1/11 [2024-10-01..2024-11-29] 50/60 (0 cached, 50 fetched) 22.2s 2.25/s eta 4s
+2026-10-07 04:19:51,352 INFO score chunk 1/11 [2024-10-01..2024-11-29] 60/60 (0 cached, 60 fetched) 26.4s 2.27/s
+score chunk 1/11 [2024-10-01..2024-11-29]: 100%|##########| 60/60 [00:26<00:00,  2.27game/s, cached=0, fetched=60]
+2026-10-07 04:19:51,356 INFO score chunk 2/11 [2024-11-30..2025-01-28]: 60 dates
+2026-10-07 04:20:13,448 INFO score chunk 2/11 [2024-11-30..2025-01-28] 50/60 (0 cached, 50 fetched) 22.1s 2.26/s eta 4s
+2026-10-07 04:20:17,545 INFO score chunk 2/11 [2024-11-30..2025-01-28] 60/60 (0 cached, 60 fetched) 26.2s 2.29/s
+score chunk 2/11 [2024-11-30..2025-01-28]: 100%|##########| 60/60 [00:26<00:00,  2.29game/s, cached=0, fetched=60]
+2026-10-07 04:20:17,550 INFO score chunk 3/11 [2025-01-29..2025-03-29]: 60 dates
+2026-10-07 04:20:38,295 INFO score chunk 3/11 [2025-01-29..2025-03-29] 50/60 (0 cached, 50 fetched) 20.7s 2.41/s eta 4s
+2026-10-07 04:20:43,056 INFO score chunk 3/11 [2025-01-29..2025-03-29] 60/60 (0 cached, 60 fetched) 25.5s 2.35/s
+score chunk 3/11 [2025-01-29..2025-03-29]: 100%|##########| 60/60 [00:25<00:00,  2.35game/s, cached=0, fetched=60]
+2026-10-07 04:20:43,061 INFO score chunk 4/11 [2025-03-30..2025-05-28]: 60 dates
+2026-10-07 04:21:04,446 INFO score chunk 4/11 [2025-03-30..2025-05-28] 50/60 (0 cached, 50 fetched) 21.4s 2.34/s eta 4s
+2026-10-07 04:21:08,501 INFO score chunk 4/11 [2025-03-30..2025-05-28] 60/60 (0 cached, 60 fetched) 25.4s 2.36/s
+score chunk 4/11 [2025-03-30..2025-05-28]: 100%|##########| 60/60 [00:25<00:00,  2.36game/s, cached=0, fetched=60]
+2026-10-07 04:21:08,506 INFO score chunk 5/11 [2025-05-29..2025-07-27]: 48 dates
+2026-10-07 04:21:24,175 INFO score chunk 5/11 [2025-05-29..2025-07-27] 48/48 (0 cached, 48 fetched) 15.7s 3.06/s
+score chunk 5/11 [2025-05-29..2025-07-27]: 100%|##########| 48/48 [00:15<00:00,  3.06game/s, cached=0, fetched=48]
+2026-10-07 04:21:24,180 INFO score chunk 6/11 [2025-09-26..2025-11-24]: 55 dates
+2026-10-07 04:21:45,294 INFO score chunk 6/11 [2025-09-26..2025-11-24] 50/55 (0 cached, 50 fetched) 21.1s 2.37/s eta 2s
+2026-10-07 04:21:47,471 INFO score chunk 6/11 [2025-09-26..2025-11-24] 55/55 (0 cached, 55 fetched) 23.3s 2.36/s
+score chunk 6/11 [2025-09-26..2025-11-24]: 100%|##########| 55/55 [00:23<00:00,  2.36game/s, cached=0, fetched=55]
+2026-10-07 04:21:47,476 INFO score chunk 7/11 [2025-11-25..2026-01-23]: 60 dates
+2026-10-07 04:22:08,256 INFO score chunk 7/11 [2025-11-25..2026-01-23] 50/60 (0 cached, 50 fetched) 20.8s 2.41/s eta 4s
+2026-10-07 04:22:12,432 INFO score chunk 7/11 [2025-11-25..2026-01-23] 60/60 (0 cached, 60 fetched) 25.0s 2.40/s
+score chunk 7/11 [2025-11-25..2026-01-23]: 100%|##########| 60/60 [00:24<00:00,  2.40game/s, cached=0, fetched=60]
+2026-10-07 04:22:12,437 INFO score chunk 8/11 [2026-01-24..2026-03-24]: 60 dates
+2026-10-07 04:22:32,809 INFO score chunk 8/11 [2026-01-24..2026-03-24] 50/60 (0 cached, 50 fetched) 20.4s 2.45/s eta 4s
+2026-10-07 04:22:37,031 INFO score chunk 8/11 [2026-01-24..2026-03-24] 60/60 (0 cached, 60 fetched) 24.6s 2.44/s
+score chunk 8/11 [2026-01-24..2026-03-24]: 100%|##########| 60/60 [00:24<00:00,  2.44game/s, cached=0, fetched=60]
+2026-10-07 04:22:37,036 INFO score chunk 9/11 [2026-03-25..2026-05-23]: 60 dates
+2026-10-07 04:22:57,644 INFO score chunk 9/11 [2026-03-25..2026-05-23] 50/60 (0 cached, 50 fetched) 20.6s 2.43/s eta 4s
+2026-10-07 04:23:01,321 INFO score chunk 9/11 [2026-03-25..2026-05-23] 60/60 (0 cached, 60 fetched) 24.3s 2.47/s
+score chunk 9/11 [2026-03-25..2026-05-23]: 100%|##########| 60/60 [00:24<00:00,  2.47game/s, cached=0, fetched=60]
+2026-10-07 04:23:01,325 INFO score chunk 10/11 [2026-05-24..2026-07-22]: 53 dates
+2026-10-07 04:23:17,395 INFO score chunk 10/11 [2026-05-24..2026-07-22] 50/53 (0 cached, 50 fetched) 16.1s 3.11/s eta 1s
+2026-10-07 04:23:18,319 INFO score chunk 10/11 [2026-05-24..2026-07-22] 53/53 (0 cached, 53 fetched) 17.0s 3.12/s
+score chunk 10/11 [2026-05-24..2026-07-22]: 100%|##########| 53/53 [00:16<00:00,  3.12game/s, cached=0, fetched=53]
+2026-10-07 04:23:18,324 INFO score chunk 11/11 [2026-09-21..2026-11-19]: 7 dates
+2026-10-07 04:23:20,039 INFO score page 2026-10-06 carries 2 unplayed or in-progress game(s) — not cached, within the 2-day posting lag
+2026-10-07 04:23:20,249 INFO score chunk 11/11 [2026-09-21..2026-11-19] 7/7 (0 cached, 7 fetched) 1.9s 3.64/s
+2026-10-07 04:23:20,253 INFO score page 2026-10-07 carries 3 unplayed or in-progress game(s) — not cached, within the 2-day posting lag
+score chunk 11/11 [2026-09-21..2026-11-19]: 100%|##########| 7/7 [00:01<00:00,  3.63game/s, cached=0, fetched=7]
+2026-10-07 04:23:20,253 INFO score dates resolved: 583 requested in 11 chunk(s), 0 cache hits, 583 fetched
+2026-10-07 04:23:20,253 INFO games with no result (excluded from the decided population): 1 — 2024010044@2024-10-07
+2026-10-07 04:23:20,312 INFO schedule rows (date window): 2839
+2026-10-07 04:23:20,313 INFO decided games: core (OOF population) 2834
 
 ----------------------------------------------------------------------
   PHASE 3 - point-in-time feature engine
 ----------------------------------------------------------------------
 
-2026-10-07 00:32:57,530 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02]: 394 games
-2026-10-07 00:33:14,773 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 50/394 (0 cached, 50 fetched) 17.2s 2.90/s eta 119s
-2026-10-07 00:33:59,602 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 90/394 (0 cached, 90 fetched) 62.1s 1.45/s eta 210s
-2026-10-07 00:34:03,665 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 100/394 (0 cached, 100 fetched) 66.1s 1.51/s eta 194s
-2026-10-07 00:34:19,880 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 150/394 (0 cached, 150 fetched) 82.3s 1.82/s eta 134s
-2026-10-07 00:34:36,987 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 200/394 (0 cached, 200 fetched) 99.5s 2.01/s eta 96s
-2026-10-07 00:34:53,222 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 250/394 (0 cached, 250 fetched) 115.7s 2.16/s eta 67s
-2026-10-07 00:35:10,031 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 300/394 (0 cached, 300 fetched) 132.5s 2.26/s eta 42s
-2026-10-07 00:35:25,800 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 350/394 (0 cached, 350 fetched) 148.3s 2.36/s eta 19s
-2026-10-07 00:35:39,792 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 394/394 (0 cached, 394 fetched) 162.3s 2.43/s
-boxscore chunk 1/11 [2024-10-04..2024-12-02]: 100%|##########| 394/394 [02:42<00:00,  2.43game/s, cached=0, fetched=394]
-2026-10-07 00:35:39,793 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31]: 430 games
-2026-10-07 00:35:56,230 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 50/430 (0 cached, 50 fetched) 16.4s 3.04/s eta 125s
-2026-10-07 00:36:12,999 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 100/430 (0 cached, 100 fetched) 33.2s 3.01/s eta 110s
-2026-10-07 00:36:28,955 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 150/430 (0 cached, 150 fetched) 49.2s 3.05/s eta 92s
-2026-10-07 00:36:44,572 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 200/430 (0 cached, 200 fetched) 64.8s 3.09/s eta 74s
-2026-10-07 00:36:52,716 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 250/430 (0 cached, 250 fetched) 72.9s 3.43/s eta 53s
-2026-10-07 00:36:57,693 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 300/430 (0 cached, 300 fetched) 77.9s 3.85/s eta 34s
-2026-10-07 00:37:08,017 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 350/430 (0 cached, 350 fetched) 88.2s 3.97/s eta 20s
-2026-10-07 00:37:22,100 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 400/430 (0 cached, 400 fetched) 102.3s 3.91/s eta 8s
-2026-10-07 00:37:30,584 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 430/430 (0 cached, 430 fetched) 110.8s 3.88/s
-boxscore chunk 2/11 [2024-12-03..2025-01-31]: 100%|##########| 430/430 [01:50<00:00,  3.88game/s, cached=0, fetched=430]
-2026-10-07 00:37:30,585 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01]: 366 games
-2026-10-07 00:37:44,698 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 50/366 (0 cached, 50 fetched) 14.1s 3.54/s eta 89s
-2026-10-07 00:37:58,790 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 100/366 (0 cached, 100 fetched) 28.2s 3.55/s eta 75s
-2026-10-07 00:38:14,047 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 150/366 (0 cached, 150 fetched) 43.5s 3.45/s eta 63s
-2026-10-07 00:38:28,697 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 200/366 (0 cached, 200 fetched) 58.1s 3.44/s eta 48s
-2026-10-07 00:38:41,958 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 250/366 (0 cached, 250 fetched) 71.4s 3.50/s eta 33s
-2026-10-07 00:38:56,262 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 300/366 (0 cached, 300 fetched) 85.7s 3.50/s eta 19s
-2026-10-07 00:39:11,383 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 350/366 (0 cached, 350 fetched) 100.8s 3.47/s eta 5s
-2026-10-07 00:39:15,836 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 366/366 (0 cached, 366 fetched) 105.3s 3.48/s
-boxscore chunk 3/11 [2025-02-01..2025-04-01]: 100%|##########| 366/366 [01:45<00:00,  3.48game/s, cached=0, fetched=366]
-2026-10-07 00:39:15,837 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31]: 202 games
-2026-10-07 00:39:29,910 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 50/202 (0 cached, 50 fetched) 14.1s 3.55/s eta 43s
-2026-10-07 00:39:44,590 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 100/202 (0 cached, 100 fetched) 28.8s 3.48/s eta 29s
-2026-10-07 00:39:58,709 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 150/202 (0 cached, 150 fetched) 42.9s 3.50/s eta 15s
-2026-10-07 00:40:15,051 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 200/202 (0 cached, 200 fetched) 59.2s 3.38/s eta 1s
-2026-10-07 00:40:15,670 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 202/202 (0 cached, 202 fetched) 59.8s 3.38/s
-boxscore chunk 4/11 [2025-04-02..2025-05-31]: 100%|##########| 202/202 [00:59<00:00,  3.38game/s, cached=0, fetched=202]
-2026-10-07 00:40:15,671 INFO boxscore chunk 5/11 [2025-06-01..2025-07-30]: 6 games
-2026-10-07 00:40:17,564 INFO boxscore chunk 5/11 [2025-06-01..2025-07-30] 6/6 (0 cached, 6 fetched) 1.9s 3.17/s
-boxscore chunk 5/11 [2025-06-01..2025-07-30]: 100%|##########| 6/6 [00:01<00:00,  3.17game/s, cached=0, fetched=6]
-2026-10-07 00:40:17,565 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27]: 375 games
-2026-10-07 00:40:33,122 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 50/375 (0 cached, 50 fetched) 15.6s 3.21/s eta 101s
-2026-10-07 00:40:49,284 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 100/375 (0 cached, 100 fetched) 31.7s 3.15/s eta 87s
-2026-10-07 00:41:06,086 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 150/375 (0 cached, 150 fetched) 48.5s 3.09/s eta 73s
-2026-10-07 00:41:22,585 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 200/375 (0 cached, 200 fetched) 65.0s 3.08/s eta 57s
-2026-10-07 00:41:37,583 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 250/375 (0 cached, 250 fetched) 80.0s 3.12/s eta 40s
-2026-10-07 00:41:47,324 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 300/375 (0 cached, 300 fetched) 89.8s 3.34/s eta 22s
-2026-10-07 00:41:52,535 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 350/375 (0 cached, 350 fetched) 95.0s 3.69/s eta 7s
-2026-10-07 00:41:56,458 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 375/375 (0 cached, 375 fetched) 98.9s 3.79/s
-boxscore chunk 6/11 [2025-09-29..2025-11-27]: 100%|##########| 375/375 [01:38<00:00,  3.79game/s, cached=0, fetched=375]
-2026-10-07 00:41:56,459 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26]: 453 games
-2026-10-07 00:42:05,181 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 50/453 (0 cached, 50 fetched) 8.7s 5.73/s eta 70s
-2026-10-07 00:42:19,032 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 100/453 (0 cached, 100 fetched) 22.6s 4.43/s eta 80s
-2026-10-07 00:42:32,873 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 150/453 (0 cached, 150 fetched) 36.4s 4.12/s eta 74s
-2026-10-07 00:42:46,362 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 200/453 (0 cached, 200 fetched) 49.9s 4.01/s eta 63s
-2026-10-07 00:43:00,784 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 250/453 (0 cached, 250 fetched) 64.3s 3.89/s eta 52s
-2026-10-07 00:43:15,433 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 300/453 (0 cached, 300 fetched) 79.0s 3.80/s eta 40s
-2026-10-07 00:43:29,902 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 350/453 (0 cached, 350 fetched) 93.4s 3.75/s eta 27s
-2026-10-07 00:43:43,947 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 400/453 (0 cached, 400 fetched) 107.5s 3.72/s eta 14s
-2026-10-07 00:43:59,082 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 450/453 (0 cached, 450 fetched) 122.6s 3.67/s eta 1s
-2026-10-07 00:44:00,090 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 453/453 (0 cached, 453 fetched) 123.6s 3.66/s
-boxscore chunk 7/11 [2025-11-28..2026-01-26]: 100%|##########| 453/453 [02:03<00:00,  3.66game/s, cached=0, fetched=453]
-2026-10-07 00:44:00,090 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27]: 323 games
-2026-10-07 00:44:14,434 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 50/323 (0 cached, 50 fetched) 14.3s 3.49/s eta 78s
-2026-10-07 00:44:27,896 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 100/323 (0 cached, 100 fetched) 27.8s 3.60/s eta 62s
-2026-10-07 00:44:42,434 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 150/323 (0 cached, 150 fetched) 42.3s 3.54/s eta 49s
-2026-10-07 00:44:56,510 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 200/323 (0 cached, 200 fetched) 56.4s 3.54/s eta 35s
-2026-10-07 00:45:12,774 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 250/323 (0 cached, 250 fetched) 72.7s 3.44/s eta 21s
-2026-10-07 00:45:28,911 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 300/323 (0 cached, 300 fetched) 88.8s 3.38/s eta 7s
-2026-10-07 00:45:35,815 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 323/323 (0 cached, 323 fetched) 95.7s 3.37/s
-boxscore chunk 8/11 [2026-01-27..2026-03-27]: 100%|##########| 323/323 [01:35<00:00,  3.37game/s, cached=0, fetched=323]
-2026-10-07 00:45:35,815 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26]: 235 games
-2026-10-07 00:45:51,566 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 50/235 (0 cached, 50 fetched) 15.8s 3.17/s eta 58s
-2026-10-07 00:46:08,109 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 100/235 (0 cached, 100 fetched) 32.3s 3.10/s eta 44s
-2026-10-07 00:46:23,359 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 150/235 (0 cached, 150 fetched) 47.5s 3.15/s eta 27s
-2026-10-07 00:46:39,126 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 200/235 (0 cached, 200 fetched) 63.3s 3.16/s eta 11s
-2026-10-07 00:46:50,567 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 235/235 (0 cached, 235 fetched) 74.8s 3.14/s
-boxscore chunk 9/11 [2026-03-28..2026-05-26]: 100%|##########| 235/235 [01:14<00:00,  3.14game/s, cached=0, fetched=235]
-2026-10-07 00:46:50,567 INFO boxscore chunk 10/11 [2026-05-27..2026-07-25]: 8 games
-2026-10-07 00:46:53,124 INFO boxscore chunk 10/11 [2026-05-27..2026-07-25] 8/8 (0 cached, 8 fetched) 2.6s 3.13/s
-boxscore chunk 10/11 [2026-05-27..2026-07-25]: 100%|##########| 8/8 [00:02<00:00,  3.13game/s, cached=0, fetched=8]
-2026-10-07 00:46:53,124 INFO boxscore chunk 11/11 [2026-09-24..2026-11-22]: 35 games
-2026-10-07 00:46:57,748 INFO boxscore chunk 11/11 [2026-09-24..2026-11-22] 35/35 (0 cached, 35 fetched) 4.6s 7.57/s
-boxscore chunk 11/11 [2026-09-24..2026-11-22]: 100%|##########| 35/35 [00:04<00:00,  7.57game/s, cached=0, fetched=35]
-2026-10-07 00:46:57,749 INFO boxscores resolved: 2827 requested in 11 chunk(s), 0 cache hits, 2827 fetched
-2026-10-07 00:46:59,893 INFO boxscore rows: 2827
-2026-10-07 00:48:01,107 INFO MoneyPuck historical player games: cached 1460310 rows for seasons [2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-2026-10-07 00:48:04,998 INFO MoneyPuck player games 2025: cached 94424 rows
-2026-10-07 00:48:05,347 INFO MoneyPuck player games 2026: cached 3096 rows
-2026-10-07 00:48:52,423 INFO player ratings: 1557830 raw game rows -> 1557830 rolling rows across 3074 players (0 bad/dropped source rows)
-2026-10-07 00:48:52,423 INFO player rating shrinkage arm: bayesian (k = 0.20 * mean prior-season ice time per position/situation)
-2026-10-07 00:48:52,819 INFO ESPN injury archive: 3634 row(s) over 32 captured snapshot(s), window 2026-09-28 21:50:57.483534 .. 2026-10-07 00:48:52.608894 — exclusions can bind only on games after the first captured snapshot
-2026-10-07 00:48:59,590 INFO injury id bridge: 2652/3634 reports matched (73.0%), 0 ambiguous, 982 unmatched
-2026-10-07 00:49:01,844 INFO leave-events ledger: 3 event(s) loaded (0 refused; ledger as-of 2026-09-29T00:00:00Z)
-2026-10-07 00:49:08,628 WARNING pre-game lineup channel: UNPOPULATED — 0 interval(s); the frozen backfill artifact (nhl_pregame_availability_events.parquet) is absent or empty, so the historical pl_* availability gap stays OPEN in production. Absences read as 'no absences known', never as healthy; espn and leave_events channels are unaffected.
-2026-10-07 00:49:08,628 INFO leave channel: 3 interval(s) (0 resolved by id, 3 by name, 0 unresolved; ledger as-of 2026-09-29 00:00:00)
-2026-10-07 00:59:49,300 INFO injury source 'espn': 156 stints bound through 2026-10-07 00:48:52.608894
-2026-10-07 00:59:49,466 INFO injury source 'leave_events': 3 stints bound through 2026-09-29 00:00:00
-2026-10-07 00:59:53,442 INFO team roster snapshot: 767 player-team row(s) across 32/32 team(s) through 2026-10-07T00:59:49.470044+00:00
-2026-10-07 00:59:53,446 INFO team roster snapshot applied: 767 player-team row(s) through 2026-10-07 00:59:49.470044+00:00
-2026-10-07 01:05:48,060 INFO player pool: 44686 rows, 159 stints, 175 player-removals across 5630 sides, il_bound=True, roster: 0 covered game(s) (-0 leavers +0 joiners), wrong-team guard dropped 7364
-2026-10-07 01:05:48,133 INFO feature frame: 2827 decided games, 148 columns
-2026-10-07 01:05:48,192 INFO feature coverage:
+2026-10-07 04:23:20,333 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02]: 394 games
+2026-10-07 04:23:50,350 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 29/394 (0 cached, 29 fetched) 30.0s 0.97/s eta 378s
+2026-10-07 04:24:12,405 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 50/394 (0 cached, 50 fetched) 52.1s 0.96/s eta 358s
+2026-10-07 04:24:42,560 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 82/394 (0 cached, 82 fetched) 82.2s 1.00/s eta 313s
+2026-10-07 04:25:00,282 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 100/394 (0 cached, 100 fetched) 99.9s 1.00/s eta 294s
+2026-10-07 04:25:30,974 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 129/394 (0 cached, 129 fetched) 130.6s 0.99/s eta 268s
+2026-10-07 04:25:52,657 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 150/394 (0 cached, 150 fetched) 152.3s 0.98/s eta 248s
+2026-10-07 04:26:23,575 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 180/394 (0 cached, 180 fetched) 183.2s 0.98/s eta 218s
+2026-10-07 04:26:45,289 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 200/394 (0 cached, 200 fetched) 205.0s 0.98/s eta 199s
+2026-10-07 04:27:16,230 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 229/394 (0 cached, 229 fetched) 235.9s 0.97/s eta 170s
+2026-10-07 04:27:38,356 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 250/394 (0 cached, 250 fetched) 258.0s 0.97/s eta 149s
+2026-10-07 04:28:08,479 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 279/394 (0 cached, 279 fetched) 288.1s 0.97/s eta 119s
+2026-10-07 04:28:30,567 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 300/394 (0 cached, 300 fetched) 310.2s 0.97/s eta 97s
+2026-10-07 04:29:01,611 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 330/394 (0 cached, 330 fetched) 341.3s 0.97/s eta 66s
+2026-10-07 04:29:21,521 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 350/394 (0 cached, 350 fetched) 361.2s 0.97/s eta 45s
+2026-10-07 04:29:52,493 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 381/394 (0 cached, 381 fetched) 392.2s 0.97/s eta 13s
+2026-10-07 04:30:05,632 INFO boxscore chunk 1/11 [2024-10-04..2024-12-02] 394/394 (0 cached, 394 fetched) 405.3s 0.97/s
+boxscore chunk 1/11 [2024-10-04..2024-12-02]: 100%|##########| 394/394 [06:45<00:00,  1.03s/game, cached=0, fetched=394]
+2026-10-07 04:30:05,633 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31]: 430 games
+2026-10-07 04:30:36,105 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 30/430 (0 cached, 30 fetched) 30.5s 0.98/s eta 406s
+2026-10-07 04:30:56,898 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 50/430 (0 cached, 50 fetched) 51.3s 0.98/s eta 390s
+2026-10-07 04:31:27,566 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 81/430 (0 cached, 81 fetched) 81.9s 0.99/s eta 353s
+2026-10-07 04:31:43,520 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 100/430 (0 cached, 100 fetched) 97.9s 1.02/s eta 323s
+2026-10-07 04:32:14,014 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 131/430 (0 cached, 131 fetched) 128.4s 1.02/s eta 293s
+2026-10-07 04:32:32,648 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 150/430 (0 cached, 150 fetched) 147.0s 1.02/s eta 274s
+2026-10-07 04:33:03,509 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 182/430 (0 cached, 182 fetched) 177.9s 1.02/s eta 242s
+2026-10-07 04:33:21,153 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 200/430 (0 cached, 200 fetched) 195.5s 1.02/s eta 225s
+2026-10-07 04:33:51,240 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 231/430 (0 cached, 231 fetched) 225.6s 1.02/s eta 194s
+2026-10-07 04:34:09,387 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 250/430 (0 cached, 250 fetched) 243.8s 1.03/s eta 176s
+2026-10-07 04:34:39,448 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 281/430 (0 cached, 281 fetched) 273.8s 1.03/s eta 145s
+2026-10-07 04:34:57,865 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 300/430 (0 cached, 300 fetched) 292.2s 1.03/s eta 127s
+2026-10-07 04:35:28,113 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 326/430 (0 cached, 326 fetched) 322.5s 1.01/s eta 103s
+2026-10-07 04:35:52,933 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 350/430 (0 cached, 350 fetched) 347.3s 1.01/s eta 79s
+2026-10-07 04:36:23,082 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 383/430 (0 cached, 383 fetched) 377.4s 1.01/s eta 46s
+2026-10-07 04:36:39,838 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 400/430 (0 cached, 400 fetched) 394.2s 1.01/s eta 30s
+2026-10-07 04:37:10,085 INFO boxscore chunk 2/11 [2024-12-03..2025-01-31] 430/430 (0 cached, 430 fetched) 424.5s 1.01/s
+boxscore chunk 2/11 [2024-12-03..2025-01-31]: 100%|##########| 430/430 [07:04<00:00,  1.01game/s, cached=0, fetched=430]
+2026-10-07 04:37:10,086 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01]: 366 games
+2026-10-07 04:37:40,134 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 30/366 (0 cached, 30 fetched) 30.0s 1.00/s eta 337s
+2026-10-07 04:38:00,686 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 50/366 (0 cached, 50 fetched) 50.6s 0.99/s eta 320s
+2026-10-07 04:38:31,118 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 76/366 (0 cached, 76 fetched) 81.0s 0.94/s eta 309s
+2026-10-07 04:38:55,868 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 100/366 (0 cached, 100 fetched) 105.8s 0.95/s eta 281s
+2026-10-07 04:39:26,722 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 130/366 (0 cached, 130 fetched) 136.6s 0.95/s eta 248s
+2026-10-07 04:39:46,848 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 150/366 (0 cached, 150 fetched) 156.8s 0.96/s eta 226s
+2026-10-07 04:40:16,975 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 179/366 (0 cached, 179 fetched) 186.9s 0.96/s eta 195s
+2026-10-07 04:40:37,007 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 200/366 (0 cached, 200 fetched) 206.9s 0.97/s eta 172s
+2026-10-07 04:41:07,940 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 231/366 (0 cached, 231 fetched) 237.9s 0.97/s eta 139s
+2026-10-07 04:41:26,938 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 250/366 (0 cached, 250 fetched) 256.9s 0.97/s eta 119s
+2026-10-07 04:41:57,738 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 281/366 (0 cached, 281 fetched) 287.7s 0.98/s eta 87s
+2026-10-07 04:42:15,991 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 300/366 (0 cached, 300 fetched) 305.9s 0.98/s eta 67s
+2026-10-07 04:42:46,689 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 331/366 (0 cached, 331 fetched) 336.6s 0.98/s eta 36s
+2026-10-07 04:43:06,527 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 350/366 (0 cached, 350 fetched) 356.4s 0.98/s eta 16s
+2026-10-07 04:43:22,245 INFO boxscore chunk 3/11 [2025-02-01..2025-04-01] 366/366 (0 cached, 366 fetched) 372.2s 0.98/s
+boxscore chunk 3/11 [2025-02-01..2025-04-01]: 100%|##########| 366/366 [06:12<00:00,  1.02s/game, cached=0, fetched=366]
+2026-10-07 04:43:22,245 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31]: 202 games
+2026-10-07 04:43:52,773 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 31/202 (0 cached, 31 fetched) 30.5s 1.02/s eta 168s
+2026-10-07 04:44:11,221 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 50/202 (0 cached, 50 fetched) 49.0s 1.02/s eta 149s
+2026-10-07 04:44:42,105 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 81/202 (0 cached, 81 fetched) 79.9s 1.01/s eta 119s
+2026-10-07 04:45:01,434 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 100/202 (0 cached, 100 fetched) 99.2s 1.01/s eta 101s
+2026-10-07 04:45:31,582 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 130/202 (0 cached, 130 fetched) 129.3s 1.01/s eta 72s
+2026-10-07 04:45:50,938 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 150/202 (0 cached, 150 fetched) 148.7s 1.01/s eta 52s
+2026-10-07 04:46:21,327 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 182/202 (0 cached, 182 fetched) 179.1s 1.02/s eta 20s
+2026-10-07 04:46:38,362 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 200/202 (0 cached, 200 fetched) 196.1s 1.02/s eta 2s
+2026-10-07 04:46:40,153 INFO boxscore chunk 4/11 [2025-04-02..2025-05-31] 202/202 (0 cached, 202 fetched) 197.9s 1.02/s
+boxscore chunk 4/11 [2025-04-02..2025-05-31]: 100%|##########| 202/202 [03:17<00:00,  1.02game/s, cached=0, fetched=202]
+2026-10-07 04:46:40,153 INFO boxscore chunk 5/11 [2025-06-01..2025-07-30]: 6 games
+2026-10-07 04:46:45,764 INFO boxscore chunk 5/11 [2025-06-01..2025-07-30] 6/6 (0 cached, 6 fetched) 5.6s 1.07/s
+boxscore chunk 5/11 [2025-06-01..2025-07-30]: 100%|##########| 6/6 [00:05<00:00,  1.07game/s, cached=0, fetched=6]
+2026-10-07 04:46:45,765 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27]: 375 games
+2026-10-07 04:47:16,039 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 29/375 (0 cached, 29 fetched) 30.3s 0.96/s eta 361s
+2026-10-07 04:47:44,741 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 50/375 (0 cached, 50 fetched) 59.0s 0.85/s eta 383s
+2026-10-07 04:48:15,327 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 76/375 (0 cached, 76 fetched) 89.6s 0.85/s eta 352s
+2026-10-07 04:48:38,342 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 100/375 (0 cached, 100 fetched) 112.6s 0.89/s eta 310s
+2026-10-07 04:49:08,721 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 130/375 (0 cached, 130 fetched) 143.0s 0.91/s eta 269s
+2026-10-07 04:49:32,304 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 150/375 (0 cached, 150 fetched) 166.5s 0.90/s eta 250s
+2026-10-07 04:50:02,470 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 180/375 (0 cached, 180 fetched) 196.7s 0.92/s eta 213s
+2026-10-07 04:50:24,348 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 200/375 (0 cached, 200 fetched) 218.6s 0.91/s eta 191s
+2026-10-07 04:50:54,968 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 227/375 (0 cached, 227 fetched) 249.2s 0.91/s eta 162s
+2026-10-07 04:51:19,410 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 250/375 (0 cached, 250 fetched) 273.6s 0.91/s eta 137s
+2026-10-07 04:51:50,406 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 279/375 (0 cached, 279 fetched) 304.6s 0.92/s eta 105s
+2026-10-07 04:52:11,880 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 300/375 (0 cached, 300 fetched) 326.1s 0.92/s eta 82s
+2026-10-07 04:52:42,653 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 329/375 (0 cached, 329 fetched) 356.9s 0.92/s eta 50s
+2026-10-07 04:53:03,256 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 350/375 (0 cached, 350 fetched) 377.5s 0.93/s eta 27s
+2026-10-07 04:53:27,297 INFO boxscore chunk 6/11 [2025-09-29..2025-11-27] 375/375 (0 cached, 375 fetched) 401.5s 0.93/s
+boxscore chunk 6/11 [2025-09-29..2025-11-27]: 100%|##########| 375/375 [06:41<00:00,  1.07s/game, cached=0, fetched=375]
+2026-10-07 04:53:27,298 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26]: 453 games
+2026-10-07 04:53:57,827 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 30/453 (0 cached, 30 fetched) 30.5s 0.98/s eta 430s
+2026-10-07 04:54:15,036 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 50/453 (0 cached, 50 fetched) 47.7s 1.05/s eta 385s
+2026-10-07 04:54:45,597 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 80/453 (0 cached, 80 fetched) 78.3s 1.02/s eta 365s
+2026-10-07 04:55:05,539 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 100/453 (0 cached, 100 fetched) 98.2s 1.02/s eta 347s
+2026-10-07 04:55:36,527 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 128/453 (0 cached, 128 fetched) 129.2s 0.99/s eta 328s
+2026-10-07 04:56:00,181 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 150/453 (0 cached, 150 fetched) 152.9s 0.98/s eta 309s
+2026-10-07 04:56:30,640 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 179/453 (0 cached, 179 fetched) 183.3s 0.98/s eta 281s
+2026-10-07 04:56:52,453 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 200/453 (0 cached, 200 fetched) 205.2s 0.97/s eta 260s
+2026-10-07 04:57:22,532 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 229/453 (0 cached, 229 fetched) 235.2s 0.97/s eta 230s
+2026-10-07 04:57:43,496 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 250/453 (0 cached, 250 fetched) 256.2s 0.98/s eta 208s
+2026-10-07 04:58:14,506 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 277/453 (0 cached, 277 fetched) 287.2s 0.96/s eta 182s
+2026-10-07 04:58:37,468 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 300/453 (0 cached, 300 fetched) 310.2s 0.97/s eta 158s
+2026-10-07 04:59:08,286 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 331/453 (0 cached, 331 fetched) 341.0s 0.97/s eta 126s
+2026-10-07 04:59:26,970 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 350/453 (0 cached, 350 fetched) 359.7s 0.97/s eta 106s
+2026-10-07 04:59:57,519 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 381/453 (0 cached, 381 fetched) 390.2s 0.98/s eta 74s
+2026-10-07 05:00:15,961 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 400/453 (0 cached, 400 fetched) 408.7s 0.98/s eta 54s
+2026-10-07 05:00:46,063 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 430/453 (0 cached, 430 fetched) 438.8s 0.98/s eta 23s
+2026-10-07 05:01:06,811 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 450/453 (0 cached, 450 fetched) 459.5s 0.98/s eta 3s
+2026-10-07 05:01:09,980 INFO boxscore chunk 7/11 [2025-11-28..2026-01-26] 453/453 (0 cached, 453 fetched) 462.7s 0.98/s
+boxscore chunk 7/11 [2025-11-28..2026-01-26]: 100%|##########| 453/453 [07:42<00:00,  1.02s/game, cached=0, fetched=453]
+2026-10-07 05:01:09,980 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27]: 323 games
+2026-10-07 05:01:40,745 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 30/323 (0 cached, 30 fetched) 30.8s 0.98/s eta 300s
+2026-10-07 05:02:00,970 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 50/323 (0 cached, 50 fetched) 51.0s 0.98/s eta 278s
+2026-10-07 05:02:31,186 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 80/323 (0 cached, 80 fetched) 81.2s 0.99/s eta 247s
+2026-10-07 05:02:50,966 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 100/323 (0 cached, 100 fetched) 101.0s 0.99/s eta 225s
+2026-10-07 05:03:21,212 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 130/323 (0 cached, 130 fetched) 131.2s 0.99/s eta 195s
+2026-10-07 05:03:41,235 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 150/323 (0 cached, 150 fetched) 151.3s 0.99/s eta 174s
+2026-10-07 05:04:11,759 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 180/323 (0 cached, 180 fetched) 181.8s 0.99/s eta 144s
+2026-10-07 05:04:31,459 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 200/323 (0 cached, 200 fetched) 201.5s 0.99/s eta 124s
+2026-10-07 05:05:02,207 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 230/323 (0 cached, 230 fetched) 232.2s 0.99/s eta 94s
+2026-10-07 05:05:22,848 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 250/323 (0 cached, 250 fetched) 252.9s 0.99/s eta 74s
+2026-10-07 05:05:53,596 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 278/323 (0 cached, 278 fetched) 283.6s 0.98/s eta 46s
+2026-10-07 05:06:15,713 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 300/323 (0 cached, 300 fetched) 305.7s 0.98/s eta 23s
+2026-10-07 05:06:38,293 INFO boxscore chunk 8/11 [2026-01-27..2026-03-27] 323/323 (0 cached, 323 fetched) 328.3s 0.98/s
+boxscore chunk 8/11 [2026-01-27..2026-03-27]: 100%|##########| 323/323 [05:28<00:00,  1.02s/game, cached=0, fetched=323]
+2026-10-07 05:06:38,293 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26]: 235 games
+2026-10-07 05:07:08,510 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 30/235 (0 cached, 30 fetched) 30.2s 0.99/s eta 206s
+2026-10-07 05:07:29,581 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 50/235 (0 cached, 50 fetched) 51.3s 0.97/s eta 190s
+2026-10-07 05:08:00,489 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 81/235 (0 cached, 81 fetched) 82.2s 0.99/s eta 156s
+2026-10-07 05:08:19,104 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 100/235 (0 cached, 100 fetched) 100.8s 0.99/s eta 136s
+2026-10-07 05:08:49,576 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 132/235 (0 cached, 132 fetched) 131.3s 1.01/s eta 102s
+2026-10-07 05:09:06,598 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 150/235 (0 cached, 150 fetched) 148.3s 1.01/s eta 84s
+2026-10-07 05:09:37,045 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 181/235 (0 cached, 181 fetched) 178.8s 1.01/s eta 53s
+2026-10-07 05:09:55,104 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 200/235 (0 cached, 200 fetched) 196.8s 1.02/s eta 34s
+2026-10-07 05:10:25,203 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 232/235 (0 cached, 232 fetched) 226.9s 1.02/s eta 3s
+2026-10-07 05:10:27,584 INFO boxscore chunk 9/11 [2026-03-28..2026-05-26] 235/235 (0 cached, 235 fetched) 229.3s 1.02/s
+boxscore chunk 9/11 [2026-03-28..2026-05-26]: 100%|##########| 235/235 [03:49<00:00,  1.02game/s, cached=0, fetched=235]
+2026-10-07 05:10:27,584 INFO boxscore chunk 10/11 [2026-05-27..2026-07-25]: 8 games
+2026-10-07 05:10:35,406 INFO boxscore chunk 10/11 [2026-05-27..2026-07-25] 8/8 (0 cached, 8 fetched) 7.8s 1.02/s
+boxscore chunk 10/11 [2026-05-27..2026-07-25]: 100%|##########| 8/8 [00:07<00:00,  1.02game/s, cached=0, fetched=8]
+2026-10-07 05:10:35,406 INFO boxscore chunk 11/11 [2026-09-24..2026-11-22]: 42 games
+2026-10-07 05:11:05,472 INFO boxscore chunk 11/11 [2026-09-24..2026-11-22] 42/42 (0 cached, 42 fetched) 30.1s 1.40/s
+boxscore chunk 11/11 [2026-09-24..2026-11-22]: 100%|##########| 42/42 [00:30<00:00,  1.40game/s, cached=0, fetched=42]
+2026-10-07 05:11:05,473 INFO boxscores resolved: 2834 requested in 11 chunk(s), 0 cache hits, 2834 fetched
+2026-10-07 05:11:07,492 INFO boxscore rows: 2834
+2026-10-07 05:11:48,964 INFO MoneyPuck historical player games: cached 1460310 rows for seasons [2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+2026-10-07 05:11:51,855 INFO MoneyPuck player games 2025: cached 94424 rows
+2026-10-07 05:11:53,862 INFO MoneyPuck player games 2026: cached 3096 rows
+2026-10-07 05:12:24,944 INFO player ratings: 1557830 raw game rows -> 1557830 rolling rows across 3074 players (0 bad/dropped source rows)
+2026-10-07 05:12:24,944 INFO player rating shrinkage arm: bayesian (k = 0.20 * mean prior-season ice time per position/situation)
+2026-10-07 05:12:25,471 INFO ESPN injury archive: 3749 row(s) over 33 captured snapshot(s), window 2026-09-28 21:50:57.483534 .. 2026-10-07 05:12:25.318557 — exclusions can bind only on games after the first captured snapshot
+2026-10-07 05:12:30,198 INFO injury id bridge: 2739/3749 reports matched (73.1%), 0 ambiguous, 1010 unmatched
+2026-10-07 05:12:31,707 INFO leave-events ledger: 3 event(s) loaded (0 refused; ledger as-of 2026-09-29T00:00:00Z)
+2026-10-07 05:12:36,801 WARNING pre-game lineup channel: UNPOPULATED — 0 interval(s); the frozen backfill artifact (nhl_pregame_availability_events.parquet) is absent or empty, so the historical pl_* availability gap stays OPEN in production. Absences read as 'no absences known', never as healthy; espn and leave_events channels are unaffected.
+2026-10-07 05:12:36,801 INFO leave channel: 3 interval(s) (0 resolved by id, 3 by name, 0 unresolved; ledger as-of 2026-09-29 00:00:00)
+2026-10-07 05:12:45,325 INFO team roster snapshot: 767 player-team row(s) across 32/32 team(s) through 2026-10-07T05:12:36.803838+00:00
+2026-10-07 05:12:45,327 INFO team roster snapshot applied: 767 player-team row(s) through 2026-10-07 05:12:36.803838+00:00
+2026-10-07 05:20:03,465 INFO injury source 'espn': 158 stints bound through 2026-10-07 05:12:25.318557
+2026-10-07 05:20:03,567 INFO injury source 'leave_events': 3 stints bound through 2026-09-29 00:00:00
+2026-10-07 05:23:58,116 INFO player pool: 44798 rows, 161 stints, 222 player-removals across 5644 sides, il_bound=True, roster: 0 covered game(s) (-0 leavers +0 joiners), wrong-team guard dropped 7423
+2026-10-07 05:23:58,164 INFO feature frame: 2834 decided games, 148 columns
+2026-10-07 05:23:58,200 INFO feature coverage:
                     feature  n_games  coverage_pct        mean       std
-                   elo_diff     2827        100.00   -2.701615 73.576541
-               win_pct_diff     2827         99.29   -0.003257  0.233022
-             rest_days_diff     2827         99.29    0.364090 11.277456
-         ewm_net_goals_diff     2827         99.29   -0.014370  1.434075
-        ewm_goal_share_diff     2827         99.29   -0.001716  0.133071
-           ga_per_game_diff     2827         99.29    0.023792  1.187860
-    shots_for_per_game_diff     2827         99.29   -0.072462  4.860403
-shots_against_per_game_diff     2827         99.29    0.013739  4.854323
-            pp_success_diff     2827         99.29    0.004486  0.146266
-           faceoff_win_diff     2827         99.29   -0.000266  0.042857
-          back_to_back_diff     2827         99.29   -0.096188  0.442740
-         goalie_sv_pct_diff     2827         97.98   -0.000728  0.042104
-            goalie_gaa_diff     2827         97.98    0.016783  1.236216
-         goalie_starts_diff     2827         97.98   -0.009386  7.067179
-                is_playoffs     2827        100.00    0.059427  0.236464
-                   elo_home     2827        100.00 1502.736849 54.491312
-                   elo_away     2827        100.00 1505.438465 53.816350
-               win_pct_home     2827         99.40    0.501116  0.167376
-               win_pct_away     2827         99.47    0.505315  0.166668
-         ewm_net_goals_home     2827         99.40    0.002173  1.031276
-         ewm_net_goals_away     2827         99.47    0.018312  1.004337
-        ewm_goal_share_home     2827         99.40    0.500133  0.092812
-        ewm_goal_share_away     2827         99.47    0.501980  0.094069
-             rest_days_home     2827         99.40    4.307829 17.118987
-             rest_days_away     2827         99.47    3.941323 16.469535
-           ga_per_game_home     2827         99.40    3.093766  0.843784
-           ga_per_game_away     2827         99.47    3.068350  0.841464
-    shots_for_per_game_home     2827         99.40   28.036317  3.409945
-    shots_for_per_game_away     2827         99.47   28.112950  3.524284
-shots_against_per_game_home     2827         99.40   28.071667  3.438143
-shots_against_per_game_away     2827         99.47   28.057071  3.474155
-            pp_success_home     2827         99.40    0.165827  0.110897
-            pp_success_away     2827         99.47    0.161234  0.093569
-           faceoff_win_home     2827         99.40    0.180531  0.029952
-           faceoff_win_away     2827         99.47    0.180799  0.030312
-          back_to_back_home     2827         99.40    0.101068  0.301472
-          back_to_back_away     2827         99.47    0.197368  0.398084
-         goalie_sv_pct_home     2827         98.37    0.891958  0.031324
-         goalie_sv_pct_away     2827         98.44    0.892664  0.028231
-            goalie_gaa_home     2827         98.37    2.963036  0.932278
-            goalie_gaa_away     2827         98.44    2.946300  0.849980
-         goalie_starts_home     2827         98.37   26.978785 16.159566
-         goalie_starts_away     2827         98.44   26.969817 16.129903
-                    is_home     2827        100.00    1.000000  0.000000
-              pl_evo_c_away     2827        100.00    0.676269  0.062956
-              pl_evo_c_home     2827        100.00    0.676807  0.062580
-              pl_evo_c_diff     2827        100.00    0.000539  0.087975
-              pl_evo_l_away     2827        100.00    0.744818  0.093517
-              pl_evo_l_home     2827        100.00    0.744387  0.092124
-              pl_evo_l_diff     2827        100.00   -0.000432  0.130132
-              pl_evo_r_away     2827        100.00    0.715407  0.094139
-              pl_evo_r_home     2827        100.00    0.714768  0.093826
-              pl_evo_r_diff     2827        100.00   -0.000639  0.135373
-              pl_evo_d_away     2827        100.00    0.173771  0.023825
-              pl_evo_d_home     2827        100.00    0.173783  0.023605
-              pl_evo_d_diff     2827        100.00    0.000011  0.033358
-              pl_ppo_c_away     2827        100.00    1.657953  0.466072
-              pl_ppo_c_home     2827        100.00    1.656426  0.462985
-              pl_ppo_c_diff     2827        100.00   -0.001527  0.665852
-              pl_ppo_l_away     2827        100.00    1.738646  0.573650
-              pl_ppo_l_home     2827        100.00    1.729683  0.578896
-              pl_ppo_l_diff     2827        100.00   -0.008963  0.814034
-              pl_ppo_r_away     2827        100.00    1.621123  0.487046
-              pl_ppo_r_home     2827        100.00    1.624845  0.485623
-              pl_ppo_r_diff     2827        100.00    0.003722  0.694217
-              pl_ppo_d_away     2827        100.00    0.664844  0.223633
-              pl_ppo_d_home     2827        100.00    0.664190  0.224044
-              pl_ppo_d_diff     2827        100.00   -0.000654  0.316640
-2026-10-07 01:05:48,202 INFO feature subset: {'applied': False, 'n_cols': 68, 'reason': 'no adopted state'}
+                   elo_diff     2834        100.00   -0.188949 73.483363
+               win_pct_diff     2834         99.29   -0.003574  0.233188
+             rest_days_diff     2834         99.29    0.363539 11.263466
+         ewm_net_goals_diff     2834         99.29   -0.017879  1.435419
+        ewm_goal_share_diff     2834         99.29   -0.002046  0.133244
+           ga_per_game_diff     2834         99.29    0.026789  1.188897
+    shots_for_per_game_diff     2834         99.29   -0.078394  4.865433
+shots_against_per_game_diff     2834         99.29    0.016619  4.857654
+            pp_success_diff     2834         99.29    0.000696  0.161755
+           faceoff_win_diff     2834         99.29    0.000885  0.059785
+          back_to_back_diff     2834         99.29   -0.096304  0.442540
+         goalie_sv_pct_diff     2834         97.95   -0.000998  0.042827
+            goalie_gaa_diff     2834         97.95    0.022533  1.259760
+         goalie_starts_diff     2834         97.95   -0.026297  7.861941
+                is_playoffs     2834        100.00    0.059280  0.236190
+                   elo_home     2834        100.00 1503.986678 54.533445
+                   elo_away     2834        100.00 1504.175627 53.853798
+               win_pct_home     2834         99.40    0.500818  0.167508
+               win_pct_away     2834         99.47    0.505331  0.166585
+         ewm_net_goals_home     2834         99.40   -0.000327  1.032950
+         ewm_net_goals_away     2834         99.47    0.019312  1.003400
+        ewm_goal_share_home     2834         99.40    0.499912  0.092978
+        ewm_goal_share_away     2834         99.47    0.502089  0.094004
+             rest_days_home     2834         99.40    4.303869 17.097895
+             rest_days_away     2834         99.47    3.937921 16.449248
+           ga_per_game_home     2834         99.40    3.095734  0.845068
+           ga_per_game_away     2834         99.47    3.067329  0.840865
+    shots_for_per_game_home     2834         99.40   28.030192  3.418816
+    shots_for_per_game_away     2834         99.47   28.112741  3.522943
+shots_against_per_game_home     2834         99.40   28.071063  3.439907
+shots_against_per_game_away     2834         99.47   28.053595  3.474509
+            pp_success_home     2834         99.40    0.214068  0.116482
+            pp_success_away     2834         99.47    0.213108  0.112710
+           faceoff_win_home     2834         99.40    0.500405  0.041152
+           faceoff_win_away     2834         99.47    0.499568  0.041588
+          back_to_back_home     2834         99.40    0.100816  0.301139
+          back_to_back_away     2834         99.47    0.197233  0.397980
+         goalie_sv_pct_home     2834         98.20    0.890952  0.031733
+         goalie_sv_pct_away     2834         98.41    0.891973  0.028763
+            goalie_gaa_home     2834         98.20    2.990485  0.945304
+            goalie_gaa_away     2834         98.41    2.967154  0.869910
+         goalie_starts_home     2834         98.20   26.496586 16.092804
+         goalie_starts_away     2834         98.41   26.468268 16.086215
+                    is_home     2834        100.00    1.000000  0.000000
+              pl_evo_c_away     2834        100.00    0.676399  0.063041
+              pl_evo_c_home     2834        100.00    0.676724  0.062595
+              pl_evo_c_diff     2834        100.00    0.000325  0.088101
+              pl_evo_l_away     2834        100.00    0.744789  0.093511
+              pl_evo_l_home     2834        100.00    0.744266  0.092095
+              pl_evo_l_diff     2834        100.00   -0.000523  0.130148
+              pl_evo_r_away     2834        100.00    0.715458  0.094150
+              pl_evo_r_home     2834        100.00    0.714860  0.093842
+              pl_evo_r_diff     2834        100.00   -0.000598  0.135266
+              pl_evo_d_away     2834        100.00    0.173782  0.023806
+              pl_evo_d_home     2834        100.00    0.173792  0.023592
+              pl_evo_d_diff     2834        100.00    0.000010  0.033331
+              pl_ppo_c_away     2834        100.00    1.658939  0.467553
+              pl_ppo_c_home     2834        100.00    1.656766  0.462884
+              pl_ppo_c_diff     2834        100.00   -0.002174  0.667408
+              pl_ppo_l_away     2834        100.00    1.738503  0.573275
+              pl_ppo_l_home     2834        100.00    1.729063  0.578823
+              pl_ppo_l_diff     2834        100.00   -0.009439  0.814005
+              pl_ppo_r_away     2834        100.00    1.620768  0.487412
+              pl_ppo_r_home     2834        100.00    1.624973  0.485426
+              pl_ppo_r_diff     2834        100.00    0.004204  0.694374
+              pl_ppo_d_away     2834        100.00    0.664776  0.223648
+              pl_ppo_d_home     2834        100.00    0.664019  0.223927
+              pl_ppo_d_diff     2834        100.00   -0.000756  0.316517
+2026-10-07 05:23:58,205 INFO feature subset: {'applied': False, 'n_cols': 68, 'reason': 'no adopted state'}
 
 ----------------------------------------------------------------------
   PHASE 4 - walk-forward fold generation
 ----------------------------------------------------------------------
 
-2026-10-07 01:05:48,253 WARNING OOF validation population is thin on 14 of 59 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2025-04-17..2025-04-24 n=27 mixed], [2025-04-25..2025-05-01 n=24 postseason], [2025-05-02..2025-05-08 n=10 postseason], [2025-05-09..2025-05-15 n=13 postseason], [2025-05-16..2025-05-23 n=7 postseason], +9 more - retained for evidence, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
-2026-10-07 01:05:48,256 INFO OOF season-type split: 14 window(s) carry postseason games (168 rows); their playoff rows are reported as oof_postseason and never grade the blend
-2026-10-07 01:05:48,294 INFO fold geometry:
-  eligible settled games : 2827
-  game date range        : 2024-10-04 .. 2026-10-05
+2026-10-07 05:23:58,237 WARNING OOF validation population is thin on 14 of 59 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2025-04-17..2025-04-24 n=27 mixed], [2025-04-25..2025-05-01 n=24 postseason], [2025-05-02..2025-05-08 n=10 postseason], [2025-05-09..2025-05-15 n=13 postseason], [2025-05-16..2025-05-23 n=7 postseason], +9 more - retained for evidence, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-10-07 05:23:58,239 INFO OOF season-type split: 14 window(s) carry postseason games (168 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-10-07 05:23:58,263 INFO fold geometry:
+  eligible settled games : 2834
+  game date range        : 2024-10-04 .. 2026-10-06
   warm-up                : 30 days (MLB-style; first OOF validation 2024-11-05)
-  last OOF validation    : 2026-10-05 (last of 59 windows, fold_id 58, n_val=27)
+  last OOF validation    : 2026-10-06 (last of 59 windows, fold_id 58, n_val=34)
   validation windows     : 59 (7-observed-date, non-overlapping, expanding training)
   training observations  : 192 (first) .. 2800 (last)
-  validation observations: 2635
-2026-10-07 01:05:48,301 INFO folds: {"n_folds": 59, "first_val_start": "2024-11-05", "last_val_end": "2026-10-05", "min_train": 192, "max_train": 2800, "total_val_games": 2635, "n_candidates": 59, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 14, "provisional_games": 206, "postseason_windows": 14, "min_val_fold_games": 40} (oof_* blocks: computed after Phase 5)
-2026-10-07 01:05:48,301 INFO OOF reach: 2635 of 2827 eligible games validated (93.2%)
+  validation observations: 2642
+2026-10-07 05:23:58,268 INFO folds: {"n_folds": 59, "first_val_start": "2024-11-05", "last_val_end": "2026-10-06", "min_train": 192, "max_train": 2800, "total_val_games": 2642, "n_candidates": 59, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 14, "provisional_games": 213, "postseason_windows": 14, "min_val_fold_games": 40} (oof_* blocks: computed after Phase 5)
+2026-10-07 05:23:58,268 INFO OOF reach: 2642 of 2834 eligible games validated (93.2%)
 
 ----------------------------------------------------------------------
   PHASE 5 - moneyline walk-forward OOF
 ----------------------------------------------------------------------
 
-2026-10-07 01:06:05,143 INFO moneyline OOF fold 15/59
-2026-10-07 01:06:20,749 INFO moneyline OOF fold 30/59
-2026-10-07 01:06:38,885 INFO moneyline OOF fold 45/59
-2026-10-07 01:06:55,979 INFO moneyline OOF fold 59/59
-2026-10-07 01:06:55,988 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67620, lightgbm ll=0.67751, elasticnet ll=0.67644 | rolling-blend pooled logloss 0.67549 | xgb causal fold budgets: median 127 over 59 fold(s), range 1-871
-2026-10-07 01:06:55,988 INFO moneyline OOF complete: 59 fold(s), 2635 scored row(s), 2418 grading / 168 postseason / 206 provisional, final weights elasticnet=0.429, lightgbm=0.225, xgboost=0.346
-2026-10-07 01:06:55,989 INFO Published blend: 2635 OOF rows re-pooled with the deployed weights {'elasticnet': '42.9%', 'lightgbm': '22.4%', 'xgboost': '34.6%'} — headline metrics grade THE serving blend
-2026-10-07 01:06:55,994 INFO moneyline OOF rows: 2635; adaptive weights: {"elasticnet": 0.429, "lightgbm": 0.225, "xgboost": 0.346}
+2026-10-07 05:24:09,076 INFO moneyline OOF fold 15/59
+2026-10-07 05:24:18,487 INFO moneyline OOF fold 30/59
+2026-10-07 05:24:30,708 INFO moneyline OOF fold 45/59
+2026-10-07 05:24:43,787 INFO moneyline OOF fold 59/59
+2026-10-07 05:24:43,794 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67616, lightgbm ll=0.67653, elasticnet ll=0.67652 | rolling-blend pooled logloss 0.67517 | xgb causal fold budgets: median 157 over 59 fold(s), range 1-452
+2026-10-07 05:24:43,795 INFO moneyline OOF complete: 59 fold(s), 2642 scored row(s), 2418 grading / 168 postseason / 213 provisional, final weights elasticnet=0.444, lightgbm=0.291, xgboost=0.265
+2026-10-07 05:24:43,796 INFO Published blend: 2642 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '44.4%', 'lightgbm': '29.1%', 'xgboost': '26.5%'} replay only in p_ensemble_retrospective (not OOF)
+2026-10-07 05:24:43,802 INFO moneyline OOF rows: 2642; adaptive weights: {"elasticnet": 0.444, "lightgbm": 0.291, "xgboost": 0.265}
 
 ----------------------------------------------------------------------
   PHASE 6-7 - goal margin/total distribution OOF
 ----------------------------------------------------------------------
 
-2026-10-07 01:06:57,523 INFO dist OOF fold 15/59
-2026-10-07 01:07:00,323 INFO dist OOF fold 30/59
-2026-10-07 01:07:03,765 INFO dist OOF fold 45/59
-2026-10-07 01:07:07,683 INFO dist OOF fold 59/59
-2026-10-07 01:07:07,688 INFO dist OOF complete: 59 fold(s), 2635 scored row(s)
-2026-10-07 01:07:07,699 INFO run-line feature contract: strict_active_moneyline, 68 active moneyline feature(s) + 2 tree categorical(s) = 70 fitted column(s), resolved via moneyline.member_matrix('lightgbm')
-2026-10-07 01:07:07,699 INFO run-line OOF folds: 59 (shared with the moneyline walk-forward)
-2026-10-07 01:07:07,830 INFO run-line fit check (MLB diagnostics shape): home pearson 0.9671 dev 1.07303 (baseline 1.08150) | away pearson 0.9825 dev 1.09577 (baseline 1.10474)
-2026-10-07 01:07:07,830 INFO calibrated NB dispersion (MLB pooled method-of-moments): alpha_home 0.0000 (max 0.0099), alpha_away 0.0000 (max 0.0369) - POISSON LIMIT: no over-dispersion to model, the NB term is inactive and scoring is Poisson
-2026-10-07 01:07:07,830 INFO sealed holdout gate: alpha fitted on pre-holdout OOF only (cutoff 2026-09-14; 2600 pre / 35 sealed rows)
+2026-10-07 05:24:44,950 INFO dist OOF fold 15/59
+2026-10-07 05:24:47,030 INFO dist OOF fold 30/59
+2026-10-07 05:24:49,612 INFO dist OOF fold 45/59
+2026-10-07 05:24:52,654 INFO dist OOF fold 59/59
+2026-10-07 05:24:52,657 INFO dist OOF complete: 59 fold(s), 2642 scored row(s)
+2026-10-07 05:24:52,664 INFO run-line feature contract: strict_active_moneyline, 68 active moneyline feature(s) + 2 tree categorical(s) = 70 fitted column(s), resolved via moneyline.member_matrix('lightgbm')
+2026-10-07 05:24:52,664 INFO run-line OOF folds: 59 (shared with the moneyline walk-forward)
+2026-10-07 05:24:52,746 INFO run-line fit check (MLB diagnostics shape): home pearson 0.9656 dev 1.07004 (baseline 1.07978) | away pearson 0.9835 dev 1.09539 (baseline 1.10369)
+2026-10-07 05:24:52,746 INFO calibrated NB dispersion (MLB pooled method-of-moments): alpha_home 0.0000 (max 0.0101), alpha_away 0.0000 (max 0.0393) - POISSON LIMIT: no over-dispersion to model, the NB term is inactive and scoring is Poisson
+2026-10-07 05:24:52,746 INFO sealed holdout gate: alpha fitted on pre-holdout OOF only (cutoff 2026-09-15; 2600 pre / 42 sealed rows)
 
 ----------------------------------------------------------------------
   PHASE 8 - calibration
 ----------------------------------------------------------------------
 
-2026-10-07 01:07:08,041 INFO prequential per-fold calibration: 3 fitted, 56 identity (folds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]: served uncalibrated — thin start [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] lacks fittable prior OOF rows; gated [10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58] had prior evidence but no out-of-sample gain)
-2026-10-07 01:07:08,042 INFO prequential calib gate (nested holdout): 3 of 59 folds kept a map — candidate fitted on the earlier 75% of prior OOF evidence, scored against raw on the most recent slice (>= 200 rows), kept only if out-of-sample logloss beat raw by > 5e-03 nats
-2026-10-07 01:07:08,069 INFO folds oof blocks: {"oof_regular": {"n": 2418, "auc": 0.5978052432443979, "logloss": 0.6748461453625271, "brier": 0.24098886950603896, "ece": 0.01667933103867321, "sufficient": true}, "oof_postseason": {"n": 168, "auc": 0.5912658769801628, "logloss": 0.6781077429129798, "brier": 0.24257864625948522, "ece": 0.03817818582551753, "sufficient": true}, "oof_provisional": {"n": 206, "auc": 0.5780775075987842, "logloss": 0.6853637198800435, "brier": 0.24438305737794364, "ece": 0.025627009671009893, "sufficient": true}, "oof_all": {"n": 2635, "auc": 0.5972132431883469, "logloss": 0.675439342473503, "brier": 0.2411427133098419, "ece": 0.017119676551276, "sufficient": true}}
-2026-10-07 01:07:08,073 INFO final pooled calibrator: a=1.1544 b=-0.0396 n=2418 method=favored_platt_floor
+2026-10-07 05:24:52,855 INFO prequential per-fold calibration: 0 fitted, 59 identity (folds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]: served uncalibrated — thin start [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] lacks fittable prior OOF rows; gated [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58] had prior evidence but no out-of-sample gain)
+2026-10-07 05:24:52,855 INFO prequential calib gate (nested holdout): 0 of 59 folds kept a map — candidate fitted on the earlier 75% of prior OOF evidence, scored against raw on the most recent slice (>= 200 rows), kept only if out-of-sample logloss beat raw by > 5e-03 nats
+2026-10-07 05:24:52,871 INFO folds oof blocks: {"oof_regular": {"n": 2418, "auc": 0.5950511170507078, "logloss": 0.6751691941698906, "brier": 0.24118238417331395, "ece": 0.00976536506122611, "sufficient": true}, "oof_postseason": {"n": 168, "auc": 0.5769944341372912, "logloss": 0.6812594299417544, "brier": 0.24402182851632437, "ece": 0.04084001551005564, "sufficient": true}, "oof_provisional": {"n": 213, "auc": 0.567485754985755, "logloss": 0.6811795609850034, "brier": 0.24396899472568429, "ece": 0.06052771752674151, "sufficient": true}, "oof_all": {"n": 2642, "auc": 0.5942305194149113, "logloss": 0.6753873057465926, "brier": 0.2412772391459501, "ece": 0.009398757973055819, "sufficient": true}}
+2026-10-07 05:24:52,874 INFO final pooled calibrator: identity (raw blend is served); same causal gate: gated_no_gain
 
 ----------------------------------------------------------------------
   PHASE 9 - evaluation / diagnostics
 ----------------------------------------------------------------------
 
-2026-10-07 01:07:08,085 INFO moneyline OOF raw:    {"n": 2418, "auc": 0.5988608652931177, "logloss": 0.6744717464936274, "brier": 0.24082941079893908, "ece": 0.018122666951015016}
-2026-10-07 01:07:08,086 INFO moneyline OOF calib:  {"n": 2418, "auc": 0.5978052432443979, "logloss": 0.6748461453625271, "brier": 0.24098886950603896, "ece": 0.01667933103867321} (prequential per-fold layer; the pooled calibrator is what serves the slate)
-2026-10-07 01:07:08,086 WARNING prequential calibration layer measures WORSE than raw on logloss and brier (logloss 0.67447->0.67485, brier 0.24083->0.24099) — per-fold Platt fit on rolling prior evidence is adding variance without signal; the pooled serving calibrator is unaffected
-2026-10-07 01:07:08,104 INFO   member xgboost       w=0.346 auc=0.5945 brier=0.2416
-2026-10-07 01:07:08,104 INFO   member lightgbm      w=0.225 auc=0.5889 brier=0.2423
-2026-10-07 01:07:08,104 INFO   member elasticnet    w=0.429 auc=0.5908 brier=0.2418
-2026-10-07 01:07:35,320 INFO run-line OOF:  {"n": 2412, "n_pushes": 223, "logscore": 0.6912119576186784, "brier": 0.24903120124527364, "ece_cover": 0.0776581177446102}
-2026-10-07 01:07:35,320 INFO totals OOF:    {"n": 2170, "n_pushes": 465, "logscore": 0.6802954769380828, "brier": 0.24359825067059906, "ece_cover": 0.11526407373271885}
+2026-10-07 05:24:52,887 INFO moneyline OOF raw:    {"n": 2418, "auc": 0.5950511170507078, "logloss": 0.6751691941698906, "brier": 0.24118238417331395, "ece": 0.00976536506122611} (causal rolling blend)
+2026-10-07 05:24:52,891 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 2418, "auc": 0.5982124708101899, "logloss": 0.6743441264466966, "brier": 0.24079709959440027, "ece": 0.016130537258381226}
+2026-10-07 05:24:52,891 INFO moneyline OOF calib:  {"n": 2418, "auc": 0.5950511170507078, "logloss": 0.6751691941698906, "brier": 0.24118238417331395, "ece": 0.00976536506122611} (prequential per-fold layer; the pooled calibrator is what serves the slate)
+2026-10-07 05:24:52,901 INFO   member xgboost       w=0.265 auc=0.5916 brier=0.2417
+2026-10-07 05:24:52,901 INFO   member lightgbm      w=0.291 auc=0.5930 brier=0.2418
+2026-10-07 05:24:52,902 INFO   member elasticnet    w=0.444 auc=0.5900 brier=0.2418
+2026-10-07 05:25:12,211 INFO run-line OOF:  {"n": 2419, "n_pushes": 223, "logscore": 0.6923408073120029, "brier": 0.24959344881355933, "ece_cover": 0.07734875568416703}
+2026-10-07 05:25:12,211 INFO totals OOF:    {"n": 2183, "n_pushes": 459, "logscore": 0.6781530687152213, "brier": 0.24253620273934953, "ece_cover": 0.11559996335318365}
 
 ----------------------------------------------------------------------
   PHASE 10 - final full-history refit
 ----------------------------------------------------------------------
 
-2026-10-07 01:07:37,556 INFO final refit: 3 moneyline member(s) ['elasticnet', 'lightgbm', 'xgboost'] + 1 distribution regressor on 2827 decided games
+2026-10-07 05:25:13,612 INFO final moneyline policy: xgb 157 fixed rounds from 59 prior probe(s); shared fit representation/categoricals
+2026-10-07 05:25:13,834 INFO final refit: 3 moneyline member(s) ['elasticnet', 'lightgbm', 'xgboost'] + 1 distribution regressor on 2834 decided games
 
 ----------------------------------------------------------------------
   PHASE 11 - current-slate serving
 ----------------------------------------------------------------------
 
-2026-10-07 01:09:06,027 INFO player pool: 143 rows, 159 stints, 52 player-removals across 18 sides, il_bound=True, roster: 2 covered game(s) (-1 leavers +0 joiners), wrong-team guard dropped 78
-2026-10-07 01:09:06,205 INFO slate games: 9
+2026-10-07 05:26:12,786 INFO player pool: 78 rows, 161 stints, 26 player-removals across 10 sides, il_bound=True, roster: 3 covered game(s) (-4 leavers +2 joiners), wrong-team guard dropped 53
+2026-10-07 05:26:12,908 INFO slate games: 5
 
 ----------------------------------------------------------------------
   PHASE 12 - artifact persistence
 ----------------------------------------------------------------------
 
-2026-10-07 01:09:31,555 INFO cards history store: 2644 rows (0 added this run) -> nhl_production_cards_history.csv
-2026-10-07 01:09:31,591 INFO injury history artifact: 3634 rows over 32 captured snapshot(s) (2026-09-28 21:50:57.483534+00:00 .. 2026-10-07 00:48:52.608894+00:00) -> nhl_injury_snapshot_history.parquet
-2026-10-07 01:09:41,278 INFO NHL SHAP attributions written for 9 games
-2026-10-07 01:09:41,279 INFO SHAP attributions written: 9
+2026-10-07 05:26:28,940 INFO cards history store: 2651 rows (7 added this run) -> nhl_production_cards_history.csv
+2026-10-07 05:26:28,962 INFO injury history artifact: 3749 rows over 33 captured snapshot(s) (2026-09-28 21:50:57.483534+00:00 .. 2026-10-07 05:12:25.318557+00:00) -> nhl_injury_snapshot_history.parquet
+2026-10-07 05:26:36,842 INFO NHL SHAP attributions written for 5 games
+2026-10-07 05:26:36,842 INFO SHAP attributions written: 5
 
 ----------------------------------------------------------------------
   PHASE 13 - schema validation
 ----------------------------------------------------------------------
 
-2026-10-07 01:09:41,403 INFO gate ml_probability_bounds        PASS
-2026-10-07 01:09:41,404 INFO gate oof_population               PASS
-2026-10-07 01:09:41,404 INFO gate spread_grid_coherent         PASS
-2026-10-07 01:09:41,404 INFO gate totals_grid_coherent         PASS
-2026-10-07 01:09:41,404 INFO gate markets_has_slate            PASS
-2026-10-07 01:09:41,404 INFO gate slate_contract_fields        PASS
-2026-10-07 01:09:41,405 INFO gate fold_geometry                PASS
-2026-10-07 01:09:41,405 INFO gate oof_reach                    PASS
-2026-10-07 01:09:41,405 INFO gate sealed_holdout_gate          PASS
-2026-10-07 01:09:41,406 INFO gate delivery_consistency         PASS
+2026-10-07 05:26:36,922 INFO gate ml_probability_bounds        PASS
+2026-10-07 05:26:36,923 INFO gate oof_population               PASS
+2026-10-07 05:26:36,923 INFO gate spread_grid_coherent         PASS
+2026-10-07 05:26:36,923 INFO gate totals_grid_coherent         PASS
+2026-10-07 05:26:36,923 INFO gate markets_has_slate            PASS
+2026-10-07 05:26:36,923 INFO gate slate_contract_fields        PASS
+2026-10-07 05:26:36,923 INFO gate fold_geometry                PASS
+2026-10-07 05:26:36,923 INFO gate oof_reach                    PASS
+2026-10-07 05:26:36,923 INFO gate sealed_holdout_gate          PASS
+2026-10-07 05:26:36,923 INFO gate delivery_consistency         PASS
 
 ----------------------------------------------------------------------
   PHASE 14 - monitoring
 ----------------------------------------------------------------------
 
-2026-10-07 01:09:41,550 INFO coverage [baseline]: 68/68 features, 100.000% measured on eligible games, 0 cold null(s) by design (team debut)
-2026-10-07 01:09:41,550 INFO coverage [baseline]: no warm nulls — every warm game measured
-2026-10-07 01:09:41,550 INFO coverage [current]: 68/68 features, 99.696% measured on eligible games, 129 cold null(s) by design (team debut)
-2026-10-07 01:09:41,550 WARNING coverage [current]: 9 feature(s) with WARM nulls — a defect, not a cold start: goalie_sv_pct_diff(2 defect), goalie_gaa_diff(2 defect), goalie_starts_diff(2 defect), goalie_sv_pct_home(1 defect), goalie_sv_pct_away(1 defect), goalie_gaa_home(1 defect), goalie_gaa_away(1 defect), goalie_starts_home(1 defect)
-2026-10-07 01:09:41,550 INFO coverage [serving slate]: 68/68 features, 100.000% measured on eligible games, 0 cold null(s) by design (team debut)
-2026-10-07 01:09:41,550 INFO coverage [serving slate]: no warm nulls — every warm game measured
-2026-10-07 01:09:41,799 INFO retention: kept 16 protected file(s)
-2026-10-07 01:09:41,799 INFO retention: kept 164 artifact(s) within the window (anchor 20261006 -10d; the anchor is the DATA WINDOW END, which a backfill can push past today - files newer than it are never touched)
-2026-10-07 01:09:41,799 INFO retention: no stale files
+2026-10-07 05:26:37,011 INFO coverage [baseline]: 68/68 features, 100.000% measured on eligible games, 0 cold null(s) by design (team debut)
+2026-10-07 05:26:37,011 INFO coverage [baseline]: no warm nulls — every warm game measured
+2026-10-07 05:26:37,011 INFO coverage [current]: 68/68 features, 99.620% measured on eligible games, 135 cold null(s) by design (team debut)
+2026-10-07 05:26:37,011 WARNING coverage [current]: 9 feature(s) with WARM nulls — a defect, not a cold start: goalie_sv_pct_diff(2 defect), goalie_gaa_diff(2 defect), goalie_starts_diff(2 defect), goalie_sv_pct_home(2 defect), goalie_sv_pct_away(1 defect), goalie_gaa_home(2 defect), goalie_gaa_away(1 defect), goalie_starts_home(2 defect)
+2026-10-07 05:26:37,011 INFO coverage [serving slate]: 68/68 features, 100.000% measured on eligible games, 0 cold null(s) by design (team debut)
+2026-10-07 05:26:37,011 INFO coverage [serving slate]: no warm nulls — every warm game measured
+2026-10-07 05:26:37,160 INFO retention: kept 17 protected file(s)
+2026-10-07 05:26:37,160 INFO retention: kept 168 artifact(s) within the window (anchor 20261007 -10d; the anchor is the DATA WINDOW END, which a backfill can push past today - files newer than it are never touched)
+2026-10-07 05:26:37,160 INFO retention: pruned stale artifact nhl_calibration_20260926.json
+2026-10-07 05:26:37,160 INFO retention: pruned stale artifact nhl_feature_v1_20260926.json
+2026-10-07 05:26:37,161 INFO retention: pruned stale artifact nhl_goalie_matchup_20260926.json
+2026-10-07 05:26:37,161 INFO retention: pruned stale artifact nhl_model_monitor_20260926.json
+2026-10-07 05:26:37,161 INFO retention: pruned stale artifact nhl_moneyline_v1_20260926.json
+2026-10-07 05:26:37,161 INFO retention: pruned stale artifact nhl_power_rankings_20260926.csv
+2026-10-07 05:26:37,162 INFO retention: pruned stale artifact nhl_run_engine_markets_20260926.csv
+2026-10-07 05:26:37,162 INFO retention: pruned stale artifact nhl_run_engine_markets_20260926.meta.json
+2026-10-07 05:26:37,162 INFO retention: pruned stale artifact run_engine_feature_coverage_20260926.csv
+2026-10-07 05:26:37,162 INFO retention: pruned stale artifact run_engine_feature_drift_20260926.csv
+2026-10-07 05:26:37,162 INFO retention: removed 10 stale file(s)
 
 ----------------------------------------------------------------------
-  DONE - 14 artifacts written in 2342s
+  DONE - 14 artifacts written in 4032s
 ----------------------------------------------------------------------
 
