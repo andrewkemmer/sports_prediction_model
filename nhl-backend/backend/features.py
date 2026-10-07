@@ -103,9 +103,16 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
     ev = pd.concat([home, away], ignore_index=True)
     ev["net_from_team"] = ev["for"] - ev["against"]
     # No ties in the shootout era: OT/SO decided games award the W.
+    # An UNDECIDED row (missing score) is NaN, never 0.5: a fabricated half-
+    # win is a result that never happened, and the slate frame's trailing
+    # win% window counts it — a team's SECOND pending game used to read a
+    # phantom .500 tie from the first (2026-10-07 feature review). Ties with
+    # real equal scores keep 0.5; rolling/ewm skip NaN, so undecided rows
+    # simply drop out of every trailing stat.
     ev["team_win"] = np.select(
         [ev["for"] > ev["against"], ev["for"] < ev["against"]],
         [1.0, 0.0], default=0.5)
+    ev.loc[ev["for"].isna() | ev["against"].isna(), "team_win"] = np.nan
     ev["goal_share"] = ev["for"] / (ev["for"] + ev["against"]).replace(0, np.nan)
     return ev
 
@@ -1595,7 +1602,6 @@ def build_slate_features(schedule: pd.DataFrame,
     for c in ("home_score", "away_score"):
         if c in sched.columns:
             sched[c] = pd.to_numeric(sched[c], errors="coerce")
-    decided = sched[sched["home_score"].notna() & sched["away_score"].notna()]
     pending = sched[sched["home_score"].isna() | sched["away_score"].isna()]
     if pending.empty:
         return pd.DataFrame()
@@ -1603,7 +1609,6 @@ def build_slate_features(schedule: pd.DataFrame,
     # Shared historical/serving Elo path: pending rows carry entering skill
     # and season reversion but never update ratings with an unplayed result.
     combined, _ = _elo_apply(team_events(sched))
-    ev_decided = combined[combined["game_id"].isin(set(decided["game_id"]))]
     ladder = team_stats_ladder(combined, team_game_rollup(sched, boxscores))
 
     df = pending.copy().reset_index(drop=True)
@@ -1684,7 +1689,13 @@ def build_slate_features(schedule: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
-    df = _attach_records(df, ev_decided)
+    # Records come from the COMBINED frame, not decided-only: a pending
+    # game's key exists there, and ``_record_frame`` reads its entering W-L
+    # from the strictly-prior decided rows (undecided rows contribute 0-0).
+    # Keying on decided game_ids alone left every pending game_id missing
+    # the reindex — the 2026-10-06/07 moneyline JSONs shipped
+    # "home_record": null for the whole board.
+    df = _attach_records(df, combined)
 
     # The slate is what production actually SHIPS for upcoming games, so the
     # player pool has to be attached here too. Leaving it on the decided-frame

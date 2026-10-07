@@ -319,3 +319,53 @@ def test_goalie_roster_gate_is_wired_into_history_and_slate_builders(monkeypatch
     assert slate.g_home_name.iloc[0] == "current"
     assert history.g_home_name.iloc[-1] == "current"
     assert slate.goalie_sv_pct_home.iloc[0] == history.goalie_sv_pct_home.iloc[-1]
+
+
+def test_slate_pending_rows_carry_entering_records_not_null():
+    # Regression (2026-10-07 feature review): records were attached from
+    # decided-only events keyed by game_id, so every pending game_id missed
+    # the reindex and the published moneyline board shipped
+    # "home_record"/"away_record": null for the whole slate.
+    decided = pd.DataFrame([game("1", "2024-10-01")])          # ANA 3-1 BUF
+    pending = pd.DataFrame([game("2", "2024-10-05", score=np.nan)])
+    slate = feat.build_slate_features(pd.concat([decided, pending]),
+                                      player_ratings=pd.DataFrame(),
+                                      stints=pd.DataFrame())
+    row = slate.loc[slate.game_id == "2"].iloc[0]
+    assert row.home_record == "1-0"   # ANA's ENTERING record that season
+    assert row.away_record == "0-1"
+
+
+def test_second_pending_game_never_reads_phantom_half_win():
+    # Regression (2026-10-07 feature review): undecided rows used to
+    # fabricate team_win=0.5, so a team's SECOND pending game read a
+    # phantom .500 from the first pending row in its trailing win% window.
+    p1 = pd.DataFrame([game("p1", "2024-10-05", score=np.nan)])
+    p2 = pd.DataFrame([game("p2", "2024-10-07", home="COL", away="ANA",
+                           score=np.nan)])
+    # Undecided rows carry NaN team_win — never a fabricated half-win.
+    ev = feat.team_events(pd.concat([p1, p2]))
+    assert ev.team_win.isna().all()
+    # Slate with NO decided games: every win% is honestly NaN (pre-fix the
+    # second pending row served 0.5 from the first pending row).
+    slate = feat.build_slate_features(pd.concat([p1, p2]),
+                                      player_ratings=pd.DataFrame(),
+                                      stints=pd.DataFrame())
+    assert slate[["win_pct_home", "win_pct_away"]].isna().all().all()
+    # With decided games in the window the numbers are real win%s: ANA lost
+    # on 10-01 and BUF lost on 10-03 — pending p1 must not pollute ANA's
+    # window to .25, and pending rows never contribute a fabricated 0.5.
+    d1 = pd.concat([pd.DataFrame([game("d1", "2024-10-01", home="ANA",
+                                       away="COL", score=0),       # ANA L
+                                  game("d2", "2024-10-03", home="BUF",
+                                       away="COL", score=0),       # BUF L
+                                  ]),
+                    p1, p2])
+    slate2 = feat.build_slate_features(d1, player_ratings=pd.DataFrame(),
+                                       stints=pd.DataFrame())
+    r1 = slate2.loc[slate2.game_id == "p1"].iloc[0]
+    assert r1.win_pct_home == 0.0      # ANA's only prior result: a loss
+    assert r1.win_pct_away == 0.0      # BUF's only prior result: a loss
+    r2 = slate2.loc[slate2.game_id == "p2"].iloc[0]
+    assert r2.win_pct_home == 1.0      # COL won both decided games
+    assert r2.win_pct_away == 0.0      # ANA: [loss, pending] -> 0.0, not .25
