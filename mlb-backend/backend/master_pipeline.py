@@ -121,16 +121,65 @@ sys.path.insert(0, str(repo_dir / SPORT_DIR_NAME / "backend"))
 os.chdir(str(repo_dir / SPORT_DIR_NAME))
 print(f"  📁 {os.getcwd()}")
 
+# ── Delivery-root reconciliation (2026-10-07 run-log review, T1) ───────────
+# The kernel that launched this script may have imported `config` from ITS
+# OWN checkout before the clone's backend/ landed at sys.path[0] above —
+# from then on every `from config import DATA_DELIVERY_DIR` writes to the
+# kernel tree while cwd / the tee / Phase 5's scan point at this clone.
+# The 2026-10-07 run split exactly that way: its 15 reported artifacts
+# landed outside every scanned tree (GitHub still served the 10-06 board)
+# and the slate's pl_slate file was written beside the clone's STALE
+# lineups cache while the loader read the kernel root, so all four slate
+# sides shipped the marked carry. Reconcile the config module to THIS
+# clone before anything imports from it; best-effort, never fatal — the
+# Phase-5 union scan + reported-artifact gate below are the backstop.
+try:
+    import config as _cfg
+    _reconcile = getattr(_cfg, "ensure_config_root", None)
+    if _reconcile is not None:
+        _reconcile(repo_dir / SPORT_DIR_NAME / "backend", log=print)
+    else:
+        # Foreign copy predates the helper (stale notebook checkout): the
+        # roots stay split — announce loudly so the delivered log shows it.
+        print(f"  ⚠️  config module {_cfg.__file__} predates "
+              f"ensure_config_root — delivery roots NOT reconciled")
+except Exception as _reconcile_exc:  # noqa: BLE001 — best-effort by design
+    print(f"  ⚠️  config-root reconciliation failed ({_reconcile_exc})")
+
 # Snapshot the artifacts already in the repo's data_delivery (relative path →
 # mtime in ns) BEFORE the pipeline writes anything. Phase 5 must stage only
 # files THIS run produced or modified; every other file in that folder is a
-# stale file that Phase 6 will delete from GitHub.
+# stale file that Phase 6 will delete from GitHub. BOTH delivery roots are
+# snapshotted (2026-10-07 run-log review, T1): under a config/cwd split the
+# artifacts live in the config root while the clone root holds the tee and
+# features' lineup artifacts — one snapshot would misread the other.
 _preexisting_delivery: dict[str, int] = {}
-_preexisting_dir = Path.cwd() / "data_delivery"
-if _preexisting_dir.exists():
-    for _p in _preexisting_dir.rglob("*"):
+_preexisting_delivery_roots: dict[Path, dict[str, int]] = {}
+
+
+def _snapshot_delivery_root(_root: Path) -> None:
+    try:
+        _root = _root.resolve()
+    except OSError:
+        return
+    if _root in _preexisting_delivery_roots or not _root.is_dir():
+        return
+    _snap: dict[str, int] = {}
+    for _p in _root.rglob("*"):
         if _p.is_file():
-            _preexisting_delivery[_p.relative_to(_preexisting_dir).as_posix()] = _p.stat().st_mtime_ns
+            _snap[_p.relative_to(_root).as_posix()] = _p.stat().st_mtime_ns
+    _preexisting_delivery_roots[_root] = _snap
+
+
+_preexisting_dir = Path.cwd() / "data_delivery"
+_snapshot_delivery_root(_preexisting_dir)
+try:
+    from config import DATA_DELIVERY_DIR as _CFG_DELIVERY_DIR
+    _snapshot_delivery_root(Path(_CFG_DELIVERY_DIR))
+except Exception:  # noqa: BLE001 — the cwd snapshot alone still works
+    pass
+_preexisting_delivery = _preexisting_delivery_roots.get(
+    _preexisting_dir.resolve(), {})
 
 for mod in list(sys.modules.keys()):
     if any(x in mod for x in ['ingestion', 'features', 'pipeline', 'training', 'data_ingestion', 'statcast', 'duckdb']):
@@ -161,6 +210,23 @@ else:
 install_crash_log_pusher(
     _log_path, CONFIG["github_username"], CONFIG["github_repo"],
     CONFIG["github_branch"])
+# Delivery roots (2026-10-07 run-log review, T1): announce the tree this
+# run writes artifacts into, NEXT TO the tee so the pushed log always
+# carries it. A split (config root ≠ cwd root) is the exact defect class
+# that kept 2026-10-07's 15 artifacts off GitHub and served stale slate
+# pools — Phase 5 stages BOTH roots, but the reviewer must SEE the split.
+try:
+    from config import DATA_DELIVERY_DIR as _DD_FOR_LOG
+    _root_cfg = Path(_DD_FOR_LOG).resolve()
+    _root_cwd = (Path.cwd() / "data_delivery").resolve()
+    if _root_cfg != _root_cwd:
+        logging.warning(
+            "delivery root SPLIT: config.DATA_DELIVERY_DIR=%s vs cwd "
+            "data_delivery=%s — Phase 5 stages both", _root_cfg, _root_cwd)
+    else:
+        logging.info("delivery root: %s", _root_cfg)
+except Exception as _roots_exc:  # noqa: BLE001 — observability only
+    logging.warning("delivery roots unresolved (%s)", _roots_exc)
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast
 
@@ -2593,6 +2659,10 @@ def run_daily_pipeline(
 # ── Phase 4: Training + Prediction ──────────────────────────────────────────
 _banner("PHASE 4", "Training + Prediction")
 _phase4_error: Exception | None = None
+# Declared OUTSIDE the try so Phase 5's reported-artifact gate can read it
+# even when Phase 4 dies before run_daily_pipeline returns (2026-10-07
+# run-log review, T3): an UNBOUND summary would skip the gate silently.
+summary: dict = {}
 try:
     from data_ingestion import load_game_features
 
@@ -2739,7 +2809,12 @@ token = token or CONFIG.get("github_token", "")
 sync_dir = Path("/content/mlb_sync_tmp")
 # Race-resilient push machinery (lives in github_sync so it is importable
 # and unit-testable — master_pipeline is a run-once script).
-from github_sync import push_with_retry, sync_remote_tip, verify_pushed_paths
+from github_sync import (
+    missing_reported_artifacts,
+    push_with_retry,
+    sync_remote_tip,
+    verify_pushed_paths,
+)
 
 def _git_push_confirmed(repo, branch: str) -> None:
     """Single-shot push kept for compatibility; raises on rejection.
@@ -2813,6 +2888,14 @@ else:
         # fresh clone starts with the repo's old files, so compare mtimes to
         # the pre-run snapshot: files this run didn't touch are stale — they
         # are left out of the push and removed from GitHub by Phase 6.
+        #
+        # BOTH delivery roots are scanned (2026-10-07 run-log review, T1): the
+        # 2026-10-07 run wrote its 15 reported artifacts to config's
+        # DATA_DELIVERY_DIR while cwd pointed at the fresh clone, so a
+        # cwd-only scan staged 3 files, GitHub kept serving the 10-06 board,
+        # and the pushed log still claimed a successful delivery (remote
+        # carried zero *20261007* files). Per-root snapshots keep the
+        # stale-file rule intact across the union.
         data_delivery_local = Path.cwd() / "data_delivery"
         # IL/availability ledgers are LOCAL-RUNTIME caches (rebuilt by Phase
         # 1.5 under MLB_IL_STINTS_DIR, outside the repo) — never GitHub
@@ -2821,19 +2904,55 @@ else:
         _il_cache_names = {
             "il_stints.parquet", "il_stints.meta.json",
             "il_stints_pitchers.parquet", "il_stints_pitchers.meta.json"}
-        if data_delivery_local.exists():
-            for artifact in sorted(data_delivery_local.rglob("*")):
+        _scan_roots: list[Path] = [data_delivery_local]
+        try:
+            from config import DATA_DELIVERY_DIR as _DD_SCAN
+            _cfg_scan_root = Path(_DD_SCAN)
+            if _cfg_scan_root.resolve() not in {r.resolve() for r in _scan_roots}:
+                _scan_roots.append(_cfg_scan_root)
+        except Exception:  # noqa: BLE001 — cwd-only scan still works
+            pass
+        if len(_scan_roots) > 1:
+            print(f"  ⚠️  delivery root split — staging from "
+                  f"{len(_scan_roots)} roots:")
+            for _r in _scan_roots:
+                print(f"    {_r}")
+        for _root in _scan_roots:
+            if not _root.exists():
+                continue
+            try:
+                _root_key = _root.resolve()
+            except OSError:
+                _root_key = _root
+            _pre = _preexisting_delivery_roots.get(_root_key, {})
+            for artifact in sorted(_root.rglob("*")):
                 if artifact.is_file():
-                    rel_local = artifact.relative_to(data_delivery_local).as_posix()
+                    rel_local = artifact.relative_to(_root).as_posix()
                     if rel_local in _il_cache_names:
                         continue  # local runtime cache — never pushed
-                    pre_mtime = _preexisting_delivery.get(rel_local)
+                    pre_mtime = _pre.get(rel_local)
                     if pre_mtime is not None and artifact.stat().st_mtime_ns <= pre_mtime:
                         continue  # repo file untouched by this run -> stale
                     _stage(artifact, f"{SPORT_DIR_NAME}/data_delivery/{rel_local}")
         print(f"  📋 Staging {len(staged)} files:")
         for s in staged:
             print(f"    {s}")
+        # Reported-artifact coverage gate (2026-10-07 run-log review, T3):
+        # Step 5 printed "📁 Artifacts: 15 files" while Phase 5 printed
+        # "Pushed and remotely verified 3 files" — the other 12 were missing
+        # from GitHub entirely. Every artifact the run REPORTS must be in
+        # the staging list or delivery is refused (the except below turns
+        # this into a failed run, never a green one).
+        _missing_artifacts = missing_reported_artifacts(
+            summary.get("artifacts") or [], staged, SPORT_DIR_NAME)
+        if _missing_artifacts:
+            print(f"  ❌ {len(_missing_artifacts)} reported artifact(s) "
+                  f"missing from staging:")
+            for _m in _missing_artifacts:
+                print(f"    {_m}")
+            raise RuntimeError(
+                "reported artifacts not staged: "
+                + ", ".join(_missing_artifacts))
         if staged:
             def _restage_artifacts() -> None:
                 # Retry path: replay this run's staged files onto whatever

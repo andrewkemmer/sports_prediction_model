@@ -158,6 +158,47 @@ def sync_remote_tip(repo, branch: str = "main", log=None) -> None:
     say(f"  synced clone to remote tip {tip[:10]} ({branch})")
 
 
+def missing_reported_artifacts(reported, staged_rels, sport_dir_name: str) -> list[str]:
+    """Reported Step-5 artifacts absent from Phase 5's staging list.
+
+    2026-10-07 run-log review, T3: the delivered log printed
+    ``📁 Artifacts: 15 files`` and Phase 5 printed ``Pushed and remotely
+    verified 3 files`` — the other 12 artifacts were missing from GitHub
+    entirely (remote carried zero ``*20261007*`` files), so the board the
+    dashboard served was the PREVIOUS day's while the log claimed a green
+    delivery. The pipeline reports its artifacts; delivery must prove it
+    staged every one of them or refuse (master_pipeline raises on a
+    non-empty result, which its Phase-5 except turns into a failed run).
+
+    Args:
+        reported: paths the run reported (``summary['artifacts']``).
+        staged_rels: repo-relative paths passed to ``_stage``
+            (``mlb-backend/data_delivery/<name>``).
+        sport_dir_name: repo subdir owning data_delivery (``mlb-backend``).
+
+    Returns: the reported entries with no staged match, in report order.
+    Matching is the exact data_delivery-relative path first (handles
+    subdirectories such as ``models/``), then the file name — a reported
+    path written outside data_delivery still has to appear in staging.
+    Never raises on malformed input; a non-listing simply matches nothing.
+    """
+    staged = {str(s).replace("\\", "/") for s in (staged_rels or [])}
+    staged_names = {s.rsplit("/", 1)[-1] for s in staged}
+    missing: list[str] = []
+    for raw in reported or []:
+        text = str(raw).replace("\\", "/")
+        name = text.rsplit("/", 1)[-1]
+        if "data_delivery/" in text:
+            key = (f"{sport_dir_name}/data_delivery/"
+                   f"{text.split('data_delivery/', 1)[1]}")
+            hit = key in staged or name in staged_names
+        else:
+            hit = name in staged_names
+        if not hit:
+            missing.append(str(raw))
+    return missing
+
+
 def verify_pushed_paths(repo, branch: str, paths: list[str]) -> None:
     """Verify the pushed branch contains every requested artifact path."""
     import git

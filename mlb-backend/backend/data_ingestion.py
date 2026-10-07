@@ -1566,6 +1566,79 @@ def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
     return state
 
 
+def _slate_pl_roots(base: Optional[Path]) -> list[Path]:
+    """Roots searched for ``pl_slate_<date>.parquet``, primary first.
+
+    Explicit ``base`` → that directory alone (a caller's intent — tests
+    and single-root callers). Otherwise the config root (this module's
+    read path), ``Path.cwd()/data_delivery`` (the tee / Phase-5 scan
+    tree) and the features-tree root (where ``_export_slate_pl`` writes,
+    beside the lineups cache it aggregates) — de-duplicated.
+    """
+    if base is not None:
+        return [Path(base)]
+    roots = [Path(DATA_DELIVERY_DIR), Path.cwd() / "data_delivery"]
+    try:
+        from features import _lineup_base_dir
+        roots.append(Path(_lineup_base_dir()))
+    except Exception:  # noqa: BLE001 — features may not be importable yet
+        pass
+    out: list[Path] = []
+    seen: set = set()
+    for r in roots:
+        try:
+            key = r.resolve()
+        except OSError:
+            key = r
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+def _warn_missing_slate_pl(name: str, target_date: date,
+                           roots: list[Path]) -> None:
+    """Warn only when a NEARBY-DATED slate artifact exists somewhere.
+
+    A missing artifact is normal when no upcoming team-games resolved
+    (offseason, empty export) — stay silent there. But if a
+    ``pl_slate_*.parquet`` within ±3 days of ``target_date`` IS present
+    under any searched root, the export just ran and its output is
+    invisible to this loader (mis-dated or written to the wrong root):
+    that is the 2026-10-07 defect — ``pl_slate_20261006.parquet`` for a
+    10-07 slate, four sides served the marked carry, and nothing in the
+    delivered log named the cause.
+    """
+    try:
+        target = pd.Timestamp(target_date).normalize()
+    except Exception:  # noqa: BLE001 — unparseable target: no diagnosis
+        return
+    nearest: list[tuple[int, Path]] = []
+    for r in roots:
+        try:
+            siblings = sorted(Path(r).glob("pl_slate_*.parquet"))
+        except OSError:
+            continue
+        for f in siblings:
+            try:
+                stamp = pd.Timestamp(f.stem.split("pl_slate_", 1)[1])
+            except Exception:  # noqa: BLE001 — not a dated sibling
+                continue
+            delta = abs(int((stamp.normalize() - target).days))
+            if delta <= 3:
+                nearest.append((delta, f))
+    if not nearest:
+        return
+    nearest.sort(key=lambda t: t[0])
+    delta, hit = nearest[0]
+    logger.warning(
+        "slate pl_* artifact %s not found in %d root(s); nearest is %s at "
+        "%s (%d day(s) off) — a mis-dated or misplaced export degrades the "
+        "whole slate to the marked carry (2026-10-07 log review)",
+        name, len(roots), hit.name, hit.parent, delta)
+
+
 def _load_slate_pl(target_date: date,
                    base: Optional[Path] = None) -> dict:
     """``pl_slate_<YYYYMMDD>.parquet`` → {(game_date, team): row mapping}.
@@ -1582,11 +1655,41 @@ def _load_slate_pl(target_date: date,
     build failure). Keyed by (game_date, team); a doubleheader's two legs
     share a team-date, so the first row (the file is ordered by game_pk)
     wins and a warning names the collision.
+
+    Delivery-root search (2026-10-07 run-log review, T4): with ``base``
+    unset the artifact is looked for under config's DATA_DELIVERY_DIR,
+    ``Path.cwd()/data_delivery`` AND the features-tree root — the export
+    writes beside the lineups cache it was built from, so a config/cwd
+    split used to hide a just-written artifact here and the whole slate
+    silently priced on the carried pools (2026-10-07: the export shipped
+    ``pl_slate_20261006.parquet`` while this loader hunted
+    ``pl_slate_20261007.parquet`` → ``{'carry/carry': 4}``). An artifact
+    served from a non-primary root, or a NEARBY-DATED sibling while the
+    exact file is absent, warns loudly; a genuinely absent artifact (no
+    upcoming team-games) stays silent. An explicit ``base`` is a caller's
+    intent — searched alone, never widened.
     """
-    path = ((base or DATA_DELIVERY_DIR)
-            / f"pl_slate_{pd.Timestamp(target_date):%Y%m%d}.parquet")
-    if not path.exists():
+    name = f"pl_slate_{pd.Timestamp(target_date):%Y%m%d}.parquet"
+    roots = _slate_pl_roots(base)
+    path: Optional[Path] = None
+    for _root in roots:
+        _cand = _root / name
+        if _cand.exists():
+            path = _cand
+            break
+    if path is None:
+        _warn_missing_slate_pl(name, target_date, roots)
         return {}
+    try:
+        _primary = roots[0].resolve()
+        _served = path.parent.resolve()
+    except OSError:
+        _primary, _served = roots[0], path.parent
+    if _served != _primary:
+        logger.warning(
+            "slate pl_* artifact %s served from alternate delivery root %s "
+            "(primary %s lacks it) — delivery roots are split "
+            "(2026-10-07 log review)", path.name, _served, _primary)
     try:
         df = pd.read_parquet(path)
     except Exception as e:  # noqa: BLE001

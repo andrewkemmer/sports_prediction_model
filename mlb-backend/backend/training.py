@@ -2392,11 +2392,24 @@ def walk_forward_evaluate(
     }
     _LAST_SEASON_SPLIT.clear()
     _LAST_SEASON_SPLIT.update(season_split)
+    # 2026-10-07 run-log review: the old line read like a partition —
+    # "7024 OOF rows (6879 grading / 107 postseason / 137 provisional);
+    # blocks regular n=6879..." — but the three counts OVERLAP (postseason
+    # rows inside provisional folds are in both) and summed to 7,123 on a
+    # 7,024-row frame, while the block labeled "regular" is built from the
+    # GRADING mask (rows = regular-season rows of non-provisional folds).
+    # State the partition (grading + non-grading = OOF) and the overlaps
+    # so every number in the delivered log reconciles line-by-line.
+    _post_in_prov = int((_p & _v).sum())
+    _post_outside_prov = int((_p & ~_v).sum())
+    _non_grading = int(len(combined) - _g.sum())
     logger.info(
-        "Walk-forward season split: %d OOF rows (%d grading / %d "
-        "postseason / %d provisional); blocks regular n=%d, postseason "
-        "n=%d, provisional n=%d",
-        len(combined), int(_g.sum()), int(_p.sum()), int(_v.sum()),
+        "Walk-forward season split: %d OOF rows = %d grading + %d "
+        "non-grading (%d provisional incl. %d postseason, %d postseason "
+        "outside provisional folds); blocks OVERLAP — grading n=%d, "
+        "postseason n=%d, provisional n=%d",
+        len(combined), int(_g.sum()), _non_grading,
+        int(_v.sum()), _post_in_prov, _post_outside_prov,
         season_split["blocks"]["oof_regular"]["n"],
         season_split["blocks"]["oof_postseason"]["n"],
         season_split["blocks"]["oof_provisional"]["n"],

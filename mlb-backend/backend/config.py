@@ -39,6 +39,110 @@ def resolve_run_end_date(pinned: str) -> str:
     today = date.today()
     return today.isoformat() if pin < today else pinned
 
+
+# ---------------------------------------------------------------------------
+# Delivery-root reconciliation (2026-10-07 run-log review, T1)
+# ---------------------------------------------------------------------------
+
+def ensure_config_root(expected_backend, *, log=print) -> bool:
+    """Repoint an already-imported foreign ``config`` at the running clone.
+
+    The daily run can execute in TWO trees at once: if the launch kernel
+    imported ``config`` from its own checkout BEFORE master_pipeline put
+    the fresh clone's ``backend/`` at ``sys.path[0]``, every later
+    ``from config import DATA_DELIVERY_DIR`` resolves against the KERNEL's
+    tree while cwd, the run-log tee and Phase 5's staging scan all point
+    at the CLONE. The 2026-10-07 MLB run split exactly that way (tee +
+    features' lineup root at ``/content/sports_prediction_model`` vs
+    artifacts at ``/kaggle/working/sports_prediction_model``):
+
+      * all 15 Step-5 artifacts (todays_games_*, model_monitor_*, ...)
+        were written outside every tree Phase 5 scans, so GitHub kept
+        serving the PREVIOUS day's board while the pushed log claimed a
+        successful delivery (remote had zero ``*20261007*`` files);
+      * the lineup capture wrote ``lineups.parquet`` (dated 10-07) to the
+        kernel root while features read the clone's stale 10-06 copy, so
+        ``pl_slate_20261006.parquet`` shipped for a 10-07 slate and the
+        loader (which reads the kernel root) found nothing — all four
+        slate sides priced on the marked carry.
+
+    Reconciliation loads ``<expected_backend>/config.py`` BY PATH into
+    ``sys.modules['config']`` and purges every already-imported module
+    whose ``__file__`` lives in the foreign backend directory (those
+    modules hold stale ``from config import ...`` bindings). Modules
+    outside that directory — the notebook kernel's own state — are never
+    touched.
+
+    Returns True when a foreign config was replaced. Never raises: a
+    missing/unreadable clone config leaves the run on its current roots
+    (Phase 5's union scan + reported-artifact gate still deliver), and
+    the caller announces the outcome into the pushed run log.
+    """
+    import importlib.util
+    import sys
+
+    try:
+        expected = Path(expected_backend).resolve()
+        target = expected / "config.py"
+        current = sys.modules.get("config")
+        current_file = getattr(current, "__file__", None)
+        foreign_backend: Path | None = None
+        if current_file:
+            try:
+                foreign_backend = Path(current_file).resolve().parent
+                if foreign_backend == expected:
+                    return False  # already the clone's config — nothing to do
+            except OSError:
+                foreign_backend = None
+        if not target.exists():
+            log(f"  ⚠️  config-root reconciliation skipped: {target} not "
+                f"found (running on {current_file or 'an unimported config'})")
+            return False
+        spec = importlib.util.spec_from_file_location("config", target)
+        if spec is None or spec.loader is None:
+            log(f"  ⚠️  config-root reconciliation skipped: cannot load {target}")
+            return False
+        module = importlib.util.module_from_spec(spec)
+        previous = sys.modules.get("config")
+        sys.modules["config"] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:  # noqa: BLE001 — a broken clone config must
+            # not take the run down: restore the module that was there.
+            if previous is not None:
+                sys.modules["config"] = previous
+            else:
+                sys.modules.pop("config", None)
+            log(f"  ⚠️  config-root reconciliation failed ({exc}) — keeping "
+                f"{current_file or 'the current roots'}")
+            return False
+        purged: list[str] = []
+        if foreign_backend is not None:
+            for name, mod in list(sys.modules.items()):
+                # '__main__' may BE the foreign master_pipeline still
+                # executing this very reconciliation — never unload it.
+                if name in ("config", "__main__"):
+                    continue
+                mod_file = getattr(mod, "__file__", None)
+                if not mod_file:
+                    continue
+                try:
+                    mod_path = Path(mod_file).resolve()
+                except OSError:
+                    continue
+                if foreign_backend in mod_path.parents:
+                    sys.modules.pop(name, None)
+                    purged.append(name)
+        log(f"  📦 config root reconciled → {target} "
+            f"(DATA_DELIVERY_DIR={module.DATA_DELIVERY_DIR})"
+            + (f"; purged {len(purged)} foreign module(s): "
+               f"{', '.join(sorted(purged))}" if purged else ""))
+        return True
+    except Exception as exc:  # noqa: BLE001 — reconciliation is best-effort
+        log(f"  ⚠️  config-root reconciliation skipped ({exc})")
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
