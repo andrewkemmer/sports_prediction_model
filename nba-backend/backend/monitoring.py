@@ -13,6 +13,13 @@ try:
     from backend import config
 except ImportError:
     import config
+try:
+    from backend import manifest as manifest_mod
+except ImportError:  # pragma: no cover - top-level module execution
+    try:
+        import manifest as manifest_mod
+    except ImportError:  # metadata is optional at import time
+        manifest_mod = None
 
 logger = logging.getLogger(__name__)
 
@@ -574,10 +581,139 @@ def _feature_importance_block(decomp) -> dict:
     return block
 
 
+def _iso_date(date_c: str) -> str:
+    """'20261006' -> '2026-10-06'; anything else passes through."""
+    s = str(date_c)
+    return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else s
+
+
+def _coverage_row_mlb(row: dict) -> dict:
+    """Project a coverage row onto MLB's exact report schema.
+
+    MLB's ``feature_coverage`` rows carry the nine fields
+    feature/window/n_games/n_nonnull/pct_nonnull/n_measured/pct_measured/
+    n_default_zero/status. The NBA builder's extra provenance columns stay
+    on the run-engine CSV; the monitor block ships MLB's shape so the two
+    sports' reports are structurally identical. ``pct_nonnull`` is
+    recomputed as the true non-null share (the builder's measured-only
+    figure cannot exceed itself when carries exist).
+    """
+    n_games = int(row.get("n_games") or 0)
+    n_nonnull = int(row.get("n_nonnull") or 0)
+    out = {
+        "feature": row.get("feature"),
+        "window": row.get("window"),
+        "n_games": n_games,
+        "n_nonnull": n_nonnull,
+        "pct_nonnull": (round(100.0 * n_nonnull / n_games, 2)
+                        if n_games else 0.0),
+        "n_measured": int(row.get("n_measured") or 0),
+        "pct_measured": row.get("pct_measured"),
+        "n_default_zero": int(row.get("n_default_zero") or 0),
+        "status": row.get("status"),
+    }
+    if row.get("structural_reason"):
+        out["structural_reason"] = row["structural_reason"]
+    return out
+
+
+VERSION_HISTORY_CAP = 20  # MLB training.VERSION_HISTORY_CAP parity
+
+
+def _version_history_row(date_c: str, members, raw: dict, cal: dict,
+                         platt: dict | None) -> dict:
+    """One retrain snapshot — MLB ``model_version_history`` row schema
+    (NFL monitoring parity): version stamp vYYYY.MM.DD, ISO date, roster
+    weights at 4 decimals, the pooled metric keys (plain = raw walk-forward
+    scores; ``*_calibrated`` = the prequential per-fold layer), and the
+    deployed map's {a, b, n, method, floor}. Values missing from this run
+    stay ABSENT — never fabricated (the shared page renders an absent cell
+    as '—').
+    """
+    raw = raw or {}
+    cal = cal or {}
+    row = {
+        "version": f"v{_iso_date(date_c)}".replace("-", "."),
+        "date": _iso_date(date_c),
+        "weights": {str(m.get("name")): round(float(m.get("weight") or 0.0), 4)
+                    for m in (members or [])
+                    if isinstance(m, dict) and m.get("name") is not None},
+    }
+    # Plain keys are the raw pooled scores; the *_calibrated twins are the
+    # prequential layer's scores (cal_metrics carries them under plain keys).
+    for key in ("auc", "brier", "logloss", "ece"):
+        if isinstance(raw.get(key), (int, float)):
+            row[key] = raw[key]
+    for key, src in (("brier_calibrated", "brier"),
+                     ("logloss_calibrated", "logloss"),
+                     ("ece_calibrated", "ece")):
+        if isinstance(cal.get(src), (int, float)):
+            row[key] = cal[src]
+    if (isinstance(platt, dict) and platt.get("a") is not None
+            and platt.get("b") is not None):
+        row["calibration"] = {
+            "a": platt.get("a"), "b": platt.get("b"),
+            **({"n": int(platt["n"])}
+               if isinstance(platt.get("n"), (int, float)) else {}),
+            **({"method": str(platt["method"])}
+               if platt.get("method") else {}),
+            **({"floor": float(platt["floor"])}
+               if platt.get("floor") is not None else {}),
+        }
+    return row
+
+
+def _rolling_version_history(path, current_row: dict) -> list[dict]:
+    """The rolling Model Version History — MLB's model_version_history.json
+    semantics with the dated monitor family as the store (NFL parity: NBA
+    ships no separate master file).
+
+    Every dated ``nba_model_monitor_*.json`` beside ``path`` carries the rows
+    it knew, so folding them preserves every record that ever shipped: merge
+    by ``version`` (newest artifact wins, THIS run's row always wins), never
+    pull a record dated after this run (a fold over a mixed-age dir must not
+    leak a later run into an earlier report), order oldest-first, keep the
+    last VERSION_HISTORY_CAP rows. Records survive retention because each
+    new artifact embeds the rows this fold recovered.
+    """
+    prefix = str(config.MODEL_MONITOR_JSON).split("{")[0]
+    cur_date = str(current_row.get("date") or "")
+
+    def _key(row: dict):
+        return str(row.get("version") or
+                   (row.get("date"), str(row.get("weights"))))
+
+    rows: dict = {}
+    try:
+        files = sorted(Path(path).parent.glob(f"{prefix}*.json"),
+                       key=lambda p: p.name, reverse=True)[:60]
+    except OSError:  # pragma: no cover - unreadable artifact dir
+        files = []
+    for f in files:
+        if f.name == Path(path).name:
+            continue  # the file being written now; its row comes from the caller
+        try:
+            prior = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for row in (prior.get("version_history") or []):
+            if not isinstance(row, dict):
+                continue
+            rd = str(row.get("date") or "")
+            if cur_date and (not rd or rd > cur_date):
+                continue  # no date / future date: not this report's history
+            rows.setdefault(_key(row), row)
+    rows[_key(current_row)] = current_row  # this run's row wins its version
+    ordered = sorted(rows.values(),
+                     key=lambda r: (str(r.get("date") or ""),
+                                    str(r.get("version") or "")))
+    return ordered[-VERSION_HISTORY_CAP:]
+
+
 def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
                        baseline, config_meta=None, fold_info=None,
                        metrics=None, platt=None,
-                       feature_importance=None) -> dict:
+                       feature_importance=None, raw_metrics=None) -> dict:
     drift = list(drift or [])
     cov = list(cov or [])
     # INSUFFICIENT is a window-size statement, not a problem statement - it
@@ -589,8 +725,35 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
     next_retrain = (
         pd.Timestamp(retrain) + pd.Timedelta(days=config.RETRAIN_CADENCE_DAYS)
     ).strftime("%Y%m%d")
+    # MLB-shaped blocks the shared Model Monitor page renders verbatim:
+    # the coverage report (nine-field rows), the feature documentation
+    # (labels + hover tooltips), the rolling-Brier caption context, and the
+    # per-retrain version history. All four used to ship empty or absent,
+    # so the NBA dashboard rendered "(no detailed metadata)" on every drift
+    # row and "No version history yet" where MLB shows its retrain table.
+    features_meta: dict = {}
+    try:
+        _names = sorted({str(r.get("feature")) for r in drift + cov
+                         if isinstance(r, dict) and r.get("feature")})
+        if manifest_mod is not None and _names:
+            features_meta, meta_warnings = manifest_mod.build_features_metadata(
+                _names)
+            for msg in meta_warnings:
+                logger.warning(msg)
+    except Exception:  # metadata is presentational - never fatal
+        logger.warning("feature metadata build skipped (non-fatal)",
+                       exc_info=True)
+        features_meta = {}
+    cal_metrics = metrics or {}
+    raw = raw_metrics or {}
+    # One snapshot row for THIS run in MLB's schema, accumulated with the
+    # rows the dated family already carries (MLB's rolling-20 presentation).
+    version_row = _version_history_row(date_c, members, raw, cal_metrics,
+                                       platt)
+    version_history = _rolling_version_history(path, version_row)
     record = {
         "created_utc": pd.Timestamp.utcnow().isoformat(), "date": date_c,
+        "version": version_row["version"],
         "config": config_meta or {},
         "last_retrained": retrain,
         "last_retrained_note": "Fresh NBA model trained this run",
@@ -602,10 +765,39 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
         "alerts": {"retrain": False, "feature_drift": feature_alerts, "coverage": coverage_alerts},
         "baseline_brier": baseline, "brier_baseline": baseline,
         "brier_baseline_label": "Constant home-edge",
-        "metrics": metrics or {}, "calibration": platt or {},
+        # Headline block = MLB's shape: the deployed blend's OWN pooled OOF
+        # scores (raw keys) plus the prequential calibrated twins, so the
+        # ensemble TOTAL row reads the same numbers the Calibration KPI
+        # cards show.
+        "metrics": {
+            "auc": raw.get("auc"), "brier": raw.get("brier"),
+            "logloss": raw.get("logloss"), "ece": raw.get("ece"),
+            "brier_calibrated": cal_metrics.get("brier"),
+            "logloss_calibrated": cal_metrics.get("logloss"),
+            "ece_calibrated": cal_metrics.get("ece"),
+            "calibrator_gated_out": False,
+        },
+        "calibration": platt or {},
         "ensemble": members or [], "rolling_brier": rolling or [],
         "feature_drift": drift, "coverage": cov,
-        "feature_coverage": cov, "folds": fold_info or {},
+        "feature_coverage": [_coverage_row_mlb(r) for r in cov],
+        "features_metadata": features_meta,
+        "rolling_brier_meta": {
+            "window_days": 30,
+            "min_games_per_day": 1,
+            "excluded_sparse_days": 0,
+            "calibrator_is_identity": False,
+            # The series is p_ensemble_calibrated: the PREQUENTIAL per-fold
+            # layer (fold k's map fitted on folds < k's published pairs) —
+            # the same strictly prior series the OOF metrics score. The
+            # pooled all-OOF Platt map is the serving layer and never prices
+            # this series (NHL parity note).
+            "map_scope_note": ("Points use the prequential per-fold "
+                               "calibration layer (fit on prior OOF folds "
+                               "only); the pooled all-OOF Platt map is the "
+                               "serving layer and is not in this series."),
+        },
+        "folds": fold_info or {},
         # The MODEL WEIGHT column taken apart: member blend shares
         # and each member's own importance profile, so the column's
         # headline number (a concentrated blend IS one member's
@@ -613,7 +805,7 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
         # decomposed by hand instead of rerunning the pipeline.
         "feature_importance": _feature_importance_block(
             feature_importance),
-        "version_history": [], "features_metadata": {},
+        "version_history": version_history,
     }
     return _dump(path, record)
 

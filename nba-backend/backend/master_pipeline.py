@@ -1383,6 +1383,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     artifacts: list[str] = []
     cal_metrics: dict = {}
+    raw_metrics: dict = {}
     if phase_error is None:
         # Everything from here to the monitor needs a trained model. On a
         # training failure these families are skipped under one loud line -
@@ -1571,7 +1572,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
         members, brier,
         baseline_brier, _config_meta(facts), fold_info,
-        cal_metrics, platt, feature_importance=imp_decomp)
+        cal_metrics, platt, feature_importance=imp_decomp,
+        raw_metrics=raw_metrics)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,

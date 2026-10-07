@@ -231,13 +231,14 @@ if drift:
                     "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
-        # served_metadata first (MLB only): the backend-authored per-side
+        # served_metadata first (MLB + NBA): the backend-authored per-side
         # summaries match the exact feature name (sp_era_home gets its own
         # wording, not the diff twin's text with a tacked-on side); the static
         # dict remains the fallback for rows absent from the run's
         # features_metadata artifact. NFL/NHL keep the legacy dict+suffix
         # labels until their own dicts adopt the served-metadata source.
-        _served_meta = features_metadata if utils.get_sport() == "mlb" else None
+        _served_meta = (features_metadata
+                        if utils.get_sport() in ("mlb", "nba") else None)
         label = utils.describe_feature(r.get("feature", ""),
                                        sport=utils.get_sport(),
                                        served_metadata=_served_meta) \

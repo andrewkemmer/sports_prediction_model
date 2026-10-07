@@ -23,6 +23,13 @@ path). This test:
    and bare-name fallbacks; the static dict still answers unserved rows
    (elo_diff); a degenerate served summary equal to the bare column name is
    ignored (is_home keeps its dict wording).
+4. Runs the same page under ``sport=nba`` against a staged NBA fixture in
+   the NEW report contract and asserts MLB-identical structure: every drift
+   row carries a served-metadata label + tooltip (never "(no detailed
+   metadata)" / never the diff-twin side-suffix mislabel), the coverage
+   panel renders MLB's columns, and the Model Version History table renders
+   the accumulated retrain rows under MLB's exact columns (the
+   "model version history is missing" defect).
 
 Run from the frontend/ directory:
     python -m test_monitor_smoke
@@ -41,6 +48,7 @@ FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
 MLB_DD = REPO_ROOT / "mlb-backend" / "data_delivery"
+NBA_DD = REPO_ROOT / "nba-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
@@ -55,6 +63,7 @@ MLB_MONITOR_PATH = MLB_DD / f"model_monitor_{ARTIFACT_DATE}.json"
 PREV_ARTIFACT_DATE = "20260922"
 PREV_MONITOR_NAME = f"nfl_model_monitor_{PREV_ARTIFACT_DATE}.json"
 PREV_MONITOR_PATH = NFL_DD / PREV_MONITOR_NAME
+NBA_MONITOR_PATH = NBA_DD / f"nba_model_monitor_{ARTIFACT_DATE}.json"
 
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
@@ -273,6 +282,114 @@ def _mlb_monitor_record() -> dict:
     }
 
 
+def _nba_monitor_record() -> dict:
+    """NBA fixture in the MLB report contract (the 2026-10-07 parity work).
+
+    Pins the three NBA dashboard defects against MLB's structure:
+    - served-metadata labels + tooltips on every drift row (the "(no detailed
+      metadata)" / bare-name leak), with elo_home carrying its OWN side
+      wording (never the diff twin + "— home team" mislabel), elo_diff
+      falling back to the static dict, and a degenerate is_home summary
+      (== the bare name) rejected so the dict wording wins;
+    - feature coverage rows in MLB's 9-key structure;
+    - a POPULATED Model Version History (accumulated retrain rows in MLB's
+      snapshot schema) instead of "No version history yet".
+    """
+    drift = [
+        {"feature": "elo_diff", "current_mean": 12.5, "baseline_mean": 8.1,
+         "psi": 0.21, "psi_adjusted": 0.15, "noise_floor": 0.06,
+         "mean_shift": 4.4, "shift_se": 1.2, "location_shift": True,
+         "status": "WARN", "weight_pct": 45.0,
+         "n_baseline": 200, "n_current": 31},
+        {"feature": "elo_home", "current_mean": 1611.2, "baseline_mean": 1588.0,
+         "psi": 0.32, "psi_adjusted": 0.26, "noise_floor": 0.06,
+         "mean_shift": 23.2, "shift_se": 4.1, "location_shift": True,
+         "status": "ALERT", "weight_pct": 0.3,
+         "n_baseline": 200, "n_current": 31},
+        # Constant feature: psi=None renders '—', never a TypeError.
+        {"feature": "is_home", "current_mean": 1.0, "baseline_mean": 1.0,
+         "psi": None, "psi_adjusted": None, "noise_floor": 0.06,
+         "mean_shift": 0.0, "shift_se": 0.0, "location_shift": False,
+         "status": "OK", "weight_pct": 0.0,
+         "n_baseline": 200, "n_current": 31},
+    ]
+    coverage = [
+        {"feature": "elo_diff", "window": "baseline", "n_games": 200,
+         "n_nonnull": 200, "pct_nonnull": 100.0, "n_measured": 200,
+         "pct_measured": 100.0, "n_default_zero": 0, "status": "OK"},
+        {"feature": "elo_home", "window": "current", "n_games": 31,
+         "n_nonnull": 31, "pct_nonnull": 100.0, "n_measured": 8,
+         "pct_measured": 25.8, "n_default_zero": 0, "status": "STARVED"},
+    ]
+    served = {
+        # Served summary WINS (the exact-side wording, not the diff twin's
+        # text with a tacked-on side).
+        "elo_home": {
+            "summary": "Entering Elo rating — home team",
+            "tooltip": "What: Entering Elo rating — home team."},
+        # Degenerate entry: summary == the bare column name is REJECTED.
+        "is_home": {"summary": "is_home", "tooltip": "What: is_home."},
+    }
+    return {
+        "date": ARTIFACT_DATE,
+        "version": "v2026.09.23",
+        "last_retrained": ARTIFACT_DATE,
+        "last_retrained_note": "Fresh NBA model trained this run",
+        "next_retrain": "20260930",
+        "next_retrain_note": "next expected run in 7 day(s)",
+        "upset_note": "NBA upset rate is computed from settled walk-forward history.",
+        "feature_drift": drift,
+        "features_metadata": served,
+        "feature_coverage": coverage,
+        "ensemble": [
+            {"name": "elasticnet", "weight": 0.8, "auc": 0.7339,
+             "brier": 0.2074, "logloss": 0.6015, "n_eval": 2130},
+            {"name": "lightgbm", "weight": 0.2, "auc": 0.7304,
+             "brier": 0.2089, "logloss": 0.6051, "n_eval": 2130},
+        ],
+        # Headline block = MLB's 8-key shape (raw + calibrated twins).
+        "metrics": {"auc": 0.7345, "brier": 0.2073, "logloss": 0.6013,
+                    "ece": 0.0288, "brier_calibrated": 0.2073,
+                    "logloss_calibrated": 0.6013, "ece_calibrated": 0.0276,
+                    "calibrator_gated_out": False},
+        "rolling_brier": [
+            {"date": "2026-09-%02d" % d, "brier": round(0.205 + 0.001 * d, 4),
+             "games": 12}
+            for d in range(1, 16)
+        ],
+        "rolling_brier_meta": {"window_days": 30, "min_games_per_day": 1,
+                               "excluded_sparse_days": 0,
+                               "calibrator_is_identity": False,
+                               "map_scope_note": "Points use the prequential "
+                               "per-fold calibration layer (fit on prior OOF "
+                               "folds only)."},
+        "brier_baseline": 0.4554,
+        "brier_baseline_label": "Constant home-edge",
+        # Accumulated retrain rows in MLB's snapshot schema — the table must
+        # render both, oldest first, under MLB's columns.
+        "version_history": [
+            {"version": "v2026.09.22", "date": "2026-09-22",
+             "weights": {"elasticnet": 0.79, "lightgbm": 0.15,
+                         "xgboost": 0.06},
+             "auc": 0.7340, "brier": 0.2072, "logloss": 0.6012,
+             "ece": 0.0288, "brier_calibrated": 0.2073,
+             "logloss_calibrated": 0.6013, "ece_calibrated": 0.0276,
+             "calibration": {"a": 1.103, "b": 0.028, "n": 2130,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}},
+            {"version": "v2026.09.23", "date": "2026-09-23",
+             "weights": {"elasticnet": 0.8, "lightgbm": 0.2,
+                         "xgboost": 0.0},
+             "auc": 0.7345, "brier": 0.2073, "logloss": 0.6013,
+             "ece": 0.0288, "brier_calibrated": 0.2073,
+             "logloss_calibrated": 0.6013, "ece_calibrated": 0.0276,
+             "calibration": {"a": 1.110, "b": 0.029, "n": 2130,
+                             "method": "favored_platt_floor",
+                             "floor": 0.5}},
+        ],
+    }
+
+
 def _stage(path: Path, data: bytes) -> None:
     """Write a fixture over ``path``, preserving any pre-existing (committed)
     artifact's bytes so cleanup can restore it rather than delete it."""
@@ -290,6 +407,9 @@ def _write_artifacts() -> None:
     MLB_DD.mkdir(parents=True, exist_ok=True)
     _stage(MLB_MONITOR_PATH,
            json.dumps(_mlb_monitor_record(), indent=2).encode("utf-8"))
+    NBA_DD.mkdir(parents=True, exist_ok=True)
+    _stage(NBA_MONITOR_PATH,
+           json.dumps(_nba_monitor_record(), indent=2).encode("utf-8"))
 
 
 def _remove_artifacts() -> None:
@@ -560,6 +680,122 @@ def run() -> int:
         print("  - sport=mlb path clean (no exception)")
         print("  - member cards derive per sport; served-metadata labels "
               "win; dict fallback + degenerate summary guard intact")
+
+        # sport=nba — the 2026-10-07 structure-parity leg: the NBA report
+        # must be structurally identical to MLB's (the feature drift report
+        # and feature coverage in MLB's column structure, served-metadata
+        # labels + tooltips on every row, and a POPULATED Model Version
+        # History instead of "No version history yet").
+        nba = AppTest.from_file(str(FRONTEND_DIR / "model_monitor.py"),
+                                default_timeout=60)
+        nba.session_state["sport"] = "nba"
+        nba.session_state["selected_date"] = ARTIFACT_DATE
+        nba.run()
+        nba_problems: list[str] = []
+        if nba.exception:
+            nba_problems.append(
+                "nba page raised:\n    "
+                + "\n    ".join(str(e.value) for e in nba.exception))
+        nba_text = _all_text(nba)
+
+        # (N1) structure parity: the three report tables carry MLB's
+        #      rendered column sets exactly.
+        _nba_headers = []
+        for el in nba.markdown:
+            m = re.search(r"<thead>(.*?)</thead>", str(el.value), re.S)
+            if m:
+                _nba_headers.append(re.findall(r"<th>(.*?)</th>", m.group(1)))
+        if _nba_headers != _expected_headers:
+            nba_problems.append(
+                f"report table headers {_nba_headers} != MLB's "
+                f"{_expected_headers}")
+
+        # (N2) drift report: served-metadata labels + tooltips — the per-side
+        #      row carries its OWN wording (the 2026-10-06 defect rendered
+        #      elo_home as "Home Elo − away Elo ... — home team"), unserved
+        #      rows fall back to the static dict, and no row ships the
+        #      "(no detailed metadata)" fallback tooltip.
+        if "Entering Elo rating — home team" not in nba_text:
+            nba_problems.append("drift table missing the served elo_home label")
+        if "Home Elo − away Elo (pre-game rating gap) — home team" in nba_text:
+            nba_problems.append("elo_home rendered the diff-twin side mislabel")
+        if "Home Elo − away Elo (pre-game rating gap)" not in nba_text:
+            nba_problems.append("drift table missing the dict fallback label")
+        # The one unserved row (elo_diff, pinning the dict-fallback label)
+        # legitimately carries the no-metadata tooltip; every SERVED row must
+        # carry the backend-authored one, so the fallback appears exactly
+        # once — never once per row (the 2026-10-06 defect: 71 of 71).
+        if nba_text.count("no detailed metadata") != 1:
+            nba_problems.append(
+                "drift tooltips fell back to '(no detailed metadata)' on "
+                f"{nba_text.count('no detailed metadata')} rows — served "
+                "features_metadata must document its rows")
+        if nba_text.count("What:") < 2:
+            nba_problems.append("drift table missing the served tooltips")
+        if "Constant 1 — anchors the home-court edge" not in nba_text:
+            nba_problems.append(
+                "degenerate served summary (== bare name) not rejected")
+
+        # (N3) drift card splits Alert/Warning like MLB's.
+        if "1 Alert · 1 Warning" not in nba_text:
+            nba_problems.append("drift card missing the split Alert/Warning counts")
+
+        # (N4) coverage panel: MLB's columns + statuses render.
+        if "Feature Coverage (non-null / measured)" not in nba_text:
+            nba_problems.append("missing feature-coverage section")
+        if "STARVED" not in nba_text:
+            nba_problems.append("coverage panel missing STARVED status")
+        if "% MEASURED" not in nba_text or "% NON-NULL" not in nba_text:
+            nba_problems.append("coverage panel missing MLB's percentage columns")
+
+        # (N5) ensemble TOTAL row carries the blend's pooled scores.
+        if "TOTAL (blended ensemble)" not in nba_text:
+            nba_problems.append("ensemble table missing the TOTAL blended row")
+        for val in ("0.7345", "0.6013"):
+            if val not in nba_text:
+                nba_problems.append(
+                    f"TOTAL row missing the blend's pooled metric ({val})")
+
+        # (N6) rolling Brier chart + calibrated-series caption.
+        if len(nba.get("vega_lite_chart")) == 0:
+            nba_problems.append("rolling-Brier timeline did NOT render a chart")
+        if "calibrated probabilities" not in nba_text:
+            nba_problems.append(
+                "rolling-Brier caption missing the calibrated-series label")
+
+        # (N7) Model Version History — the "missing" defect: populated rows
+        #      under MLB's exact columns, oldest first, with the deployed
+        #      map rendered (never the empty-state info box).
+        if "No version history yet" in nba_text:
+            nba_problems.append("version history empty instead of populated rows")
+        if len(nba.table) != 1:
+            nba_problems.append(
+                f"expected ONE version-history st.table, got {len(nba.table)}")
+        else:
+            vh = nba.table[0].value
+            mlb_cols = ["VERSION", "DATE", "WEIGHTS", "AUC", "LOGLOSS",
+                        "CAL. ECE", "CAL. MAP"]
+            if list(vh.columns) != mlb_cols:
+                nba_problems.append(
+                    f"version-history columns {list(vh.columns)} != MLB's "
+                    f"{mlb_cols}")
+            vers = list(vh["VERSION"]) if "VERSION" in vh.columns else []
+            if vers != ["v2026.09.22", "v2026.09.23"]:
+                nba_problems.append(
+                    f"version history not oldest-first retrain rows: {vers}")
+            cal_map = list(vh["CAL. MAP"]) if "CAL. MAP" in vh.columns else []
+            if not cal_map or "a=1.103, b=0.028" not in str(cal_map[0]):
+                nba_problems.append(
+                    f"CAL. MAP cell missing the deployed Platt map: {cal_map}")
+
+        if nba_problems:
+            print("MONITOR SMOKE TEST — FAIL (sport=nba)")
+            for p in nba_problems:
+                print("  -", p)
+            return 1
+        print("  - sport=nba path clean (no exception)")
+        print("  - MLB-identical report structure: drift labels + tooltips, "
+              "coverage columns, populated version history")
         return 0
     finally:
         _remove_artifacts()
