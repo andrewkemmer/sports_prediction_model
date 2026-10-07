@@ -265,11 +265,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 2. Eligible game ingestion ────────────────────────────────────────
     _banner("PHASE 2", "official NHL API ingestion")
-    # Build the per-day date span per configured season (Oct 1 .. Jul 15),
+    # Build the per-day date span per configured season (Sep 1 .. Jul 15),
     # then union the bounded operational serving tail.  ``season_dates``
-    # intentionally starts on Oct 1, so a late-September regular-season
-    # slate would otherwise never be requested even when the run/window is
-    # explicitly set to those dates.
+    # starts Sep 1 (2026-10-07 run review): the old Oct 1 start silently
+    # skipped the 2026-09-29/30 regular-season slate — the 8 games never
+    # entered the frame, so entering records and trailing features for the
+    # Oct 1+ games of those 14 clubs were computed as season debuts (and
+    # the serving-tail union below could not cover them: on an Oct 7 run
+    # ``max(start_date, run_date)`` is Oct 7 itself). The gameType filter
+    # in ``eligible_games`` drops preseason rows from the same stretch.
     dates: set[str] = set()
     for season in seasons:
         dates.update(ingestion.season_dates(season))
@@ -1342,8 +1346,30 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
         gates["markets_has_slate"] = False
     need = {"game_id", "gameday", "home_team", "away_team", "mu_h", "mu_a",
             "fair_spread", "fair_total", "p_home_win_derived",
-            "p_away_win_derived"}
-    gates["slate_contract_fields"] = need.issubset(slate.columns) if len(slate) else True
+            "p_away_win_derived", "home_record", "away_record"}
+    if not len(slate):
+        gates["slate_contract_fields"] = True
+    else:
+        # Presence is not enough (2026-10-07 run review): the 17:39 UTC run
+        # PASSED this gate while all five slate rows carried
+        # home_record/away_record null — the fields were checked only for
+        # EXISTENCE and records weren't even in ``need``. A serving-contract
+        # record must be a populated W-L string: records attach from the
+        # combined event frame, which always covers both clubs (season
+        # openers serve "0-0"), so null/empty means the attaching frame lost
+        # the slate's own keys — the defect that shipped null records on the
+        # Oct 6-7 moneyline boards.
+        def _records_populated(df: pd.DataFrame) -> bool:
+            for col in ("home_record", "away_record"):
+                if col not in df.columns:
+                    return False
+                ok = df[col].astype("string").str.fullmatch(r"\d+-\d+")
+                if not bool(ok.fillna(False).all()):
+                    return False
+            return True
+
+        gates["slate_contract_fields"] = bool(
+            need.issubset(slate.columns) and _records_populated(slate))
     gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
     # OOF reach (2026-09-30): the validation population must cover the
     # eligible games. The MIN_VAL_FOLD_GAMES skip once removed 366 of 2795

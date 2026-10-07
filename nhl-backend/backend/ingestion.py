@@ -616,13 +616,20 @@ def season_dates(season: int) -> list[str]:
     """The calendar date span that can hold a season's games.
 
     The NHL regular season runs Oct..mid-April and the playoffs into June;
-    a generous Oct 1 .. Jul 15 span covers both. For an unstarted season the
-    tail is entirely future dates, which carry the published but UNPLAYED
-    schedule (null scores) and so can never reach the OOF population.
-    Callers should clip this span to their own window end rather than pay a
-    round trip per future day for rows they will discard.
+    a generous Sep 1 .. Jul 15 span covers both. The Sep 1 start (2026-10-07
+    run review) exists because season OPENERS can land in late September:
+    the 2026-09-29/30 slate carried eight regular-season games (gameType 2)
+    that an Oct 1 span never requested, so their results never entered the
+    frame and every Oct 1+ entering record / trailing feature for those 14
+    clubs read as a season debut. Preseason dates in the same stretch cost
+    a page each and are dropped by ``eligible_games``' gameType filter.
+    For an unstarted season the tail is entirely future dates, which carry
+    the published but UNPLAYED schedule (null scores) and so can never
+    reach the OOF population. Callers should clip this span to their own
+    window end rather than pay a round trip per future day for rows they
+    will discard.
     """
-    start = date(season, 10, 1)
+    start = date(season, 9, 1)
     end = date(season + 1, 7, 15)
     out: list[str] = []
     d = start

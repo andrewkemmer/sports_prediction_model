@@ -4264,6 +4264,63 @@ def test_validate_outputs_is_runnable_without_the_callers_locals():
     assert _gate(90, 100) is True    # exactly at the threshold passes
 
 
+def test_season_dates_request_late_september_regular_season_openers():
+    """``season_dates`` must span Sep 1, not Oct 1 (2026-10-07 run review).
+
+    The old Oct 1 start never requested the 2026-09-29/30 slate: those
+    eight regular-season games (gameType 2) never entered the frame, so the
+    published markets recorded every affected club's Oct 1+ entering
+    record as a season debut (EDM entered its Oct 1 game 0-0 although it
+    had lost 5-6 on Sep 29), and their results never trained the model.
+    The serving-tail union in main() cannot cover this: on an Oct 7 run
+    ``max(start_date, run_date)`` is Oct 7 itself.
+    """
+    dates = ing.season_dates(2026)
+    assert dates[0] == "2026-09-01"
+    assert "2026-09-29" in dates and "2026-09-30" in dates, (
+        "late-September regular-season openers would never be requested")
+    assert "2026-10-01" in dates and "2027-07-15" in dates
+    assert dates == sorted(set(dates))  # strictly increasing, no dups
+
+
+def test_slate_contract_gate_rejects_null_records():
+    """The 2026-10-07 17:39 UTC run shipped home_record/away_record null
+    on every slate row while ``slate_contract_fields`` still PASSed: the
+    gate checked column presence only, and records weren't even in
+    ``need``. A serving-contract record must be a populated W-L string on
+    every slate row (season openers serve \"0-0\", never null)."""
+    import master_pipeline as mp
+
+    base = dict(game_id=["g1"], gameday=["2026-10-07"], home_team=["WSH"],
+                away_team=["PIT"], mu_h=[3.5], mu_a=[2.9],
+                fair_spread=[-1.5], fair_total=[6.0],
+                p_home_win_derived=[0.6], p_away_win_derived=[0.4])
+    fold_info = {"n_folds": 1, "total_val_games": 100}
+    oof = pd.DataFrame({"p_ensemble_calibrated": [0.5],
+                        "season": [config.OOF_FIRST_SEASON]})
+
+    def _gate(slate: pd.DataFrame) -> bool:
+        with tempfile.TemporaryDirectory() as td:
+            return mp._validate_outputs(
+                Path(td), "20261007", oof, slate, fold_info,
+                sig={"holdout": {"cutoff": "2026-05-24"}},
+                n_eligible=100)["slate_contract_fields"]
+
+    good = pd.DataFrame({**base, "home_record": ["1-1"],
+                         "away_record": ["2-1"]})
+    assert _gate(good) is True
+    # Pre-fix symptom: null records on the serving board still PASSed.
+    nulls = pd.DataFrame({**base, "home_record": [None],
+                          "away_record": [None]})
+    assert _gate(nulls) is False
+    empty = pd.DataFrame({**base, "home_record": [""],
+                          "away_record": [""]})
+    assert _gate(empty) is False
+    # Missing contract columns fail; an empty slate keeps its pass semantics.
+    assert _gate(pd.DataFrame(base)) is False
+    assert _gate(pd.DataFrame()) is True
+
+
 def test_run_diagnostics_writes_are_guaranteed_their_directory():
     """Phase 4 crashed the 2026-10-01 03:35 Kaggle run: 23f1f0c moved the fold
     table into the gitignored run_diagnostics/ dir but left the only mkdir in
