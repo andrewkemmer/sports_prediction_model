@@ -486,6 +486,10 @@ def test_boxscore_cache_never_frozen_mid_game():
 
     def _fake_http(url):
         calls["n"] += 1
+        if url.endswith("/right-rail"):
+            return {"teamGameStats": [
+                {"category": "powerPlay", "homeValue": "1/3", "awayValue": "0/2"},
+                {"category": "faceoffWins", "homeValue": "30/60", "awayValue": "30/60"}]}
         return bs_live if calls["n"] == 1 else bs_final
 
     path = BACKEND / "boxscore_livetest.parquet"
@@ -499,7 +503,7 @@ def test_boxscore_cache_never_frozen_mid_game():
 
         df2 = ing.load_boxscores([gid], use_cache=True, chunk_days=0,
                                  pause_sec=0)
-        assert calls["n"] == 2, "the mid-game fetch was not retried when settled"
+        assert calls["n"] == 3, "settled boxscore and official team stats must be fetched"
         assert len(df2) == 1
         assert float(df2["home_sog"].iloc[0]) == 31.0
         assert path.exists(), "the settled boxscore was not cached"
@@ -2062,6 +2066,8 @@ def _synth_boxscores(games: pd.DataFrame) -> pd.DataFrame:
             "home_pp_goals": 1, "away_pp_goals": 0,
             "home_pp_opportunities": 5, "away_pp_opportunities": 4,
             "home_faceoff_pct": 0.52, "away_faceoff_pct": 0.48,
+            "home_faceoff_wins": 26, "away_faceoff_wins": 24,
+            "home_faceoff_attempts": 50, "away_faceoff_attempts": 50,
             "home_hits": 10, "away_hits": 8,
             "home_blocked": 5, "away_blocked": 4,
             "home_pim": 10, "away_pim": 12,
@@ -2300,9 +2306,8 @@ def test_slate_features_use_the_rollup_from_prior_decided_games():
         assert v.notna().any(), f"{col} empty on the slate"
 
 
-def test_pg_opportunities_come_from_the_opposing_goalie_ratio():
-    """PP volume is a goalie-line ratio; the team's opportunities are the
-    OPPONENT's goalie PP shots faced."""
+def test_pp_opportunities_come_from_official_team_counts_not_goalie_shots():
+    """PP opportunities and goalie shots are distinct hockey events."""
     assert ing._parse_ratio("5/6") == 6.0
     # "0/0" is a REAL observation (that goalie faced no power-play shots),
     # not a missing one. Reporting it as NaN is what starved pp_success_diff
@@ -2328,10 +2333,17 @@ def test_pg_opportunities_come_from_the_opposing_goalie_ratio():
                                "powerPlayShotsAgainst": "5/6"}],
               },
           }}
-    row = ing._parse_boxscore(bs)
-    # home faced 4 PP shots on the road -> away had 4 PP opportunities.
-    assert row["home_pp_opportunities"] == 6.0
-    assert row["away_pp_opportunities"] == 4.0
+    rail = {"teamGameStats": [
+        {"category": "powerPlay", "homeValue": "1/3", "awayValue": "0/2"},
+        {"category": "faceoffWins", "homeValue": "26/50", "awayValue": "24/50"}]}
+    row = ing._parse_boxscore(bs, rail)
+    assert row["home_pp_opportunities"] == 3.0
+    assert row["away_pp_opportunities"] == 2.0
+    assert row["home_faceoff_pct"] == .52
+    assert row["away_faceoff_pct"] == .48
+    unknown = ing._parse_boxscore(bs)
+    assert unknown["home_pp_opportunities"] is None
+    assert unknown["home_faceoff_pct"] is None
 
 
 def test_starter_is_the_flagged_goalie_not_the_first_decision_goalie():
@@ -2365,8 +2377,8 @@ def test_starter_is_the_flagged_goalie_not_the_first_decision_goalie():
     row = ing._parse_boxscore(bs)
     assert row["home_goalie_id"] == 2, "picked the 00:00 scratch goalie"
     assert row["home_goalie_toi"] == 62.0 + 18 / 60.0
-    assert row["home_pp_opportunities"] == 9.0   # away goalie faced 9 PP shots
-    assert row["away_pp_opportunities"] == 2.0   # home goalie faced 2 PP shots
+    assert row["home_pp_opportunities"] is None  # shots cannot replace team chances
+    assert row["away_pp_opportunities"] is None
 
 
 def test_starter_falls_back_to_most_ice_time_without_the_flag():

@@ -142,14 +142,17 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         rb = rating.get(b.team, prior)
         # Home advantage enters the home team's expected-win expression.
         if a.is_home:
-            exp_a = 1.0 / (1.0 + 10.0 ** ((rb + home_adv - ra) / scale))
-        else:
             exp_a = 1.0 / (1.0 + 10.0 ** ((rb - home_adv - ra) / scale))
+        else:
+            exp_a = 1.0 / (1.0 + 10.0 ** ((rb + home_adv - ra) / scale))
         exp_b = 1.0 - exp_a
         entering[(game_id, a.team)] = ra
         entering[(game_id, b.team)] = rb
-        rating[a.team] = ra + K * (a.team_win - exp_a)
-        rating[b.team] = rb + K * (b.team_win - exp_b)
+        # Pending games may enter the slate timeline for season reversion,
+        # but never update skill with a fabricated half-win.
+        settled = rows[["for", "against"]].notna().all().all()
+        rating[a.team] = ra + K * (a.team_win - exp_a) if settled else ra
+        rating[b.team] = rb + K * (b.team_win - exp_b) if settled else rb
     ev = ev.copy()
     ev["elo_entering"] = [entering.get((gid, team), prior)
                           for gid, team in zip(ev["game_id"], ev["team"])]
@@ -197,6 +200,11 @@ def _trailing_pooled_ratio(srt: pd.DataFrame, num_col: str, den_col: str,
                 .rolling(window, min_periods=1).sum()
                 .groupby(level=0).shift(1)
                 .reset_index(level=0, drop=True))
+    # A partial observation must contribute neither count: retaining only
+    # its denominator biases the pooled rate as if unknown wins were zero.
+    srt = srt.copy()
+    paired = srt[[num_col, den_col]].apply(pd.to_numeric, errors="coerce").notna().all(axis=1)
+    srt.loc[~paired, [num_col, den_col]] = np.nan
     num = pd.to_numeric(_rolled(num_col), errors="coerce")
     den = pd.to_numeric(_rolled(den_col), errors="coerce")
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -210,6 +218,7 @@ def _trailing_pooled_ratio(srt: pd.DataFrame, num_col: str, den_col: str,
 # made the rolling mean of it a hole rather than a rate.
 NHL_POOLED_RATIO_SPECS: dict[str, tuple[str, str]] = {
     "pp_success_rate": ("pp_goals_pg", "pp_attempts_pg"),
+    "faceoff_win_pct": ("faceoff_wins_pg", "faceoff_attempts_pg"),
 }
 
 
@@ -248,7 +257,8 @@ BOXSCORE_TEAM_METRICS: dict[str, str] = {
     "opp_sog": "shots_against_pg",
     "pp_goals": "pp_goals_pg",
     "pp_opportunities": "pp_attempts_pg",
-    "faceoff_pct": "faceoff_win_pct",
+    "faceoff_wins": "faceoff_wins_pg",
+    "faceoff_attempts": "faceoff_attempts_pg",
     "pim": "pim_pg",
     "hits": "hits_pg",
     "blocked": "blocked_shots_pg",
@@ -310,6 +320,9 @@ def team_game_rollup(games: pd.DataFrame,
         with np.errstate(divide="ignore", invalid="ignore"):
             rate = roll["pp_goals_pg"] / roll["pp_attempts_pg"].replace(0, np.nan)
         roll["pp_success_rate"] = rate.where(np.isfinite(rate))
+    if "faceoff_attempts_pg" in roll.columns:
+        roll["faceoff_win_pct"] = (roll["faceoff_wins_pg"]
+                                  / roll["faceoff_attempts_pg"].replace(0, np.nan))
     return roll.reset_index(drop=True)
 
 
@@ -520,6 +533,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
                  games: pd.DataFrame,
                  team_source: pd.DataFrame | None = None,
                  stints: pd.DataFrame | None = None,
+                 rosters: pd.DataFrame | None = None,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-goalie rolling SV% / GAA state + per-game expected-starter frame.
 
@@ -553,7 +567,9 @@ def goalie_state(boxscores: pd.DataFrame | None,
     (the 2026-10-04 FLA@ANA card named S. Bobrovsky over Markstrom/Schmid
     exactly this way). A team with no start this season yet resolves honest
     NaN (the manifest's opening-night unknown starter), never last season's
-    workhorse.
+    workhorse. Workload votes count only this team's starts; a strictly-prior
+    start for another team or a fresh pregame roster capture can exclude a
+    departed goalie. Season quality still follows the player across clubs.
 
     Returns (per_game_frame, ladder_frame):
       per_game_frame: one row per game with the HOME/AWAY side's expected
@@ -581,6 +597,15 @@ def goalie_state(boxscores: pd.DataFrame | None,
     # Long-form per-start rows: (game_id, team, goalie_id, name, goals_against,
     # shots_faced, toi_min, gameday, season).
     starts = []
+
+    def _goalie_id(value) -> str:
+        # Nullable numeric IDs can become floats in parquet/pandas; "123.0"
+        # must still join the roster's central-id string "123".
+        text = str(value).strip()
+        if text.endswith(".0") and text[:-2].isdigit():
+            return text[:-2]
+        return text
+
     # Season start-year per game, resolved from the frames' own ``season``
     # cells (authoritative) with the July-boundary calendar rule as fallback.
     season_by_game: dict[str, object] = {}
@@ -627,7 +652,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
             if seas is None or (isinstance(seas, float) and pd.isna(seas)):
                 seas = _nhl_season_of(gd)
             starts.append({
-                "game_id": gid, "team": side, "goalie_id": str(g_id),
+                "game_id": gid, "team": side, "goalie_id": _goalie_id(g_id),
                 "goalie_name": str(getattr(r, f"{side}_goalie_name", "") or ""),
                 "goals_against": ga,
                 "shots_faced": shots,
@@ -718,7 +743,8 @@ def goalie_state(boxscores: pd.DataFrame | None,
     g_ga: dict[str, np.ndarray] = {}
     g_sa: dict[str, np.ndarray] = {}
     g_toi: dict[str, np.ndarray] = {}
-    g_name: dict[str, str] = {}
+    g_names: dict[str, list[str]] = {}
+    g_teams: dict[str, np.ndarray] = {}
     for gid_, grp in _starts.groupby("goalie_id", sort=False):
         grp = grp.sort_values(["gameday", "game_id"])
         g_dates[gid_] = grp["gameday"].to_numpy(dtype="datetime64[ns]")
@@ -728,13 +754,39 @@ def goalie_state(boxscores: pd.DataFrame | None,
         g_ga[gid_] = pd.to_numeric(grp["goals_against"], errors="coerce").to_numpy(float)
         g_sa[gid_] = pd.to_numeric(grp["shots_faced"], errors="coerce").to_numpy(float)
         g_toi[gid_] = pd.to_numeric(grp["toi_min"], errors="coerce").to_numpy(float)
-        nm = [str(x or "") for x in grp["goalie_name"]]
-        g_name[gid_] = nm[-1] if nm else ""
-    # team -> (gameday, goalie_id) sorted, for the candidate scan
-    team_goals: dict[str, list[tuple[np.datetime64, str]]] = {}
+        g_names[gid_] = [str(x or "") for x in grp["goalie_name"]]
+        g_teams[gid_] = grp["team_abbr"].to_numpy()
+    # Candidate workload is TEAM/season-specific, not all-club career starts.
+    team_goals: dict[str, list[tuple[np.datetime64, str, float]]] = {}
     for r in _starts.sort_values(["gameday", "game_id"]).itertuples(index=False):
         team_goals.setdefault(str(r.team_abbr), []).append(
-            (pd.Timestamp(r.gameday).to_datetime64(), str(r.goalie_id)))
+            (pd.Timestamp(r.gameday).to_datetime64(), str(r.goalie_id), float(r.season)))
+
+    roster_snapshots: list[tuple[pd.Timestamp, pd.DataFrame]] = []
+    if rosters is not None and {"player_id", "team", "snapshot_at"} <= set(rosters.columns):
+        snap = rosters.copy()
+        snap["snapshot_at"] = pd.to_datetime(snap["snapshot_at"], errors="coerce", utc=True)
+        snap = snap.dropna(subset=["snapshot_at", "player_id", "team"])
+        snap["player_id"] = snap["player_id"].map(_goalie_id)
+        roster_snapshots = list(snap.groupby("snapshot_at", sort=True))
+
+    def _roster_allows(gid_: str, team: str, decision) -> bool:
+        # Capture-time membership: later snapshots cannot rewrite history.
+        cut = pd.to_datetime(decision, errors="coerce", utc=True)
+        if pd.isna(cut):
+            return True  # unknown membership is not proof of an exclusion
+        eligible = [(at, rows) for at, rows in roster_snapshots
+                    if at < cut and cut - at <= pd.Timedelta(hours=ingestion.ROSTER_CACHE_TTL_HOURS)]
+        if not eligible:
+            return True
+        _, rows = eligible[-1]
+        memberships = set(rows.loc[rows["player_id"].astype(str) == gid_, "team"].astype(str))
+        if memberships:
+            return memberships == {team}
+        # Incomplete captures support positive knowledge only. Absence is an
+        # exclusion only in a complete capture of this team's roster.
+        complete = "complete" in rows and rows["complete"].eq(True).all()
+        return not (complete and team in set(rows["team"].astype(str)))
 
     # ---------------------------------------------------------------------
     # AVAILABILITY GATE — strictly prior, never inferred from appearances.
@@ -752,7 +804,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
     _ids: list[str] = (list(stints[injury_stints.OUT_PLAYER].astype(str).unique())
                        if stints is not None and len(stints) else [])
 
-    def _goalie_excluded(gid_: str, cut) -> bool:
+    def _goalie_excluded(gid_: str, cut, name: str) -> bool:
         """Is THIS goalie known unavailable at ``cut`` (strictly prior)?
 
         Identity resolves by direct goalie id first, then by the boxscore's
@@ -764,7 +816,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
         if gid_ in _ids:
             return bool(injury_stints.is_unavailable(stints, gid_, pd.Timestamp(cut),
                                            strict_start=True))
-        nm = g_name.get(gid_, "")
+        nm = name
         if not nm:
             return False
         # Collect every exclusion id whose full name matches the boxscore's
@@ -805,7 +857,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
         gaa = ga / (toi / 60.0) if toi > 0 else np.nan
         return float(sv), float(gaa), float(n_season)
 
-    def _expected(team: str, when, seas=float("nan")):
+    def _expected(team: str, when, seas=float("nan"), decision=None):
         """(name, form_sv, form_gaa, season_sv, season_gaa, season_starts) of
         the AVAILABLE expected starter entering ``when`` for ``team``.
 
@@ -821,27 +873,32 @@ def goalie_state(boxscores: pd.DataFrame | None,
         if not entries or when is None or pd.isna(when):
             return "", np.nan, np.nan, np.nan, np.nan, np.nan
         cut = pd.Timestamp(when).to_datetime64()
-        candidates: list[tuple[tuple, str, int, int]] = []
-        for day, gid_ in entries:
-            if day >= cut:            # strictly prior only
+        workload: dict[str, tuple[int, np.datetime64]] = {}
+        for day, gid_, start_season in entries:
+            if day < cut and start_season == seas:
+                count, _ = workload.get(gid_, (0, day))
+                workload[gid_] = (count + 1, day)
+        candidates: list[tuple[tuple, str, int]] = []
+        for gid_, (count, last_day) in workload.items():
+            n_before = int(np.searchsorted(g_dates[gid_], cut, side="left"))
+            # A prior observed start for a different club is positive evidence
+            # of a move. It never proves health and never reads tonight's line.
+            if n_before <= 0 or g_teams[gid_][n_before - 1] != team:
                 continue
-            dates = g_dates.get(gid_)
-            if dates is None:
+            if not _roster_allows(gid_, team, decision):
                 continue
-            n_before = int(np.searchsorted(dates, cut, side="left"))
-            if n_before <= 0:
-                continue
-            n_season = int(np.count_nonzero(g_season[gid_][:n_before] == seas)) \
-                if np.isfinite(seas) else 0
-            if n_season > 0:
-                candidates.append(((n_season, day, gid_), gid_, n_before))
+            candidates.append(((count, last_day, gid_), gid_, n_before))
         # Opportunity order: most season starts first, then recency, then id.
         candidates.sort(key=lambda c: c[0], reverse=True)
         for _, gid_, n_before in candidates:
-            if _goalie_excluded(gid_, cut):
+            name = g_names[gid_][n_before - 1]
+            exclusion_cut = injury_stints._utc_naive(decision) if decision is not None else pd.NaT
+            if pd.isna(exclusion_cut):
+                exclusion_cut = pd.Timestamp(cut)
+            if _goalie_excluded(gid_, exclusion_cut, name):
                 continue
             s_sv, s_gaa, n_season = _season_line(gid_, seas, n_before)
-            return (g_name.get(gid_, ""),
+            return (name,
                     float(g_sv[gid_][n_before - 1]),
                     float(g_gaa[gid_][n_before - 1]),
                     s_sv, s_gaa, n_season)
@@ -858,7 +915,8 @@ def goalie_state(boxscores: pd.DataFrame | None,
             when = pd.to_datetime(getattr(r, "gameday", None), errors="coerce")
             seas_num = pd.to_numeric(getattr(r, "season", None), errors="coerce")
             seas = float(seas_num) if pd.notna(seas_num) else _nhl_season_of(when)
-            nm_, form_sv, form_gaa, ss, sg, ns = _expected(team, when, seas)
+            nm_, form_sv, form_gaa, ss, sg, ns = _expected(
+                team, when, seas, getattr(r, "start_time_utc", None))
             f_sv.append(form_sv); f_gaa.append(form_gaa); names.append(nm_)
             s_sv.append(ss); s_gaa.append(sg); s_starts.append(ns)
             if pd.notna(ns):
@@ -1456,8 +1514,10 @@ def build_game_features(games: pd.DataFrame,
         combined_excl, availability_sources = stints, None
 
     # Goalie rolling state (per-goalie strictly-prior EWMs).
+    roster_grid = pd.DataFrame({"team": pd.concat(
+        [df["home_team"], df["away_team"]], ignore_index=True)})
     goalie_frame, goalie_ladder = goalie_state(
-        boxscores, df, stints=combined_excl)
+        boxscores, df, stints=combined_excl, rosters=_load_team_rosters(roster_grid))
     for c in goalie_frame.columns:
         if c not in df.columns:
             df[c] = goalie_frame[c].to_numpy()
@@ -1540,11 +1600,10 @@ def build_slate_features(schedule: pd.DataFrame,
     if pending.empty:
         return pd.DataFrame()
 
-    ev_decided, ratings = _elo_apply(team_events(decided))
-    ev_pending = team_events(pending)
-    ev_pending["elo_entering"] = ev_pending["team"].map(
-        lambda t: ratings.get(t, config.ELO_PRIOR))
-    combined = pd.concat([ev_decided, ev_pending], ignore_index=True)
+    # Shared historical/serving Elo path: pending rows carry entering skill
+    # and season reversion but never update ratings with an unplayed result.
+    combined, _ = _elo_apply(team_events(sched))
+    ev_decided = combined[combined["game_id"].isin(set(decided["game_id"]))]
     ladder = team_stats_ladder(combined, team_game_rollup(sched, boxscores))
 
     df = pending.copy().reset_index(drop=True)
@@ -1580,8 +1639,10 @@ def build_slate_features(schedule: pd.DataFrame,
             player_ratings)
     else:
         combined_excl, availability_sources = stints, None
+    roster_grid = pd.DataFrame({"team": pd.concat(
+        [df["home_team"], df["away_team"]], ignore_index=True)})
     goalie_frame, goalie_ladder = goalie_state(
-        boxscores, df, sched, stints=combined_excl)
+        boxscores, df, sched, stints=combined_excl, rosters=_load_team_rosters(roster_grid))
     for c in goalie_frame.columns:
         if c not in df.columns:
             df[c] = goalie_frame[c].to_numpy()

@@ -231,22 +231,21 @@ FEATURE_MANIFEST = {
     },
     "pp_success_diff": {
         "description": "Home minus away trailing power-play success rate",
-        "definition": "rolling(5).mean() of power-play goals / power-play opportunities "
-                      "over strictly-prior games",
-        "source": "official NHL API boxscores (powerPlayGoals)",
+        "definition": "pooled team power-play goals / opportunities over five prior games",
+        "source": "official NHL API right-rail teamGameStats (powerPlay)",
         "lookback": 5,
-        "aggregation": "trailing windowed mean of a per-game rate",
-        "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
-        "missing_value_policy": "NaN when the team has no prior games; a game with zero PP "
-                                "opportunities is excluded from that game's rate",
+        "aggregation": "trailing pooled count ratio",
+        "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+        "missing_value_policy": "NaN without observed opportunities; zero chances contribute "
+                                "zero counts, missing games contribute neither count",
         "representation": "difference (all model families)",
         "model_family_availability": ["linear", "tree"],
         "feature_version": 1,
     },
     "faceoff_win_diff": {
         "description": "Home minus away trailing faceoff win rate",
-        "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games",
-        "source": "official NHL API boxscores (faceoffWinningPctg)",
+        "definition": "pooled team faceoff wins / attempts over five strictly-prior games",
+        "source": "official NHL API right-rail teamGameStats (faceoffWins)",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -607,7 +606,7 @@ FEATURE_MANIFEST = {
         "description": "Home team's trailing power-play success rate",
         "definition": "pooled power-play goals / opportunities over the trailing "
                       "window (volume-weighted) -- home side of pp_success_diff",
-        "source": "official NHL API boxscores (powerPlayGoals)",
+        "source": "official NHL API right-rail teamGameStats (powerPlay)",
         "lookback": 5,
         "aggregation": "trailing pooled count ratio",
         "point_in_time_rule": "per-team rolling(5) sums then shift(1) -- a "
@@ -622,7 +621,7 @@ FEATURE_MANIFEST = {
         "description": "Away team's trailing power-play success rate",
         "definition": "pooled power-play goals / opportunities over the trailing "
                       "window (volume-weighted) -- away side of pp_success_diff",
-        "source": "official NHL API boxscores (powerPlayGoals)",
+        "source": "official NHL API right-rail teamGameStats (powerPlay)",
         "lookback": 5,
         "aggregation": "trailing pooled count ratio",
         "point_in_time_rule": "per-team rolling(5) sums then shift(1) -- a "
@@ -635,9 +634,9 @@ FEATURE_MANIFEST = {
     },
     "faceoff_win_home": {
         "description": "Home team's trailing faceoff win rate",
-        "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games "
+        "definition": "pooled team faceoff wins / attempts over five strictly-prior games "
                       "(home side of faceoff_win_diff)",
-        "source": "official NHL API boxscores (faceoffWinningPctg)",
+        "source": "official NHL API right-rail teamGameStats (faceoffWins)",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -648,9 +647,9 @@ FEATURE_MANIFEST = {
     },
     "faceoff_win_away": {
         "description": "Away team's trailing faceoff win rate",
-        "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games "
+        "definition": "pooled team faceoff wins / attempts over five strictly-prior games "
                       "(away side of faceoff_win_diff)",
-        "source": "official NHL API boxscores (faceoffWinningPctg)",
+        "source": "official NHL API right-rail teamGameStats (faceoffWins)",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -714,6 +713,22 @@ FEATURE_MANIFEST = {
         "feature_version": 1,
     },
 }
+
+# Corrected input-semantic versions; keep model-facing feature names stable.
+for _name in ("pp_success_diff", "pp_success_home", "pp_success_away",
+              "faceoff_win_diff", "faceoff_win_home", "faceoff_win_away"):
+    FEATURE_MANIFEST[_name].update(
+        feature_version=2, aggregation="trailing pooled count ratio",
+        point_in_time_rule="per-team rolling(5) sums then shift(1)")
+for _name, _entry in FEATURE_MANIFEST.items():
+    if _name.startswith("elo_"):
+        _entry["feature_version"] = 2
+    if _name.startswith("goalie_"):
+        _entry["feature_version"] = 2
+        _entry["point_in_time_rule"] += (
+            "; starter vote uses team/season workload, prior observed team changes "
+            "and fresh roster captures strictly before exact puck drop; "
+            "quality uses only earlier game dates")
 
 # ---------------------------------------------------------------------------
 # Player pool (24 columns)

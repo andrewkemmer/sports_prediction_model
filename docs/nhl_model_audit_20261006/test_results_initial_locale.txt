@@ -1,0 +1,120 @@
+........................................................................ [ 13%]
+........................................................................ [ 26%]
+........................................................................ [ 40%]
+........................................................................ [ 53%]
+........................................................................ [ 66%]
+........................................................................ [ 80%]
+..................................................F.......F............. [ 93%]
+.F..................................                                     [100%]
+================================== FAILURE
+S ===================================
+______ test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw ______
+
+    def test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw():
+        """The notebook installs the pipeline's dependencies by hand.
+
+        tqdm is in MLB's list precisely because the bar is the operator's only
+        view of a multi-minute chunked pull. The NHL list omitted it, so even
+        with the isatty gate removed the Kaggle run had nothing to draw with and
+        the bar stayed invisible. A dependency the notebook must install is
+        part of the bar's contract.
+        """
+        # BACKE
+ND is <repo>/nhl-backend/backend, so the notebook is two levels up.
+        nb = (BACKE
+ND.parents[1] / "kaggle_nhl_run.ipynb").read_text(encoding="utf-8")
+>       assert "tqdm" in nb, "the NHL Kaggle notebook never installs tqdm"
+E
+       AssertionE
+rror: the NHL Kaggle notebook never installs tqdm
+E
+       assert 'tqdm' in '{"metadata":{"kernelspec":{"language":"python","display_name":"Python 3","name":"python3"},"language_info":{"name":"p...nhl-backend/data_delivery/run_engine_feature_drift_20261005.csv\']\\n","output_type":"stream"}],"execution_count":1}]}'
+
+nhl-backend\backend\test_run_engine_pit.py:3742: AssertionE
+rror
+_________ test_run_diagnostics_writes_are_guaranteed_their_directory __________
+
+    def test_run_diagnostics_writes_are_guaranteed_their_directory():
+        """Phase 4 crashed the 2026-10-01 03:35 Kaggle run: 23f1f0c moved the fold
+        table into the gitignored run_diagnostics/ dir but left the only mkdir in
+        the Phase 13 block — which Phase 4's write reaches FIRST — so a fresh
+        clone died with OSE
+rror "Cannot save file into a non-existent directory"
+        mid-run, after the full refetch had already paid for itself. Static pin:
+        every function constructing a path under config.RUN_DIAGNOSTICS_DIR must
+        mkdir it (exist_ok=True) before its first such construction."""
+        import master_pipeline as mp
+
+>       src = Path(mp.__file__).read_text()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+nhl-backend\backend\test_run_engine_pit.py:3973:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:788: in read_text
+    return f.read()
+           ^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <encodings.cp1252.IncrementalDecoder object at 0x000001AE
+C6FC3AC0>
+input = b'"""NHL production master pipeline \xe2\x80\x94 the ONE
+ authoritative entry point.\r\n\r\nStructural mirror of the NF...\r\n        logger.info("retention: no stale files")\r\n\r\n\r\nif __name__ == "__main__":\r\n    sys.exit(main())\r\n'
+final = True
+
+    def decode(self, input, final=False):
+>       return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E
+       UnicodeDecodeE
+rror: 'charmap' codec can't decode byte 0x9d in position 56642: character maps to <undefined>
+
+C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\encodings\cp1252.py:23: UnicodeDecodeE
+rror
+____________ test_frame_run_then_log_line_lands_as_two_clean_lines ____________
+
+tmp_path = WindowsPath('C:/Users/andre/AppData/Local/Temp/pytest-of-andre/pytest-1075/test_frame_run_then_log_line_l0')
+
+    def test_frame_run_then_log_line_lands_as_two_clean_lines(tmp_path):
+        """A bar that ends without a newline must not merge into the log line
+        that follows it (the exact interleaving the 2026-10-06 log shows:
+        final frame, then an INFO record)."""
+        log_file = open(tmp_path / "log.txt", "w")
+        tee = run_log_tee._Tee(io.StringIO(), log_file)
+        tee.write("\r 42%|##       | 21/50 [..]\r100%|##########| 50/50 [00:53<00:00]")
+        tee.write("  INFO     → 231114 pitches\n")
+        tee.close()
+        text = (tmp_path / "log.txt").read_text(encoding="utf-8")
+>       assert text.splitlines() == [
+            "100%|##########| 50/50 [00:53<00:00]",
+            "  INFO     → 231114 pitches",
+        ]
+E
+       AssertionE
+rror: assert ['100%|######...00:53<00:00]'] == ['100%|######...1114 pitches']
+E
+
+E
+         Right contains one more item: '  INFO     → 231114 pitches'
+E
+         Use -v to get more diff
+
+nhl-backend\backend\test_run_log_tee.py:173: AssertionE
+rror
+============================== warnings summary ===============================
+nhl-backend/backend/test_run_engine_pit.py: 31 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\lightgbm\sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+    eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+
+nhl-backend/backend/test_run_engine_pit.py: 31 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILE
+D nhl-backend/backend/test_run_engine_pit.py::test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw
+FAILE
+D nhl-backend/backend/test_run_engine_pit.py::test_run_diagnostics_writes_are_guaranteed_their_directory
+FAILE
+D nhl-backend/backend/test_run_log_tee.py::test_frame_run_then_log_line_lands_as_two_clean_lines
+3 failed, 537 passed, 62 warnings in 242.91s (0:04:02)

@@ -141,11 +141,10 @@ FINAL_GAME_STATES = frozenset({"OFF", "FINAL"})
 # v2 adds start_time_utc, which is required to compare local report capture
 # timestamps to the actual puck-drop decision in the injury pool.
 SCORE_CACHE_VERSION = "v2"
-# v4: starter selection now keys on the API's ``starter`` boolean (v3 keyed on
-# a ``decision`` set that omitted the overtime-loss code "O", so those games
-# resolved to the 00:00 scratch goalie), and ``powerPlayShotsAgainst="0/0"``
-# is now recorded as the measured 0 it is rather than a null.
-BOXSCORE_CACHE_VERSION = "v4"
+# v5: official right-rail team PP opportunities and faceoff wins/attempts.
+# v4 confused goalie PP shots with opportunities and averaged skater faceoff
+# percentages. Never consume those cached proxies under the corrected schema.
+BOXSCORE_CACHE_VERSION = "v5"
 # Cache schema version for the player-game archive family (pl_* ratings).
 MP_PLAYER_GAME_VERSION = "v2"
 MP_PLAYER_GAME_CHUNK_SIZE = 100_000
@@ -703,27 +702,12 @@ def _or_none(value: float):
 
 
 def _parse_ratio(value) -> float:
-    """Parse an NHL API ``"made/attempts"`` ratio string into its denominator.
+    """Parse a valid NHL ``made/attempts`` string into its denominator.
 
-    The boxscore endpoint reports power-play volume on the GOALIE lines as
-    ``powerPlayShotsAgainst`` (e.g. ``"5/6"``); the team's own power-play
-    opportunities for that game are exactly the opposing goalie's
-    power-play shots faced.
-
-    ``"0/0"`` is a REAL observation, not a missing one: it means that goalie
-    faced no power-play shots, and the sibling fields corroborate it
-    (``evenStrengthShotsAgainst`` + ``shorthandedShotsAgainst`` +
-    ``powerPlayShotsAgainst`` == ``shotsAgainst``). Returning NaN for it
-    reported a measured zero as an absent measurement, which is what pushed
-    ``pp_success_diff`` to 0% coverage on the feature report whenever a
-    team's recent games happened to contain one of those. It is therefore a
-    genuine 0.0 here; the per-game RATE stays undefined downstream (you
-    cannot convert zero chances), and the trailing window pools the counts
-    so a zero-opportunity game no longer punches a hole in the feature.
-
-    Genuinely malformed values still stay NaN rather than fabricating a
-    denominator: a missing slash, a missing half, a negative sentinel, or
-    ``made > attempts``.
+    The caller determines the event: right-rail ``powerPlay`` means goals /
+    opportunities; goalie ``powerPlayShotsAgainst`` means saves / shots and
+    MUST NOT be interpreted as opportunities. A valid ``0/0`` is measured
+    zero; malformed/negative/inverted ratios remain unknown.
     """
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return float("nan")
@@ -744,24 +728,30 @@ def _parse_ratio(value) -> float:
     return attempts
 
 
-def _parse_boxscore(bs: dict) -> dict:
-    """One /v1/gamecenter/{id}/boxscore -> per-game team rollup row.
+def _parse_team_count_pair(value) -> tuple[float, float]:
+    """Official team event counts; fractional counts are not observations."""
+    attempts = _parse_ratio(value)
+    if not np.isfinite(attempts):
+        return np.nan, np.nan
+    made = float(str(value).strip().split("/")[0])
+    if not made.is_integer() or not attempts.is_integer():
+        return np.nan, np.nan
+    return made, attempts
 
-    Team-level: goals + SOG. Goalie rollup: the two DECISION goalies' TOI
-    and the season aggregate stats live on the goalie lines; the per-team
-    skater block rolls up PPG, faceoff%, hits, blocks, PIM, giveaways and
-    takeaways (means/sums of that game only — the trailing shift downstream
-    keeps them strictly-prior).
 
-    Power-play OPPORTUNITIES are not a skater field; they are recovered from
-    the opposing goalie's ``powerPlayShotsAgainst`` denominator, so a team's
-    per-game PP rate is ``pp_goals / pp_opportunities`` (the manifest's
-    definition). ``pp_opportunities`` is cross-filled after both sides are
-    parsed because it needs the OPPONENT's goalie line.
+def _parse_boxscore(bs: dict, team_stats: dict | None = None) -> dict:
+    """Parse a settled boxscore plus its official right-rail team counts.
+
+    Goalie lines supply starter identity/quality, never team opportunities.
+    PP goals/opportunities and faceoff wins/attempts come from right-rail
+    teamGameStats. Missing team counts stay unknown; no player-rate proxy.
+    All facts belong to this completed game and are shifted downstream.
     """
     player_stats = bs.get("playerByGameStats") or {}
     out: dict = {"game_id": str(bs.get("id", "") or "")}
-    pp_shots_faced: dict[str, float] = {}
+    rows = (team_stats or {}).get("teamGameStats") if isinstance(team_stats, dict) else []
+    stats = {r.get("category"): r for r in (rows if isinstance(rows, list) else [])
+             if isinstance(r, dict)}
     for side, team_key in (("home", "homeTeam"), ("away", "awayTeam")):
         block = player_stats.get(team_key) or {}
         team = bs.get(team_key) or {}
@@ -784,9 +774,10 @@ def _parse_boxscore(bs: dict) -> dict:
             vals = _num(rows, field)
             return float(sum(vals)) if vals else float("nan")
 
-        # Faceoff win pct is a rate: mean over skaters with a value.
-        fo_vals = _num(skaters, "faceoffWinningPctg")
-        pp_goals = _sum(skaters, "powerPlayGoals")
+        pp_goals, pp_opportunities = _parse_team_count_pair(
+            stats.get("powerPlay", {}).get(f"{side}Value"))
+        fo_wins, fo_attempts = _parse_team_count_pair(
+            stats.get("faceoffWins", {}).get(f"{side}Value"))
         # Goalie blocks: the official goalie line supplies per-goalie
         # goalsAgainst, shotsAgainst, and TOI. Use those fields directly;
         # team score/SOG are not a safe proxy for a relief appearance.
@@ -817,7 +808,10 @@ def _parse_boxscore(bs: dict) -> dict:
             toi = None
         out[f"{side}_sog"] = sog
         out[f"{side}_pp_goals"] = pp_goals if pp_goals == pp_goals else None
-        out[f"{side}_faceoff_pct"] = (sum(fo_vals) / len(fo_vals)) if fo_vals else None
+        out[f"{side}_pp_opportunities"] = _or_none(pp_opportunities)
+        out[f"{side}_faceoff_wins"] = _or_none(fo_wins)
+        out[f"{side}_faceoff_attempts"] = _or_none(fo_attempts)
+        out[f"{side}_faceoff_pct"] = fo_wins / fo_attempts if fo_attempts > 0 else None
         out[f"{side}_hits"] = _sum(skaters, "hits") if skaters else None
         out[f"{side}_blocked"] = _sum(skaters, "blockedShots") if skaters else None
         out[f"{side}_pim"] = _sum(skaters, "pim") if skaters else None
@@ -839,18 +833,15 @@ def _parse_boxscore(bs: dict) -> dict:
 
         out[f"{side}_goals_against"] = _goalie_num("goalsAgainst")
         out[f"{side}_shots_against"] = _goalie_num("shotsAgainst")
-        # Power-play shots THIS goalie faced = the opponent team's PP volume.
-        pp_shots_faced[side] = _parse_ratio(starter.get("powerPlayShotsAgainst"))
-    # A team's PP opportunities = the opposing goalie's PP shots faced.
-    out["home_pp_opportunities"] = _or_none(pp_shots_faced.get("away"))
-    out["away_pp_opportunities"] = _or_none(pp_shots_faced.get("home"))
     return out
 
 
 BOXSCORE_COLS = [
     "game_id",
     "home_sog", "away_sog", "home_pp_goals", "away_pp_goals",
-    "home_faceoff_pct", "away_faceoff_pct", "home_hits", "away_hits",
+    "home_faceoff_pct", "away_faceoff_pct",
+    "home_faceoff_wins", "away_faceoff_wins",
+    "home_faceoff_attempts", "away_faceoff_attempts", "home_hits", "away_hits",
     "home_blocked", "away_blocked", "home_pim", "away_pim",
     "home_giveaways", "away_giveaways", "home_takeaways", "away_takeaways",
     "home_pp_opportunities", "away_pp_opportunities",
@@ -870,7 +861,9 @@ SKATER_COLS = ["game_id", "side", "team", "player_id", "player_name"]
 #: the dtype-stability that silences the pandas-2.x all-NA concat warning.
 BOXSCORE_NUMERIC_COLS = (
     "home_sog", "away_sog", "home_pp_goals", "away_pp_goals",
-    "home_faceoff_pct", "away_faceoff_pct", "home_hits", "away_hits",
+    "home_faceoff_pct", "away_faceoff_pct",
+    "home_faceoff_wins", "away_faceoff_wins",
+    "home_faceoff_attempts", "away_faceoff_attempts", "home_hits", "away_hits",
     "home_blocked", "away_blocked", "home_pim", "away_pim",
     "home_giveaways", "away_giveaways", "home_takeaways", "away_takeaways",
     "home_pp_opportunities", "away_pp_opportunities",
@@ -932,8 +925,11 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                    gameday_by_id: dict | None = None,
                    chunk_days: int = PULL_CHUNK_DAYS,
                    pause_sec: float = PULL_CHUNK_PAUSE_SEC) -> pd.DataFrame:
-    """Fetch /v1/gamecenter/{id}/boxscore for each game and return the
-    combined per-game rollup rows. Per-game parquet caches; a failed game
+    """Fetch settled boxscore + right-rail team stats for each game.
+
+    Only complete corrected team-count rows are cached; a missing right-rail
+    retains the goalie/SOG row but retries the counts on the next pull.
+    Per-game parquet caches; a failed game
     is warned and skipped (downstream features degrade to NaN), never fatal.
 
     ``gameday_by_id`` groups the pull into ``chunk_days`` calendar windows
@@ -975,7 +971,13 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                                    gid, str(bs.get("gameState") or "unknown"))
                     prog.tick(failed=True)
                     continue
-                row = _parse_boxscore(bs)
+                try:
+                    team_stats = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/right-rail")
+                except Exception as exc:  # retain observed boxscore facts, not proxies
+                    logger.warning("team counts unavailable for game %s: %s — "
+                                   "PP/faceoffs stay unknown, row not cached", gid, exc)
+                    team_stats = None
+                row = _parse_boxscore(bs, team_stats)
                 df = pd.DataFrame([row], columns=BOXSCORE_COLS)
                 df = _coerce_boxscore_dtypes(df)
             except Exception as exc:  # noqa: BLE001
@@ -983,8 +985,14 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                 prog.tick(failed=True)
                 continue
             fetched += 1
-            if not df.empty:
+            count_cols = [f"{side}_{stat}" for side in ("home", "away")
+                          for stat in ("pp_goals", "pp_opportunities", "faceoff_wins",
+                                       "faceoff_attempts")]
+            if not df.empty and df[count_cols].notna().all().all():
                 df.to_parquet(path, index=False)
+            else:
+                logger.warning("game %s has incomplete official team counts — "
+                               "not cached; next pull will retry", gid)
             frames.append(df)
             prog.tick(cached=False)
         prog.close()

@@ -18,6 +18,39 @@ python3 backend/master_pipeline.py --skip-pull  # use the .nhl_cache/ pulls
   to position priors — the pipeline never requires them.
 * Market-free: no sportsbook data is ingested or used anywhere.
 
+## Corrected NHL inputs (feature version v1.2)
+
+* Elo adds positive home advantage to home expected strength; historical and
+  pending-slate paths share season reversion. Unplayed games never update Elo.
+* Boxscore cache **v5** fetches official `/gamecenter/{id}/right-rail` team
+  `powerPlay` and `faceoffWins` counts. PP shots faced are not opportunities;
+  skater faceoff percentages are not a team win rate. Five-game served rates
+  pool paired wins/goals and attempts/opportunities, strictly before the game.
+* Missing right-rail counts remain unknown, never replaced with old proxies.
+  Incomplete rows retain observed goalie/SOG facts but are not cached, so a
+  later pull retries the team counts.
+* The expected-goalie vote counts starts for the target team/season, excludes
+  players whose latest prior start belongs to another club, and applies fresh
+  roster captures only strictly before exact puck drop. Incomplete captures
+  support positive membership only; future captures cannot rewrite history.
+  This is still an expected starter, not a confirmed-start announcement.
+
+**Rebuild required:** `nhl-prod-v1.2-input-semantics` changes feature meaning
+without renaming served columns. Existing v1.1 model bundles must not be paired
+with the corrected feature frame. Run a complete feature rebuild, walk-forward
+OOF evaluation, blend/calibration refit, and final model refit together. The
+first run refetches v5 boxscore/right-rail data even with `--skip-pull`; v4 caches
+are left untouched but never read. This repair does not claim a measured AUC
+or log-loss improvement; those need the rebuilt causal evaluation.
+
+```bash
+# From nhl-backend/: full local rebuild; no commit/push.
+NHL_NO_PUSH=1 python backend/master_pipeline.py --skip-pull
+```
+
+See [repair verification](../docs/nhl_input_repairs.md). The original audit's
+historical measurements remain a record of the pre-repair artifacts.
+
 ## Model family (identical to MLB/NFL)
 
 * **Moneyline**: XGBoost + LightGBM + elastic-net ensemble, MLB-tuned member

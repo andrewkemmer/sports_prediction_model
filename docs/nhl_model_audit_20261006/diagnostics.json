@@ -1,0 +1,359 @@
+{
+  "schema": "nhl-quality-audit/v1",
+  "artifact_date": "20261006",
+  "warning": "Retrospectively selected blend weights; experiments are not adoption evidence.",
+  "counts": {
+    "total_val_games": 2635,
+    "n_folds": 59,
+    "provisional_games": 206,
+    "postseason_games": 168,
+    "grading_games": 2418
+  },
+  "headline_recomputed": {
+    "n": 2418,
+    "auc": 0.5988608652931177,
+    "logloss": 0.6744717464936274,
+    "brier": 0.24082941079893908,
+    "home_win_rate": 0.5421836228287841,
+    "mean_probability": 0.5502557703521119
+  },
+  "member_metrics": [
+    {
+      "name": "xgboost",
+      "weight": 0.3461,
+      "auc": 0.5945343307997026,
+      "brier": 0.24162852015011557,
+      "logloss": 0.6762024301064524,
+      "n_eval": 2418
+    },
+    {
+      "name": "lightgbm",
+      "weight": 0.2245,
+      "auc": 0.588917208775444,
+      "brier": 0.2423027903149072,
+      "logloss": 0.6775074095890957,
+      "n_eval": 2418
+    },
+    {
+      "name": "elasticnet",
+      "weight": 0.4294,
+      "auc": 0.5907969326324334,
+      "brier": 0.24178533266525098,
+      "logloss": 0.6764429422770963,
+      "n_eval": 2418
+    }
+  ],
+  "calibration_params": {
+    "a": 1.154382,
+    "b": -0.039564,
+    "n": 2418
+  },
+  "confidence_buckets": [
+    {
+      "bucket": "(0.499, 0.55]",
+      "n": 1111,
+      "mean_favorite_probability": 0.5246772475524861,
+      "favorite_win_rate": 0.5175517551755175,
+      "logloss": 0.692842126170446
+    },
+    {
+      "bucket": "(0.55, 0.6]",
+      "n": 786,
+      "mean_favorite_probability": 0.5725493104025684,
+      "favorite_win_rate": 0.5648854961832062,
+      "logloss": 0.684763434279427
+    },
+    {
+      "bucket": "(0.6, 0.65]",
+      "n": 450,
+      "mean_favorite_probability": 0.6219804991857848,
+      "favorite_win_rate": 0.6488888888888888,
+      "logloss": 0.6483215288007139
+    },
+    {
+      "bucket": "(0.65, 0.7]",
+      "n": 224,
+      "mean_favorite_probability": 0.6710609680077076,
+      "favorite_win_rate": 0.7008928571428571,
+      "logloss": 0.6115074002284712
+    },
+    {
+      "bucket": "(0.7, 0.8]",
+      "n": 63,
+      "mean_favorite_probability": 0.7190100211956427,
+      "favorite_win_rate": 0.6825396825396826,
+      "logloss": 0.6267888693419743
+    },
+    {
+      "bucket": "(0.8, 1.0]",
+      "n": 1,
+      "mean_favorite_probability": 0.9325025225992504,
+      "favorite_win_rate": 0.0,
+      "logloss": 2.695665053642744
+    }
+  ],
+  "market_metrics_correct_argument_order": {
+    "derived_ml": {
+      "n": 2635,
+      "auc": 0.5854882047413167,
+      "logloss": 0.6925166532344111,
+      "brier": 0.24958962913472485,
+      "home_win_rate": 0.5426944971537002,
+      "mean_probability": 0.4598462618595826
+    },
+    "over_5": {
+      "n": 2032,
+      "auc": 0.5133272760225885,
+      "logloss": 0.5980254306649457,
+      "brier": 0.20388457294567397,
+      "home_win_rate": 0.7165354330708661,
+      "mean_probability": 0.6928898577097462
+    },
+    "over_6": {
+      "n": 2344,
+      "auc": 0.5021597556669469,
+      "logloss": 0.6956426951475546,
+      "brier": 0.25122983371264124,
+      "home_win_rate": 0.4970136518771331,
+      "mean_probability": 0.47592300705501944
+    },
+    "over_7": {
+      "n": 2107,
+      "auc": 0.4987878982048078,
+      "logloss": 0.6177745730940324,
+      "brier": 0.2124670781466514,
+      "home_win_rate": 0.3023255813953488,
+      "mean_probability": 0.2827452911603722
+    },
+    "home_cover_1": {
+      "n": 2065,
+      "auc": 0.5951799671909679,
+      "logloss": 0.6668647842013695,
+      "brier": 0.23700261330190772,
+      "home_win_rate": 0.41646489104116224,
+      "mean_probability": 0.4372344682135606
+    },
+    "home_cover_2": {
+      "n": 2364,
+      "auc": 0.5800224778210861,
+      "logloss": 0.5559769633976334,
+      "brier": 0.18473503085450868,
+      "home_win_rate": 0.2491539763113367,
+      "mean_probability": 0.25905110082794663
+    }
+  },
+  "semantic_probes": {
+    "equal_elo_implied_home_expectation": 0.4075337694156701,
+    "positive_home_advantage_expected": 0.5924662305843318,
+    "goalie_trade_selected_name": "departed",
+    "goalie_trade_selected_starts": 5.0,
+    "market_metric_correct_arguments": {
+      "n": 4,
+      "actual_win_rate": 0.5,
+      "win_rate": 0.5,
+      "predicted_mean": 0.5,
+      "auc": 1.0,
+      "ece_raw": null,
+      "ece_calibrated": null,
+      "brier": 0.065,
+      "logloss": 0.2899
+    },
+    "market_metric_current_caller_arguments": {
+      "n": 4,
+      "actual_win_rate": 0.5,
+      "win_rate": 0.5,
+      "predicted_mean": 0.5,
+      "auc": null,
+      "ece_raw": null,
+      "ece_calibrated": null,
+      "brier": 0.065,
+      "logloss": 3.4539
+    }
+  },
+  "calibration_paired_interval": {
+    "delta_logloss": 0.00037439886889964523,
+    "delta_logloss_ci95": [
+      -0.00021556494742042527,
+      0.0015543265015397862
+    ],
+    "delta_auc_ci95": [
+      -0.003445228791405422,
+      0.0
+    ],
+    "draws": 1000,
+    "block_weeks": 4,
+    "scope": "conditional on published predictions; no selection correction"
+  },
+  "home_platt_exploratory_interval": {
+    "delta_logloss": 0.00034201881939251296,
+    "delta_logloss_ci95": [
+      -0.0011502115689834861,
+      0.0018441750264601054
+    ],
+    "delta_auc_ci95": [
+      -0.0033217212983455814,
+      0.0005064952217964932
+    ],
+    "draws": 1000,
+    "block_weeks": 4,
+    "scope": "conditional on published predictions; no selection correction"
+  },
+  "recent_500_grading_raw": {
+    "n": 500,
+    "auc": 0.6065742167437083,
+    "logloss": 0.6752702740058865,
+    "brier": 0.2411262480800055,
+    "home_win_rate": 0.528,
+    "mean_probability": 0.5532790135392672
+  },
+  "recent_500_grading_home_platt": {
+    "n": 500,
+    "auc": 0.6056272470467385,
+    "logloss": 0.674609019574927,
+    "brier": 0.24078296798293422,
+    "home_win_rate": 0.528,
+    "mean_probability": 0.5483300470973486
+  },
+  "stack": {
+    "numpy": "2.4.3",
+    "pandas": "3.0.1",
+    "scipy": "1.18.0",
+    "scikit-learn": "1.9.0",
+    "xgboost": "3.4.0",
+    "lightgbm": "4.7.0"
+  },
+  "bundle_structure": {
+    "load_warnings": [
+      "[22:57:36] WARNING: C:\\actions-runner\\_work\\xgboost\\xgboost\\src\\gbm\\../common/error_msg.h:83: If you are loading a serialized model (like pickle in Python, RDS in R) or\nconfiguration generated by an older version of XGBoost, please export the model by calling\n`Booster.save_model` from that version first, then load it back in current version. See:\n\n    https://xgboost.readthedocs.io/en/stable/tutorials/saving_model.html\n\nfor more details about differences between saving model and serializing.\n",
+      "Trying to unpickle estimator LabelEncoder from version 1.6.1 when using version 1.9.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:\nhttps://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations",
+      "Trying to unpickle estimator LogisticRegression from version 1.6.1 when using version 1.9.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:\nhttps://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations"
+    ],
+    "prediction_performed": false,
+    "members": {
+      "xgboost": {
+        "width": 70,
+        "blend_weight": 0.3461,
+        "rounds": 100,
+        "feature_types": [
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "float",
+          "int",
+          "int"
+        ],
+        "categorical_count": 0
+      },
+      "lightgbm": {
+        "width": 70,
+        "blend_weight": 0.2245,
+        "rounds": 89,
+        "team_metadata": {
+          "home_team_id": {
+            "min_value": 0,
+            "max_value": 31,
+            "values": []
+          },
+          "away_team_id": {
+            "min_value": 0,
+            "max_value": 31,
+            "values": []
+          }
+        }
+      },
+      "elasticnet": {
+        "width": 40,
+        "blend_weight": 0.4294,
+        "intercept": 0.17763311038667143,
+        "nonzero_coefficients": 23
+      }
+    }
+  },
+  "baseline_diagnostic": {
+    "reported_brier_baseline": 0.4573055028462998,
+    "always_home_brier": 0.4573055028462998,
+    "constant_empirical_rate_brier": 0.24817717991279267,
+    "note": "Empirical-rate value is descriptive, not a causal estimated baseline."
+  },
+  "market_coherence": {
+    "mean_score_tie_mass": 0.13948622675451933,
+    "derived_alias_max_gap": 0.1776911973073752,
+    "derived_threeway_max_sum_error": 0.026022368954367048,
+    "sealed_rows": 35,
+    "p_over_nonmonotone_rows": 143,
+    "p_over_max_upward_jump": 0.05777820777490969,
+    "p_home_cover_nonmonotone_rows": 1176,
+    "p_home_cover_max_upward_jump": 0.28443743970309715
+  },
+  "input_sha256": {
+    "nhl_predictions_history_20261006.csv": "69b5bdea313a10f90691f46353cf6bb0028090023748b5288e7fd322cd69d881",
+    "nhl_run_engine_markets_20261006.csv": "46c86752852065cb516c5d638981d51f1ca06f39866cb8a2e35ef6e5a3311694",
+    "nhl_ensemble_latest.joblib": "7e1449a32fc9433adb2e033c5dd0190b59d823c29c4560bf41fec99a02c83f0e",
+    "nhl_model_monitor_20261006.json": "03de5e0fbde240ca51680a2437920fba68502dbeecd6d2a9873c42d4e87bf324",
+    "nhl_calibration_20261006.json": "6b3658ac9ebf4f10ba645188f9d90e98954d1b0e040860c55bf65f9ce6b27243"
+  }
+}

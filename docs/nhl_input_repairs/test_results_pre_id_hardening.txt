@@ -1,0 +1,43 @@
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 37%]
+........................................................................ [ 49%]
+........................................................................ [ 62%]
+........................................................................ [ 74%]
+........................................................................ [ 87%]
+...............F........................................................ [ 99%]
+.                                                                        [100%]
+================================== FAILURES ===================================
+______ test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw ______
+
+    def test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw():
+        """The notebook installs the pipeline's dependencies by hand.
+
+        tqdm is in MLB's list precisely because the bar is the operator's only
+        view of a multi-minute chunked pull. The NHL list omitted it, so even
+        with the isatty gate removed the Kaggle run had nothing to draw with and
+        the bar stayed invisible. A dependency the notebook must install is
+        part of the bar's contract.
+        """
+        # BACKEND is <repo>/nhl-backend/backend, so the notebook is two levels up.
+        nb = (BACKEND.parents[1] / "kaggle_nhl_run.ipynb").read_text(encoding="utf-8")
+>       assert "tqdm" in nb, "the NHL Kaggle notebook never installs tqdm"
+E       AssertionError: the NHL Kaggle notebook never installs tqdm
+E       assert 'tqdm' in '{"metadata":{"kernelspec":{"language":"python","display_name":"Python 3","name":"python3"},"language_info":{"name":"p...nhl-backend/data_delivery/run_engine_feature_drift_20261005.csv\']\\n","output_type":"stream"}],"execution_count":1}]}'
+
+nhl-backend\backend\test_run_engine_pit.py:3754: AssertionError
+============================== warnings summary ===============================
+nhl-backend/backend/test_run_engine_pit.py: 31 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\lightgbm\sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+    eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+
+nhl-backend/backend/test_run_engine_pit.py: 31 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED nhl-backend/backend/test_run_engine_pit.py::test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw
+1 failed, 576 passed, 62 warnings in 244.68s (0:04:04)
+
+PYTEST_EXIT_CODE=1
