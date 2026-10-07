@@ -2908,6 +2908,62 @@ def test_feature_coverage_tells_cold_start_apart_from_a_defect():
     assert hit["pct_measured_eligible"] < 100.0
 
 
+def test_coverage_season_openers_are_cold_for_the_goalie_family():
+    """2026-10-07 run-log review: "9 feature(s) with WARM nulls — a defect"
+    over a window that SPANS the off-season gap.
+
+    The goalie family's evidence is season-scoped (goalie_state's workload
+    vote counts only same-season starts; a team's opener resolves honest NaN
+    — the manifest's opening-night unknown starter). In a trailing window
+    that starts in last spring's playoffs, an October opener is NOT the
+    club's window debut — both teams already played in the window — so the
+    window-only warmup mask filed the designed NaN as a WARM defect. Openers
+    must classify cold (via the pool's season-first lookup, so a mid-season
+    window start never passes a team's third game off as an opener), while a
+    null where the evidence DOES exist stays a defect."""
+    spring = _synth_games(n_days=6, games_per_day=2, start="2026-05-20")
+    fall = _synth_games(n_days=6, games_per_day=2, start="2026-10-01")
+    # Season = START-year, July boundary (features._nhl_season_of):
+    # May 2026 belongs to 2025, October 2026 opens 2026.
+    for part in (spring, fall):
+        d = pd.to_datetime(part["gameday"])
+        part["season"] = (d.dt.year - (d.dt.month < 7).astype(int)).astype(int)
+    games = pd.concat([spring, fall], ignore_index=True)
+    df = feat_mod.build_game_features(games, _synth_goalie_boxscores(games))
+
+    # The window-debut mask alone cannot mark the fall rows cold: every club
+    # already "debuted" inside the window's spring half.
+    debut_only = mon._warmup_mask(df)
+    fall_rows = df["gameday"].astype(str) >= "2026-10-01"
+    assert not debut_only.reindex(df.index).fillna(False)[fall_rows].any(), \
+        "fixture invalid: fall rows are already window-debuts"
+
+    rows = mon.coverage(df, current_df=df)
+    cur = _coverage_by_feature(rows, "current")
+    for f in ("goalie_sv_pct_home", "goalie_sv_pct_away", "goalie_sv_pct_diff",
+              "goalie_gaa_diff", "goalie_starts_diff", "goalie_starts_home"):
+        r = cur[f]
+        assert r["n_null"] > 0, f"{f}: fixture produced no opening-night NaNs"
+        assert r["n_warm_null"] == 0, \
+            f"{f} called the opening-night NaN a WARM defect ({r})"
+        assert r["n_cold_null"] > 0, f"{f}: opener rows not classified cold"
+        assert r["status"] == "OK", f"{f} flagged for a designed opener NaN"
+        assert r["cause"] == "cold_start"
+        assert r["pct_measured_eligible"] == 100.0
+
+    # Negative control: a null where the season's evidence DOES exist (a
+    # fall row after the club's first start) is still a real defect.
+    broken = df.copy()
+    measurable = broken["gameday"].astype(str) >= "2026-10-03"
+    assert measurable.any(), "fixture has no measurable fall rows"
+    broken.loc[measurable, "goalie_sv_pct_home"] = np.nan
+    hit = _coverage_by_feature(
+        mon.coverage(broken, current_df=broken), "current")["goalie_sv_pct_home"]
+    assert hit["n_warm_null"] > 0, "a genuine goalie outage was excused"
+    assert hit["cause"] == "defect"
+    assert hit["status"] in ("STARVED", "LOW_COVERAGE")
+
+
 def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
     """Regression: the goalie family read 96-98% on the decided pool while
     EVERY published prediction carried a null, because the report only ever

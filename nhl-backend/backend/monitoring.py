@@ -281,6 +281,75 @@ def _warmup_mask(df: pd.DataFrame) -> pd.Series | None:
     return mask.reindex(df.index).fillna(False).astype(bool)
 
 
+def _season_open_mask(full_df: pd.DataFrame, rows_df: pd.DataFrame) -> pd.Series | None:
+    """True on rows where a team has NOT yet played a same-season game.
+
+    The goalie family's evidence is SEASON-scoped: ``goalie_state``'s
+    workload vote counts only starts within the game's own season, and a
+    team with no start this season resolves honest NaN — the manifest's
+    "opening-night unknown starter", never last season's workhorse
+    (the 2026-10-06 input-semantics fix). When the trailing drift window
+    spans the off-season gap those opener rows are not window-debuts
+    either — both clubs already played in the window LAST spring — so the
+    window-only warmup mask filed a designed NaN as a WARM defect: the
+    2026-10-07 run log's "9 feature(s) with WARM nulls" over two
+    season-opening rematches between spring playoff clubs. An opener is
+    exactly as impossible as a debut for a season-scoped feature: cold by
+    design. Classifying it warm makes the warning cry wolf, which is how a
+    real goalie outage stops reading as one.
+
+    Firsts are looked up in ``full_df`` (the whole decided pool) so a
+    window that starts mid-season does not mistake a team's third game for
+    an opener. Rows the frame cannot classify (unparsable gameday) stay
+    False — never excused. Returns None when the needed columns are absent,
+    in which case callers keep the plain window-debut mask.
+    """
+    if not {"home_team", "away_team", "gameday"} <= set(rows_df.columns):
+        return None
+    full = full_df if full_df is not None and len(full_df) else rows_df
+    if not {"home_team", "away_team", "gameday"} <= set(full.columns):
+        return None
+
+    def _seasons(frame: pd.DataFrame) -> pd.Series:
+        derived = pd.to_datetime(frame["gameday"], errors="coerce")
+        # Season = START-year, July boundary (features._nhl_season_of).
+        out = derived.dt.year - (derived.dt.month < 7).astype("float64")
+        if "season" in frame.columns:
+            own = pd.to_numeric(frame["season"], errors="coerce")
+            out = own.astype(float).fillna(out)
+        return out
+
+    f_season = _seasons(full)
+    f_day = pd.to_datetime(full["gameday"], errors="coerce")
+    f_home = full["home_team"].astype(str).tolist()
+    f_away = full["away_team"].astype(str).tolist()
+    first: dict[tuple, pd.Timestamp] = {}
+    for s, h, a, g in zip(f_season.tolist(), f_home, f_away, f_day.tolist()):
+        if pd.isna(s) or not isinstance(g, pd.Timestamp):
+            continue
+        for team in (h, a):
+            key = (s, team)
+            prior = first.get(key)
+            if prior is None or g < prior:
+                first[key] = g
+
+    r_season = _seasons(rows_df)
+    r_day = pd.to_datetime(rows_df["gameday"], errors="coerce")
+    r_home = rows_df["home_team"].astype(str).tolist()
+    r_away = rows_df["away_team"].astype(str).tolist()
+    out = []
+    for s, h, a, g in zip(r_season.tolist(), r_home, r_away, r_day.tolist()):
+        if pd.isna(s) or not isinstance(g, pd.Timestamp):
+            out.append(False)  # unclassifiable — keep the warm verdict
+            continue
+        f_home_first = first.get((s, h))
+        f_away_first = first.get((s, a))
+        out.append(bool(
+            f_home_first is None or g <= f_home_first
+            or f_away_first is None or g <= f_away_first))
+    return pd.Series(out, index=rows_df.index)
+
+
 def _coverage_row(f: str, df: pd.DataFrame, window: str,
                   warmup: pd.Series | None) -> dict:
     n_games = int(len(df))
@@ -348,20 +417,47 @@ def coverage(full_df: pd.DataFrame,
     the slate the pipeline actually ships is measured too.
 
     Within a window, nulls are split into cold-start (a team's first game —
-    no prior history exists, by design) and warm (a real defect). Only warm
-    nulls drive the status, so the panel's starved/low counters mean
-    "something is broken" rather than "the season started".
+    no prior history exists, by design — or, for the season-scoped goalie
+    family, a team's first game OF THE SEASON: the opening-night honest NaN)
+    and warm (a real defect). Only warm nulls drive the status, so the panel's
+    starved/low counters mean "something is broken" rather than "the season
+    started".
     """
     warmup = _warmup_mask(full_df)
-    rows = [_coverage_row(f, full_df, "baseline", warmup)
+    # Season-opener classification is a property of the POOL, not of one
+    # window: firsts must be looked up in full_df so a mid-season window
+    # start never passes a team's third game off as an opener.
+    openers = _season_open_mask(full_df, full_df)
+
+    def _mask(feature: str, rows: pd.DataFrame,
+              window_warmup: pd.Series | None,
+              window_open: pd.Series | None) -> pd.Series | None:
+        """Window-debut mask, extended by season-opener for the goalie
+        family — the only active features whose evidence resets each
+        season (features.goalie_state's season-scoped workload vote)."""
+        if not str(feature).startswith("goalie_"):
+            return window_warmup
+        if window_warmup is None:
+            return window_open
+        if window_open is None:
+            return window_warmup
+        return (window_warmup.reindex(rows.index).fillna(False)
+                | window_open.reindex(rows.index).fillna(False))
+
+    rows = [_coverage_row(f, full_df, "baseline",
+                          _mask(f, full_df, warmup, openers))
             for f in config.active_moneyline_feature_cols()]
     if current_df is not None and len(current_df):
         cur_warmup = _warmup_mask(current_df)
-        rows.extend(_coverage_row(f, current_df, "current", cur_warmup)
+        cur_open = _season_open_mask(full_df, current_df)
+        rows.extend(_coverage_row(f, current_df, "current",
+                                  _mask(f, current_df, cur_warmup, cur_open))
                     for f in config.active_moneyline_feature_cols())
     if slate_df is not None and len(slate_df):
         slate_warmup = pd.Series(False, index=slate_df.index)
-        rows.extend(_coverage_row(f, slate_df, "serving slate", slate_warmup)
+        slate_open = _season_open_mask(full_df, slate_df)
+        rows.extend(_coverage_row(f, slate_df, "serving slate",
+                                  _mask(f, slate_df, slate_warmup, slate_open))
                     for f in config.active_moneyline_feature_cols())
     return rows
 
