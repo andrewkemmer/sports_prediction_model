@@ -660,9 +660,10 @@ def ensemble_table(oof: pd.DataFrame, weights: dict[str, float],
                    cal_p: np.ndarray | None = None) -> list[dict]:
     """Per-member OOF diagnostics + earned adaptive weights.
 
-    Scored on the GRADING population — the same rows as the published
-    (deployed) blend — so blend-vs-strongest-member reads apples-to-
-    apples (2026-10-05 alignment; MLB parity). Frames without a
+    Scored on the GRADING population — the same rows as the causal
+    rolling blend — so blend-vs-strongest-member reads apples-to-apples.
+    Weights shown are final future-serving weights, not per-row weights
+    (2026-10-08 causal-evaluation parity, NHL 42027979). Frames without a
     grades_pooled column fall back to the full frame.
     """
     grade = (oof["grades_pooled"].astype(bool).to_numpy()
@@ -1493,15 +1494,17 @@ def write_monitor_json(path, run_date: str, drift: list[dict],
             "excluded_sparse_days": int(rb.get("excluded_sparse_days", 0) or 0),
             "calibrator_is_identity": calibrator_is_identity,
             "map_scope_note": (rb.get("map_scope_note")
-                               or "Points use the deployed Platt map (fit on "
-                                  "all OOF games)."),
+                               or "Points use the serving Platt map (fit "
+                                  "through the nested prior-evidence gate)."),
         },
-        # Headline block = the deployed blend's OWN pooled OOF scores (the
+        # Headline block = the serving artifact's OWN pooled OOF scores (the
         # same numbers the Calibration KPI cards show — the caller passes the
-        # calibration artifact's metrics block verbatim). The shared Model
-        # Monitor page's TOTAL row reads it for the blend-vs-strongest-member
-        # comparison; MLB/NBA emit this key and NHL/NFL omitted it, so that
-        # row rendered em-dashes against perfectly good member rows.
+        # calibration artifact's metrics block verbatim; the CAUSAL rolling
+        # blend since the 2026-10-08 evaluation remediation). The shared
+        # Model Monitor page's TOTAL row reads it for the
+        # blend-vs-strongest-member comparison; MLB/NBA emit this key and
+        # NHL/NFL omitted it, so that row rendered em-dashes against
+        # perfectly good member rows.
         "metrics": m,
         "version_history": _rolling_version_history(path, version_row),
         "fold_geometry": fold_info,

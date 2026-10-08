@@ -530,14 +530,34 @@ def main(argv: list[str] | None = None) -> int:
     #      the OOF-fold calibration leverage exactly.
     #
     #   2. POOLED final calibrator (the serving layer): one favored-space map
-    #      fit on ALL OOF pairs, applied ONLY to tonight's slate — never used
-    #      to score its own fitting population. Today's Game cards therefore
-    #      still exactly match the production run (final calibrated
-    #      probabilities), while the OOF layer stays honest.
+    #      fit through the SAME nested prior-evidence gate as each fold
+    #      origin (2026-10-08 causal-evaluation remediation, NHL/MLB
+    #      parity) — a chronological holdout of strictly-prior CAUSAL blend
+    #      evidence must show real out-of-sample gain or identity serves.
+    #      Applied ONLY to tonight's slate — never used to score its own
+    #      fitting population.
     #
     # All fits/applications are in FAVORED-team space (p_fav = max(p, 1-p),
     # the side with probability > 50%), never home-team space — matching
     # MLB's favored_platt_floor contract end to end.
+
+    # The grading mask gates FIT EVIDENCE at every origin (Phase 8a/8b):
+    # regular-season rows from windows at or above MIN_VAL_FOLD_GAMES.
+    # Postseason and provisional rows stay in ``oof_ml`` — scored, shipped,
+    # reported below as their own blocks — but they must not move a map
+    # that then serves regular season.
+    _grading = (oof_ml["grades_pooled"].to_numpy(bool)
+                if "grades_pooled" in oof_ml
+                else np.ones(len(oof_ml), dtype=bool))
+    config_meta["moneyline_evaluation"] = {
+        "headline_view": "causal_rolling_blend",
+        "calibration_view": "gated_prequential_causal_blend",
+        "training_population": "grades_pooled",
+        "retrospective_column": "p_ensemble_retrospective",
+        "retrospective_is_oof": False,
+        "calibrator_gate": "nested_prior_evidence",
+        "xgb_round_policy": "fixed_config_budgets_no_early_stop",
+    }
 
     # 8a. Per-fold PREQUENTIAL calibrated twins (evaluation layer).
     fold_calibrators: dict[int, dict | None] = {}
@@ -550,13 +570,22 @@ def main(argv: list[str] | None = None) -> int:
     _degen0 = getattr(ml_mod.fit_platt, "_degen_total", 0)
     p_cal_prequential = np.full(len(oof_ml), np.nan)
     fold_ids = oof_ml["fold_id"].to_numpy()
+    cal_audit: dict = {"method": "nested_prior_evidence_gate",
+                       "input_view": "causal_rolling_blend",
+                       "training_population": "grades_pooled",
+                       "fold_records": []}
     for fold in fold_list:
         val_mask = fold_ids == fold.fold_id
-        prior_mask = (fold_ids < fold.fold_id) & okp
-        if prior_mask.sum() >= 2:
-            fold_cal = ml_mod.moneyline_fit(p_ens[prior_mask], y_oof[prior_mask])
-        else:
-            fold_cal = None  # no prior evidence yet — identity for fold 0
+        # Fit evidence is STRICTLY-prior GRADING rows of the causal blend
+        # (2026-10-08, NHL 42027979 / MLB f414970b parity): fold 0 has no
+        # prior OOF (identity), postseason/provisional outcomes can never
+        # move a fold map, and the SAME nested prior-evidence gate that
+        # governs the final serving origin governs every fold origin.
+        prior_mask = (fold_ids < fold.fold_id) & okp & _grading
+        fold_cal, fold_rec = ml_mod.gated_calibrator(
+            p_ens[prior_mask], y_oof[prior_mask])
+        fold_rec["fold_id"] = int(fold.fold_id)
+        cal_audit["fold_records"].append(fold_rec)
         fold_calibrators[int(fold.fold_id)] = fold_cal
         if fold_cal is None:
             cal_identity += 1
@@ -595,33 +624,28 @@ def main(argv: list[str] | None = None) -> int:
             _degen, _fits)
 
     # 8b. POOLED final calibrator — the serving layer (never used to score
-    # its own fitting population). Identical favored-space guardrails apply.
-    # Fitted on the GRADING population only: regular-season rows from windows
-    # at or above MIN_VAL_FOLD_GAMES. Postseason and provisional rows stay in
-    # ``oof_ml`` — scored, shipped, reported below as their own blocks — but
-    # they must not move a map that then serves regular season.
-    _grading = (oof_ml["grades_pooled"].to_numpy(bool)
-                if "grades_pooled" in oof_ml
-                else np.ones(len(oof_ml), dtype=bool))
+    # its own fitting population). The SAME eligibility and nested
+    # prior-evidence gate evaluated at the next origin on all prior CAUSAL
+    # OOF pairs; retrospective final-weight replay never fits or grades a
+    # map.
     _g_ok = okp & _grading
     fold_info.update(_oof_blocks(oof_ml, _grading))
     # Logged here rather than left to the Phase 4 line above: this is the
     # first moment the four blocks carry real counts.
     logger.info("oof blocks: %s", json.dumps(
         {k: fold_info[k] for k in _OOF_BLOCK_KEYS}))
-    platt = ml_mod.moneyline_fit(p_ens[_g_ok], y_oof[_g_ok])
+    platt, final_cal_audit = ml_mod.gated_calibrator(
+        p_ens, y_oof, grades=_grading)
+    cal_audit["final_serving"] = final_cal_audit
+    config_meta["calibration_gate"] = cal_audit
     if platt is not None:
-        # NOT "this is what serves": Phase 9's gate can still void this map,
-        # and the 2026-10-03 run proved it — this line printed a pooled Platt
-        # a=1.0315 and 19 ms later the log said "shipping the raw blend
-        # (identity calibrator)". The line that names the SERVING map is
-        # logged after the gate has ruled.
-        logger.info("final pooled calibrator (fitted; Phase 9 gates it): "
-                    "a=%.4f b=%.4f n=%d method=%s",
+        logger.info("final serving calibrator: pooled Platt a=%.4f b=%.4f "
+                    "n=%d method=%s (nested prior-evidence gate: accepted)",
                     platt["a"], platt["b"], platt["n"], platt["method"])
     else:
-        logger.info("final pooled calibrator: identity (raw blend is served; "
-                    "the 'calib' twin below is then identical to raw)")
+        logger.info("final serving calibrator: identity (raw blend is "
+                    "served); nested gate: %s",
+                    final_cal_audit.get("reason"))
 
     # ── 9. Evaluation ─────────────────────────────────────────────────────
     _banner("PHASE 9", "evaluation / diagnostics")
@@ -635,7 +659,17 @@ def main(argv: list[str] | None = None) -> int:
                                     y_oof[_grading])
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"][_grading],
                                     y_oof[_grading])
-    logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
+    logger.info("moneyline OOF raw:    %s (causal rolling blend)",
+                json.dumps(raw_m))
+    # The final serving weights are valid for FUTURE games only — replaying
+    # them over the OOF rows they were fitted on is a retrospective
+    # diagnostic, never headline evidence or selection input (NHL 42027979 /
+    # MLB f414970b parity). It is reported on the SAME grading population
+    # so the deployed blend-vs-member comparison stays one population.
+    retrospective_m = eval_mod.binary_metrics(
+        oof_ml["p_ensemble_retrospective"][_grading], y_oof[_grading])
+    logger.info("moneyline retrospective final-weight replay (NOT OOF / "
+                "not selection evidence): %s", json.dumps(retrospective_m))
     # The calibrated twin needs its label ON the log line, because "calib
     # scores worse than raw" is the wrong conclusion to draw from these two
     # lines side by side. Each fold was mapped by its OWN prequential
@@ -649,61 +683,30 @@ def main(argv: list[str] | None = None) -> int:
     # change auc at all, and only ece and logloss are free to move.
     logger.info("moneyline OOF calib:  %s   [PREQUENTIAL per-fold maps, "
                 "pooled: pooled auc is NOT comparable to raw]", json.dumps(cal_m))
-    # Deployed-calibrator gate (2026-10-01, MLB parity 8bc0825): the pooled
-    # map in 8b is fitted on ALL OOF pairs, so its only honest rehearsal is
-    # the PREQUENTIAL calibrated column just scored (each fold corrected only
-    # by a map fitted on strictly prior folds — exactly how the deployed map
-    # acts on tomorrow's slate). When that rehearsal is worse than the raw
-    # blend on BOTH log-loss and ECE, the map hurts every headline metric and
-    # the serving layer ships the raw blend (identity) this run. Mixed
-    # evidence keeps the fitted map (the 2026-08-27 flip-test status quo);
-    # the gate is causal and self-reversing — a later run whose prequential
-    # column improves ships the fitted map again. The evaluation layers (the
-    # prequential column and per-member twins) are never touched.
-    gated_out, gate_reason = ml_mod.should_gate_calibrator(raw_m, cal_m)
-    # MLB parity: the decision rides on the pooled metrics dict so the
-    # calibration artifact records it (serving.write_calibration_json).
-    raw_m["calibrator_gated_out"] = gated_out
-    if gated_out:
-        logger.warning(
-            "Calibration: prequential calibrated metrics worse than raw "
-            "(%s) — shipping the raw blend (identity calibrator)",
-            gate_reason,
-        )
-        platt = None  # serving layer ships identity; bundle persists None
-    # The one line that says which map actually serves, emitted AFTER the
-    # gate: without it a reader has to correlate the Phase 8b fit line with a
-    # later WARNING to know what shipped.
+    # Serving-map provenance (2026-10-08 causal-evaluation remediation): the
+    # final origin was decided by the SAME nested prior-evidence gate as
+    # each fold origin (Phase 8b, ml_mod.gated_calibrator) — there is no
+    # later post-hoc headline comparison that can move the map. The
+    # artifact records whether that gate shipped identity.
+    raw_m["calibrator_gated_out"] = bool(platt is None)
+    # The one line that says which map actually serves: the nested gate
+    # ruled in Phase 8b, so a reader never has to correlate an 8b line with
+    # a later WARNING to know what shipped.
     logger.info(
         "serving calibrator: %s",
         ("identity (raw blend)" if platt is None else
          "pooled Platt a=%.4f b=%.4f n=%d method=%s"
          % (platt["a"], platt["b"], platt["n"], platt["method"])))
     # The two lines above score the CAUSAL walk-forward blend: every fold was
-    # blended with the weights earned from PRIOR folds only. That is the
-    # honest evaluation layer and must stay causal, but it is NOT the
-    # ensemble this run ships, and it is not on the same scale as the
-    # per-member rows below — those are each member's own full-population
-    # score. Reading the causal AUC against a member's full-population AUC
-    # makes a healthy blend look like it lost to its best member. "shipped"
-    # replays the weight vector Phase 5 earned over the whole OOF — the same
-    # logit-space blend predict_slate applies at serve — so the blend and the
-    # members it is built from are finally compared on one population. The
-    # member logloss is printed alongside AUC/Brier because log-loss is the
-    # only metric the weights are actually optimized on; a blend that trails
-    # a member on AUC or Brier while leading on log-loss is the optimizer
-    # working, not failing.
-    # The fallback must be a full-length all-NaN column, NOT an empty array:
-    # binary_metrics masks non-finite pairs, so an all-NaN column reports
-    # n/a (n=0) as intended, whereas a length-0 or length-1 array fails the
-    # broadcast against y_oof and takes the whole run down. dict.get also
-    # evaluates its default EAGERLY, so this line runs even when blend_full
-    # is present -- a malformed default is not a latent bug, it is a crash
-    # on every Phase 9.
-    full_m = eval_mod.binary_metrics(
-        np.asarray(ml.get("blend_full", np.full(len(y_oof), np.nan)), dtype=float),
-        y_oof)
-    logger.info("moneyline OOF shipped: %s", json.dumps(full_m))
+    # blended with the weights earned from PRIOR folds only — that is the
+    # honest headline. The retrospective replay line reports what the final
+    # serving weights would have scored on their own fitting outcomes, on the
+    # same grading population, so the deployed blend and the per-member rows
+    # (also grading-population) stay comparable. The member logloss is
+    # printed alongside AUC/Brier because log-loss is the only metric the
+    # weights are actually optimized on; a blend that trails a member on AUC
+    # or Brier while leading on log-loss is the optimizer working, not
+    # failing.
     member_rows = monitoring.ensemble_table(oof_ml, weights)
     for r in member_rows:
         logger.info("  member %-13s w=%.3f auc=%.4f logloss=%.4f brier=%.4f",
@@ -877,12 +880,18 @@ def main(argv: list[str] | None = None) -> int:
     # MLB convention: the pooled reliability buckets are built from the RAW
     # blend (the table renders MEAN PREDICTED (RAW)) with the calibrated
     # twin carried separately in calibration.calibration_buckets_calibrated.
+    # Headline calibration buckets and n_games describe the SAME grading
+    # population as the headline metrics (2026-10-08, NHL parity); daily
+    # rows keep the full causal view as their own separately-labeled block.
     cal_rec = serve_mod.write_calibration_json(
         p, raw_m, cal_m,
-        eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
-        daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
+        eval_mod.calibration_buckets(oof_ml["p_ensemble"][_grading],
+                                     y_oof[_grading]),
+        daily, config_meta, platt=platt, run_date=date_c, n_games=int(_g_ok.sum()),
         calibrated_buckets=eval_mod.calibration_buckets_pair(
-            oof_ml["p_ensemble"], oof_ml["p_ensemble_calibrated"], y_oof),
+            oof_ml["p_ensemble"][_grading],
+            oof_ml["p_ensemble_calibrated"][_grading],
+            y_oof[_grading]),
         distribution_calibration=market_calibration)
     artifacts.append(p.name)
 
@@ -985,6 +994,7 @@ def main(argv: list[str] | None = None) -> int:
         "moneyline_preprocessors": {k: v["pre"] for k, v in final_models.items()},
         "ensemble_weights": weights,
         "platt": platt,
+        "moneyline_fit_policy": config_meta["moneyline_evaluation"],
         "score_regressor": final_reg,
         "distribution": sig,
         "market_calibration": market_calibration,
@@ -1197,6 +1207,8 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts": artifacts,
         "moneyline_oof": raw_m,
         "moneyline_oof_calibrated": cal_m,
+        "moneyline_retrospective_not_oof": retrospective_m,
+        "moneyline_evaluation": config_meta["moneyline_evaluation"],
         "run_line_oof": dist_metrics["run_line"],
         "totals_oof": dist_metrics["totals"],
         "weights": weights,

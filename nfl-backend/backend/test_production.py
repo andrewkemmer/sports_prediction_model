@@ -1436,6 +1436,23 @@ def _eligible_nfl_history() -> pd.DataFrame:
 sched = _eligible_nfl_history()
 eligible = ingest_mod.eligible_games(sched)
 check("eligible_games keeps settled REG rows", len(eligible) == len(sched))
+# 2026-10-08: config.GAME_TYPES matched only the spelling "POST", which the
+# nflverse schedule never emits -- it spells postseason by ROUND (WC/DIV/
+# CON/SB) -- so eligible_games silently dropped every playoff game, the OOF
+# had no Super Bowl, and January/February slates were empty. Pin the full
+# round vocabulary through the real filter: all five real codes survive,
+# PRE does not.
+_post_vocab = pd.DataFrame([
+    {"season": 2024, "week": 18 if gt == "REG" else 19 + i,
+     "game_type": gt, "gameday": f"2025-01-{5 + i:02d}",
+     "home_score": 20, "away_score": 17}
+    for i, gt in enumerate(["REG", "WC", "DIV", "CON", "SB", "PRE"])
+])
+_post_kept = sorted(ingest_mod.eligible_games(_post_vocab)
+                    ["game_type"].astype(str).tolist())
+check("eligible_games keeps every nflverse game_type round code and drops PRE",
+      _post_kept == ["CON", "DIV", "REG", "SB", "WC"],
+      f"kept={_post_kept}")
 hist = feat_mod.build_game_features(eligible, pbp=None)
 # Same row order Phase 4 uses in production (folds.canonical_sort), so the fold
 # objects below are built on the frame their labels are valid for. A frame that
@@ -1736,16 +1753,14 @@ for _name, _mod in (("moneyline", ml_mod2), ("distributions", dist_mod2)):
 
 
 # ---- Shipped-weight blend diagnostic -------------------------------------
-# 2026-10-05 alignment (MLB parity, deliberately reversing the earlier
-# "diagnostic added, not swapped" rule): the PUBLISHED p_ensemble is the
-# deployed binary's blend — the artifact's metrics, calibration curve and
-# shipped Platt fit must describe what serving actually does — and the
-# per-member rows are scored on the same grading population, so the blend
-# and the members it is built from are compared on ONE population and ONE
-# blend (otherwise a healthy blend reads as "lost to elasticnet"). The
-# fold-time CAUSAL blend (each fold mixed with the weights earned on PRIOR
-# folds only — the honesty audit of the walk-forward process) is preserved
-# in p_ensemble_causal, and the causal-chain checks above pin it there.
+# 2026-10-08 causal-evaluation contract (NHL 42027979 / MLB f414970b —
+# deliberately reversing the 2026-10-05 "artifact = binary's blend"
+# re-pool): the PUBLISHED p_ensemble IS the rolling causal blend (each
+# fold mixed with weights earned on PRIOR folds only — the headline,
+# selection and calibration evidence). The final serving weights describe
+# FUTURE games; replaying them over their own fitting outcomes is
+# retrospective — preserved ONLY as p_ensemble_retrospective (==
+# blend_full), reported separately and never graded as OOF.
 _ship = np.asarray(res["blend_full"], dtype=float)
 _ship_w = res["member_weights"]
 check("walk_forward_oof returns the shipped-weight blend (blend_full)",
@@ -1757,21 +1772,27 @@ check("blend_full == the logit-space blend of the shipped weights",
 _pub = pd.to_numeric(oof["p_ensemble"], errors="coerce").to_numpy(float)
 _causal = pd.to_numeric(
     oof["p_ensemble_causal"], errors="coerce").to_numpy(float)
-check("published p_ensemble IS the deployed-weight blend (binary parity)",
-      np.allclose(_ship, _pub, equal_nan=True, atol=1e-12))
+_retro = pd.to_numeric(
+    oof["p_ensemble_retrospective"], errors="coerce").to_numpy(float)
+check("published p_ensemble IS the causal rolling blend (headline stays causal)",
+      np.allclose(_pub, _causal, equal_nan=True, atol=1e-12))
+check("the final-weight replay lives only in p_ensemble_retrospective",
+      np.allclose(_retro, _ship, equal_nan=True, atol=1e-12))
 check("the causal column survives as p_ensemble_causal (honesty audit)",
       _causal.shape == (len(oof),)
       and int(np.isfinite(_causal).sum()) == len(oof))
 check("published and causal blends are separate arrays",
       _pub is not _causal and not np.shares_memory(_pub, _causal))
-# Phase 9 scores the PUBLISHED column — the deployed blend — over the
-# GRADING population (2026-10-03), so the metrics block, the member rows
-# and the shipped Platt fit all describe one population and one blend.
-check("Phase 9 scores the published (deployed) column on the grading population",
+# Phase 9 scores the CAUSAL column on the GRADING population, and reports
+# the retrospective replay separately on the SAME population, so headline
+# metrics, the member rows and the replay stay one population — with the
+# replay never claimed as OOF evidence.
+check("Phase 9 scores the causal column on the grading population",
       'binary_metrics(oof_ml["p_ensemble"]' in mp_src
       and 'binary_metrics(oof_ml["p_ensemble_calibrated"]' in mp_src
       and 'oof_ml["p_ensemble"][_grading]' in mp_src
-      and '_oof_blocks(oof_ml, _grading)' in mp_src)
+      and '_oof_blocks(oof_ml, _grading)' in mp_src
+      and 'oof_ml["p_ensemble_retrospective"][_grading]' in mp_src)
 # Phase 4 seeds the four oof_* keys with {"n": 0, "sufficient": False}
 # placeholders because it runs before any OOF exists. Logging fold_info
 # verbatim therefore reported oof_all n=0 on every run — the 2026-10-03 log
@@ -1783,30 +1804,31 @@ check("the run log reports real oof_* blocks, not the Phase-4 placeholders",
       and "if k not in _OOF_BLOCK_KEYS" in mp_src
       and '"oof blocks: %s"' in mp_src)
 # master_pipeline must never reassign or re-blend the published column ad
-# hoc — the walk owns the definition (deployed blend in p_ensemble, causal
-# blend in p_ensemble_causal) and the pipeline only reads it. (2026-10-05:
-# this replaced the old "shipped blend is never written into the OOF frame"
-# rule — the artifact must describe the deployed binary's blend now.)
+# hoc — the walk owns the definition (causal blend in p_ensemble,
+# retrospective replay in p_ensemble_retrospective) and the pipeline only
+# reads it.
 check("master_pipeline never reassigns/re-blends the published column",
       "p_ensemble_shipped" not in mp_src
       and 'oof_ml["p_ensemble"] =' not in mp_src
       and "oof_ml['p_ensemble'] =" not in mp_src)
 with open(ml_mod2.__file__, "r", encoding="utf-8") as _fh:
     _walk_src = _fh.read()
-check("the walk owns the published/causal column split",
+check("the walk owns the column split and never re-pools p_ensemble",
       'oof["p_ensemble_causal"]' in _walk_src
-      and 'oof["p_ensemble"] =' in _walk_src)
+      and 'oof["p_ensemble_retrospective"]' in _walk_src
+      and 'oof["p_ensemble"] =' not in _walk_src)
 
 # ---- Phase 9 report path must be executable, not just parseable -----------
-# The shipped-blend report reads an optional key through dict.get with a
+# The replay report used to read an optional key through dict.get with a
 # fallback. Python evaluates that fallback EAGERLY, so a malformed default
 # crashes Phase 9 on EVERY run — which is exactly what happened: a Kaggle
 # full-repull died with "np.full() missing 1 required positional argument:
 # 'fill_value'" after every expensive phase had already finished, while all
-# 181 checks here stayed green because nothing executes main(). These two
-# checks attack the class of bug rather than the one instance: the fallback
-# itself must run, and no numpy constructor in the module may be called with
-# a shape but no fill value.
+# 181 checks here stayed green because nothing executes main(). The replay
+# is now a direct grading-population column read (no dict.get subject left
+# in master), but the class guard stays: the fallback itself must run, and
+# no numpy constructor in the module may be called with a shape but no
+# fill value.
 _ship_y = oof["home_win"].to_numpy(float)
 try:
     _m_present = eval_mod.binary_metrics(
@@ -1816,13 +1838,14 @@ try:
     _m_absent = eval_mod.binary_metrics(
         np.asarray({}.get("blend_full", np.full(len(_ship_y), np.nan))),
         _ship_y)
-    check("Phase 9 blend_full fallback reports n/a instead of raising",
+    check("an absent replay key reports n/a instead of raising",
           _m_present["n"] == len(_ship_y) and _m_absent["n"] == 0
           and np.isnan(_m_absent["auc"]))
 except Exception as exc:  # noqa: BLE001
-    check("Phase 9 blend_full fallback reports n/a instead of raising", False, str(exc))
-check("the fallback is full-length (a short array cannot broadcast against y_oof)",
-      "np.full(len(y_oof), np.nan)" in mp_src)
+    check("an absent replay key reports n/a instead of raising", False, str(exc))
+check("the retrospective replay read is column-sourced on the grading population",
+      'oof_ml["p_ensemble_retrospective"][_grading]' in mp_src
+      and 'ml.get("blend_full"' not in mp_src)
 try:
     import ast as _ast
     _tree = _ast.parse(mp_src)
@@ -1866,10 +1889,64 @@ _best = min(_member_lls) if _member_lls else np.inf
 check("shipped blend never loses to its best member on pooled logloss",
       np.isfinite(_best) and _ll(_ship) <= _best + 1e-12,
       f"blend={_ll(_ship):.6f} best_member={_best:.6f}")
-check("Phase 9 logs the shipped blend separately from the causal one",
-      "moneyline OOF shipped" in mp_src and 'ml.get("blend_full"' in mp_src)
+check("Phase 9 logs the retrospective replay separately, labeled NOT OOF",
+      "moneyline retrospective final-weight replay (NOT OOF" in mp_src
+      and 'oof_ml["p_ensemble_retrospective"]' in mp_src)
 check("Phase 9 member rows print logloss (the optimized metric)",
       "logloss=%.4f" in mp_src)
+
+# ---- 2026-10-08 causal-evaluation pins (NHL 42027979 / MLB f414970b) -----
+# One nested prior-evidence gate at EVERY calibrator origin (each fold and
+# the final serving fit), fit evidence restricted to grading rows, the
+# evaluation contract recorded in config/bundle/summary, and the tree
+# members fitting true categoricals with the pinned config vocabulary.
+check("master gates every calibrator origin with the nested gate",
+      "gated_calibrator(" in mp_src
+      and "prior_mask = (fold_ids < fold.fold_id) & okp & _grading" in mp_src
+      and "grades=_grading" in mp_src
+      and "should_gate_calibrator(raw_m, cal_m)" not in mp_src)
+check("master records the moneyline evaluation contract",
+      '"moneyline_evaluation"' in mp_src
+      and '"retrospective_is_oof": False' in mp_src
+      and '"moneyline_retrospective_not_oof"' in mp_src)
+check("final calibration buckets/n_games describe the grading population",
+      'calibration_buckets(oof_ml["p_ensemble"][_grading]' in mp_src
+      and "n_games=int(_g_ok.sum())" in mp_src)
+check("XGBoost fits true pandas categoricals with the pinned vocabulary",
+      "enable_categorical" in config.XGBOOST_PARAMS
+      and "pd.Categorical(values, categories=vocabulary)" in _walk_src
+      and "categorical_feature" in _walk_src
+      and 'types.get(col) != "c"' in _walk_src)
+check("_fit_member is shared by scored folds and the final refit",
+      _walk_src.count("_fit_member(") >= 3)  # def + fold call + final call
+check("the final refit canonicalizes row order (order-reproducible)",
+      'folds_mod.canonical_sort(game_df, "gameday")' in _walk_src)
+# The nested gate's own contract: aligned inputs only, tiny evidence is
+# identity, a candidate without holdout gain is refused, and the grades
+# mask restricts which rows may be EVIDENCE.
+_gc_p = np.full(1200, 0.5)
+_gc_y = np.tile([0.0, 1.0], 600)  # truth exactly at p=0.5: no map can gain
+try:
+    ml_mod2.gated_calibrator(_gc_p[:50], _gc_y[:60])
+    _gc_raise = False
+except ValueError:
+    _gc_raise = True
+_gc_tiny, _gc_tiny_rec = ml_mod2.gated_calibrator(
+    np.full(10, 0.5), np.tile([0.0, 1.0], 5))
+_gc_map, _gc_rec = ml_mod2.gated_calibrator(_gc_p, _gc_y)
+_gc_mask = np.zeros(1200, dtype=bool)
+_gc_mask[:400] = True
+_, _gc_grec = ml_mod2.gated_calibrator(_gc_p, _gc_y, grades=_gc_mask)
+check("gated_calibrator rejects misaligned vectors/masks",
+      _gc_raise)
+check("gated_calibrator is identity without enough prior evidence",
+      _gc_tiny is None and _gc_tiny_rec["decision"] == "identity")
+check("gated_calibrator refuses a map with no holdout gain",
+      _gc_map is None and _gc_rec["reason"] in
+      ("gated_no_gain", "candidate_declined", "final_fit_declined"),
+      f"reason={_gc_rec['reason']}")
+check("gated_calibrator's grades mask restricts the evidence",
+      _gc_grec["n_prior"] == 400)
 
 
 # ---------------------------------------------------------------------------
@@ -2005,13 +2082,13 @@ try:
           _smap is not None and int((np.diff(_served[_ord]) < 0).sum()) == 0)
     check("Phase 9 labels the prequential twin as not auc-comparable",
           "pooled auc is NOT comparable to raw" in mp_src)
-    # The Phase 8b fit line used to claim "(THIS is what serves)" while
-    # Phase 9's gate could void that very map: on the 2026-10-03 run the log
-    # named a pooled Platt a=1.0315 and 19 ms later said "shipping the raw
-    # blend (identity calibrator)". The log must name the SERVING map only
-    # after the gate has ruled.
-    check("the serving map is named on the log AFTER the calibrator gate",
-          "(fitted; Phase 9 gates it)" in mp_src
+    # The final serving map is decided by the nested prior-evidence gate at
+    # its own origin (Phase 8b) — the log must name the map and its gate
+    # verdict, and Phase 9 must never post-hoc void it.
+    check("the serving map is named with its nested-gate verdict",
+          "final serving calibrator:" in mp_src
+          and "nested prior-evidence gate: accepted" in mp_src
+          and "nested gate: %s" in mp_src
           and '"serving calibrator: %s"' in mp_src)
 except Exception as exc:  # noqa: BLE001
     check("prequential OOF honesty checks", False, str(exc))
@@ -3344,6 +3421,69 @@ check("epa weights by PER-GAME opportunities: _den/_n_games, not the "
       f"(tpg={_epa_mg_tpg:.1f} x {_epa_mg_q:.9f}); "
       f"window-total would be {40.0 * _epa_mg_q:.9f}, "
       f"rate would be {_epa_mg_q:.9f}; got {_epa_mg_home:.9f}")
+
+# Season-boundary carry pin (2026-10-08): the 21-day freshness window is
+# empty for every Week-1 game (a team's last game to Week 1 runs ~188-245
+# days), so the whole epa_* family shipped NaN on season openers -- the
+# family's largest structural coverage hole. The carry pass must re-fill a
+# (game, team) the fresh window found NOTHING for, using the prior season's
+# rating, still strictly before the target date.
+_epa_op_hist = pd.DataFrame([
+    {"game_id": "OP1", "team": "OPH", "player_id": "Q1", "position": "QB",
+     "gameday": pd.Timestamp("2025-01-05"),
+     "kickoff_utc": pd.Timestamp("2025-01-05 18:00:00Z"),
+     "epa": 16.0, "opp": 40.0, "_num": 16.0, "_den": 40.0,
+     "_n_games": 1.0},
+])
+_epa_op_games = pd.DataFrame([
+    # 252 days after OP1: outside the 21-day fresh window, inside the
+    # 300-day season-boundary carry.
+    {"game_id": "OP_TARGET", "gameday": "2025-09-14", "gametime": "13:00",
+     "home_team": "OPH", "away_team": "OPA"},
+])
+_epa_op_agg = feat_mod.epa_quality_team_agg(_epa_op_hist, _epa_op_games)
+_epa_op_q = _epa_op_agg[_epa_op_agg["game_id"].eq("OP_TARGET")
+                       & _epa_op_agg["team"].eq("OPH")]["epa_q"]
+check("epa pool carries prior-season ratings across the season boundary",
+      len(_epa_op_q) == 1 and pd.notna(_epa_op_q.iloc[0]),
+      f"week-1 pool row(s)={len(_epa_op_q)} value={list(_epa_op_q)} "
+      f"(a 252-day gap must carry the rating, not ship NaN)")
+
+# The carry may only fill a (game, team) the fresh window left empty -- an
+# in-season team WITH a fresh rating must never pull its stale rows. F2 is
+# a poison-pill stale rating (EPA 500 on 1 opportunity); if the carry
+# wrongly extended a fresh-covered team, the group sum would explode.
+_epa_stale_hist = pd.DataFrame([
+    {"game_id": "S1", "team": "SVH", "player_id": "F1", "position": "QB",
+     "gameday": pd.Timestamp("2025-11-28"),
+     "kickoff_utc": pd.Timestamp("2025-11-28 18:00:00Z"),
+     "epa": 10.0, "opp": 20.0, "_num": 10.0, "_den": 20.0,
+     "_n_games": 1.0},
+    # 47 days stale (fresh window is 21) yet within the 300-day carry.
+    {"game_id": "S0", "team": "SVH", "player_id": "F2", "position": "QB",
+     "gameday": pd.Timestamp("2025-10-15"),
+     "kickoff_utc": pd.Timestamp("2025-10-15 18:00:00Z"),
+     "epa": 500.0, "opp": 1.0, "_num": 500.0, "_den": 1.0,
+     "_n_games": 1.0},
+])
+_epa_stale_games = pd.DataFrame([
+    {"game_id": "ST_TARGET", "gameday": "2025-12-01", "gametime": "13:00",
+     "home_team": "SVH", "away_team": "SVA"},
+])
+_epa_stale_agg = feat_mod.epa_quality_team_agg(_epa_stale_hist,
+                                              _epa_stale_games)
+_epa_stale_q = _epa_stale_agg[_epa_stale_agg["game_id"].eq("ST_TARGET")
+                             & _epa_stale_agg["team"].eq("SVH")]["epa_q"]
+# F1-only stays below 100 for any shrinkage k the fixture can produce;
+# including F2's poison can never drop below 200 (k is bounded by the
+# fixture's 21 total opportunities, so the smallest possible F2
+# contribution is (500 + mu*k)/(1 + k) >= ~119 while F1's shrunk value
+# tops out near 90).
+check("epa carry never extends a team the fresh window already covers",
+      len(_epa_stale_q) == 1 and pd.notna(_epa_stale_q.iloc[0])
+      and float(_epa_stale_q.iloc[0]) < 100.0,
+      f"fresh-covered team epa_q={list(_epa_stale_q)} "
+      f"(poison stale rating would push it above 200)")
 
 
 # ---- The run log must not crash, and must describe what it shipped. ------

@@ -353,16 +353,17 @@ def test_end_bounds_and_phase1_wire_the_stale_pin_guard():
     assert "end-date pin %s is stale" in src  # Phase-1 WARNING into the log
 
 
-def test_published_blend_line_names_the_deployed_weights():
-    """T3 (MLB/NHL parity): the published-blend pass must announce itself
-    in the run log — one line with the applied weights and the row count,
-    stating that headline metrics grade THE serving blend. The 2026-10-06
-    log's re-pool left no trace."""
+def test_published_blend_line_distinguishes_causal_metrics_from_replay():
+    """The log must label causal headline evidence and retrospective
+    replay (2026-10-08 causal-evaluation parity, NHL 42027979 / MLB
+    f414970b): headline metrics grade the causal rolling blend, and the
+    final-weight replay is explicitly NOT OOF."""
     src = (BACKEND / "moneyline.py").read_text(encoding="utf-8")
     assert "Published blend:" in src, (
-        "moneyline.py no longer logs the published-blend re-pool — the "
+        "moneyline.py no longer logs the published-blend line — the "
         "headline metrics' blend claim is unauditable from the run log")
-    assert "headline metrics grade THE serving blend" in src
+    assert "headline metrics grade the causal rolling blend" in src
+    assert "p_ensemble_retrospective (not OOF)" in src
 
 
 def test_degenerate_platt_warning_carries_the_sample_size():

@@ -74,7 +74,14 @@ WARMUP_SEASONS = [2016]          # trailing priors only — never OOF-evaluated
 OOF_FIRST_SEASON = 2017          # OOF population starts here
 CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2017..2026 inclusive
 ALL_SEASONS = WARMUP_SEASONS + CORE_SEASONS
-GAME_TYPES = {"REG", "POST"}       # regular season + postseason; preseason excluded
+# Regular season + postseason; preseason (and the Pro Bowl) excluded. The
+# nflverse schedule spells postseason by ROUND -- WC / DIV / CON / SB --
+# and never "POST": matching only "POST" silently dropped all 122 playoff
+# games in the 2016+ window (verified against nflreadpy.load_schedules:
+# value counts REG/WC/DIV/CON/SB only), leaving the OOF playoff-free and
+# January/February slates empty. "POST" is kept as legacy-spelling
+# insurance for fixtures and older exports.
+GAME_TYPES = {"REG", "POST", "WC", "DIV", "CON", "SB"}
 
 # ---------------------------------------------------------------------------
 # Elo (authoritative semantics — unchanged from the validated definitions)
@@ -133,7 +140,15 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v9.7-elo-season-revert"
+# v9.8 (2026-10-08): causal-evaluation remediation (NHL 42027979 / MLB
+# f414970b parity) — headline p_ensemble stays the rolling causal blend
+# (final-weight replay demoted to p_ensemble_retrospective), every
+# calibrator origin uses the same nested prior-evidence gate, and the tree
+# members now fit the team-ID pair as TRUE pandas/LightGBM categoricals
+# with the pinned config vocabulary (was: ordinal int64 in both). The
+# representation change invalidates old bundles: rerun features, OOF,
+# blend/calibration and the final refit together.
+FEATURE_SET_VERSION = "nfl-prod-v9.8-causal-evaluation"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -149,6 +164,15 @@ CALIBRATION_MODE = "platt"
 # this, a 2-param fit can chase noise; identity is the safer map (MLB parity:
 # calibration.MIN_OOF_FOR_FIT).
 MIN_OOF_FOR_FIT = 300
+
+# Nested calibration gate (NHL 42027979 / MLB f414970b parity): every
+# calibrator origin — each prequential fold AND the final serving fit —
+# accepts a map only when a chronological holdout of the strictly-prior
+# CAUSAL blend evidence beats raw by CAL_GATE_EPS; otherwise identity. The
+# final origin no longer bypasses the gate with an ungated all-OOF fit.
+CAL_GATE_HOLDOUT_FRAC = 0.25   # tail slice of prior evidence held out
+CAL_GATE_MIN_HOLDOUT = 200     # minimum rows in the nested holdout
+CAL_GATE_EPS = 5e-3            # minimum out-of-sample logloss gain (nats)
 
 # ---------------------------------------------------------------------------
 # THE feature contract — ONE master list (MLB structural parity)
@@ -680,6 +704,10 @@ XGBOOST_PARAMS = {
     "max_delta_step": 4.652742867089056,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
+    # True pandas-categorical team columns (moneyline.member_fit_input
+    # pins the config vocabulary). Without this XGBoost fits the team-ID
+    # pair as ordinal NUMBERS — the 2026-10-08 representation fix.
+    "enable_categorical": True,
     "verbosity": 0,
 }
 # Moneyline lightgbm member — TUNED 2026-09-25 under docs/model_tuning_policy.md.

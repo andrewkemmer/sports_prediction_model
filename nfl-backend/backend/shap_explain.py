@@ -85,7 +85,13 @@ def compute_nfl_shap_per_game(bundle: dict, games: pd.DataFrame,
         for name, ex in explainers.items():
             pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
             try:
-                X = ml_mod.member_matrix_ndarray(name, one, pre)
+                # XGB's true pandas categories must retain their static
+                # vocabulary at explanation time, just as at predict time
+                # (NHL 42027979 parity).
+                X = (ml_mod.member_fit_input(
+                         name, ml_mod.member_matrix(name, one), pre)
+                     if name == "xgboost"
+                     else ml_mod.member_matrix_ndarray(name, one, pre))
                 # shap announces its LightGBM binary output-format change
                 # (list of per-class arrays) once per call — 14 lines of log
                 # noise per slate. The list shape IS handled directly below
