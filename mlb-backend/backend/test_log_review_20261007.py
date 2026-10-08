@@ -373,3 +373,39 @@ def test_season_split_overlap_arithmetic_reconciles_the_delivered_log():
     assert grading + non_grading == total
     assert provisional + post_outside == non_grading
     assert provisional >= post_in_prov >= 0
+
+
+# ── T6: calibration artifact population labels (dashboard/pooled-run parity) ─
+# 2026-10-07 dashboard review (a continuation of this review day): every
+# headline number the dashboards show reconciled with the production pooled
+# OOF run — calibration metrics == model_monitor metrics == model_history's
+# newest entry == an independent recomputation over predictions_history's
+# 7,026 rows (auc 0.5714 / logloss 0.6823 vs the graded headline 0.5712 /
+# 0.6823 on 6,879 rows). EXCEPT the population label: calibration_*.json
+# carried n_games = the DAY'S SLATE size (4) while the NFL/NHL/NBA writers
+# carry the grading pool there, so the shared Calibration page labeled
+# pooled KPIs "n = 4 games" beside an AUC graded on 6,879 pooled OOF games.
+# The writer now publishes the GRADING population in n_games (== n_eval ==
+# the calibration_buckets count sum) and keeps the slate size in
+# league_total — the todays pages' "X of Y games shown" denominator.
+
+def test_calibration_json_labels_the_grading_population_not_the_slate():
+    """Source pin for the run-once script's artifact writer (import executes
+    the pipeline, so the contract is pinned as text): n_games must be the
+    graded scoring population — the y_true AFTER the grades_pooled mask,
+    the same population the metrics and buckets cover — while league_total
+    keeps the caller's slate count."""
+    seg_start = MASTER_SRC.index("def _calibration_json(")
+    seg = MASTER_SRC[seg_start:MASTER_SRC.index(
+        "def _predictions_history_csv(", seg_start)]
+    assert '"n_games": int(len(y_true))' in seg, (
+        "calibration n_games must be the grading population (len(y_true) "
+        "after the grades_pooled mask), not the day's slate size")
+    assert '"n_eval": int(len(y_true))' in seg, (
+        "n_eval must stay the grading population — the dashboard resolves "
+        "the pooled label from it")
+    assert '"league_total": n_games' in seg, (
+        "league_total must keep the caller's slate count (the todays "
+        "pages' 'X of Y games shown' denominator)")
+    # y_true IS the graded population: the mask must gate it upstream.
+    assert 'ok &= oof["grades_pooled"].astype(bool)' in seg

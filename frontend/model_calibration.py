@@ -44,7 +44,13 @@ if not cal:
     st.stop()
 
 artifact_date = cal.get("_artifact_date", date_str)
-n_games = cal.get("n_games", 0)
+# Population behind the pooled KPI cards: the walk-forward GRADING rows
+# (n_eval — regular/non-provisional OOF games). MLB's writer used to carry
+# the day's slate size in n_games while NFL/NHL/NBA carry the grading pool
+# there, so the MLB dashboard read "n = 4 games" beside AUC graded on
+# 6,879 pooled OOF games. Resolve the graded count first so pooled metrics
+# are never labeled with the slate size (2026-10-07 pooled-run parity).
+n_games = cal.get("n_eval") or cal.get("n_games", 0)
 kpis = cal.get("kpis", {})
 curve = cal.get("calibration_curve", [])
 record = cal.get("today_record", {})
@@ -225,6 +231,12 @@ if not pts.empty:
     # information lost from the former standalone 'Prediction Confidence &
     # Accuracy' section.
     built = mlc.chart_favored_calibration(pts, pts_cal)
+    # The chart's own population: sum(n) over the binned favored-side points
+    # is every decided game in the plotted history (all OOF rows, incl.
+    # postseason/provisional) — the bars/curve cover exactly these games, so
+    # the caption labels them with their own count, never the KPI cards'
+    # grading pool or the day's slate size.
+    chart_n = int(pts["n"].sum()) if "n" in pts.columns else n_games
     legend_extra = ""
     if not pts_cal.empty:
         legend_extra = (" · Green dashed: the deployed pooled Platt map "
@@ -233,7 +245,7 @@ if not pts.empty:
                         "vertical gap at each bin = the correction the map makes to the raw model")
     utils.show_chart(built["chart"])
     st.caption(
-        f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
+        f"Model (n={chart_n:,}) · Count bars (left 'Games' axis): games per "
         f"1% predicted-probability bin — the bars are the confidence-vs-"
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "

@@ -1262,7 +1262,15 @@ def _calibration_json(
 
     data = {
         "date": target_date_str,
-        "n_games": n_games,
+        # Population labels (shared semantics with the NFL/NHL/NBA
+        # calibration writers): ``n_games`` is the GRADING population the
+        # metrics/buckets above cover — the sum of calibration_buckets
+        # counts, what the dashboard shows as "n = N games" beside the
+        # pooled KPIs. The day's slate size stays in ``league_total`` (the
+        # todays pages' "X of Y games shown" denominator). The old
+        # slate-size n_games made the MLB dashboard label pooled OOF
+        # metrics "n = 4 games" (2026-10-07 dashboard/pooled-run review).
+        "n_games": int(len(y_true)),
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "metrics": metrics,
         "calibration_buckets": buckets,

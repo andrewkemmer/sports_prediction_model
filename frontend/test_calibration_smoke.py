@@ -39,6 +39,8 @@ import numpy as np
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
+import utils  # noqa: E402 — frontend package sibling (cache control in pins)
+
 FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
@@ -90,7 +92,17 @@ def _calibration_record() -> dict:
                             "gap": round(cal_mp - ma, 3)})
     return {
         "date": ARTIFACT_DATE,
-        "n_games": int(sum(counts)),
+        # Population fields in the CURRENT production MLB artifact shape:
+        # n_games is the DAY'S SLATE size (the old writer's semantics — the
+        # defect the header pin below catches), n_eval is the grading pool
+        # behind the metrics/buckets (== the bucket count sum),
+        # league_total is the slate size the todays pages use for their
+        # "X of Y games shown" denominator. The two population counts
+        # deliberately DIFFER so a regression to labeling pooled KPIs with
+        # the slate size is detectable.
+        "n_games": 4,
+        "n_eval": int(sum(counts)),
+        "league_total": 4,
         "trained_at": "2026-08-31T01:00:00.000000Z",
         "metrics": {"auc": 0.6911, "brier": 0.2113, "logloss": 0.6329,
                     "ece": 0.0349, "brier_calibrated": 0.2040,
@@ -412,6 +424,39 @@ def test_total_calibrated_win_probability_renders_in_reliability_table():
         assert not problems, "; ".join(problems)
         assert "TOTAL CALIBRATED" in text, \
             "caption must document the total-calibrated cell"
+    finally:
+        _remove_artifacts()
+
+
+def test_header_population_is_the_grading_pool_not_the_slate():
+    """2026-10-07 pooled-run parity: the KPI cards are pooled walk-forward
+    metrics graded on n_eval games, so the header pill must label them with
+    the GRADING pool — never the day's slate size. The production MLB
+    artifact carried n_games=4 beside AUC graded on 6,879 pooled OOF games
+    and the shared page read "n = 4 games" (fixture mirrors that shape:
+    n_games=4, n_eval=1,107). The chart caption labels the chart's OWN
+    population instead: every decided game in the plotted history (sum of
+    the binned counts = the history rows = 320)."""
+    _write_artifacts()
+    try:
+        try:
+            utils._available_dates_cached.clear()
+        except Exception:
+            pass
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        assert "n = 1,107 games" in text, (
+            "header must label the pooled KPIs with the grading pool "
+            "(n_eval = 1,107): " + text[:400])
+        assert "n = 4 games" not in text, (
+            "header labeled the pooled KPIs with the day's slate size")
+        assert "Model (n=320)" in text, (
+            "chart caption must carry the chart's own population "
+            "(320 decided games in the plotted history): " + text[:400])
     finally:
         _remove_artifacts()
 
