@@ -762,15 +762,17 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
 # (run_engine_feature_drift_YYYYMMDD.csv / run_engine_feature_coverage_
 # YYYYMMDD.csv, written by the NHL monitoring module). Identical
 # structure/wording to MLB's renderers; the MODEL WEIGHT column joins the
-# emitter's weight_pct (blend-weighted importance from the moneyline
-# monitor), rendering '—' per row and omitting the column when no weight
-# data is available (MLB's has_weights gate).
+# emitter's weight_pct (the RUN LINE's own pooled split-gain across the
+# distribution model's per-side Poisson fits — never the moneyline blend),
+# rendering '—' per row and omitting the column when no weight data is
+# available (MLB's has_weights gate).
 # ---------------------------------------------------------------------------
 
 def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
     """Fetch run_engine_feature_{drift,coverage}_YYYYMMDD.csv for a date
-    (the run engine's own drift/coverage artifacts over the NHL moneyline
-    feature view, emitted by the daily run). None when absent/unreadable.
+    (the run engine's own drift/coverage artifacts over the DISTRIBUTION
+    model's feature view, emitted by the daily run). None when
+    absent/unreadable.
     Mirror of markets._load_run_engine_csv, with the NHL sport pinned
     explicitly — this page ALWAYS loads NHL artifacts regardless of the
     app's active-sport default (which outside the app context is MLB)."""
@@ -788,19 +790,58 @@ def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
         return None
 
 
-def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
+def _run_engine_weight_pcts(records: list[dict],
+                            weights: dict | None) -> list:
+    """Per-row MODEL WEIGHT cells for the run-engine drift table.
+
+    Source of truth: the run-engine drift CSV's own ``weight_pct`` column —
+    the RUN LINE (distribution) model's weights (pooled split-gain across
+    its two per-side Poisson home/away fits), emitted by the daily run.
+    An explicit ``weights`` map (test seam) takes precedence per feature;
+    rows with no weight of their own render None (the table's '—') — the
+    moneyline blend's shared map is never substituted, so the Totals & Run
+    Lines page reports the run line model and nothing else.
+    """
+    weights = weights or {}
+    out = []
+    for r in records:
+        f = str(r.get("feature", ""))
+        w = weights.get(f)
+        if w is None:
+            w = r.get("weight_pct")
+        # NaN is "no weight" (a pandas-read CSV turns absent cells into NaN,
+        # and f-string formatting would render it as the literal 'nan%') —
+        # normalize to None so the cell renders as an em-dash and a fully
+        # unweighted artifact omits the column entirely.
+        if w is None or (isinstance(w, float) and pd.isna(w)):
+            w = None
+        out.append(w)
+    return out
+
+
+def _mean_cell(v):
+    """A drift-table mean cell: MLB renders the CSV value raw, with NaN
+    normalized to the table's 'no value' em-dash (the NHL emitter resolves
+    an empty window to NaN where MLB's writes 0.0 — never print 'nan')."""
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return "—"
+    return v
+
+
+def render_run_engine_drift(drift: pd.DataFrame | None,
+                            weights: dict | None = None) -> None:
     """Run-engine feature drift — same PSI table as the MLB monitor over
-    the NHL run engine's moneyline feature view, WITH the MODEL WEIGHT
-    column (layout parity with the Model Monitor's Feature Drift Analysis
-    table). MODEL WEIGHT = per-feature blend-weighted importance from the
-    shared moneyline feature-drift analysis (``nhl_model_monitor_*.json``
-    -> ``feature_drift`` -> ``weight_pct``), which the daily emitter
-    resolves into the drift CSV's ``weight_pct`` column (MLB renders the
-    same join at render time; the NHL emitter resolves it at emission —
-    same source, never hardcoded). A feature with no weight renders '—';
-    the column is omitted entirely when no weight data is available
-    (parity with the monitor's ``has_weights`` gate). When the CSV is
-    absent the MLB empty-state wording renders (nothing fabricated)."""
+    the run engine's own feature view, plus a MODEL WEIGHT column (layout
+    parity with MLB's ``_render_run_engine_drift``).
+
+    MODEL WEIGHT = the RUN LINE model's own per-feature importance,
+    shipped in the run-engine drift CSV's ``weight_pct`` column (pooled
+    split-gain from its two per-side Poisson home/away fits, normalized to
+    sum to 100%). Rows with no weight of their own render '—' — the
+    moneyline blend's shared weights are never substituted. The column is
+    omitted entirely when the artifact carries no weights at all (legacy
+    artifacts), so the table still renders. When the CSV is absent the MLB
+    empty-state wording renders (nothing fabricated)."""
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
         st.info("No run-engine drift data for this date "
@@ -808,42 +849,32 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
                 "run).")
         return
     records = drift.to_dict("records")
-
-    def _weight(v):
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return None
-        return f if np.isfinite(f) else None
-
-    weight_pcts = [_weight(r.get("weight_pct")) for r in records]
+    # MODEL WEIGHT per row — the RUN LINE MODEL's own weights, shipped in
+    # the run-engine drift CSV itself (pooled split-gain from its two
+    # per-side Poisson fits). The moneyline blend's shared map is NEVER
+    # borrowed: rows without their own weight render '—'. Every cell is
+    # formatted by the SAME helper the Model Monitor uses
+    # (utils.feature_weight_pct).
+    weight_pcts = _run_engine_weight_pcts(records, weights)
     has_weights = any(w is not None for w in weight_pcts)
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
-
-    def _mean(v):
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return "—"
-        if not np.isfinite(f):
-            return "—"
-        af = abs(f)
-        return f"{f:.1f}" if af >= 100 else (f"{f:.3f}" if af >= 1 else f"{f:.4f}")
-
     rows = []
     for r, w in zip(records, weight_pcts):
         psi = r.get("psi")
         psi_str = "—"
         try:
             _p = float(psi)
-            psi_str = "nan" if pd.isna(_p) else f"{_p:.3f}"
+            # A degenerate (constant) feature has no PSI at all;
+            # em-dash keeps an unjudged cell from reading as a 0.
+            psi_str = "—" if pd.isna(_p) else f"{_p:.3f}"
         except (TypeError, ValueError):
             pass  # None/invalid psi (constant feature) renders as em-dash
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
-                    "INSUFFICIENT": "ok"}.get(status, "ok")
+                    "INSUFFICIENT": "ok",
+                    "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
@@ -851,16 +882,45 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             or r.get("feature", "")
         weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
                        if has_weights else "")
+        # Decision columns, mirroring the Model Monitor drift table: the
+        # status is assigned on the NOISE-ADJUSTED PSI under a 2-SE location
+        # gate — show both so raw PSI cannot read self-contradictory.
+        psi_adj = r.get("psi_adjusted")
+        shift_se = r.get("shift_se")
+        try:
+            psi_adj_str = "—" if pd.isna(psi_adj) else f"{float(psi_adj):.3f}"
+        except (TypeError, ValueError):
+            psi_adj_str = "—"
+        try:
+            shift_se_str = "—" if pd.isna(shift_se) else f"{float(shift_se):.3f}"
+        except (TypeError, ValueError):
+            shift_se_str = "—"
+        # A STRUCTURAL row's reason is the finding (which constant,
+        # in both windows); render it under the pill so the table
+        # answers "why is this not a verdict" without a caption hunt.
+        # The reason is a backend-generated format string (constant
+        # <value> in both windows), so it carries no markup. Only a real
+        # string renders: a pandas-read CSV gives rows that lack the field
+        # a NaN, and NaN is truthy — it would print as a literal 'nan'.
+        _reason = r.get("structural_reason")
+        reason_cell = (
+            f"<div style='color:#64748B;font-size:0.72rem;"
+            f"font-weight:400;margin-top:1px;'>"
+            f"{_reason}</div>"
+        ) if isinstance(_reason, str) and _reason.strip() else ""
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
             f"margin-top:1px;'>{label}</div></td>"
-            f"<td>{_mean(r.get('current_mean'))}</td>"
-            f"<td>{_mean(r.get('baseline_mean'))}</td>"
+            f"<td>{_mean_cell(r.get('current_mean'))}</td>"
+            f"<td>{_mean_cell(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
+            f"<td style='color:{psi_color};'>{psi_adj_str}</td>"
+            f"<td style='color:#64748B;'>{shift_se_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"{reason_cell}"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
     st.markdown(
@@ -868,16 +928,23 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th>{weight_header}<th>STATUS</th></tr></thead>
+            <th>PSI</th><th>PSI ADJ.</th><th>SHIFT SE</th>
+            {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the moneyline drift; statuses on noise-adjusted PSI.
-          INSUFFICIENT = window too small to judge drift.
-          MODEL WEIGHT = blend-weighted feature importance from the shared
-          feature-drift analysis (run engine has no per-model weight; '—' = no
-          weight for this feature).
+          Same windows as the moneyline drift; STATUS is assigned on
+          PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
+          mean also moved &gt; 2× the location SE (the pooled standard error
+          widened 1.5× for within-window clustering — about 3× the SHIFT SE
+          column above) (location gate). INSUFFICIENT =
+          window too small to judge drift. STRUCTURAL = constant at the
+          same value in both windows (cannot drift) — a stable fact,
+          not a verdict. MODEL WEIGHT = the run line
+          model's own feature importance (pooled split-gain across its
+          per-side Poisson home/away fits, summing to 100%; '—' = no weight
+          for this feature on this artifact).
         </div>
         """,
         unsafe_allow_html=True,
@@ -886,11 +953,15 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
 
 def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
     """Run-engine feature coverage — the same measured/non-null table as
-    the MLB monitor over the NHL run engine's feature view, with MLB's
-    EXACT caption strings, column headers (FEATURE | WINDOW | GAMES |
-    % MEASURED | % NON-NULL | STATUS), sub-annotations (default-zero count
-    under % NON-NULL) and status pills. When the CSV is absent the MLB
-    empty-state wording renders (nothing fabricated)."""
+    the MLB monitor over the run engine's own feature view (the
+    DISTRIBUTION model's contract — resolved by the emitter through
+    ``monitoring.run_engine_feature_cols``), with MLB's EXACT caption
+    strings, column headers (FEATURE | WINDOW | GAMES | % MEASURED |
+    % NON-NULL | STATUS), sub-annotations (default-zero count under
+    % NON-NULL) and status pills. Rows carry the serving slate as a third
+    window — the NHL's goalie-outage guard, which MLB does not measure.
+    When the CSV is absent the MLB empty-state wording renders (nothing
+    fabricated)."""
     st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
     if cov is None or cov.empty:
         st.info("No run-engine coverage data for this date "
@@ -914,13 +985,12 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         f"Share of games in each drift window with a real observation per "
         f"feature — {sub}</div>",
         unsafe_allow_html=True)
-    show_starved_only = n_starved + n_low > 0
+    # Every feature-window pair, worst-first — no healthy-tail truncation
+    # (mirrors the Model Monitor remediation: the OK-past-12 cap hid whole
+    # healthy families behind "N healthy feature-window pairs hidden").
     rows = []
-    shown = 0
     for r in cov_sorted:
         status = r.get("status", "OK")
-        if show_starved_only and status == "OK" and shown >= 12:
-            continue
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
@@ -940,8 +1010,6 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
             f"<td>{pct_n:.0f}%{default_cell}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
             f"</tr>")
-        shown += 1
-    n_hidden = len(cov_sorted) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -954,7 +1022,7 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
-          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+          Rows are listed worst-first — every feature-window pair stays visible.
         </div>
         """,
         unsafe_allow_html=True,

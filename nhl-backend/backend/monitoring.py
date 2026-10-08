@@ -158,8 +158,91 @@ def feature_importance_weights(models: dict,
     return {f: float(v / total) for f, v in importance.items()}
 
 
+def run_engine_feature_cols() -> list[str]:
+    """The run engine's OWN monitoring feature view (MLB parity:
+    ``explainability.run_engine_feature_cols``).
+
+    Resolved from the DISTRIBUTION model's declared contract
+    (``distributions.feature_contract`` — the moneyline member_matrix the
+    per-side Poisson fits actually consume), never from the binary
+    moneyline monitor directly. Both resolve to the same active width
+    today because the run line deliberately shares the moneyline feature
+    contract (``mode: strict_active_moneyline``), but going through the
+    run line's own contract makes that a structural property of this view
+    instead of a convention two callers happen to agree on — the run-line
+    drift/coverage tables follow the run line even if its contract ever
+    diverges. Falls back to the active moneyline width when the contract
+    cannot be resolved (diagnostic view — never fatal)."""
+    try:
+        from distributions import feature_contract
+        cols = list(feature_contract().get("feature_cols") or [])
+        if cols:
+            return cols
+    except Exception as exc:  # noqa: BLE001 — diagnostic view, never fatal
+        logger.debug("run-engine feature view fell back to the active "
+                     "moneyline width: %s", exc)
+    return list(config.active_moneyline_feature_cols())
+
+
+def run_line_feature_weights(score_regressor,
+                             feature_frame: pd.DataFrame | None = None
+                             ) -> dict[str, float]:
+    """The RUN LINE (distribution) model's own per-feature weights: pooled,
+    n-weighted LightGBM split GAIN across the two per-side Poisson fits
+    (home-λ + away-λ), normalized to sum to 1.0 over the served features.
+
+    MLB parity (mlb ``distributions.run_line_feature_weights``): the Totals &
+    Run Lines drift table's MODEL WEIGHT column reports the run line model
+    itself — never the binary moneyline blend's weights, which is what the
+    run-engine drift CSV used to carry. The NB layer itself has no per-feature
+    parameters (it shapes dispersion/MC only), so feature usage lives entirely
+    in the two per-side Poisson fits; their pooled, n-weighted split GAIN is
+    the run line's honest importance.
+
+    READ-ONLY over the SHIPPED fits (the ``ScoreRegressor`` the pipeline just
+    persisted): no refit, no second training — the weights describe exactly
+    the distribution model that priced this run's artifact. The team-ID
+    categorical columns are the trees' encoding, not served features: their
+    gain is dropped and the rest renormalized (weight_pct sums to 100 across
+    the served list). Diagnostic only — a failure returns {} so the caller
+    passes None and the frontend omits the column rather than rendering
+    moneyline weights or zeros.
+    """
+    if score_regressor is None:
+        return {}
+    try:
+        n_rows = float(len(feature_frame)) if feature_frame is not None \
+            and len(feature_frame) else 1.0
+        gain: dict[str, float] = {}
+        for side in ("home", "away"):
+            model = getattr(score_regressor, f"{side}_model", None)
+            if model is None or not hasattr(model, "booster_"):
+                return {}
+            g = np.asarray(model.booster_.feature_importance(
+                importance_type="gain"), dtype=float)
+            names = list(model.booster_.feature_name())
+            for f, v in zip(names, g):
+                if np.isfinite(v):
+                    gain[f] = gain.get(f, 0.0) + float(v) * n_rows
+        total = sum(gain.values())
+        if not np.isfinite(total) or total <= 0:
+            return {}
+        weight = {k: v / total for k, v in gain.items()}
+        id_share = sum(weight.pop(c, 0.0)
+                       for c in config.TREE_CATEGORICAL_COLS)
+        if id_share > 0 and weight:
+            kept = sum(weight.values())
+            if kept > 0:
+                weight = {k: v / kept for k, v in weight.items()}
+        return weight
+    except Exception as exc:  # noqa: BLE001 — diagnostic only, never block a run
+        logger.warning("run_line_feature_weights: unavailable (%s)", exc)
+        return {}
+
+
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
-                  weights: dict[str, float] | None = None) -> list[dict]:
+                  weights: dict[str, float] | None = None,
+                  feature_cols: list[str] | None = None) -> list[dict]:
     """PSI per served feature: current window vs its preceding-era baseline.
 
     The frames come from :func:`drift_windows` (MLB's trailing-tail geometry:
@@ -179,8 +262,10 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     """
     wmap = weights or {}
     has_weight_map = weights is not None
+    cols = (feature_cols if feature_cols is not None
+            else config.active_moneyline_feature_cols())
     rows = []
-    for f in config.active_moneyline_feature_cols():
+    for f in cols:
         if f not in full_df.columns:
             continue
         base_vals = pd.Series(full_df[f]).dropna().to_numpy(float)
@@ -240,13 +325,27 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        ) -> tuple[str, str]:
     """Emit MLB-shaped run-engine drift/coverage CSVs for the NHL page.
 
+    Both tables describe the RUN ENGINE's own contract, not the binary
+    moneyline monitor's: the feature view resolves through
+    :func:`run_engine_feature_cols` (the DISTRIBUTION model's declared
+    feature contract), and ``weights`` is the run line's own per-feature
+    importance — pooled split-gain from
+    :func:`run_line_feature_weights` (MLB's
+    ``explainability.compute_run_engine_feature_drift(model_weights=...)``
+    contract) — never the moneyline blend's shared map. An empty/failed
+    weight map (``{}``) is treated as absent so the MODEL WEIGHT column is
+    omitted instead of rendering all zeros (MLB's ``if model_weights:``).
+
     The drift CSV and the coverage CSV describe the SAME two frames — one
     call receives them once, so the tables beside each other on the monitor
     page cannot answer different windows (MLB's 08-28 incident guard).
     Coverage also carries the serving slate as a third window, which MLB
     does not measure but the NHL must (the goalie-family outage)."""
-    drift = feature_drift(full_df, recent_df, weights=weights)
-    cov = coverage(full_df, slate_df=slate_df, current_df=recent_df)
+    cols = run_engine_feature_cols()
+    drift = feature_drift(full_df, recent_df, weights=weights or None,
+                          feature_cols=cols)
+    cov = coverage(full_df, slate_df=slate_df, current_df=recent_df,
+                   feature_cols=cols)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
     pd.DataFrame(drift).to_csv(drift_path, index=False)
@@ -399,7 +498,8 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
 
 def coverage(full_df: pd.DataFrame,
              slate_df: pd.DataFrame | None = None,
-             current_df: pd.DataFrame | None = None) -> list[dict]:
+             current_df: pd.DataFrame | None = None,
+             feature_cols: list[str] | None = None) -> list[dict]:
     """Per-feature coverage over the drift windows: ``baseline`` (+ ``current``).
 
     MLB-aligned structurally (mlb explainability.compute_feature_coverage):
@@ -444,21 +544,23 @@ def coverage(full_df: pd.DataFrame,
         return (window_warmup.reindex(rows.index).fillna(False)
                 | window_open.reindex(rows.index).fillna(False))
 
+    cols = (feature_cols if feature_cols is not None
+            else config.active_moneyline_feature_cols())
     rows = [_coverage_row(f, full_df, "baseline",
                           _mask(f, full_df, warmup, openers))
-            for f in config.active_moneyline_feature_cols()]
+            for f in cols]
     if current_df is not None and len(current_df):
         cur_warmup = _warmup_mask(current_df)
         cur_open = _season_open_mask(full_df, current_df)
         rows.extend(_coverage_row(f, current_df, "current",
                                   _mask(f, current_df, cur_warmup, cur_open))
-                    for f in config.active_moneyline_feature_cols())
+                    for f in cols)
     if slate_df is not None and len(slate_df):
         slate_warmup = pd.Series(False, index=slate_df.index)
         slate_open = _season_open_mask(full_df, slate_df)
         rows.extend(_coverage_row(f, slate_df, "serving slate",
                                   _mask(f, slate_df, slate_warmup, slate_open))
-                    for f in config.active_moneyline_feature_cols())
+                    for f in cols)
     return rows
 
 

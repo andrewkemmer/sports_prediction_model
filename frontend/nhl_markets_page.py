@@ -1081,9 +1081,10 @@ def run() -> None:
         # Drift / coverage — MLB markets.py mirror: load the emitter CSVs
         # for this date (run_engine_feature_drift_{date}.csv /
         # run_engine_feature_coverage_{date}.csv, emitted by the NHL daily
-        # run over the moneyline feature view); the renderers emit the
-        # section headings and MLB's own empty-state wording when the
-        # files are absent (nothing fabricated).
+        # run over the run engine's OWN feature view — the distribution
+        # model's contract, weighted by its per-side Poisson split-gain);
+        # the renderers emit the section headings and MLB's own empty-state
+        # wording when the files are absent (nothing fabricated).
         re_drift = nd.load_run_engine_csv(date_str,
                                           "run_engine_feature_drift")
         nd.render_run_engine_drift(re_drift)

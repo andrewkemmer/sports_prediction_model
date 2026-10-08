@@ -989,8 +989,21 @@ def main(argv: list[str] | None = None) -> int:
     # 250-game drift tail — read "no warm nulls"; the drift CSV disagreed
     # with the JSON drift the same way, n_baseline 2,827 vs 250). One frame,
     # all four tables: log verdict, JSON drift/coverage, CSV drift/coverage.
+    #
+    # Run-engine MODEL WEIGHT source (2026-10-08, MLB parity — the same
+    # remediation NFL shipped in ec73f857): the drift / coverage tables
+    # beside the monitor report the DISTRIBUTION model's own contract —
+    # pooled split-gain across ``final_reg``'s two per-side Poisson fits —
+    # never ``feature_weights`` (the binary moneyline blend's importance,
+    # which stays on the moneyline drift + monitor JSON above). Read-only
+    # over the already-fitted ``final_reg``; a failed map returns {} and
+    # ``or None`` omits the column (MLB's ``run_engine_block
+    # feature_weights`` contract).
+    run_line_weights = monitoring.run_line_feature_weights(
+        final_reg, feature_frame=game_df)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
-        out_dir, date_c, drift_baseline, recent, weights=feature_weights,
+        out_dir, date_c, drift_baseline, recent,
+        weights=run_line_weights or None,
         slate_df=slate)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
