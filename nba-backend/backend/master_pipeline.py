@@ -1525,9 +1525,30 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     "the MODEL WEIGHT column is that member's profile",
                     len(_shares), _shares, _elo)
     drift_baseline, drift_current = monitoring.drift_windows(game_df)
+    # The run-engine (Totals & Run Lines) drift/coverage artifacts report the
+    # DISTRIBUTION model: its own pooled per-side Poisson LightGBM importances
+    # and its input view — never the binary moneyline blend (2026-10-08 totals
+    # page parity with MLB, whose run line ships pooled split-gain weights).
+    # The moneyline monitor JSON written below keeps imp_weights and the
+    # binary contract, so that dashboard is untouched.
+    dist_weights = dist_mod.distribution_feature_weights(final_reg)
+    dist_feature_cols = dist_mod.run_engine_feature_cols(final_reg)
     drift_names = monitoring.write_run_engine_feature_artifacts(
-        out, date_c, drift_baseline, drift_current, imp_weights)
+        out, date_c, drift_baseline, drift_current, dist_weights,
+        feature_cols=dist_feature_cols)
     artifacts.extend(drift_names)
+    if dist_weights:
+        logger.info(
+            "run-engine drift/coverage view: DISTRIBUTION model - pooled "
+            "per-side Poisson importances over %d feature(s) summing to "
+            "%.4f%%; %d input(s) in the monitoring view",
+            len(dist_weights), sum(dist_weights.values()),
+            len(dist_feature_cols))
+    else:
+        logger.warning(
+            "run-engine drift weights unavailable from the distribution "
+            "model (unfitted or ridge fallback) - MODEL WEIGHT stays empty "
+            "rather than borrowing the moneyline blend")
     _step("feature report", f"selection {selection_name}, "
                             f"{len(drift_names)} drift/coverage file(s)")
 

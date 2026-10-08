@@ -1304,28 +1304,96 @@ def _cell(value) -> str:
     return str(value)
 
 
-def render_run_engine_drift(frame: pd.DataFrame | None) -> None:
-    """Run-engine feature drift as MLB's PSI fb-box table."""
+def _run_engine_weight_pcts(records: list[dict],
+                            weights: dict | None) -> list:
+    """Per-row MODEL WEIGHT cells for the run-engine drift table.
+
+    Source of truth: the run-engine drift CSV's own ``weight_pct`` column —
+    the DISTRIBUTION model's weights (pooled per-side Poisson LightGBM
+    importances of the score regressor, emitted since 2026-10-08). An
+    explicit ``weights`` map (test seam) takes precedence per feature; rows
+    with no weight of their own render None (the table's '—') — the binary
+    moneyline blend's map is never substituted, so the Totals & Run Lines
+    page reports the distribution model and nothing else.
+    """
+    weights = weights or {}
+    out = []
+    for r in records:
+        f = str(r.get("feature", ""))
+        w = weights.get(f)
+        if w is None:
+            w = r.get("weight_pct")
+        # NaN is "no weight" (a pandas-read CSV turns absent cells into NaN
+        # and would render as the literal 'nan%') — normalize to None so
+        # the cell renders as an em-dash and a fully unweighted artifact
+        # omits the column entirely.
+        if w is None or (isinstance(w, float) and pd.isna(w)):
+            w = None
+        out.append(w)
+    return out
+
+
+def render_run_engine_drift(frame: pd.DataFrame | None,
+                            weights: dict | None = None,
+                            served_metadata: dict | None = None) -> None:
+    """Run-engine feature drift — MLB's PSI fb-box table, column for column.
+
+    PSI ADJ./SHIFT SE carry the same decision columns as MLB's monitor
+    table, and MODEL WEIGHT = the DISTRIBUTION model's own per-feature
+    importance shipped in the drift CSV's ``weight_pct`` (pooled per-side
+    Poisson LightGBM importances across its home/away score fits, summing
+    to 100%). Rows with no weight render '—' — the binary moneyline
+    blend's weights are never substituted. The column is omitted entirely
+    when the artifact carries no weights at all (legacy artifacts), so the
+    table still renders.
+    """
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if frame is None or frame.empty:
         st.info("No run-engine drift data for this date "
                 "(nba_run_engine_feature_drift_*.csv appears after a "
                 "pipeline run).")
         return
+    records = frame.to_dict("records")
+    # MODEL WEIGHT per row — the DISTRIBUTION model's own weights, shipped
+    # in the run-engine drift CSV itself (see module docstring). The binary
+    # moneyline blend's shared map is NEVER borrowed: rows without their
+    # own weight render '—' (never relabeled moneyline importance). Every
+    # cell is formatted by the SAME helper the Model Monitor uses.
+    weight_pcts = _run_engine_weight_pcts(records, weights)
+    has_weights = any(w is not None for w in weight_pcts)
+    weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
-    for r in frame.to_dict("records"):
+    for r, w in zip(records, weight_pcts):
         psi = _num(r.get("psi"))
         psi_str = "—" if psi is None else f"{psi:.3f}"
         status = r.get("status", "OK")
-        psi_color = (utils.RED if status == "ALERT"
-                     else utils.AMBER if status == "WARN" else "#E2E8F0")
+        # Decision columns, mirroring MLB's drift table: the status is
+        # assigned on the NOISE-ADJUSTED PSI under a 2-SE location gate —
+        # show both so raw PSI cannot read self-contradictory.
+        psi_adj = _num(r.get("psi_adjusted"))
+        shift_se = _num(r.get("shift_se"))
+        psi_adj_str = "—" if psi_adj is None else f"{psi_adj:.3f}"
+        shift_se_str = "—" if shift_se is None else f"{shift_se:.3f}"
+        psi_color = (utils.AMBER if status == "WARN"
+                     else utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
-                    "INSUFFICIENT": "ok"}.get(status, "ok")
+                    "INSUFFICIENT": "ok", "STRUCTURAL": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = (f" ({n_base}/{n_cur})"
                    if n_base is not None and n_cur is not None else "")
-        label = utils.describe_feature(r.get("feature", "")) \
+        label = utils.describe_feature(r.get("feature", ""),
+                                       served_metadata=served_metadata) \
             or r.get("feature", "")
+        # A STRUCTURAL row's reason is the finding (which constant, in
+        # both windows); render it under the pill so the table answers
+        # "why is this not a verdict" without a caption hunt.
+        reason_cell = (
+            f"<div style='color:#64748B;font-size:0.72rem;"
+            f"font-weight:400;margin-top:1px;'>"
+            f"{r.get('structural_reason')}</div>"
+        ) if r.get("structural_reason") else ""
+        weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
+                       if has_weights else "")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -1334,7 +1402,11 @@ def render_run_engine_drift(frame: pd.DataFrame | None) -> None:
             f"<td>{_cell(r.get('current_mean'))}</td>"
             f"<td>{_cell(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
+            f"<td style='color:{psi_color};'>{psi_adj_str}</td>"
+            f"<td style='color:#64748B;'>{shift_se_str}</td>"
+            f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"{reason_cell}"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
     st.markdown(
@@ -1342,17 +1414,23 @@ def render_run_engine_drift(frame: pd.DataFrame | None) -> None:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th><th>STATUS</th></tr></thead>
+            <th>PSI</th><th>PSI ADJ.</th><th>SHIFT SE</th>
+            {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Statuses are on noise-adjusted PSI: PSI &lt; 0.10 stable,
-          0.10-0.25 moderate shift, &gt; 0.25 material.
-          INSUFFICIENT = window too small to judge drift. The per-feature
-          MODEL WEIGHT column of the MLB page is omitted here because the NBA
-          moneyline monitor ships no feature-drift weights for the run
-          engine's feature names.
+          Same windows as the moneyline drift; STATUS is assigned on
+          PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
+          mean also moved &gt; 2× the location SE (the pooled standard error
+          widened 1.5× for within-window clustering — about 3× the SHIFT SE
+          column above) (location gate). INSUFFICIENT =
+          window too small to judge drift. STRUCTURAL = constant at the
+          same value in both windows (cannot drift) — a stable fact,
+          not a verdict. MODEL WEIGHT = the distribution
+          model's own feature importance (pooled per-side Poisson LightGBM
+          importances across its home/away score fits, summing to 100%; '—'
+          = no weight for this feature on this artifact).
         </div>
         """,
         unsafe_allow_html=True,
@@ -1360,7 +1438,12 @@ def render_run_engine_drift(frame: pd.DataFrame | None) -> None:
 
 
 def render_run_engine_coverage(frame: pd.DataFrame | None) -> None:
-    """Run-engine feature coverage as MLB's measured/non-null fb-box table."""
+    """Run-engine feature coverage — MLB's measured/non-null fb-box table.
+
+    Worst-first with NO healthy-tail truncation: every feature-window pair
+    stays visible (the NBA page previously capped the healthy tail at 12
+    rows while MLB showed them all — 2026-10-08 parity fix).
+    """
     st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
     if frame is None or frame.empty:
         st.info("No run-engine coverage data for this date "
@@ -1384,17 +1467,14 @@ def render_run_engine_coverage(frame: pd.DataFrame | None) -> None:
         f"Share of games in each drift window with a real observation per "
         f"feature — {sub}</div>",
         unsafe_allow_html=True)
-    cap = 12 if (n_starved or n_low) else None
-    rows, shown = [], 0
+    rows = []
     for r in cov_sorted:
         status = r.get("status", "OK")
-        if cap is not None and status == "OK" and shown >= cap:
-            continue
         pct_m = _num(r.get("pct_measured")) or 0.0
         pct_n = _num(r.get("pct_nonnull")) or 0.0
         n_def = int(_num(r.get("n_default_zero")) or 0)
         color = (utils.RED if status == "STARVED"
-                 else utils.AMBER if status == "LOW_COVERAGE" else "#E2E8F0")
+                 else utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
         pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn",
                     "STARVED": "alert"}.get(status, "ok")
         default_cell = (
@@ -1409,8 +1489,6 @@ def render_run_engine_coverage(frame: pd.DataFrame | None) -> None:
             f"<td>{pct_n:.0f}%{default_cell}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
             f"</tr>")
-        shown += 1
-    n_hidden = len(cov_sorted) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -1423,8 +1501,8 @@ def render_run_engine_coverage(frame: pd.DataFrame | None) -> None:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured,
-          LOW_COVERAGE &lt;80%.
-          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+          LOW_COVERAGE &lt;80%. Rows are listed worst-first — every
+          feature-window pair stays visible.
         </div>
         """,
         unsafe_allow_html=True,

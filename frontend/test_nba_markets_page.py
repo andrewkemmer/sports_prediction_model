@@ -415,3 +415,108 @@ def test_drift_and_coverage_report_missing_artifacts():
     text = " ".join(str(i.value).lower() for i in app.info)
     assert "no run-engine drift" in text
     assert "no run-engine coverage" in text
+
+
+# --- Run-engine drift/coverage parity with MLB (2026-10-08) ----------------
+#
+# The two panels must mirror MLB's markets page column for column (PSI ADJ.,
+# SHIFT SE, MODEL WEIGHT), the weights must come from the DISTRIBUTION model
+# shipped in the drift CSV — never the binary moneyline monitor — and the
+# coverage table must show every feature-window pair (the old 12-row
+# healthy-tail cap is gone, as on MLB).
+
+
+def _render_markdown(script_body: str) -> str:
+    from streamlit.testing.v1 import AppTest
+    script = (
+        "import sys; sys.path.insert(0, r'%s')\n"
+        "import pandas as pd\n"
+        "import nba_market_diagnostics as nd\n" % str(FRONTEND)
+    ) + script_body
+    app = AppTest.from_string(script)
+    app.run()
+    assert not app.exception, [str(e.value) for e in app.exception]
+    return "\n".join(str(m.value) for m in app.markdown)
+
+
+_DRIFT_ROWS = (
+    "[{'feature': 'elo_diff', 'current_mean': 1.0, 'baseline_mean': 0.9,"
+    " 'psi': 0.123, 'psi_adjusted': 0.023, 'shift_se': 0.01,"
+    " 'status': 'OK', 'weight_pct': 2.27882,"
+    " 'n_baseline': 220, 'n_current': 31},"
+    " {'feature': 'pace_diff', 'current_mean': 2.0, 'baseline_mean': 2.1,"
+    " 'psi': 0.05, 'psi_adjusted': 0.0, 'shift_se': 0.02,"
+    " 'status': 'WARN', 'weight_pct': 0.74,"
+    " 'n_baseline': 220, 'n_current': 31},"
+    " {'feature': 'rest_days_diff', 'current_mean': 0.5,"
+    " 'baseline_mean': 0.4, 'psi': float('nan'),"
+    " 'psi_adjusted': float('nan'), 'shift_se': 0.0,"
+    " 'status': 'INSUFFICIENT', 'weight_pct': float('nan'),"
+    " 'n_baseline': 220, 'n_current': 31}]"
+)
+
+
+def test_drift_table_carries_mlbs_decision_and_weight_columns():
+    html = _render_markdown(f"nd.render_run_engine_drift(pd.DataFrame({_DRIFT_ROWS}))\n")
+    # the exact header of MLB's drift table
+    for col in ("<th>PSI ADJ.</th>", "<th>SHIFT SE</th>",
+                "<th>MODEL WEIGHT</th>"):
+        assert col in html, f"missing {col}"
+    # weights are the artifact's own values, formatted by the shared helper
+    assert "2.28%" in html and "0.74%" in html
+    # a NaN weight renders as an em-dash, never 'nan%'
+    assert "nan%" not in html
+    # the caption describes the distribution model and the location gate
+    assert "location gate" in html
+    assert "summing to 100%" in html
+    assert "distribution" in html and "moneyline monitor ships" not in html
+
+
+def test_drift_table_omits_the_weight_column_when_the_artifact_has_none():
+    html = _render_markdown(
+        "rows = [dict(r, weight_pct=float('nan')) for r in "
+        f"{_DRIFT_ROWS}]\n"
+        "nd.render_run_engine_drift(pd.DataFrame(rows))\n")
+    assert "<th>MODEL WEIGHT</th>" not in html
+    assert "<th>PSI ADJ.</th>" in html  # decision columns survive
+
+
+def test_drift_weight_seam_overrides_the_csv_and_never_fabricates():
+    records = [{"feature": "a", "weight_pct": 2.5},
+               {"feature": "b", "weight_pct": float("nan")},
+               {"feature": "c"}]
+    # row's own weight when no seam; seam wins when given; absent -> None
+    assert nd._run_engine_weight_pcts(records, None) == [2.5, None, None]
+    assert nd._run_engine_weight_pcts(records, {"a": 9.0, "c": 1.5}) == \
+        [9.0, None, 1.5]
+
+
+def test_coverage_renders_every_feature_window_pair_without_truncation():
+    rows = [{"feature": f"f{i:02d}", "window": "current", "n_games": 30,
+             "pct_measured": 100.0, "pct_nonnull": 100.0,
+             "n_default_zero": 0, "status": "OK"} for i in range(40)]
+    html = _render_markdown(
+        "nd.render_run_engine_coverage(pd.DataFrame(%r))\n" % rows)
+    # all 40 healthy rows visible — the old cap hid all but 12
+    assert html.count("fb-status-pill") == 40
+    assert "every" in html and "stays visible" in html
+    assert "hidden" not in html
+
+
+def test_coverage_ships_mlbs_header_and_worst_first_caption():
+    rows = [{"feature": "z_low", "window": "current", "n_games": 30,
+             "pct_measured": 10.0, "pct_nonnull": 10.0,
+             "n_default_zero": 0, "status": "STARVED"},
+            {"feature": "a_ok", "window": "baseline", "n_games": 30,
+             "pct_measured": 100.0, "pct_nonnull": 100.0,
+             "n_default_zero": 2, "status": "OK"}]
+    html = _render_markdown(
+        "nd.render_run_engine_coverage(pd.DataFrame(%r))\n" % rows)
+    for col in ("<th>FEATURE</th>", "<th>WINDOW</th>", "<th>GAMES</th>",
+                "<th>% MEASURED</th>", "<th>% NON-NULL</th>",
+                "<th>STATUS</th>"):
+        assert col in html
+    # worst-first: the starved row precedes the healthy one
+    assert html.index("z_low") < html.index("a_ok")
+    assert "worst-first" in html
+    assert "default-zero" in html

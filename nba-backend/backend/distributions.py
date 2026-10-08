@@ -191,6 +191,59 @@ def feat_mod_tree(df: pd.DataFrame) -> pd.DataFrame:
     return ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df)
 
 
+def run_engine_feature_cols(reg: "ScoreRegressor | None" = None) -> list[str]:
+    """Numeric feature view of the DISTRIBUTION model (Totals & Run Lines).
+
+    The monitoring view is resolved from the FITTED regressor's own
+    ``feature_columns`` — literally the matrix ``ScoreRegressor`` consumed —
+    falling back to the ``tree_view`` contract it is built from when no
+    model is fitted yet. The team-ID categoricals are excluded: PSI and
+    coverage are numeric-only views (MLB's run-engine view excludes them
+    too — they carry no weight row of their own). This is what the run-
+    engine drift/coverage artifacts report so the dashboard measures the
+    distribution model instead of the binary moneyline contract.
+    """
+    cols = list(getattr(reg, "feature_columns", None) or [])
+    if not cols:
+        cols = list(config.active_moneyline_feature_cols())
+    return [c for c in cols if c not in config.TREE_CATEGORICAL_COLS]
+
+
+def distribution_feature_weights(
+        reg: "ScoreRegressor | None") -> dict[str, float] | None:
+    """Per-feature MODEL WEIGHT (%) of the distribution model.
+
+    Pooled feature importances of the two per-side Poisson LightGBM fits
+    (home/away), normalized to sum to 100 — the NBA analog of MLB's run
+    line weights (pooled split-gain across its two side Poisson models).
+    The team-ID categoricals are excluded from BOTH the map and the
+    denominator (they carry no drift/coverage row, and the panel's caption
+    promises the reported weights sum to 100 across the view it shows).
+    None when the regressor is unfitted or on the ridge fallback (no
+    LightGBM importances there): the drift column then reports no weight
+    rather than borrowing the binary moneyline blend's numbers.
+    """
+    home = getattr(reg, "home_model", None)
+    away = getattr(reg, "away_model", None)
+    if home is None or away is None:
+        return None
+    try:
+        h = [float(v) for v in home.feature_importances_]
+        a = [float(v) for v in away.feature_importances_]
+    except Exception:  # noqa: BLE001 - any non-importance model degrades honestly
+        return None
+    names = list(getattr(reg, "feature_columns", None) or [])
+    if not names or len(names) != len(h) or len(names) != len(a):
+        return None
+    keep = [(n, hv, av) for n, hv, av in zip(names, h, a)
+            if n not in config.TREE_CATEGORICAL_COLS]
+    total = sum(hv + av for _, hv, av in keep)
+    if not keep or total <= 0:
+        return None
+    return {name: round(100.0 * (hv + av) / total, 6)
+            for name, hv, av in keep}
+
+
 # ---------------------------------------------------------------------------
 # α(λ) curve machinery — byte-shape port of MLB run_engine.py's dispersion
 # layer (alpha_bins / _fit_curve_* / alpha_of / eval_alpha_fit). MLB models

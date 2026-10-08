@@ -1505,3 +1505,102 @@ class TestEloSeasonBoundary:
         ev, _ = feat_mod._elo_apply(events)
         lal = ev[(ev.game_id == "s2-a") & (ev.team == "LAL")].iloc[0]
         assert lal.elo_entering == pytest.approx(config.ELO_PRIOR)
+
+
+class TestRunEngineDistributionArtifacts:
+    """The Totals & Run Lines drift/coverage report the DISTRIBUTION model.
+
+    2026-10-08 NBA totals-page parity with MLB: the run-engine panels must
+    carry the per-side Poisson score regressor's own weights and input view,
+    never the binary moneyline blend — and the moneyline monitor's default
+    contract stays exactly as it was.
+    """
+
+    @staticmethod
+    def _fake_reg(cols, h_imp, a_imp):
+        import types
+        return types.SimpleNamespace(
+            feature_columns=list(cols),
+            home_model=types.SimpleNamespace(
+                feature_importances_=np.asarray(h_imp, dtype=float)),
+            away_model=types.SimpleNamespace(
+                feature_importances_=np.asarray(a_imp, dtype=float)))
+
+    def test_distribution_weights_pool_the_per_side_fits_and_sum_to_100(self):
+        import distributions as dist_mod
+        cols = ["elo_diff", "pace_diff"] + list(config.TREE_CATEGORICAL_COLS)
+        # team-ID importances are heavy on purpose: they must be excluded
+        # from BOTH the map and the denominator (no relabelled leftovers).
+        reg = self._fake_reg(cols, [7.0, 1.0, 90.0, 90.0],
+                             [3.0, 1.0, 90.0, 90.0])
+        weights = dist_mod.distribution_feature_weights(reg)
+        assert weights is not None
+        assert set(weights) == {"elo_diff", "pace_diff"}
+        assert abs(sum(weights.values()) - 100.0) < 1e-6
+        # pooled per side, renormalized over the numeric view only:
+        # elo (7+3) / (10 + 2) and pace (1+1) / 12
+        assert weights["elo_diff"] == pytest.approx(100.0 * 10 / 12)
+        assert weights["pace_diff"] == pytest.approx(100.0 * 2 / 12)
+
+    def test_distribution_weights_are_none_without_lightgbm(self):
+        import types
+        import distributions as dist_mod
+        reg = types.SimpleNamespace(feature_columns=["elo_diff"],
+                                    home_model=None, away_model=None)
+        # unfitted / ridge-fallback regressor -> no weight, never moneyline
+        assert dist_mod.distribution_feature_weights(reg) is None
+        assert dist_mod.distribution_feature_weights(None) is None
+
+    def test_distribution_weights_refuse_mismatched_importance_vectors(self):
+        import distributions as dist_mod
+        reg = self._fake_reg(["elo_diff"], [1.0, 2.0], [1.0, 2.0])
+        assert dist_mod.distribution_feature_weights(reg) is None
+
+    def test_run_engine_feature_view_excludes_team_ids(self):
+        import distributions as dist_mod
+        cols = ["elo_diff", "pace_diff"] + list(config.TREE_CATEGORICAL_COLS)
+        reg = self._fake_reg(cols, [1.0] * 4, [1.0] * 4)
+        assert dist_mod.run_engine_feature_cols(reg) == ["elo_diff",
+                                                         "pace_diff"]
+        # No fitted model -> the tree_view contract (numeric width, no ids).
+        assert (dist_mod.run_engine_feature_cols(None)
+                == config.active_moneyline_feature_cols())
+
+    def test_run_engine_artifacts_iterate_the_given_view(self, tmp_path):
+        import monitoring as mon
+        baseline = pd.DataFrame({"keep_a": [0.5, np.nan] * 40,
+                                 "keep_b": np.ones(80),
+                                 "binary_only": np.zeros(80)})
+        current = pd.DataFrame({"keep_a": np.ones(60),
+                                "keep_b": np.ones(60),
+                                "binary_only": np.zeros(60)})
+        drift_name, cov_name = mon.write_run_engine_feature_artifacts(
+            tmp_path, "20261008", baseline, current,
+            weights={"keep_a": 42.5},
+            feature_cols=["keep_a", "keep_b"])
+        drift = pd.read_csv(tmp_path / drift_name)
+        cov = pd.read_csv(tmp_path / cov_name)
+        # rows come from the DISTRIBUTION view, not the binary contract
+        assert sorted(drift["feature"]) == ["keep_a", "keep_b"]
+        assert sorted(cov["feature"].unique()) == ["keep_a", "keep_b"]
+        assert "binary_only" not in set(cov["feature"])
+        assert drift.set_index("feature").loc["keep_a", "weight_pct"] == 42.5
+        # a view feature with no weight of its own stays empty, not borrowed
+        assert pd.isna(drift.set_index("feature").loc["keep_b", "weight_pct"])
+        assert set(cov["window"]) == {"baseline", "current"}
+
+    def test_coverage_default_contract_is_unchanged_for_the_monitor(self):
+        import monitoring as mon
+        baseline = pd.DataFrame({"elo_diff": np.ones(30),
+                                 "pace_diff": np.ones(30)})
+        current = pd.DataFrame({"elo_diff": np.ones(20),
+                                "pace_diff": np.ones(20)})
+        # Omitted feature_cols -> the binary moneyline contract (the path
+        # the Model Monitor JSON uses); the run-engine writer passes its
+        # own view, this default must stay untouched.
+        default_rows = mon.coverage(baseline, current)
+        assert ({r["feature"] for r in default_rows}
+                == set(config.active_moneyline_feature_cols()))
+        redirected = mon.coverage(baseline, current,
+                                  feature_cols=["elo_diff"])
+        assert {r["feature"] for r in redirected} == {"elo_diff"}

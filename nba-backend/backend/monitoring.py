@@ -265,7 +265,8 @@ def _log_feature_drift(n_features: int, n_warns: int, n_alerts: int,
 
 
 def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
-                  weights: dict[str, float] | None = None) -> list[dict]:
+                  weights: dict[str, float] | None = None,
+                  feature_cols: list[str] | None = None) -> list[dict]:
     """Per-feature drift status, structured like MLB's ``compute_feature_drift``.
 
     Statuses are assigned on the NOISE-ADJUSTED PSI and only escalate above OK
@@ -274,9 +275,17 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
     quantized features, and a status that fires without a location shift is
     noise wearing a costume.  Windows too small to judge (see
     ``INSUFFICIENT_BASELINE``) report INSUFFICIENT and never page.
+
+    ``feature_cols`` (2026-10-08 totals-page parity): the feature view to
+    report. The run-engine artifacts pass the DISTRIBUTION model's input
+    view so the Totals & Run Lines dashboard measures the model it prices
+    with; the moneyline monitor pass omits it and keeps the binary model's
+    contract — that dashboard is untouched.
     """
     out = []
-    for feature in config.active_moneyline_feature_cols():
+    cols = (list(feature_cols) if feature_cols is not None
+            else config.active_moneyline_feature_cols())
+    for feature in cols:
         if feature not in baseline_games.columns:
             continue
         # Observations only. A carried value repeats the team's previous
@@ -389,21 +398,29 @@ def _measured_values(frame: pd.DataFrame, feature: str) -> pd.Series:
 
 
 def coverage(baseline_games: pd.DataFrame,
-             current_games: pd.DataFrame | None = None) -> list[dict]:
+             current_games: pd.DataFrame | None = None,
+             feature_cols: list[str] | None = None) -> list[dict]:
     """Per-feature non-null share, per drift window - MLB's dual-window shape.
 
     This is the visual backstop for the empty-pl_epm incident: a feature that
     failed to build shows plausible means in no table at all, but its coverage
     row says 0% measured in plain numbers.  Both windows are reported, so a
     feature that starved only recently cannot hide behind a healthy baseline.
+
+    ``feature_cols`` (2026-10-08): the feature view to report — the run-engine
+    coverage artifact passes the DISTRIBUTION model's input view (Totals &
+    Run Lines dashboard); the moneyline monitor pass omits it and keeps the
+    binary model's contract.
     """
     rows = []
+    cols = (list(feature_cols) if feature_cols is not None
+            else config.active_moneyline_feature_cols())
     windows = [("current", current_games) if current_games is not None
                else ("decided pool", baseline_games)]
     if current_games is not None:
         windows.append(("baseline", baseline_games))
     for window, frame in windows:
-        for feature in config.active_moneyline_feature_cols():
+        for feature in cols:
             values = (pd.to_numeric(frame[feature], errors="coerce")
                       if feature in frame else pd.Series(dtype=float))
             # measured vs carried: where the builder stamps forward-fill
@@ -447,13 +464,25 @@ def coverage(baseline_games: pd.DataFrame,
 def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        baseline_games: pd.DataFrame,
                                        current_games: pd.DataFrame,
-                                       weights=None) -> tuple[str, str]:
+                                       weights=None,
+                                       feature_cols=None) -> tuple[str, str]:
+    """Emit the Totals & Run Lines dashboard's drift/coverage CSVs.
+
+    ``weights`` and ``feature_cols`` are the DISTRIBUTION model's own per-
+    feature importances and input view (2026-10-08): the run-engine panels
+    report the model that prices totals/run lines, never the binary
+    moneyline blend. Omitted → the historical defaults (binary contract,
+    no weights) so a degraded run emits an honest artifact instead of
+    borrowing another model's numbers.
+    """
     out_dir = Path(out_dir)
     drift_name = f"{config.RUN_ENGINE_FEATURE_DRIFT_PREFIX}{date_c}.csv"
     coverage_name = f"{config.RUN_ENGINE_FEATURE_COVERAGE_PREFIX}{date_c}.csv"
-    pd.DataFrame(feature_drift(baseline_games, current_games, weights)).to_csv(
+    pd.DataFrame(feature_drift(baseline_games, current_games, weights,
+                               feature_cols=feature_cols)).to_csv(
         out_dir / drift_name, index=False)
-    pd.DataFrame(coverage(baseline_games, current_games)).to_csv(
+    pd.DataFrame(coverage(baseline_games, current_games,
+                          feature_cols=feature_cols)).to_csv(
         out_dir / coverage_name, index=False)
     return drift_name, coverage_name
 

@@ -172,6 +172,24 @@ def check(sport: str, lines: list[str]) -> list[str]:
             failures.append(f"{sport}: a section is dumping the raw artifact "
                             f"instead of a modelled table ({len(_label_of(line))} cols)")
             break
+
+    # Run-engine drift must carry MLB's decision + weight columns (the
+    # 2026-10-08 NBA parity fix: PSI ADJ./SHIFT SE/MODEL WEIGHT were
+    # missing and the caption pointed at the moneyline monitor instead of
+    # the distribution model). The table header rides the skeleton's
+    # truncated markdown line right after the heading.
+    drift_block = ""
+    for i, line in enumerate(lines):
+        if _kind_of(line) == "HEADING" and \
+                "Run-Engine Feature Drift" in _label_of(line):
+            drift_block = " ".join(lines[i:i + 3])
+            break
+    if "PSI ADJ." not in drift_block:
+        failures.append(f"{sport}: run-engine drift table is missing "
+                        "MLB's PSI ADJ. column")
+    if "MODEL WEI" not in drift_block:
+        failures.append(f"{sport}: run-engine drift table is missing the "
+                        "MODEL WEIGHT column")
     return failures
 
 
