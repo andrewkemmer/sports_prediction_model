@@ -4751,6 +4751,122 @@ def test_final_run_log_delivery_repushes_the_complete_log():
         "a failed final log push must not fail a delivered run")
 
 
+# ---------------------------------------------------------------------------
+# 2026-10-08 log review: drift visibility + season-seam re-check
+# ---------------------------------------------------------------------------
+def test_season_seam_guard_rechecks_prior_year_phase_before_paging():
+    """A location shift that survives the trailing baseline is re-measured
+    against the SAME calendar phase of prior years (MLB 2026-09-30), and a
+    clean re-check relabels the row OK-SEASONAL — verdict only, evidence
+    untouched.
+
+    The 2026-10-08 run window (Cup-final tail + season opening in one
+    frame) drift-ALERTED rest_days (42.5 vs 2.3) and goalie_starts (6.0
+    vs 45.7) — values verified exact against the NHL API, but every-year
+    season-start seams, not 2026 regime breaks. Two pinned mutants: no
+    phase source means the seam pages forever; a re-check that recomputes
+    PSI (instead of only the mean shift) would rewrite the evidence.
+    """
+    rng = np.random.default_rng(11)
+    col = "rest_days_home"
+    base = pd.DataFrame({
+        col: rng.normal(2.3, 0.7, 130),
+        "gameday": pd.date_range("2026-02-01", periods=130, freq="D"),
+    })
+    cur = pd.DataFrame({
+        col: rng.normal(42.5, 3.0, 45),
+        "gameday": pd.date_range("2026-09-25", periods=45, freq="D"),
+    })
+    # The SAME seam one and two years back, inside the ±7d phase pad.
+    phase = pd.DataFrame({
+        col: np.concatenate([rng.normal(42.5, 3.0, 70),
+                             rng.normal(42.5, 3.0, 70)]),
+        "gameday": (list(pd.to_datetime("2025-09-18")
+                         + pd.to_timedelta(rng.integers(0, 38, 70), "D"))
+                    + list(pd.to_datetime("2024-09-18")
+                           + pd.to_timedelta(rng.integers(0, 38, 70), "D"))),
+    })
+
+    # No usable phase rows (baseline-only fallback): the seam pages —
+    # the pre-guard behavior this mechanism is allowed to replace.
+    plain = {r["feature"]: r for r in
+             mon.feature_drift(base, cur, feature_cols=[col])}
+    assert plain[col]["status"] == "ALERT", plain[col]
+
+    # With prior-year same-phase rows: same window, seasonal verdict.
+    seam = {r["feature"]: r for r in
+            mon.feature_drift(base, cur, feature_cols=[col],
+                              phase_frame=phase)}
+    assert seam[col]["status"] == "OK-SEASONAL", seam[col]
+    # Verdict-only: the row keeps its numbers and its evidence.
+    for key in ("psi", "psi_adjusted", "mean_shift", "n_baseline",
+                "n_current"):
+        assert seam[col][key] == plain[col][key], f"{key} was rewritten"
+
+
+def test_feature_drift_logs_view_labeled_summary_lines():
+    """The run log must carry MLB's view-labeled drift lines.
+
+    The 2026-10-08 remote log read fully clean — every gate PASS, no
+    mention of drift — while the drift CSV beside it held six alerts:
+    no emitter existed, so drift was invisible to a log review. Both
+    monitoring surfaces must announce themselves: the moneyline monitor
+    as ``Feature drift [moneyline]: ...`` and the run-engine CSV writer
+    as ``Feature drift [run-engine]: ...`` (MLB explainability parity).
+    """
+    rng = np.random.default_rng(5)
+    cols = ["rest_days_home", "win_pct_home"]  # both in the serving list
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    recent = pd.DataFrame(rng.normal(0.0, 1.0, (40, len(cols))), columns=cols)
+
+    records: list = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    fake = logging.getLogger("pit_drift_view_probe")
+    fake.handlers[:] = []
+    fake.addHandler(_Sink())
+    fake.setLevel(logging.INFO)
+    fake.propagate = False
+    saved = mon.logger
+    mon.logger = fake
+    try:
+        mon.feature_drift(full, recent, feature_cols=cols)
+        mon.write_run_engine_feature_artifacts(
+            Path(tempfile.mkdtemp()), "20991231", full, recent)
+    finally:
+        mon.logger = saved
+    msgs = [r.getMessage() for r in records]
+    assert any(m.startswith("Feature drift [moneyline]:") for m in msgs), msgs
+    assert any(m.startswith("Feature drift [run-engine]:") for m in msgs), msgs
+
+
+def test_drift_calls_receive_the_full_pool_as_season_seam_phase_source():
+    """Both master's drift surfaces must be handed the FULL decided pool
+    as ``phase_frame`` — the trailing baseline holds no prior-season
+    rows, so a phase source that is the baseline itself (MLB's own
+    documented trap) can never fire the OK-SEASONAL reclassification and
+    the seam would keep paging as ALERT.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    targets = {"feature_drift", "write_run_engine_feature_artifacts"}
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)
+             and n.func.attr in targets]
+    assert {c.func.attr for c in calls} == targets, (
+        "both drift call sites must exist in master_pipeline")
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords}
+        pf = kw.get("phase_frame")
+        assert isinstance(pf, ast.Name) and pf.id == "game_df", (
+            f"{call.func.attr} must receive phase_frame=game_df (the full "
+            f"decided pool), got {ast.unparse(pf) if pf else 'nothing'}")
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

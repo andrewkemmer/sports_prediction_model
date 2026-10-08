@@ -964,8 +964,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 14. Monitoring ────────────────────────────────────────────────────
     _banner("PHASE 14", "monitoring")
+    # Season-seam re-check source (MLB 2026-09-30 parity): phase_frame is
+    # the FULL decided pool — the trailing baseline holds no prior-season
+    # rows, so a phase source that is the baseline itself could never
+    # fire the OK-SEASONAL reclassification.
     drift = monitoring.feature_drift(drift_baseline, recent,
-                                     weights=feature_weights)
+                                     weights=feature_weights,
+                                     phase_frame=game_df)
     # The coverage windows are the drift windows, structurally (MLB parity):
     # sliced ONCE above from the same game_df both steps read — the same
     # guaranteed-shared-frames property MLB enforced after its 08-28 incident
@@ -1004,7 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
         out_dir, date_c, drift_baseline, recent,
         weights=run_line_weights or None,
-        slate_df=slate)
+        slate_df=slate, phase_frame=game_df)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())

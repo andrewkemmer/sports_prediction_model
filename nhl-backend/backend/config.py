@@ -581,6 +581,14 @@ P_TIE_MAX = 0.25            # cap on the tied-margin mass (hockey ties ~5-8%)
 # companion, and every test quote the same geometry.
 DRIFT_CURRENT_GAMES = 60
 DRIFT_BASELINE_MIN_GAMES = 250
+# Season-seam re-check (MLB 2026-09-30 parity): months_back offsets — the
+# same calendar phase of prior years — a surviving location shift is
+# re-measured against before it pages. A clean re-check labels the row
+# OK-SEASONAL instead of ALERT, so the first window of a new season does
+# not cry regime-break on regular seasonal movement (goalie_starts reset
+# to ~0, rest_days carries the off-season gap). One knob, quoted by the
+# drift step and its tests alike.
+DRIFT_PHASE_EXTENSION_MONTHS = (-1, -2)
 
 # ---------------------------------------------------------------------------
 # Artifact naming (frontend family contracts)
