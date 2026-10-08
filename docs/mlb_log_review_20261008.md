@@ -164,6 +164,50 @@ calibration and delivery honesty, where changes are measurable today.
   frontend/test_nba_markets_page.py frontend/test_nhl_frontend.py -q` —
   **81 passed**.
 
+## Follow-up: feature-discrepancy audit (same day)
+
+A follow-up question ("any OTHER feature discrepancies to remediate?")
+produced a targeted audit of the current frame, monitor coverage, model
+bundle and feature code. Three discrepancies found; two remediated in
+this follow-up commit, one self-heals:
+
+- **Bullpen trailing-window NULLs — 115 rows (1.6%).** The `bp_fatigue`
+  LEFT JOIN emitted NULL whenever a team had no outing inside the strict
+  trailing-3d window — a KNOWN zero (rest days, the All-Star break,
+  postseason byes, opener gaps: nulls cluster at 03-26/27/28, 07-17/18/19
+  and 10-03 exactly). All four 2026-10-03 DS openers (home clubs off 6
+  days) carried `LOW_COVERAGE` (7/11) into the monitor. The SQL now fills
+  `0` **only when the team has an earlier game in the frame** — a team
+  with no prior game keeps NULL, and in-window values pass through
+  untouched (both pinned by T3, which executes the extracted production
+  statement against mini tables).
+- **Indoor-neutral weather fills were input-conditioned — 214 wind + 188
+  air closed-roof rows NULL.** Every one had `dome_is_neutral_game = 1`
+  (known-closed roof) with a missing `sp_era_diff` / `sp_fbvelo_diff` /
+  density level: the gate only zeroed "computable" rows, and
+  `add_env_level_features` — which runs LAST — even re-NaN'd rows the
+  build had zeroed. The fill is now `apply_indoor_neutral_fills`,
+  unconditional on game-resolved closed roofs (the wind multiplier is
+  structurally 0 indoors; air is policy-neutral indoors), shared by both
+  passes. Open-air missing observations still stay NULL (never
+  fabricated). The prior stance pin
+  `test_dome_without_density_observation_stays_unknown` was deliberately
+  replaced by `..._gets_the_neutral_zero`: indoor-neutral is a policy on
+  the roof state, not a function of the observation, and the coverage
+  table already labels these zeros as defaults.
+- **Recent open-air weather misses (3 rows: 10-01 air, 10-04 both, 10-05
+  air) — self-healing.** StatsAPI now returns observations for game_pks
+  849844 / 849823 / 849839; the next build's gap-filler picks them up.
+  Watch: `air_density_velocity_boost` needs pressure, which the StatsAPI
+  gap-filler does not carry — Open-Meteo-archive gaps can still leave
+  that column alone.
+
+Values land in `game_level_features.csv` on the **next pipeline run** (no
+local rebuild is possible: `pitches.parquet` lives outside the repo).
+Verification: 358 backend tests pass (3 new: T3/T4), graph gate OK, no
+new committed programs (fixes in `features.py`, tests extended in the
+existing files).
+
 ## Known limitations
 
 - The T1 guard is warn-only: this run's missing 10-07 slate is not repaired

@@ -2757,11 +2757,38 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
              AND d.day < g.gd AND d.day >= g.gd - INTERVAL 3 DAY
             GROUP BY g.game_pk
         )
+        -- Empty trailing window = the bullpen threw NOTHING in the last 3
+        -- days — a KNOWN fact (rest days, the All-Star break, postseason
+        -- byes, opener gaps), not missing data. The old LEFT-JOIN NULL
+        -- erased the whole bullpen family on exactly those rows (2026-10-08
+        -- review: 115 rows / 1.6%, incl. all four 10-03 DS openers).
+        -- Fill 0 only when the team has an EARLIER game in the frame; a
+        -- team with no prior game at all keeps NULL (nothing observed yet).
         SELECT g.game_pk,
-               h.pitches_3d AS bullpen_pitches_3d_home,
-               h.ip_3d AS bullpen_ip_3d_home,
-               a.pitches_3d AS bullpen_pitches_3d_away,
-               a.ip_3d AS bullpen_ip_3d_away,
+               CASE WHEN h.pitches_3d IS NOT NULL THEN h.pitches_3d
+                    WHEN EXISTS (SELECT 1 FROM games g2
+                                  WHERE g2.gd < g.gd
+                                    AND (g2.home_team = g.home_team
+                                      OR g2.away_team = g.home_team))
+                    THEN 0 END AS bullpen_pitches_3d_home,
+               CASE WHEN h.ip_3d IS NOT NULL THEN h.ip_3d
+                    WHEN EXISTS (SELECT 1 FROM games g2
+                                  WHERE g2.gd < g.gd
+                                    AND (g2.home_team = g.home_team
+                                      OR g2.away_team = g.home_team))
+                    THEN 0.0 END AS bullpen_ip_3d_home,
+               CASE WHEN a.pitches_3d IS NOT NULL THEN a.pitches_3d
+                    WHEN EXISTS (SELECT 1 FROM games g2
+                                  WHERE g2.gd < g.gd
+                                    AND (g2.home_team = g.away_team
+                                      OR g2.away_team = g.away_team))
+                    THEN 0 END AS bullpen_pitches_3d_away,
+               CASE WHEN a.ip_3d IS NOT NULL THEN a.ip_3d
+                    WHEN EXISTS (SELECT 1 FROM games g2
+                                  WHERE g2.gd < g.gd
+                                    AND (g2.home_team = g.away_team
+                                      OR g2.away_team = g.away_team))
+                    THEN 0.0 END AS bullpen_ip_3d_away,
                d2.home_pitches_2d AS bullpen_budget_2d_home,
                d2.away_pitches_2d AS bullpen_budget_2d_away,
                CASE WHEN COALESCE(d2.home_pitches_2d, 0) > 0
@@ -4251,6 +4278,34 @@ def refine_dome_game_level(df: pd.DataFrame,
     return df
 
 
+def apply_indoor_neutral_fills(df: pd.DataFrame) -> pd.DataFrame:
+    """Indoor-neutral policy: a game-resolved CLOSED roof makes both weather
+    interactions zero, whatever the pitcher-side or observation inputs say.
+
+    ``wind_advantage_flyball_factor = wind_multiplier × sp_era_diff`` — the
+    wind multiplier is 0 indoors, so the product is 0 even when
+    ``sp_era_diff`` is missing; ``air_density_velocity_boost`` is
+    policy-neutral indoors (the production stance since the hallucination
+    gate). Conditioning the fill on those inputs (the pre-2026-10-08
+    behavior) left 214 wind + 188 air closed-roof rows NULL — opener,
+    All-Star-Break and postseason-bye games traded a KNOWN zero for a
+    median imputation. Open-air rows are NEVER touched: a missing outdoor
+    observation stays NULL (never fabricated). Coverage labels the
+    resulting zeros as defaults, so they can never masquerade as
+    observations.
+    """
+    dome_col = ("dome_is_neutral_game" if "dome_is_neutral_game" in df.columns
+                else "dome_is_neutral")
+    if dome_col not in df.columns:
+        return df
+    closed = pd.to_numeric(df[dome_col], errors="coerce").eq(1)
+    if "wind_advantage_flyball_factor" in df.columns:
+        df.loc[closed, "wind_advantage_flyball_factor"] = 0.0
+    if "air_density_velocity_boost" in df.columns:
+        df.loc[closed, "air_density_velocity_boost"] = 0.0
+    return df
+
+
 def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """Standalone environment-LEVEL columns for the run engine (additive).
 
@@ -4344,22 +4399,13 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
     # never price wind/air advantage indoors. The interaction columns were
     # built earlier with the VENUE flag (or carried stale pre-cache
     # values); correct them here with the GAME-level roof state so the
-    # run engine never trains on non-zero dome wind. Missing diff inputs
-    # stay NULL (never a fabricated 0).
-    dome_col2 = ("dome_is_neutral_game"
-                 if "dome_is_neutral_game" in df.columns
-                 else "dome_is_neutral")
-    dome_flag = pd.to_numeric(df.get(dome_col2), errors="coerce") == 1
-    if "wind_advantage_flyball_factor" in df.columns:
-        _era_ok = pd.to_numeric(df.get("sp_era_diff"),
-                               errors="coerce").notna()
-        df.loc[dome_flag & _era_ok, "wind_advantage_flyball_factor"] = 0.0
-    if "air_density_velocity_boost" in df.columns:
-        _velo_ok = pd.to_numeric(df.get("sp_fbvelo_diff"),
-                                 errors="coerce").notna()
-        _density_ok = pd.to_numeric(df["air_density_level"], errors="coerce").notna()
-        df.loc[dome_flag & _velo_ok & _density_ok, "air_density_velocity_boost"] = 0.0
-        df.loc[dome_flag & ~_density_ok, "air_density_velocity_boost"] = np.nan
+    # run engine never trains on non-zero dome wind. This pass runs LAST
+    # (refine → env), so the fill must be UNCONDITIONAL: the old
+    # input-conditioned version ("missing diff inputs stay NULL") re-NaN'd
+    # rows the build had already zeroed and left 214 wind + 188 air
+    # closed-roof rows NULL on opener/ASB/bye games. Open-air rows stay
+    # untouched — a missing outdoor observation is still NULL.
+    apply_indoor_neutral_fills(df)
 
     n_w = int(df["park_wind_factor"].notna().sum())
     n_a = int(df["air_density_level"].notna().sum())
@@ -5339,14 +5385,10 @@ def add_diff_features(
     df["air_density_velocity_boost"] = (
         (_ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce")
     )
-    _dome_col = "dome_is_neutral_game" if "dome_is_neutral_game" in df else "dome_is_neutral"
-    _closed = pd.to_numeric(df[_dome_col], errors="coerce").eq(1)
-    # Preserve the production indoor-neutral policy, but never claim density
-    # is observed when the input level is absent. Coverage labels these zeros.
-    df.loc[_closed & df["air_density_velocity_boost"].notna(),
-           "air_density_velocity_boost"] = 0.0
-    df.loc[_closed & df["sp_era_diff"].notna(),
-           "wind_advantage_flyball_factor"] = 0.0
+    # Indoor-neutral policy, shared with add_env_level_features (which
+    # runs LAST — see apply_indoor_neutral_fills for why the fill is
+    # unconditional on game-resolved closed roofs).
+    apply_indoor_neutral_fills(df)
 
     # ── 32. bullpen_meltdown_risk_diff (RENAMED 2026-09-30): the family's
     # cross-side form, bullpen_pitches_diff × bullpen_whip_10g_diff.

@@ -143,11 +143,24 @@ def test_weather_recompute_preserves_levels_and_updates_products():
                                   again.air_density_velocity_boost)
 
 
-def test_dome_without_density_observation_stays_unknown():
+def test_dome_without_density_observation_gets_the_neutral_zero():
+    """2026-10-08 follow-up (was ``..._stays_unknown``): indoor-neutral is
+    a POLICY on the roof state, not a function of the observation. A
+    closed-roof game with no density record now carries the neutral 0.0
+    (the coverage table labels it a default, never an observation), while
+    open-air rows beside it still stay NULL — a missing outdoor
+    observation is never fabricated."""
     df = _diff_frame()
     df["home_team"] = "TB"
     out = features.add_diff_features(df)
-    assert out.air_density_velocity_boost.isna().all()
+    assert (out.air_density_velocity_boost == 0.0).all()
+    assert (out.wind_advantage_flyball_factor == 0.0).all()
+
+    open_air = _diff_frame()
+    open_air["home_team"] = "NYY"
+    out2 = features.add_diff_features(open_air)
+    assert out2.air_density_velocity_boost.isna().all()
+    assert out2.wind_advantage_flyball_factor.isna().all()
 
 
 def _exp2_frame(n: int = 4) -> pd.DataFrame:

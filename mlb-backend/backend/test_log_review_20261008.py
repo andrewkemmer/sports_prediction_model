@@ -44,6 +44,7 @@ import ingestion  # noqa: E402
 from ingestion import warn_missing_finals  # noqa: E402
 
 MASTER_SRC = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+FEATURES_SRC = (BACKEND / "features.py").read_text(encoding="utf-8")
 
 GUARD_TAG = "missing-finals guard"
 
@@ -202,3 +203,106 @@ def test_phase1_guard_is_warn_only_and_never_kills_the_run():
                   if "warn_missing_finals(pitches_path, end)" in ln]
     assert call_lines == ["warn_missing_finals(pitches_path, end)"], (
         "the guard must be a bare call in Phase 1, not conditionally gated")
+
+
+# ── T3: bullpen empty-window fill (2026-10-08 feature-discrepancy review) ───
+# A team with NO outings inside the trailing-3d window threw ZERO bullpen
+# pitches — a known fact (rest days, the All-Star break, postseason byes,
+# opener gaps). The bp_fatigue LEFT JOIN turned the empty window into NULL
+# and erased the whole bullpen family on exactly those rows (115 rows /
+# 1.6% of the frame; all four 2026-10-03 DS openers carried 7/11 coverage
+# into the monitor). The fill is scoped to "team has an earlier game in the
+# frame" — a team with no prior game keeps NULL.
+
+def _bp_fatigue_sql() -> str:
+    """The PRODUCTION bp_fatigue statement, extracted from features.py so
+    the test exercises the shipped SQL rather than a copy of it."""
+    start = FEATURES_SRC.index("CREATE TABLE bp_fatigue AS")
+    end = FEATURES_SRC.index('"""', start)
+    return FEATURES_SRC[start:end]
+
+
+def test_bp_fatigue_empty_window_is_zero_not_null():
+    import duckdb
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE pitches (game_pk INTEGER, game_date DATE, "
+                "home_team VARCHAR, away_team VARCHAR)")
+    con.execute("CREATE TABLE bp_daily (day DATE, team VARCHAR, "
+                "pitches INTEGER, ip DOUBLE)")
+    con.execute("CREATE TABLE bp_day2 (game_pk INTEGER, home_pitches_2d INTEGER, "
+                "home_ready_2d INTEGER, away_pitches_2d INTEGER, "
+                "away_ready_2d INTEGER)")
+    con.executemany("INSERT INTO pitches VALUES (?, ?, ?, ?)", [
+        (1, "2026-03-27", "AAA", "BBB"),  # opener: no earlier game either side
+        (2, "2026-04-01", "AAA", "BBB"),  # AAA rested (prior game, empty window)
+        (3, "2026-07-18", "AAA", "BBB"),  # ASB return: pre-break work only
+    ])
+    con.executemany("INSERT INTO bp_daily VALUES (?, ?, ?, ?)", [
+        ("2026-03-31", "BBB", 40, 4.0),   # inside game 2's window → passes through
+        ("2026-07-12", "AAA", 30, 3.0),   # before game 3's window
+        ("2026-07-11", "BBB", 25, 2.5),   # before game 3's window
+    ])
+    con.execute(_bp_fatigue_sql())
+    rows = con.execute(
+        "SELECT game_pk, bullpen_pitches_3d_home, bullpen_ip_3d_home, "
+        "       bullpen_pitches_3d_away, bullpen_ip_3d_away "
+        "FROM bp_fatigue ORDER BY game_pk").fetchall()
+    got = {r[0]: r for r in rows}
+
+    # Opener: no earlier game → NULL preserved (non-vacuity: the fill is
+    # scoped to "has prior game", never a blanket COALESCE).
+    assert got[1][1] is None and got[1][3] is None, got[1]
+    # In-window work passes through untouched (non-vacuity).
+    assert got[2][3] == 40 and abs(got[2][4] - 4.0) < 1e-9, got[2]
+    # Empty window + earlier game → known 0 (home rested; game 3 both sides).
+    assert got[2][1] == 0 and abs(got[2][2] - 0.0) < 1e-9, got[2]
+    assert got[3][1] == 0 and got[3][3] == 0, got[3]
+
+
+# ── T4: indoor-neutral fill (unconditional, wired into BOTH passes) ─────────
+
+def test_indoor_neutral_fill_is_unconditional_and_open_air_stays_null():
+    """Closed roof → both weather interactions are 0 whatever the
+    pitcher-side inputs say (the wind multiplier is structurally 0 indoors
+    and air effects are policy-neutral). Open-air rows and unknown-roof
+    rows are never touched — a missing outdoor observation stays NULL."""
+    import numpy as np
+    import features
+
+    df = pd.DataFrame({
+        "dome_is_neutral_game": [1.0, 1.0, 0.0, np.nan],
+        "wind_advantage_flyball_factor": [np.nan, 0.5, np.nan, np.nan],
+        "air_density_velocity_boost": [np.nan, np.nan, np.nan, 0.3],
+    })
+    out = features.apply_indoor_neutral_fills(df)
+    assert out["wind_advantage_flyball_factor"].tolist()[:2] == [0.0, 0.0]
+    assert np.isnan(out["wind_advantage_flyball_factor"].iloc[2])
+    assert np.isnan(out["wind_advantage_flyball_factor"].iloc[3])
+    assert out["air_density_velocity_boost"].tolist()[:2] == [0.0, 0.0]
+    assert np.isnan(out["air_density_velocity_boost"].iloc[2])
+    assert out["air_density_velocity_boost"].iloc[3] == 0.3
+
+    # Venue-prior fallback when the game-state column is absent.
+    venue = pd.DataFrame({
+        "dome_is_neutral": [1.0, 0.0],
+        "wind_advantage_flyball_factor": [np.nan, np.nan],
+    })
+    vout = features.apply_indoor_neutral_fills(venue)
+    assert vout["wind_advantage_flyball_factor"].iloc[0] == 0.0
+    assert np.isnan(vout["wind_advantage_flyball_factor"].iloc[1])
+
+
+def test_indoor_fill_is_wired_into_both_passes_and_old_conditionals_gone():
+    """add_diff_features builds the interactions and add_env_level_features
+    runs LAST (refine → env) — both must route through the shared helper,
+    because the env pass's old conditional version was the pipeline's final
+    word and re-NaN'd rows the build had already zeroed."""
+    src = FEATURES_SRC
+    assert src.count("apply_indoor_neutral_fills(df)") == 2, (
+        "expected exactly two production call sites (add_diff_features + "
+        "add_env_level_features)")
+    # The old input-conditioned / forced-NaN lines must be gone.
+    assert 'df.loc[dome_flag & _era_ok' not in src
+    assert 'df.loc[dome_flag & ~_density_ok' not in src
+    assert 'df.loc[_closed & df["sp_era_diff"].notna()' not in src
