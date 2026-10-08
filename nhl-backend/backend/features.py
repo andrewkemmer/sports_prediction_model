@@ -287,33 +287,50 @@ def team_game_rollup(games: pd.DataFrame,
     faced by ONE goalie, which is not the team's total when a relief
     appearance happens).
 
-    Returns an empty frame (not None) when there is no boxscore coverage, so
-    every metric degrades to all-NaN rather than raising.
+    Boxscore-only metrics (PP, faceoff, PIM, hits, ...) still degrade to
+    all-NaN when a game has no boxscore row — the score feed does not carry
+    them. The shots family (``sog_pg`` / ``shots_against_pg``) does NOT: the
+    settled ``games`` frame carries byte-identical team SOG, so it is used as
+    a fallback and those features never silently vanish on a boxscore gap.
     """
-    if boxscores is None or len(boxscores) == 0 or "game_id" not in boxscores.columns:
-        return pd.DataFrame(columns=["game_id", "team"])
-    bs = boxscores.copy()
-    bs["game_id"] = bs["game_id"].astype(str)
-    # Last write wins; the loader concatenates one row per game already.
-    bs = bs.drop_duplicates(subset=["game_id"], keep="last")
+    g = games.copy()
+    g["game_id"] = g["game_id"].astype(str)
+    # Settled frame has one row per game; keep the last write.
+    g = g.drop_duplicates(subset=["game_id"], keep="last")
+    ids = g["game_id"].to_numpy()
+
+    bs = pd.DataFrame(columns=["game_id"])
+    if boxscores is not None and len(boxscores) and "game_id" in boxscores.columns:
+        bs = boxscores.copy()
+        bs["game_id"] = bs["game_id"].astype(str)
+        # Last write wins; the loader concatenates one row per game already.
+        bs = bs.drop_duplicates(subset=["game_id"], keep="last")
+    bsidx = bs.set_index("game_id") if len(bs) else None
 
     frames: list[pd.DataFrame] = []
     for side in ("home", "away"):
-        cols: dict[str, pd.Series] = {"game_id": bs["game_id"]}
+        data: dict[str, np.ndarray] = {"game_id": ids}
         for src, metric in BOXSCORE_TEAM_METRICS.items():
             if src == "opp_sog":
                 other = "away" if side == "home" else "home"
                 col = f"{other}_sog"
             else:
                 col = f"{side}_{src}"
-            if col in bs.columns:
-                cols[metric] = pd.to_numeric(bs[col], errors="coerce")
+            if bsidx is not None and col in bsidx.columns:
+                v = pd.to_numeric(
+                    bsidx[col], errors="coerce"
+                ).reindex(ids).to_numpy(dtype=float)
             else:
-                cols[metric] = np.nan
-        long = pd.DataFrame(cols)
-        long["team"] = games.set_index(games["game_id"].astype(str)) \
-            .reindex(long["game_id"])[f"{side}_team"].to_numpy() \
-            if f"{side}_team" in games.columns else None
+                v = np.full(len(ids), np.nan)
+            # Shots-for/against fall back to the settled games frame's SOG so a
+            # missing boxscore never drops these two served features.
+            if src in ("sog", "opp_sog") and col in g.columns:
+                fb = pd.to_numeric(g[col], errors="coerce").to_numpy(dtype=float)
+                v = np.where(np.isnan(v), fb, v)
+            data[metric] = v
+        long = pd.DataFrame(data)
+        long["team"] = (g[f"{side}_team"].to_numpy()
+                        if f"{side}_team" in g.columns else None)
         frames.append(long)
     roll = pd.concat(frames, ignore_index=True)
     roll = roll.dropna(subset=["team"])

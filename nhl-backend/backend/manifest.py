@@ -207,7 +207,7 @@ FEATURE_MANIFEST = {
     "shots_for_per_game_diff": {
         "description": "Home minus away trailing shots on goal per game",
         "definition": "rolling(5).mean() of team shots on goal over strictly-prior games",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -220,7 +220,7 @@ FEATURE_MANIFEST = {
         "description": "Home minus away trailing shots against per game",
         "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games "
                       "(lower = better defensive structure)",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -552,7 +552,7 @@ FEATURE_MANIFEST = {
         "description": "Home team's trailing shots on goal per game",
         "definition": "rolling(5).mean() of team shots on goal over strictly-prior games "
                       "(home side of shots_for_per_game_diff)",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -565,7 +565,7 @@ FEATURE_MANIFEST = {
         "description": "Away team's trailing shots on goal per game",
         "definition": "rolling(5).mean() of team shots on goal over strictly-prior games "
                       "(away side of shots_for_per_game_diff)",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -579,7 +579,7 @@ FEATURE_MANIFEST = {
         "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior "
                       "games (lower = better defensive structure) -- home side of "
                       "shots_against_per_game_diff",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -593,7 +593,7 @@ FEATURE_MANIFEST = {
         "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior "
                       "games (lower = better defensive structure) -- away side of "
                       "shots_against_per_game_diff",
-        "source": "official NHL API boxscores (team SOG)",
+        "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
         "lookback": 5,
         "aggregation": "trailing windowed mean",
         "point_in_time_rule": "per-team rolling(5).mean().shift(1)",

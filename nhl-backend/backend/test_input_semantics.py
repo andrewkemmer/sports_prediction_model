@@ -190,6 +190,34 @@ def test_incomplete_count_pair_contributes_neither_numerator_nor_denominator():
     assert frame.faceoff_win_home.iloc[2] == .5
 
 
+def test_shots_family_falls_back_to_settled_games_frame_sog():
+    """A missing boxscore must not drop shots_for / shots_against.
+
+    The settled score feed carries byte-identical team SOG, so those two
+    served features resolve from ``games`` when no boxscore row exists, while
+    PP/faceoff (no score-feed source) correctly stay undefined.
+    """
+    games = pd.DataFrame([
+        {**game("0", "2024-10-01"), "home_sog": 34.0, "away_sog": 28.0},
+        {**game("1", "2024-10-03"), "home_sog": 30.0, "away_sog": 31.0},
+    ])
+    # No boxscores at all: PP/faceoff/goalie have no source; shots do.
+    frame = feat.build_game_features(games, pd.DataFrame(),
+                                     pd.DataFrame(), pd.DataFrame())
+    # shots-for/against resolve from the games frame's SOG (not all NaN).
+    assert frame.shots_for_per_game_home.notna().sum() >= 1
+    assert frame.shots_against_per_game_home.notna().sum() >= 1
+    # Trailing strictly-prior window: game 1's home shots-for = game 0's 34,
+    # shots-against = the opponent's (BUF) prior SOG of 28.
+    assert frame.shots_for_per_game_home.iloc[1] == pytest.approx(34.0)
+    assert frame.shots_against_per_game_home.iloc[1] == pytest.approx(28.0)
+    # The team's first game has no prior -> NaN (never fabricated).
+    assert pd.isna(frame.shots_for_per_game_home.iloc[0])
+    # PP/faceoff stay undefined without a boxscore: the score feed lacks them.
+    assert frame.pp_success_home.isna().all()
+    assert frame.faceoff_win_home.isna().all()
+
+
 @pytest.mark.parametrize("home_wins", [True, False])
 def test_elo_positive_home_edge_and_rating_conservation(home_wins):
     g = pd.DataFrame([game("1", "2024-10-01", score=3 if home_wins else 0)])
