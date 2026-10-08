@@ -66,14 +66,18 @@ Walk-forward AUC by run (`calibration_*.json`, metrics.calibrated):
 |---|---|---|---|---|---|---|---|---|---|---|
 | AUC | 0.5850 | 0.5612 | 0.5611 | 0.5617 | 0.5741 | 0.5734 | 0.5726 | 0.5746 | 0.5721 | 0.5719 |
 
-Paired bootstrap on shared games (2,000 resamples, seed 7):
+Paired bootstrap on shared games (2,000 resamples, seed 7; paired on
+`game_id`, which is unique per game and keeps both games of a
+doubleheader — an earlier draft paired on `(date, teams)` and let the 76
+doubleheader keys collide, which shifted n and the deltas by ≤0.001
+without changing any verdict):
 
 | pair | n shared | Δ AUC | 95% CI | significant? |
 |---|---|---|---|---|
-| 0928 → 1008 | 7,019 | −0.0140 | [−0.0250, −0.0028] | yes (confounded, see below) |
-| 1001 → 1003 | 7,037 | **+0.0134** | [+0.0055, +0.0210] | yes |
-| 1003 → 1008 | 7,168 | −0.0019 | [−0.0071, +0.0035] | **no** |
-| 1006 → 1008 | 7,174 | −0.0028 | [−0.0074, +0.0015] | **no** |
+| 0928 → 1008 | 6,869 | −0.0135 | [−0.0246, −0.0022] | yes (confounded, see below) |
+| 1001 → 1003 | 6,887 | **+0.0123** | [+0.0047, +0.0196] | yes |
+| 1003 → 1008 | 7,016 | −0.0020 | [−0.0069, +0.0029] | **no** |
+| 1006 → 1008 | 7,022 | −0.0026 | [−0.0066, +0.0010] | **no** |
 
 Reading:
 
@@ -90,7 +94,7 @@ Reading:
    causal-evaluation parity, input repairs, population labels, delivery-root
    fixes. None targeted discrimination, and none moved it; that is the
    expected result, not a failure.
-4. **Power check:** the paired CI half-width on ~7.2k shared games is ≈0.005,
+4. **Power check:** the paired CI half-width on ~7.0k shared games is ≈0.005,
    so a real improvement must be ≳0.007 to clear — daily feature tweaks
    cannot show up even when they work.
 5. **The ceiling is behavioral, not stale data.** Probabilities are heavily
@@ -98,6 +102,18 @@ Reading:
    a climatology constant is only 1.7% (0.2446 vs 0.2489), and recent form
    (last 60 decided games, AUC 0.575) sits at the pooled level (0.572) — the
    model is not hiding recent signal.
+6. **Why input repairs cannot show at the AUC's resolution** (1007 → 1008,
+   the roof/resume-slot repair run pair): AUC is the NET of 12.29M
+   winner-loser pair orderings, and 5.3% of them DID flip — 327,407
+   concordant→discordant vs 324,240 discordant→concordant — canceling to
+   net −0.0003 (0.5722 → 0.5720; headline 0.5721 → 0.5719). The moves were
+   common-mode: mean Δprob was −0.00004 on winners vs +0.00041 on losers,
+   i.e. levels shifted without adding discrimination (rank Spearman 0.984,
+   median game moved ~180 rank positions — the model absolutely changed).
+   Sensitivity calibration: Gaussian noise of σ=0.01 on every probability
+   (≈ the repair's mean |Δ| of 0.009) moves AUC only ~0.001; reliably
+   clearing 0.005 needs σ≈0.02–0.04 — perturbations a third to two thirds
+   as large as the model's entire probability spread (std 0.067).
 
 Conclusion: with the honest protocol, the model has been flat since 10-03 at
 a level the current feature set supports. Moving the number requires new
