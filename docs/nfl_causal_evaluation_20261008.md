@@ -77,6 +77,54 @@ population.
   is claimed from code alone. The retrospective-vs-causal gap (if any) is
   now visible in the log instead of hidden inside the headline.
 
+## 2026-10-08 run review (pre-remediation baseline) and accuracy audit
+
+The last remote run before these remediations (log delivered in `f2630028`,
+22:50–23:09 UTC) is CLEAN mechanically: all seven Phase-14 gates PASS, 239
+artifacts, no failed members, no crashes. It is the honest BASELINE the next
+(full-remediation) run must be compared against:
+
+| Metric | Baseline (old code) | Next-run expectation |
+|---|---|---|
+| `oof_regular` (grading, causal) | AUC 0.6977 / logloss 0.6281 (n=1689) | compare THIS to the new causal headline — not the old "raw" line |
+| old "moneyline OOF raw" line | AUC 0.6998 / logloss 0.6270 | was the RETROSPECTIVE replay; next run reports causal + retrospective separately |
+| `oof_provisional` | AUC 0.6850 / logloss 0.6395 (n=758) | grows: playoff windows now enter as provisional |
+| members | xgb 0.6954/0.6290, lgbm 0.6981/0.6285, enet 0.6965/0.6306 | re-earned on the enlarged frame |
+| schedule rows | 2704 (REG only) | 2826 (+122 WC/DIV/CON/SB) |
+| `postseason_windows` | 0 | real; Jan/Feb windows are thin → provisional |
+| epa_* coverage | 87.94–92.08% | higher: season-boundary carry covers 2017+ openers (2016 openers stay NaN — no prior pbp exists) |
+| calibrator lines | "final pooled calibrator (fitted; Phase 9 gates it)" + dynamic gate | "final serving calibrator … (nested prior-evidence gate: accepted/identity + reason)" |
+
+### Accuracy audit vs official game data
+
+- Delivered cards store (2,447 rows): `actual_winner` matches the official
+  scores 2447/2447; the `correct` invariant holds 1152/1152; probabilities
+  sum to 1 on every row (audited earlier this session).
+- Delivered `nfl_power_rankings_20261008.csv`: cumulative W-L for all 34
+  rows recomputed from the official nflverse schedule (REG, through
+  2026-10-05) — **34/34 exact, 0 mismatches**.
+- Frame census reconciles exactly with the official schedule (2,703 decided
+  = 2,639 REG 2016–2025 + 64 in 2026 through week 4; warmup 256 + core
+  2447).
+- Coverage gaps in the log are all structural and documented: weather
+  71.14% (outdoor stadiums only — dome games have no weather by design),
+  rest_days/opener families 93.5–99.4% (openers are NaN, never a priced
+  offseason gap), travel/turf 98.4–99.2% (historical venue-resolution
+  gaps).
+
+### Drift verdicts (investigated, no action — honest signals)
+
+- `inj_ol_out_home/away` ALERT (psi_adj 0.339/0.294): a REAL location
+  shift in the delivered weekly-report + roster-overlay data — current
+  window mean 1.37 vs season-phase-matched baseline 2.04 OL designations
+  per team-game (the 2026 feed carries thinner OL-unavailability capture
+  than prior Septembers; `date_modified` confirms the strict-PIT/weekly
+  channel seam at 2025). The model gives the family ~0% blend weight
+  (weight_pct 0.0/0.08), so there is no accuracy lever here; suppressing
+  the alert would hide a true distribution change, so it stays.
+- `pace_plays_min_away` WARN (mean 1.298 vs baseline 1.334, −2.8%): small
+  but real location shift at 0.54% blend weight — monitored, no action.
+
 ## Remaining limitations
 
 - The nested gate will hold most early-fold maps and possibly the final map
