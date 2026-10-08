@@ -446,6 +446,95 @@ def test_running_scores_are_null_and_never_cached_mid_game():
     path.unlink(missing_ok=True)
 
 
+def test_recent_settled_score_pages_refresh_for_feed_corrections():
+    """A settled page inside SCORE_REFRESH_DAYS re-pulls for feed fixes.
+
+    2026-10-08 official-vs-cache audit: the settled 2026-10-06 page held
+    away_sog 28/28 while the feed's corrected values were 27/30 — settled
+    pages were NEVER re-fetched, so the stale shots values would feed
+    trailing shots_for/against features forever. Outside the window the
+    permanent-settlement contract holds (cache hit, no network), and a
+    FAILED refresh serves the settled cache — never a hole in the decided
+    population.
+    """
+    day = (date.today() - timedelta(days=1)).isoformat()       # refreshable
+    old = (date.today() - timedelta(
+        days=ing.SCORE_REFRESH_DAYS + 40)).isoformat()          # settled
+    path = BACKEND / f"refresh_{day.replace('-', '')}.parquet"
+    old_path = BACKEND / f"refresh_{old.replace('-', '')}.parquet"
+
+    def _game(day_, gid, sog):
+        return {"id": gid, "gameDate": day_, "season": 2026,
+                "awayTeam": {"id": 1, "name": {"default": "A"},
+                             "abbrev": "AAA", "score": 1, "sog": sog,
+                             "record": "1-1"},
+                "homeTeam": {"id": 2, "name": {"default": "H"},
+                             "abbrev": "HHH", "score": 2, "sog": 31,
+                             "record": "1-1"},
+                "venue": {"default": "V"}, "gameState": "OFF",
+                "gameType": 2}
+
+    def _page(day_, away_sog):
+        return pd.DataFrame([{
+            "game_id": "1", "season": 2026, "game_type": 2,
+            "game_date": day_, "start_time_utc": "2026-10-07T23:30:00Z",
+            "home_team": "HHH", "away_team": "AAA",
+            "home_score": 2.0, "away_score": 1.0,
+            "home_sog": 31.0, "away_sog": float(away_sog),
+            "venue": "V", "game_state": "OFF", "game_outcome": "REG",
+        }])
+
+    calls: list[str] = []
+
+    def _corrected(url):
+        calls.append(url)
+        return {"games": [_game(day, 1, 27)]}   # feed corrected 28 -> 27
+
+    def _boom(url):
+        calls.append(url)
+        raise RuntimeError("network down")
+
+    _page(day, 28).to_parquet(path, index=False)   # stale seeded value
+    try:
+        # (1) inside the refresh window: re-pull, correction lands,
+        #     page re-cached.
+        with _mock_patch.object(ing, "_http_json", side_effect=_corrected), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: path):
+            df = ing.load_score_dates([day], use_cache=True)
+        assert len(calls) == 1, (
+            "a settled page inside the refresh window was never re-pulled")
+        assert float(df["away_sog"].iloc[0]) == 27.0, (
+            "the feed correction did not land in the schedule frame")
+        assert float(pd.read_parquet(path)["away_sog"].iloc[0]) == 27.0, (
+            "the refresh did not re-cache the corrected page")
+
+        # (2) outside the window: cache hit, zero network.
+        _page(old, 28).to_parquet(old_path, index=False)
+        calls.clear()
+        with _mock_patch.object(ing, "_http_json", side_effect=_corrected), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: old_path):
+            df_old = ing.load_score_dates([old], use_cache=True)
+        assert not calls, "a settled page outside the refresh window was re-pulled"
+        assert float(df_old["away_sog"].iloc[0]) == 28.0
+
+        # (3) failed refresh serves the settled cache (restore the stale
+        #     value first so the fallback is provably the cache's row).
+        _page(day, 28).to_parquet(path, index=False)
+        calls.clear()
+        with _mock_patch.object(ing, "_http_json", side_effect=_boom), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: path):
+            df_fb = ing.load_score_dates([day], use_cache=True)
+        assert len(df_fb) == 1 and float(df_fb["away_sog"].iloc[0]) == 28.0, (
+            "a failed refresh dropped the recent date instead of serving "
+            "the settled cache")
+    finally:
+        path.unlink(missing_ok=True)
+        old_path.unlink(missing_ok=True)
+
+
 def test_eligible_games_renulls_in_flight_scores():
     """The admission point must not admit a running score as decided.
 

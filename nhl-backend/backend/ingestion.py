@@ -175,6 +175,31 @@ PULL_CHUNK_PAUSE_SEC = 0.0
 # has sat in gameState=FUT since the shortened 2024-25 season).
 SETTLE_GRACE_DAYS = 2
 
+# A settled score page stays REFRESHABLE for this many days after its
+# game date: the feed revises final stats shortly after a game goes OFF
+# (2026-10-08 official-vs-cache audit: the settled 2026-10-06 page held
+# away_sog 28/28 while the feed's corrected values are 27/30 — and a
+# settled page is otherwise NEVER re-fetched, so the stale shots values
+# would feed trailing shots_for/against features forever). Inside the
+# window the page is re-pulled like a provisional one (and re-cached
+# when every game is final); a failed refresh falls back to the settled
+# cache so a network blip can never drop a recent date. Beyond the
+# window the permanent-settlement contract holds — no re-pull of the
+# deep history the feed no longer revises.
+SCORE_REFRESH_DAYS = 3
+
+# A settled score page stays REFRESHABLE for this many days after its
+# game date: the feed revises final stats shortly after a game goes OFF
+# (2026-10-08 official-vs-cache audit: the settled 2026-10-06 page held
+# away_sog 28/28 while the feed's corrected values are 27/30 — and a
+# settled page is otherwise NEVER re-fetched, so the stale shots values
+# would feed trailing shots_for/against features forever). Inside the
+# window the page is re-pulled like a provisional one (and re-cached
+# when every game is final); a failed refresh falls back to the settled
+# cache so a network blip can never drop a recent date. Beyond the
+# window the permanent-settlement contract holds — no re-pull of the
+# deep history the feed no longer revises.
+
 
 def _progress_bar(total: int, desc: str):
     """A tqdm bar whenever tqdm is importable, else None.
@@ -538,7 +563,11 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             len(wdates), f"score chunk {w}/{len(windows)} [{wlabel}]")
         for i, d in enumerate(wdates, 1):
             path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
-            if use_cache and path.exists():
+            # Inside SCORE_REFRESH_DAYS a settled page is re-pulled (feed
+            # corrections land there); outside it a cache hit is final.
+            refreshable = (date.fromisoformat(d)
+                           >= today - timedelta(days=SCORE_REFRESH_DAYS))
+            if use_cache and path.exists() and not refreshable:
                 try:
                     frames.append(_coerce_score_dtypes(pd.read_parquet(path)))
                     hits += 1
@@ -549,6 +578,23 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             try:
                 payload = _http_json(f"{NHL_API_BASE}/score/{d}")
             except Exception as exc:  # noqa: BLE001
+                # A failed REFRESH must not drop a recent date the settled
+                # cache already serves — stale-on-network-failure beats a
+                # hole in the decided population.
+                if use_cache and path.exists():
+                    try:
+                        frames.append(
+                            _coerce_score_dtypes(pd.read_parquet(path)))
+                        hits += 1
+                        prog.tick(cached=True)
+                        logger.warning(
+                            "score page %s unavailable (%s) — settled cache "
+                            "served instead", d, exc)
+                        continue
+                    except Exception as cache_exc:  # noqa: BLE001
+                        logger.warning(
+                            "score cache %s unreadable after a failed "
+                            "refresh (%s)", path.name, cache_exc)
                 logger.warning("score page unavailable for %s: %s", d, exc)
                 prog.tick(failed=True)
                 continue

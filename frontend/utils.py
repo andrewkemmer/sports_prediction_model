@@ -1147,10 +1147,19 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     s = normalize_sport_key(sport_key)
     if s in ("nfl", "nhl", "nba"):
         dates = set(_distinct_game_dates(nfl_frame))
-        if s == "nfl":
-            # The dated board family IS a date source for NFL (MLB parity:
-            # the board snapshot defines the navigable window; NFL's
-            # board_supported families already hold its dates in retention).
+        if s in ("nfl", "nhl"):
+            # The dated board family IS a date source for both (MLB parity:
+            # a dated member carrying a published slate defines a navigable
+            # window day; the board-supported families already hold these
+            # dates in retention). The NHL needs it as much as the NFL: its
+            # strict current-slate resolver rejects a record the moment
+            # slate_date < today ET and prediction history only gains a game
+            # day when a later run republishes decided rows — so after
+            # midnight ET the archive date fell out of BOTH date sources and
+            # the rail skipped it (2026-10-08: "no slate predictions for
+            # Oct 7" while nhl_moneyline_v1_20261007.json was committed with
+            # 3 priced games). NBA keeps its own union in the wrapper and
+            # passes no board_dates.
             dates.update(board_dates or ())
         dates.update(history_dates or ())
         if s in ("nba", "nhl"):
@@ -1249,6 +1258,22 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
                 board_family_dates |= {
                     str(v).replace("-", "")[:8]
                     for v in _b["game_date"].dropna().astype(str)}
+    if s == "nhl":
+        # The DATED slate + priced-markets families are a date source for
+        # the NHL (the NFL dated-board parity above): the strict
+        # current-slate resolver drops a record once slate_date is past in
+        # ET, and prediction history only gains a game day when a later
+        # run republishes decided rows for it — without this fold the
+        # archive date fell out of BOTH sources after midnight ET and the
+        # rail skipped the day entirely (2026-10-08: "no slate predictions
+        # for Oct 7" while nhl_moneyline_v1_20261007.json +
+        # nhl_run_engine_markets_20261007.csv sat committed with 3 priced
+        # games). Every dated member is a genuinely navigable archive day;
+        # _valid_dates_impl's 10-day retention window still bounds the
+        # rail, so old slates age out exactly as before.
+        board_family_dates |= set(_family_dated_dates(
+            "nhl", [("nhl_moneyline_v1_", ".json"),
+                    ("nhl_run_engine_markets_", ".csv")], cfg))
     return tuple(_valid_dates_impl(
         s, contents, LOCAL_DATA_DIR, board_frame,
         list(history or ()) + list(history_dates),
