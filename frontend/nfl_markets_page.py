@@ -52,20 +52,23 @@ elsewhere):
   * The ±0.5 stop's raw-vs-derived pair (raw −0.5 excludes ties, raw +0.5
     includes them, derived ML normalizes them out) lives on the Today's
     Games cards, not on this page.
-  * Subtitle: the NFL run engine is the per-side era model + pinned 76×76
-    joint (DN) — not MLB's NB(λ, α(λ)) sampler; the sentence shape is
-    identical. The fit panel (the Distributional Fit expander) mirrors
-    MLB's fit-panel anatomy with the honest NFL mechanism: era fit (E2,
-    ewm_2w, median rounds 20/23) + the pinned DN joint (σ 9.663/9.0789,
-    ρ 0.0076, tie 0.275%) on the 76×76 grid, with an explicit "exact PMF
-    — no Monte Carlo sampler" note where MLB shows its MC configuration
-    (the exact-PMF-vs-MC decision is a deliberate, recorded divergence).
-  * Monitor: the fit panel renders the PINNED era/joint parameters (real
-    record values, MLB's anatomy) with the exact-PMF note; the model card
-    renders the same pinned description; the drift / coverage sections
-    ARE emitted by the daily run (run_engine_feature_drift/coverage_*.csv
-    over the 12-pool view — drift now carries the MODEL WEIGHT column
-    from the moneyline monitor's blend weights) and render data-loaded;
+  * Subtitle: the NFL run engine is the per-side LightGBM-Poisson score
+    regressors + calibrated negative-binomial Monte Carlo — MLB's NB
+    mechanism with NFL's own dispersion; the sentence shape is identical.
+    The fit panel (the Distributional Fit expander) mirrors MLB's
+    fit-panel anatomy with the honest NFL mechanism: per-side α (method of
+    moments on pooled OOF residual dispersion) + χ²/df, the total/margin
+    tail checks, the NB variance check, and the MC configuration note
+    (paired draws per game) where MLB shows its own sampler configuration.
+  * Monitor: the fit panel renders MLB's metric labels (alpha_home /
+    chi2/df_home / alpha_away / chi2/df_away) recomputed from the
+    artifact's own OOF rows with the estimator the backend calibrates
+    with (the run-engine artifact ships no backend fit block — never a
+    pinned constant); the model card describes the shipped sampler; the
+    drift / coverage sections ARE emitted by the daily run
+    (run_engine_feature_drift/coverage_*.csv over the served feature
+    view — drift carries MODEL WEIGHT from the RUN LINE model's own
+    split-gain, never the moneyline blend's) and render data-loaded;
     the winner cards + calibration cards render from the NFL decided
     store; rolling history folds the dated monitors' accumulating
     slate_history (empty today — "first build starts empty", MLB wording;
@@ -106,7 +109,7 @@ _WINNER_CARDS = (
      "Pick the favorite side to cover at its own fair run line"),
     ("derived_ml", "Derived ML (run-line model moneyline)",
      "Pick the side with P > 50% — home if P(home win) > 50%, else away "
-     "(P(H>A)/(1−P(tie)) of the calibrated 76×76 joint)"),
+     "(P(H>A)/(1−P(tie)) of the calibrated NB Monte Carlo draws)"),
 )
 
 
@@ -150,7 +153,7 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
     c = dist["callouts"]
     st.caption(
         f"Observed bars vs modeled mean per-game total PMF (average of the "
-        f"calibrated 76×76 joints' total marginals) over {dist['n_games']:,} "
+        f"calibrated NB Monte Carlo draws' total marginals) over {dist['n_games']:,} "
         f"decided games · P(total≤35): observed {c['P(total<=35)']['observed']:.3f} "
         f"/ modeled {c['P(total<=35)']['modeled']:.3f} · P(total≥60): "
         f"observed {c['P(total>=60)']['observed']:.3f} / modeled "
@@ -204,8 +207,9 @@ def _render_relativized_tab(decided: pd.DataFrame) -> None:
            else "")
         + "(predicted vs actual over rate). Every game stays priced at all "
         "seven offsets — the drops are a binning floor, never a pricing "
-        "gap; the pinned 76×76 joint's mass conservation holds across the "
-        "grid (see the totals-law check in the first tab)."
+        "gap; the run-engine score distribution's mass conservation "
+        "holds across the grid (see the totals-law check in the first "
+        "tab)."
     )
 
 
@@ -358,8 +362,8 @@ def _render_rl_tab(decided: pd.DataFrame) -> None:
         st.caption(
             "Deep lines (beyond −20) rest on very few sealed events "
             "(n < ~20) — calibration there is exploratory, not evidence. "
-            "The pinned 76×76 joint still prices them (mass conservation "
-            "holds), but treat the curve as a tail check."
+            "The NB Monte Carlo sampler still prices them (mass "
+            "conservation holds), but treat the curve as a tail check."
         )
 
 
@@ -550,24 +554,65 @@ def _render_runline_history(df: pd.DataFrame, start_d, end_d,
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
-# Fit-panel parameters — the PINNED research values from the committed
-# records (nfl_era_3e8c8a510f04.json / nfl_market_3e8c8a510f04.json / the
-# adoption record), rendered in MLB's Distributional Fit Diagnostics
-# anatomy. These are the actual model constants (never fabricated); the
-# exact-PMF-vs-MC mechanism note is the documented NFL delta.
-_FIT_PARAMS = {
-    "sigma_home": 9.663,
-    "sigma_away": 9.0789,
-    "rho": 0.0076,
-    "p_tie": 0.00275,
-    "family": "DN",
-    "grid": "76×76 (cell k = score k)",
-    "era": "E2 · ewm_2w (era record halflife)",
-    "rounds": {"home": 20, "away": 23},
-    "provenance": ["nfl_era_3e8c8a510f04.json",
-                    "nfl_market_3e8c8a510f04.json",
-                    "nfl_adoption_decision_3e8c8a510f04.json"],
-}
+# Fit-panel metrics — the DISTRIBUTION model's own methodology numbers,
+# rendered in MLB's Distributional Fit Diagnostics anatomy (alpha_home /
+# chi2/df_home / alpha_away / chi2/df_away). The NFL run-engine artifact
+# ships no backend fit block, so the per-side negative-binomial dispersion
+# is recomputed from the artifact's OWN pooled OOF rows with the same
+# method-of-moments estimator the backend calibrates with
+# (distributions.estimate_alpha / calibrate_dispersion) — verified to
+# reproduce the shipped dispersion for the same rows (2026-10-07:
+# alpha 0.1192 / 0.1360 vs the persisted bundle's 0.1192 / 0.1360).
+# Nothing here is a pinned constant.
+ALPHA_CAP = 2.0   # distributions.ALPHA_CAP — the estimator's clip
+
+
+def _nb_dispersion(decided: pd.DataFrame) -> dict:
+    """Per-side NB dispersion (α) + dispersion χ²/df + the NB variance
+    check, row-derived from the artifact's pooled OOF rows.
+
+    α = Σ((y−μ)² − y) / Σ(μ²) clipped to [0, ALPHA_CAP] — the estimator
+    distributions.estimate_alpha uses. χ²/df = Σ((y−μ)² / (μ + αμ²)) /
+    (n − 1): near 1.0 means the negative-binomial variance the sampler
+    draws from matches the observed residual spread. Implied variance is
+    mean(μ + αμ²) over the same rows; observed is the residual variance.
+    A side without enough rows yields None — the metric then renders '--',
+    never a fabricated number."""
+    out: dict = {"alpha_home": None, "chi2_home": None,
+                 "alpha_away": None, "chi2_away": None, "n": 0,
+                 "var_home": None, "var_away": None}
+    if decided is None or not len(decided):
+        return out
+
+    def _side(mu_col: str, y_col: str):
+        mu = pd.to_numeric(decided.get(mu_col), errors="coerce")
+        y = pd.to_numeric(decided.get(y_col), errors="coerce")
+        ok = mu.notna() & y.notna()
+        mu_v = mu[ok].to_numpy(dtype=float)
+        y_v = y[ok].to_numpy(dtype=float)
+        finite = np.isfinite(mu_v) & np.isfinite(y_v)
+        mu_v, y_v = mu_v[finite], y_v[finite]
+        n = int(mu_v.size)
+        denom = float((mu_v ** 2).sum())
+        if n < 30 or denom <= 0:
+            return None
+        resid2 = (y_v - mu_v) ** 2
+        alpha = float(np.clip((resid2 - y_v).sum() / denom, 0.0, ALPHA_CAP))
+        nb_var = mu_v + alpha * mu_v ** 2
+        chi2 = float((resid2 / nb_var).sum() / (n - 1))
+        implied = float(nb_var.mean())
+        observed = float(np.var(y_v - mu_v, ddof=1))
+        return alpha, chi2, (implied, observed), n
+
+    home = _side("mu_h", "home_score")
+    away = _side("mu_a", "away_score")
+    if home:
+        out.update(alpha_home=home[0], chi2_home=home[1],
+                   var_home=home[2], n=home[3])
+    if away:
+        out.update(alpha_away=away[0], chi2_away=away[1],
+                   var_away=away[2], n=away[3])
+    return out
 
 
 def _fit_tail_data(decided: pd.DataFrame) -> dict:
@@ -575,8 +620,7 @@ def _fit_tail_data(decided: pd.DataFrame) -> dict:
     artifact's ``fit`` block ships (monitoring._run_engine_fit_block), so
     the panel shows one source of truth either way: total tail (modeled =
     pooled grid legs, observed = decided scores), margin tail (home-win /
-    push band), and per-side score-residual SDs (the era sigmas are
-    residual SDs around mu)."""
+    push band), and per-side score-residual SDs around mu."""
     out: dict = {"total_tail": None, "margin_tail": None,
                  "variance_obs": None}
     if decided is None or not len(decided):
@@ -622,36 +666,39 @@ def _fit_tail_data(decided: pd.DataFrame) -> dict:
     return out
 
 
-def _render_fit_panel(decided: pd.DataFrame) -> None:
+def _render_fit_panel(decided: pd.DataFrame,
+                      monitor: dict | None = None) -> None:
     """Distributional Fit Diagnostics — MLB markets.py ``_render_fit_panel``
-    anatomy EXACTLY (metric row → α-form caption → two per-side tail
+    anatomy EXACTLY (metric row → α-form caption → two per-surface tail
     captions → variance caption → mechanism caption), with the NFL's own
-    model in each slot: the pinned per-side era model + DN joint, the
-    total/margin tail checks, the per-side residual-variance check, and the
-    exact-PMF note where MLB shows its Monte Carlo configuration (the
-    analytic-joint decision is deliberate and recorded). Nothing fabricated:
-    the tails/variance are computed from the artifact's own rows."""
-    p = _FIT_PARAMS
-    st.markdown("#### Distributional Fit (exact 76×76 joint)")
+    model in each slot: the shipped negative-binomial Monte Carlo sampler,
+    its per-side dispersion recomputed from the artifact's OOF rows, the
+    total/margin tail checks, the NB variance check, and the MC
+    configuration note. Nothing fabricated: dispersion/tails/variance are
+    computed from the artifact's own rows."""
+    disp = _nb_dispersion(decided)
+    st.markdown("#### Distributional Fit (NB Monte Carlo)")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("σ_home", f"{p['sigma_home']:.3f}")
-    c2.metric("σ_away", f"{p['sigma_away']:.4f}")
-    c3.metric("ρ (home·away)", f"{p['rho']:.4f}")
-    c4.metric("Tie rate (final)", f"{p['p_tie']:.3%}")
+    c1.metric("alpha_home", _fmt(disp["alpha_home"], 4))
+    c2.metric("chi2/df_home", _fmt(disp["chi2_home"], 2))
+    c3.metric("alpha_away", _fmt(disp["alpha_away"], 4))
+    c4.metric("chi2/df_away", _fmt(disp["chi2_away"], 2))
 
-    # Slot 1 — the joint's form + fitted-on scope + provenance (the α-form
-    # caption's NFL analog).
-    st.caption(
-        f"Joint: {p['family']} family, const σ — fitted on pooled OOF "
-        f"({p['grid']}, tie-calibrated to the empirical final rate) · "
-        f"era: {p['era']} · median rounds home "
-        f"{p['rounds']['home']} / away {p['rounds']['away']} · pinned "
-        "parameters from " + ", ".join(p["provenance"])
-    )
+    # Slot 1 — the dispersion form + fitted-on scope (the α-form caption's
+    # NFL analog: one method-of-moments constant per side, never a curve).
+    if disp["alpha_home"] is not None or disp["alpha_away"] is not None:
+        st.caption(
+            "α form: home=constant · away=constant"
+            + (f" · fitted on pooled OOF ({disp['n']:,} decided rows, "
+               "method of moments — the estimator the backend calibrates "
+               "with)")
+        )
+    else:
+        st.caption("α form: --")
 
     # Slots 2-3 — the per-surface tail checks (MLB's Home/Away tail
-    # captions; the NFL joint's surfaces are the total and the margin).
+    # captions; the NFL sampler's surfaces are the total and the margin).
     tails = _fit_tail_data(decided)
     tt = tails.get("total_tail")
     if tt:
@@ -660,20 +707,32 @@ def _render_fit_panel(decided: pd.DataFrame) -> None:
     if mt:
         st.caption(f"**Margin** tail: {mt}")
 
-    # Slot 4 — variance check: pinned sigma0 vs observed residual SDs.
-    vo = tails.get("variance_obs")
-    if vo:
+    # Slot 4 — variance check: the NB variance the sampler draws from vs
+    # the observed residual variance, both over the same artifact rows.
+    vh, va = disp.get("var_home"), disp.get("var_away")
+    if vh or va:
         st.caption(
-            f"Variance check: home implied={p['sigma_home']:.2f} / "
-            f"obs={vo['home']:.2f} · away implied={p['sigma_away']:.2f} / "
-            f"obs={vo['away']:.2f}")
+            "Variance check: "
+            + (f"home implied={vh[0]:.2f} / obs={vh[1]:.2f}" if vh
+               else "home --")
+            + " · "
+            + (f"away implied={va[0]:.2f} / obs={va[1]:.2f}" if va
+               else "away --"))
 
-    # Slot 5 — the mechanism note (MLB's Monte Carlo caption slot).
+    # Slot 5 — the mechanism note (MLB's Monte Carlo caption slot): the
+    # shipped sampler's own configuration, read from this run's artifact.
+    _rl = (((monitor or {}).get("config") or {}).get("run_line_model")
+           or {})
+    _mc = _rl.get("mc_draws")
+    _mc_txt = (f"{int(_mc):,} paired negative-binomial draws per game "
+               if isinstance(_mc, (int, float)) and np.isfinite(_mc) else
+               "Paired negative-binomial draws per game ")
     st.caption(
-        "Exact PMF — no Monte Carlo sampler (NFL decision, recorded): "
-        "per-game probabilities are computed analytically from the pinned "
-        "76×76 joint, not sampled — deterministic, no RNG, byte-identical "
-        "re-runs."
+        "Monte Carlo — seeded, deterministic per row (NFL mechanism): "
+        + _mc_txt
+        + "supply every spread/total probability — per-side LightGBM "
+        "Poisson μ, negative-binomial dispersion calibrated on "
+        "walk-forward OOF; a fixed seed makes re-runs byte-identical."
     )
 
 
@@ -863,9 +922,10 @@ def run() -> None:
     )
     st.markdown(
         "<div style='color:#94A3B8;margin:2px 0 14px;'>"
-        "Run-engine model diagnostics from the per-side era model + pinned "
-        "76×76 joint (DN) over the line grid — per-game projections and "
-        "full probabilities live in nfl_run_engine_markets_*.csv.</div>",
+        "Run-engine model diagnostics from the per-side LightGBM-Poisson "
+        "score regressors + calibrated Negative-Binomial Monte Carlo over "
+        "the line grid — per-game projections and full probabilities live "
+        "in nfl_run_engine_markets_*.csv.</div>",
         unsafe_allow_html=True,
     )
 
@@ -994,11 +1054,11 @@ def run() -> None:
                 _render_runline_calibration_card(decided)
 
         # Fit panel — MLB markets.py anatomy, honest NFL content: the
-        # pinned era/joint parameters (record constants) + the tail /
-        # variance checks computed from the artifact's own rows + the
-        # exact-PMF note where MLB shows its MC configuration.
+        # per-side NB dispersion (recomputed from the artifact's OOF rows)
+        # + the tail / variance checks computed from the artifact's own
+        # rows + the MC configuration note where MLB shows its own.
         with st.expander("Distributional Fit Diagnostics", expanded=False):
-            _render_fit_panel(decided)
+            _render_fit_panel(decided, monitor)
 
         # Drift / coverage — MLB markets.py mirror: load the emitter CSVs
         # for this date (run_engine_feature_drift_{date}.csv /
@@ -1011,14 +1071,22 @@ def run() -> None:
         re_cov = nd.load_run_engine_csv(date_str,
                                         "run_engine_feature_coverage")
         nd.render_run_engine_coverage(re_cov)
-        st.markdown("### Run-Engine Model (per-side era + 76×76 joint)")
-        st.caption("Per-side era model (E2, ewm_2w, median rounds 20/23) + "
-                   "pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) "
-                   "— the run-engine OOF metrics live on the Diagnostics "
+        st.markdown("### Run-Engine Model (NB Monte Carlo sampler)")
+        _rl_cfg = (((monitor or {}).get("config") or {})
+                   .get("run_line_model") or {})
+        _mc_draws = _rl_cfg.get("mc_draws")
+        st.caption("Per-side LightGBM-Poisson score regressors + "
+                   "negative-binomial Monte Carlo ("
+                   + (f"{int(_mc_draws):,} paired draws per game, "
+                      if isinstance(_mc_draws, (int, float))
+                      and np.isfinite(_mc_draws) else
+                      "paired draws per game, ")
+                   + "dispersion calibrated on walk-forward OOF) — the "
+                   "run-engine OOF metrics live on the Diagnostics "
                    "tabs and the winner cards above.")
         # Per-line OOF metrics — MLB's _render_run_engine_model_card table
         # (MARKET LINE | ECE (RAW) | ECE (CAL) | BRIER | LOG LOSS | N (OOF))
-        # over the artifact's market_metrics (exact-PWF joint legs at the
+        # over the artifact's market_metrics (NB Monte Carlo legs at the
         # canonical lines; no calibration map ships, so ECE-raw IS
         # ECE-cal — the honest figure).
         mm = monitor.get("market_metrics") or {}
@@ -1059,10 +1127,11 @@ def run() -> None:
                   </table>
                 </div>
                 <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-                  Run engine is the pinned per-side era model + 76×76 DN
-                  joint — no member blend; rows are per market line (2-way
-                  no-push basis). ECE-CAL equals ECE-RAW: the run engine
-                  ships no calibration map (exact-PMF probabilities only).
+                  Run engine is a single per-side LightGBM-Poisson + NB
+                  Monte Carlo sampler — no member blend; rows are per
+                  market line (2-way no-push basis). ECE-CAL equals
+                  ECE-RAW: the run engine ships no calibration map
+                  (Monte Carlo probabilities only).
                   N = pooled OOF games scored for the line.
                 </div>
                 """,

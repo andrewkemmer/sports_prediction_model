@@ -1049,8 +1049,18 @@ def main(argv: list[str] | None = None) -> int:
     drift = monitoring.feature_drift(drift_baseline, recent,
                                      weights=feature_weights)
     cov_rows = monitoring.coverage(drift_baseline, current_df=recent)
+    # The Totals & Run Lines (run-engine) drift table reports the DISTRIBUTION
+    # model's own MODEL WEIGHT — pooled split-gain of the shipped per-side
+    # Poisson fits (MLB parity: the binary moneyline blend's weights never
+    # fill the run line's weight column). Empty/failed -> None, so the CSV
+    # carries no weight and the frontend omits the column instead of
+    # rendering moneyline weights or zeros. The moneyline drift above keeps
+    # the moneyline blend's weights unchanged.
+    run_line_weights = monitoring.run_line_feature_weights(
+        final_reg, feature_frame=game_df)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
-        out_dir, date_c, drift_baseline, recent, weights=feature_weights)
+        out_dir, date_c, drift_baseline, recent,
+        weights=run_line_weights or None)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier

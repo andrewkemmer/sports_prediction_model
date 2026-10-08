@@ -157,7 +157,8 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 66) -> dict[str, Any]:
                              "modeled": round(float(modeled[:36].sum()), 4)},
             "P(total>=60)": {"observed": round(float(observed[60:].sum()), 4),
                              "modeled": round(float(modeled[60:].sum()), 4)},
-            "note": ("Per-game total PMFs from the calibrated 76×76 joint; "
+            "note": ("Per-game total PMFs from the calibrated "
+                     "negative-binomial Monte Carlo draws; "
                      "integer-support means the whole-number mass IS the "
                      "push band."),
         },
@@ -752,10 +753,13 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
 # Run-engine feature drift + coverage (MLB markets.py mirror) — the Monitor's
 # drift/coverage sections over the emitter CSVs
 # (run_engine_feature_drift_YYYYMMDD.csv / run_engine_feature_coverage_
-# YYYYMMDD.csv, written by nfl_explainability). Identical structure/wording to
-# MLB's _render_run_engine_drift / _render_run_engine_coverage; the NFL run
-# engine has no per-model blend-weight artifact, so the MODEL WEIGHT column is
-# omitted (MLB's own 'has_weights' gate renders the same table without it).
+# YYYYMMDD.csv, written by monitoring.write_run_engine_feature_artifacts in
+# the daily run's Phase-13 step). Byte-identical structure and wording to
+# MLB's _render_run_engine_drift / _render_run_engine_coverage: both tables
+# describe the DISTRIBUTION (run line) model — its own feature view, and the
+# MODEL WEIGHT column carries the run line model's pooled split-gain
+# (monitoring.run_line_feature_weights), NEVER the binary moneyline blend's
+# weights.
 # ---------------------------------------------------------------------------
 
 def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
@@ -779,19 +783,52 @@ def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
         return None
 
 
-def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
-    """Run-engine feature drift — same PSI table as the MLB monitor over
-    the NFL run engine's own 12-pool features, WITH the MODEL WEIGHT
-    column (layout parity with the Model Monitor's Feature Drift Analysis
-    table). MODEL WEIGHT = per-feature blend-weighted importance from the
-    shared moneyline feature-drift analysis (``nfl_model_monitor_*.json``
-    -> ``feature_drift`` -> ``weight_pct``), which the daily emitter now
-    writes into the drift CSV's ``weight_pct`` column (MLB renders the
-    same join at render time; the NFL emitter resolves it at emission —
-    same source, never hardcoded). A feature with no weight renders '—';
-    the column is omitted entirely when no weight data is available
-    (parity with the monitor's ``has_weights`` gate). When the CSV is
-    absent the MLB empty-state wording renders (nothing fabricated)."""
+def run_engine_weight_pcts(records: list[dict],
+                           weights: dict | None) -> list:
+    """Per-row MODEL WEIGHT cells for the run-engine drift table.
+
+    Source of truth: the run-engine drift CSV's own ``weight_pct`` column —
+    the RUN LINE (distribution) model's weights (pooled split-gain across
+    its two per-side Poisson home/away fits, normalized to sum to 100%),
+    emitted by ``monitoring.run_line_feature_weights``. An explicit
+    ``weights`` map (test seam) takes precedence per feature; rows with no
+    weight of their own render None (the table's '—') — the moneyline
+    blend's shared map is never substituted, so the Totals & Run Lines page
+    reports the run line model and nothing else. A pandas-read CSV turns
+    absent cells into NaN, so any non-finite value normalizes to None
+    (em-dash, never the literal 'nan%').
+    """
+    weights = weights or {}
+    out = []
+    for r in records:
+        f = str(r.get("feature", ""))
+        w = weights.get(f)
+        if w is None:
+            w = r.get("weight_pct")
+        try:
+            w = float(w)
+        except (TypeError, ValueError):
+            w = None
+        if w is None or not np.isfinite(w):
+            w = None
+        out.append(w)
+    return out
+
+
+def render_run_engine_drift(drift: pd.DataFrame | None,
+                            weights: dict | None = None) -> None:
+    """Run-engine feature drift — same PSI table as the moneyline monitor,
+    plus a MODEL WEIGHT column (layout parity with the Model Monitor's
+    Feature Drift Analysis table).
+
+    MODEL WEIGHT = the RUN LINE (distribution) model's own per-feature
+    importance, shipped in the run-engine drift CSV's ``weight_pct`` column
+    (pooled split-gain across its two per-side Poisson home/away fits,
+    summing to 100%). Rows with no weight of their own render '—' — the
+    binary moneyline blend's weights are never substituted. The column is
+    omitted entirely when the artifact carries no weights at all (legacy
+    artifacts), so the table still renders. When the CSV is absent the MLB
+    empty-state wording renders (nothing fabricated)."""
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
         st.info("No run-engine drift data for this date "
@@ -799,21 +836,12 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
                 "run).")
         return
     records = drift.to_dict("records")
-    # MODEL WEIGHT per row — every cell is formatted by the SAME helper the
-    # Model Monitor uses (utils.feature_weight_pct), so the column is
-    # byte-identical to MLB's. Source: the CSV's own weight_pct column,
-    # populated by the emitter from the moneyline monitor. CSV empties parse
-    # as NaN (NOT None) — treat any non-finite value as absent so a
-    # pre-weight artifact renders without the column (MLB's has_weights
-    # gate), never as "nan%".
-    def _weight(v):
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return None
-        return f if np.isfinite(f) else None
-
-    weight_pcts = [_weight(r.get("weight_pct")) for r in records]
+    # MODEL WEIGHT per row — the RUN LINE MODEL's own weights, shipped in
+    # the run-engine drift CSV itself (pooled split-gain from its two
+    # per-side Poisson fits). The moneyline blend's map is NEVER borrowed:
+    # rows without their own weight render '—'. Every cell is formatted by
+    # the SAME helper the Model Monitor uses (utils.feature_weight_pct).
+    weight_pcts = run_engine_weight_pcts(records, weights)
     has_weights = any(w is not None for w in weight_pcts)
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     def _mean(v):
@@ -828,35 +856,16 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
 
     rows = []
     for r, w in zip(records, weight_pcts):
+        psi = r.get("psi_raw", r.get("psi"))
+        psi_str = "—"
+        try:
+            _p = float(psi)
+            # A degenerate (constant) feature has no PSI at all;
+            # em-dash keeps an unjudged cell from reading as a 0.
+            psi_str = "—" if pd.isna(_p) else f"{_p:.3f}"
+        except (TypeError, ValueError):
+            pass  # None/invalid psi (constant feature) renders as em-dash
         status = r.get("status", "OK")
-        # Show the value the STATUS was assigned from, not the raw PSI. The raw
-        # figure includes sampling noise: between two same-distribution
-        # samples of the 39-60 row window this report uses, it reads 0.08-0.12
-        # on its own, so printing it as the headline number made 15 of 43
-        # features look like drift when the backend had (correctly) called
-        # them unchanged. psi_adjusted is the raw value minus the noise floor
-        # for these exact sample sizes (MLB parity); older artifacts that
-        # predate it fall back to raw.
-        def _psi_field():
-            for _k in ("psi_adjusted", "psi"):
-                if r.get(_k) is not None:
-                    try:
-                        _v = float(r[_k])
-                    except (TypeError, ValueError):
-                        continue
-                    if np.isfinite(_v):
-                        return _v
-            return None
-
-        _judged = _psi_field()
-        psi_str = "—" if _judged is None else f"{_judged:.3f}"
-        # An INSUFFICIENT row has no verdict to render a number beside: the
-        # window was too small to judge, and quoting a PSI there invites the
-        # reader to treat an unjudged number as a judgment. A STRUCTURAL
-        # row is the same — no PSI exists for a constant-in-both-windows
-        # feature, only the stable fact and its reason.
-        if status in ("INSUFFICIENT", "STRUCTURAL"):
-            psi_str = "n/a"
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
@@ -869,6 +878,19 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             or r.get("feature", "")
         weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
                        if has_weights else "")
+        # Decision columns, mirroring the Model Monitor drift table: the
+        # status is assigned on the NOISE-ADJUSTED PSI under a 2-SE location
+        # gate — show both so raw PSI cannot read self-contradictory.
+        psi_adj = r.get("psi_adjusted")
+        shift_se = r.get("shift_se")
+        try:
+            psi_adj_str = "—" if pd.isna(psi_adj) else f"{float(psi_adj):.3f}"
+        except (TypeError, ValueError):
+            psi_adj_str = "—"
+        try:
+            shift_se_str = "—" if pd.isna(shift_se) else f"{float(shift_se):.3f}"
+        except (TypeError, ValueError):
+            shift_se_str = "—"
         # A STRUCTURAL row's reason is the finding (which constant,
         # in both windows); render it under the pill so the table
         # answers "why is this not a verdict" without a caption hunt.
@@ -887,6 +909,8 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             f"<td>{_mean(r.get('current_mean'))}</td>"
             f"<td>{_mean(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
+            f"<td style='color:{psi_color};'>{psi_adj_str}</td>"
+            f"<td style='color:#64748B;'>{shift_se_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"{reason_cell}"
@@ -897,21 +921,23 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th>{weight_header}<th>STATUS</th></tr></thead>
+            <th>PSI</th><th>PSI ADJ.</th><th>SHIFT SE</th>
+            {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the moneyline drift. PSI is shown NOISE-ADJUSTED —
-          the raw value minus the sampling-noise floor for these exact sample
-          sizes — because raw PSI between two identical distributions at a
-          39-60 row window already reads near the WARN threshold. INSUFFICIENT =
-          window too small to judge drift at all. STRUCTURAL = constant
-          at the same value in both windows (cannot drift) — a stable
-          fact with its reason, not a verdict.
-          MODEL WEIGHT = blend-weighted feature importance from the shared
-          feature-drift analysis (run engine has no per-model weight; '—' = no
-          weight for this feature).
+          Same windows as the moneyline drift; STATUS is assigned on
+          PSI ADJ. = raw PSI − sampling-noise floor, escalated only when the
+          mean also moved &gt; 2× the location SE (the pooled standard error
+          widened 1.5× for within-window clustering — about 3× the SHIFT SE
+          column above) (location gate). INSUFFICIENT =
+          window too small to judge drift. STRUCTURAL = constant at the
+          same value in both windows (cannot drift) — a stable fact,
+          not a verdict. MODEL WEIGHT = the run line
+          model's own feature importance (pooled split-gain across its
+          per-side Poisson home/away fits, summing to 100%; '—' = no weight
+          for this feature on this artifact).
         </div>
         """,
         unsafe_allow_html=True,
@@ -919,12 +945,15 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
 
 
 def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
-    """Run-engine feature coverage — the same measured/non-null table as
-    the MLB monitor over the NFL run engine's 12-pool features, with MLB's
-    EXACT caption strings, column headers (FEATURE | WINDOW | GAMES |
-    % MEASURED | % NON-NULL | STATUS), sub-annotations (default-zero count
-    under % NON-NULL) and status pills. When the CSV is absent the MLB
-    empty-state wording renders (nothing fabricated)."""
+    """Run-engine feature coverage — same measured/non-null table as the
+    moneyline monitor, over the DISTRIBUTION (run line) model's own served
+    feature view: the run line consumes exactly the served feature contract
+    (+ the team-ID pair), so same-columns/same-windows coverage is the
+    honest report of what the distribution model was fed. MLB's EXACT
+    caption strings, column headers (FEATURE | WINDOW | GAMES | % MEASURED |
+    % NON-NULL | STATUS), sub-annotations (default-zero count under
+    % NON-NULL) and status pills. When the CSV is absent the MLB empty-state
+    wording renders (nothing fabricated)."""
     st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
     if cov is None or cov.empty:
         st.info("No run-engine coverage data for this date "
@@ -948,13 +977,12 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         f"Share of games in each drift window with a real observation per "
         f"feature — {sub}</div>",
         unsafe_allow_html=True)
-    show_starved_only = n_starved + n_low > 0
+    # Every feature-window pair, worst-first — no healthy-tail truncation
+    # (mirrors the Model Monitor remediation: the OK-past-12 cap hid whole
+    # healthy families behind "N healthy feature-window pairs hidden").
     rows = []
-    shown = 0
     for r in cov_sorted:
         status = r.get("status", "OK")
-        if show_starved_only and status == "OK" and shown >= 12:
-            continue
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
@@ -974,8 +1002,6 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
             f"<td>{pct_n:.0f}%{default_cell}</td>"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
             f"</tr>")
-        shown += 1
-    n_hidden = len(cov_sorted) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
@@ -988,7 +1014,7 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
-          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+          Rows are listed worst-first — every feature-window pair stays visible.
         </div>
         """,
         unsafe_allow_html=True,

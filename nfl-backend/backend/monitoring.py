@@ -253,6 +253,62 @@ def feature_importance_weights(models: dict,
     return {f: float(v / total) for f, v in importance.items()}
 
 
+def run_line_feature_weights(score_regressor,
+                             feature_frame: pd.DataFrame | None = None
+                             ) -> dict[str, float]:
+    """The RUN LINE (distribution) model's own per-feature weights: pooled,
+    n-weighted LightGBM split GAIN across the two per-side Poisson fits
+    (home-λ + away-λ), normalized to sum to 1.0 over the served features.
+
+    MLB parity (mlb ``distributions.run_line_feature_weights``): the Totals &
+    Run Lines drift table's MODEL WEIGHT column reports the run line model
+    itself — never the binary moneyline blend's weights, which is what the
+    run-engine drift CSV used to carry. The NB layer itself has no per-feature
+    parameters (it shapes dispersion/MC only), so feature usage lives entirely
+    in the two per-side Poisson fits; their pooled, n-weighted split GAIN is
+    the run line's honest importance.
+
+    READ-ONLY over the SHIPPED fits (the ``ScoreRegressor`` the pipeline just
+    persisted): no refit, no second training — the weights describe exactly
+    the distribution model that priced this run's artifact. The team-ID
+    categorical columns are the trees' encoding, not served features: their
+    gain is dropped and the rest renormalized (weight_pct sums to 100 across
+    the served list). Diagnostic only — a failure returns {} so the caller
+    passes None and the frontend omits the column rather than rendering
+    moneyline weights or zeros.
+    """
+    if score_regressor is None:
+        return {}
+    try:
+        n_rows = float(len(feature_frame)) if feature_frame is not None \
+            and len(feature_frame) else 1.0
+        gain: dict[str, float] = {}
+        for side in ("home", "away"):
+            model = getattr(score_regressor, f"{side}_model", None)
+            if model is None or not hasattr(model, "booster_"):
+                return {}
+            g = np.asarray(model.booster_.feature_importance(
+                importance_type="gain"), dtype=float)
+            names = list(model.booster_.feature_name())
+            for f, v in zip(names, g):
+                if np.isfinite(v):
+                    gain[f] = gain.get(f, 0.0) + float(v) * n_rows
+        total = sum(gain.values())
+        if not np.isfinite(total) or total <= 0:
+            return {}
+        weight = {k: v / total for k, v in gain.items()}
+        id_share = sum(weight.pop(c, 0.0)
+                       for c in config.TREE_CATEGORICAL_COLS)
+        if id_share > 0 and weight:
+            kept = sum(weight.values())
+            if kept > 0:
+                weight = {k: v / kept for k, v in weight.items()}
+        return weight
+    except Exception as exc:  # noqa: BLE001 — diagnostic only, never block a run
+        logger.warning("run_line_feature_weights: unavailable (%s)", exc)
+        return {}
+
+
 def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Slice the drift comparison's two windows from one canonical frame.
 
