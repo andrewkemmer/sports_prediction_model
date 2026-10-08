@@ -118,20 +118,35 @@ st.markdown(
 # ---------------------------------------------------------------------------
 # KPI cards
 # ---------------------------------------------------------------------------
+# Calibrator provenance, resolved ONCE above the cards. With the
+# prequential gate deployed (``calibrator_gated_out`` / calibration.method
+# == "identity") the artifact's raw and calibrated twins are the SAME
+# probabilities — no map was applied — so the cards' "after calibration"
+# wording would advertise a correction that never ran, and the identical
+# values would look like a rendering bug (2026-10-08 dashboard review:
+# "0.5719 → 0.5719 after calibration" with no explanation anywhere). The
+# gate banner below carries the full story; the cards just stop claiming a
+# transformation.
+cal_sec = cal.get("calibration") or {}
+_gated = bool((cal.get("metrics") or {}).get("calibrator_gated_out")) \
+    or cal_sec.get("method") == "identity"
+_cal_tail = (" · calibrator off (identity)" if _gated
+             else " · after calibration")
+
 kpi_specs = [
     ("AUC-ROC", kpis.get("auc_roc", "—"), utils.BLUE, "Discrimination"),
     ("BRIER SCORE", _brier_disp := (
         f"{kpis['brier_score']} → {kpis['brier_calibrated']}"
         if kpis.get("brier_calibrated") is not None else kpis.get("brier_score", "—")
-     ), utils.PRIMARY, "Lower is better" + (" · after calibration" if kpis.get("brier_calibrated") is not None else "")),
+     ), utils.PRIMARY, "Lower is better" + (_cal_tail if kpis.get("brier_calibrated") is not None else "")),
     ("LOG-LOSS", _ll_disp := (
         f"{kpis['log_loss']} → {kpis['log_loss_calibrated']}"
         if kpis.get("log_loss_calibrated") is not None else kpis.get("log_loss", "—")
-     ), "#FBBF24", "Penalizes confidence" + (" · after calibration" if kpis.get("log_loss_calibrated") is not None else "")),
+     ), "#FBBF24", "Penalizes confidence" + (_cal_tail if kpis.get("log_loss_calibrated") is not None else "")),
     ("CAL. ERROR", _ece_disp := (
         f"{kpis['cal_error']} → {kpis['cal_error_calibrated']}"
         if kpis.get("cal_error_calibrated") is not None else kpis.get("cal_error", "—")
-     ), "#F472B6", "ECE raw → calibrated" if kpis.get("cal_error_calibrated") is not None else "ECE metric"),
+     ), "#F472B6", ("ECE raw → calibrated" + _cal_tail) if kpis.get("cal_error_calibrated") is not None else "ECE metric"),
 ]
 kcols = st.columns(4)
 for col, (label, value, color, cap) in zip(kcols, kpi_specs):
@@ -146,7 +161,6 @@ for col, (label, value, color, cap) in zip(kcols, kpi_specs):
 # ---------------------------------------------------------------------------
 # Post-hoc recalibration banner (raw vs calibrated)
 # ---------------------------------------------------------------------------
-cal_sec = cal.get("calibration") or {}
 if cal_sec.get("method") in ("platt", "favored_platt_floor"):
     _mr = cal_sec.get("metrics_raw") or {}
     _mc = cal_sec.get("metrics_calibrated") or {}
@@ -179,6 +193,36 @@ if cal_sec.get("method") in ("platt", "favored_platt_floor"):
             """,
             unsafe_allow_html=True,
         )
+elif _gated:
+    # Gated-out calibrator (identity) — the deployed model applies NO
+    # probability map, which is why the KPI twins read identically. Shown
+    # for every identity run (incl. legacy artifacts carrying only
+    # ``calibration.method == "identity"``); the Platt banner above owns the
+    # fitted-map case, so the two can never both render (2026-10-08
+    # dashboard review: identical raw/calibrated values with no explanation).
+    st.markdown(
+        """
+        <div class="fb-box" style="margin:12px 0;padding:12px 18px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#E2E8F0;">
+            <span style="font-weight:700;">Calibration Gate:</span>
+            <span style="background:rgba(245,158,11,.18);color:#FBBF24;border-radius:999px;padding:2px 12px;font-size:0.82rem;font-weight:700;">
+              Gated out · identity
+            </span>
+            <span style="color:#94A3B8;font-size:0.9rem;">
+              The prequential gate found no gain, so this run deploys no recalibration map.
+            </span>
+          </div>
+          <div style="color:#64748B;font-size:0.8rem;margin-top:6px;">
+            Probabilities ship RAW — no map is applied, so the raw → calibrated KPI
+            pairs are the same values by design, not a rendering bug (Model Monitor
+            labels this “no calibration map deployed”). The gate re-fits a pooled
+            Platt map on strictly prior folds every run and deploys it only when it
+            beats the raw probabilities.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # ---------------------------------------------------------------------------
 # Calibration curve

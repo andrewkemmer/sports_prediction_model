@@ -228,7 +228,7 @@ try:
 except Exception as _roots_exc:  # noqa: BLE001 — observability only
     logging.warning("delivery roots unresolved (%s)", _roots_exc)
 _banner("PHASE 1", "Statcast Data Ingestion")
-from ingestion import pull_statcast
+from ingestion import pull_statcast, warn_missing_finals
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
@@ -259,6 +259,17 @@ pull_statcast(
     resume=not full_repull,
 )
 print(f"  ✅ Raw pitches: {pitches_path}")
+# Missing-finals guard (2026-10-08 run-log review): Savant's index lagged
+# the 10-07 slate through the whole run — MLB_FULL_REPULL's last chunk
+# (2026-08-18 → 2026-10-08) returned cleanly yet the frame stopped at
+# 2026-10-06 while four 10-07 games were already official finals. That
+# slate never resolved into predictions_history / today's record, and
+# nothing in the log said so. Warn loudly (never abort — posting lag is
+# transient and the next run's tail refresh recovers the games).
+try:
+    warn_missing_finals(pitches_path, end)
+except Exception as _mf_exc:  # noqa: BLE001 — a guard must never kill the run
+    logging.warning("missing-finals guard skipped (%s)", _mf_exc)
 
 # ── Phase 1.5: IL / availability ledgers (runtime inputs, NEVER pushed) ──────
 # il_stints.parquet / il_stints_pitchers.parquet (+ .meta.json provenance) are

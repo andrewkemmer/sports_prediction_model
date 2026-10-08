@@ -490,6 +490,124 @@ def pull_statcast(
     return out
 
 
+def warn_missing_finals(
+    pitches_path: str | Path,
+    end_date: date,
+    timeout: int = 20,
+) -> list[dict]:
+    """Flag official finals the just-pulled pitch frame does NOT contain.
+
+    Savant's search index lags game completion by hours to a day, so a run
+    fired before yesterday's slate indexes pulls a frame whose horizon is
+    OLDER than results MLB has already called final. Observed on the
+    2026-10-08 run (MLB_FULL_REPULL, last chunk 2026-08-18 → 2026-10-08
+    returned cleanly): the frame still stopped at 2026-10-06 while four
+    10-07 games were already official finals — that slate never resolved
+    into predictions_history / today's record, and nothing in the run log
+    said so.
+
+    Compares the frame's newest game against the official StatsAPI schedule
+    for the tail window (horizon+1 → end_date) and WARNs loudly when finals
+    are absent from the frame. Warn-only by design: posting lag on the
+    freshest slate is transient — the next run's forward top-up +
+    REFRESH_TAIL_DAYS refresh recovers the games — but the operator must
+    SEE the gap in the pushed run log instead of discovering a day that
+    never resolved days later.
+
+    Returns one dict per missing final ({game_pk, game_date, away_team,
+    home_team}), newest first. Empty when the frame is current, when no
+    finals exist beyond it, or when every such final is already in the
+    frame under an EARLIER date (suspended-and-resumed listings).
+    """
+    path = Path(pitches_path)
+    if not path.exists():
+        logger.warning("missing-finals guard: no pitch frame at %s to compare", path)
+        return []
+    try:
+        frame = pd.read_parquet(path, columns=["game_date", "game_pk"])
+    except Exception as e:  # noqa: BLE001 — a guard must never break the run
+        logger.warning("missing-finals guard: could not read %s (%s)", path, e)
+        return []
+    if frame.empty or frame["game_date"].isna().all():
+        logger.warning("missing-finals guard: %s holds no dated pitches", path)
+        return []
+    horizon = pd.Timestamp(frame["game_date"].max()).date()
+    end_date = _to_date(end_date)
+    if horizon >= end_date:
+        logger.info(
+            "missing-finals guard: frame horizon %s covers the run window "
+            "through %s — nothing missing", horizon, end_date)
+        return []
+
+    from results import fetch_mlb_results  # local: results is network-side only
+
+    off = fetch_mlb_results(horizon + timedelta(days=1), end_date, timeout=timeout)
+    if off is None or off.empty or "is_final" not in off.columns:
+        # fetch_mlb_results already logged any network failure; a genuinely
+        # gameless tail (offseason, off-day) is normal and stays silent-ish.
+        logger.info(
+            "missing-finals guard: no official schedule rows for %s → %s "
+            "(frame horizon %s)", horizon + timedelta(days=1), end_date, horizon)
+        return []
+
+    finals = off[off["is_final"].fillna(False).astype(bool)].copy()
+    if finals.empty:
+        logger.info(
+            "missing-finals guard: frame horizon %s; no official finals "
+            "beyond it through %s", horizon, end_date)
+        return []
+
+    frame_pks = set()
+    try:
+        pk = pd.to_numeric(frame["game_pk"], errors="coerce").dropna()
+        frame_pks = set(pk.astype("int64").tolist())
+    except Exception as e:  # noqa: BLE001 — degrade to date-only reasoning
+        logger.warning("missing-finals guard: frame game_pk unusable (%s)", e)
+    finals["pk_check"] = pd.to_numeric(finals["game_pk"], errors="coerce")
+    missing = finals[finals["pk_check"].isna()
+                    | ~finals["pk_check"].isin(frame_pks)]
+    if missing.empty:
+        logger.info(
+            "missing-finals guard: frame horizon %s, and every final beyond "
+            "it through %s is already in the frame (e.g. resumed listings)",
+            horizon, end_date)
+        return []
+
+    missing = missing.sort_values("game_date", kind="stable")
+
+    def _side(v):
+        try:
+            return "?" if v is None or pd.isna(v) else str(v)
+        except (TypeError, ValueError):  # pragma: no cover — defensive
+            return str(v)
+
+    rows = [
+        {
+            "game_pk": (int(r["pk_check"]) if pd.notna(r.get("pk_check")) else None),
+            "game_date": str(r.get("game_date")),
+            "away_team": _side(r.get("away_team")),
+            "home_team": _side(r.get("home_team")),
+        }
+        for r in missing.to_dict("records")
+    ]
+    # Cap the line so a badly-lagged horizon cannot flood the pushed log.
+    shown = rows[:20]
+    desc = ", ".join(
+        f"{r['game_date']} {r['away_team']}@{r['home_team']} ({r['game_pk']})"
+        for r in shown)
+    if len(rows) > len(shown):
+        desc += f", +{len(rows) - len(shown)} more"
+    logger.warning(
+        "missing-finals guard: frame horizon %s but %d official final(s) "
+        "newer than the frame are ABSENT from pitches.parquet: %s — Savant "
+        "posting lag (results are official before pitch data indexes). This "
+        "run will not resolve them into predictions_history / today's "
+        "record; the next run's forward top-up + %d-day tail refresh "
+        "recovers them.",
+        horizon, len(rows), desc, REFRESH_TAIL_DAYS)
+    return rows
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _to_date(d: str | date) -> date:
