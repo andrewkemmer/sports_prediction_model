@@ -4000,12 +4000,16 @@ PARK_FACTORS_SLG = {
 # Retractable-roof venues: venue-level DOME_STATUS=1 is only correct when the
 # roof is actually CLOSED. For these teams roof state is resolved PER GAME
 # from the StatsAPI feed condition ("Roof Open"/"Roof Closed"/"Indoor").
-# Fixed domes (TB) are always closed. MIN is a known data-quality anomaly:
-# Target Field has been open-air since 2010 yet DOME_STATUS says 1.
+# Fixed domes (TB) are always closed. MIN (Target Field) has been open-air
+# since 2010: its old DOME_STATUS=1 mislabel is corrected at the map AND
+# kept in OPEN_AIR_MISLABELED so a stale frame that still carries the old
+# venue value is corrected in the game-level refinement too (2026-10-07
+# deep-dive remediation: 243 MIN home games claimed a fixed dome to the
+# model while the weather composites treated them as outdoor).
 RETRACTABLE_ROOF_TEAMS = frozenset(
     {"ARI", "AZ", "HOU", "MIA", "MIL", "SEA", "TEX", "TOR"})
 FIXED_DOME_TEAMS = frozenset({"TB"})
-OPEN_AIR_MISLABELED = frozenset({"MIN"})  # flagged dome=1 but open-air
+OPEN_AIR_MISLABELED = frozenset({"MIN"})  # open-air; never a closed roof
 
 # Dome/closed-roof flag: 1 if fixed dome, 0 if open-air.
 # Prevents the model from hallucinating weather impacts indoors.
@@ -4014,10 +4018,13 @@ DOME_STATUS = {
     # 1 = roof typically closed (fixed or retractable): ARI/HOU/MIA/MIL/
     # SEA/TB/TEX/TOR.  Citi Field (NYM) and the A's parks (SAC/OAK) are
     # OPEN-AIR — previously mislabeled 1, which nulled weather features.
+    # MIN = 0 (Target Field, open-air since 2010 — the old 1 was an
+    # admitted data-quality anomaly that fed the model a closed-roof claim
+    # for 243 outdoor games; 2026-10-07 deep dive).
     "ARI": 1, "AZ": 1, "ATL": 0, "BAL": 0, "BOS": 0, "CHC": 0,
     "CHW": 0, "CWS": 0, "CIN": 0, "CLE": 0, "COL": 0, "DET": 0,
     "HOU": 1, "KC": 0, "LAA": 0, "LAD": 0, "MIA": 1,
-    "MIL": 1, "MIN": 1, "NYM": 0, "NYY": 0, "OAK": 0,
+    "MIL": 1, "MIN": 0, "NYM": 0, "NYY": 0, "OAK": 0,
     "PHI": 0, "PIT": 0, "SD": 0, "SF": 0, "SEA": 1,
     "STL": 0, "TB": 1, "TEX": 1, "TOR": 1, "WSH": 0,
     "ATH": 0,
@@ -4180,7 +4187,7 @@ def refine_dome_game_level(df: pd.DataFrame,
                            roof_states: dict | None = None) -> pd.DataFrame:
     """Game-accurate roof flag column: dome_is_neutral_game.
 
-    Venue-level dome_is_neutral is kept UNTOUCHED. The refined column:
+    The refined column:
       * fixed domes           -> 1 (always closed)
       * retractable + known   -> 0 when OPEN (real weather applies),
                                  1 when CLOSED
@@ -4188,6 +4195,14 @@ def refine_dome_game_level(df: pd.DataFrame,
                                  assumed closed)
       * open-air venues       -> 0 (includes the MIN mislabel correction)
     ``roof_states`` maps game_pk -> "open"|"closed" (StatsAPI cache).
+
+    ``dome_is_neutral`` (the model feature) is SYNCED to the refined
+    values — its contract is "1 if fixed dome/closed roof", and the game-
+    accurate state is the truth of that claim (2026-10-07 deep dive: the
+    static venue prior claimed a closed roof on 834 games whose roof was
+    open or whose park is open-air, contradicting the weather composites
+    computed from the refined column). Stale frames that already carry a
+    mislabeled venue value are corrected here too.
     """
     from collections import Counter
 
@@ -4219,6 +4234,9 @@ def refine_dome_game_level(df: pd.DataFrame,
             refined.append(venue_dome if pd.notna(venue_dome) else 0.0)
     df["dome_is_neutral_game"] = pd.Series(refined, index=df.index,
                                            dtype="float64")
+    # The model feature carries the same game-accurate state (see the
+    # docstring): one roof truth for the model and the weather composites.
+    df["dome_is_neutral"] = df["dome_is_neutral_game"]
     n_open = int((df["dome_is_neutral_game"] == 0).sum())
     log = logger.warning if unknown_retractable else logger.info
     log(
@@ -5210,8 +5228,16 @@ def add_diff_features(
           "closer_available_home", "closer_available_away")
 
     # ── 28. dome_is_neutral: binary flag (1 if fixed dome/closed roof)
+    # The VENUE prior, then the game-accurate roof state wins wherever the
+    # refinement has already resolved it (dome_is_neutral_game): the
+    # feature's contract is the game's actual indoor/closed state, so an
+    # observed open roof or the MIN open-air correction can never be
+    # overridden by the static "typically closed" prior (2026-10-07).
     home_team = df["home_team"].astype(str).str.upper().str.strip()
     df["dome_is_neutral"] = home_team.map(DOME_STATUS).astype(float)  # NaN = unknown
+    if "dome_is_neutral_game" in df.columns:
+        _g = pd.to_numeric(df["dome_is_neutral_game"], errors="coerce")
+        df["dome_is_neutral"] = _g.where(_g.notna(), df["dome_is_neutral"])
 
     # ── 29. park_factor_slug_diff: home_park_slug_factor × lineup_re24_top3_diff
     # Maps out when a power-heavy lineup gets to exploit a small ballpark.

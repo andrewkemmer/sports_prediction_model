@@ -277,7 +277,16 @@ def fetch_game_start_times(start_date: date, end_date: date,
         for day in data.get("dates", []):
             for g in day.get("games", []):
                 pk = g.get("gamePk")
-                dt = g.get("gameDate")
+                # First-pitch provenance: a suspended-and-resumed game's
+                # ``gameDate`` is the RESUME slot (days to months after the
+                # first pitch — 2026-10-07 deep dive found 8 such rows
+                # sealed as "observed" first pitches, mis-keying the market
+                # as-of merge, weather sampling and PIT ordering). The
+                # schedule carries ``resumedFrom`` = the game's actual
+                # first pitch exactly when it was suspended after starting;
+                # postponed games (never started) legitimately carry the
+                # makeup datetime in gameDate and have no resumedFrom.
+                dt = g.get("resumedFrom") or g.get("gameDate")
                 if pk and dt:
                     out[int(pk)] = dt
         logger.info("StatsAPI schedule %s→%s: %d games (%d new)",
@@ -297,7 +306,17 @@ def refresh_start_times(games: pd.DataFrame) -> pd.DataFrame:
     ``start_time_utc`` from the StatsAPI schedule for every row WITHOUT an
     observed flag and marks only matched rows observed — never overwrites
     an already-observed timestamp, never marks an unmatched row observed.
-    Idempotent: once every row is observed the schedule is not queried.
+    The ONE exception (2026-10-07 deep dive): a suspended-and-resumed
+    game's sealed "observed" value can be the schedule's RESUME slot rather
+    than its first pitch (8 of 7,397 history rows carried slots days to
+    months after their game). A resume slot is always strictly AFTER the
+    game's official date, so observed timestamps later than their own
+    ``game_date`` are reconciled against the authoritative schedule value —
+    a legitimate late/midnight start maps back to the same instant and
+    changes nothing, a sealed resume slot is restored to the game's real
+    first pitch. (Same-day resumes are undetectable by date and keep their
+    slot — a documented limitation.) Idempotent: once every row is observed
+    and none is later than its game date the schedule is not queried.
     Failure is best-effort: the frame returns unchanged with a warning so
     fabricated placeholders (which the weather paths already know how to
     work around) never kill a run.
@@ -311,9 +330,23 @@ def refresh_start_times(games: pd.DataFrame) -> pd.DataFrame:
     else:
         observed = pd.Series(False, index=games.index)
     need = pk.notna() & ~observed
-    if not need.any():
+    # Self-healing provenance repair candidates: an observed timestamp
+    # strictly later than its game's own date (ET) cannot be that game's
+    # first pitch — it is a suspended game's RESUME slot. Earlier or
+    # same-day values are left alone (a resume slot never precedes its
+    # game).
+    repair = pd.Series(False, index=games.index)
+    if "start_time_utc" in games.columns:
+        _st = pd.to_datetime(games["start_time_utc"], utc=True, errors="coerce")
+        _et = _st.dt.tz_convert("America/New_York")
+        _gd = pd.to_datetime(games["game_date"], errors="coerce")
+        _later = (_et.dt.tz_localize(None).dt.normalize()
+                  > _gd.dt.normalize())
+        repair = pk.notna() & observed & _st.notna() & _later.fillna(False)
+    if not need.any() and not repair.any():
         return games
-    dates = pd.to_datetime(games.loc[need, "game_date"], errors="coerce").dropna()
+    dates = pd.to_datetime(
+        games.loc[need | repair, "game_date"], errors="coerce").dropna()
     if dates.empty:
         return games
     try:
@@ -327,7 +360,16 @@ def refresh_start_times(games: pd.DataFrame) -> pd.DataFrame:
     mapped = pk.map(lambda k: times.get(int(k)) if pd.notna(k) else None)
     parsed = pd.to_datetime(mapped, utc=True, errors="coerce")
     fill = need & parsed.notna()
-    if not fill.any():
+    # Repair rows adopt the authoritative first pitch ONLY when it differs:
+    # a legitimate midnight-start rain delay maps to its own instant and is
+    # left untouched, while a sealed resume slot is restored to the game's
+    # real first pitch.
+    current = (pd.to_datetime(games["start_time_utc"], utc=True,
+                              errors="coerce")
+               if "start_time_utc" in games.columns
+               else pd.Series(pd.NaT, index=games.index))
+    fix = repair & parsed.notna() & (parsed != current)
+    if not fill.any() and not fix.any():
         logger.warning("Start-time refresh matched 0/%d unobserved games", int(need.sum()))
         return games
     games = games.copy()
@@ -336,12 +378,14 @@ def refresh_start_times(games: pd.DataFrame) -> pd.DataFrame:
     elif not pd.api.types.is_datetime64_any_dtype(games["start_time_utc"]):
         games["start_time_utc"] = pd.to_datetime(games["start_time_utc"],
                                                   utc=True, errors="coerce")
-    games.loc[fill, "start_time_utc"] = parsed[fill]
+    games.loc[fill | fix, "start_time_utc"] = parsed[fill | fix]
     if "start_time_observed" not in games.columns:
         games["start_time_observed"] = False
     games.loc[fill, "start_time_observed"] = True
     logger.info("Start-time refresh: %d/%d games now carry observed first "
-                "pitches (StatsAPI schedule)", int(fill.sum()), len(games))
+                "pitches (StatsAPI schedule); %d suspended-game resume "
+                "slot(s) restored to their real first pitch",
+                int(fill.sum()), len(games), int(fix.sum()))
     return games
 
 

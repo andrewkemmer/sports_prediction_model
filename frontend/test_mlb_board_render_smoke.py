@@ -14,8 +14,13 @@ regression shape:
      content can reach the rendered page.
   E. With recovery disabled, 0928 dead-ends with the honest
      "No game board exists for Monday, September 28, 2026" warning.
-  C. The legit 2026-09-27 board still renders intact (15 games, its own
-     date, no recovery banner).
+  C. The legit board nearest the retention window still renders intact
+     (its full card count, its own date, no recovery banner, its decided
+     picks graded). The target is picked from TODAY's valid set — with
+     decided rows, since a same-night board is still LIVE/pre-game —
+     because the 10-day rolling MLB retention window legitimately drops
+     2026-09-27 once ET today passes 2026-10-07; an out-of-retention
+     board MUST fall back to recovery.
 
 Run from the frontend/ directory:
     python -m test_mlb_board_render_smoke
@@ -218,17 +223,45 @@ def main() -> int:
     finally:
         utils.valid_dates = _orig_valid
 
-    # ---- C: the legit 0927 board renders intact ----
+    # ---- C: the legit board renders intact ----
+    # Retention-aware target (see module docstring): prefer the original
+    # 2026-09-27 remediation slate while it is still inside the rolling
+    # 10-day valid window, otherwise the newest real local board that has
+    # DECIDED rows — a same-night board is still LIVE/pre-game and renders
+    # no accuracy line, so the accuracy contract needs a settled slate.
+    # The CONTRACT under test is date-independent: a real board renders
+    # under its own date with its full card count, no recovery banner,
+    # and its decided picks graded.
     _clear_caches()
-    at, text = _run_page("20260927")
-    assert "September 27, 2026" in text
+    import csv as _csv
+
+    def _board_rows(date_str: str) -> list[dict]:
+        with (DD / f"todays_games_{date_str}.csv").open(
+                newline="", encoding="utf-8") as fh:
+            return list(_csv.DictReader(fh))
+
+    _real = sorted(
+        (str(d) for d in _u.valid_dates("mlb")
+         if (DD / f"todays_games_{str(d)}.csv").exists()),
+        reverse=True)
+    assert _real, "no real local board is valid today"
+    _settled = [d for d in _real if any(r.get("home_win") for r in _board_rows(d))]
+    assert _settled, "no valid local board has decided rows today"
+    _c_date = "20260927" if "20260927" in _settled else _settled[0]
+    _c_rows = len(_board_rows(_c_date))
+    at, text = _run_page(_c_date)
+    _c_long = (datetime.strptime(_c_date, "%Y%m%d")
+               .strftime("%B %d, %Y").replace(" 0", " "))
+    assert _c_long in text
     assert "Recovery view" not in text
-    m = re.search(r"15 of (\d+) games shown", text)
-    assert m, f"expected '15 of N games shown' strip, got: {text[:400]}"
+    m = re.search(rf"{_c_rows} of (\d+) games shown", text)
+    assert m, (f"expected '{_c_rows} of N games shown' strip for "
+               f"{_c_date}, got: {text[:400]}")
     assert "20260925" not in text and "20260926" not in text
     assert "CORRECT PICK" in text or "Model Correct" in text or "accuracy" in text
-    print(f"C PASS  0927 intact: 15 cards, league_total={m.group(1)}, "
-          "no recovery banner, no foreign-date content")
+    print(f"C PASS  {_c_date} intact: {_c_rows} cards, "
+          f"league_total={m.group(1)}, no recovery banner, "
+          "no foreign-date content")
 
     print("\nMLB BOARD RENDER PROOF - PASS (5 scenarios)")
     return 0

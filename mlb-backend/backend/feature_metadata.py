@@ -370,12 +370,16 @@ _RICH: dict[str, dict[str, str]] = {
         "summary": "1 if home park is a fixed dome/closed roof, 0 if open-air",
         "description_gate": True,  # type: ignore[dict-item]
         "definition": (
-            "Weather hallucination gate: indoor parks get neutral weather "
+            "Weather hallucination gate: indoor games get neutral weather "
             "values regardless of outside conditions."
         ),
-        "formula": "1 if venue in DOMED_VENUES else 0",
-        "source": "Static venue table",
-        "window": "n/a (venue attribute)",
+        "formula": (
+            "1 if this game's roof is closed (or the park is a fixed dome), "
+            "0 if open-air — resolved per game from the StatsAPI roof state "
+            "for retractable parks, venue type otherwise"
+        ),
+        "source": "Per-game roof state (StatsAPI) over the static venue table",
+        "window": "n/a (per-game venue attribute)",
         "units": "binary",
         "direction": "n/a (gate flag)",
     },

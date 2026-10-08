@@ -67,8 +67,10 @@ from __future__ import annotations
 import importlib.util
 import logging
 import sys
+from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -409,3 +411,136 @@ def test_calibration_json_labels_the_grading_population_not_the_slate():
         "pages' 'X of Y games shown' denominator)")
     # y_true IS the graded population: the mask must gate it upstream.
     assert 'ok &= oof["grades_pooled"].astype(bool)' in seg
+
+
+# ── T7: first-pitch provenance for suspended-and-resumed games ──────────────
+# 2026-10-07 full deep dive (ingestion validated game-by-game against MLB's
+# official schedule + live feeds: 7,397/7,397 played R/F/D/L/W games present,
+# game_date == officialDate, scores == official finals, cancelled games
+# correctly absent). ONE ingestion defect surfaced: the schedule's
+# ``gameDate`` is the RESUME slot for a suspended game, and
+# results.refresh_start_times sealed it as the game's "observed first pitch"
+# — 8 of 7,397 history rows carried slots 1-61 days after their game,
+# mis-keying the market-line as-of merge (post-start lines could attach),
+# weather sampling and within-day PIT ordering. The fetch now prefers
+# ``resumedFrom`` (the real first pitch, present exactly for resumed games)
+# and the refresh self-heals sealed resume slots (a resume slot is always
+# strictly later than its game date; a legitimate late start maps back to
+# the same instant and is untouched).
+
+def test_fetch_game_start_times_prefers_the_resumed_from_first_pitch(
+        monkeypatch):
+    import results as results_mod
+
+    payload = {"dates": [{"date": "2024-08-26", "games": [
+        {"gamePk": 746942, "gameDate": "2024-08-26T18:05:00Z",
+         "resumedFrom": "2024-06-26T23:10:00Z"},
+        {"gamePk": 746943, "gameDate": "2024-08-26T23:10:00Z"},
+    ]}]}
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return payload
+
+    monkeypatch.setattr(results_mod.requests, "get",
+                        lambda *a, **k: _Resp())
+    times = results_mod.fetch_game_start_times(
+        date(2024, 8, 26), date(2024, 8, 26))
+    assert times[746942] == "2024-06-26T23:10:00Z", (
+        "a resumed game must carry its FIRST pitch (resumedFrom), not the "
+        "resume slot in gameDate")
+    assert times[746943] == "2024-08-26T23:10:00Z", (
+        "a normal game must keep its gameDate first pitch")
+
+
+def test_refresh_start_times_restores_a_sealed_resume_slot(monkeypatch):
+    import results as results_mod
+    from results import refresh_start_times
+
+    calls = []
+    def fake(start, end):
+        calls.append((start, end))
+        return {746942: "2024-06-26T23:10:00Z",
+                900001: "2026-08-01T23:05:00Z"}
+    monkeypatch.setattr(results_mod, "fetch_game_start_times", fake)
+    frame = pd.DataFrame({
+        "game_pk": [746942, 900001],
+        "game_date": ["2024-06-26", "2026-08-01"],
+        # Row 0 sealed the RESUME slot (observed=True, ET date 2024-08-26,
+        # 61 days after its game); row 1 is a legitimate late start whose
+        # value already IS its first pitch.
+        "start_time_utc": pd.to_datetime(
+            ["2024-08-26 18:05", "2026-08-02 03:05"], utc=True),
+        "start_time_observed": [True, True],
+    })
+    out = refresh_start_times(frame)
+    assert out.loc[0, "start_time_utc"] == pd.Timestamp(
+        "2024-06-26T23:10:00Z"), (
+        "a sealed resume slot must be restored to the game's real first "
+        "pitch even though it was marked observed")
+    assert bool(out.loc[0, "start_time_observed"]), (
+        "the repaired row stays observed — the value is authoritative now")
+    assert out.loc[1, "start_time_utc"] == pd.Timestamp(
+        "2026-08-02 03:05", tz="UTC"), (
+        "a legitimate late/midnight start maps to its own instant and is "
+        "never rewritten")
+    # Idempotent: repaired frame has no later-than-game rows -> no re-fetch.
+    again = refresh_start_times(out)
+    assert len(calls) == 1, "a coherent fully-observed frame must not " \
+                           "re-query the schedule"
+    assert again.start_time_utc.equals(out.start_time_utc)
+
+
+# ── T8: one roof truth for the model feature and the weather composites ────
+# 2026-10-07 full deep dive: the model universe consumed the STATIC venue
+# map while the game-accurate ``dome_is_neutral_game`` (StatsAPI roof
+# cache, 1,731/1,731 retractable-home games resolved) was computed but
+# never fed to the model. 834 rows were self-contradictory: 243 MIN home
+# games (Target Field — open-air since 2010) plus 591 open-roof retractable
+# games carried dome_is_neutral=1 ("fixed dome/closed roof") while the
+# wind/air composites on the SAME rows were computed as outdoor. The model
+# feature now carries the game-accurate state (metadata contract: "1 if
+# home park is a fixed dome/closed roof, 0 if open-air").
+
+def test_min_is_never_a_dome():
+    import features
+    assert features.DOME_STATUS["MIN"] == 0, (
+        "Target Field is open-air — the model must never claim a closed "
+        "roof for MIN")
+    assert "MIN" in features.OPEN_AIR_MISLABELED, (
+        "stale frames carrying the old mislabel must still be corrected "
+        "by the game-level refinement")
+
+
+def test_refine_dome_syncs_the_model_feature_to_the_game_state():
+    import features
+    frame = pd.DataFrame({
+        "game_pk": [11, 12, 13, 14],
+        "home_team": ["MIN", "SEA", "TB", "HOU"],
+        # Stale pre-fix venue values: every row claims a closed roof.
+        "dome_is_neutral": [1.0, 1.0, 1.0, 1.0],
+    })
+    out = features.refine_dome_game_level(
+        frame, roof_states={12: "open", 14: "closed"})
+    # MIN open-air correction; SEA observed open; TB fixed dome; HOU closed.
+    assert out["dome_is_neutral_game"].tolist() == [0.0, 0.0, 1.0, 1.0]
+    assert out["dome_is_neutral"].tolist() == [0.0, 0.0, 1.0, 1.0], (
+        "the model feature must carry the SAME game-accurate roof state "
+        "the weather composites use — one roof truth")
+
+
+def test_add_diff_features_prefers_the_game_accurate_roof_flag():
+    import features
+    frame = pd.DataFrame({
+        "game_pk": [1, 2, 3],
+        "home_team": ["MIN", "SEA", "TB"],
+        "away_team": ["CLE", "HOU", "BOS"],
+        "dome_is_neutral_game": [0.0, 0.0, np.nan],
+    })
+    out = features.add_diff_features(frame)
+    # MIN/SEA: observed game state wins over the static prior; TB: no game
+    # state -> the fixed-dome venue prior stands.
+    assert out["dome_is_neutral"].tolist() == [0.0, 0.0, 1.0]
