@@ -83,18 +83,26 @@ class Fold:
         return not self.provisional
 
 
+# The postseason spellings postseason_flag accepts: the nflverse ROUND
+# codes the schedule actually emits (verified against
+# nflreadpy.load_schedules 2016-2026: value counts REG/WC/DIV/CON/SB only
+# -- never "POST") plus the legacy "POST" spelling fixtures still carry.
+POSTSEASON_GAME_TYPES = frozenset({"POST", "WC", "DIV", "CON", "SB"})
+
+
 def postseason_flag(values: pd.Series) -> pd.Series:
     """Row-level playoff flag for an NFL ``game_type`` column.
 
-    nflverse spells it ``POST`` (regular season + postseason are the two
-    values ``config.GAME_TYPES`` keeps; preseason is dropped at ingest), so a
-    substring match on "post" is the whole rule. Unknown/missing reads as
+    The nflverse schedule spells postseason by ROUND -- ``WC`` / ``DIV`` /
+    ``CON`` / ``SB`` -- and never emits ``POST``, so the old "post"
+    substring match read every real playoff row as regular (the 2026-10-08
+    fix: the round codes were added to ``config.GAME_TYPES`` and here).
+    Regular (``REG``), preseason (``PRE``), unknown and missing all read as
     regular. Kept as one shared helper so the gate and any future
     ``is_playoffs`` feature cannot drift apart.
     """
-    return (values.astype("string").str.strip().str.lower()
-            .str.contains("post", regex=False, na=False)
-            .fillna(False).astype(bool))
+    return (values.astype("string").str.strip().str.upper()
+            .isin(POSTSEASON_GAME_TYPES))
 
 
 def make_folds(df: pd.DataFrame,
@@ -113,9 +121,13 @@ def make_folds(df: pd.DataFrame,
     one ``provisional`` instead of discarding it: the games are fit, scored
     and shipped, but they never grade pooled metrics, blend weights or
     calibration. Before 2026-10-03 the skip removed ~758 of 2,431 core games
-    from validation -- every postseason game in ten seasons (no February date
-    ever appeared in the OOF) plus hundreds of regular-season games whose
-    7-calendar-day block straddled a week.
+    from validation -- hundreds of regular-season games whose 7-calendar-day
+    block straddled a week -- while postseason games never reached this
+    function at all: ingest's ``GAME_TYPES`` matched only the spelling
+    "POST", which the nflverse schedule never emits (it spells the rounds
+    WC/DIV/CON/SB), so every in-window playoff game was dropped before
+    folding and no February date ever appeared in the OOF. Both defects
+    were fixed 2026-10-08.
     """
     cadence = cadence_days or config.RETRAIN_CADENCE_DAYS
     if min_val_games is None:

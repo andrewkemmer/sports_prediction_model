@@ -1443,6 +1443,18 @@ EPA_QUALITY_K_FRAC = 0.20
 # widened-candidate-roster pattern as MLB while allowing a three-week roster
 # freshness window so a bye does not erase every projected-lineup candidate.
 EPA_QUALITY_POOL_DAYS = 21
+# Season-boundary carry (2026-10-08): a team's last-game-to-Week-1 gap runs
+# ~188 days (Jan 5 -> Sep 10) to ~245 days (Feb 5 Super Bowl -> Sep 7), so
+# the 21-day freshness window is EMPTY for every season opener and the whole
+# epa_* family shipped NaN on Week-1 games -- the family's largest structural
+# coverage hole (the MLB pool and the NHL pool's 45->200-day lookback both
+# carry prior-season ratings across the boundary; the NFL pool did not).
+# The carry pass re-fills ONLY (game, team) pairs the fresh window found
+# nothing for, so an in-season team the fresh window covers never pulls
+# stale rows, and the strictly-earlier-calendar-date gate still bars the
+# target's own result. 300 days clears the 245-day worst case while staying
+# prior-season-only when it fires at a Week-1 target.
+EPA_QUALITY_POOL_SEASON_DAYS = 300
 EPA_QUALITY_TOP_N = 11
 
 
@@ -1663,7 +1675,11 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 
     Candidate pool: each team's latest player EPA rating from a game date
     strictly before the target date and within the 21-calendar-day window,
-    covering ordinary bye-week gaps.
+    covering ordinary bye-week gaps; when that fresh window finds NOTHING
+    for a (game, team) -- the season opener, where the gap runs ~188-245
+    days -- a second pass carries prior-season ratings across the boundary
+    (EPA_QUALITY_POOL_SEASON_DAYS), never extending a team the fresh window
+    already covered.
     Only a strictly pre-kickoff Out/IR/Doubtful designation excludes the
     player; other statuses and no admissible report leave him eligible. The
     rolling player rating is computed before current-game membership filtering,
@@ -1730,9 +1746,19 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     # Only prior calendar dates qualify. PBP/player stats do not supply an
     # authoritative end-of-game publication time, so a same-day prior kickoff
     # is not proof that the completed EPA rating was known before target kickoff.
-    j = j[(j["rating_day"] < j["target_day"])
-          & (j["rating_day"] >= j["target_day"]
-             - pd.Timedelta(days=EPA_QUALITY_POOL_DAYS))]
+    _prior = j["rating_day"] < j["target_day"]
+    fresh = j[_prior & (j["rating_day"] >= j["target_day"]
+                        - pd.Timedelta(days=EPA_QUALITY_POOL_DAYS))]
+    # Season-boundary carry (EPA_QUALITY_POOL_SEASON_DAYS): re-fill ONLY the
+    # (game, team) pairs the fresh window found nothing for -- a team the
+    # fresh window already covers never pulls its stale rows.
+    _covered = fresh[["game_id", "team"]].drop_duplicates()
+    carry = (j[_prior & (j["rating_day"] >= j["target_day"]
+                         - pd.Timedelta(days=EPA_QUALITY_POOL_SEASON_DAYS))]
+             .merge(_covered, on=["game_id", "team"], how="left",
+                    indicator=True))
+    j = pd.concat([fresh, carry[carry["_merge"] == "left_only"]
+                   .drop(columns="_merge")], ignore_index=True)
     j = (j.sort_values(["game_id", "team", "player_id", "rating_day",
                         "history_game_id"])
          .drop_duplicates(["game_id", "team", "player_id"], keep="last"))

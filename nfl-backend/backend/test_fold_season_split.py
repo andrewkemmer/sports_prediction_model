@@ -3,9 +3,12 @@
 NFL was the worst-covered sport: ~758 of 2,431 core games (31%) were never
 validated, because a 7-CALENDAR-day block that straddled an NFL week fell
 under MIN_VAL_FOLD_GAMES and was silently discarded -- with no skip log line
-anywhere in the pipeline. Every postseason game in ten seasons was among
-them: the OOF contained no February date at all (no Super Bowl, ever) and
-each January count equalled regular-season Weeks 17/18 exactly.
+anywhere in the pipeline. Postseason games never even reached the fold
+builder: ingest's GAME_TYPES matched only the spelling "POST", which the
+nflverse schedule never emits (it spells the rounds WC/DIV/CON/SB), so every
+in-window playoff game was dropped before folding -- the OOF contained no
+February date at all (no Super Bowl, ever) and each January count equalled
+regular-season Weeks 17/18 exactly. Both defects were fixed 2026-10-08.
 
 These pin the replacement contract: every non-empty window is a fold, a thin
 one is ``provisional`` (fit and scored, never grading), and a window with no
@@ -133,6 +136,18 @@ class TestSeasonTypeClassification:
         raw = pd.Series(["REG", "POST", "reg", "post", None, " PRE"])
         got = folds_mod.postseason_flag(raw).tolist()
         assert got == [False, True, False, True, False, False]
+
+    def test_postseason_flag_reads_every_nflverse_round_code(self):
+        """The schedule spells postseason WC/DIV/CON/SB -- never POST
+        (nflreadpy.load_schedules value counts, 2016-2026). The old "post"
+        substring read every REAL playoff row as regular; the flag must
+        recognize all four round codes (case/whitespace-insensitive) while
+        REG, PRE and missing stay regular."""
+        raw = pd.Series(["REG", "PRE", "WC", "DIV", "CON", "SB",
+                         " wc", "sb ", None])
+        got = folds_mod.postseason_flag(raw).tolist()
+        assert got == [False, False, True, True, True, True,
+                       True, True, False]
 
     def test_fold_table_exposes_the_split(self, monkeypatch):
         monkeypatch.setattr(config, "MIN_VAL_FOLD_GAMES", 15)

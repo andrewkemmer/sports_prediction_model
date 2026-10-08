@@ -73,7 +73,12 @@ def _polars_to_pandas(frame):
 
 def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
     """Filter a schedules frame to the eligible population: settled
-    regular-season or postseason games within the configured season window (2018+)."""
+    regular-season or postseason games within the configured season window.
+
+    ``config.GAME_TYPES`` carries the nflverse spellings the schedule
+    actually uses -- REG plus the postseason round codes WC/DIV/CON/SB
+    (never "POST"; verified against nflreadpy.load_schedules 2016-2026).
+    """
     df = schedule.copy()
     df["season"] = pd.to_numeric(df["season"], errors="coerce")
     df = df[df["season"].isin(config.ALL_SEASONS)]
