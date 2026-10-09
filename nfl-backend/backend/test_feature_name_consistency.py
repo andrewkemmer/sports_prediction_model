@@ -159,8 +159,13 @@ check("tree numeric prefix is the served contract projection",
       tree_cols[:-len(config.TREE_CATEGORICAL_COLS)]
       == [c for c in config.active_moneyline_feature_cols() if c in feats.columns])
 check("team IDs are stable ints with UNK fallback",
+      # 2026-10-08 coverage audit, HIGH: historical franchise spellings
+      # resolve to their MODERN identity (one franchise, one ID) instead of
+      # the unknown bucket; only genuinely unrecognized labels hit UNK.
       config.team_category_id("KC") == config.NFL_TEAM_ID["KC"]
-      and config.team_category_id("OAK") == config.UNK_TEAM_ID
+      and config.team_category_id("OAK") == config.NFL_TEAM_ID["LV"]
+      and config.team_category_id("SD") == config.NFL_TEAM_ID["LAC"]
+      and config.team_category_id("JST") == config.UNK_TEAM_ID
       and config.team_category_id(None) == config.UNK_TEAM_ID)
 _ids = feat_mod.team_category_ids(feats)
 check("team_category_ids maps home/away from the frame",

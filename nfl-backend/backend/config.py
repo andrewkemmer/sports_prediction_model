@@ -481,18 +481,59 @@ NFL_TEAM_ID: dict[str, int] = {
     "TEN": 30, "WAS": 31,
 }
 
-# Reserved "unknown" category: every historical/abandoned abbreviation
-# (JST, SD, OAK, STL), international/missing values, and any unseen label
-# maps here — a dedicated near-zero-presence category trees learn a neutral
-# weight for, never a silent alias of a real team.
+# Reserved "unknown" category: genuinely unrecognized labels — malformed,
+# international, or missing values (JST and friends) and any unseen
+# abbreviation map here — a dedicated near-zero-presence category trees
+# learn a neutral weight for, never a silent alias of a real team.
+# Historical franchise spellings (SD, OAK, STL) are deliberately NOT
+# parked here anymore: canonical_team folds them onto their modern ID
+# first (2026-10-08 coverage audit), so one franchise keeps one identity
+# across its relocation seam.
 UNK_TEAM_ID = 99
+
+# ---------------------------------------------------------------------------
+# One label space for every join (2026-10-08 coverage audit, HIGH finding:
+# "team identity is inconsistent across sources and state").
+#
+# The schedule keeps its ERA labels (OAK 2016-17, SD through 2017, LA for
+# the Rams) — that is the display and game-identity truth. nflverse PBP and
+# player stats modernize those spellings retroactively (LV, LAC), and NGS
+# spells the Rams LAR where every other feed says LA. Exact-label joins
+# therefore dropped 65 Oakland + 16 San Diego team-games of PBP/player
+# usage (48 Oakland games with no yards/play diff at all), 185 NGS
+# team-games, and kept OAK/SD/LAR as SEPARATE identities in every piece of
+# state keyed by team — Elo, records, the 34-row power-rankings board, the
+# tree categorical IDs.
+#
+# Every source/event boundary maps through canonical_team, and the mapping
+# is idempotent (canonical == canonical), so BOTH sides of a join may apply
+# it without knowing which space the other side arrived in. Game ids and
+# display fields are never touched.
+TEAM_ALIASES = {"OAK": "LV", "SD": "LAC", "LAR": "LA", "STL": "LA"}
+
+
+def canonical_team(label):
+    """Fold a franchise's historical spellings into ONE join key.
+
+    Non-string input passes through unchanged: a NaN team stays NaN — a
+    missing label must never alias onto a real franchise.
+    """
+    if not isinstance(label, str):
+        return label
+    key = label.strip().upper()
+    return TEAM_ALIASES.get(key, key)
 
 
 def team_category_id(abbr: object) -> int:
-    """Map a team abbreviation to its categorical ID (UNK_TEAM_ID fallback)."""
+    """Map a team abbreviation to its categorical ID (UNK_TEAM_ID fallback).
+
+    Canonical first: OAK/SD/STL resolve to their MODERN franchise's ID
+    instead of the unknown bucket, so the tree family prices one identity
+    per franchise across the relocation seam.
+    """
     if not isinstance(abbr, str):
         return UNK_TEAM_ID
-    return NFL_TEAM_ID.get(abbr.strip().upper(), UNK_TEAM_ID)
+    return NFL_TEAM_ID.get(canonical_team(abbr), UNK_TEAM_ID)
 
 
 # The adopted categorical set (tree members only; ordering is contractual:

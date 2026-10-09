@@ -73,7 +73,8 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
     home = pd.DataFrame({
         "game_id": games["game_id"], "season": games["season"],
         "week": games["week"], "gameday": gd, "kickoff_utc": event_time,
-        "team": games["home_team"], "opponent": games["away_team"],
+        "team": games["home_team"].map(config.canonical_team),
+        "opponent": games["away_team"].map(config.canonical_team),
         "is_home": True,
         "for": games["home_score"].astype(float),
         "against": games["away_score"].astype(float),
@@ -81,7 +82,8 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
     away = pd.DataFrame({
         "game_id": games["game_id"], "season": games["season"],
         "week": games["week"], "gameday": gd,
-        "team": games["away_team"], "opponent": games["home_team"],
+        "team": games["away_team"].map(config.canonical_team),
+        "opponent": games["home_team"].map(config.canonical_team),
         "is_home": False, "kickoff_utc": event_time,
         "for": games["away_score"].astype(float),
         "against": games["home_score"].astype(float),
@@ -645,7 +647,27 @@ PBP_AGG_COLS = ["game_id", "team", "total_yards", "n_plays", "elapsed_min",
 def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
     """Per-(game_id, posteam) play aggregates. Every column is a per-game
     sum/rate — the trailing shift downstream keeps them strictly-prior.
-    Absent source columns degrade to NaN (never fabricated)."""
+    Absent source columns degrade to NaN (never fabricated).
+
+    Pace/yards-per-play population, stated explicitly (2026-10-08 coverage
+    audit, medium finding "not conventional offensive-play measures"):
+    ``n_plays`` counts every row with a possession team AND a non-null
+    ``yards_gained`` — ALL play types, not filtered to a run/pass
+    ``play_type`` flag (kneels, spikes and penalty plays carrying recorded
+    yards sit inside the population; measured +~19 rows per team-game vs
+    an offensive-type filter). ``total_yards`` sums exactly those rows, so
+    ``ypp_game = total_yards/n_plays`` is this engine's own play
+    population, NOT an official-boxscore offensive-play rate. The pace
+    denominator ``elapsed_min`` = (3600 − the game's minimum recorded
+    ``game_seconds_remaining``)/60 — the game clock as published, which
+    never exceeds regulation length (measured 59.37–60.00 min), so
+    overtime adds no denominator time: pace is regulation-denominated on
+    purpose. ``pace_plays_min_game = n_plays/elapsed_min`` rides the
+    trailing windows downstream. These are the definitions as measured;
+    the values are deliberately unchanged (restricting the population or
+    adding an OT clock would version the feature contract and require a
+    rebuild).
+    """
     cols = list(PBP_AGG_COLS)
     if pbp is None or "posteam" not in getattr(pbp, "columns", []):
         return pd.DataFrame(columns=cols)
@@ -668,7 +690,12 @@ def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
     else:
         g["elapsed_min"] = np.nan
     g = _add_pbp_metrics(p, g)
-    return g.rename(columns={"posteam": "team"})[cols]
+    out = g.rename(columns={"posteam": "team"})
+    # Franchise normalization at the boundary (2026-10-08 audit): nflverse
+    # spells the relocations modernly (LV/LAC/LAR), the schedule keeps the
+    # era label — one canonical join key on both sides.
+    out["team"] = out["team"].map(config.canonical_team)
+    return out[cols]
 
 
 # ---------------------------------------------------------------------------
@@ -679,17 +706,31 @@ FTN_AGG_COLS = ["game_id", "team", "def_box", "off_backfield", "motion_rate",
 
 
 def ftn_team_agg(ftn: pd.DataFrame | None,
-                 game_teams: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Per-(game_id, team) charting aggregates (functions of that game only;
-    the trailing shift downstream keeps them strictly-prior).
+                 pbp: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Per-(game_id, team) charting aggregates, attributed per PLAY side
+    (functions of that game only; the trailing shift downstream keeps them
+    strictly-prior).
 
-    The charting payload is game-level (no posteam), so ``game_teams`` — the
-    pbp rollup's (game_id, team) pairs — resolves each game's two offenses;
-    every (game, team) row carries the game's charted means. Absent source
-    or mapping degrades to an empty frame (metrics stay NaN downstream)."""
+    2026-10-08 coverage audit, HIGH finding ("FTN attribution is wrong for
+    team-tendency candidates"): the old rollup averaged every charted play
+    of a game ONCE and copied that mean to BOTH team rows, so every
+    tendency described neither side — measured against independent
+    play-team attribution on 2,406 team-games, motion rate differed on
+    2,404 of them. The payload carries ``nflverse_play_id``, so the plays
+    join back to PBP possession identity and each measure lands on the
+    side it actually describes:
+
+      * motion / play-action / RPO / screen rates and the offensive
+        backfield count → the OFFENSE on the play (``posteam``);
+      * the defensive box count → the DEFENSE facing it (``defteam``).
+
+    Play-key coverage is logged: charted plays whose key does not reach
+    this window's PBP drop out of the numerator AND the denominator,
+    never attributed by guesswork. No pbp or no usable keys degrades to
+    an EMPTY frame — the candidates stay NaN downstream rather than    wrong; the old both-sides copy is never resurrected.
+    """
     cols = list(FTN_AGG_COLS)
-    if (ftn is None or ftn.empty or game_teams is None or game_teams.empty
-            or "nflverse_game_id" not in ftn.columns):
+    if ftn is None or ftn.empty or "nflverse_game_id" not in ftn.columns:
         return pd.DataFrame(columns=cols)
     p = ftn.rename(columns={"nflverse_game_id": "game_id"}).copy()
     if "game_id" not in p.columns:
@@ -698,17 +739,51 @@ def ftn_team_agg(ftn: pd.DataFrame | None,
                 "is_play_action", "is_rpo", "is_screen_pass"):
         p[src] = (pd.to_numeric(p[src], errors="coerce")
                   if src in p.columns else np.nan)
-    per_game = (p.dropna(subset=["game_id"])
-                 .groupby("game_id", as_index=False)
-                 .agg(def_box=("n_defense_box", "mean"),
-                      off_backfield=("n_offense_backfield", "mean"),
-                      motion_rate=("is_motion", "mean"),
-                      play_action_rate=("is_play_action", "mean"),
-                      rpo_rate=("is_rpo", "mean"),
-                      screen_rate=("is_screen_pass", "mean")))
-    out = per_game.merge(
-        game_teams[["game_id", "team"]].drop_duplicates(),
-        on="game_id", how="inner")
+    p = p.dropna(subset=["game_id"])
+    if p.empty:
+        return pd.DataFrame(columns=cols)
+    if (pbp is None or not len(pbp) or "nflverse_play_id" not in p.columns
+            or not {"game_id", "play_id", "posteam"} <= set(pbp.columns)):
+        logger.warning(
+            "ftn attribution unavailable (no PBP possession keys); %d "
+            "charted game(s) un-attributed - the team-tendency candidates "
+            "stay NaN rather than the old both-sides copy",
+            p["game_id"].nunique())
+        return pd.DataFrame(columns=cols)
+    plays = p[["game_id", "nflverse_play_id", "n_defense_box",
+               "n_offense_backfield", "is_motion", "is_play_action",
+               "is_rpo", "is_screen_pass"]].rename(
+                   columns={"nflverse_play_id": "play_id"})
+    plays["game_id"] = plays["game_id"].astype(str)
+    plays["play_id"] = pd.to_numeric(plays["play_id"], errors="coerce")
+    key_cols = ["game_id", "play_id", "posteam"] + (
+        ["defteam"] if "defteam" in pbp.columns else [])
+    keys = pbp[key_cols].copy()
+    keys["game_id"] = keys["game_id"].astype(str)
+    keys["play_id"] = pd.to_numeric(keys["play_id"], errors="coerce")
+    joined = plays.merge(keys, on=["game_id", "play_id"], how="inner")
+    logger.info(
+        "ftn attribution: %d of %d charted play(s) bound to possession "
+        "identity (%d without a PBP key in this window)",
+        len(joined), len(plays), len(plays) - len(joined))
+    if joined.empty:
+        return pd.DataFrame(columns=cols)
+    joined["team"] = joined["posteam"].map(config.canonical_team)
+    offense = (joined.groupby(["game_id", "team"], as_index=False)
+               .agg(off_backfield=("n_offense_backfield", "mean"),
+                    motion_rate=("is_motion", "mean"),
+                    play_action_rate=("is_play_action", "mean"),
+                    rpo_rate=("is_rpo", "mean"),
+                    screen_rate=("is_screen_pass", "mean")))
+    if "defteam" in joined.columns:
+        defense = (joined.dropna(subset=["defteam"])
+                   .assign(team=lambda d: d["defteam"]
+                           .map(config.canonical_team))
+                   .groupby(["game_id", "team"], as_index=False)
+                   .agg(def_box=("n_defense_box", "mean")))
+        out = offense.merge(defense, on=["game_id", "team"], how="outer")
+    else:
+        out = offense.assign(def_box=np.nan)
     return out[cols]
 
 
@@ -787,6 +862,7 @@ def snap_counts_team_agg(snaps: pd.DataFrame | None) -> pd.DataFrame:
         out = def_shares if out.empty else out.merge(def_shares, on=["game_id", "team"], how="outer")
     if out.empty:
         return pd.DataFrame(columns=cols)
+    out["team"] = out["team"].map(config.canonical_team)
     return out[cols]
 
 
@@ -1015,6 +1091,7 @@ def player_stats_team_agg(ps: pd.DataFrame | None) -> pd.DataFrame:
     need = ["game_id", "team", "position"]
     if any(c not in p.columns for c in need):
         return pd.DataFrame(columns=cols)
+    p["team"] = p["team"].map(config.canonical_team)
 
     def _num(name: str) -> pd.Series | None:
         if name not in p.columns:
@@ -1069,6 +1146,9 @@ def ngs_team_agg(ngs: pd.DataFrame | None) -> pd.DataFrame:
     if any(c not in p.columns for c in need):
         return pd.DataFrame(columns=cols)
     p = p.rename(columns={"team_abbr": "team"})
+    # NGS spells the Rams LAR where every other feed says LA (2026-10-08
+    # audit: 185 team-games missed the join on that one spelling alone).
+    p["team"] = p["team"].map(config.canonical_team)
     p["week"] = pd.to_numeric(p["week"], errors="coerce")
     p = p[p["week"].notna() & (p["week"] > 0)]
     if p.empty:
@@ -1114,6 +1194,50 @@ def ngs_team_agg(ngs: pd.DataFrame | None) -> pd.DataFrame:
     _wmean(rye_v, rush_att, "rush_eff", rb_mask)
     _wmean(sep_v, tgt, "sep", wr_mask)
     return out[cols]
+
+
+def _align_ngs_super_bowl_weeks(ngs: pd.DataFrame,
+                                games: pd.DataFrame) -> pd.DataFrame:
+    """Reconcile NGS's Super Bowl week number with the schedule's own.
+
+    2026-10-08 coverage audit, medium finding: NGS files the Super Bowl one
+    week past the schedule's number (2025 NGS Week 23 vs schedule Week 22),
+    so BOTH teams of every Super Bowl 2016-2025 missed the
+    (season, week, team) join — 20 team-games whose tracking metrics
+    silently went NaN. The other playoff rounds already agree, so the fix
+    reconciles the one round through GAME METADATA (the audit's repair):
+    the schedule's ``game_type=SB`` row declares that season's real week,
+    and NGS rows sitting one past it move down. An exact-week row always
+    wins — the shift never overwrites one.
+    """
+    if ngs is None or not len(ngs) or games is None or not len(games):
+        return ngs
+    if "game_type" not in games.columns or not {"season", "week", "team"} \
+            <= set(ngs.columns):
+        return ngs
+    sb = games.loc[games["game_type"].astype(str).str.upper().eq("SB"),
+                   ["season", "week"]]
+    if sb.empty:
+        return ngs
+    out = ngs.copy()
+    out["season"] = pd.to_numeric(out["season"], errors="coerce")
+    out["week"] = pd.to_numeric(out["week"], errors="coerce")
+    moved = np.zeros(len(out), dtype=bool)
+    for season, week in sb.drop_duplicates().itertuples(index=False):
+        season = pd.to_numeric(season, errors="coerce")
+        week = pd.to_numeric(week, errors="coerce")
+        if pd.isna(season) or pd.isna(week):
+            continue
+        exact = (out["season"] == season) & (out["week"] == week)
+        exact_teams = set(out.loc[exact, "team"])
+        cand = ((out["season"] == season) & (out["week"] == week + 1)
+                & ~out["team"].isin(exact_teams))
+        moved |= cand.to_numpy()
+    if moved.any():
+        out.loc[moved, "week"] = out.loc[moved, "week"] - 1
+        logger.info("NGS Super Bowl week reconciled: %d row(s) moved to "
+                    "the schedule's week number", int(moved.sum()))
+    return out
 
 
 def _kickoff_utc(games: pd.DataFrame) -> pd.Series:
@@ -1428,8 +1552,12 @@ def _attach_record_fields(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFram
     key = records.set_index(["game_id", "team"])
     for side in ("home", "away"):
         team_col = f"{side}_team"
+        # Canonical lookup side (2026-10-08 audit): team_events keys state
+        # by franchise, the schedule keeps its era label — an OAK/SD-era
+        # row must still find its LV/LAC-keyed record.
         idx = pd.MultiIndex.from_arrays([
-            out["game_id"].astype(str), out[team_col].astype(str)
+            out["game_id"].astype(str),
+            out[team_col].map(config.canonical_team).astype(str)
         ])
         rows = key.reindex(idx)
         out[f"{side}_record"] = rows["record"].fillna("").to_numpy()
@@ -1726,7 +1854,7 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     d = history.copy()
     d["game_id"] = d["game_id"].astype(str)
     d["player_id"] = d["player_id"].astype("string").str.strip()
-    d["team"] = d["team"].astype("string").str.strip().str.upper()
+    d["team"] = d["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
     d["gameday"] = pd.to_datetime(d["gameday"], errors="coerce").dt.normalize()
     d["kickoff_utc"] = pd.to_datetime(d["kickoff_utc"], errors="coerce", utc=True)
     d["position"] = _normalize_epa_lineup_positions(d["position"])
@@ -1749,7 +1877,9 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
         .rename(columns={"home_team": "team"}),
         tgt[["game_id", "gameday", "kickoff_utc", "away_team"]]
         .rename(columns={"away_team": "team"}),
-    ], ignore_index=True).drop_duplicates(["game_id", "team"])
+    ], ignore_index=True)
+    tgt["team"] = tgt["team"].map(config.canonical_team)
+    tgt = tgt.drop_duplicates(["game_id", "team"])
     tgt = tgt.rename(columns={"gameday": "target_day"})
 
     pool = (d[["game_id", "team", "player_id", "position", "gameday",
@@ -1786,7 +1916,7 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
         pit = injuries[["game_id", "team", "player_id", "availability_weight",
                         "published"]].copy()
         pit["game_id"] = pit["game_id"].astype(str)
-        pit["team"] = pit["team"].astype("string").str.strip().str.upper()
+        pit["team"] = pit["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
         pit["player_id"] = pit["player_id"].astype("string").str.strip()
         pit = pit.dropna(subset=["team", "player_id"])
         pit = pit[pit["team"].ne("") & pit["player_id"].ne("")]
@@ -1841,14 +1971,14 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
             gmap[["game_id", "season", "week", "away_team"]]
             .rename(columns={"away_team": "team"}),
         ], ignore_index=True).drop_duplicates(["game_id", "team"])
-        gmap["team"] = gmap["team"].astype("string").str.strip().str.upper()
+        gmap["team"] = gmap["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
         j = j.merge(gmap, on=["game_id", "team"], how="left")
 
     if _tw_ok and weekly_injuries is not None and not weekly_injuries.empty:
         wi = weekly_injuries.copy()
         wi["season"] = pd.to_numeric(wi["season"], errors="coerce")
         wi["week"] = pd.to_numeric(wi["week"], errors="coerce")
-        wi["team"] = wi["team"].astype("string").str.strip().str.upper()
+        wi["team"] = wi["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
         wi["player_id"] = wi["gsis_id"].map(_normalize_player_id)
         wi = wi.dropna(subset=["season", "week", "team", "player_id"])
         wi = wi[wi["report_status"].map(_injured_report_status)]
@@ -1864,7 +1994,7 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
         ro = roster_unavailable.copy()
         ro["season"] = pd.to_numeric(ro["season"], errors="coerce")
         ro["week"] = pd.to_numeric(ro["week"], errors="coerce")
-        ro["team"] = ro["team"].astype("string").str.strip().str.upper()
+        ro["team"] = ro["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
         ro["player_id"] = ro["player_id"].astype("string").str.strip()
         ro = ro.dropna(subset=["season", "week", "team", "player_id"])
         j = j.merge(
@@ -1936,11 +2066,11 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
     days["kickoff_utc"] = _kickoff_utc(days)
     obs["game_id"] = obs["game_id"].astype(str)
     obs["player_id"] = obs["player_id"].astype("string").str.strip()
-    obs["team"] = obs["team"].astype("string").str.strip()
+    obs["team"] = obs["team"].astype("string").str.strip().map(config.canonical_team)
     obs = obs.merge(days, on="game_id", how="inner", validate="many_to_one")
     pos = ps[["game_id", "team", "player_id", "position"]].copy()
     pos["game_id"] = pos["game_id"].astype(str)
-    pos["team"] = pos["team"].astype("string").str.strip()
+    pos["team"] = pos["team"].astype("string").str.strip().map(config.canonical_team)
     pos["player_id"] = pos["player_id"].astype("string").str.strip()
     pos["position"] = _normalize_epa_lineup_positions(pos["position"])
     pos = pos.dropna(subset=["player_id", "position"])
@@ -1977,6 +2107,10 @@ def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
     sched = (games[["game_id", "home_team", "away_team"]].copy()
              .assign(game_id=lambda x: x["game_id"].astype(str))
              .drop_duplicates("game_id").set_index("game_id"))
+    # The lookup key is canonical while the schedule keeps its era label:
+    # an OAK-era row must find the LV-keyed quality aggregate.
+    for c in ("home_team", "away_team"):
+        sched[c] = sched[c].map(config.canonical_team)
     for metric, pos in zip(EPA_QUALITY_METRICS, EPA_QB_POSITIONS):
         sub = agg.loc[agg["position"] == pos, ["game_id", "team", "epa_q"]]
         keyed = (sub.assign(game_id=sub["game_id"].astype(str))
@@ -2065,30 +2199,104 @@ def _normalize_player_id(value) -> str | None:
 def injury_share_table(snaps: pd.DataFrame | None,
                        weekly_injuries: pd.DataFrame | None,
                        crosswalk: pd.DataFrame | None,
-                       roster_unavailable: pd.DataFrame | None = None
+                       roster_unavailable: pd.DataFrame | None = None,
+                       weekly_rosters: pd.DataFrame | None = None
                        ) -> pd.DataFrame:
     """Per (team, game) injury-share aggregates, or an empty frame.
 
     Inputs are the raw snap-count cache rows (needs pfr_player_id), the raw
     weekly report rows and the GSIS->PFR crosswalk. Degrades to empty when
-    any input is missing, so the served columns fall back to the
-    no-source default (0.0) in _attach_injury_share_features.
+    pricing inputs are missing, so the served columns go NaN (unknown) in
+    _attach_injury_share_features — a source outage never reads as a
+    measured zero.
+
+    2026-10-08 coverage audit, HIGH finding ("availability must distinguish
+    current evidence, carry, and no source"): the table also carries ONE
+    row for every team-week a feed actually SPOKE for — the raw weekly
+    report has rows (``ev_report``), the roster snapshot / unavailable
+    table has rows (``ev_roster``, same-week and one-week carry), or a
+    priced flag row exists (``ev_flag``) — with measured-zero metrics when
+    no player is flagged. A team-game with no row at all therefore means
+    "no source spoke" and serves NaN downstream instead of a fabricated
+    healthy zero (the audit's Week 7 case: two team-games, no report,
+    no roster, no carry, yet 18 representations served as 0.0).
     """
     empty = pd.DataFrame(
         columns=["season", "week", "team"]
         + [f"inj_{u}_out" for u in INJURY_SHARE_UNIT_POSITIONS]
         + [f"{u}_snaps_lost_share" for u in INJURY_SHARE_UNIT_POSITIONS]
-        + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS])
+        + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS]
+        + ["ev_report", "ev_roster", "ev_flag"])
+    metric_cols = [c for c in empty.columns
+                   if c not in ("season", "week", "team")
+                   and not c.startswith("ev_")]
+
+    # ---- Presence: which team-weeks do the feeds actually speak for? ----
+    def _presence(frame: pd.DataFrame | None) -> pd.DataFrame | None:
+        if (frame is None or not len(frame) or "team" not in frame.columns
+                or not {"season", "week"} <= set(frame.columns)):
+            return None
+        k = frame[["season", "week", "team"]].copy()
+        k["season"] = pd.to_numeric(k["season"], errors="coerce")
+        k["week"] = pd.to_numeric(k["week"], errors="coerce")
+        k["team"] = (k["team"].astype("string").str.strip().str.upper()
+                     .map(config.canonical_team))
+        k = k.dropna(subset=["season", "week", "team"])
+        if k.empty:
+            return None
+        k["team"] = k["team"].astype(str)
+        return k.drop_duplicates()
+
+    _pres: list[pd.DataFrame] = []
+    for _frame, _col in ((weekly_injuries, "ev_report"),
+                         (weekly_rosters, "ev_roster"),
+                         (roster_unavailable, "ev_roster")):
+        _k = _presence(_frame)
+        if _k is not None:
+            _pres.append(_k.assign(**{_col: 1.0}))
+    evidence: pd.DataFrame | None = None
+    if _pres:
+        evidence = (pd.concat(_pres, ignore_index=True)
+                    .groupby(["season", "week", "team"], as_index=False)
+                    .max())
+        for _c in ("ev_report", "ev_roster", "ev_flag"):
+            if _c not in evidence.columns:
+                evidence[_c] = 0.0
+            else:
+                evidence[_c] = evidence[_c].fillna(0.0)
+
+    def _finalize(res: pd.DataFrame) -> pd.DataFrame:
+        """Priced flag weeks ∪ feed-evidence team-weeks, one row per key."""
+        if not res.empty:
+            res = res.assign(ev_report=0.0, ev_roster=0.0, ev_flag=1.0)
+        if evidence is None or evidence.empty:
+            base = res
+        elif res.empty:
+            base = evidence
+        else:
+            base = pd.concat([res, evidence], ignore_index=True, sort=False)
+        if base is None or base.empty:
+            return empty
+        base = base.groupby(["season", "week", "team"], as_index=False).max()
+        for c in metric_cols:
+            base[c] = pd.to_numeric(base[c], errors="coerce").fillna(0.0)
+        for c in ("ev_report", "ev_roster", "ev_flag"):
+            base[c] = pd.to_numeric(base[c], errors="coerce").fillna(0.0)
+        return base[list(empty.columns)]
+
     if (snaps is None or snaps.empty
             or weekly_injuries is None or weekly_injuries.empty
             or crosswalk is None or crosswalk.empty
             or not {"gsis_id", "pfr_id"} <= set(crosswalk.columns)):
+        # Pricing inputs down: the family is UNKNOWN (empty table -> NaN
+        # sides), never a fabricated healthy zero. Evidence presence is
+        # deliberately not enough to claim a measured value here.
         return empty
 
     s = snaps.copy()
     s["season"] = pd.to_numeric(s["season"], errors="coerce")
     s["week"] = pd.to_numeric(s["week"], errors="coerce")
-    s["team"] = s["team"].astype("string").str.strip().str.upper()
+    s["team"] = s["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
     s["position"] = s["position"].astype("string").str.strip().str.upper()
     s = s.dropna(subset=["pfr_player_id", "season", "week"])
     s = s[~s["pfr_player_id"].isin(["", "nan", "none", "<na>", "null"])]
@@ -2100,7 +2308,7 @@ def injury_share_table(snaps: pd.DataFrame | None,
     inj = weekly_injuries.copy()
     inj["season"] = pd.to_numeric(inj["season"], errors="coerce")
     inj["week"] = pd.to_numeric(inj["week"], errors="coerce")
-    inj["team"] = inj["team"].astype("string").str.strip().str.upper()
+    inj["team"] = inj["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
     inj["player_id"] = inj["gsis_id"].map(_normalize_player_id)
     inj = inj.dropna(subset=["player_id", "team", "season", "week"])
     inj = inj[inj["report_status"].map(_injured_report_status)]
@@ -2113,7 +2321,7 @@ def injury_share_table(snaps: pd.DataFrame | None,
         ro = roster_unavailable.copy()
         ro["season"] = pd.to_numeric(ro["season"], errors="coerce")
         ro["week"] = pd.to_numeric(ro["week"], errors="coerce")
-        ro["team"] = ro["team"].astype("string").str.strip().str.upper()
+        ro["team"] = ro["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
         ro["player_id"] = ro["player_id"].astype("string").str.strip()
         ro = ro.dropna(subset=["season", "week", "team", "player_id"])
         ro = ro[ro["team"].ne("")]
@@ -2136,14 +2344,16 @@ def injury_share_table(snaps: pd.DataFrame | None,
         inj = inj.drop_duplicates(["season", "week", "team", "player_id"],
                                   keep="first")
     if inj.empty:
-        return empty
+        # No priced flags — team-weeks the feeds still spoke for are
+        # measured zeros (evidence rows), not unknowns.
+        return _finalize(pd.DataFrame(columns=metric_cols))
     xw = crosswalk[["gsis_id", "pfr_id"]].dropna(how="any").drop_duplicates(
         "gsis_id", keep="first")
     inj["pfr_id"] = inj["player_id"].map(
         xw.set_index("gsis_id")["pfr_id"].to_dict())
     inj = inj.dropna(subset=["pfr_id"])
     if inj.empty:
-        return empty
+        return _finalize(pd.DataFrame(columns=metric_cols))
     inj["pfr_id"] = inj["pfr_id"].astype(object)  # asof key dtype parity
     # Report-cycle ordinal (season*30 + week; nflverse weeks never reach 30):
     # one sortable key for the asof join below. Both sides are cast int64 so
@@ -2226,10 +2436,10 @@ def injury_share_table(snaps: pd.DataFrame | None,
     for u in INJURY_SHARE_UNIT_POSITIONS:
         for c in (f"inj_{u}_out", f"{u}_snaps_lost_share", f"{u}_key_out"):
             res[c] = pd.to_numeric(res[c], errors="coerce").fillna(0.0)
-    return res[["season", "week", "team"]
-               + [f"inj_{u}_out" for u in INJURY_SHARE_UNIT_POSITIONS]
-               + [f"{u}_snaps_lost_share" for u in INJURY_SHARE_UNIT_POSITIONS]
-               + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS]]
+    return _finalize(res[["season", "week", "team"]
+                         + [f"inj_{u}_out" for u in INJURY_SHARE_UNIT_POSITIONS]
+                         + [f"{u}_snaps_lost_share" for u in INJURY_SHARE_UNIT_POSITIONS]
+                         + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS]])
 
 
 def _attach_injury_share_features(df: pd.DataFrame,
@@ -2240,9 +2450,16 @@ def _attach_injury_share_features(df: pd.DataFrame,
     The table is keyed (season, week, team) — the report-cycle key — and is
     joined to each side of the SCHEDULE's team-games, so the current week's
     slate rows get THIS week's report values even though snap counts only
-    cover settled games. Rows with no table entry (no report row, or a
-    missing source) fill the documented default 0.0 — measured 100%
-    team-game coverage on 2016-2025 — and the diff is home minus away.
+    cover settled games. The diff is home minus away.
+
+    Unknown, not healthy-zero (2026-10-08 coverage audit, HIGH): the table
+    only holds team-weeks some feed SPOKE for (report, roster snapshot,
+    one-week carry, or a priced flag — see injury_share_table's ``ev_*``
+    provenance). A side with no table row — no source at all — serves NaN,
+    and the diff propagates it; a row present with no flags is the measured
+    0.0 it has always been. An absent source previously zero-filled, so a
+    week with no report/roster/carry support (the audit's Week 7 pair)
+    read as "100% covered, zero injuries" — that fabrication is gone.
     """
     n = len(df)
     sides: dict[str, np.ndarray] = {}
@@ -2251,7 +2468,7 @@ def _attach_injury_share_features(df: pd.DataFrame,
                     set(games.columns)))
     if not sched_ok or table is None or table.empty:
         for col in INJURY_SHARE_COLS:
-            sides[col] = np.zeros(n, dtype=float)
+            sides[col] = np.full(n, np.nan, dtype=float)
         return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
     gids = df["game_id"].astype(str)
@@ -2261,17 +2478,34 @@ def _attach_injury_share_features(df: pd.DataFrame,
     g["season"] = pd.to_numeric(g["season"], errors="coerce")
     g["week"] = pd.to_numeric(g["week"], errors="coerce")
     for c in ("home_team", "away_team"):
-        g[c] = g[c].astype("string").str.strip().str.upper()
+        g[c] = g[c].astype("string").str.strip().str.upper().map(config.canonical_team)
     g = g.dropna(subset=["season", "week"])
     keyed = table.copy()
     for c in ("season", "week"):
         keyed[c] = pd.to_numeric(keyed[c], errors="coerce")
-    keyed["team"] = keyed["team"].astype("string").str.strip().str.upper()
+    keyed["team"] = keyed["team"].astype("string").str.strip().str.upper().map(config.canonical_team)
     keyed = keyed.dropna(subset=["season", "week"])
     for col in INJURY_SHARE_COLS:
         base = col.rsplit("_", 1)[0]
         if base not in keyed.columns:
             keyed[base] = 0.0
+    # Presence (a table row exists for this side's team-game) is
+    # base-independent: resolve it once per side, then every metric reads
+    # it. No row = no source spoke = UNKNOWN (NaN), not 0.0.
+    presence: dict[str, np.ndarray] = {}
+    for side, team_col in (("home", "home_team"), ("away", "away_team")):
+        side_team = (g[["game_id", "season", "week", team_col]]
+                     .rename(columns={team_col: "team"})
+                     .drop_duplicates("game_id"))
+        probe = side_team.merge(
+            keyed, on=["season", "week", "team"], how="left",
+            indicator="_src")
+        have = pd.Series(
+            (probe["_src"] == "both").to_numpy(dtype=float),
+            index=probe["game_id"].to_numpy()).reindex(gids.to_numpy())
+        presence[side] = have.fillna(0.0).to_numpy(dtype=float) > 0
+    _unsupported = int((~presence["home"]).sum()
+                       + (~presence["away"]).sum())
     for col in INJURY_SHARE_COLS:
         base = col.rsplit("_", 1)[0]
         for side, team_col in (("home", "home_team"), ("away", "away_team")):
@@ -2281,9 +2515,14 @@ def _attach_injury_share_features(df: pd.DataFrame,
             joined = side_team.merge(
                 keyed, on=["season", "week", "team"], how="left")
             m = (joined.set_index("game_id")[base].reindex(gids))
-            sides[f"{base}_{side}"] = pd.to_numeric(
-                m, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            values = pd.to_numeric(m, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            sides[f"{base}_{side}"] = np.where(presence[side], values, np.nan)
         sides[col] = sides[f"{base}_home"] - sides[f"{base}_away"]
+    if _unsupported:
+        logger.info(
+            "injury-share: %d team-game sides have no report/roster/carry "
+            "evidence and serve NaN (unknown, not healthy-zero)",
+            _unsupported)
     return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
 
@@ -2300,7 +2539,8 @@ def build_game_features(games: pd.DataFrame,
                         injuries: pd.DataFrame | None = None,
                         weekly_injuries: pd.DataFrame | None = None,
                         crosswalk: pd.DataFrame | None = None,
-                        roster_unavailable: pd.DataFrame | None = None
+                        roster_unavailable: pd.DataFrame | None = None,
+                        weekly_rosters: pd.DataFrame | None = None
                         ) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
@@ -2324,8 +2564,8 @@ def build_game_features(games: pd.DataFrame,
     ladder = team_stats_ladder(
         ev, agg,
         extra_per_game={"ps": player_stats_team_agg(ps),
-                        "ngs": ngs_team_agg(ngs),
-                        "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
+                        "ngs": _align_ngs_super_bowl_weeks(ngs_team_agg(ngs), games),
+                        "ftn": ftn_team_agg(ftn, pbp=pbp),
                         "sc": snap_counts_team_agg(snaps)})
 
     # Strip unproven schedule/legacy weather payload. Values are attached only
@@ -2373,11 +2613,23 @@ def build_game_features(games: pd.DataFrame,
         games)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
-                               roster_unavailable), games)
+                               roster_unavailable, weekly_rosters), games)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
     df["total"] = df["home_score"].astype(float) + df["away_score"].astype(float)
+    # Tie / push policy (2026-10-08 coverage audit, medium finding — the
+    # policy, stated): ``home_win`` is the UNCONDITIONAL probability of a
+    # decisive home win — ties label 0 (a tie is simply not a home win),
+    # and the served complement ``p_away_win = 1 - p_home_win`` lives in
+    # the SAME decisive-win space: neither side can "win" a tie, and the
+    # residual tie mass is reported separately rather than smuggled into
+    # the complement. Every consumer — training loss, OOF scoring,
+    # calibration, board accuracy (a tie scores as a miss for BOTH picks)
+    # — is evaluated in this one space; no consumer conditions on "no
+    # tie" while another is unconditional. Elo's ``team_win`` (0.5 on a
+    # tie, see team_events) is a different quantity: the expected-score
+    # update space of the rating, never the served target.
     df["home_win"] = (df["margin"] > 0).astype(float)
     return df
 
@@ -2393,6 +2645,7 @@ def build_slate_features(schedule: pd.DataFrame,
                          weekly_injuries: pd.DataFrame | None = None,
                          crosswalk: pd.DataFrame | None = None,
                          roster_unavailable: pd.DataFrame | None = None,
+                         weekly_rosters: pd.DataFrame | None = None,
                          serve_from=None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
@@ -2439,8 +2692,8 @@ def build_slate_features(schedule: pd.DataFrame,
     ladder = team_stats_ladder(
         combined, agg,
         extra_per_game={"ps": player_stats_team_agg(ps),
-                        "ngs": ngs_team_agg(ngs),
-                        "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
+                        "ngs": _align_ngs_super_bowl_weeks(ngs_team_agg(ngs), sched),
+                        "ftn": ftn_team_agg(ftn, pbp=pbp),
                         "sc": snap_counts_team_agg(snaps)})
 
     untrusted_weather = {"temp", "wind", "temp_f", "wind_mph",
@@ -2491,7 +2744,7 @@ def build_slate_features(schedule: pd.DataFrame,
         sched)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
-                               roster_unavailable), sched)
+                               roster_unavailable, weekly_rosters), sched)
     return df
 
 

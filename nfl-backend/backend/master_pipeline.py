@@ -400,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
         decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather, injuries=injuries,
         weekly_injuries=weekly_injuries, crosswalk=crosswalk,
-        roster_unavailable=roster_unavailable)
+        roster_unavailable=roster_unavailable,
+        weekly_rosters=weekly_rosters)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional and the tree members are
@@ -786,6 +787,7 @@ def main(argv: list[str] | None = None) -> int:
         ftn=ftn, weather=pit_weather, injuries=injuries,
         weekly_injuries=weekly_injuries, crosswalk=crosswalk,
         roster_unavailable=roster_unavailable,
+        weekly_rosters=weekly_rosters,
         serve_from=run_date)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)

@@ -55,9 +55,10 @@ nfl-backend/backend/
 
 ## Methodology
 
-- **Historical eligibility** — 2018 is warmup only (trailing priors); the
-  OOF population is every settled regular-season game from 2019 onward,
-  including settled 2026 games. No preseason, no postseason, no cutoffs.
+- **Historical eligibility** — 2016 is warmup only (trailing priors); the
+  OOF population is every settled game from 2017 onward, postseason rounds
+  included (every nflverse `game_type` code except `PRE`), through settled
+  2026 games. No preseason, no cutoffs.
 - **Walk-forward OOF** — expanding, chronological, non-overlapping
   7-calendar-day validation windows keyed on game dates (never week IDs);
   training is strictly prior; the final partial window is retained.

@@ -3176,9 +3176,46 @@ check("injury-share is as-of strictly before the flag week and never NaN",
       and all(np.isfinite(float(_inj_row[c])) for c in config.INJURY_SHARE_FEATURE_COLS))
 _nosource = feat_mod._attach_injury_share_features(
     pd.DataFrame({"game_id": ["INJ_TARGET"]}), None, _fam_games)
-check("missing sources degrade the family to the documented 0.0 default",
-      all(float(_nosource.iloc[0][c]) == 0.0
+check("missing sources serve UNKNOWN (NaN), never a healthy zero",
+      # 2026-10-08 coverage audit, HIGH: an absent table meant no source
+      # spoke for the team-game; the old 0.0 default read as "measured no
+      # injuries". Unknown must stay unknown.
+      all(np.isnan(float(_nosource.iloc[0][c]))
           for c in config.INJURY_SHARE_FEATURE_COLS))
+check("the priced team-week carries feed provenance beside its metrics",
+      # ev_report = the raw weekly report spoke for (2024, 3, HOME);
+      # ev_flag = a priced designation row exists. The Week-4 P12 row has
+      # no crosswalk entry so nothing prices, yet the feed still SPOKE:
+      # that team-week is a measured zero, not an unknown.
+      {"ev_report", "ev_roster", "ev_flag"} <= set(_inj_table.columns)
+      and float(_inj_table.set_index(["season", "week", "team"])
+                .loc[(2024, 3, "HOME"), "ev_report"]) == 1.0
+      and float(_inj_table.set_index(["season", "week", "team"])
+                .loc[(2024, 3, "HOME"), "ev_flag"]) == 1.0
+      and float(_inj_table.set_index(["season", "week", "team"])
+                .loc[(2024, 4, "HOME"), "inj_def_out"]) == 0.0)
+# The audit's Week-7 pair: the same frame also holds a team-game NO feed
+# speaks for. Supported row stays finite; the unsupported row goes NaN,
+# and the diff propagates the unknown.
+_probe_games = pd.DataFrame([
+    {"game_id": "INJ_TARGET", "season": 2024, "week": 3,
+     "home_team": "HOME", "away_team": "AWAY"},
+    {"game_id": "NO_EVIDENCE", "season": 2024, "week": 7,
+     "home_team": "HOME", "away_team": "AWAY"},
+])
+_probe_served = feat_mod._attach_injury_share_features(
+    pd.DataFrame({"game_id": ["INJ_TARGET", "NO_EVIDENCE"]}),
+    _inj_table, _probe_games)
+_supp = _probe_served.iloc[0]
+_unsup = _probe_served.iloc[1]
+check("a source-supported team-game keeps its measured values",
+      np.isfinite(float(_supp["def_snaps_lost_share_home"]))
+      and np.isfinite(float(_supp["inj_def_out_away"])))
+check("a team-game no feed speaks for serves NaN, not healthy zero",
+      all(np.isnan(float(_unsup[c]))
+          for c in config.INJURY_SHARE_FEATURE_COLS))
+check("the unknown propagates through the home-away diff",
+      np.isnan(float(_unsup["def_snaps_lost_share_diff"])))
 
 # Raw pace magnitude (2026-09-27): the diff answers "who is faster" but the
 # game-level magnitude — both teams slow → low-scoring total, whatever the
@@ -5080,25 +5117,35 @@ check("rest_days never prices the offseason as rest (opener stays NaN, "
       f"rest_days_home at opener={_sb_value('SB-24-1', 'rest_days_home')}")
 
 # ---------------------------------------------------------------------------
-# Coverage STRUCTURAL classification (2026-09-29): a feature whose manifest
-# missing_value_policy DECLARES the absent slice (indoor/closed weather
-# games, season openers for rest, the week-1 player-rating cold start for
-# the EPA lineup family) cannot "starve" at its own by-design rate. When
-# the measured share is stable across the two drift windows, coverage()
-# reports STRUCTURAL with the declared reason; an unstable drop still
-# escalates (the 2026 weather-truncation class), and unlisted features
+# Coverage STRUCTURAL classification (2026-09-29; hardened 2026-10-08 by
+# the NFL coverage audit): a feature whose manifest missing_value_policy
+# DECLARES the absent slice cannot "starve" at its own by-design rate —
+# AND the frame's actual eligibility mask must prove that slice on both
+# drift windows (nulls exactly equal ineligible rows), because policy
+# keywords plus similar percentages are not evidence. Unlisted features
 # keep the raw thresholds at every rate.
 # ---------------------------------------------------------------------------
-_cov_base = pd.DataFrame({
-    "temp_f": [np.nan] * 32 + [70.0] * 68,          # 68%: indoor slice
-    "rest_days_home": [np.nan] * 26 + [7.0] * 74,   # 74%: opener slice
-    "elo_diff": [1.0] * 100,
-})
-_cov_stable = pd.DataFrame({
-    "temp_f": [np.nan] * 19 + [65.0] * 41,          # 68.33% — stable
-    "rest_days_home": [np.nan] * 16 + [6.0] * 44,   # 73.33% — stable
-    "elo_diff": [2.0] * 60,
-})
+def _cov_frame(n, temp_n, rest_n, elo_val, temp_val, rest_val):
+    """A frame whose nulls EXACTLY equal the eligibility masks: temp_f is
+    absent precisely on roofed rows, rest_days_home precisely on each
+    team's first game of the season (home_team cycles so the first `rest_n`
+    rows are openers and every later row repeats an already-seen team)."""
+    return pd.DataFrame({
+        "temp_f": [np.nan] * temp_n + [temp_val] * (n - temp_n),
+        "is_dome_home": [1.0] * temp_n + [0.0] * (n - temp_n),
+        "rest_days_home": ([np.nan] * rest_n
+                           + [rest_val] * (n - rest_n)),
+        "season": [2025] * n,
+        "gameday": [str((pd.Timestamp("2025-09-01")
+                         + pd.Timedelta(days=i)).date()) for i in range(n)],
+        "home_team": ([f"H{i}" if i < rest_n
+                       else f"H{(i - rest_n) % rest_n}" for i in range(n)]),
+        "away_team": [f"X{i % max(rest_n, 2)}" for i in range(n)],
+        "elo_diff": [elo_val] * n,
+    })
+
+_cov_base = _cov_frame(100, 32, 26, 1.0, 70.0, 7.0)   # 68% / 74%
+_cov_stable = _cov_frame(60, 19, 16, 2.0, 65.0, 6.0)  # 68.33 / 73.33 — stable
 _cov_rows = {(r["feature"], r["window"]): r for r in
              monitoring_mod.coverage(_cov_base, current_df=_cov_stable)}
 check("documented-policy absence classifies STRUCTURAL with the reason, "
@@ -5113,11 +5160,11 @@ check("documented-policy absence classifies STRUCTURAL with the reason, "
       f"rest={_cov_rows[('rest_days_home', 'current')]['status']}, "
       f"elo={_cov_rows[('elo_diff', 'current')]['status']}")
 
-_cov_drop = pd.DataFrame({
-    "temp_f": [np.nan] * 55 + [65.0] * 5,           # 8.3% — fetch died
-    "rest_days_home": [np.nan] * 16 + [6.0] * 44,
-    "elo_diff": [2.0] * 60,
-})
+# The weather-truncation class: temp_f collapses from 68% to 8.3% while
+# the rest family stays stable — the window-stability rule alone blocks
+# the override, so neither temp_f row may claim STRUCTURAL and the raw
+# rate keeps its alarm on both rows.
+_cov_drop = _cov_frame(60, 55, 16, 2.0, 65.0, 6.0)   # 8.3% temp_f
 _cov_rows2 = {(r["feature"], r["window"]): r for r in
               monitoring_mod.coverage(_cov_base, current_df=_cov_drop)}
 check("an unstable structural-feature drop still escalates "
@@ -5238,6 +5285,196 @@ check("the published stamp is exactly the status clock's instant",
       == serve_mod._kickoff_utc(
           {"gameday": "2026-01-15", "gametime": "20:15"})
       .strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+# ---------------------------------------------------------------------------
+# Coverage-audit remediations, second pass (2026-10-08 coverage audit):
+# franchise-alias normalization, FTN per-play attribution, NGS Super Bowl
+# week reconciliation — the audit's remaining High/Medium findings.
+# ---------------------------------------------------------------------------
+print("\n== Coverage-audit remediations, second pass (2026-10-08) ==")
+
+# HIGH — team identity: ONE canonical key per franchise across relocations,
+# applied at every source/event boundary (both sides of every join may map
+# because the function is idempotent). Display labels and game ids untouched.
+check("canonical_team folds every historical spelling onto one identity",
+      config.canonical_team("OAK") == config.canonical_team("LV") == "LV"
+      and config.canonical_team("SD") == config.canonical_team("LAC") == "LAC"
+      and config.canonical_team("LAR") == config.canonical_team("LA") == "LA"
+      and config.canonical_team("stl") == "LA"
+      and config.canonical_team("KC") == "KC"
+      and config.canonical_team("  ne ") == "NE")
+check("a missing label never aliases onto a real franchise",
+      pd.isna(config.canonical_team(np.nan))
+      and config.canonical_team(None) is None)
+check("the tree categorical prices OAK as LV, not the unknown bucket",
+      config.team_category_id("OAK") == config.team_category_id("LV")
+      and config.team_category_id("SD") == config.team_category_id("LAC")
+      and config.team_category_id("LAR") == config.team_category_id("LA")
+      and config.team_category_id("OAK") != config.UNK_TEAM_ID)
+
+# Join-level regression: records are computed from canonical team_events,
+# and the schedule-side lookup is canonical too — an OAK-era row must find
+# its LV-keyed record instead of silently attaching an empty one.
+_rec_games = pd.DataFrame([
+    {"game_id": "R1", "season": 2017, "week": 1, "gameday": "2017-09-10",
+     "gametime": "13:00", "home_team": "OAK", "away_team": "NE",
+     "home_score": 24.0, "away_score": 17.0},
+    {"game_id": "R2", "season": 2017, "week": 2, "gameday": "2017-09-17",
+     "gametime": "13:00", "home_team": "OAK", "away_team": "SD",
+     "home_score": 10.0, "away_score": 20.0},
+])
+_rec_ev = feat_mod.team_events(_rec_games)
+_rec_out = feat_mod._attach_record_fields(
+    pd.DataFrame({"game_id": ["R1", "R2"],
+                  "home_team": ["OAK", "OAK"],
+                  "away_team": ["NE", "SD"]}), _rec_ev)
+_rec_r2 = _rec_out.loc[_rec_out["game_id"] == "R2"].iloc[0]
+check("an OAK-era schedule row finds its LV-keyed record (no seam drop)",
+      np.isfinite(float(_rec_r2["home_wins"]))
+      and float(_rec_r2["home_wins"]) == 1.0
+      and float(_rec_r2["home_losses"]) == 0.0
+      and str(_rec_r2["home_record"]) == "1-0",
+      f"wins={_rec_r2['home_wins']} record={_rec_r2['home_record']!r}")
+
+# HIGH — FTN attribution: charted plays join PBP possession identity, so
+# each tendency lands on the side it describes (the old rollup copied one
+# game-level mean to BOTH team rows — measured differing on 2,404/2,406
+# team-games for motion rate alone).
+_ftn_chart = pd.DataFrame([
+    {"nflverse_game_id": "G1", "nflverse_play_id": 1,
+     "n_defense_box": 6.0, "n_offense_backfield": 1.0, "is_motion": 1.0,
+     "is_play_action": 1.0, "is_rpo": 0.0, "is_screen_pass": 0.0},
+    {"nflverse_game_id": "G1", "nflverse_play_id": 2,
+     "n_defense_box": 4.0, "n_offense_backfield": 2.0, "is_motion": 0.0,
+     "is_play_action": 0.0, "is_rpo": 1.0, "is_screen_pass": 1.0},
+    {"nflverse_game_id": "G1", "nflverse_play_id": 99,  # no PBP key
+     "n_defense_box": 9.0, "n_offense_backfield": 9.0, "is_motion": 1.0,
+     "is_play_action": 1.0, "is_rpo": 1.0, "is_screen_pass": 1.0},
+])
+_pbp_keys = pd.DataFrame([
+    {"game_id": "G1", "play_id": 1.0, "posteam": "LV", "defteam": "LAC"},
+    {"game_id": "G1", "play_id": 2.0, "posteam": "LAC", "defteam": "LV"},
+])
+_ftn_out = feat_mod.ftn_team_agg(_ftn_chart, pbp=_pbp_keys)
+_lv = _ftn_out.loc[_ftn_out["team"] == "LV"]
+_lac = _ftn_out.loc[_ftn_out["team"] == "LAC"]
+check("FTN offense-side rates land on the team that ran the play",
+      len(_ftn_out) == 2 and len(_lv) == 1 and len(_lac) == 1
+      and np.isclose(float(_lv.iloc[0]["motion_rate"]), 1.0)
+      and np.isclose(float(_lac.iloc[0]["motion_rate"]), 0.0)
+      and np.isclose(float(_lv.iloc[0]["off_backfield"]), 1.0)
+      and np.isclose(float(_lac.iloc[0]["off_backfield"]), 2.0),
+      _ftn_out.to_dict("records").__str__()[:200])
+check("the defensive box count lands on the defense that faced it",
+      np.isclose(float(_lv.iloc[0]["def_box"]), 4.0)
+      and np.isclose(float(_lac.iloc[0]["def_box"]), 6.0))
+check("an unkeyed charted play drops from numerator AND denominator",
+      # play 99 never reaches PBP: its 1.0s must not pull the means
+      np.isclose(float(_lv.iloc[0]["rpo_rate"]), 0.0)
+      and np.isclose(float(_lac.iloc[0]["rpo_rate"]), 1.0)
+      and np.isclose(float(_lv.iloc[0]["screen_rate"]), 0.0))
+check("without possession keys the family degrades to empty (NaN later)",
+      feat_mod.ftn_team_agg(_ftn_chart, pbp=None).empty
+      and feat_mod.ftn_team_agg(None, pbp=_pbp_keys).empty
+      and feat_mod.ftn_team_agg(_ftn_chart).empty)
+
+# MEDIUM — NGS Super Bowl week: NGS files the SB one week past the
+# schedule's number, so both SB teams missed the (season, week, team) join
+# every 2016-2025. The schedule's game_type=SB row declares the real week.
+_sb_games = pd.DataFrame([
+    {"season": 2025, "week": 22, "game_type": "SB"},
+    {"season": 2024, "week": 21, "game_type": "SB"},
+])
+_ngs_rows = pd.DataFrame([
+    {"season": 2025, "week": 23, "team": "KC", "metric": 1.0},
+    {"season": 2025, "week": 23, "team": "SF", "metric": 2.0},
+    {"season": 2025, "week": 21, "team": "KC", "metric": 3.0},
+    {"season": 2024, "week": 21, "team": "NE", "metric": 4.0},
+    {"season": 2024, "week": 22, "team": "NE", "metric": 5.0},
+])
+_ngs_al = feat_mod._align_ngs_super_bowl_weeks(_ngs_rows, _sb_games)
+_ngs_key = {(int(r.season), int(r.week), r.team): float(r.metric)
+            for r in _ngs_al.itertuples()}
+check("NGS Super Bowl rows move down to the schedule's week number",
+      _ngs_key.get((2025, 22, "KC")) == 1.0
+      and _ngs_key.get((2025, 22, "SF")) == 2.0
+      and (2025, 23, "KC") not in _ngs_key)
+check("an exact-week row always wins — the shift never overwrites one",
+      _ngs_key.get((2025, 21, "KC")) == 3.0
+      and _ngs_key.get((2024, 21, "NE")) == 4.0
+      and _ngs_key.get((2024, 22, "NE")) == 5.0)
+_no_sb = pd.DataFrame([{"season": 2025, "week": 10, "game_type": "REG"}])
+check("without SB metadata the NGS weeks are untouched",
+      feat_mod._align_ngs_super_bowl_weeks(_ngs_rows, _no_sb)
+      .equals(_ngs_rows))
+
+# LOW — monitoring must classify structural absence against the frame's
+# ACTUAL eligibility mask, not only manifest keywords + similar rates.
+_cov_base = pd.DataFrame({
+    "season": [2025] * 10,
+    "gameday": pd.date_range("2025-09-07", periods=10, freq="W-SUN")
+                .astype(str).tolist(),
+    "home_team": ["A", "B", "C", "D"] * 2 + ["A", "B"],
+    "away_team": ["B", "A", "D", "C"] * 2 + ["C", "D"],
+    "is_dome_home": [1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+    "temp_f": [np.nan, np.nan, np.nan, 71.0, 68.0, np.nan,
+               66.0, 70.0, np.nan, 69.0],
+})
+_cov_cur = _cov_base.copy()
+_rows = monitoring_mod.coverage(_cov_base, current_df=_cov_cur)
+_temp_rows = [r for r in _rows if r["feature"] == "temp_f"]
+check("weather STRUCTURAL requires the eligibility mask to prove it",
+      len(_temp_rows) == 2
+      and all(r["status"] == "STRUCTURAL" for r in _temp_rows)
+      and all("indoor/closed" in r.get("structural_reason", "")
+              for r in _temp_rows),
+      str(_temp_rows))
+_cov_dead = _cov_base.copy()
+# The 2026 weather-truncation class: an open-air (ELIGIBLE) row whose
+# fetcher died. The keyword and the rate still look stable — only the
+# mask catches it.
+_cov_dead.loc[_cov_dead.index[3], "temp_f"] = np.nan
+_dead_rows = [r for r in monitoring_mod.coverage(
+    _cov_dead, current_df=_cov_dead) if r["feature"] == "temp_f"]
+check("a fetcher death on an eligible row never reads structural",
+      len(_dead_rows) == 2
+      and all(r["status"] != "STRUCTURAL" for r in _dead_rows)
+      and all(r["status"] == "LOW_COVERAGE" for r in _dead_rows),
+      str(_dead_rows))
+_cov_rest = pd.DataFrame({
+    "season": [2025, 2025, 2025],
+    "gameday": ["2025-09-07", "2025-09-14", "2025-09-21"],
+    "home_team": ["A", "A", "A"],
+    "away_team": ["B", "B", "B"],
+    # only the 2025 opener is undefined; week 2+ is measured
+    "rest_days_diff": [np.nan, 7.0, 7.0],
+})
+_rest_rows = [r for r in monitoring_mod.coverage(
+    _cov_rest) if r["feature"] == "rest_days_diff"]
+# No current window -> the legacy single-window path keeps the raw status
+# (the mask override is the two-window comparison's job).
+check("the rest family's raw coverage path still reports its rate",
+      len(_rest_rows) == 1 and _rest_rows[0]["pct_measured"] == 66.67,
+      str(_rest_rows))
+_cov_rest_cur = _cov_rest.copy()
+_rest_pairs = monitoring_mod.coverage(_cov_rest,
+                                      current_df=_cov_rest_cur)
+_rest_pair_rows = [r for r in _rest_pairs
+                   if r["feature"] == "rest_days_diff"]
+check("season openers verify against the rest mask, window by window",
+      len(_rest_pair_rows) == 2
+      and all(r["status"] == "STRUCTURAL" for r in _rest_pair_rows),
+      str(_rest_pair_rows))
+_cov_rest_dead = _cov_rest.copy()
+_cov_rest_dead.loc[2, "rest_days_diff"] = np.nan  # NOT an opener
+_dead_rest = [r for r in monitoring_mod.coverage(
+    _cov_rest_dead, current_df=_cov_rest_dead)
+    if r["feature"] == "rest_days_diff"]
+check("a rest null that is not a season opener keeps its alarm",
+      len(_dead_rest) == 2
+      and all(r["status"] != "STRUCTURAL" for r in _dead_rest)
+      and all(r["status"] == "LOW_COVERAGE" for r in _dead_rest),
+      str(_dead_rest))
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

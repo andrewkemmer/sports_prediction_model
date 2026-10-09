@@ -38,8 +38,16 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
-                              errors="replace")
+# Rewrap stdout for a non-UTF-8 console when run as a script (the emoji
+# lines must survive cp1252). Under pytest the capture machinery OWNS
+# sys.stdout — replacing it closes the capture tmpfile and crashes the
+# whole session at teardown (directory-wide collection died with
+# "I/O operation on closed file"), so leave it alone there.
+if "pytest" not in sys.modules and (
+        (getattr(sys.stdout, "encoding", "") or "").lower()
+        not in ("utf-8", "utf8")):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
+                                  errors="replace")
 
 FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent

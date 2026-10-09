@@ -171,9 +171,19 @@ def _write_artifacts() -> None:
     NHL_DD.mkdir(parents=True, exist_ok=True)
     _stage(NHL_CALIBRATION_PATH, cal)
     _stage(NHL_HISTORY_PATH, hist)
+    # The whole cache_data store is process-global across AppTest renders
+    # (test_calibration_gate_note.py documents the same trap on streamlit
+    # 1.63: per-function .clear() does not bust it). In a directory-wide
+    # pytest the gate note renders first, so without this clear the page
+    # re-reads ITS cached artifact and these pins see the wrong totals.
+    # Each render must re-read exactly what it just staged.
+    import streamlit as st
+    st.cache_data.clear()
+    st.cache_resource.clear()
 
 
 def _remove_artifacts() -> None:
+    import streamlit as st
     for p in WRITTEN:
         try:
             if p in _BACKUPS:
@@ -186,6 +196,11 @@ def _remove_artifacts() -> None:
         except FileNotFoundError:
             pass
     WRITTEN.clear()
+    # Same cross-render cache trap as _write_artifacts: after the committed
+    # bytes are restored, no later AppTest in this process may keep reading
+    # the fixture from the process-global cache.
+    st.cache_data.clear()
+    st.cache_resource.clear()
 
 
 # ---------------------------------------------------------------------------

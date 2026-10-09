@@ -684,17 +684,22 @@ def coverage(full_df: pd.DataFrame,
     nature, not a broken fetcher) and stays visible for exactly that
     structural read.
 
-    STRUCTURAL status (2026-09-29): a feature whose manifest
-    ``missing_value_policy`` DECLARES the absent slice (indoor/closed
-    weather games, season openers for rest, the week-1 player-rating cold
-    start for the EPA lineup family) cannot "starve" at its own by-design
-    rate. When its measured share is STABLE across the two windows
-    (|baseline − current| <= 15 pts), the row reports STRUCTURAL with the
-    reason — calm, visible, and answerable — while an UNSTABLE drop still
-    escalates to LOW_COVERAGE/STARVED (the 2026 weather-truncation class:
-    a fetcher can die and PSI rows keep showing plausible zeros, so the
-    raw rate itself must keep its alarm). Features with no declared policy
-    keep the raw thresholds at every rate.
+    STRUCTURAL status (2026-09-29; hardened 2026-10-08 against the NFL
+    coverage audit's "classify against actual eligibility/source-support
+    masks, not only policy keywords and similar baseline/current
+    percentages"): the manifest's declared ``missing_value_policy`` is
+    only the PRIOR — the row must additionally PROVE the slice against
+    the frame's own eligibility mask, on BOTH windows: every null sits on
+    an ineligible row and every ineligible row is null (weather: home
+    venue roofed/unknown via ``is_dome_home``; rest: a side's first
+    in-season game). A declared feature whose mask cannot be derived (the
+    EPA lineup pool-empty slice) or that fails the alignment keeps the
+    raw thresholds at every rate — an UNSTABLE drop still escalates to
+    LOW_COVERAGE/STARVED (the 2026 weather-truncation class: a fetcher
+    can die and PSI rows keep showing plausible zeros, so the raw rate
+    itself must keep its alarm), and a fetcher death on an ELIGIBLE row
+    is an unexplained null that never hides behind the keyword. Features
+    with no declared policy keep the raw thresholds at every rate.
     """
     _STRUCTURAL_MARKERS = (
         "indoor/closed",                        # weather quartet: no outdoor
@@ -714,6 +719,68 @@ def coverage(full_df: pd.DataFrame,
                 return marker
         return None
 
+    _WEATHER_MASKED = ("temp_f", "wind_mph", "is_precip", "is_snow")
+
+    def _ineligible_mask(f: str, frame: pd.DataFrame) -> pd.Series | None:
+        """Rows the feature is DEFINED absent on, or None when the frame
+        cannot prove the slice (2026-10-08 audit: masks, not keywords)."""
+        if f in _WEATHER_MASKED:
+            if "is_dome_home" not in frame.columns:
+                return None
+            # Roofed (1.0) or unknown (NaN) venues are ineligible by the
+            # weather contract; only a settled open-air row (0.0) is one.
+            return ~pd.to_numeric(
+                frame["is_dome_home"], errors="coerce").eq(0.0)
+        if f.startswith("rest_days"):
+            need = {"season", "gameday", "home_team", "away_team"}
+            if not need <= set(frame.columns):
+                return None
+            gd = pd.to_datetime(frame["gameday"], errors="coerce")
+            season = pd.to_numeric(frame["season"], errors="coerce")
+            home = frame["home_team"].astype("string").str.strip().str.upper()
+            away = frame["away_team"].astype("string").str.strip().str.upper()
+
+            def _side_opener(side: pd.Series) -> pd.Series:
+                side_df = pd.DataFrame({"season": season.to_numpy(),
+                                        "team": side.to_numpy(),
+                                        "g": gd.to_numpy()})
+                ok = side_df.notna().all(axis=1).to_numpy()
+                flag = np.zeros(len(side_df), dtype=bool)
+                if ok.any():
+                    sub = side_df.loc[ok]
+                    first = sub.groupby(
+                        ["season", "team"])["g"].transform("min")
+                    flag[np.flatnonzero(ok)] = (sub["g"] == first).to_numpy()
+                return pd.Series(flag, index=frame.index)
+
+            home_first = _side_opener(home)
+            away_first = _side_opener(away)
+            # The mask must mirror each served shape: a side level is null
+            # only when THAT side's opener has no in-season predecessor;
+            # the diff is null when EITHER side is one.
+            if f == "rest_days_home":
+                return home_first
+            if f == "rest_days_away":
+                return away_first
+            return home_first | away_first
+        return None
+
+    def _mask_explained(f: str, frame: pd.DataFrame) -> bool:
+        """True only when the nulls EXACTLY equal the eligibility mask:
+        every null is an ineligible row (so a fetcher death on an eligible
+        row can never read structural) and every ineligible row is null
+        (so no value is fabricated where the contract forbids one)."""
+        if frame is None or not len(frame) or f not in frame.columns:
+            return False
+        mask = _ineligible_mask(f, frame)
+        if mask is None:
+            return False
+        nulls = pd.to_numeric(frame[f], errors="coerce").isna().to_numpy()
+        mask = mask.fillna(False).to_numpy(dtype=bool)
+        if len(mask) != len(nulls):
+            return False
+        return bool((nulls == mask).all())
+
     def _row(f: str, frame: pd.DataFrame, window: str) -> dict:
         if f not in frame.columns:
             return {"feature": f, "window": window, "n_games": len(frame),
@@ -731,15 +798,21 @@ def coverage(full_df: pd.DataFrame,
         }
 
     def _classified_row(f: str, base_row: dict, pct_base: float,
-                        pct_cur: float | None) -> dict:
-        """Apply the STRUCTURAL override to one raw row when the documented
-        policy declares the absent slice AND the rate is window-stable."""
+                        pct_cur: float | None,
+                        base_frame: pd.DataFrame,
+                        cur_frame: pd.DataFrame) -> dict:
+        """Apply the STRUCTURAL override only when the declared policy AND
+        the frame's eligibility mask both prove the absent slice, on both
+        windows, and the rate is window-stable."""
         if pct_cur is None:
             return base_row
         reason = _structural_reason(f)
         if reason is None:
             return base_row
         if abs(pct_base - pct_cur) > 15.0:
+            return base_row
+        if not (_mask_explained(f, base_frame)
+                and _mask_explained(f, cur_frame)):
             return base_row
         out = dict(base_row)
         out["status"] = "STRUCTURAL"
@@ -752,9 +825,11 @@ def coverage(full_df: pd.DataFrame,
             base = _row(f, full_df, "baseline")
             cur = _row(f, current_df, "current")
             rows.append(_classified_row(f, base, base["pct_measured"],
-                                        cur["pct_measured"]))
+                                        cur["pct_measured"],
+                                        full_df, current_df))
             rows.append(_classified_row(f, cur, base["pct_measured"],
-                                        cur["pct_measured"]))
+                                        cur["pct_measured"],
+                                        full_df, current_df))
         else:
             rows.append(_row(f, full_df, "decided pool"))
     return rows
