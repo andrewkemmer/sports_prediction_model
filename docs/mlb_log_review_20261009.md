@@ -369,3 +369,76 @@ FileNotFoundError: [Errno 2] No such file or directory:
 - `python check_production_graph.py` — **OK, 27 modules**.
 - 19:08 artifacts re-read directly: coverage CSVs, monitor JSON parity,
   weather fetch counts, guard/totals lines (table above).
+
+---
+
+## Fourth-delivery review — 2026-10-09 20:40 (`ff7801e9`/`21b6f1a1`)
+
+Two more same-day deliveries landed after the third review: 20:07
+(`ce405493`/`95afedc8`) and 20:40 (`ff7801e9`/`21b6f1a1`). The 20:07 run
+completed its pipeline but **honestly aborted at delivery**: its Phase 5
+push raced this workspace's NFL commit `7e8c4a4e` on `origin/main` and
+logged `WARNING Error lines received while fetching: error: failed to push
+some refs` — a transient git non-fast-forward, not a data defect. The
+20:40 rerun delivered cleanly: **25 files pushed and remotely verified**,
+retention clean ("data_delivery holds exactly this run's artifacts"),
+DONE with the full run stats (7402 games, 2,175,316 pitches, 290 game +
+88 pbp columns).
+
+### Line-by-line verdict
+
+A normalized diff against the reviewed 19:08 log shows the 20:40 run is
+materially identical to the third delivery except: **no weather 429
+retries at all** (the 19:08 run's Open-Meteo 429 backoff ladders are
+gone — clean archive fetch), the expected sync tips
+(`129c3fd3` → `ff7801e9`), retention counts, and progress-bar timing.
+The four WARNING lines are all previously-reviewed, documented classes:
+
+| Line | Class | Verdict |
+|---|---|---|
+| `No games found for 20261009 ... EMPTY board` | genuine off-day | `todays_games_20261009.csv` ships header-only; the empty-board contract (never recycling decided games) ships every consumer a 0-row slate it already handles |
+| `degenerate Platt params (a=-0.348/-0.230/-0.180) — identity map` ×3 | T4-calibrated class | the INFO companion states `231 of 6140` run-engine prequential fits degenerated to identity (negative slope); countable and pinned since the 10-06 review (test_log_review_20261006 T4) |
+
+The `[MEM]` telemetry block (Start 704 MB → pandas-load peak 3739 MB →
+682 MB after DuckDB close) is the documented live-resident instrumentation
+in `features.py`, present in every run since 10-05.
+
+### Feature-coverage audit — closure verified, nothing outstanding
+
+`docs/mlb_coverage_audit_20261009.md` closed every finding in its own
+commit; this review verified each against the 20:40 artifacts:
+
+- **High (weather LOW_COVERAGE false alarm)** → STRUCTURAL statuses live
+  for a **second consecutive run**: `Feature coverage [moneyline]:
+  all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)` and
+  byte-identical run-engine wording, with the four weather rows carrying
+  their declared-policy reasons at INFO — no coverage WARNING anywhere
+  in the log.
+- **Verified-fixed list (10-08 discrepancies 1–5)** → re-confirmed in the
+  20:40 CSVs: no `bullpen_*` row outside OK, no `MISSING_COLUMN`, no
+  `n_invalid`, CSV ≡ run-engine CSV ≡ monitor JSON.
+- **Low (documentation drift "29 kept features")** → corrected in the
+  audit commit; comments now match the single-list rule (109 features).
+- Known limitations are non-actionable by design (artifacts never
+  rewritten post-delivery; the 80% denominator unchanged; the one-row
+  baseline tie boundary pinned by production sort).
+
+### Also verified in this delivery
+
+`973fe7fb` (16:07, xFIP A/B/C verdict + dashboard label coverage) ran
+inside the 20:40 run without incident: the serving set is confirmed
+unchanged (Scenario C +0.00035 vs shipped, all paired deltas inside the
+0.000681 seed-noise floor), and `FEATURE_DESCRIPTIONS` now covers all 109
+served MLB names.
+
+### Verification for this section
+
+- `python -m pytest mlb-backend/backend/ -q` — **385 passed, 1 skipped**
+  (re-run on the combined tree since `973fe7fb` touched
+  `config.py`/`frontend/utils.py` after the third review's run; skip is
+  the known Windows symlink case).
+- `python check_production_graph.py` — **OK, 27 modules**.
+- Frontend smokes: `test_mlb_board_render_smoke` (5/5 scenarios),
+  `test_monitor_smoke` (clean) — covering the label-path change.
+- 20:40 log and artifacts re-read directly; the 20:07 abort line and the
+  19:08-vs-20:40 diff quoted above.
