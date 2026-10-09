@@ -777,12 +777,27 @@ def fetch_games_weather(
     missing = [target for target in targets if target["game_id"] not in have]
 
     fresh_rows: list[dict] = []
-    if missing:
-        locations = [target for target in missing]
-        series_by_key = _fetch_batched_weather(locations, fetched_at.to_pydatetime())
-        for target in missing:
-            # A kickoff at (or just after) 00:00 UTC has no earlier hour on its
-            # own UTC day, so the prior day's last row is the true latest
+    # SAME-RUN TOP-UP (2026-10-09): twelve Open-Meteo 429 ladders exhausted
+    # themselves mid-repull and 58 eligible games ended the run weather-less
+    # under a 97.1% coverage figure that printed nothing but INFO — the
+    # silent-starvation class this pipeline's monitoring exists to catch.
+    # The cache-miss set is self-healing on the NEXT run, but a second pass
+    # over only the gaps costs seconds once the rate limit has cleared and
+    # closes the hole inside the delivery that opened it.
+    still_missing = list(missing)
+    for _pass in range(2):
+        if not still_missing:
+            break
+        if _pass:
+            logger.info(
+                "PIT weather top-up: %d game(s) still missing after the "
+                "first pass — refetching the gaps only", len(still_missing))
+        series_by_key = _fetch_batched_weather(still_missing,
+                                               fetched_at.to_pydatetime())
+        fetched_ids: set[str] = set()
+        for target in still_missing:
+            # A kickoff at (or just after) 00:00 UTC has no earlier hour on
+            # its own UTC day, so the prior day's last row is the true latest
             # strictly-pre-kickoff reading. The kickoff day is always tried
             # first: its rows are newer than anything the prior day can offer.
             kickoff_day = target["kickoff_utc"].date()
@@ -795,6 +810,9 @@ def fetch_games_weather(
                     break
             if record is not None:
                 fresh_rows.append(record)
+                fetched_ids.add(target["game_id"])
+        still_missing = [t for t in still_missing
+                         if t["game_id"] not in fetched_ids]
 
     # pandas 2.3 warns when concat receives an empty or all-NA placeholder.
     # The cache is already validated, so omit those frames and retain the
@@ -824,4 +842,20 @@ def fetch_games_weather(
             "features remain NaN; never substitute daily/schedule data",
             len(result), len(targets), 100.0 * coverage,
         )
+    elif len(result) < len(targets):
+        # Any hole is visible, not only a catastrophic one (2026-10-09:
+        # 1964/2022 = 97.1% sat ABOVE the 80% line, so 58 429-blocked games
+        # shipped with a single INFO). The note documents the self-heal:
+        # these game_ids stay out of the cache, so the next run's cache-miss
+        # set refetches exactly and only them.
+        have_ids = set(result["game_id"].astype(str)) if not result.empty \
+            else set()
+        gaps = [t["game_id"] for t in targets
+                if str(t["game_id"]) not in have_ids]
+        logger.warning(
+            "PIT weather: %d/%d eligible games lack strict pre-kickoff "
+            "records (%d remain missing after the same-run top-up, e.g. "
+            "%s); their weather features stay NaN and the next run's "
+            "cache-miss pass refetches only these games",
+            len(result), len(targets), len(gaps), ", ".join(map(str, gaps[:5])))
     return result

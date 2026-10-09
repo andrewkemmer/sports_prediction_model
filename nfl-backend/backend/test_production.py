@@ -2094,8 +2094,11 @@ _views = [c.args[1] for c in _dlog.call_args_list
 check("drift summary lines announce their view (moneyline vs run-engine)",
       _views == ["moneyline", "run-engine"])
 mon_src = inspect.getsource(monitoring_mod)
-check("both drift call sites pass the full decided pool as phase_frame",
-      mp_src.count("phase_frame=game_df") == 2)
+# 2026-10-09: coverage() joins the drift step and the run-engine writer as
+# a THIRD phase_frame consumer — its eligibility masks need the pool too.
+check("every Phase-13 window consumer receives the full decided pool "
+      "as phase_frame",
+      mp_src.count("phase_frame=game_df") == 3)
 check("the run-engine artifact writer emits view='run-engine' rows",
       'view="run-engine"' in mon_src
       and "phase_frame=phase_frame" in mon_src)
@@ -2697,10 +2700,12 @@ try:
     # The coverage companion shares the drift step's frames structurally:
     # both windows are emitted, labeled baseline/current, and the coverage
     # CSV can never answer a different window than the drift CSV beside it.
+    _mp_norm = " ".join(mp_src.split())
     check("the pipeline slices the drift windows once and shares the frames",
           "drift_windows(game_df)" in mp_src
           and "feature_drift(drift_baseline, recent" in mp_src
-          and "coverage(drift_baseline, current_df=recent)" in mp_src
+          and "coverage(drift_baseline, current_df=recent,"
+          " phase_frame=game_df)" in _mp_norm
           and "out_dir, date_c, drift_baseline, recent" in mp_src)
     # 2026-09-28 log incident: Phase 13 handed coverage() the FULL pool while
     # the drift step and the CSV writer shared the baseline tail, so the log
@@ -5475,6 +5480,205 @@ check("a rest null that is not a season opener keeps its alarm",
       and all(r["status"] != "STRUCTURAL" for r in _dead_rest)
       and all(r["status"] == "LOW_COVERAGE" for r in _dead_rest),
       str(_dead_rest))
+
+# ---------------------------------------------------------------------------
+# Pool-anchored eligibility masks (2026-10-09 run-log review). The opener
+# fact belongs to the team's FULL schedule: a mid-season window's first
+# appearance is usually game N>1 carrying a measured value, so window-local
+# "first appearance" flags over-flag, the exact-equality proof can never
+# hold outside opener-dense windows, and the 10-09 run FALSE-ALARMed the
+# rest trio LOW_COVERAGE for a fully structural absence. coverage() now
+# takes the decided pool (phase_frame) and reindexes the pool-derived mask
+# onto each window. The stability gate and every alarm class are unchanged.
+# ---------------------------------------------------------------------------
+_pa_pool = pd.DataFrame({
+    "season": [2025] * 100,
+    "gameday": [str((pd.Timestamp("2025-09-01")
+                     + pd.Timedelta(days=7 * (i // 10))).date())
+                for i in range(100)],
+    # distinct home teams for the first 26 rows (their season openers),
+    # then repeats — so rows 26+ carry measured values
+    "home_team": [f"H{i}" if i < 26 else f"H{(i - 26) % 26}"
+                  for i in range(100)],
+    "away_team": [f"X{i % 10}" for i in range(100)],
+    "rest_days_home": ([np.nan] * 26 + [7.0] * 74),
+})
+_pa_base = _pa_pool.iloc[20:81]    # rows 20..80: 6 openers, 90.16%
+_pa_cur = _pa_pool.iloc[40:100]     # rows 40..99: no openers, 100%
+_pa_rows = {(r["feature"], r["window"]): r for r in
+            monitoring_mod.coverage(_pa_base, current_df=_pa_cur,
+                                    phase_frame=_pa_pool)}
+check("a mid-season window's structural rest absence grades STRUCTURAL "
+      "from the pool-anchored mask (2026-10-09 false-alarm regression)",
+      _pa_rows[("rest_days_home", "baseline")]["status"] == "STRUCTURAL"
+      and _pa_rows[("rest_days_home", "baseline")].get("structural_reason")
+      == "first game of the season"
+      and _pa_rows[("rest_days_home", "current")]["status"] == "OK",
+      str({k: v["status"] for k, v in _pa_rows.items()
+           if k[0] == "rest_days_home"}))
+
+_pa_win_only = {(r["feature"], r["window"]): r for r in
+                monitoring_mod.coverage(_pa_base, current_df=_pa_cur)}
+check("the same window WITHOUT the pool refuses the override "
+      "(window-local firsts over-flag, so the pipeline must pass "
+      "phase_frame)",
+      _pa_win_only[("rest_days_home", "baseline")]["status"]
+      != "STRUCTURAL",
+      str(_pa_win_only.get(("rest_days_home", "baseline"))))
+
+# Unexplained nulls on ELIGIBLE rows keep the alarm even with the pool
+# anchor (the settled-gate class: a mid-season row nulls because its
+# predecessor never settled — never structural). 14 gap rows keep the
+# window-stability gate passing (|67.21-76.67| <= 15), so the mask is
+# what refuses the override.
+_pa_gap = _pa_pool.copy()
+_pa_gap.loc[40:53, "rest_days_home"] = np.nan   # 14 eligible, non-opener
+_pa_gap_rows = {(r["feature"], r["window"]): r for r in
+                monitoring_mod.coverage(_pa_gap.iloc[20:81],
+                                        current_df=_pa_gap.iloc[40:100],
+                                        phase_frame=_pa_gap)}
+check("pool-anchored masks cannot rescue unexplained mid-season nulls "
+      "(settled-gap/fetcher-death class keeps its alarm)",
+      _pa_gap_rows[("rest_days_home", "current")]["status"]
+      == "LOW_COVERAGE"
+      and abs(_pa_gap_rows[("rest_days_home", "current")]["pct_measured"]
+              - _pa_gap_rows[("rest_days_home", "baseline")]["pct_measured"])
+      <= 15.0,
+      str({k: (v["status"], v["pct_measured"])
+           for k, v in _pa_gap_rows.items()
+           if k[0] == "rest_days_home"}))
+
+# The 15-point window-stability gate is retained (the 2026-10-08 audit's
+# weather-truncation protection applies to the rest family too): a
+# mask-proven opener slice still grades raw when the windows are wildly
+# unstable (0% vs 100%).
+_pa_stab = {(r["feature"], r["window"]): r for r in
+            monitoring_mod.coverage(_pa_pool.iloc[0:26],
+                                    current_df=_pa_cur,
+                                    phase_frame=_pa_pool)}
+check("an unstable mask-proven window pair keeps the raw rate "
+      "(the 15-point stability gate is retained)",
+      _pa_stab[("rest_days_home", "baseline")]["status"] == "STARVED"
+      and _pa_stab[("rest_days_home", "current")]["status"] == "OK",
+      str({k: v["status"] for k, v in _pa_stab.items()
+           if k[0] == "rest_days_home"}))
+
+_mon_src2 = inspect.getsource(monitoring_mod)
+check("coverage() accepts the decided pool and the run-engine writer "
+      "threads its phase_frame into the coverage call",
+      "phase_frame: pd.DataFrame | None = None" in _mon_src2
+      and "current_df=recent_df, phase_frame=phase_frame)" in _mon_src2,
+      "")
+check("the pipeline passes the decided pool into the moneyline coverage",
+      "cov_rows = monitoring.coverage(drift_baseline, current_df=recent,"
+      " phase_frame=game_df)" in " ".join(mp_src.split()),
+      "")
+
+# ---------------------------------------------------------------------------
+# PIT weather same-run top-up and any-gap visibility (2026-10-09: twelve
+# Open-Meteo 429 ladders exhausted mid-repull, 58 eligible games ended the
+# run weather-less, and 97.1% coverage sat ABOVE the 80% warn line so the
+# hole printed a single INFO). A second pass over only the gaps must close
+# recoverable holes in-run, and any permanent hole must be WARNING-visible
+# with the self-heal note.
+# ---------------------------------------------------------------------------
+def _pa_outdoor_game(gid, stadium, day):
+    return {"game_id": gid, "season": 2024, "week": 1, "gameday": day,
+            "gametime": "13:00", "home_team": "A", "away_team": "B",
+            "home_score": 20.0, "away_score": 10.0, "game_type": "REG",
+            "roof": "outdoors", "div_game": 0, "stadium": stadium,
+            "surface": "grass"}
+
+
+def _pa_hourly(stadium, target, now):
+    return {(stadium, target["kickoff_utc"].date()): {
+        "time": [target["kickoff_utc"].strftime("%Y-%m-%dT16:00:00Z")],
+        "temperature_2m": [70.0], "wind_speed_10m": [5.0],
+        "precipitation": [0.0], "snowfall": [0.0],
+        "_source": weather_mod.OPEN_METEO_ARCHIVE,
+        "_fetched_at_utc": now,
+    }}
+
+with tempfile.TemporaryDirectory() as _pa_cache_dir:
+    _pa_cache = Path(_pa_cache_dir) / "weather.parquet"
+    _pa_two = pd.DataFrame([
+        _pa_outdoor_game("PA_G0", "MetLife Stadium", "2024-09-01"),
+        _pa_outdoor_game("PA_G1", "Gillette Stadium", "2024-09-02"),
+    ])
+    _pa_calls = []
+
+    def _pa_flaky_fetch(targets, now):
+        # Pass 1: the "429-exhausted" batch answers for the first target
+        # only; pass 2 (the top-up) recovers the remaining gap.
+        _pa_calls.append([t["game_id"] for t in targets])
+        take = targets[:1] if len(_pa_calls) == 1 else targets
+        out = {}
+        for t in take:
+            out.update(_pa_hourly(t["stadium"], t, now))
+        return out
+
+    _pa_orig_fetch = weather_mod._fetch_batched_weather
+    weather_mod._fetch_batched_weather = _pa_flaky_fetch
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            _pa_topup = weather_mod.fetch_games_weather(
+                _pa_two, path=_pa_cache,
+                now=pd.Timestamp("2024-09-03T12:00:00Z"))
+    finally:
+        weather_mod._fetch_batched_weather = _pa_orig_fetch
+    check("the same-run top-up recovers games a first-pass batch lost",
+          len(_pa_calls) == 2
+          and _pa_calls[0] == ["PA_G0", "PA_G1"]
+          and _pa_calls[1] == ["PA_G1"]
+          and set(_pa_topup["game_id"]) == {"PA_G0", "PA_G1"},
+          f"calls={_pa_calls}, got={list(_pa_topup['game_id']) if len(_pa_topup) else []}")
+
+    _pa_five = pd.DataFrame([
+        _pa_outdoor_game(gid, stadium, day)
+        for gid, stadium, day in (
+            ("PA_F0", "MetLife Stadium", "2024-09-01"),
+            ("PA_F1", "Gillette Stadium", "2024-09-02"),
+            ("PA_F2", "Lambeau Field", "2024-09-03"),
+            ("PA_F3", "Arrowhead Stadium", "2024-09-04"),
+            ("PA_F4", "Heinz Field", "2024-09-05"),
+        )
+    ])
+
+    def _pa_short_fetch(targets, now):
+        # 4 of 5 games answer on both passes; PA_F4 stays 429-blocked even
+        # through the top-up (its batch keeps failing).
+        out = {}
+        for t in targets:
+            if t["game_id"] == "PA_F4":
+                continue
+            out.update(_pa_hourly(t["stadium"], t, now))
+        return out
+
+    _pa_warns, _pa_infos = [], []
+    _pa_orig_fetch = weather_mod._fetch_batched_weather
+    weather_mod._fetch_batched_weather = _pa_short_fetch
+    _pa_orig_warn, _pa_orig_info = weather_mod.logger.warning, weather_mod.logger.info
+    weather_mod.logger.warning = lambda m, *a, **k: _pa_warns.append(m % a if a else m)
+    weather_mod.logger.info = lambda m, *a, **k: _pa_infos.append(m % a if a else m)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            _pa_partial = weather_mod.fetch_games_weather(
+                _pa_five, path=_pa_cache,
+                now=pd.Timestamp("2024-09-07T12:00:00Z"))
+    finally:
+        weather_mod._fetch_batched_weather = _pa_orig_fetch
+        weather_mod.logger.warning, weather_mod.logger.info = _pa_orig_warn, _pa_orig_info
+    check("a weather hole above the 80% line is WARNING-visible with the "
+          "self-heal note (2026-10-09's silent 58-game hole)",
+          len(_pa_partial) == 4
+          and any("lack strict pre-kickoff" in w and "cache-miss" in w
+                  and "PA_F4" in w for w in _pa_warns),
+          f"warns={_pa_warns}")
+check("the top-up logs a gap-only second pass before refetching",
+      any("PIT weather top-up" in i and "1 game(s)" in i for i in _pa_infos),
+      str([i for i in _pa_infos if "top-up" in i]))
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

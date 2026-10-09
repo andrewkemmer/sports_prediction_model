@@ -1089,7 +1089,8 @@ def main(argv: list[str] | None = None) -> int:
     drift = monitoring.feature_drift(drift_baseline, recent,
                                      weights=feature_weights,
                                      phase_frame=game_df)
-    cov_rows = monitoring.coverage(drift_baseline, current_df=recent)
+    cov_rows = monitoring.coverage(drift_baseline, current_df=recent,
+                                   phase_frame=game_df)
     # The Totals & Run Lines (run-engine) drift table reports the DISTRIBUTION
     # model's own MODEL WEIGHT — pooled split-gain of the shipped per-side
     # Poisson fits (MLB parity: the binary moneyline blend's weights never

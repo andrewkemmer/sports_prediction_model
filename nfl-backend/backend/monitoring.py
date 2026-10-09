@@ -654,7 +654,7 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
     """
     drift = feature_drift(full_df, recent_df, weights=weights,
                           phase_frame=phase_frame, view="run-engine")
-    cov = coverage(full_df, current_df=recent_df)
+    cov = coverage(full_df, current_df=recent_df, phase_frame=phase_frame)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
     pd.DataFrame(drift).to_csv(drift_path, index=False)
@@ -663,7 +663,8 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
 
 
 def coverage(full_df: pd.DataFrame,
-             current_df: pd.DataFrame | None = None) -> list[dict]:
+             current_df: pd.DataFrame | None = None,
+             phase_frame: pd.DataFrame | None = None) -> list[dict]:
     """Per-feature measured/non-null coverage over the drift windows.
 
     MLB-shaped fields: ``status`` (STARVED <25% measured / LOW_COVERAGE
@@ -684,6 +685,19 @@ def coverage(full_df: pd.DataFrame,
     nature, not a broken fetcher) and stays visible for exactly that
     structural read.
 
+    ``phase_frame`` (2026-10-09): the canonical decided pool the two
+    windows were sliced from. Eligibility masks that depend on a team's
+    HISTORY — the rest family's season opener — must be derived from that
+    pool, not from a window slice. A mid-season window's first appearance
+    for a team is usually game N>1 carrying a measured value, so
+    window-local "first appearance" flags over-flag, the exact-equality
+    proof can never hold outside opener-dense windows, and the
+    2026-10-09 run FALSE-ALARMed the rest trio LOW_COVERAGE for a fully
+    structural absence. The mask is computed once on the pool and
+    reindexed onto each window (windows are tail/head slices of the same
+    frame). Without ``phase_frame`` each window anchors itself
+    (standalone legacy behavior).
+
     STRUCTURAL status (2026-09-29; hardened 2026-10-08 against the NFL
     coverage audit's "classify against actual eligibility/source-support
     masks, not only policy keywords and similar baseline/current
@@ -691,8 +705,8 @@ def coverage(full_df: pd.DataFrame,
     only the PRIOR — the row must additionally PROVE the slice against
     the frame's own eligibility mask, on BOTH windows: every null sits on
     an ineligible row and every ineligible row is null (weather: home
-    venue roofed/unknown via ``is_dome_home``; rest: a side's first
-    in-season game). A declared feature whose mask cannot be derived (the
+    venue roofed/unknown via ``is_dome_home``; rest: a team's first
+    in-season game on EITHER side). A declared feature whose mask cannot be derived (the
     EPA lineup pool-empty slice) or that fails the alignment keeps the
     raw thresholds at every rate — an UNSTABLE drop still escalates to
     LOW_COVERAGE/STARVED (the 2026 weather-truncation class: a fetcher
@@ -721,7 +735,9 @@ def coverage(full_df: pd.DataFrame,
 
     _WEATHER_MASKED = ("temp_f", "wind_mph", "is_precip", "is_snow")
 
-    def _ineligible_mask(f: str, frame: pd.DataFrame) -> pd.Series | None:
+    def _ineligible_mask(f: str, frame: pd.DataFrame,
+                         phase_frame: pd.DataFrame | None = None
+                         ) -> pd.Series | None:
         """Rows the feature is DEFINED absent on, or None when the frame
         cannot prove the slice (2026-10-08 audit: masks, not keywords)."""
         if f in _WEATHER_MASKED:
@@ -729,50 +745,83 @@ def coverage(full_df: pd.DataFrame,
                 return None
             # Roofed (1.0) or unknown (NaN) venues are ineligible by the
             # weather contract; only a settled open-air row (0.0) is one.
+            # A row-local fact -- no cross-row history involved -- so the
+            # window itself is the right anchor.
             return ~pd.to_numeric(
                 frame["is_dome_home"], errors="coerce").eq(0.0)
         if f.startswith("rest_days"):
             need = {"season", "gameday", "home_team", "away_team"}
-            if not need <= set(frame.columns):
+            anchor = frame if phase_frame is None else phase_frame
+            if not (need <= set(frame.columns)
+                    and need <= set(anchor.columns)):
                 return None
-            gd = pd.to_datetime(frame["gameday"], errors="coerce")
-            season = pd.to_numeric(frame["season"], errors="coerce")
-            home = frame["home_team"].astype("string").str.strip().str.upper()
-            away = frame["away_team"].astype("string").str.strip().str.upper()
 
-            def _side_opener(side: pd.Series) -> pd.Series:
-                side_df = pd.DataFrame({"season": season.to_numpy(),
-                                        "team": side.to_numpy(),
-                                        "g": gd.to_numpy()})
-                ok = side_df.notna().all(axis=1).to_numpy()
-                flag = np.zeros(len(side_df), dtype=bool)
-                if ok.any():
-                    sub = side_df.loc[ok]
-                    first = sub.groupby(
-                        ["season", "team"])["g"].transform("min")
-                    flag[np.flatnonzero(ok)] = (sub["g"] == first).to_numpy()
-                return pd.Series(flag, index=frame.index)
+            def _side_firsts(src: pd.DataFrame, col: str) -> np.ndarray:
+                """Rows where ``col``'s team plays its season-first game
+                (either side) -- the ladder nulls a rest level exactly on
+                those rows, wherever the opener lands."""
+                gd = pd.to_datetime(src["gameday"], errors="coerce")
+                season = pd.to_numeric(src["season"], errors="coerce")
+                side = src[col].astype("string").str.strip().str.upper()
+                long = pd.concat([
+                    pd.DataFrame({"season": season.to_numpy(),
+                                  "team": s.to_numpy(), "g": gd.to_numpy()})
+                    for s in (side,
+                              src["away_team" if col == "home_team"
+                                  else "home_team"].astype("string")
+                              .str.strip().str.upper())
+                ], ignore_index=True)
+                ok = long.notna().all(axis=1)
+                long = long[ok].copy()
+                # SIDE-AGNOSTIC (2026-10-09): the opener is the team's first
+                # game on EITHER side. Flagging each side's own first
+                # appearance (the old behavior) also flagged every team whose
+                # opener was away at its first HOME game -- ~176 measured
+                # rows per pool -- so the exact-equality proof failed even on
+                # the full frame.
+                long["gfirst"] = long.groupby(
+                    ["season", "team"])["g"].transform("min")
+                opener = long[long["g"] == long["gfirst"]].drop_duplicates(
+                    ["season", "team", "g"])
+                keys = pd.DataFrame({"season": season.to_numpy(),
+                                     "team": side.to_numpy(),
+                                     "g": gd.to_numpy()})
+                hit = keys.merge(
+                    opener.assign(is_first=True)[
+                        ["season", "team", "g", "is_first"]],
+                    on=["season", "team", "g"], how="left")
+                valid = keys.notna().all(axis=1).to_numpy()
+                return hit["is_first"].fillna(False).to_numpy() & valid
 
-            home_first = _side_opener(home)
-            away_first = _side_opener(away)
+            home_first = pd.Series(_side_firsts(anchor, "home_team"),
+                                   index=anchor.index)
+            away_first = pd.Series(_side_firsts(anchor, "away_team"),
+                                   index=anchor.index)
             # The mask must mirror each served shape: a side level is null
-            # only when THAT side's opener has no in-season predecessor;
-            # the diff is null when EITHER side is one.
+            # only when THAT side's team has no in-season predecessor; the
+            # diff is null when EITHER side is one.
             if f == "rest_days_home":
-                return home_first
-            if f == "rest_days_away":
-                return away_first
-            return home_first | away_first
+                mask = home_first
+            elif f == "rest_days_away":
+                mask = away_first
+            else:
+                mask = home_first | away_first
+            # POOL-ANCHORED: the opener fact belongs to the team's full
+            # schedule; windows are tail/head slices of the same frame, so
+            # reindexing restricts the pool-derived fact to the window's
+            # own rows (rows outside the anchor fail closed -> False).
+            return mask.reindex(frame.index).fillna(False)
         return None
 
-    def _mask_explained(f: str, frame: pd.DataFrame) -> bool:
+    def _mask_explained(f: str, frame: pd.DataFrame,
+                        phase_frame: pd.DataFrame | None = None) -> bool:
         """True only when the nulls EXACTLY equal the eligibility mask:
         every null is an ineligible row (so a fetcher death on an eligible
         row can never read structural) and every ineligible row is null
         (so no value is fabricated where the contract forbids one)."""
         if frame is None or not len(frame) or f not in frame.columns:
             return False
-        mask = _ineligible_mask(f, frame)
+        mask = _ineligible_mask(f, frame, phase_frame)
         if mask is None:
             return False
         nulls = pd.to_numeric(frame[f], errors="coerce").isna().to_numpy()
@@ -800,19 +849,26 @@ def coverage(full_df: pd.DataFrame,
     def _classified_row(f: str, base_row: dict, pct_base: float,
                         pct_cur: float | None,
                         base_frame: pd.DataFrame,
-                        cur_frame: pd.DataFrame) -> dict:
+                        cur_frame: pd.DataFrame,
+                        phase_frame: pd.DataFrame | None = None) -> dict:
         """Apply the STRUCTURAL override only when the declared policy AND
         the frame's eligibility mask both prove the absent slice, on both
         windows, and the rate is window-stable."""
         if pct_cur is None:
+            return base_row
+        if base_row["pct_measured"] >= 100.0:
+            # No absence on THIS row to explain: a fully measured window
+            # stays OK — STRUCTURAL labels explained ABSENCE, never a
+            # clean rate (pool-anchored masks make an empty mask + zero
+            # nulls a vacuous "exact" proof).
             return base_row
         reason = _structural_reason(f)
         if reason is None:
             return base_row
         if abs(pct_base - pct_cur) > 15.0:
             return base_row
-        if not (_mask_explained(f, base_frame)
-                and _mask_explained(f, cur_frame)):
+        if not (_mask_explained(f, base_frame, phase_frame)
+                and _mask_explained(f, cur_frame, phase_frame)):
             return base_row
         out = dict(base_row)
         out["status"] = "STRUCTURAL"
@@ -826,10 +882,10 @@ def coverage(full_df: pd.DataFrame,
             cur = _row(f, current_df, "current")
             rows.append(_classified_row(f, base, base["pct_measured"],
                                         cur["pct_measured"],
-                                        full_df, current_df))
+                                        full_df, current_df, phase_frame))
             rows.append(_classified_row(f, cur, base["pct_measured"],
                                         cur["pct_measured"],
-                                        full_df, current_df))
+                                        full_df, current_df, phase_frame))
         else:
             rows.append(_row(f, full_df, "decided pool"))
     return rows
