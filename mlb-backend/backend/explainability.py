@@ -542,8 +542,8 @@ def compute_feature_drift(
     """Compute PSI for each numeric feature and save feature_drift CSV.
 
     Output: data_delivery/feature_drift_YYYYMMDD.csv (or ``out_name``).
-    ``feature_cols`` narrows the feature view (the run engine's 29 kept
-    features use the same machinery on the same windows); the default
+    ``feature_cols`` narrows the feature view (the run engine shares the
+    moneyline contract through the same machinery on the same windows); the default
     enumerates the ACTIVE moneyline serving width (adopted RFE subset,
     else the universe) — SINGLE-LIST RULE: every monitor-facing surface
     reads exactly one list.
@@ -726,6 +726,79 @@ def compute_feature_drift(
     return df
 
 
+# ── Coverage-audit remediation (2026-10-09) ─────────────────────────────
+# Declared missing-value policies for the two weather interactions — the
+# only served features whose NULLs are produced by a documented policy
+# gate rather than by a data hole:
+#   * closed-roof rows are unconditionally zero-filled by
+#     features.apply_indoor_neutral_fills (a POLICY zero that the table
+#     correctly refuses to count as an observation), and
+#   * open-air rows are NULL exactly when their governing SP input is
+#     NULL — the SP staleness gate (a stale carry is nulled on purpose,
+#     never zero-filled).
+# On roof-heavy windows those two policies alone put % measured below the
+# 80% OK line even when EVERY open-air game was observed, so the row used
+# to stand amber forever — a permanent alarm that trained viewers to
+# ignore it (2026-10-09 coverage audit). A weather OUTAGE has the opposite
+# signature: open-air rows whose SP input IS present but whose value is
+# NULL (the 2026-10-07 truncation class). Those rows are unexplained and
+# keep the raw LOW_COVERAGE/STARVED thresholds, so sensitivity to real
+# starvation is unchanged — STRUCTURAL is granted only when every single
+# unmeasured row carries a declared reason (NBA 2026-10-08 semantics).
+_DECLARED_POLICY_INPUTS = {
+    "wind_advantage_flyball_factor": "sp_era_diff",
+    "air_density_velocity_boost": "sp_fbvelo_diff",
+}
+
+# Statuses that still page from the coverage table. STRUCTURAL is NOT an
+# alarm (it is absence by declared policy) and is summarized at INFO.
+_COVERAGE_ALARM_STATUSES = ("STARVED", "LOW_COVERAGE", "MISSING_COLUMN")
+
+
+def _declared_policy_reason(
+    games: pd.DataFrame,
+    col: str,
+    vals: pd.Series,
+    nonnull: pd.Series,
+    default: pd.Series,
+    dome: pd.Series,
+) -> Optional[str]:
+    """Explain EVERY unmeasured row of ``col``, or return None (fail open).
+
+    Returns a human-readable reason only when all unmeasured rows are
+    closed-roof policy zeros or open-air NULLs gated by this feature's
+    declared SP input. One unexplained row (missing roof column, an
+    observation gap, an inf, a broken indoor fill) keeps the real alarm.
+    """
+    input_col = _DECLARED_POLICY_INPUTS[col]
+    unmeasured = ~nonnull | default
+    n_unmeasured = int(unmeasured.sum())
+    if not n_unmeasured:
+        return None
+    if input_col not in games.columns:
+        # Without the governing input there is no proof of the gate — the
+        # threshold alarm stays (fail-open, never fail-silent).
+        return None
+    inp = pd.to_numeric(games[input_col], errors="coerce")
+    # Only a true NaN open-air value gated by a missing input is policy.
+    # A dome row whose value is NULL (the indoor fill did not run), an
+    # inf, or an open-air NULL beside a valid input are all unexplained.
+    open_air_null = vals.isna() & ~dome.eq(1)
+    gated = open_air_null & inp.isna()
+    explained = default | gated
+    if not bool(explained[unmeasured].all()):
+        return None
+    n_gated = int((unmeasured & gated).sum())
+    n_defaults = int((unmeasured & default).sum())
+    return (
+        f"declared missing-value policy on all {n_unmeasured} unmeasured "
+        f"row(s): {n_defaults} closed-roof policy zero(s) (indoor-neutral "
+        f"fill, never an observation) + {n_gated} open-air NULL(s) gated "
+        f"by a missing {input_col} (SP staleness gate); every open-air "
+        "row with a valid input is observed"
+    )
+
+
 def compute_feature_coverage(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
@@ -756,6 +829,14 @@ def compute_feature_coverage(
     enumerates the ACTIVE moneyline serving width (adopted RFE subset,
     else the universe) — SINGLE-LIST RULE: every monitor-facing surface
     reads exactly one list.
+
+    Status is OK / LOW_COVERAGE / STARVED on % measured, plus
+    MISSING_COLUMN. A non-OK row of a DECLARED-POLICY feature
+    (_DECLARED_POLICY_INPUTS) is downgraded to STRUCTURAL only when every
+    unmeasured row is explained by that policy — never when even one row
+    looks like an observation gap. STRUCTURAL is absence by declared
+    design: it renders calm with its reason and is summarized at INFO,
+    never WARNING'd.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
@@ -777,14 +858,31 @@ def compute_feature_coverage(
             nonnull = vals.notna() & np.isfinite(vals)
             n_invalid = int((vals.notna() & ~np.isfinite(vals)).sum())
             n_nonnull = int(nonnull.sum())
-            n_default = 0
-            if col in ("wind_advantage_flyball_factor", "air_density_velocity_boost"):
-                n_default = int((nonnull & (vals == 0.0) & (dome == 1)).sum())
+            # Exact-0.0 on a game-resolved closed roof is the dome branch's
+            # POLICY signature (a real calm-wind observation outdoors can be
+            # 0.0 too — hence dome==1 is part of the test), never counted as
+            # an observation.
+            default = nonnull & (vals == 0.0) & (dome == 1)
+            n_default = int(default.sum()) if col in (
+                "wind_advantage_flyball_factor",
+                "air_density_velocity_boost") else 0
             n_measured = n_nonnull - n_default
             pct_nonnull = round(100.0 * n_nonnull / n_total, 1) if n_total else 0.0
             pct_measured = round(100.0 * n_measured / n_total, 1) if n_total else 0.0
             status = "OK" if pct_measured >= 80.0 else (
                 "LOW_COVERAGE" if pct_measured >= 25.0 else "STARVED")
+            # A non-OK row for a declared-policy feature is STRUCTURAL only
+            # when every unmeasured row is explained (see the 2026-10-09
+            # coverage-audit note above). A healthy family keeps its OK and
+            # carries no reason — the monitor renders a reason as THE
+            # finding, never a stray explanation beside a pass.
+            structural_reason = None
+            if status != "OK" and present \
+                    and col in _DECLARED_POLICY_INPUTS:
+                structural_reason = _declared_policy_reason(
+                    games, col, vals, nonnull, default, dome)
+            if structural_reason:
+                status = "STRUCTURAL"
             rows.append({
                 "feature": col,
                 "window": window,
@@ -797,6 +895,7 @@ def compute_feature_coverage(
                 "status": "MISSING_COLUMN" if not present else status,
                 "column_present": present,
                 "n_invalid": n_invalid,
+                "structural_reason": structural_reason,
             })
         return rows
 
@@ -805,15 +904,20 @@ def compute_feature_coverage(
     df = pd.DataFrame(cov_rows, columns=[
         "feature", "window", "n_games", "n_nonnull", "pct_nonnull",
         "n_measured", "pct_measured", "n_default_zero", "status",
-        "column_present", "n_invalid",
+        "column_present", "n_invalid", "structural_reason",
     ])
     out_path = DATA_DELIVERY_DIR / (out_name or
                                     f"feature_coverage_{target_date_str}.csv")
     df.to_csv(out_path, index=False)
 
-    starved = df[df["status"] != "OK"]
-    if not starved.empty:
-        worst = starved.sort_values("pct_measured").head(5)
+    # STRUCTURAL rows are absence by DECLARED POLICY, not starvation —
+    # they never page (cross-sport contract: NFL 2026-09-29, NBA
+    # 2026-10-08). Only real alarms reach WARNING; structural rows are
+    # summarized at INFO so the reasoning stays visible in the run log.
+    alarms = df[df["status"].isin(_COVERAGE_ALARM_STATUSES)]
+    structural = df[df["status"] == "STRUCTURAL"]
+    if not alarms.empty:
+        worst = alarms.sort_values("pct_measured").head(5)
         # Weather rows carry closed-roof POLICY zeros (counted as defaults,
         # never as observations), so their % measured can never reach the
         # 80% OK line on a roof-heavy window even when every open-air game
@@ -832,10 +936,32 @@ def compute_feature_coverage(
 
         detail = "; ".join(_detail(r) for r in worst.itertuples())
         logger.warning("Feature coverage gaps [%s]: %s", view, detail)
+        if not structural.empty:
+            _log_structural(view, df, structural)
+    elif not structural.empty:
+        logger.info(
+            "Feature coverage [%s]: all %d feature-window pairs OK "
+            "(%d STRUCTURAL by declared policy)",
+            view, len(df), len(structural))
+        _log_structural(view, df, structural)
     else:
         logger.info("Feature coverage [%s]: all %d feature-window pairs OK",
                     view, len(df))
     return df
+
+
+def _log_structural(view: str, df: pd.DataFrame,
+                    structural: pd.DataFrame) -> None:
+    """INFO summary of STRUCTURAL coverage rows (never a WARNING)."""
+    reasons = sorted({str(r) for r in structural["structural_reason"]
+                      if r})
+    pairs = ", ".join(
+        f"{r.feature}/{r.window}={r.pct_measured:.0f}%"
+        for r in structural.sort_values("pct_measured").itertuples())
+    logger.info(
+        "Feature coverage [%s]: STRUCTURAL (declared missing-value "
+        "policy, not starvation): %s — %s",
+        view, pairs, "; ".join(reasons))
 
 
 # ---------------------------------------------------------------------------
@@ -923,8 +1049,9 @@ def compute_run_engine_feature_coverage(
     current_games: pd.DataFrame,
     target_date_str: str,
 ) -> pd.DataFrame:
-    """Coverage over the run engine's OWN 29 kept features on the SAME
-    windows. Writes data_delivery/run_engine_feature_coverage_YYYYMMDD.csv."""
+    """Coverage over the run engine's shared feature contract on the SAME
+    windows (the single-list rule keeps it byte-identical to the moneyline
+    view). Writes data_delivery/run_engine_feature_coverage_YYYYMMDD.csv."""
     return compute_feature_coverage(
         baseline_games, current_games, target_date_str,
         feature_cols=run_engine_feature_cols(),

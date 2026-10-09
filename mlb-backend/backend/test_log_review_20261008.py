@@ -36,6 +36,13 @@ StatsAPI schedule for the tail window, and WARNs (never aborts — posting
 lag is transient and the next run's forward top-up + REFRESH_TAIL_DAYS
 refresh recovers the games) when finals are absent.
 
+PLUS (2026-10-09, coverage-audit pass over the same run log) the T11
+section: the standing weather LOW_COVERAGE alarm classifies STRUCTURAL
+only when EVERY unmeasured row is explained by a declared policy
+(closed-roof zero / SP-staleness-gated NULL); one unobserved open-air
+row beside a valid SP input keeps the raw alarm (the 2026-10-07
+truncation class).
+
 Convention: behavioral tests for the importable module (ingestion),
 source pins for the run-once script (master_pipeline) — same style as
 test_log_review_{20260929,20261005,20261007}.
@@ -703,8 +710,12 @@ def test_official_varies_wind_is_refused_not_guessed():
 # POLICY zero (correctly never counted as an observation). After T6/T7 the
 # residual gap on those rows is defaults + staleness-gated SP inputs — so
 # the line now prints the open-air-only ratio too. Status/threshold and the
-# CSV schema are deliberately UNCHANGED (the frontend tooltips document
-# "LOW_COVERAGE <80% measured"); this is additive observability only.
+# CSV schema were deliberately UNCHANGED at T9 time (the frontend tooltips
+# document "LOW_COVERAGE <80% measured"); this is additive observability
+# only. SUPERSEDED IN PART by T11 below (2026-10-09 coverage audit): a row
+# whose every unmeasured value is declared policy now classifies
+# STRUCTURAL instead — these T9 rows carry no SP input column to prove the
+# gate, so they keep their alarm exactly as asserted here.
 
 def test_coverage_warning_reports_the_open_air_ratio(tmp_path, monkeypatch,
                                                       caplog):
@@ -745,3 +756,183 @@ def test_coverage_warning_reports_the_open_air_ratio(tmp_path, monkeypatch,
     home_segs = [s for s in line.split("; ") if s.startswith("home_elo/")]
     assert len(home_segs) == 2 and all("open-air" not in s for s in home_segs), (
         "only policy-zero features earn the open-air clause")
+
+
+# ── T11: the standing weather alarm → STRUCTURAL, only when FULLY explained ─
+# 2026-10-09 coverage audit: after T6/T7 the shipped frame has ZERO
+# weather-observation gaps (park_wind_factor/air_density_level are NULL on
+# 0 rows; every open-air NULL is an SP-staleness-gated input), yet the two
+# weather features stood LOW_COVERAGE 73%/75% on EVERY run because the 80%
+# line counts closed-roof policy zeros and policy NULLs in its denominator.
+# A permanent alarm trains viewers to ignore it — the exact failure mode
+# the backstop exists to prevent. Remediation (cross-sport contract: NBA
+# 2026-10-08, NFL 2026-09-29; the frontend already renders STRUCTURAL):
+# classify STRUCTURAL WITH a reason only when every unmeasured row carries
+# a declared-policy explanation. A weather OUTAGE has the opposite
+# signature — an open-air NULL beside a PRESENT SP input — and keeps the
+# raw LOW_COVERAGE/STARVED thresholds, so starvation sensitivity is
+# unchanged. Numbers never change; only what the status MEANS.
+
+def _explained_frame() -> pd.DataFrame:
+    """10 rows: 3 closed-roof policy zeros, 5 open-air observations,
+    2 open-air NULLs whose SP inputs are gated (staleness/debut)."""
+    return pd.DataFrame({
+        "wind_advantage_flyball_factor":
+            [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5, np.nan, np.nan],
+        "air_density_velocity_boost":
+            [0.0, 0.0, 0.0, -0.1, -0.1, -0.1, -0.1, -0.1, np.nan, np.nan],
+        "dome_is_neutral_game": [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0],
+        "sp_era_diff": [0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1,
+                        np.nan, np.nan],
+        "sp_fbvelo_diff": [0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4,
+                           np.nan, np.nan],
+    })
+
+
+def test_fully_explained_weather_window_is_structural_and_never_pages(
+        tmp_path, monkeypatch, caplog):
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        cov = explainability.compute_feature_coverage(
+            _explained_frame(), _explained_frame(), "20990111",
+            feature_cols=["wind_advantage_flyball_factor",
+                          "air_density_velocity_boost"])
+
+    for col, input_col in (("wind_advantage_flyball_factor", "sp_era_diff"),
+                           ("air_density_velocity_boost", "sp_fbvelo_diff")):
+        for window in ("current", "baseline"):
+            row = cov[(cov.feature == col) & (cov.window == window)].iloc[0]
+            assert row.status == "STRUCTURAL", (col, window, row.status)
+            # The numbers are untouched — STRUCTURAL changes what the
+            # status means, never the measured counts.
+            assert row.pct_measured == 50.0
+            assert int(row.n_default_zero) == 3 and int(row.n_measured) == 5
+            assert int(row.n_nonnull) == 8
+            reason = str(row.structural_reason)
+            assert "3 closed-roof policy zero" in reason
+            assert f"2 open-air NULL(s) gated by a missing {input_col}" in reason
+
+    text = caplog.text
+    assert "Feature coverage gaps" not in text, (
+        "fully-explained policy rows must never page")
+    assert "STRUCTURAL (declared missing-value policy" in text
+    assert "SP staleness gate" in text
+
+    # The reason rides along in the CSV (additive column) and in the rows
+    # the monitor JSON serializes.
+    out = pd.read_csv(tmp_path / "feature_coverage_20990111.csv")
+    assert "structural_reason" in out.columns
+    srow = out[(out.feature == "wind_advantage_flyball_factor")
+               & (out.window == "current")].iloc[0]
+    assert srow.status == "STRUCTURAL" and "sp_era_diff" in str(srow.structural_reason)
+
+
+def test_an_unobserved_open_air_row_keeps_the_raw_alarm(tmp_path, monkeypatch,
+                                                         caplog):
+    """The starvation signature: an open-air row with a PRESENT SP input
+    and no observation cannot be policy — the row is the 2026-10-07
+    truncation class and must keep LOW_COVERAGE (and the WARNING)."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = _explained_frame()
+    # Row 9: inputs present, weather missing → unobserved, not gated.
+    frame.loc[9, "sp_era_diff"] = 0.1
+    frame.loc[9, "sp_fbvelo_diff"] = 0.2
+
+    with caplog.at_level(logging.WARNING, logger="explainability"):
+        cov = explainability.compute_feature_coverage(
+            frame, frame, "20990112",
+            feature_cols=["wind_advantage_flyball_factor",
+                          "air_density_velocity_boost"])
+
+    row = cov[(cov.feature == "wind_advantage_flyball_factor")
+              & (cov.window == "current")].iloc[0]
+    assert row.status == "LOW_COVERAGE", "one unexplained row kills STRUCTURAL"
+    assert pd.isna(row.structural_reason), "no reason may dangle beside an alarm"
+    assert "Feature coverage gaps" in caplog.text
+    assert "wind_advantage_flyball_factor/current=50% measured" in caplog.text
+
+
+def test_structural_is_per_feature_and_gated_on_its_declared_input(
+        tmp_path, monkeypatch):
+    """wind is governed by sp_era_diff, air by sp_fbvelo_diff: the same
+    two NULL rows can be policy for one feature and an outage for the other."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = _explained_frame()
+    # Inputs missing for era only: wind NULLs are gated (explained),
+    # air NULLs sit beside a present input (unobserved → alarm).
+    frame["sp_fbvelo_diff"] = [0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4,
+                               0.4, 0.4]
+
+    cov = explainability.compute_feature_coverage(
+        frame, frame, "20990113",
+        feature_cols=["wind_advantage_flyball_factor",
+                      "air_density_velocity_boost"])
+    wind = cov[(cov.feature == "wind_advantage_flyball_factor")
+               & (cov.window == "current")].iloc[0]
+    air = cov[(cov.feature == "air_density_velocity_boost")
+              & (cov.window == "current")].iloc[0]
+    assert wind.status == "STRUCTURAL"
+    assert "missing sp_era_diff" in str(wind.structural_reason)
+    assert air.status == "LOW_COVERAGE"
+    assert pd.isna(air.structural_reason)
+
+
+def test_a_broken_indoor_fill_stays_unexplained(tmp_path, monkeypatch):
+    """A closed-roof row whose value is NULL means apply_indoor_neutral_
+    fills did NOT run — a build hole, never declared policy (policy writes
+    the zero unconditionally). It keeps the alarm."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = _explained_frame()
+    frame.loc[0, "wind_advantage_flyball_factor"] = np.nan  # dome row, no zero
+
+    cov = explainability.compute_feature_coverage(
+        frame, frame, "20990114",
+        feature_cols=["wind_advantage_flyball_factor",
+                      "air_density_velocity_boost"])
+    wind = cov[(cov.feature == "wind_advantage_flyball_factor")
+               & (cov.window == "current")].iloc[0]
+    air = cov[(cov.feature == "air_density_velocity_boost")
+              & (cov.window == "current")].iloc[0]
+    assert wind.status == "LOW_COVERAGE"  # the broken fill alarms
+    assert air.status == "STRUCTURAL"     # air's policy set is complete
+
+
+def test_missing_governing_input_column_fails_open(tmp_path, monkeypatch):
+    """Without the SP input column there is no proof of the gate — the
+    threshold alarm stays (fail-open, never fail-silent). This is also
+    what keeps T9's input-less mini frame paging as before."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = _explained_frame().drop(columns=["sp_era_diff", "sp_fbvelo_diff"])
+
+    cov = explainability.compute_feature_coverage(
+        frame, frame, "20990115",
+        feature_cols=["wind_advantage_flyball_factor"])
+    wind = cov[(cov.feature == "wind_advantage_flyball_factor")
+               & (cov.window == "current")].iloc[0]
+    assert wind.status == "LOW_COVERAGE"
+    assert pd.isna(wind.structural_reason)
+
+
+def test_run_engine_coverage_shares_the_structural_rule(tmp_path, monkeypatch):
+    """The run-engine wrapper forwards the SAME windows through the SAME
+    function (single-list rule) — its CSV must carry the same status and
+    reason, not a separate classification."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+
+    explainability.compute_run_engine_feature_coverage(
+        _explained_frame(), _explained_frame(), "20990116")
+
+    out = pd.read_csv(tmp_path / "run_engine_feature_coverage_20990116.csv")
+    w = out[(out.feature == "wind_advantage_flyball_factor")
+            & (out.window == "current")].iloc[0]
+    assert w.status == "STRUCTURAL"
+    assert "declared missing-value policy" in str(w.structural_reason)
+    assert "structural_reason" in out.columns

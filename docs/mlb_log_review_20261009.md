@@ -1,7 +1,9 @@
 # MLB run-log review — 2026-10-09
 
 **Subject:** `mlb-backend/data_delivery/mlb_pipeline_run_log.txt` as delivered on
-remote (438 lines, run trained 2026-10-09 05:27, artifacts commit `09705665`,
+remote — **first delivery** (438 lines, run trained 2026-10-09 05:27, artifacts commit `09705665`,
+log commit `64b6f899`). The **second delivery** of the same day (431 lines, trained 17:15,
+artifacts `2cc8f88f`, log `34b6cddc`) is reviewed at the end of this document.
 log commit `64b6f899`, cleanup `7b7cb6d1`, previous HEAD `871c45eb`).
 **Verdict:** delivery, the missing-finals guard and the off-day path are all
 clean. The run's only WARNING class left unexplained was
@@ -214,3 +216,77 @@ whose `sp_*_diff` is gated to NULL. `air_density_level` itself goes
 - The production pipeline was not re-run (Kaggle/Colab environment); all
   conclusions come from the committed artifacts, the committed run log, and
   live StatsAPI/Open-Meteo queries.
+
+
+---
+
+## Second delivery — the 17:16 run log on remote (reviewed same day)
+
+**Subject:** the run log appended at `34b6cddc` (431 lines total, run
+trained 2026-10-09 17:15, artifacts `2cc8f88f`). **Verdict: clean.**
+Every fix from this document's first review is verified landed in the
+delivered artifacts, the missing-final and off-day paths are resolved,
+and the log's transient Statcast retry recovered byte-identically. The
+only WARNING class left standing is the feature-coverage pair — handed
+to the same-day [feature-coverage audit](mlb_coverage_audit_20261009.md),
+which root-caused it as a fully-explained policy false alarm and
+remediates it there (STRUCTURAL classification, this commit). Scope note:
+only the delta from the first review is re-argued below; T1–T10 stand as
+written.
+
+### Validated clean (first review → second delivery)
+
+| First-review claim or open item | Second-delivery evidence |
+|---|---|
+| T1: missing finals recover on the next pull | Guard now logs `INFO missing-finals guard: no official schedule rows for 2026-10-09 → 2026-10-09 (frame horizon 2026-10-08)` — `849832` (10-08 CLE@CWS) is recovered end-to-end: frame horizon 2026-10-08, the 10-08 slate present in `predictions_history_20261009.csv` (row `2026-10-08 CWS CLE`, `home_win=0`), `Totals history store: 7333 rows (1 added this run)`, decided games 7401 → 7402 |
+| T6: exact-midnight sampling recovered all 13 games | Shipped frame: **13/13** of the named games carry observed weather (`park_wind_factor` + `air_density_level` present; open-air ones carry real interactions) — [midnight_games_recovery.csv](mlb_coverage_audit_20261009/midnight_games_recovery.csv). `Weather fetched: 7402/7402 games from batched observations` on an empty cache |
+| T7: partial records no longer block the archive | Fresh cache, `Weather history: 7402/7402 games with observed weather`; frame-wide observation scan finds **0** open-air rows missing `park_wind_factor`/`air_density_level` — the T7 top-up line simply had nothing to repair |
+| T9: coverage WARN carries the open-air ratio | Present verbatim in both view warnings: `open-air 92% (12 rows, 3 closed-roof policy zeros excluded)` — now superseded by the STRUCTURAL remediation in the coverage audit |
+| T10: board smoke must expect the newest renderable board | `python frontend/test_mlb_board_render_smoke.py` → PASS (5 scenarios) against this delivery |
+| Off-day board honest | Live StatsAPI `date=2026-10-09` → `totalGames: 0`; `todays_games_20261009.csv` 0 rows; `SHAP attributions written for 0 games`; `0 posted row(s)` — same honest emptiness, re-verified |
+| Ingestion / drift / calibration clean | `Ingestion guard: 2175316 pitches, 7402 decided games (expected ≥2044874 / 6960)` pass; `Feature drift [moneyline]/[run-engine]: 109 features, 0 warnings, 0 alerts, 0 seasonal`; degenerate-Platt counter `231 of 6140` with the documented 3-line cap, final gate `identity / gated_no_gain` |
+
+### New in this log — reviewed, no defect
+
+- **Chunk retry (line 47):** `Chunk 2025-06-24 → 2025-08-22 attempt 1/3
+  failed: Error tokenizing data ... Expected 1 fields in line 12, saw 2`
+  — a truncated/rate-limited Statcast response. The bounded retry fired
+  (`↻ retrying ... attempt 2/3, backoff 1.0s`) and the chunk then
+  returned **221,858 pitches — byte-identical to the 05:27 run's chunk**,
+  so the retry machinery recovered the full data with no silent loss.
+- **`Fold 83 ... val=1 auc=nan brier=0.2955 [PROVISIONAL]`** — a single
+  10-08 validation game; AUC is undefined for one sample, the fold is
+  fit + scored and honestly excluded from grading, same as the 143/144
+  provisional folds before it. No action.
+- **Delivery accounting:** Phase 5 staged 26 files; `2cc8f88f` carries
+  24 with diffs — `features_metadata_20261009.json` and
+  `todays_games_20261009.csv` were already byte-identical on remote
+  (deterministic 0-row/109-feature outputs from the 05:27 run).
+  `git ls-files` shows 17 `*20261009*` paths; Phase 6 reports `No stale
+  files`; the final log delivery landed as `34b6cddc`. Delivery holds.
+- **`Calibration: ... degenerate Platt` ×3 and the `WARNING No games
+  found for 20261009` line** are the already-documented classes above —
+  unchanged behavior, verified again.
+
+### The remaining WARNING class → remediated in the coverage audit
+
+`WARNING Feature coverage gaps [moneyline]/[run-engine]` still fired on
+the two weather features (73%/75% measured) even though this run's
+frame has **zero** weather-observation gaps: the rows are closed-roof
+policy zeros plus SP-staleness-gated NULLs, which the 80%-measured
+denominator can never absorb. Full audit, evidence and remediation:
+[mlb_coverage_audit_20261009.md](mlb_coverage_audit_20261009.md) —
+fully explained rows now classify `STRUCTURAL` (INFO with reason, never
+WARNING); one unexplained row keeps the raw alarm. The next run's log
+should carry no `Feature coverage gaps` WARNING while observation
+coverage holds.
+
+### Verification for this section
+
+- `python -m pytest mlb-backend/backend/ -q` — **377 passed** (6 new
+  T11 pins, all failing against the pre-fix module).
+- `python check_production_graph.py` — **OK, 27 modules**.
+- Frontend smokes, each exit 0: MLB board (5/5), board render, monitor,
+  calibration, power rankings, calibration gate note (2 passed).
+- Artifact reconciliation of all 218 coverage rows against the
+  committed frame; live StatsAPI off-day check.

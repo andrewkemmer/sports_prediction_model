@@ -979,7 +979,8 @@ def _feature_weight_map(ds: str) -> dict:
 def _load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
     """Fetch run_engine_feature_{drift,coverage}_YYYYMMDD.csv — the run
     engine's own drift/coverage artifacts (additive pipeline outputs over
-    its 29 kept features on the same windows as the moneyline drift)."""
+    its shared moneyline feature contract on the same windows as the
+    moneyline drift)."""
     fname = f"{prefix}_{ds}.csv"
     cfg = utils.get_source_config()
     try:
@@ -1224,7 +1225,7 @@ def _render_run_engine_drift(
 
 def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
     """Run-engine feature coverage — same measured/non-null table as the
-    moneyline monitor, over the run engine's 29 kept features."""
+    moneyline monitor, over the run engine's shared feature contract."""
     st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
     if cov is None or cov.empty:
         st.info("No run-engine coverage data for this date "
@@ -1237,12 +1238,16 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
     )
     n_starved = sum(1 for r in cov_sorted if r.get("status") == "STARVED")
     n_low = sum(1 for r in cov_sorted if r.get("status") == "LOW_COVERAGE")
+    n_struct = sum(1 for r in cov_sorted if r.get("status") == "STRUCTURAL")
     sub = (
         f"<span style='color:{utils.RED};font-weight:700;'>{n_starved} "
         f"starved</span> · <span style='color:{utils.AMBER};font-weight:700;'>"
         f"{n_low} low</span>"
         if (n_starved or n_low) else
         "<span style='color:#4ADE80;font-weight:700;'>all windows healthy</span>")
+    if n_struct:
+        sub += (f" · <span style='color:#64748B;font-weight:700;'>"
+                f"{n_struct} structural (documented policy)</span>")
     st.markdown(
         f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
         f"Share of games in each drift window with a real observation per "
@@ -1257,10 +1262,17 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         pct_m = float(r.get("pct_measured", 0.0))
         pct_n = float(r.get("pct_nonnull", 0.0))
         n_def = int(r.get("n_default_zero", 0) or 0)
-        color = utils.RED if status == "STARVED" else (
-            utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
+        # STRUCTURAL (2026-10-09 MLB coverage audit, mirroring the Model
+        # Monitor panel): every unmeasured row is explained by the
+        # feature's declared missing-value policy — closed-roof policy
+        # zeros and SP-staleness-gated NULLs, never a silent outage.
+        # Render calm with the reason; an unexplained drop still arrives
+        # as LOW_COVERAGE/STARVED and keeps its alarm.
+        color = ("#64748B" if status == "STRUCTURAL" else
+                 utils.RED if status == "STARVED" else (
+                     utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT))
         pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn",
-                    "STARVED": "alert"}.get(status, "ok")
+                    "STARVED": "alert", "STRUCTURAL": "ok"}.get(status, "ok")
         default_cell = (
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
             f"margin-top:1px;'>{n_def} default-zero</div>" if n_def else "")
@@ -1269,7 +1281,13 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         # clears the floor, so ~56-80% measured in BOTH windows is the
         # FEATURE's shape, not a fetch regression.
         structural = ""
-        if r.get("feature", "").startswith("exp2_cat_") \
+        if status == "STRUCTURAL":
+            reason = r.get("structural_reason") \
+                or "documented missing-value policy"
+            structural = (
+                f"<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
+                f"margin-top:1px;'>structural: {reason}</div>")
+        elif r.get("feature", "").startswith("exp2_cat_") \
                 and "offspeed" in r.get("feature", ""):
             structural = (
                 "<div style='color:#64748B;font-size:0.72rem;font-weight:400;"
@@ -1295,6 +1313,8 @@ def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           % MEASURED = real observations only (default-filled values excluded);
           % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
+          STRUCTURAL = absent by the feature's declared missing-value policy
+          (every unmeasured row explained) — never paged.
           Rows are listed worst-first — every feature-window pair stays visible.
         </div>
         """,

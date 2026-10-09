@@ -1,0 +1,59 @@
+{
+  "target_date": "2026-10-09",
+  "frame": {
+    "rows": 7402,
+    "decided_rows": 7402,
+    "horizon": "2026-10-08",
+    "current_window": {
+      "n": 15,
+      "range": [
+        "2026-10-03",
+        "2026-10-08"
+      ]
+    },
+    "baseline_window": {
+      "n": 250,
+      "range": [
+        "2026-09-09",
+        "2026-10-01"
+      ]
+    }
+  },
+  "serving_width": {
+    "features_monitored": 109,
+    "window_rows": 218,
+    "status_counts_shipped": {
+      "OK": 214,
+      "LOW_COVERAGE": 4
+    },
+    "n_invalid_total": 0,
+    "column_present_all": true,
+    "missing_column_rows": 0
+  },
+  "parity": {
+    "moneyline_vs_run_engine_csv_identical": true,
+    "monitor_json_equals_csv": true
+  },
+  "observation_scan": {
+    "open_air_rows": 6098,
+    "park_wind_factor_null_open_air": 0,
+    "air_density_level_null_open_air": 0,
+    "wind_feature_null_open_air": 767,
+    "wind_feature_null_explained_by_sp_gate": 767,
+    "air_feature_null_open_air": 691,
+    "air_feature_null_explained_by_sp_gate": 691,
+    "dome_rows_with_null_weather_feature": 0
+  },
+  "midnight_recovery": {
+    "named_games": 13,
+    "weather_observed": 13
+  },
+  "after_remediation": {
+    "status_counts": {
+      "OK": 214,
+      "STRUCTURAL": 4
+    },
+    "structural_rows": 4,
+    "alarms_remaining": 0
+  }
+}
