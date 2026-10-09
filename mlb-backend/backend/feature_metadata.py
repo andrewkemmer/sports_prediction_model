@@ -256,8 +256,12 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage",
     },
     # ---- bullpen ----------------------------------------------------------
+    # 2026-10-09: summaries spell the metric out as "walks+hits per
+    # inning" (the same wording the per-side level rows use) so the drift
+    # table never advertises the WHIP brand name; the units field keeps
+    # the technical unit.
     "bullpen_whip_10g_diff": {
-        "summary": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
+        "summary": "Home bullpen 10-game walks+hits per inning − away bullpen (lower = better)",
         "definition": "Relief corps baserunner allowance over the last 10 games.",
         "formula": "bullpen_whip_10g_home − bullpen_whip_10g_away",
         "source": "Statcast relief-pitching aggregates",
@@ -266,7 +270,7 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "lower = home advantage",
     },
     "bullpen_whip_3g_diff": {
-        "summary": "Home bullpen 3-game WHIP − away bullpen (short-term form)",
+        "summary": "Home bullpen 3-game walks+hits per inning − away bullpen (short-term form)",
         "definition": "Very recent bullpen form; noisy but catches slumps fast.",
         "formula": "bullpen_whip_3g_home − bullpen_whip_3g_away",
         "source": "Statcast relief-pitching aggregates",

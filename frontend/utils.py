@@ -3635,8 +3635,10 @@ FEATURE_DESCRIPTIONS = {
     # 15. Team rolling wOBA diff
     "woba_30g_diff": "Home team 30-game wOBA − away team 30-game wOBA",
     # 16–19. Bullpen diffs (workload + quality)
-    "bullpen_whip_10g_diff": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
-    "bullpen_whip_3g_diff": "Home bullpen 3-game WHIP − away bullpen (short-term form)",
+    # 2026-10-09: spelled out to match the backend summary rewrite — the
+    # metric IS walks+hits per inning; the label need not brand it WHIP.
+    "bullpen_whip_10g_diff": "Home bullpen 10-game walks+hits per inning − away bullpen (lower = better)",
+    "bullpen_whip_3g_diff": "Home bullpen 3-game walks+hits per inning − away bullpen (short-term form)",
     "bullpen_pitches_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
     "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
     # 20–22. Team contact form diffs (trailing 15g, balls in play only)

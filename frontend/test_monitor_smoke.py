@@ -792,8 +792,11 @@ def run() -> int:
         _fb_era = _utils.describe_feature("sp_era_5g_diff", sport="mlb")
         _era_fallback_ok = ("runs allowed per nine" in _fb_era
                             and "ERA" not in _fb_era)
+        _fb_whip = _utils.describe_feature("bullpen_whip_10g_diff", sport="mlb")
+        _whip_fallback_ok = ("walks+hits per inning" in _fb_whip
+                             and "WHIP" not in _fb_whip)
         if not (_served_ok and _dict_fallback_ok and _degenerate_ok
-                and _era_fallback_ok):
+                and _era_fallback_ok and _whip_fallback_ok):
             print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
             if not _served_ok:
                 print("  - served-metadata labels missing from the drift table")
@@ -804,6 +807,9 @@ def run() -> int:
             if not _era_fallback_ok:
                 print("  - sp_era_5g fallback contradicts the served summary: "
                       f"{_fb_era!r}")
+            if not _whip_fallback_ok:
+                print("  - bullpen_whip_10g fallback brands the metric WHIP: "
+                      f"{_fb_whip!r}")
             return 1
         # (8) per-sport member-card derivation: the MLB leg runs AFTER the
         #     NFL leg in the SAME process, so a sys.modules-borne `config`
