@@ -52,6 +52,14 @@ confirmation block of the LIVE Kaggle copy
 Kaggle-owned (T7, test_log_review_20261006) — never edited from the
 repo — so the repo-side defense is a content pin: a Kaggle re-upload
 carrying this defect class fails the suite instead of shipping silently.
+PLUS T13 (the resolution under the no-change-to-the-notebook guardrail):
+the RUN repairs the typo'd path itself — master_pipeline's final-delivery
+tail calls github_sync.ensure_notebook_sanity_alias, which points the
+typo'd location at the real clone through a directory symlink before the
+notebook's confirmation block executes, so sessions end green with the
+advisory git checks reporting the ACTUAL repository. The notebook
+program is never modified; the pins remain the defense for the
+committed copy.
 
 Convention: behavioral tests for the importable module (ingestion),
 source pins for the run-once script (master_pipeline) — same style as
@@ -1010,3 +1018,102 @@ def test_notebook_keeps_the_post_run_sanity_footer():
     assert "Repo HEAD after run:" in src
     assert "Latest dated artifacts:" in src
     assert '["git", "log", "--oneline", "-1"]' in src
+
+
+# ── T13: the RUN repairs the notebook's typo'd path — the notebook itself
+# is never changed (guardrail: no change to the MLB Kaggle run program).
+# master_pipeline executes in the same kernel session BEFORE the notebook's
+# confirmation block, so at the end of delivery it may repair the
+# ENVIRONMENT: github_sync.ensure_notebook_sanity_alias points the typo'd
+# location at the real clone through a directory symlink, and the
+# notebook's advisory git checks (git log / git ls-tree with cwd=repo) run
+# green against the ACTUAL repository. Advisory by construction: existing
+# paths untouched, missing clones never fabricated, never fatal.
+
+def test_sanity_alias_points_the_typo_path_at_the_real_clone(tmp_path, monkeypatch):
+    """Positive path: missing alias + real clone -> alias created and the
+    notebook's cwd=alias git checks resolve into the real repo. The
+    symlink call is patched because this test host may lack symlink
+    privilege (Windows); a real-symlink case runs where the host allows.
+    """
+    import github_sync
+    clone = tmp_path / "sports_prediction_model"
+    (clone / ".git").mkdir(parents=True)
+    alias = tmp_path / "sports_predictio_model"
+
+    def _fake_symlink(self, target, target_is_directory=False):
+        assert Path(target) == clone.resolve()
+        assert target_is_directory is True
+        self.mkdir()
+
+    monkeypatch.setattr(type(alias), "symlink_to", _fake_symlink)
+    assert github_sync.ensure_notebook_sanity_alias(clone, alias) is True
+    assert alias.is_dir(), "the typo'd path must resolve as a directory"
+    # Idempotent: a second run never touches the existing path.
+    assert github_sync.ensure_notebook_sanity_alias(clone, alias) is False
+
+
+def test_sanity_alias_real_symlink_where_the_host_allows(tmp_path):
+    """The production mechanism itself (Kaggle is Linux, where this always
+    works): a real directory symlink that git could resolve."""
+    import github_sync
+    clone = tmp_path / "c"
+    (clone / ".git").mkdir(parents=True)
+    alias = tmp_path / "a"
+    created = github_sync.ensure_notebook_sanity_alias(clone, alias)
+    if not created:
+        pytest.skip("host refuses symlinks (Windows privilege) — patched "
+                    "positive case covers the logic")
+    assert alias.is_dir() and (alias / ".git").is_dir()
+
+
+def test_sanity_alias_never_touches_an_existing_path(tmp_path):
+    from github_sync import ensure_notebook_sanity_alias
+    clone = tmp_path / "c"
+    (clone / ".git").mkdir(parents=True)
+    alias = tmp_path / "a"
+    alias.mkdir()
+    (alias / "precious.txt").write_text("keep", encoding="utf-8")
+    assert ensure_notebook_sanity_alias(clone, alias) is False
+    assert (alias / "precious.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_sanity_alias_never_fabricates_a_missing_clone(tmp_path):
+    from github_sync import ensure_notebook_sanity_alias
+    clone = tmp_path / "c"
+    clone.mkdir()  # no .git — not a repo clone
+    alias = tmp_path / "a"
+    assert ensure_notebook_sanity_alias(clone, alias) is False
+    assert not alias.exists() and not alias.is_symlink()
+
+
+def test_sanity_alias_is_never_fatal(tmp_path, monkeypatch):
+    """No symlink privilege / read-only volume / any failure: return False,
+    raise nothing — the step can never fail a delivered run."""
+    import github_sync
+    clone = tmp_path / "c"
+    (clone / ".git").mkdir(parents=True)
+    alias = tmp_path / "a"
+
+    def _boom(*_a, **_k):
+        raise OSError("no symlink here")
+
+    monkeypatch.setattr(type(alias), "symlink_to", _boom)
+    assert github_sync.ensure_notebook_sanity_alias(clone, alias) is False
+    assert not alias.exists()
+
+
+def test_master_pipeline_owns_the_notebook_typo_repair():
+    """Source pin: the repair lives in the RUN (not the notebook), runs
+    after the final log delivery and before the honest-exit block, names
+    the observed typo path, and is wrapped so it can never fail the run.
+    """
+    tail = MASTER_SRC[MASTER_SRC.index("Final run-log delivery"):]
+    j = tail.index("ensure_notebook_sanity_alias")
+    end = tail.index("_phase4_error is not None")
+    assert j < end, "the alias step must run before the honest-exit block"
+    block = tail[:end]
+    assert 'Path("/kaggle/working")' in block
+    assert "sports_predictio_model" in block
+    assert "try:" in block and "except Exception" in block, (
+        "the alias step must be non-fatal")

@@ -238,3 +238,41 @@ def push_with_retry(repo, branch: str, restage=None, attempts: int = 3,
         sync_remote_tip(repo, branch, log=log)
         restage()
     raise last_error
+
+
+def ensure_notebook_sanity_alias(clone_dir, alias_dir) -> bool:
+    """Notebook sanity-footer compatibility (2026-10-09 MLB log review).
+
+    The Kaggle notebook's post-run confirmation block re-types the clone
+    path a second time, and the LIVE copy's duplicate is typo'd
+    (``/kaggle/working/sports_predictio_model``): after a fully successful
+    delivery the cell died on ``FileNotFoundError: cwd=...`` and the run
+    went red. The notebook program is never edited from the repo
+    (Kaggle-owned guardrail, T7 of the 2026-10-06 review), so the RUN
+    repairs the environment instead — it executes in the same session
+    BEFORE that block runs. When the typo'd location is missing and the
+    real clone is present, a directory symlink points it at the clone, so
+    the notebook's advisory ``git log`` / ``git ls-tree`` checks run green
+    and report the ACTUAL repository.
+
+    Advisory by construction: an existing path is never touched, a
+    missing clone is never fabricated, and any failure (no symlink
+    privilege, read-only volume, ...) returns False instead of raising —
+    this can never gate or fail a delivered run.
+    """
+    try:
+        clone = Path(clone_dir).resolve()
+        alias = Path(alias_dir)
+        if alias.is_symlink() or alias.exists():
+            return False
+        if not (clone / ".git").exists():
+            return False
+        alias.symlink_to(clone, target_is_directory=True)
+        created = bool(alias.is_dir())
+        if created:
+            logger.info("notebook sanity alias: %s -> %s (typo'd notebook "
+                        "path now resolves to the real clone)", alias, clone)
+        return created
+    except Exception as exc:  # advisory only — never fatal
+        logger.info("notebook sanity alias not created: %s", exc)
+        return False

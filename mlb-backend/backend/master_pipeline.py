@@ -3250,6 +3250,30 @@ if _log_path and token:
     except Exception as _log_exc:
         print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}")
 
+# ── Notebook sanity-footer compatibility (2026-10-09 log review) ───────────
+# The Kaggle notebook's post-run confirmation block re-types the clone
+# path a second time, and the LIVE copy's duplicate is typo'd
+# (/kaggle/working/sports_predictio_model): after a fully successful
+# delivery the cell died on FileNotFoundError and the run went red. The
+# notebook program is never edited from the repo (Kaggle-owned guardrail,
+# T7 of the 2026-10-06 review), and this script runs in the same session
+# BEFORE that block executes — so the RUN repairs the environment: point
+# the typo'd location at the real clone so the notebook's advisory
+# git checks run green and report the ACTUAL repository. Advisory only:
+# created when missing, never fatal, no-op off Kaggle.
+try:
+    from github_sync import ensure_notebook_sanity_alias
+    _wk = Path("/kaggle/working")
+    if _wk.is_dir():
+        _alias_ok = ensure_notebook_sanity_alias(
+            _wk / "sports_prediction_model",
+            _wk / "sports_predictio_model")
+        print("  🔗 Notebook sanity alias:",
+              "typo'd path now resolves to the real clone" if _alias_ok
+              else "left as-is (already present or not creatable)")
+except Exception as _alias_exc:
+    print(f"  ⚠️  Notebook sanity alias skipped: {_alias_exc}")
+
 if sync_dir.exists():
     shutil.rmtree(sync_dir, ignore_errors=True)
 

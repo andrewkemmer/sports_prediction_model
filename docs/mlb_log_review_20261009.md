@@ -347,18 +347,25 @@ FileNotFoundError: [Errno 2] No such file or directory:
   post-run sanity footer (`Repo HEAD after run:` +
   `Latest dated artifacts:`) must stay. A Kaggle re-upload carrying the
   defect class now fails loudly at the next sync instead of shipping.
-- **Kaggle side (action needed on the live notebook).** Fix the
-  confirmation block of the running copy: delete its duplicate
-  `repo = "..."` line (the pipeline block's value is already in scope)
-  or correct the spelling, and save so Version 6 syncs the corrected
-  notebook. Optionally guard the verification with `os.path.isdir(repo)`
-  so an advisory check can never again redden a delivered run.
+- **T13 — the RUN repairs the notebook's path; the notebook program is
+  never changed (guardrail).** `github_sync.ensure_notebook_sanity_alias`,
+  called at the end of `master_pipeline`'s final-delivery tail (non-fatal,
+  Kaggle-only), points the typo'd location at the real clone through a
+  directory symlink. The pipeline executes in the same kernel session
+  BEFORE the confirmation block, so the notebook's advisory `git log` /
+  `git ls-tree` checks now run green and report the ACTUAL repository.
+  The live notebook needs **no edit** for runs to end green; the typo
+  stays visible there and fixing it on the Kaggle side is optional
+  cleanup. Pinned behaviorally: existing path untouched, missing clone
+  never fabricated, never fatal, source-pinned to the delivery tail.
 
 ### Verification for this section
 
-- `python -m pytest mlb-backend/backend/ -q` — **380 passed** (3 new
-  T12 pins, all green on the committed notebook and red against a
-  typo'd copy).
+- `python -m pytest mlb-backend/backend/ -q` — **385 passed, 1 skipped**
+  (3 T12 + 6 T13 pins; T12 green on the committed notebook and red
+  against a typo'd copy; T13's positive path verified with a patched
+  creator — the real-symlink case skips on hosts that refuse symlinks
+  (this Windows review host) and runs on Kaggle/Linux).
 - `python check_production_graph.py` — **OK, 27 modules**.
 - 19:08 artifacts re-read directly: coverage CSVs, monitor JSON parity,
   weather fetch counts, guard/totals lines (table above).
