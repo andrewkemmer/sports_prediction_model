@@ -5,8 +5,9 @@ against the real committed data_delivery artifacts, reconstructing the
 regression shape:
 
   A. 2026-09-28 (off-day, board deleted): landing on 0928 must NEVER show
-     games "as today" — the page either recovers to the newest real board
-     with an honest banner, or dead-ends honestly.
+     games "as today" — the page either recovers to the newest real,
+     RENDERABLE board (non-empty frame, per _recovered_board) with an
+     honest banner, or dead-ends honestly.
   B. Direct loader proof: a polluted board file (15 decided rows dated
      0925/0926 under the 0928 filename — the polluter's exact shape)
      yields ZERO rows from ``utils.load_todays_games``.
@@ -155,21 +156,48 @@ def main() -> int:
     at, text = _run_page("20260928")
     assert "Recovery view" in text, "expected the honest recovery banner"
     assert "September 28, 2026" in text
+    import csv as _csv2
     import utils as _u
     _valid = [str(d) for d in _u.valid_dates("mlb") if str(d) != "20260928"]
+    # The page's walk only ACCEPTS a non-empty frame (todays_games.
+    # _recovered_board: "Renderable = a NON-EMPTY frame — an empty frame
+    # must NOT short-circuit the walk"), so the newest VALID file is not
+    # always the newest RENDERABLE one: 20261009 is a verified genuine
+    # off-day whose board ships 0 rows, and the walk correctly steps past it
+    # to 20261008. Mirror that rule here instead of assuming file presence
+    # (2026-10-09 review — the old expectation failed on the delivered
+    # off-day artifacts in exactly the way the 10-07 target-pin did).
+    _hist_dates: set[str] = set()
+    _hist = sorted(DD.glob("predictions_history_*.csv"))
+    if _hist:
+        with _hist[-1].open(newline="", encoding="utf-8") as fh:
+            _hist_dates = {
+                str(r.get("game_date", "")).replace("-", "")
+                for r in _csv2.DictReader(fh)}
+
+    def _renderable(d: str) -> bool:
+        board = DD / f"todays_games_{d}.csv"
+        if board.exists():
+            with board.open(newline="", encoding="utf-8") as fh:
+                if any(True for _ in _csv2.DictReader(fh)):
+                    return True
+        return d in _hist_dates  # the page's prediction-history rebuild
+
     _expected = max((d for d in _valid
-                     if d <= ET_TODAY.strftime("%Y%m%d")), default=None)
-    assert _expected, "no valid recovery candidate exists for this ET day"
+                     if d <= ET_TODAY.strftime("%Y%m%d") and _renderable(d)),
+                    default=None)
+    assert _expected, "no renderable recovery candidate exists for this ET day"
     _exp_long = (datetime.strptime(_expected, "%Y%m%d")
                  .strftime("%B %d, %Y").replace(" 0", " "))
     assert _exp_long in text, (
-        f"recovery must land on the most recent valid board ({_expected})")
+        f"recovery must land on the most recent renderable board ({_expected})")
     assert "20260925" not in text, "recycled 0925 game leaked into 0928 view"
     assert "20260926" not in text, "recycled 0926 game leaked into 0928 view"
     assert "September 25, 2026" not in text
     assert "September 26, 2026" not in text
-    print(f"A PASS  0928 lands on an honest recovery view of {_expected}; "
-          "no 0925/0926 content anywhere")
+    print(f"A PASS  0928 lands on an honest recovery view of {_expected} "
+          "(newest renderable, non-empty board); no 0925/0926 content "
+          "anywhere")
 
     # ---- B: direct loader — polluted 0928 file -> zero rows ----
     BOARD_28.write_text(POLLUTED_CSV, encoding="utf-8")

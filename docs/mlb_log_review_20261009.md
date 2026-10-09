@@ -11,7 +11,11 @@ point-in-time sampling hole and a partial cache record that outranked the
 complete one) plus a denominator that can never clear the 80% line. Both
 defects are root-caused against the frame and the emitters and remediated in
 this commit; every gap from the documented 2026-10-08 feature-discrepancy
-audit is now either verified-fixed or fixed here.
+audit is now either verified-fixed or fixed here. One further defect surfaced
+while verifying against the delivered artifacts: the committed
+`test_mlb_board_render_smoke.py` fails **on the honest off-day board**
+(scenario A expects the newest valid date to be renderable — it ships 0
+rows), reproduced unchanged at `54c85d54` and fixed here as **T10**.
 
 Guardrail honored: **no new programs committed** — three production modules
 edited ([weather.py](../mlb-backend/backend/weather.py),
@@ -150,6 +154,19 @@ whose `sp_*_diff` is gated to NULL. `air_density_level` itself goes
   `open-air NN% (N rows, M closed-roof policy zeros excluded)` for any
   feature carrying policy zeros. Status, thresholds and the CSV schema are
   unchanged.
+- **T10 — the board smoke's recovery target vs the honest off-day board.**
+  `frontend/test_mlb_board_render_smoke.py` scenario A computed its
+  expectation as "the newest VALID date ≤ ET-today", but the page's
+  `_recovered_board` accepts only a **non-empty** frame (by design — "an
+  empty frame must NOT short-circuit the walk"). With
+  `todays_games_20261009.csv` shipping **0 rows** (genuine off-day), the
+  page correctly stepped back to 20261008 while the smoke demanded
+  "October 09" → `AssertionError: recovery must land on the most recent
+  valid board (20261009)`. The same expectation class broke on 10-07; the
+  smoke now mirrors the page's renderability rule (board rows > 0, else the
+  prediction-history rebuild for that date) and pins the **newest
+  renderable** board. The honesty assertions (recovery banner, valid-set
+  gate, no 0925/0926 content, dead-end path) are untouched.
 
 ## Verification
 
@@ -161,6 +178,13 @@ whose `sp_*_diff` is gated to NULL. `air_density_level` itself goes
   `git show HEAD:` — the midnight case returns `available=False` there and
   passes now (a real regression pin, not a tautology).
 - `python check_production_graph.py` — **OK, 27 modules** (no new files).
+- Frontend smokes, each **exit 0**: `test_mlb_board_render_smoke` (5/5
+  scenarios — T10, failing with `AssertionError … (20261009)` before the
+  fix and reproduced unchanged in a clean worktree at `54c85d54`),
+  `test_board_render_smoke`, `test_nhl_board_render_smoke`,
+  `test_monitor_smoke`, `test_calibration_smoke`,
+  `test_power_rankings_smoke`, plus
+  `pytest frontend/test_calibration_gate_note.py` (**2 passed**).
 - **Live end-to-end on the 13 defective games**: `fetch_games_weather`
   recovers 13/13 with observed temperature/humidity/pressure against the
   shipped frame's 0/13.
@@ -183,7 +207,10 @@ whose `sp_*_diff` is gated to NULL. `air_density_level` itself goes
   ratio attached.
 - `python -m pytest frontend/` (whole directory in one session) still crashes
   in pytest's capture layer — pre-existing since the 10-08 review; frontend
-  tests are run per file.
+  tests are run per file. The board smokes additionally re-wrap `sys.stdout`
+  at import, so they must be run as **scripts** (`python
+  frontend/test_mlb_board_render_smoke.py`), never through pytest — that
+  single-file pytest crash is pre-existing too.
 - The production pipeline was not re-run (Kaggle/Colab environment); all
   conclusions come from the committed artifacts, the committed run log, and
   live StatsAPI/Open-Meteo queries.
