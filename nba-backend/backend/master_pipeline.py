@@ -408,9 +408,23 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)
                               .dt.strftime("%Y-%m-%d")).to_csv(agg_path,
                                                               index=False)
-            logger.info("projected lineups: %d team-game(s), mean pool %.1f, "
-                        "mean healthy %.1f", len(aggregates),
-                        aggregates.pool_size.mean(), aggregates.healthy_size.mean())
+            # 2026-10-09 log review: since the pool-eligibility mask
+            # (62afdd8c) every REFUSED team-game emits its pool_size-0 mask
+            # row, so whole-frame means read ~0.1 and the line looks like a
+            # projection collapse on a healthy run (10-09: 6976 rows,
+            # 0.1 vs 10-08's 22 slate rows at 19.5). Split the counts so the
+            # line states what it measures.
+            _priced_mask = aggregates.pool_size > 0
+            _n_priced = int(_priced_mask.sum())
+            logger.info(
+                "projected lineups: %d team-game(s) (%d priced, %d "
+                "pool-refusal mask rows), mean pool %.1f / healthy %.1f "
+                "over priced rows", len(aggregates), _n_priced,
+                len(aggregates) - _n_priced,
+                float(aggregates.loc[_priced_mask, "pool_size"].mean())
+                if _n_priced else 0.0,
+                float(aggregates.loc[_priced_mask, "healthy_size"].mean())
+                if _n_priced else 0.0)
             # The seven diff features are attached to a COPY of the slate for
             # Reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
             # that changes the model and needs its own holdout gate. The

@@ -1750,3 +1750,17 @@ class TestRunEngineDistributionArtifacts:
         redirected = mon.coverage(baseline, current,
                                   feature_cols=["elo_diff"])
         assert {r["feature"] for r in redirected} == {"elo_diff"}
+
+
+def test_the_lineup_inventory_log_splits_priced_from_refusal_rows():
+    """2026-10-09 log review: since the pool-eligibility mask (62afdd8c)
+    every refused team-game emits a pool_size-0 mask row, so the whole-frame
+    means behind the inventory line read ~0.1 and a healthy run's own log
+    looked like a projection collapse (10-09: 6976 rows, mean pool 0.1, vs
+    the pre-mask 22 slate rows at 19.5). The line must state the
+    priced/refusal split so the number cannot be misread."""
+    from pathlib import Path
+    src = (Path(__file__).with_name("master_pipeline.py")).read_text(
+        encoding="utf-8")
+    assert "pool-refusal mask rows" in src
+    assert "over priced rows" in src
