@@ -957,8 +957,10 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
     DISTRIBUTION model's contract — resolved by the emitter through
     ``monitoring.run_engine_feature_cols``), with MLB's EXACT caption
     strings, column headers (FEATURE | WINDOW | GAMES | % MEASURED |
-    % NON-NULL | STATUS), sub-annotations (default-zero count under
-    % NON-NULL) and status pills. Rows carry the serving slate as a third
+    % NON-NULL | STATUS), sub-annotations (default-filled count under
+    % NON-NULL — the label differs from MLB's "default-zero" because the
+    NHL's defaults are POSITION PRIORS, not zeros) and status pills. Rows
+    carry the serving slate as a third
     window — the NHL's goalie-outage guard, which MLB does not measure.
     When the CSV is absent the MLB empty-state wording renders (nothing
     fabricated)."""
@@ -1000,7 +1002,7 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
                     "STARVED": "alert"}.get(status, "ok")
         default_cell = (
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
-            f"margin-top:1px;'>{n_def} default-zero</div>" if n_def else "")
+            f"margin-top:1px;'>{n_def} default-filled</div>" if n_def else "")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"

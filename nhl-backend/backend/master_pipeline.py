@@ -70,10 +70,13 @@ _OOF_BLOCK_KEYS = ("oof_regular", "oof_postseason", "oof_provisional",
 def _log_coverage_verdict(cov_rows: list[dict]) -> None:
     """One honest line per coverage window: measured, cold (by design), warm.
 
-    Only WARM nulls are defects. A reader who sees a coverage percentage with
-    no such split cannot tell "the season started" from "something is broken",
-    and the goalie family once read 96-98% on a decided pool that was
-    publishing nulls for every slate game.
+    Only WARM problems are defects — a warm null (missing) or a warm default
+    (a value the builder fabricated from a documented fallback, e.g. the
+    position prior a pool with no row for that side is served). A reader who
+    sees a coverage percentage with no such split cannot tell "the season
+    started" from "something is broken", and the goalie family once read
+    96-98% on a decided pool that was publishing nulls for every slate game —
+    while the pool columns read 100% non-null off fallback priors.
     """
     for window in sorted({r.get("window", "?") for r in cov_rows}):
         rows = [r for r in cov_rows if r.get("window") == window]
@@ -81,13 +84,27 @@ def _log_coverage_verdict(cov_rows: list[dict]) -> None:
             continue
         warm = [r for r in rows if int(r.get("n_warm_null") or 0) > 0]
         cold = sum(int(r.get("n_cold_null") or 0) for r in rows)
+        defaults = [r for r in rows if int(r.get("n_default_zero") or 0) > 0]
+        warm_def = [r for r in rows if int(r.get("n_warm_default") or 0) > 0]
         total = sum(int(r.get("n_measured") or 0) for r in rows)
         elig = sum(int(r.get("n_games") or 0) - int(r.get("n_cold_null") or 0)
-                   for r in rows)
+                   - int(r.get("n_cold_default") or 0) for r in rows)
         pct = round(100.0 * total / elig, 3) if elig else 0.0
         logger.info("coverage [%s]: %d/%d features, %.3f%% measured on eligible "
-                    "games, %d cold null(s) by design (team debut)",
+                    "games, %d cold null(s) by design (team debut or season "
+                    "opener)",
                     window, len(rows), len(rows), pct, cold)
+        if defaults:
+            # Disclosure, not an alarm: a COLD default is the documented
+            # warm-up (the prior that seeds a slate with no pool yet).
+            detail = ", ".join(
+                f"{r['feature']}({int(r['n_default_zero'])} default-filled)"
+                for r in defaults[:8])
+            log = logger.warning if warm_def else logger.info
+            log("coverage [%s]: %d feature(s) carry default-filled values "
+                "counted as UNMEASURED%s: %s", window, len(defaults),
+                (" — a warm gap, not a warm-up" if warm_def else " (cold "
+                 "rows only, by design)"), detail)
         if warm:
             detail = ", ".join(
                 f"{r['feature']}({int(r['n_warm_null'])} {r.get('cause', 'null')})"

@@ -559,6 +559,54 @@ def _season_open_mask(full_df: pd.DataFrame, rows_df: pd.DataFrame) -> pd.Series
     return pd.Series(out, index=rows_df.index)
 
 
+def _pool_default_mask(df: pd.DataFrame, feature: str) -> pd.Series | None:
+    """True where a ``pl_*`` value is a documented DEFAULT, not an observation.
+
+    The candidate pool serves a side with no pool row from the position prior
+    (``features._POSITION_PRIOR`` — "the prior is the measured default", never
+    NaN and never 0), so every ``pl_*`` column is non-null however little
+    evidence stands behind it. That is the 2026-10-06 audit's warning taken
+    literally: *non-null ``pl_*`` is NOT proof of measured coverage — defaults
+    can yield 100% non-null output*, and the shipped coverage CSV reported
+    those rows as 100% measured with ``n_default_zero`` hardcoded to 0.
+
+    The prior is written verbatim, so a value that still reads it carries no
+    pool observation: home/away default on exact prior equality, and a diff
+    defaults when EITHER side used the prior for that metric/position group
+    (the subtraction is contaminated either way). Returns None for anything
+    this cannot judge — a non-pool feature, an unknown metric/position, or a
+    frame without the side columns — so callers keep the null-only arithmetic
+    rather than guessing.
+    """
+    name = str(feature)
+    if not name.startswith("pl_"):
+        return None
+    parts = name.split("_")
+    if len(parts) != 4:
+        return None
+    _, metric, pos, rep = parts
+    try:
+        from features import _POSITION_PRIOR  # local: avoids an import cycle
+    except Exception:  # noqa: BLE001 — a missing helper must not kill the report
+        return None
+    by_pos = _POSITION_PRIOR.get(metric.upper())
+    if not by_pos or pos.upper() not in by_pos:
+        return None
+    prior = float(by_pos[pos.upper()])
+    sides: dict[str, np.ndarray] = {}
+    for side in ("home", "away"):
+        col = f"pl_{metric}_{pos}_{side}"
+        if col not in df.columns:
+            return None
+        vals = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+        sides[side] = np.isclose(vals, prior, rtol=0.0, atol=1e-12)
+    if rep in sides:
+        return pd.Series(sides[rep], index=df.index)
+    if rep == "diff":
+        return pd.Series(sides["home"] | sides["away"], index=df.index)
+    return None
+
+
 def _coverage_row(f: str, df: pd.DataFrame, window: str,
                   warmup: pd.Series | None) -> dict:
     n_games = int(len(df))
@@ -570,39 +618,66 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
             "pct_measured": 0.0, "pct_nonnull": 0.0, "n_default_zero": 0,
             "status": "STARVED", "n_measured": 0, "n_null": n_games,
             "n_cold_null": 0, "n_warm_null": n_games,
+            "n_cold_default": 0, "n_warm_default": 0,
             "pct_measured_eligible": 0.0,
             "cause": "absent_column",
         }
     v = pd.to_numeric(df[f], errors="coerce")
     null = v.isna()
     n_null = int(null.sum())
-    pct = round(100.0 * float((~null).mean()) if n_games else 0.0, 2)
-    if warmup is not None and n_null:
+    n_nonnull = n_games - n_null
+    default = _pool_default_mask(df, f)
+    if default is None:
+        default = pd.Series(False, index=df.index)
+    default = default.reindex(df.index).fillna(False).astype(bool) & ~null
+    n_default = int(default.sum())
+    n_measured = n_nonnull - n_default
+    pct_nonnull = round(100.0 * n_nonnull / n_games, 2) if n_games else 0.0
+    # MEASURED counts real observations only — default-filled values are
+    # excluded (the contract the monitor page prints under this table).
+    pct = round(100.0 * n_measured / n_games, 2) if n_games else 0.0
+    if warmup is not None and (n_null or n_default):
         warm = ~warmup.reindex(df.index).fillna(False).astype(bool)
         n_warm_null = int((null & warm).sum())
+        n_warm_default = int((default & warm).sum())
         n_cold_null = n_null - n_warm_null
+        n_cold_default = n_default - n_warm_default
     else:
         n_warm_null, n_cold_null = n_null, 0
-    n_eligible = max(n_games - n_cold_null, 0)
-    pct_eligible = round(100.0 * (n_eligible - n_warm_null) / n_eligible, 2) \
-        if n_eligible else 0.0
+        n_warm_default = n_cold_default = 0
+    n_eligible = max(n_games - n_cold_null - n_cold_default, 0)
+    pct_eligible = round(
+        100.0 * (n_eligible - n_warm_null - n_warm_default) / n_eligible, 2
+    ) if n_eligible else 0.0
     if n_games and not n_eligible:
         # Nothing was measurable: either the whole frame is warm-up, or the
         # feature is null on every game it could have been measured on.
         status = "STARVED" if pct == 0.0 else "OK"
     elif n_warm_null:
-        status = "STARVED" if pct == 0.0 else "LOW_COVERAGE"
+        status = "STARVED" if n_measured == 0 else "LOW_COVERAGE"
+    elif n_default and pct_eligible < 80.0:
+        # A fabricated value is excluded from MEASURED exactly like MLB's
+        # closed-roof policy zeros: it moves the pill only through the
+        # published thresholds (<80% LOW_COVERAGE, <25% STARVED), never by
+        # its presence alone. A pool that silently served priors everywhere
+        # reads 0% measured and STARVED — the Jan-Mar prior freeze must not
+        # look like a season of full coverage again.
+        status = "STARVED" if pct_eligible < 25.0 else "LOW_COVERAGE"
     else:
         status = "OK"
     return {
         "feature": f, "window": window, "n_games": n_games,
-        "pct_measured": pct, "pct_nonnull": pct, "n_default_zero": 0,
+        "pct_measured": pct, "pct_nonnull": pct_nonnull,
+        "n_default_zero": n_default,
         "status": status,
-        "n_measured": int(n_games - n_null), "n_null": n_null,
+        "n_measured": n_measured, "n_null": n_null,
         "n_cold_null": n_cold_null, "n_warm_null": n_warm_null,
+        "n_cold_default": n_cold_default, "n_warm_default": n_warm_default,
         "pct_measured_eligible": pct_eligible,
         "cause": ("defect" if n_warm_null
-                  else "cold_start" if n_cold_null else "complete"),
+                  else "position_prior_default" if n_warm_default
+                  else "cold_start" if (n_cold_null or n_cold_default)
+                  else "complete"),
     }
 
 
@@ -629,9 +704,13 @@ def coverage(full_df: pd.DataFrame,
     Within a window, nulls are split into cold-start (a team's first game —
     no prior history exists, by design — or, for the season-scoped goalie
     family, a team's first game OF THE SEASON: the opening-night honest NaN)
-    and warm (a real defect). Only warm nulls drive the status, so the panel's
-    starved/low counters mean "something is broken" rather than "the season
-    started".
+    and warm (a real defect). Default-filled values are split the same way
+    (``_pool_default_mask``): a position prior served on a cold row is the
+    documented warm-up default, on a warm row it is an observation that never
+    happened, and it is excluded from ``pct_measured`` either way — the panel
+    prints "real observations only" and the report has to mean it. Only warm
+    nulls and warm defaults drive the status, so the starved/low counters mean
+    "something is broken" rather than "the season started".
     """
     warmup = _warmup_mask(full_df)
     # Season-opener classification is a property of the POOL, not of one

@@ -3053,20 +3053,53 @@ def test_coverage_season_openers_are_cold_for_the_goalie_family():
     assert hit["status"] in ("STARVED", "LOW_COVERAGE")
 
 
+def _pool_ratings(games: pd.DataFrame) -> pd.DataFrame:
+    """A rating for every (team, position, situation) within the pool's
+    45-day lookback of every gameday.
+
+    The coverage fixtures run with no MoneyPuck history, so the pool has no
+    row for ANY side and every ``pl_*`` column is served the documented
+    position prior. That is a real production state — the 2026-10-09 run
+    served priors on 24 of 5,714 sides — and it is REPORTED (see
+    test_coverage_reports_the_position_prior_pool_fallback), so a fixture
+    standing in for a HEALTHY frame has to bring its own pool source.
+    """
+    from test_injury_stints import make_ratings
+    rows = []
+    teams = sorted(set(games["home_team"]) | set(games["away_team"]))
+    for day in sorted(set(pd.to_datetime(games["gameday"]))):
+        src = (day - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        for team in teams:
+            for sit in ("5on5", "5on4"):
+                for pos in ("C", "L", "R", "D"):
+                    rows.append((f"mp-{team}-{pos}-{sit}", team, sit, pos,
+                                 0.5, 12000.0, src))
+    return make_ratings(rows)
+
+
 def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
     """Regression: the goalie family read 96-98% on the decided pool while
     EVERY published prediction carried a null, because the report only ever
-    looked at the decided pool. A nulled slate column must read STARVED."""
+    looked at the decided pool. A nulled slate column must read STARVED.
+
+    The frame is built WITH a resolved pool (_pool_ratings): coverage now
+    excludes position-prior defaults from pct_measured (2026-10-06 audit §E),
+    so a fixture that never resolves its pool would legitimately read 0%
+    measured on all 24 pl_* columns — that state is pinned by
+    test_coverage_reports_the_position_prior_pool_fallback instead.
+    """
     games = _synth_games(n_days=20, games_per_day=2)
     bs = _synth_goalie_boxscores(games)
-    df = feat_mod.build_game_features(games, bs)
+    ratings = _pool_ratings(games)
+    df = feat_mod.build_game_features(games, bs, player_ratings=ratings)
     pending = games.tail(4).copy()
     pending["home_score"] = np.nan
     pending["away_score"] = np.nan
     hist = games.head(-4)
     slate = feat_mod.build_slate_features(
         pd.concat([hist, pending], ignore_index=True),
-        bs[bs["game_id"].isin(set(hist["game_id"]))])
+        bs[bs["game_id"].isin(set(hist["game_id"]))],
+        player_ratings=ratings)
 
     rows = mon.coverage(df, slate_df=slate, current_df=df)
     slate_rows = _coverage_by_feature(rows, "serving slate")
@@ -3087,6 +3120,100 @@ def test_feature_coverage_measures_the_slate_the_pipeline_actually_ships():
     # ...while the decided pool still looks healthy, which is the whole trap.
     assert _coverage_by_feature(mon.coverage(df, slate_df=dead, current_df=df),
                                 "baseline")["goalie_sv_pct_home"]["status"] != "STARVED"
+
+
+def test_coverage_reports_the_position_prior_pool_fallback():
+    """2026-10-06 audit §E, still open on 2026-10-09: *non-null ``pl_*`` is
+    NOT proof of measured coverage — defaults can yield 100% non-null output*.
+
+    A side with no pool row is served ``features._POSITION_PRIOR`` for every
+    position and situation, so all 24 pool columns are non-null on every game
+    however little evidence stands behind them. The shipped coverage CSV
+    reported exactly that as 100.000% measured, with ``n_default_zero``
+    hardcoded to 0: the six June-2026 Cup-Final games inside the baseline
+    window (24 sides with no pool row in the 2026-10-09 run) read fully
+    measured, and the monitor page printed "all windows healthy".
+
+    Pin both halves of the fix: a frame whose pool never resolved reads 0%
+    MEASURED / STARVED / ``n_default_zero == n_games`` while staying 100%
+    NON-NULL (the trap is that nothing is NULL), and a frame with a real pool
+    measures every column with zero defaults.
+    """
+    games = _synth_games(n_days=20, games_per_day=2)
+    bs = _synth_goalie_boxscores(games)
+
+    # No pool source at all: every side is served the position prior.
+    blind = feat_mod.build_game_features(games, bs)
+    by_f = _coverage_by_feature(mon.coverage(blind, current_df=blind),
+                                "baseline")
+    hit = by_f["pl_evo_c_home"]
+    assert hit["n_default_zero"] == hit["n_games"], hit
+    assert hit["pct_nonnull"] == 100.0, "the trap is that nothing is NULL"
+    assert hit["pct_measured"] == 0.0 and hit["n_measured"] == 0, hit
+    assert hit["status"] == "STARVED", hit
+    assert hit["cause"] == "position_prior_default", hit
+    # A diff is contaminated when EITHER side carried the prior.
+    diff = by_f["pl_evo_c_diff"]
+    assert diff["n_default_zero"] == diff["n_games"], diff
+    # Pool-served columns only: an uninvolved feature is untouched.
+    other = by_f["elo_home"]
+    assert other["n_default_zero"] == 0 and other["status"] == "OK", other
+    assert other["pct_measured"] == 100.0, other
+
+    # A frame that DOES resolve its pool measures every pl_* column.
+    seen = feat_mod.build_game_features(games, bs,
+                                        player_ratings=_pool_ratings(games))
+    ok = _coverage_by_feature(mon.coverage(seen, current_df=seen),
+                              "baseline")["pl_evo_c_home"]
+    assert ok["n_default_zero"] == 0 and ok["pct_measured"] == 100.0, ok
+    assert ok["status"] == "OK" and ok["cause"] == "complete", ok
+
+
+def test_coverage_verdict_names_default_filled_pool_values():
+    """Phase 14 must not print "100.000% measured" over defaults.
+
+    ``_log_coverage_verdict`` counts a default-filled value as UNMEASURED,
+    warns (naming the feature) when the defaults sit on warm games, and stays
+    quiet-but-explicit when they are the documented cold warm-up.
+    """
+    import master_pipeline as mp
+
+    def _row(feature, window, n_games, warm_default, cold_default):
+        defaults = warm_default + cold_default
+        return {"feature": feature, "window": window, "n_games": n_games,
+                "n_measured": n_games - defaults, "n_null": 0,
+                "n_cold_null": 0, "n_warm_null": 0,
+                "n_cold_default": cold_default, "n_warm_default": warm_default,
+                "n_default_zero": defaults,
+                "status": "OK" if not warm_default else "LOW_COVERAGE",
+                "cause": ("position_prior_default" if warm_default
+                          else "cold_start" if cold_default else "complete")}
+
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    mp.logger.addHandler(handler)
+    mp.logger.setLevel(logging.INFO)
+    try:
+        mp._log_coverage_verdict([
+            _row("pl_evo_c_home", "baseline", 250, 6, 0),
+            _row("elo_diff", "baseline", 250, 0, 0),
+            _row("pl_evo_c_away", "serving slate", 5, 0, 5),
+        ])
+    finally:
+        mp.logger.removeHandler(handler)
+
+    warns = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
+    assert len(warns) == 1, warns
+    assert "pl_evo_c_home" in warns[0] and "6 default-filled" in warns[0], warns[0]
+    assert "warm gap" in warns[0], warns[0]
+    infos = " ".join(r.getMessage() for r in records if r.levelno < logging.WARNING)
+    # The cold-only default (the slate's prior-seeded warm-up) is disclosed
+    # as by-design, never as a defect...
+    assert "serving slate" in infos and "by design" in infos, infos[:300]
+    # ...and the cold-null wording names the season-opener half too (the
+    # goalie family's designed opening-night NaN is not a team debut).
+    assert "(team debut or season opener)" in infos, infos[:300]
 
 
 def test_feature_coverage_artifacts_carry_both_windows():

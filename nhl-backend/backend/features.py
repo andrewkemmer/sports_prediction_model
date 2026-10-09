@@ -1241,6 +1241,14 @@ def add_player_pool_features(
     # never created, and the feature contract reported them as uncovered. That
     # is the failure mode to fear here -- not a crash, a contract that quietly
     # loses 24 columns.
+
+    # Coverage provenance: which sides were served the position prior because
+    # the pool had NO row for them. Non-null pl_* is not proof of measured
+    # coverage (2026-10-06 audit §E) — the run log states the fallback count
+    # so a silent pool outage reads as one, and monitoring.coverage excludes
+    # those values from pct_measured.
+    fb_home = np.zeros(len(df), dtype=bool)
+    fb_away = np.zeros(len(df), dtype=bool)
     for sit, metric in _SITUATION_METRIC.items():
         tag = metric.lower()
         for pos in PLAYER_POOL_POSITIONS:
@@ -1255,10 +1263,15 @@ def add_player_pool_features(
                 if len(pool) else pool
             if len(sel):
                 r = sel.set_index(["_pd", "team"])["rate"]
-                h = np.where(np.isnan(r.reindex(hk).to_numpy(dtype=float)),
-                             prior, r.reindex(hk).to_numpy(dtype=float))
-                a = np.where(np.isnan(r.reindex(ak).to_numpy(dtype=float)),
-                             prior, r.reindex(ak).to_numpy(dtype=float))
+                miss_h = np.isnan(r.reindex(hk).to_numpy(dtype=float))
+                miss_a = np.isnan(r.reindex(ak).to_numpy(dtype=float))
+                h = np.where(miss_h, prior, r.reindex(hk).to_numpy(dtype=float))
+                a = np.where(miss_a, prior, r.reindex(ak).to_numpy(dtype=float))
+            else:
+                miss_h = np.ones(len(df), dtype=bool)
+                miss_a = np.ones(len(df), dtype=bool)
+            fb_home |= miss_h
+            fb_away |= miss_a
             df[f"pl_{tag}_{pos.lower()}_away"] = a
             df[f"pl_{tag}_{pos.lower()}_home"] = h
             df[f"pl_{tag}_{pos.lower()}_diff"] = h - a
@@ -1313,14 +1326,16 @@ def add_player_pool_features(
         df["pl_il_out_fraction"] = np.nan
     logger.info("player pool: %d rows, %d stints, %d player-removals across "
                 "%d sides, il_bound=%s, roster: %d covered game(s) "
-                "(-%d leavers +%d joiners), wrong-team guard dropped %d",
+                "(-%d leavers +%d joiners), wrong-team guard dropped %d, "
+                "%d/%d side(s) served >=1 position prior (no pool row)",
                 len(pool),
                 0 if stints is None else len(stints), int(removed),
                 len(pool[["_pd", "team"]].drop_duplicates()) if len(pool) else 0,
                 il_bound, audit.get("roster_covered_games", 0),
                 audit.get("roster_dropped_players", 0),
                 audit.get("roster_added_players", 0),
-                audit.get("dropped_wrong_team", 0))
+                audit.get("dropped_wrong_team", 0),
+                int(fb_home.sum() + fb_away.sum()), int(2 * len(df)))
     return df.drop(columns=["_d", "_season"])
 
 
