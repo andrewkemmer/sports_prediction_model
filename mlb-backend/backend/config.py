@@ -337,6 +337,19 @@ ELASTICNET_PARAMS = {
 # all three metrics (logloss +0.00104, brier +0.00049, AUC -0.00296) —
 # the earlier causal "gain" was an artifact of the narrow verify surface.
 # Blend-level logloss/AUC 0.6835 / 0.567 unchanged either way.
+# 2026-10-09 feature-family test (record mlb_xfip_ab_20261009.json): the
+# serving set was A/B/C-tested against two replacements —
+#   A = the shipped ERA/WHIP serving set (incumbent);
+#   B = every ERA-family column (+ the 4 served ERA composites) swapped to
+#       point-in-time xFIP analogues built from pitches.parquet, attached
+#       LAG-first (no same-day self-inclusion);
+#   C = B + bullpen WHIP -> K-BB% (+ the 3 served meltdown composites).
+# Paired causal walk (seeds 42/7/2026, min_train_days=30, UNROUNDED OOF
+# logloss): B's blend deltas [-0.00010, -0.00005, +0.00021] all ride inside
+# the 0.000681 seed-noise floor (pool gate FAIL, seal non-refuting); C at
+# seed 42 is +0.00035 worse than A. Params and FEATURE SET CONFIRMED,
+# unchanged. Artifacts: data_delivery/mlb_xfip_ab_20261009.json,
+# docs/mlb_xfip_ab_20261009.md.
 XGBOOST_PARAMS = {
     "max_depth": 2,
     "min_child_weight": 12,

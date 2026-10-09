@@ -3662,6 +3662,50 @@ FEATURE_DESCRIPTIONS = {
     "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
     "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
     "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
+    # 33–40. Position-pool xwOBA (projected lineup seat pools). Per-side
+    # halves resolve via the _home/_away suffix path; each _diff twin keeps
+    # its own wording. 2026-10-09 label pass: these served names leaked the
+    # raw column text on the metadata-less fallback path.
+    "pl_c_xwoba": "Position-pool xwOBA — catcher seat (projected lineup)",
+    "pl_fb_xwoba": "Position-pool xwOBA — first-base seat (projected lineup)",
+    "pl_sb_xwoba": "Position-pool xwOBA — second-base seat (projected lineup)",
+    "pl_ss_xwoba": "Position-pool xwOBA — shortstop seat (projected lineup)",
+    "pl_tb_xwoba": "Position-pool xwOBA — third-base seat (projected lineup)",
+    "pl_rf_xwoba": "Position-pool xwOBA — right-field seat (projected lineup)",
+    "pl_cf_xwoba": "Position-pool xwOBA — center-field seat (projected lineup)",
+    "pl_lf_xwoba": "Position-pool xwOBA — left-field seat (projected lineup)",
+    "pl_c_xwoba_diff": "Home lineup's catcher-pool xwOBA − away lineup's",
+    "pl_fb_xwoba_diff": "Home lineup's first-base-pool xwOBA − away lineup's",
+    "pl_sb_xwoba_diff": "Home lineup's second-base-pool xwOBA − away lineup's",
+    "pl_ss_xwoba_diff": "Home lineup's shortstop-pool xwOBA − away lineup's",
+    "pl_tb_xwoba_diff": "Home lineup's third-base-pool xwOBA − away lineup's",
+    "pl_rf_xwoba_diff": "Home lineup's right-field-pool xwOBA − away lineup's",
+    "pl_cf_xwoba_diff": "Home lineup's center-field-pool xwOBA − away lineup's",
+    "pl_lf_xwoba_diff": "Home lineup's left-field-pool xwOBA − away lineup's",
+    # 41–49. Pitch-category matchup features (exp2 family, per-side levels;
+    # wording mirrors the backend features_metadata summaries).
+    "exp2_centered_k": "Centered strikeout matchup (SP K/9 vs opponent K-rate around league)",
+    "exp2_cat_k_fastball": "Fastball-category strikeout matchup (SP K/9 vs opponent)",
+    "exp2_cat_k_breaking": "Breaking-category strikeout matchup (SP K/9 vs opponent)",
+    "exp2_cat_k_offspeed": "Offspeed-category strikeout matchup (SP K/9 vs opponent)",
+    "exp2_cat_xwoba_fastball": "Fastball-category xwOBA matchup (SP vs opponent)",
+    "exp2_cat_xwoba_breaking": "Breaking-category xwOBA matchup (SP vs opponent)",
+    "exp2_cat_xwoba_offspeed": "Offspeed-category xwOBA matchup (SP vs opponent)",
+    "exp2_cat_platoon_k_fastball": "Platoon fastball strikeout matchup (SP K/9 vs opposite-hand hitters)",
+    # 50–52. Team contact form / schedule / bullpen workload levels.
+    "team_hardhit_15g": "Team hard-hit rate (trailing 15 games, balls in play only)",
+    "time_zones_crossed_last_3d": "Time zones crossed over the last 3 days (schedule fatigue)",
+    "bullpen_pitches_3d": "Bullpen pitches thrown, last 3 days (workload)",
+    # 53–60. Level columns (not side halves) + per-side halves whose base
+    # predates the diff convention — same 2026-10-09 label pass.
+    "home_elo": "Home team Elo rating (level)",
+    "away_elo": "Away team Elo rating (level)",
+    "home_win_pct": "Home team season win% (level)",
+    "away_win_pct": "Away team season win% (level)",
+    "team_barrel_15g": "Team barreled-ball rate (trailing 15 games, balls in play only)",
+    "team_exitvelo_15g": "Team average exit velocity (trailing 15 games, mph)",
+    "closer_available": "Closer rested and available tonight (raw flag)",
+    "sp_fbvelo_3g": "SP fastball velocity (last 3 starts, mph)",
 }
 
 
