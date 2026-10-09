@@ -1868,7 +1868,31 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
     # Avoid casting the full nullable series to int: non-authoritative rows
     # may legitimately have no game_pk.
     pks_int = pks.where(pks.notna()).astype("Int64")
-    need = decided & pks.notna() & ~pks_int.isin(cached_pks)
+    # Partial-record top-up (2026-10-09 log review). The cache is one slot
+    # per game_pk and `need` below excluded ANY cached pk — so the wind-only
+    # records the StatsAPI gap filler writes (the official feed carries no
+    # humidity, hence no air_density) satisfied the gate FOREVER and the
+    # complete Open-Meteo observation was never retried. That is exactly how
+    # 849851/849844/849838/813022 kept air_density_velocity_boost NULL after
+    # the archive had published their hours: a partial observation must not
+    # outrank a complete one. Re-attempt ONLY cached records that still lack
+    # an air-density observation; a retry that finds nothing keeps the
+    # partial (only available records are ever written back below).
+    def _lacks_air(rec: dict) -> bool:
+        ad = rec.get("air_density")
+        try:
+            return ad is None or bool(pd.isna(ad))
+        except (TypeError, ValueError):
+            return True
+
+    partial_pks = {pk for pk, rec in cache.items() if _lacks_air(rec)}
+    need = (decided & pks.notna()
+            & (~pks_int.isin(cached_pks) | pks_int.isin(partial_pks)))
+    if partial_pks:
+        logger.info(
+            "Weather top-up: %d cached record(s) carry no air-density "
+            "observation (official wind-only fills) — re-attempting the "
+            "complete observation for them", len(partial_pks))
     if need.any():
         subset = games[need]
         gd = pd.to_datetime(games["game_date"], errors="coerce")
@@ -1930,6 +1954,7 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
                 key_to_pk[row_idx] = pk
                 key_to_pk[str(row_idx)] = pk
             new = 0
+            completed = 0
             for result_key, w in wx.items():
                 pk = key_to_pk.get(result_key)
                 if pk is None:
@@ -1940,11 +1965,19 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
                     w.get("available")
                     and w.get("source") in _OBSERVED_WEATHER_SOURCES
                 ):
+                    if pk in partial_pks and not _lacks_air(w):
+                        completed += 1
                     cache[pk] = {k: w.get(k) for k in _WEATHER_CACHE_COLS}
                     new += 1
             _save_weather_cache(_weather_cache_path(), cache)
             logger.info("Weather history: fetched %d new games (cache now %d)",
                         new, len(cache))
+            if partial_pks:
+                logger.info(
+                    "Weather top-up: %d/%d partial record(s) completed with "
+                    "a full observation; the rest keep their official "
+                    "wind-only fill (air density stays NULL — never "
+                    "fabricated)", completed, len(partial_pks))
         else:
             logger.warning("Weather history: no authoritative start times matched")
 

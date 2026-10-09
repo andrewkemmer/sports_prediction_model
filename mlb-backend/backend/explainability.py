@@ -814,9 +814,23 @@ def compute_feature_coverage(
     starved = df[df["status"] != "OK"]
     if not starved.empty:
         worst = starved.sort_values("pct_measured").head(5)
-        detail = "; ".join(
-            f"{r.feature}/{r.window}={r.pct_measured:.0f}% measured"
-            for r in worst.itertuples())
+        # Weather rows carry closed-roof POLICY zeros (counted as defaults,
+        # never as observations), so their % measured can never reach the
+        # 80% OK line on a roof-heavy window even when every open-air game
+        # was observed. The 2026-10-09 review therefore prints the
+        # open-air-only ratio alongside it, so a standing LOW_COVERAGE on
+        # these two features is readable as "defaults + missing inputs",
+        # not as a silent data outage (the alert itself is unchanged).
+        def _detail(r) -> str:
+            base = f"{r.feature}/{r.window}={r.pct_measured:.0f}% measured"
+            n_open = int(r.n_games) - int(r.n_default_zero)
+            if int(r.n_default_zero) and n_open > 0:
+                base += (f" | open-air {100.0 * r.n_measured / n_open:.0f}% "
+                         f"({n_open} rows, {int(r.n_default_zero)} "
+                         f"closed-roof policy zeros excluded)")
+            return base
+
+        detail = "; ".join(_detail(r) for r in worst.itertuples())
         logger.warning("Feature coverage gaps [%s]: %s", view, detail)
     else:
         logger.info("Feature coverage [%s]: all %d feature-window pairs OK",

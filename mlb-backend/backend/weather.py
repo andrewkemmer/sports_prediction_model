@@ -778,13 +778,44 @@ def _fetch_batched_weather(
     return by_key
 
 
+def _is_exact_midnight_utc(target: Optional[datetime]) -> bool:
+    """Whether first pitch lands on exactly 00:00:00 UTC.
+
+    The national-TV start slots (8:00 PM ET, 5:00 PM PT) land on the exact
+    UTC day boundary. Inside such a game's OWN UTC-day series there is no
+    hourly row strictly before first pitch — ``_hour_prior`` returns -1 —
+    so the point-in-time rule found no observation and the game shipped NO
+    weather at all (13 games through 2026-10-07: 813022/813023/813024/
+    813025/813026/813027, 849823, 849838, 849839, 849844, 849848, 849851).
+    The hour that IS strictly prior (23:00Z) lives in the PREVIOUS day's
+    series, which the batched fetch already requests (``min_day`` starts a
+    day early) but this lookup never consulted.
+    """
+    return (target is not None
+            and (target.hour, target.minute, target.second) == (0, 0, 0))
+
+
 def _stadium_weather_utc(
     info: dict,
     game_start_utc: datetime,
-    series: dict[str, list],
+    series: dict[str, list] | None,
+    prev_series: dict[str, list] | None = None,
 ) -> dict:
-    """Build weather from a GMT/UTC series using a strict UTC cutoff."""
-    raw = _pick_row(series, _utc_naive(game_start_utc))
+    """Build weather from a GMT/UTC series using a strict UTC cutoff.
+
+    ``prev_series`` (the previous UTC day) is consulted ONLY when first
+    pitch is exactly 00:00:00 UTC and the game's own day therefore holds no
+    strictly-prior row. Every other game reads its own day exactly as before
+    — byte-identical behavior, no wider staleness window is ever accepted.
+    """
+    target = _utc_naive(game_start_utc)
+    used = series
+    raw = _pick_row(series, target)
+    if (prev_series is not None
+            and _is_exact_midnight_utc(target)
+            and _hour_prior((series or {}).get("time") or [], target) < 0):
+        raw = _pick_row(prev_series, target)
+        used = prev_series
     air_density = compute_air_density(
         raw["temp_c"], raw["rh_pct"], raw["pressure_hpa"], info["alt_m"]
     )
@@ -794,7 +825,7 @@ def _stadium_weather_utc(
     observed = _has_observation(raw)
     return {
         "available": observed,
-        "source": series.get("_source", "open_meteo_archive") if observed else "open_meteo_unavailable",
+        "source": (used or {}).get("_source", "open_meteo_archive") if observed else "open_meteo_unavailable",
         "temp_c": raw["temp_c"],
         "rh_pct": raw["rh_pct"],
         "wind_speed_kmh": raw["wind_speed_kmh"],
@@ -908,11 +939,16 @@ def fetch_games_weather(
     )
 
     for result_key, team_code, info, start in targets:
-        series = series_by_key.get((team_code, start.date()))
-        if series is None:
+        day = start.date()
+        series = series_by_key.get((team_code, day))
+        # Previous day rides along for exact-midnight first pitches only
+        # (see _is_exact_midnight_utc); for every other game it is fetched
+        # but ignored.
+        prev = series_by_key.get((team_code, day - timedelta(days=1)))
+        if series is None and prev is None:
             results[result_key] = {"available": False, "source": "open_meteo_unavailable"}
         else:
-            results[result_key] = _stadium_weather_utc(info, start, series)
+            results[result_key] = _stadium_weather_utc(info, start, series, prev)
 
     n_ok = sum(1 for value in results.values() if value.get("available"))
     logger.info("Weather fetched: %d/%d games from batched observations", n_ok, len(results))

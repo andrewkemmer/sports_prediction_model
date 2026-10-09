@@ -1,5 +1,11 @@
 """2026-10-08 review: the frame-vs-official-tail guard (missing 10-07 slate).
 
+PLUS (2026-10-09, no new test file per the no-new-programs guardrail) the
+T6/T7/T8 section: the weather half of the feature-coverage audit. T6 pins
+the exact-midnight first-pitch defect (13 games shipped NO weather), T7
+pins the partial wind-only cache record top-up, T8 pins the honest refusal
+to invent a wind direction from an official "Varies" report.
+
 PLUS (same day, feature-accuracy pass over the same run log): venue
 defects T5 — the static team→park map had no arm for the Statcast codes
 AZ/ATH (486 home rows shipped venue='Unknown') and pinned TB's park to
@@ -36,11 +42,13 @@ test_log_review_{20260929,20261005,20261007}.
 """
 from __future__ import annotations
 
+import ast
 import logging
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -404,3 +412,336 @@ def test_tb_dome_is_season_aware_in_prior_and_refinement():
         "TB", {"game_date": None}) == 1.0  # unknown date → fixed dome
     assert features.TB_OPEN_AIR_YEARS == frozenset({2025})
     assert features.FIXED_DOME_TEAMS == frozenset({"TB"})
+
+
+# ── T6: exact-midnight first pitch → weather from the PREVIOUS day ─────────
+# 13 games through 2026-10-07 have an OFFICIAL first pitch at exactly
+# 00:00:00 UTC (8:00 PM ET / 5:00 PM PT — the national-TV slot; verified
+# against StatsAPI ``gameData.datetime.dateTime`` for every one of them).
+# Inside such a game's own UTC-day series there is no hourly row STRICTLY
+# before first pitch, so the point-in-time rule found nothing and those
+# games shipped NO weather at all — they are exactly the 13 rows missing
+# ``air_density_level`` in the committed frame, and the reason the
+# 2026-10-08 audit's "recent open-air misses self-heal" claim did NOT hold
+# (2 of its 3 named games are still NULL in the 2026-10-09 run).
+
+def _day_series(day: str, *, temp: float, rh: float, wind: float,
+                direction: float, source: str = "open_meteo_archive") -> dict:
+    """A full 24-hour GMT series for one stadium-day."""
+    return {
+        "time": [f"{day}T{h:02d}:00" for h in range(24)],
+        "_source": source,
+        "temperature_2m": [temp] * 24,
+        "relative_humidity_2m": [rh] * 24,
+        "wind_speed_10m": [wind] * 24,
+        "wind_direction_10m": [direction] * 24,
+        "surface_pressure": [1013.0] * 24,
+    }
+
+
+def _patch_batch(monkeypatch, series: dict):
+    import weather
+    monkeypatch.setattr(
+        weather, "_fetch_batched_weather",
+        lambda locations, start_date, end_date, needed_days=None: series)
+
+
+def _game(pk: int, start: str) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "game_pk": pk, "home_team": "NYY", "venue": "Yankee Stadium",
+        "start_time_utc": start,
+    }])
+
+
+def test_exact_midnight_first_pitch_reads_the_previous_days_hour(monkeypatch):
+    """The 13-game defect, replayed: first pitch at 00:00:00 UTC picks the
+    previous day's 23:00Z row — the hour that IS strictly prior — instead of
+    shipping nothing."""
+    import weather
+    own = _day_series("2026-09-30", temp=30.0, rh=40.0, wind=10.0, direction=10.0)
+    prev = _day_series("2026-09-29", temp=7.0, rh=80.0, wind=20.0, direction=190.0)
+    _patch_batch(monkeypatch, {
+        ("NYY", date(2026, 9, 30)): own,
+        ("NYY", date(2026, 9, 29)): prev,
+    })
+
+    rec = weather.fetch_games_weather(_game(849848, "2026-09-30 00:00:00"))[849848]
+
+    assert rec["available"] is True, "exact-midnight game must get weather"
+    # Own day holds only 00:00..23:00 — nothing strictly before 00:00:00.
+    assert rec["temp_c"] == 7.0, "must come from the previous day's 23:00Z row"
+    assert rec["source"] == "open_meteo_archive"
+    # Both weather interactions become computable (the coverage gap itself).
+    assert not np.isnan(rec["wind_multiplier"]), rec
+    assert not np.isnan(rec["air_density"]), rec
+
+
+def test_other_starts_still_read_their_own_day(monkeypatch):
+    """Regression guard: the previous day is consulted ONLY for an exact
+    00:00:00 first pitch — every other game is byte-identical to before and
+    never inherits a stale hour."""
+    import weather
+    own = _day_series("2026-09-30", temp=30.0, rh=40.0, wind=10.0, direction=10.0)
+    prev = _day_series("2026-09-29", temp=7.0, rh=80.0, wind=20.0, direction=190.0)
+    _patch_batch(monkeypatch, {
+        ("NYY", date(2026, 9, 30)): own,
+        ("NYY", date(2026, 9, 29)): prev,
+    })
+
+    # 23:05Z start → the own-day 23:00Z row, never the previous day's.
+    rec = weather.fetch_games_weather(_game(1, "2026-09-30 23:05:00"))[1]
+    assert rec["available"] is True
+    assert rec["temp_c"] == 30.0, "own-day observation must win"
+
+    # 00:05Z start → the own-day 00:00Z row (a real strictly-prior hour).
+    rec = weather.fetch_games_weather(_game(2, "2026-09-30 00:05:00"))[2]
+    assert rec["available"] is True
+    assert rec["temp_c"] == 30.0
+
+
+def test_previous_day_never_fills_a_non_midnight_or_empty_lookup(monkeypatch):
+    """Two honesty pins: (a) an own-day series that is simply ABSENT is never
+    papered over with a previous-day hour (that would be up to 24h stale for
+    a night game); (b) no series at all stays unavailable."""
+    import weather
+    prev = _day_series("2026-09-29", temp=7.0, rh=80.0, wind=20.0, direction=190.0)
+    _patch_batch(monkeypatch, {("NYY", date(2026, 9, 29)): prev})
+
+    # Midnight start + own day missing → previous day is exactly right.
+    ok = weather.fetch_games_weather(_game(3, "2026-09-30 00:00:00"))[3]
+    assert ok["available"] is True and ok["temp_c"] == 7.0
+
+    # Night start + own day missing → unavailable, never the stale prev day.
+    stale = weather.fetch_games_weather(_game(4, "2026-09-30 23:05:00"))[4]
+    assert stale["available"] is False
+    assert stale["source"] == "open_meteo_unavailable"
+
+    # Nothing fetched for either day → unavailable.
+    _patch_batch(monkeypatch, {})
+    none = weather.fetch_games_weather(_game(5, "2026-09-30 00:00:00"))[5]
+    assert none["available"] is False
+
+
+# ── T7: a partial (wind-only) cache record must not block the full one ─────
+# The StatsAPI gap filler caches an official observation with wind but no
+# humidity — hence no ``air_density`` — and the cache is ONE slot per
+# game_pk. ``need`` excluded ANY cached pk, so that partial satisfied the
+# gate forever and the complete Open-Meteo observation was never retried:
+# 849851/849844/849838/813022 kept ``air_density_velocity_boost`` NULL in
+# the 2026-10-09 run even though the archive had published their hours.
+# master_pipeline is a RUN-ONCE script (importing it executes the phases and
+# opens the committed run log with "w"), so the shipped function is executed
+# from its AST instead — the same convention this file already uses for its
+# source pins, but behaviorally exercised.
+
+def _exec_weather_history(cache_path: Path) -> dict:
+    tree = ast.parse(MASTER_SRC)
+    want_fn = {"_attach_weather_history", "_load_weather_cache",
+               "_save_weather_cache", "_weather_cache_path"}
+    want_assign = {"_WEATHER_CACHE_COLS", "_OBSERVED_WEATHER_SOURCES",
+                   "STATSAPI_WEATHER_FILL"}
+    nodes = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in want_fn:
+            nodes.append(node)
+        elif isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id in want_assign
+                for t in node.targets):
+            nodes.append(node)
+    found = {n.name for n in nodes if isinstance(n, ast.FunctionDef)}
+    assert found == want_fn, f"shipped helpers changed: {found ^ want_fn}"
+    module = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
+    ns = {
+        "pd": pd, "np": np, "Path": Path, "date": date,
+        "os": __import__("os"),
+        "logger": logging.getLogger("mp_extract"),
+    }
+    exec(compile(module, str(BACKEND / "master_pipeline.py"), "exec"), ns)
+    ns["_weather_cache_path"] = lambda: cache_path
+    return ns
+
+
+def _wind_only_record(pk: int) -> dict:
+    """What the StatsAPI filler caches: real wind, no humidity/pressure."""
+    return {
+        "game_pk": pk, "available": True, "source": "statsapi_gamefeed",
+        "temp_c": 20.0, "rh_pct": None, "wind_speed_kmh": 8.0,
+        "wind_direction_deg": 10.0, "pressure_hpa": None,
+        "air_density": None, "wind_multiplier": 0.2,
+        "stadium_alt_m": 9.0, "stadium_bearing": 10.0,
+    }
+
+
+def _full_record(pk: int) -> dict:
+    return {
+        "game_pk": pk, "available": True, "source": "open_meteo_archive",
+        "temp_c": 7.0, "rh_pct": 80.0, "wind_speed_kmh": 20.0,
+        "wind_direction_deg": 190.0, "pressure_hpa": 1012.0,
+        "air_density": 1.18, "wind_multiplier": -0.35,
+        "stadium_alt_m": 9.0, "stadium_bearing": 10.0,
+    }
+
+
+def _games_frame() -> pd.DataFrame:
+    return pd.DataFrame({
+        "game_pk": [100], "game_date": ["2026-09-30"],
+        "home_team": ["NYY"], "away_team": ["BOS"],
+        "venue": ["Yankee Stadium"], "home_win": [1.0],
+        "start_time_utc": ["2026-09-30 00:00:00"],
+        "sp_era_diff": [0.5], "sp_fbvelo_diff": [1.0],
+        "dome_is_neutral": [0.0],
+    })
+
+
+def test_partial_wind_only_record_is_re_attempted_and_completed(
+        tmp_path, monkeypatch, caplog):
+    import results, weather
+    cache_path = tmp_path / "weather_history.parquet"
+    pd.DataFrame([_wind_only_record(100)]).to_parquet(cache_path, index=False)
+    ns = _exec_weather_history(cache_path)
+
+    monkeypatch.setattr(
+        results, "fetch_game_start_times",
+        lambda a, b: {100: datetime(2026, 9, 30, 0, 0)})
+    attempted: list = []
+
+    def _fake_fetch(df):
+        attempted.extend(int(p) for p in df["game_pk"])
+        return {100: _full_record(100)}
+
+    monkeypatch.setattr(weather, "fetch_games_weather", _fake_fetch)
+
+    with caplog.at_level(logging.INFO, logger="mp_extract"):
+        ns["_attach_weather_history"](_games_frame(), date(2026, 10, 9))
+
+    assert attempted == [100], (
+        "a cached record WITHOUT an air-density observation must be "
+        "re-attempted — otherwise the official wind-only fill blocks the "
+        "complete one forever")
+    stored = pd.read_parquet(cache_path).iloc[0]
+    assert stored["source"] == "open_meteo_archive"
+    assert float(stored["air_density"]) == 1.18, "full observation must replace the partial"
+    assert "Weather top-up: 1/1" in caplog.text, (
+        "the completion must be visible in the run log")
+
+
+def test_failed_top_up_keeps_the_partial_record(tmp_path, monkeypatch, caplog):
+    """Non-destruction pin: a retry that finds nothing may NEVER erase the
+    official wind-only fill (only available records are written back)."""
+    import results, weather
+    cache_path = tmp_path / "weather_history.parquet"
+    pd.DataFrame([_wind_only_record(100)]).to_parquet(cache_path, index=False)
+    ns = _exec_weather_history(cache_path)
+
+    monkeypatch.setattr(
+        results, "fetch_game_start_times",
+        lambda a, b: {100: datetime(2026, 9, 30, 0, 0)})
+    monkeypatch.setattr(
+        weather, "fetch_games_weather",
+        lambda df: {100: {"available": False, "source": "open_meteo_unavailable"}})
+
+    with caplog.at_level(logging.INFO, logger="mp_extract"):
+        ns["_attach_weather_history"](_games_frame(), date(2026, 10, 9))
+
+    stored = pd.read_parquet(cache_path).iloc[0]
+    assert stored["source"] == "statsapi_gamefeed", "partial must survive a failed retry"
+    assert float(stored["wind_multiplier"]) == 0.2
+    assert pd.isna(stored["air_density"])
+    assert "Weather top-up: 0/1" in caplog.text
+
+
+def test_complete_records_are_never_flagged_for_top_up(tmp_path, monkeypatch):
+    """Cost pin: a full observation must NOT be re-fetched every run — only
+    genuinely partial records enter the retry set."""
+    import results, weather
+    cache_path = tmp_path / "weather_history.parquet"
+    pd.DataFrame([_full_record(100)]).to_parquet(cache_path, index=False)
+    ns = _exec_weather_history(cache_path)
+
+    monkeypatch.setattr(
+        results, "fetch_game_start_times",
+        lambda a, b: (_ for _ in ()).throw(AssertionError("no fetch expected")))
+    monkeypatch.setattr(
+        weather, "fetch_games_weather",
+        lambda df: (_ for _ in ()).throw(AssertionError("no fetch expected")))
+
+    out = ns["_attach_weather_history"](_games_frame(), date(2026, 10, 9))
+    assert not out.empty
+    assert pd.read_parquet(cache_path).iloc[0]["source"] == "open_meteo_archive"
+
+
+# ── T8: the official "Varies" wind report stays an honest refusal ─────────
+# Four of the eight open-air gap games (813023, 813032, 849823, 849848) are
+# reported by the park as e.g. "5 mph, Varies": a real observation with NO
+# fixed direction, so no wind multiplier can be computed — and the feed has
+# no humidity either, so no air density. The record is refused (never a
+# guessed direction), which is why those four are covered by T6/T7's
+# archive retry rather than by the filler.
+
+def test_official_varies_wind_is_refused_not_guessed():
+    import weather
+    parsed = {"temp_f": 68.0, "wind_mph": 5.0,
+              "wind_text": "5 mph, Varies", "condition": "Cloudy"}
+    rec = weather.statsapi_weather_to_record(parsed, "NYY", "Yankee Stadium")
+    assert rec["available"] is False
+    assert rec["source"] == "statsapi_gamefeed_unusable"
+    assert rec["wind_multiplier"] is None and rec["air_density"] is None
+
+    # A directional report still fills wind (air density honestly stays NULL
+    # — the official feed carries no humidity, see T7).
+    directional = {"temp_f": 84.0, "wind_mph": 5.0,
+                   "wind_text": "5 mph, L To R", "condition": "Clear"}
+    ok = weather.statsapi_weather_to_record(directional, "NYY", "Yankee Stadium")
+    assert ok["available"] is True
+    assert ok["wind_multiplier"] is not None
+    assert ok["air_density"] is None
+
+
+# ── T9: the coverage warning must explain closed-roof policy zeros ─────────
+# The two weather features can never reach the 80% measured OK line on a
+# roof-heavy window: ~19% of games are closed-roof rows whose value is a
+# POLICY zero (correctly never counted as an observation). After T6/T7 the
+# residual gap on those rows is defaults + staleness-gated SP inputs — so
+# the line now prints the open-air-only ratio too. Status/threshold and the
+# CSV schema are deliberately UNCHANGED (the frontend tooltips document
+# "LOW_COVERAGE <80% measured"); this is additive observability only.
+
+def test_coverage_warning_reports_the_open_air_ratio(tmp_path, monkeypatch,
+                                                      caplog):
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = pd.DataFrame({
+        # 3 closed-roof policy zeros + 5 open-air observations + 2 open-air
+        # rows with no observation (or a gated SP input).
+        "wind_advantage_flyball_factor": [0.0, 0.0, 0.0, 0.5, 0.5,
+                                          0.5, 0.5, 0.5, np.nan, np.nan],
+        "dome_is_neutral_game": [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        # A low-coverage feature with NO policy zeros: no open-air clause.
+        "home_elo": [1.0] * 6 + [np.nan] * 4,
+    })
+
+    with caplog.at_level(logging.WARNING, logger="explainability"):
+        cov = explainability.compute_feature_coverage(
+            frame, frame, "20990103",
+            feature_cols=["wind_advantage_flyball_factor", "home_elo"])
+
+    row = cov[(cov.feature == "wind_advantage_flyball_factor")
+              & (cov.window == "current")].iloc[0]
+    # Status semantics are untouched — the alert still fires at 50% measured.
+    assert row.status == "LOW_COVERAGE" and row.pct_measured == 50.0
+    assert int(row.n_default_zero) == 3 and int(row.n_measured) == 5
+
+    text = caplog.text
+    assert "wind_advantage_flyball_factor/current=50% measured" in text
+    assert "open-air 71%" in text, "5 of 7 open-air rows observed"
+    assert "3 closed-roof policy zeros excluded" in text
+    # No defaults → no clause for that feature (exactly two occurrences:
+    # one per window of the weather feature, none for home_elo).
+    assert "home_elo/current=60% measured" in text
+    assert text.count("open-air") == 2
+    assert text.count("closed-roof policy zeros excluded") == 2
+    line = next(ln for ln in text.splitlines()
+                if "Feature coverage gaps" in ln)
+    home_segs = [s for s in line.split("; ") if s.startswith("home_elo/")]
+    assert len(home_segs) == 2 and all("open-air" not in s for s in home_segs), (
+        "only policy-zero features earn the open-air clause")
