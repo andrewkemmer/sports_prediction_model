@@ -36,19 +36,70 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
+# Keys MUST cover the Statcast team codes (``REAL_TEAM_CODES``) as well as
+# the canonical StatsAPI abbreviations: the statcast home_team values AZ and
+# ATH (not ARI/OAK) had no arm here, so every AZ/ATH home game shipped
+# venue='Unknown' — 486 rows across 2024–2026 (2026-10-08 feature review;
+# verified against the official StatsAPI schedule). Season-dependent parks
+# (TB, ATH) use their DEFAULT park here and are overridden per game_date in
+# _SEASONAL_VENUE_WHENS below.
 VENUE_MAP = {
-    "ARI": "Chase Field", "ATL": "Truist Park", "BAL": "Oriole Park at Camden Yards",
+    "ARI": "Chase Field", "AZ": "Chase Field", "ATL": "Truist Park",
+    "BAL": "Oriole Park at Camden Yards",
     "BOS": "Fenway Park", "CHC": "Wrigley Field", "CWS": "Rate Field",
     "CIN": "Great American Ball Park", "CLE": "Progressive Field",
     "COL": "Coors Field", "DET": "Comerica Park", "HOU": "Minute Maid Park",
     "KC": "Kauffman Stadium", "LAA": "Angel Stadium", "LAD": "Dodger Stadium",
     "MIA": "loanDepot park", "MIL": "American Family Field",
     "MIN": "Target Field", "NYM": "Citi Field", "NYY": "Yankee Stadium",
-    "OAK": "Sutter Health Park", "PHI": "Citizens Bank Park",
+    "OAK": "Sutter Health Park", "ATH": "Sutter Health Park",
+    "PHI": "Citizens Bank Park",
     "PIT": "PNC Park", "SD": "Petco Park", "SF": "Oracle Park",
-    "SEA": "T-Mobile Park", "STL": "Busch Stadium", "TB": "Steinbrenner Field",
+    "SEA": "T-Mobile Park", "STL": "Busch Stadium", "TB": "Tropicana Field",
     "TEX": "Globe Life Field", "TOR": "Rogers Centre", "WSH": "Nationals Park",
 }
+
+# Team→park arms that DEPEND on game_date (a static map cannot express
+# them). Each entry: team → (SQL boolean condition on game_date, value when
+# true, value when false). All verified against the official StatsAPI
+# schedule (2026-10-08 feature review):
+#   TB   — Tropicana Field (fixed dome) hosted 2024 (82 games) and 2026+
+#          (83 through 10-08); open-air George M. Steinbrenner Field
+#          hosted 2025 (81). The old static map claimed Steinbrenner for
+#          EVERY season — 164 wrong park labels and a dome/weather
+#          contradiction for the two Tropicana seasons.
+#   ATH  — the A's played Oakland Coliseum through 2024 (Statcast already
+#          used the ATH code that season) and Sutter Health Park from 2025.
+_SEASONAL_VENUE_WHENS = {
+    "TB": ("EXTRACT(YEAR FROM CAST(game_date AS DATE)) = 2025",
+           "Steinbrenner Field", "Tropicana Field"),
+    "ATH": ("EXTRACT(YEAR FROM CAST(game_date AS DATE)) <= 2024",
+            "Oakland Coliseum", "Sutter Health Park"),
+}
+
+
+def _venue_case_sql() -> str:
+    """The venue CASE expression shipped into DuckDB by ``_build_game_level``.
+
+    Its own function so tests can execute the PRODUCTION SQL against a tiny
+    ``(game_pk, home_team, game_date)`` table instead of a full feature
+    build: static arms come from ``VENUE_MAP``; season-dependent arms (TB,
+    ATH) consult ``game_date`` via ``_SEASONAL_VENUE_WHENS``; unknown teams
+    fall through to 'Unknown' — ``VENUE_MAP`` must cover
+    ``REAL_TEAM_CODES`` so that branch never fires for a real team
+    (2026-10-08 review: AZ/ATH had no arm and 486 rows shipped 'Unknown').
+    """
+    lines = []
+    for team, park in VENUE_MAP.items():
+        if team in _SEASONAL_VENUE_WHENS:
+            cond, when_true, when_false = _SEASONAL_VENUE_WHENS[team]
+            lines.append(f"            WHEN '{team}' THEN CASE WHEN {cond} "
+                         f"THEN '{when_true}' ELSE '{when_false}' END")
+        else:
+            lines.append(f"            WHEN '{team}' THEN '{park}'")
+    body = "\n".join(lines)
+    return (f"CASE home_team\n{body}\n"
+            "                ELSE 'Unknown'\n            END")
 
 PA_END_EVENTS = (
     "'single', 'double', 'triple', 'home_run',"
@@ -2035,15 +2086,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN first_pa_bot b ON p.game_pk = b.game_pk AND b.rn = 1
     """)
 
-    # 3. Venues
-    venue_lines = "\n".join(f"            WHEN '{k}' THEN '{v}'" for k, v in VENUE_MAP.items())
+    # 3. Venues — season-aware team→park CASE (documented in
+    # _venue_case_sql; unit-tested against tiny tables there).
     con.execute(f"""
         CREATE TABLE venues AS
         SELECT DISTINCT game_pk, home_team,
-            CASE home_team
-{venue_lines}
-                ELSE 'Unknown'
-            END AS venue
+            {_venue_case_sql()} AS venue
         FROM pitches
     """)
 
@@ -4037,6 +4085,14 @@ RETRACTABLE_ROOF_TEAMS = frozenset(
     {"ARI", "AZ", "HOU", "MIA", "MIL", "SEA", "TEX", "TOR"})
 FIXED_DOME_TEAMS = frozenset({"TB"})
 OPEN_AIR_MISLABELED = frozenset({"MIN"})  # open-air; never a closed roof
+# TB's home park is season-dependent: Tropicana Field (a fixed dome)
+# hosted 2024 and 2026+, while the open-air George M. Steinbrenner Field
+# hosted 2025 (verified against the official StatsAPI schedule during the
+# 2026-10-08 feature review). Treating TB as a BLANKET fixed dome forced
+# dome_is_neutral_game=1 on all 81 Steinbrenner games, which zeroed
+# park_wind_factor and both weather interactions for open-air games the
+# weather composites had measured for real.
+TB_OPEN_AIR_YEARS = frozenset({2025})
 
 # Dome/closed-roof flag: 1 if fixed dome, 0 if open-air.
 # Prevents the model from hallucinating weather impacts indoors.
@@ -4210,12 +4266,30 @@ def load_roof_cache(path) -> dict:
     return cache
 
 
+def _fixed_dome_game_value(team: str, row) -> float:
+    """Game-accurate dome value for a FIXED-dome team (currently only TB).
+
+    Tropicana Field is a fixed dome, but Tampa Bay played 2025 at the
+    open-air George M. Steinbrenner Field — a blanket TB=1 claimed a
+    closed roof for those 81 games (2026-10-08 feature review, verified
+    against the official StatsAPI schedule). Season-aware: TB home games
+    in ``TB_OPEN_AIR_YEARS`` resolve to 0.0 (open air), every other fixed
+    dome stays 1.0.
+    """
+    if team == "TB":
+        d = pd.to_datetime(row.get("game_date"), errors="coerce")
+        if pd.notna(d) and int(d.year) in TB_OPEN_AIR_YEARS:
+            return 0.0
+    return 1.0
+
+
 def refine_dome_game_level(df: pd.DataFrame,
                            roof_states: dict | None = None) -> pd.DataFrame:
     """Game-accurate roof flag column: dome_is_neutral_game.
 
     The refined column:
-      * fixed domes           -> 1 (always closed)
+      * fixed domes           -> 1 (always closed; except TB's 2025 open-air
+                                 Steinbrenner season — see TB_OPEN_AIR_YEARS)
       * retractable + known   -> 0 when OPEN (real weather applies),
                                  1 when CLOSED
       * retractable + unknown -> venue value + LOUD WARNING (never silently
@@ -4243,7 +4317,7 @@ def refine_dome_game_level(df: pd.DataFrame,
         venue_dome = row.get("dome_is_neutral")
         venue_dome = float(venue_dome) if pd.notna(venue_dome) else np.nan
         if team in FIXED_DOME_TEAMS:
-            refined.append(1.0)
+            refined.append(_fixed_dome_game_value(team, row))
         elif team in RETRACTABLE_ROOF_TEAMS:
             state = roof_states.get(row.get("game_pk")) \
                 or roof_state_from_condition(row.get("statsapi_condition"))
@@ -5281,6 +5355,14 @@ def add_diff_features(
     # overridden by the static "typically closed" prior (2026-10-07).
     home_team = df["home_team"].astype(str).str.upper().str.strip()
     df["dome_is_neutral"] = home_team.map(DOME_STATUS).astype(float)  # NaN = unknown
+    # TB's static DOME_STATUS=1 prior is wrong for its 2025 Steinbrenner
+    # season (open air) — correct it here so every consumer of the prior
+    # (not only refine_dome_game_level) sees the truth (2026-10-08).
+    if "game_date" in df.columns:
+        _tb_open_air = (home_team.eq("TB")
+                        & pd.to_datetime(df["game_date"], errors="coerce")
+                        .dt.year.isin(TB_OPEN_AIR_YEARS))
+        df.loc[_tb_open_air, "dome_is_neutral"] = 0.0
     if "dome_is_neutral_game" in df.columns:
         _g = pd.to_numeric(df["dome_is_neutral_game"], errors="coerce")
         df["dome_is_neutral"] = _g.where(_g.notna(), df["dome_is_neutral"])

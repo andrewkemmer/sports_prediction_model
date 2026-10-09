@@ -1,5 +1,13 @@
 """2026-10-08 review: the frame-vs-official-tail guard (missing 10-07 slate).
 
+PLUS (same day, feature-accuracy pass over the same run log): venue
+defects T5 — the static team→park map had no arm for the Statcast codes
+AZ/ATH (486 home rows shipped venue='Unknown') and pinned TB's park to
+Steinbrenner Field for EVERY season (164 wrong labels: Tropicana hosted
+2024 and 2026+) plus the matching dome defect (all 81 open-air 2025
+Steinbrenner games claimed a closed roof, zeroing the weather
+interactions). Verified against the official StatsAPI schedule.
+
 Evidence from the committed run log (pushed at 9afdac73's successor, run
 trained 2026-10-08 05:44Z): the run was a ``MLB_FULL_REPULL`` whose last
 chunk (``2026-08-18 → 2026-10-08``) returned cleanly with 168,080 pitches
@@ -306,3 +314,93 @@ def test_indoor_fill_is_wired_into_both_passes_and_old_conditionals_gone():
     assert 'df.loc[dome_flag & _era_ok' not in src
     assert 'df.loc[dome_flag & ~_density_ok' not in src
     assert 'df.loc[_closed & df["sp_era_diff"].notna()' not in src
+
+
+# ── T5: venue accuracy + TB's season-dependent dome (2026-10-08 review) ─────
+# Two production defects found by reconciling the shipped frame against
+# the official StatsAPI schedule:
+#   1. VENUE_MAP had no arm for the Statcast team codes AZ/ATH (it was
+#      keyed ARI/OAK), so the venues CASE fell to ELSE 'Unknown' for all
+#      486 AZ/ATH home rows (2024–2026) — venue display/metadata coverage
+#      hole, UNK category in venue_id.
+#   2. VENUE_MAP["TB"] was a static "Steinbrenner Field": wrong park name
+#      for 2024/2026 (Tropicana Field) AND wrong dome prior for the 2025
+#      Steinbrenner season — refine_dome_game_level treated TB as a
+#      BLANKET fixed dome, so all 81 open-air 2025 games got
+#      dome_is_neutral_game=1 → park_wind_factor and both weather
+#      interactions forced to 0 for games the weather composites had
+#      measured for real.
+
+
+def test_venue_case_sql_is_season_aware_and_covers_statcast_codes():
+    """Execute the PRODUCTION venue CASE (features._venue_case_sql) on a
+    tiny table: every Statcast code resolves to the official park for the
+    game's season; only unknown teams reach 'Unknown'."""
+    import duckdb
+    import features
+
+    # Key-set invariant: the map must cover every real Statcast code —
+    # the root cause of the 486 'Unknown' rows was a missing key.
+    missing = features.REAL_TEAM_CODES - set(features.VENUE_MAP)
+    assert not missing, f"VENUE_MAP missing Statcast codes: {sorted(missing)}"
+    assert {"ARI", "OAK"} <= set(features.VENUE_MAP)  # StatsAPI aliases kept
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE pitches (game_pk INTEGER, game_date DATE, "
+                "home_team VARCHAR)")
+    con.executemany("INSERT INTO pitches VALUES (?, ?, ?)", [
+        (1, "2024-03-28", "TB"),   # Tropicana (fixed dome)
+        (2, "2025-04-01", "TB"),   # Steinbrenner (open air)
+        (3, "2026-04-01", "TB"),   # Tropicana again
+        (4, "2024-04-01", "ATH"),  # Oakland Coliseum (ATH code, 2024)
+        (5, "2025-04-01", "ATH"),  # Sutter Health Park
+        (6, "2026-04-01", "AZ"),   # Chase Field (Statcast code)
+        (7, "2026-04-01", "SEA"),  # static arm still works
+        (8, "2026-04-01", "ZZZ"),  # unknown team → Unknown
+    ])
+    rows = con.execute(
+        f"SELECT game_pk, home_team, {features._venue_case_sql()} AS venue "
+        "FROM pitches ORDER BY game_pk").fetchall()
+    venue = {r[0]: r[2] for r in rows}
+    assert venue[1] == "Tropicana Field"
+    assert venue[2] == "Steinbrenner Field"
+    assert venue[3] == "Tropicana Field"
+    assert venue[4] == "Oakland Coliseum"
+    assert venue[5] == "Sutter Health Park"
+    assert venue[6] == "Chase Field"
+    assert venue[7] == "T-Mobile Park"
+    assert venue[8] == "Unknown"
+
+
+def test_tb_dome_is_season_aware_in_prior_and_refinement():
+    """TB home games resolve dome=1 for the Tropicana seasons (2024,
+    2026+) and dome=0 for the open-air 2025 Steinbrenner season, in BOTH
+    layers: the DOME_STATUS prior inside add_diff_features and the
+    game-accurate refinement (refine_dome_game_level)."""
+    import features
+
+    df = pd.DataFrame({
+        "game_date": ["2024-04-01", "2025-04-01", "2026-04-01"],
+        "home_team": ["TB", "TB", "TB"],
+        "away_team": ["NYY", "NYY", "NYY"],
+        "home_win": [1.0, 0.0, 1.0],
+    })
+    prior = features.add_diff_features(df.copy())
+    assert prior["dome_is_neutral"].tolist() == [1.0, 0.0, 1.0], (
+        "the static TB=1 prior must be corrected for the 2025 season")
+
+    refined = features.refine_dome_game_level(prior.copy())
+    assert refined["dome_is_neutral_game"].tolist() == [1.0, 0.0, 1.0]
+    # The model feature is SYNCED to the game-accurate state.
+    assert refined["dome_is_neutral"].tolist() == [1.0, 0.0, 1.0]
+
+    # Non-TB fixed-dome behavior is unchanged (regression guard), and the
+    # helper is the single source of truth for the fixed-dome branch.
+    assert features._fixed_dome_game_value(
+        "TB", {"game_date": "2025-07-01"}) == 0.0
+    assert features._fixed_dome_game_value(
+        "TB", {"game_date": "2026-07-01"}) == 1.0
+    assert features._fixed_dome_game_value(
+        "TB", {"game_date": None}) == 1.0  # unknown date → fixed dome
+    assert features.TB_OPEN_AIR_YEARS == frozenset({2025})
+    assert features.FIXED_DOME_TEAMS == frozenset({"TB"})

@@ -42,10 +42,13 @@ def fetch_mlb_results(start_date: date, end_date: date,
         home_team   str     — canonical home abbreviation (StatsAPI
         away_team   str     — hydrated), so the slate's (game_date,
                              home, away) fallback match key can exist
+        venue       str     — official StatsAPI venue name (hydrate=venue);
+                             fills venue='Unknown' holes the static
+                             team→park map cannot cover (2026-10-08 review)
     Empty frame (with the same columns) on any network/parse failure.
     """
     cols = ["game_pk", "game_date", "home_score", "away_score",
-            "home_win", "is_final", "home_team", "away_team"]
+            "home_win", "is_final", "home_team", "away_team", "venue"]
 
     # The schedule endpoint SILENTLY TRUNCATES long date ranges: a full
     # season-pair query returned ~3,000 games vs ~5,900 fetched per year —
@@ -69,8 +72,10 @@ def fetch_mlb_results(start_date: date, end_date: date,
                     "endDate": c_end.isoformat(),
                     # Without this the team object carries NO abbreviation
                     # field, so the slate's (date+teams) fallback match key
-                    # could never be built (2026-10-03 defect).
-                    "hydrate": "team(abbreviation)",
+                    # could never be built (2026-10-03 defect). venue hydrate
+                    # adds the game's official park name (2026-10-08 review:
+                    # 486 AZ/ATH rows shipped venue='Unknown').
+                    "hydrate": "team(abbreviation),venue",
                 },
                 timeout=timeout,
             )
@@ -107,6 +112,7 @@ def fetch_mlb_results(start_date: date, end_date: date,
                     "is_final": is_final,
                     "home_team": _canon_team(h_abbr) if h_abbr else None,
                     "away_team": _canon_team(a_abbr) if a_abbr else None,
+                    "venue": ((g.get("venue") or {}).get("name") or None),
                 })
     return _dedupe_prefer_scored(pd.DataFrame(rows, columns=cols))
 
@@ -148,6 +154,12 @@ def apply_official_results(games: pd.DataFrame,
     - Non-final games: home_win set to NaN so a live/preview score snapshot
       can NEVER enter training or artifacts as an outcome. Scores are kept
       for display only.
+    - Venue coverage: rows whose venue is missing/'Unknown' are filled from
+      the official schedule (works for non-final rows too — the park is
+      known at schedule time). Known venues are NEVER renamed: the static
+      team→park names are canonical for venue_id/category stability.
+      This self-heals the 486 AZ/ATH 'Unknown' rows the static map missed
+      (2026-10-08 review).
 
     Rows are matched by StatsAPI ``game_pk`` when present; rows without a
     game_pk (e.g. the ESPN-built upcoming slate) fall back to a match on
@@ -192,6 +204,12 @@ def apply_official_results(games: pd.DataFrame,
                 date_team_lookup[key] = r
 
     def _apply(row_idx, r) -> None:
+        # Venue fill first (independent of finality — the park is known
+        # the moment the game is scheduled).
+        if "venue" in df.columns and pd.notna(r.get("venue")):
+            _cur = df.at[row_idx, "venue"]
+            if pd.isna(_cur) or str(_cur).strip() in ("", "Unknown"):
+                df.at[row_idx, "venue"] = r["venue"]
         if bool(r["is_final"]):
             hs, as_ = r.get("home_score"), r.get("away_score")
             if pd.notna(hs) and pd.notna(as_):

@@ -506,6 +506,61 @@ def test_xgboost_params_pin_depth2_and_causal_priors():
     assert config.XGBOOST_EARLY_STOP == 20
 
 
+def test_determinism_blueprint_params_pinned():
+    """2026-10-08 full-tune blueprint: full multi-threaded training that
+    is bit-reproducible run-to-run — never n_jobs=1/num_threads=1.
+    Pins both member blocks and the intentional ABSENCE of
+    deterministic_histogram (removed upstream in xgboost 3.x; carrying
+    it only emits a 'not used' warning on every production fit)."""
+    import config
+
+    # XGBoost: explicit hist, all cores, fixed seed, no dead keys.
+    assert config.XGBOOST_PARAMS["tree_method"] == "hist"
+    assert config.XGBOOST_PARAMS["n_jobs"] == -1
+    assert config.XGBOOST_PARAMS["random_state"] == config.RANDOM_SEED
+    assert "deterministic_histogram" not in config.XGBOOST_PARAMS
+
+    # LightGBM: deterministic builder, explicit col-wise arm (many
+    # features), all threads, fixed seed, no row-wise flip-flop.
+    assert config.LIGHTGBM_PARAMS["deterministic"] is True
+    assert config.LIGHTGBM_PARAMS["force_col_wise"] is True
+    assert "force_row_wise" not in config.LIGHTGBM_PARAMS
+    assert config.LIGHTGBM_PARAMS["num_threads"] == -1
+    assert config.LIGHTGBM_PARAMS["random_state"] == config.RANDOM_SEED
+
+
+def test_members_fit_bit_identically_across_repeated_runs():
+    """The blueprint's actual acceptance test: two consecutive fits of
+    BOTH tree members at full thread count return byte-identical
+    probabilities (synthetic frame, ~1s). If a future param change
+    (threads, builder, seed handling) breaks reproducibility, this fails
+    before a production walk does."""
+    import config
+    import numpy as np
+    import pandas as pd
+    from lightgbm import LGBMClassifier
+    from xgboost import XGBClassifier
+
+    rng = np.random.default_rng(7)
+    X = pd.DataFrame(rng.normal(size=(800, 12)),
+                     columns=[f"f{i}" for i in range(12)])
+    X[X < -1.5] = np.nan  # NaN routing must stay deterministic too
+    y = (rng.random(800) > 0.5).astype(int)
+
+    def _xgb():
+        return XGBClassifier(**config.XGBOOST_PARAMS,
+                             n_estimators=30).fit(X, y).predict_proba(X)[:, 1]
+
+    def _lgb():
+        p = {k: v for k, v in config.LIGHTGBM_PARAMS.items()
+             if k != "n_estimators"}
+        return LGBMClassifier(**p, n_estimators=30).fit(
+            X, y).predict_proba(X)[:, 1]
+
+    assert np.array_equal(_xgb(), _xgb()), "XGBoost run-to-run mismatch"
+    assert np.array_equal(_lgb(), _lgb()), "LightGBM run-to-run mismatch"
+
+
 def test_causal_xgb_rounds_prior_median_rule():
     """2026-09-30 PIT remediation: a fold's SHIPPED XGBoost round count is
     the median of PRIOR folds' measured best iterations — never the fold's
@@ -700,8 +755,9 @@ def test_apply_official_results_matches_pkless_slate_by_date_and_teams():
 def test_fetch_mlb_results_hydrates_and_ships_team_columns():
     """The schedule endpoint returns team objects WITHOUT abbreviations
     unless hydrated — which made the slate fallback key unbuildable.
-    fetch_mlb_results must request team(abbreviation) and canonicalize
-    the codes it gets (CHW→CWS via _canon_team)."""
+    fetch_mlb_results must request team(abbreviation) AND venue (the
+    official park name that fills venue='Unknown' holes — 2026-10-08
+    review) and canonicalize the codes it gets (CHW→CWS via _canon_team)."""
     import results as results_mod
     from results import fetch_mlb_results
 
@@ -713,6 +769,7 @@ def test_fetch_mlb_results_hydrates_and_ships_team_columns():
             return {"dates": [{"date": "2026-10-03", "games": [{
                 "gamePk": 777,
                 "status": {"abstractGameState": "Final"},
+                "venue": {"name": "Progressive Field"},
                 "teams": {
                     "home": {"score": 3, "team": {"abbreviation": "CLE"}},
                     "away": {"score": 0, "team": {"abbreviation": "CHW"}},
@@ -728,11 +785,54 @@ def test_fetch_mlb_results_hydrates_and_ships_team_columns():
     with patch.object(results_mod.requests, "get", side_effect=_get):
         df = fetch_mlb_results(date(2026, 10, 3), date(2026, 10, 3))
 
-    assert captured["params"]["hydrate"] == "team(abbreviation)"
+    assert captured["params"]["hydrate"] == "team(abbreviation),venue"
     assert "home_team" in df.columns and "away_team" in df.columns
     assert df.loc[0, "home_team"] == "CLE"
     assert df.loc[0, "away_team"] == "CWS"  # alias canonicalized
     assert df.loc[0, "home_score"] == 3.0 and df.loc[0, "is_final"]
+    assert "venue" in df.columns
+    assert df.loc[0, "venue"] == "Progressive Field"
+
+
+def test_apply_official_results_fills_unknown_venue_only():
+    """2026-10-08 feature-accuracy review: 486 AZ/ATH rows shipped
+    venue='Unknown' because the static team→park map had no Statcast-code
+    arm. The official schedule hydrates the park, so the overlay fills
+    MISSING/'Unknown' venues from it — but NEVER renames a known venue
+    (static names are canonical for venue_id/category stability)."""
+    from results import apply_official_results
+
+    games = pd.DataFrame([
+        # Unknown venue → filled from the official source (final or not).
+        {"game_pk": 1, "game_date": "2026-09-01", "home_team": "AZ",
+         "away_team": "LAD", "home_win": 1.0, "venue": "Unknown"},
+        # Known venue → untouched even though the source says something else.
+        {"game_pk": 2, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_win": np.nan, "venue": "Yankee Stadium"},
+        # NaN venue → filled too.
+        {"game_pk": 3, "game_date": "2026-09-02", "home_team": "ATH",
+         "away_team": "SEA", "home_win": np.nan, "venue": np.nan},
+    ])
+    res = pd.DataFrame([
+        {"game_pk": 1, "game_date": "2026-09-01", "home_team": "AZ",
+         "away_team": "LAD", "home_score": 5, "away_score": 2,
+         "home_win": 1.0, "is_final": True, "venue": "Chase Field"},
+        # Non-final (venue still known at schedule time).
+        {"game_pk": 2, "game_date": "2026-09-01", "home_team": "NYY",
+         "away_team": "BOS", "home_score": None, "away_score": None,
+         "home_win": None, "is_final": False, "venue": "New Park Name"},
+        {"game_pk": 3, "game_date": "2026-09-02", "home_team": "ATH",
+         "away_team": "SEA", "home_score": None, "away_score": None,
+         "home_win": None, "is_final": False, "venue": "Sutter Health Park"},
+    ])
+
+    out = apply_official_results(games, res)
+    assert out.loc[0, "venue"] == "Chase Field"        # Unknown → official
+    assert out.loc[1, "venue"] == "Yankee Stadium"     # known → never renamed
+    assert out.loc[2, "venue"] == "Sutter Health Park" # NaN → official
+    # A results frame WITHOUT the venue column must not crash the overlay.
+    out2 = apply_official_results(games, res.drop(columns=["venue"]))
+    assert out2.loc[0, "venue"] == "Unknown"
 
 
 def test_official_results_never_alias_doubleheader_legs():

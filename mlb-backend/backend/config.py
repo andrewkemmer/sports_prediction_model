@@ -347,6 +347,24 @@ XGBOOST_PARAMS = {
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
+    # ── DETERMINISM BLUEPRINT (2026-10-08 full-tune review) ────────────────
+    # tree_method='hist' pinned EXPLICITLY (it is the 3.x default, but the
+    # blueprint forbids leaving the algorithm to a version-dependent
+    # default) and n_jobs=-1: full multi-threaded training, never a
+    # 1-thread throttle, with a fixed random_state so run N and run N+1
+    # are byte-identical. Verified on this machine: two complete fits of
+    # this exact block at n_jobs=-1 produce bit-identical
+    # predict_proba, and two full walk-forward baseline walks produced
+    # identical pooled + per-member OOF metrics.
+    # The blueprint's deterministic_histogram=True is INTENTIONALLY
+    # ABSENT: xgboost 3.4.0 removed the parameter upstream (NEWS.md:
+    # "we removed the parameter deterministic_histogram and now ...
+    # always deterministic"); passing it only emits "Parameters: {
+    # deterministic_histogram } are not used" on every fit. Compliance
+    # is by construction (hist + fixed seed + verified bit-identity),
+    # not by carrying a dead key that warns in production logs.
+    "tree_method": "hist",
+    "n_jobs": -1,
 }
 # RETUNE 2026-09-30 (max_depth 3 -> 1) — adopted, then PROVENANCE-
 # CORRECTED 2026-09-30 after the first production run under the new
@@ -435,6 +453,28 @@ XGBOOST_PARAMS = {
 # patience is a tunable — but it was kept fixed during the main search
 # and scrutinized only in the addendum so the search never selected
 # its own measurement noise.
+# L9 FROM-SCRATCH TUNE (2026-10-08, record mlb_tune_20261008.json):
+# the determinism blueprint was activated FIRST (tree_method='hist' +
+# n_jobs=-1 below; two full 83-fold walks proved bit-identical pooled,
+# member and weight outputs), then the 3-seed noise floor was measured
+# BEFORE any search (member pooled-OOF-logloss range 0.0012, blend
+# 0.0003), 32 seeded random draws screened on a 20-fold surface whose
+# last 4 folds were SEALED off (truncated-frame geometry), and the top-2
+# finalists were verified on the FULL walk under 3 paired seeds.
+# Both finalists REVERSED — the L7/L8 narrow-surface pattern again:
+#   c1 (d2/mcw5/g2/sub.85/col.75/lr.12/la2/lalpha1)
+#     screen d_ll -0.0047 -> full-walk member +0.0022 mean (3/3 worse),
+#   c2 (d2/mcw50/g4/sub.65/col.5/lr.12/la1/lalpha1)
+#     screen -0.0041 -> full-walk -0.00023 (inside the 0.0012 floor,
+#     not 3/3). Member gate failed both; blend (c2 -0.00041) and the
+#     seal (c1 -0.0050 / c2 -0.0051 mean member d_ll over the untouched
+#     last 4 folds) leaned challenger, but the doctrine grades the
+#     member gate. XGBOOST_PARAMS CONFIRMED — second consecutive
+#     challenge defeated (L8, L9). Signal logged for a future review:
+#     challengers improved member AND blend AUC on every seed (+0.002
+#     to +0.008) while losing pooled logloss — this member ranks better
+#     than it calibrates; revisit only under an AUC-aware, member-level
+#     gate with its own floor, never by weakening the L-series gate.
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
 # requires eval_set when early_stopping_rounds is set, and the full-refit
@@ -523,6 +563,18 @@ XGBOOST_REFIT_ROUNDS = 50
 # (364) and leaves (40) at a 2.9x slower learning rate, and stability from
 # sampling discipline instead of pruning — min_gain_to_split down to
 # 0.418, bagging 0.39 every 4 rounds, features 0.53, extra_trees.
+# L9 FROM-SCRATCH TUNE (2026-10-08, record mlb_tune_20261008.json):
+# determinism blueprint first (deterministic/force_col_wise/num_threads=-1
+# below; both baseline walks were bit-identical), 3-seed noise floor
+# measured BEFORE the search (pooled OOF logloss range 0.0005 — half of
+# the L8 frame's 0.00144), 32 seeded draws on a surface whose last 4
+# folds were SEALED, top-2 verified on the full walk under 3 paired
+# seeds. Both screen leaders REVERSED on the full honest walk: c1
+# (250r/depth6/15 leaves/bagging .9/features .9/no extra_trees/lambda 5)
+# screen d_ll -0.0006/AUC +0.0046 -> full-walk member +0.0036 mean (3/3
+# worse); c2 +0.0002 mean (inside the floor). Member gate failed both;
+# LIGHTGBM_PARAMS CONFIRMED — the block survives its fourth challenge
+# (L6, L7 confirmed; L8 adopted; L9 confirmed).
 LIGHTGBM_PARAMS = {
     "n_estimators": 364,
     "max_depth": 7,
@@ -539,6 +591,23 @@ LIGHTGBM_PARAMS = {
     "extra_trees": True,
     "random_state": RANDOM_SEED,
     "verbose": -1,
+    # ── DETERMINISM BLUEPRINT (2026-10-08 full-tune review) ────────────────
+    # deterministic=True pins histogram construction; force_col_wise=True
+    # is the explicit builder choice for the many-features arm (109
+    # serving features) so the row/col builder selection can never shift
+    # between machines or library builds; num_threads=-1 keeps FULL
+    # multi-threading (never a 1-thread hobble — the L8 tune's
+    # num_threads=1 was a tuner-stability device, not a production
+    # setting, and production never shipped it); random_state fixed above.
+    # Column-order contract (blueprint item 4) is enforced upstream:
+    # training.set_feature_subset() reorders any adopted RFE subset to
+    # canonical pool order and training._feature_matrix reindexes to it,
+    # so LightGBM sees a strictly identical column order every run.
+    # Verified on this machine: two complete fits at num_threads=-1 are
+    # bit-identical on predict_proba.
+    "deterministic": True,
+    "force_col_wise": True,
+    "num_threads": -1,
 }
 # MLP member — small neural net with early stopping; the ensemble's
 # diversity wildcard whose weight is earned (or starved) by the adaptive
