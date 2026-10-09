@@ -99,10 +99,10 @@ def _date_compact(run_date: str) -> str:
 def _kickoff_utc(g) -> pd.Timestamp | None:
     """Real kickoff as UTC from (gameday, gametime) — gametime is ET.
 
-    Distinct from ``_start_time_utc`` (which emits the display string with
-    the documented no-offset convention): status derivation needs the true
-    instant, so the ET wall time is localized properly. NaT when the row
-    carries no parseable kickoff — callers degrade, never guess.
+    The single ET→UTC conversion path: ``_start_time_utc`` formats this
+    same instant for the artifacts, so status derivation and the published
+    stamp can never disagree. NaT when the row carries no parseable
+    kickoff — callers degrade, never guess.
     """
     gd = _date_str(g.get("gameday", ""))
     gt = str(g.get("gametime", "") or "").strip()
@@ -264,20 +264,22 @@ def write_board_csv(out_dir, slate_df: pd.DataFrame, p_home: np.ndarray,
 
 
 def _start_time_utc(g) -> str | None:
-    gd = _date_str(g.get("gameday", ""))
-    gt = str(g.get("gametime", "") or "")
-    if not gd:
-        return None
-    if gt and ":" in gt:
-        # nflverse gametime is ET; encode as UTC by adding the ET offset (4/5h).
-        # Simple documented convention: EST (UTC-5) outside DST is ignored for
-        # display purposes — the frontend renders the time string as-is.
-        try:
-            hour, minute = gt.split(":")[:2]
-            return f"{gd}T{int(hour) + 0:02d}:{minute}:00Z"
-        except Exception:
-            pass
-    return f"{gd}T00:00:00Z"
+    """Kickoff as the contract's true UTC ISO stamp (``Z`` MEANS UTC).
+
+    One conversion path with ``_kickoff_utc``: the ET wall clock (nflverse
+    ``gametime``) is localized to America/New_York and converted to UTC —
+    the house contract MLB/NBA/NHL share (``utils._parse_start_time_utc``
+    reads these stamps as UTC instants and converts to ET for display, and
+    the board validation converts back to the ET date). The pre-2026-10-09
+    writer stamped the ET wall clock itself with a ``Z`` suffix — every
+    UTC-reading consumer saw a kickoff 4–5h early (30/30 probe rows in the
+    2026-10-08 coverage audit) — and fabricated ``T00:00:00Z`` for an
+    unknown kickoff, which reads as the PRIOR ET evening. Unknown kickoff
+    now emits None: a card with no kickoff is honest, a wrong one is not
+    (the NBA/NHL rule this contract now matches).
+    """
+    ts = _kickoff_utc(g)
+    return None if ts is None else ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------------------------------------------------------------------

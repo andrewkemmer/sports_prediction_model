@@ -24,8 +24,8 @@ marked ⟐):
      (nfl_calibration_*.json) with the decided count resolved by
      ``_decided_mask`` (``home_win`` when the artifact grades it, else a
      Final row's score pair — the store ships NaN ``home_win``);
-     evening count computed from the start times with the NFL serving
-     convention (``_is_evening_kickoff`` — the stamp's hour IS ET).
+     evening count computed from the start times (``_is_evening_kickoff``
+     — true-UTC stamps converted to ET).
   6. ``_render_date_nav`` — the SHARED date navigation (arrows + calendar
      + mobile rail), imported, not duplicated.
   6b. NO archive banner between the date nav and the filter pills — the
@@ -155,24 +155,18 @@ def _qb_matchup_html(qb_row) -> str:
 # ---------------------------------------------------------------------------
 
 def _is_evening_kickoff(iso) -> bool:
-    """True when the kickoff stamp reads 7 PM ET or later — under the NFL
-    SERVING CONVENTION.
+    """True when the kickoff reads 7 PM ET or later.
 
-    The NFL artifacts keep the ET wall-clock inside an ISO-shaped field
-    (nflverse gametime is already ET — see ``todays_games._nfl_start_time_
-    et``: "Do not apply a second UTC-to-ET conversion"). ``utils._is_
-    evening_start`` parses stamps as true UTC instants (the MLB/true-UTC
-    convention), which shifts these stamps 4–5 hours and would label every
-    8:20 PM ET kickoff a '☀ Day Game'. The hour is read AS ET here,
-    exactly like the time renderer. Absent/unparseable → False (the card
-    keeps its quiet default, never a fabricated tag).
+    ``start_time_utc`` is a real UTC instant under the shared serving
+    contract (``utils._is_evening_start`` parses it and converts to ET),
+    the same semantics every MLB/NBA/NHL card uses. (Before 2026-10-09
+    the NFL writer stamped the ET wall clock with a ``Z`` suffix and this
+    helper read the raw hour as ET to compensate; the writer now emits
+    the true instant, so the conversion happens exactly once.)
+    Absent/unparseable → False (the card keeps its quiet default, never a
+    fabricated tag).
     """
-    try:
-        dt = datetime.strptime(str(iso or "")[:16].replace("T", " "),
-                               "%Y-%m-%d %H:%M")
-    except (TypeError, ValueError):
-        return False
-    return dt.hour >= 19
+    return utils._is_evening_start(iso)
 
 
 def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
@@ -217,9 +211,8 @@ def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
 
     # --- top badge strip (MLB pills; final games show ✓/X like MLB) ---
     # Default is Night; a present kickoff demotes it to Day when the stamp
-    # is NOT ≥ 7 PM ET under the NFL serving convention (see
-    # _is_evening_kickoff — the ET wall-clock lives in the ISO-shaped
-    # field and must not be UTC-shifted).
+    # is NOT ≥ 7 PM ET (see _is_evening_kickoff — the true-UTC stamp
+    # converts to ET before the hour test).
     day_tag = "🌙 Night Game"
     start_iso = str(g.get("start_time_utc", "") or "")
     if start_iso and not _is_evening_kickoff(start_iso):

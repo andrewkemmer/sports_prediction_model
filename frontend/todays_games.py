@@ -746,19 +746,18 @@ def _nfl_widget_key(r) -> str:
 
 
 def _nfl_start_time_et(value) -> str:
-    """Render NFL gametime as Eastern wall-clock time.
+    """Render the kickoff stamp as Eastern wall-clock time.
 
-    nflverse's ``gametime`` is already ET, while the serving artifact keeps
-    the value in an ISO-shaped field for the shared card contract. Do not
-    apply a second UTC-to-ET conversion here.
+    ``start_time_utc`` is a real UTC instant under the shared serving
+    contract (``utils._parse_start_time_utc``), so the display applies
+    exactly one UTC→ET conversion — the same converter MLB/NBA/NHL cards
+    use. (Before 2026-10-09 the NFL writer stamped the ET wall clock with
+    a ``Z`` suffix and this renderer read the raw hour as ET to
+    compensate; the writer now emits the true instant
+    ``serving._start_time_utc`` derives from nflverse's ET ``gametime``,
+    so the compensation is gone.)
     """
-    try:
-        raw = str(value or "")
-        stamp = raw[:16].replace("T", " ")
-        dt = datetime.strptime(stamp, "%Y-%m-%d %H:%M")
-        return f"{dt.hour % 12 or 12}:{dt:%M} {dt:%p} ET"
-    except (TypeError, ValueError):
-        return ""
+    return utils.start_time_et(value)
 
 
 def _nfl_banner_html(status, is_final, is_live, winner, pick, correct,

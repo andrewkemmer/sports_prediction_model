@@ -14,7 +14,9 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -69,6 +71,63 @@ def _polars_to_pandas(frame):
     if hasattr(frame, "to_pandas"):
         return frame.to_pandas()
     return frame
+
+
+# ---------------------------------------------------------------------------
+# Mutable-season cache policy (2026-10-08 coverage audit)
+# ---------------------------------------------------------------------------
+# Each loader below caches its narrowed frame per season and short-circuits
+# on ``use_cache and path.exists()``. For a HISTORICAL season that rule is
+# complete: a finished season's nflverse rows never change. For the season
+# being played it is wrong — every source tops up weekly during the season
+# (schedule finals, PBP, player stats, NGS, snaps, FTN charting, weekly
+# injury and roster snapshots, and new players in the crosswalk), so a cache
+# written in week 1 kept serving week-1 coverage on every later run (the
+# audit's measured "mutable-season caches never top up"). A cache covering a
+# mutable season therefore re-pulls on every run — the same refresh rule
+# load_injuries_pit applies to seasons with future kickoffs — and falls back
+# to its cached rows only when the source is unreachable: stale rows are
+# still evidence, a silent coverage hole is not.
+
+
+def mutable_seasons(today=None) -> set[int]:
+    """Labels of seasons still being played (Sep 1 → the Feb 28 bound).
+
+    A season spans two calendar years — 2026 runs Sep 2026 → Feb 2027, the
+    season-alias end bound ``config.resolve_run_end_date`` documents — so
+    the label is the starting year and at most one label qualifies at any
+    moment. Any other date is the offseason: the last season is complete
+    and every cache is final.
+    """
+    if today is None:
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+    return {s for s in (today.year, today.year - 1)
+            if datetime(s, 9, 1).date() <= today <= datetime(s + 1, 2, 28).date()}
+
+
+def _serve_cached(use_cache: bool, path: Path, seasons) -> bool:
+    """True when the cache at ``path`` may be served without re-pulling.
+
+    ``seasons`` is the season label (or iterable of labels) the file covers;
+    the league-wide players crosswalk passes ``config.ALL_SEASONS``.
+    Immutable coverage serves whenever the cache exists; anything touching
+    a mutable season re-pulls so the cache tops up (see ``mutable_seasons``).
+    """
+    if not use_cache or not path.exists():
+        return False
+    covered = {seasons} if isinstance(seasons, int) else set(seasons)
+    return not (covered & mutable_seasons())
+
+
+def _stale_cache(path: Path):
+    """Cached frame at ``path`` as a re-pull failure fallback, else None."""
+    if not path.exists():
+        return None
+    try:
+        return pd.read_parquet(path)
+    except Exception as exc:  # corrupt cache: no fallback exists
+        logger.warning("cache %s unreadable (%s)", path.name, exc)
+        return None
 
 
 def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
@@ -157,10 +216,18 @@ def load_schedule(seasons: list[int] | None = None,
     seasons = seasons or config.ALL_SEASONS
     tag = "_".join(str(s) for s in sorted(seasons))
     path = _cache_path(f"schedules_{SCHEDULE_CACHE_VERSION}_{tag}.parquet")
-    if use_cache and path.exists():
+    if _serve_cached(use_cache, path, seasons):
         return pd.read_parquet(path)
-    from nflreadpy import load_schedules
-    df = _polars_to_pandas(load_schedules(seasons))
+    try:
+        from nflreadpy import load_schedules
+        df = _polars_to_pandas(load_schedules(seasons))
+    except Exception as exc:  # noqa: BLE001
+        stale = _stale_cache(path) if use_cache else None
+        if stale is not None:
+            logger.warning("schedule source unavailable (%s); serving the "
+                           "cached schedule rows", exc)
+            return stale
+        raise
     keep = [c for c in (
         "game_id", "season", "week", "game_type", "gameday", "gametime",
         "home_team", "away_team", "home_score", "away_score", "roof",
@@ -235,7 +302,7 @@ def load_pbp(seasons: list[int] | None = None,
     for season in seasons:
         try:
             path = _cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -260,6 +327,12 @@ def load_pbp(seasons: list[int] | None = None,
                 df = _polars_to_pandas(load_pbp(season))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("pbp unavailable for %s: %s", season, exc)
+                stale = _stale_cache(_cache_path(
+                    f"pbp_{PBP_CACHE_VERSION}_{season}.parquet"))
+                if use_cache and stale is not None:
+                    logger.warning("using stale cached pbp rows for %s",
+                                   season)
+                    frames.append(stale)
                 continue
             keep = [c for c in PBP_NEEDS if c in df.columns]
             df = df[keep]
@@ -559,7 +632,7 @@ def load_player_stats(seasons: list[int] | None = None,
     for season in seasons:
         try:
             path = _cache_path(f"ps_{PS_CACHE_VERSION}_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -574,6 +647,10 @@ def load_player_stats(seasons: list[int] | None = None,
             df = _polars_to_pandas(load_player_stats(season))
         except Exception as exc:  # noqa: BLE001
             logger.warning("player stats unavailable for %s: %s", season, exc)
+            stale = _stale_cache(path) if use_cache else None
+            if stale is not None:
+                logger.warning("using stale cached player stats for %s", season)
+                frames.append(stale)
             continue
         keep = [c for c in PS_NEEDS if c in df.columns]
         df = df[keep]
@@ -616,7 +693,7 @@ def load_nextgen(seasons: list[int] | None = None,
         for group in NGS_GROUPS:
             try:
                 path = _cache_path(f"ngs_v2_{season}_{group}.parquet")
-                if use_cache and path.exists():
+                if _serve_cached(use_cache, path, season):
                     try:
                         frames.append(pd.read_parquet(path))
                         continue
@@ -633,6 +710,11 @@ def load_nextgen(seasons: list[int] | None = None,
                 df = _polars_to_pandas(load_nextgen_stats(season, group))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ngs %s unavailable for %s: %s", group, season, exc)
+                stale = _stale_cache(path) if use_cache else None
+                if stale is not None:
+                    logger.warning("using stale cached ngs rows for %s %s",
+                                   group, season)
+                    frames.append(stale)
                 continue
             need = NGS_NEEDS[group]
             keep = [c for c in need if c in df.columns]
@@ -688,7 +770,7 @@ def load_snap_counts(seasons: list[int] | None = None,
     for season in seasons:
         try:
             path = _cache_path(f"snaps_{SNAPS_CACHE_VERSION}_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -703,6 +785,10 @@ def load_snap_counts(seasons: list[int] | None = None,
             df = _polars_to_pandas(load_snap_counts(season))
         except Exception as exc:  # noqa: BLE001
             logger.warning("snap counts unavailable for %s: %s", season, exc)
+            stale = _stale_cache(path) if use_cache else None
+            if stale is not None:
+                logger.warning("using stale cached snap counts for %s", season)
+                frames.append(stale)
             continue
         keep = [c for c in SNAPS_NEEDS if c in df.columns]
         df = df[keep]
@@ -739,7 +825,7 @@ def load_ftn_charting(seasons: list[int] | None = None,
     for season in seasons:
         try:
             path = _cache_path(f"ftn_v1_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -754,6 +840,10 @@ def load_ftn_charting(seasons: list[int] | None = None,
             df = _polars_to_pandas(load_ftn_charting(season))
         except Exception as exc:  # noqa: BLE001
             logger.warning("ftn charting unavailable for %s: %s", season, exc)
+            stale = _stale_cache(path) if use_cache else None
+            if stale is not None:
+                logger.warning("using stale cached ftn rows for %s", season)
+                frames.append(stale)
             continue
         keep = [c for c in FTN_NEEDS if c in df.columns]
         df = df[keep]
@@ -774,24 +864,33 @@ PLAYERS_CACHE_VERSION = "v1"
 
 
 def load_player_id_crosswalk(use_cache: bool = True) -> pd.DataFrame:
-    """GSIS id -> PFR id for every published player (one league-wide pull)."""
+    """GSIS id -> PFR id for every published player (one league-wide pull).
+
+    League-wide (season-spanning) cache: players enter the league mid-season
+    (call-ups whose report rows cannot resolve without an id), so during a
+    mutable season the pull tops the cache up and the cached rows are only
+    the fallback when the source is unreachable — the same refresh rule the
+    per-season caches follow. Offseason runs serve the cache outright.
+    """
     path = _cache_path(f"players_crosswalk_{PLAYERS_CACHE_VERSION}.parquet")
-    if use_cache and path.exists():
+    if _serve_cached(use_cache, path, config.ALL_SEASONS):
         try:
             return pd.read_parquet(path)
         except Exception as exc:  # corrupt cache -> re-pull
             logger.warning("player crosswalk cache unreadable (%s): %s",
                            path.name, exc)
+    empty = pd.DataFrame(columns=["gsis_id", "pfr_id"])
     try:
         from nflreadpy import load_players
+        df = _polars_to_pandas(load_players())
     except Exception as exc:  # noqa: BLE001
-        logger.error("nflreadpy unavailable: %s", exc)
-        return pd.DataFrame(columns=["gsis_id", "pfr_id"])
-    df = _polars_to_pandas(load_players())
+        logger.warning("player crosswalk source unavailable: %s", exc)
+        stale = _stale_cache(path) if use_cache else None
+        return stale if stale is not None else empty
     keep = [c for c in ("gsis_id", "pfr_id") if c in df.columns]
     if len(keep) < 2:
         logger.warning("player crosswalk source missing id columns; empty")
-        return pd.DataFrame(columns=["gsis_id", "pfr_id"])
+        return empty
     df = df[keep].dropna(how="any").drop_duplicates("gsis_id", keep="first")
     df.to_parquet(path, index=False)
     return df
@@ -828,7 +927,7 @@ def load_injuries_weekly(seasons: list[int] | None = None,
         try:
             path = _cache_path(
                 f"inj_weekly_{INJ_WEEKLY_CACHE_VERSION}_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -845,6 +944,11 @@ def load_injuries_weekly(seasons: list[int] | None = None,
         except Exception as exc:  # noqa: BLE001
             logger.warning("weekly injury report unavailable for %s: %s",
                            season, exc)
+            stale = _stale_cache(path) if use_cache else None
+            if stale is not None:
+                logger.warning("using stale cached weekly injury rows for %s",
+                               season)
+                frames.append(stale)
             continue
         df = df.loc[:, ~df.columns.duplicated()].copy()
         # Canonicalize the season_type spelling before narrowing (same
@@ -916,7 +1020,7 @@ def load_weekly_rosters(seasons: list[int] | None = None,
         try:
             path = _cache_path(
                 f"roster_weekly_{ROSTER_WEEKLY_CACHE_VERSION}_{season}.parquet")
-            if use_cache and path.exists():
+            if _serve_cached(use_cache, path, season):
                 try:
                     frames.append(pd.read_parquet(path))
                     continue
@@ -933,6 +1037,11 @@ def load_weekly_rosters(seasons: list[int] | None = None,
         except Exception as exc:  # noqa: BLE001
             logger.warning("weekly roster snapshot unavailable for %s: %s",
                            season, exc)
+            stale = _stale_cache(path) if use_cache else None
+            if stale is not None:
+                logger.warning("using stale cached weekly roster rows for %s",
+                               season)
+                frames.append(stale)
             continue
         df = df.loc[:, ~df.columns.duplicated()].copy()
         if "game_type" not in df.columns and "season_type" in df.columns:

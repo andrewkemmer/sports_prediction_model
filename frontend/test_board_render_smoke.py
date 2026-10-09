@@ -85,8 +85,13 @@ WRITTEN: list[Path] = []
 
 
 def _iso(day, et_hour: int) -> str:
-    """Start stamp the serving convention emits (date + ET time as-is)."""
-    return f"{day.isoformat()}T{et_hour:02d}:00:00Z"
+    """True-UTC kickoff stamp for an ET wall-clock hour — the serving
+    contract since 2026-10-09 (``start_time_utc`` is a real UTC instant,
+    ``Z`` MEANS UTC): an 8 PM ET kickoff is 00:00Z the following UTC day.
+    """
+    local = datetime(day.year, day.month, day.day, et_hour)
+    return (local.replace(tzinfo=ZoneInfo("America/New_York"))
+            .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
 def _moneyline_record() -> dict:
@@ -724,9 +729,10 @@ def run() -> int:
         # frozen store ships no venue/kickoff, so those fill from THIS
         # date's board snapshot — the stadium renders, the day/night tag
         # derives from the real kickoff (it used to default every archive
-        # game to 🌙 Night Game), under the NFL serving convention (the
-        # stamp's hour IS ET — never UTC-shifted, or an 8 PM kickoff reads
-        # '☀ Day Game'), and the board's own later re-published price
+        # game to 🌙 Night Game), from the true-UTC kickoff stamps (an
+        # 8 PM ET kickoff is 00:00Z the following UTC day — the tag must
+        # convert back to ET before the hour test, or it reads '☀ Day
+        # Game'), and the board's own later re-published price
         # (0.90) never reaches the card — the store's 62% still shows.
         if "MetLife Stadium" not in atext:
             problems.append("archive cards lost the dated board's venue "
@@ -738,8 +744,8 @@ def run() -> int:
                             "from the dated kickoff stamp")
         if "\U0001f319 Night Game" not in atext:
             problems.append("archive evening kickoff lost its night tag — "
-                            "the 20:00 stamp is 8 PM ET under the serving "
-                            "convention and must never UTC-shift to Day")
+                            "the 20:00 ET fixture is a 00:00Z stamp and the "
+                            "tag must convert UTC→ET before the hour test")
         if "90%" in atext:
             problems.append("archive card served the DATED BOARD's price — "
                             "display enrichment must never touch "

@@ -5157,6 +5157,88 @@ for _col in ("win_pct_home", "win_pct_away", "ewm_net_pts_home", "ewm_net_pts_aw
 check("multi-game pending horizon rests from last settled game, not a phantom game",
       _pending_reduced_f.rest_days_home.eq(21).all())
 
+# ---------------------------------------------------------------------------
+print("\n== Coverage-audit remediations (2026-10-08 coverage audit) ==")
+
+# High — "current-season caches do not top up on ordinary runs": the policy
+# that decides whether a cached season may be served without re-pulling.
+_mutable_cases = [
+    (date(2026, 9, 1), {2026}),      # opening day is mutable
+    (date(2026, 10, 8), {2026}),     # in season
+    (date(2027, 1, 20), {2026}),     # a season spans two calendar years
+    (date(2027, 2, 28), {2026}),     # last mutable day of the bound
+    (date(2026, 8, 31), set()),      # offseason, the day before the opener
+    (date(2027, 3, 1), set()),       # offseason, the day after the bound
+    (date(2026, 4, 15), set()),      # offseason, the prior season is final
+]
+for _d, _want in _mutable_cases:
+    _got = ing_mod.mutable_seasons(_d)
+    check(f"mutable_seasons {_d.isoformat()} -> "
+          f"{sorted(_want) or 'offseason'}",
+          _got == _want, f"got {sorted(_got)}")
+
+with tempfile.TemporaryDirectory() as _td:
+    _td = Path(_td)
+    _cache = _td / "season.parquet"
+    pd.DataFrame({"game_id": ["1"]}).to_parquet(_cache, index=False)
+    _absent = _td / "missing.parquet"
+    check("a finished season's cache is served as-is",
+          ing_mod._serve_cached(True, _cache, 2023))
+    check("a mutable season's cache is re-pulled so it tops up",
+          not ing_mod._serve_cached(True, _cache, 2026))
+    check("use_cache=False never serves the cache",
+          not ing_mod._serve_cached(False, _cache, 2023))
+    check("a missing cache never serves",
+          not ing_mod._serve_cached(True, _absent, 2023))
+    check("the league-wide crosswalk re-pulls during the season",
+          not ing_mod._serve_cached(True, _cache, config.ALL_SEASONS))
+    check("_stale_cache returns the cached frame for a failed refresh",
+          ing_mod._stale_cache(_cache) is not None)
+    check("_stale_cache is None when nothing is cached",
+          ing_mod._stale_cache(_absent) is None)
+
+    # End to end: an unreachable source serves the stale rows instead of
+    # punching a hole in the frame — the refresh's failure contract.
+    pd.DataFrame({"play_id": [1, 2], "season": [2026, 2026]}).to_parquet(
+        _td / f"pbp_{ing_mod.PBP_CACHE_VERSION}_2026.parquet", index=False)
+    _fake_nfl = mock.MagicMock()
+
+    def _source_down(*_a, **_k):
+        raise RuntimeError("nflverse unreachable")
+
+    _fake_nfl.load_pbp = _source_down
+    with mock.patch.object(ing_mod, "_cache_path", lambda name: _td / name), \
+            mock.patch.dict(sys.modules, {"nflreadpy": _fake_nfl}):
+        _out = ing_mod.load_pbp([2026], use_cache=True)
+    check("an unreachable source serves the stale cached season",
+          _out is not None and len(_out) == 2,
+          f"got {None if _out is None else len(_out)} rows")
+
+# High — "board kickoff timestamps are mislabeled UTC": the published stamp
+# must be a true UTC instant, one conversion with the status clock, and an
+# unknown kickoff must stay unknown instead of reading as T00:00:00Z.
+for _g, _want in (
+    ({"gameday": "2026-10-08", "gametime": "20:15"},
+     "2026-10-09T00:15:00Z"),      # the audit's TB@DAL case, DST
+    ({"gameday": "2026-07-01", "gametime": "19:30"},
+     "2026-07-01T23:30:00Z"),      # EDT (UTC-4)
+    ({"gameday": "2026-01-15", "gametime": "20:15"},
+     "2026-01-16T01:15:00Z"),      # EST (UTC-5) + UTC date rollover
+):
+    _got = serve_mod._start_time_utc(_g)
+    check(f"kickoff {_g['gameday']} {_g['gametime']} ET is true UTC",
+          _got == _want, f"got {_got} want {_want}")
+check("an unknown kickoff emits None, never a fabricated T00:00:00Z",
+      serve_mod._start_time_utc({"gameday": "2026-10-08"}) is None)
+check("an undated row also emits None",
+      serve_mod._start_time_utc({}) is None)
+check("the published stamp is exactly the status clock's instant",
+      serve_mod._start_time_utc(
+          {"gameday": "2026-01-15", "gametime": "20:15"})
+      == serve_mod._kickoff_utc(
+          {"gameday": "2026-01-15", "gametime": "20:15"})
+      .strftime("%Y-%m-%dT%H:%M:%SZ"))
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)
