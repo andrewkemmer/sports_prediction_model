@@ -636,12 +636,26 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
     # MEASURED counts real observations only — default-filled values are
     # excluded (the contract the monitor page prints under this table).
     pct = round(100.0 * n_measured / n_games, 2) if n_games else 0.0
+    n_warm_default_postseason = 0
     if warmup is not None and (n_null or n_default):
         warm = ~warmup.reindex(df.index).fillna(False).astype(bool)
         n_warm_null = int((null & warm).sum())
         n_warm_default = int((default & warm).sum())
         n_cold_null = n_null - n_warm_null
         n_cold_default = n_default - n_warm_default
+        if n_warm_default and "is_playoffs" in df.columns:
+            # Postseason source boundary, not a warm gap: MoneyPuck's
+            # player-game archives are regular-season-only, so past the
+            # pool's serve window (injury_stints.POOL_LOOKBACK_DAYS = 45
+            # days) every Cup-Final side is served the documented position
+            # prior. When EVERY warm-defaulted game in the window is a
+            # playoff game, the fallback is that boundary and the verdict
+            # must say so; a single regular-season default keeps the true
+            # "warm gap" cause the 2026-10-05 outage trained us to page on.
+            po = (pd.to_numeric(df["is_playoffs"], errors="coerce")
+                  .fillna(0).to_numpy() > 0.5)
+            n_warm_default_postseason = int(
+                (default & warm).to_numpy()[po].sum())
     else:
         n_warm_null, n_cold_null = n_null, 0
         n_warm_default = n_cold_default = 0
@@ -675,6 +689,9 @@ def _coverage_row(f: str, df: pd.DataFrame, window: str,
         "n_cold_default": n_cold_default, "n_warm_default": n_warm_default,
         "pct_measured_eligible": pct_eligible,
         "cause": ("defect" if n_warm_null
+                  else "position_prior_postseason_boundary"
+                  if n_warm_default
+                  and n_warm_default_postseason == n_warm_default
                   else "position_prior_default" if n_warm_default
                   else "cold_start" if (n_cold_null or n_cold_default)
                   else "complete"),

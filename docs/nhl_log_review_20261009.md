@@ -211,3 +211,54 @@ this run reported in the current window are labelled truthfully.
   run's own numbers, but the frames are not byte-identical.
 - The NHL has no `check_production_graph.py` (MLB-only); production wiring is
   covered by the backend suite's import/contract tests.
+
+## Second-run re-review — the 17:40 ET delivery (artifacts `0ef48389`)
+
+The next NHL run landed and both confirmed the morning remediations and
+surfaced their one residual item, now closed.
+
+**Remediation confirmed live.** The rebuilt
+`run_engine_feature_coverage_20261009.csv` carries `n_default_zero` /
+`n_cold_default` / `n_warm_default` with honest `pct_measured` (the pool
+columns read 97.6%, not 100.0%), the Phase-14 verdict names the features,
+and the pool line reports the fallback count directly
+(`368/5714 side(s) served >=1 position prior`). All 11 Phase-13 gates PASS,
+drift 0 warnings / 0 alerts / 8 seasonal, run green in 4,830 s, and the
+headline still matches the committed calibration artifact.
+
+**The residual "warm gap" WARNING is two documented boundaries, not a defect
+(remediated).** Measured on the run's own windows: the baseline's 24 features
+× 6 warm default-filled cells are exactly the six June-2026 Cup-Final games,
+and the current window's 5 PPO features are the early-October 5on4 evidence
+ramp (7-9 cells on `pl_ppo_r_*`). MoneyPuck's player-game archives are
+regular-season-only (the ingestion contract), so past the pool's 45-day
+serve window the Stanley Cup Final has no pool — a boundary that recurs every
+June (the local 2,855-row frame replays both 2025 and 2026 Cup Finals as 12
+defaulted cells per pool feature, every one on a playoff row) — and the ramp
+self-heals as power-play ice accumulates past the 900 s per-player floor.
+The 2026-10-05-style true warm gap has not recurred in either run since.
+
+- **Fix (`nhl-backend/backend/monitoring.py`).** Warm defaults whose games
+  are ALL playoff rows now classify as
+  `position_prior_postseason_boundary`; a single regular-season default keeps
+  `position_prior_default`. Measured%/status arithmetic is untouched — the
+  priors stay UNMEASURED and move the pill only through the published
+  thresholds.
+- **Fix (`nhl-backend/backend/master_pipeline.py`).** The Phase-14 verdict
+  warns only on non-postseason warm defaults (the true gap the 10-05 outage
+  trained it on) and discloses the postseason boundary as its own INFO line
+  naming the source contract; a mixed window does both — the warning carries
+  the boundary count.
+- **Pin** (`nhl-backend/backend/test_run_engine_pit.py`, existing file):
+  `test_coverage_splits_postseason_pool_boundary_from_warm_gap` — a
+  boundary-only window never WARNs and names the boundary; one
+  regular-season default keeps `position_prior_default` plus the WARNING; a
+  mixed window warns on the hole and discloses the boundary count; a frame
+  without `is_playoffs` keeps the old cause. Verified on the real frame by
+  replaying it through the fixed report (Cup-Final rows → boundary,
+  scattered regular-season group holes → `position_prior_default`).
+
+**Known limitation.** The shipped 19:01 artifacts are not rewritten; the new
+cause value lands in the coverage CSV and the verdict wording lands in the
+run log on the next pipeline run. The notebook-owned `NHL_FULL_REPULL=1`
+pin and the ops observations above are unchanged.

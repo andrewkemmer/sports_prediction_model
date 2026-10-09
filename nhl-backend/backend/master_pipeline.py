@@ -96,15 +96,44 @@ def _log_coverage_verdict(cov_rows: list[dict]) -> None:
                     window, len(rows), len(rows), pct, cold)
         if defaults:
             # Disclosure, not an alarm: a COLD default is the documented
-            # warm-up (the prior that seeds a slate with no pool yet).
+            # warm-up (the prior that seeds a slate with no pool yet), and a
+            # WARM default that sits only on playoff games is the documented
+            # source boundary (MoneyPuck archives are regular-season-only, so
+            # through the Cup Final the pool's serve window ages out). Only a
+            # warm default on a regular-season game is the true "warm gap"
+            # the 2026-10-05 outage trained the WARNING on.
             detail = ", ".join(
                 f"{r['feature']}({int(r['n_default_zero'])} default-filled)"
                 for r in defaults[:8])
-            log = logger.warning if warm_def else logger.info
-            log("coverage [%s]: %d feature(s) carry default-filled values "
-                "counted as UNMEASURED%s: %s", window, len(defaults),
-                (" — a warm gap, not a warm-up" if warm_def else " (cold "
-                 "rows only, by design)"), detail)
+            bound = [r for r in warm_def
+                     if r.get("cause") == "position_prior_postseason_boundary"]
+            hole = [r for r in warm_def if r not in bound]
+            if hole:
+                logger.warning(
+                    "coverage [%s]: %d feature(s) carry default-filled values "
+                    "counted as UNMEASURED — a warm gap, not a warm-up%s: %s",
+                    window, len(hole),
+                    (f" (+{len(bound)} postseason-boundary feature(s), "
+                     "disclosed as info)" if bound else ""),
+                    ", ".join(f"{r['feature']}"
+                              f"({int(r['n_default_zero'])} default-filled)"
+                              for r in hole[:8]))
+            if bound:
+                logger.info(
+                    "coverage [%s]: %d feature(s) serve position priors on "
+                    "POSTSEASON games — the documented source boundary "
+                    "(MoneyPuck player-game archives are regular-season-only; "
+                    "past the pool's 45-day serve window the Cup Final has no "
+                    "pool), counted UNMEASURED: %s",
+                    window, len(bound),
+                    ", ".join(f"{r['feature']}"
+                              f"({int(r['n_default_zero'])} default-filled)"
+                              for r in bound[:8]))
+            if not warm_def:
+                logger.info(
+                    "coverage [%s]: %d feature(s) carry default-filled values "
+                    "counted as UNMEASURED (cold rows only, by design): %s",
+                    window, len(defaults), detail)
         if warm:
             detail = ", ".join(
                 f"{r['feature']}({int(r['n_warm_null'])} {r.get('cause', 'null')})"

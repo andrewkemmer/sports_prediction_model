@@ -3216,6 +3216,87 @@ def test_coverage_verdict_names_default_filled_pool_values():
     assert "(team debut or season opener)" in infos, infos[:300]
 
 
+def test_coverage_splits_postseason_pool_boundary_from_warm_gap():
+    """2026-10-09 re-review of the 17:40 run: the warm-default WARNING was
+    firing on a DOCUMENTED source boundary.
+
+    MoneyPuck's player-game archives are regular-season-only, so past the
+    pool's 45-day serve window every Stanley-Cup-Final side is served the
+    position prior — the six defaulted June-2026 baseline games are exactly
+    that stretch, and the 2026-10-05-style true warm gap had not recurred.
+    Only a warm default on a regular-season game deserves the WARNING.
+
+    Pin: warm defaults whose games are ALL playoff rows classify as
+    ``position_prior_postseason_boundary`` and the verdict stays INFO naming
+    the boundary; a single regular-season default keeps
+    ``position_prior_default`` plus the WARNING; a mixed window warns on the
+    hole and still discloses the boundary count; a frame without the
+    ``is_playoffs`` column keeps the old cause.
+    """
+    from features import _POSITION_PRIOR
+    prior = float(_POSITION_PRIOR["EVO"]["C"])
+    warmup = pd.Series([False] * 8, dtype=bool)   # every game is warm
+
+    post = pd.DataFrame({
+        "pl_evo_c_home": [prior] * 6 + [prior + 0.3] * 2,
+        "pl_evo_c_away": [prior] * 6 + [prior + 0.3] * 2,
+        "is_playoffs": [1.0] * 6 + [0.0, 0.0],
+    })
+    hit = mon._coverage_row("pl_evo_c_home", post, "baseline", warmup)
+    assert hit["cause"] == "position_prior_postseason_boundary", hit
+    assert hit["n_warm_default"] == 6, hit
+    assert hit["pct_measured"] < 100.0, "the default stays UNMEASURED"
+    # No is_playoffs column: the old cause, unchanged arithmetic.
+    hole = mon._coverage_row("pl_evo_c_home", post.drop(columns=["is_playoffs"]),
+                             "baseline", warmup)
+    assert hole["cause"] == "position_prior_default", hole
+    # One regular-season default inside the playoff run keeps the true gap.
+    mixed = post.copy()
+    mixed.loc[0, "is_playoffs"] = 0.0
+    assert mon._coverage_row("pl_evo_c_home", mixed, "baseline",
+                             warmup)["cause"] == "position_prior_default"
+
+    # Verdict: a boundary-only window never WARNs (it names the boundary as
+    # info); a mixed window warns on the hole and discloses the boundary.
+    import master_pipeline as mp
+
+    def _brow(feature, cause, n_warm_default):
+        return {"feature": feature, "window": "baseline", "n_games": 8,
+                "n_measured": 8 - n_warm_default, "n_null": 0,
+                "n_cold_null": 0, "n_warm_null": 0, "n_cold_default": 0,
+                "n_warm_default": n_warm_default,
+                "n_default_zero": n_warm_default,
+                "status": "LOW_COVERAGE", "cause": cause}
+
+    boundary = _brow("pl_evo_c_home", "position_prior_postseason_boundary", 6)
+    gap = _brow("pl_ppo_r_away", "position_prior_default", 3)
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    mp.logger.addHandler(handler)
+    mp.logger.setLevel(logging.INFO)
+    try:
+        mp._log_coverage_verdict([boundary, gap])
+    finally:
+        mp.logger.removeHandler(handler)
+    warns = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
+    assert len(warns) == 1 and "pl_ppo_r_away" in warns[0], warns
+    assert "warm gap" in warns[0], warns
+    assert "1 postseason-boundary feature(s)" in warns[0], warns
+    infos = " ".join(r.getMessage() for r in records if r.levelno < logging.WARNING)
+    assert "POSTSEASON games" in infos and "regular-season-only" in infos, \
+        infos[:300]
+
+    records.clear()
+    mp.logger.addHandler(handler)
+    try:
+        mp._log_coverage_verdict([boundary])
+    finally:
+        mp.logger.removeHandler(handler)
+    assert not [r for r in records if r.levelno >= logging.WARNING], \
+        "the documented postseason boundary must not page"
+
+
 def test_feature_coverage_artifacts_carry_both_windows():
     """The CSV the monitor page loads must contain the slate window."""
     import tempfile
