@@ -158,6 +158,103 @@ def test_failed_right_rail_preserves_quality_but_retries_missing_counts(tmp_path
     assert len(list(tmp_path.glob("*.parquet"))) == 1
 
 
+def test_recent_boxscores_refresh_for_feed_corrections(tmp_path, monkeypatch):
+    """A cached boxscore inside BOXSCORE_REFRESH_DAYS re-pulls for feed fixes.
+
+    2026-10-09 NHL log review: the cache write is gated ONLY on the right-rail
+    team counts, so a boxscore cached before the feed finished posting
+    goalie/SOG fields is stored incomplete and — in the mode where the cache
+    is read at all (--skip-pull) — is never fetched again. The 2026-10-05 run
+    shipped that signature (9 WARM nulls across the goalie families, healed
+    only by NHL_FULL_REPULL=1).
+
+    Three pinned behaviours, mirroring the score-page contract:
+      (1) inside the window the game re-pulls and the correction lands in
+          both the returned frame and the cache;
+      (2) outside it a cache hit is final — no network call at all;
+      (3) a FAILED refresh serves the cached row: staleness beats a hole.
+    """
+    from datetime import date, timedelta
+
+    gid = "2024020194"
+    box, rail = official_sample()
+    corrected = {"teamGameStats": [
+        {"category": "powerPlay", "homeValue": "2/4", "awayValue": "0/3"},
+        {"category": "faceoffWins", "homeValue": "30/62", "awayValue": "32/62"}]}
+    recent = pd.Timestamp(date.today() - timedelta(days=1))
+    ancient = pd.Timestamp(date.today() -
+                           timedelta(days=ing.BOXSCORE_REFRESH_DAYS + 400))
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing, "_progress_bar", lambda *args: None)
+
+    state = {"rail": rail, "boom": False}
+
+    def fetch(url):
+        if state["boom"]:
+            raise RuntimeError("network down")
+        calls.append(url)
+        return state["rail"] if url.endswith("right-rail") else box
+
+    calls: list[str] = []
+    monkeypatch.setattr(ing, "_http_json", fetch)
+    cache_file = tmp_path / f"boxscore_{ing.BOXSCORE_CACHE_VERSION}_{gid}.parquet"
+
+    # Seed: an uncached game fetches and writes a complete cached row.
+    first = ing.load_boxscores([gid], use_cache=True, gameday_by_id={gid: recent})
+    assert len(calls) == 2 and cache_file.is_file()
+    assert int(first["home_faceoff_wins"].iloc[0]) == 27
+
+    # (1) inside the refresh window: re-pull, correction lands, re-cached.
+    state["rail"] = corrected
+    second = ing.load_boxscores([gid], use_cache=True, gameday_by_id={gid: recent})
+    assert len(calls) == 4, (
+        "a cached boxscore inside BOXSCORE_REFRESH_DAYS was never re-pulled")
+    assert int(second["home_faceoff_wins"].iloc[0]) == 30, (
+        "the feed correction did not land in the returned frame")
+    assert int(pd.read_parquet(cache_file)["home_faceoff_wins"].iloc[0]) == 30, (
+        "the refreshed correction was not written back to the cache")
+
+    # (2) outside the window: cache hit, no network, same values.
+    third = ing.load_boxscores([gid], use_cache=True, gameday_by_id={gid: ancient})
+    assert len(calls) == 4, "an old boxscore was re-pulled despite settlement"
+    assert int(third["home_faceoff_wins"].iloc[0]) == 30
+    assert len(third) == 1
+
+    # (3) a failed refresh falls back to the cached row — never a hole.
+    state["boom"] = True
+    fourth = ing.load_boxscores([gid], use_cache=True, gameday_by_id={gid: recent})
+    assert len(calls) == 4, "the fetch should have been attempted then failed"
+    assert len(fourth) == 1, "a failed refresh dropped the game from the frame"
+    assert int(fourth["home_faceoff_wins"].iloc[0]) == 30, (
+        "a failed refresh must serve the cached row, not an empty one")
+
+
+def test_refresh_window_needs_a_known_gameday(tmp_path, monkeypatch):
+    """No mapping (or an undatable game) keeps the cache authoritative.
+
+    The refresh is opt-in for dates we can date; without a gameday the age
+    is unknowable, so falling back to 'no re-pull' is what keeps a daily
+    run from re-fetching the whole history.
+    """
+    box, rail = official_sample()
+    calls: list[str] = []
+    monkeypatch.setattr(ing, "_cache_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(ing, "_progress_bar", lambda *args: None)
+
+    def fetch(url):
+        calls.append(url)
+        return rail if url.endswith("right-rail") else box
+
+    monkeypatch.setattr(ing, "_http_json", fetch)
+    gid = "2024020194"
+    ing.load_boxscores([gid], use_cache=True)               # seeds the cache
+    assert len(calls) == 2
+    ing.load_boxscores([gid], use_cache=True)               # no mapping
+    ing.load_boxscores([gid], use_cache=True,
+                       gameday_by_id={gid: None})           # undatable
+    assert len(calls) == 2, "an undated cached boxscore was re-pulled"
+
+
 def test_pp_and_faceoffs_pool_counts_and_exclude_current_game():
     games = pd.DataFrame([game(str(i), f"2024-10-{i + 1:02d}") for i in range(4)])
     rows = []

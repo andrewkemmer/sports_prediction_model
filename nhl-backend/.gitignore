@@ -38,6 +38,13 @@ __pycache__/
 # committed (this rule was a negation until the audit removed it).
 data_delivery/nhl_feature_workbook_*.xlsx
 
+# The moneyline member-tune record (2026-10-09, the from-scratch XGBoost /
+# LightGBM tune) is training residue on MLB's exact stance
+# (mlb-backend/.gitignore: data_delivery/mlb_tune_*): the harness rewrites it
+# every screen, it is not a serving family, and the verdict it carries is
+# written up in docs/nhl_log_review_20261008.md instead. Never committed.
+data_delivery/nhl_tune_*
+
 # Generated per-run internals — never committed.
 #   nhl_pipeline_summary.json / nhl_feature_selection_state.json are still
 #   written into data_delivery/ every run (local operational records; the

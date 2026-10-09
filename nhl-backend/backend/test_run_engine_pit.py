@@ -4804,6 +4804,56 @@ def test_season_seam_guard_rechecks_prior_year_phase_before_paging():
         assert seam[col][key] == plain[col][key], f"{key} was rewritten"
 
 
+def test_season_seam_recheck_reaches_sub_100_phase_samples():
+    """The seam re-check must be able to fire below 100 phase rows.
+
+    2026-10-08 remote-log remediation: the MLB port's fixed
+    ``len(phase_vals) >= 100`` floor is unreachable at the NHL season
+    seam — the same-calendar-phase windows (late Sep .. mid Oct of the
+    prior years) hold only 76-95 games because the league has barely
+    started — so every October the six seam alerts re-checked nothing
+    and stayed ALERT. The floor is now ``max(30, n_c)`` (a phase sample
+    at least as large as the window it judges; n_c >= 30 is guaranteed
+    by the guard), and the 2-SE gate still widens as the sample shrinks.
+
+    Two pinned behaviours: a 90-row phase sample against a 45-row current
+    window relabels (the old 100-floor blocked it forever); a phase sample
+    SMALLER than the current window still pages (the floor remains
+    meaningful — no tiny-sample blanket pardon).
+    """
+    rng = np.random.default_rng(23)
+    col = "rest_days_home"
+    base = pd.DataFrame({
+        col: rng.normal(2.3, 0.7, 130),
+        "gameday": pd.date_range("2026-02-01", periods=130, freq="D"),
+    })
+    cur = pd.DataFrame({
+        col: rng.normal(42.5, 3.0, 45),
+        "gameday": pd.date_range("2026-09-25", periods=45, freq="D"),
+    })
+
+    def _phase_frame(n: int) -> pd.DataFrame:
+        # All rows inside the k=-1 phase window (2025-09-18 .. 2025-10-16
+        # for this current span) so every one of the n rows counts.
+        return pd.DataFrame({
+            col: rng.normal(42.5, 3.0, n),
+            "gameday": pd.Timestamp("2025-09-20"),
+        })
+
+    # 90 phase rows >= n_c=45: the re-check runs and relabels — the
+    # pre-remediation code required >= 100 and could never get here.
+    ok = {r["feature"]: r for r in
+          mon.feature_drift(base, cur, feature_cols=[col],
+                            phase_frame=_phase_frame(90))}
+    assert ok[col]["status"] == "OK-SEASONAL", ok[col]
+
+    # 40 phase rows < n_c=45: floor not met — the row still pages.
+    thin = {r["feature"]: r for r in
+            mon.feature_drift(base, cur, feature_cols=[col],
+                              phase_frame=_phase_frame(40))}
+    assert thin[col]["status"] == "ALERT", thin[col]
+
+
 def test_feature_drift_logs_view_labeled_summary_lines():
     """The run log must carry MLB's view-labeled drift lines.
 

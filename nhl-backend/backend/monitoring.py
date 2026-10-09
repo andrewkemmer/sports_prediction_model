@@ -362,7 +362,21 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             phase_vals = _phase_matched_baseline(
                 phase_frame if phase_frame is not None else full_df,
                 recent_df, f, tuple(config.DRIFT_PHASE_EXTENSION_MONTHS))
-            if len(phase_vals) >= 100:
+            # Reachable floor (2026-10-08 remote-log remediation): the MLB
+            # port's fixed ``>= 100`` can NEVER fire at the NHL season seam.
+            # The phase windows are late Sep .. mid Oct of the prior years,
+            # and the league has barely started by then: on the 2026-10-08
+            # frame they held only 76-95 rows per feature, so the re-check
+            # silently skipped and all six seam alerts (rest_days 42.5 vs
+            # 2.3, goalie_starts 6.0 vs 45.7 - values verified against the
+            # official feed) stayed ALERT while every one of them re-checks
+            # clean at z 0.31-1.68. Require a phase sample at least as large
+            # as the current window it judges (n_c >= 30 is already guaranteed
+            # by the guard above). The 2-SE test below widens as the phase
+            # sample shrinks, so the smaller floor makes the re-check HARDER
+            # to pass, never easier — the 100-floor was suppressing the test,
+            # not protecting it.
+            if len(phase_vals) >= max(30, n_c):
                 pv = np.asarray(phase_vals, dtype=float)
                 pooled2 = float(np.sqrt(
                     ((len(pv) - 1) * pv.var(ddof=1)

@@ -188,17 +188,20 @@ SETTLE_GRACE_DAYS = 2
 # deep history the feed no longer revises.
 SCORE_REFRESH_DAYS = 3
 
-# A settled score page stays REFRESHABLE for this many days after its
-# game date: the feed revises final stats shortly after a game goes OFF
-# (2026-10-08 official-vs-cache audit: the settled 2026-10-06 page held
-# away_sog 28/28 while the feed's corrected values are 27/30 — and a
-# settled page is otherwise NEVER re-fetched, so the stale shots values
-# would feed trailing shots_for/against features forever). Inside the
-# window the page is re-pulled like a provisional one (and re-cached
-# when every game is final); a failed refresh falls back to the settled
-# cache so a network blip can never drop a recent date. Beyond the
-# window the permanent-settlement contract holds — no re-pull of the
-# deep history the feed no longer revises.
+# A CACHED BOXSCORE stays refreshable for this many days after its gameday —
+# the boxscore half of the same defect class, found by the 2026-10-09 NHL log
+# review. The cache write is gated ONLY on the right-rail team counts, so a
+# boxscore fetched before the feed finished posting goalie/SOG fields is
+# stored incomplete and, under --skip-pull (the mode where the cache is
+# read at all), is NEVER re-pulled: the 2026-10-05 run shipped exactly that
+# signature — "coverage [current]: 9 feature(s) with WARM nulls" across the
+# goalie_sv_pct / goalie_gaa / goalie_starts families — and only a full
+# repull (NHL_FULL_REPULL=1) healed it. Inside the window the game re-pulls
+# like an uncached one; a failed refresh, a still-live state, or fresh but
+# incomplete counts fall back to the cached row, so a refresh can never
+# trade observed facts for a hole in the feature frame. Beyond the window
+# the permanent-settlement contract holds, mirroring SCORE_REFRESH_DAYS.
+BOXSCORE_REFRESH_DAYS = 3
 
 
 def _progress_bar(total: int, desc: str):
@@ -974,6 +977,25 @@ def _skater_rows(bs: dict, game_id: str) -> list[dict]:
 
 
 
+def _boxscore_refreshable(gid: str, gameday_by_id: dict | None,
+                          today: "date") -> bool:
+    """True when this game's cached boxscore is young enough to re-pull.
+
+    Unknown gameday (or no mapping at all) means the age cannot be judged,
+    so the cache stays authoritative — the refresh is an opt-in for dates we
+    can date, never a reason to re-pull history on every run.
+    """
+    if not gameday_by_id:
+        return False
+    raw = gameday_by_id.get(gid)
+    if raw is None:
+        return False
+    ts = pd.to_datetime(raw, errors="coerce")
+    if ts is None or pd.isna(ts):
+        return False
+    return ts.date() >= today - timedelta(days=BOXSCORE_REFRESH_DAYS)
+
+
 def load_boxscores(game_ids: list[str], use_cache: bool = True,
                    gameday_by_id: dict | None = None,
                    chunk_days: int = PULL_CHUNK_DAYS,
@@ -985,6 +1007,11 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     Per-game parquet caches; a failed game
     is warned and skipped (downstream features degrade to NaN), never fatal.
 
+    Inside :attr:`BOXSCORE_REFRESH_DAYS` a cached game is re-pulled (the feed
+    revises goalie and shot fields after the first fetch), and every failure
+    mode of that refresh serves the cached row instead — staleness on a bad
+    network beats a missing game.
+
     ``gameday_by_id`` groups the pull into ``chunk_days`` calendar windows
     (MLB's ``_chunked_statcast`` shape) and drives the progress bar. Chunking
     is presentational: the returned rows are re-ordered to the caller's input
@@ -993,6 +1020,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     chunks = _chunk_games(game_ids, gameday_by_id, chunk_days)
     frames: list[pd.DataFrame] = []
     hits = fetched = 0
+    today = date.today()
     for n, (label, chunk_ids) in enumerate(chunks, 1):
         logger.info("boxscore chunk %d/%d [%s]: %d games",
                     n, len(chunks), label, len(chunk_ids))
@@ -1003,17 +1031,38 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
             len(chunk_ids), f"boxscore chunk {n}/{len(chunks)} [{label}]")
         for gid in chunk_ids:
             path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
+            # The cached row is HELD, not appended: inside the refresh window
+            # it becomes the fallback for a refresh that fails, and outside
+            # it the cache hit short-circuits exactly as before.
+            cached = None
             if use_cache and path.exists():
                 try:
-                    frames.append(_coerce_boxscore_dtypes(pd.read_parquet(path)))
-                    hits += 1
-                    prog.tick(cached=True)
-                    continue
+                    cached = _coerce_boxscore_dtypes(pd.read_parquet(path))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
+            if (cached is not None
+                    and not _boxscore_refreshable(gid, gameday_by_id, today)):
+                frames.append(cached)
+                hits += 1
+                prog.tick(cached=True)
+                continue
+
+            def serve(reason: str, cached=cached, gid=gid) -> None:
+                """A refresh may never cost what the cache already carries."""
+                nonlocal hits
+                frames.append(cached)
+                hits += 1
+                prog.tick(cached=True)
+                logger.warning("boxscore refresh for game %s %s — cached row "
+                               "served instead", gid, reason)
+
             try:
                 bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
                 if str(bs.get("gameState") or "") not in FINAL_GAME_STATES:
+                    if cached is not None:
+                        serve("came back %s instead of final"
+                              % str(bs.get("gameState") or "unknown"))
+                        continue
                     # A mid-game boxscore freezes partial player stats into a
                     # per-game cache nothing ever invalidates; behave exactly
                     # like an unavailable one — warned, skipped, uncached —
@@ -1027,6 +1076,9 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                 try:
                     team_stats = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/right-rail")
                 except Exception as exc:  # retain observed boxscore facts, not proxies
+                    if cached is not None:
+                        serve("team counts unavailable (%s)" % exc)
+                        continue
                     logger.warning("team counts unavailable for game %s: %s — "
                                    "PP/faceoffs stay unknown, row not cached", gid, exc)
                     team_stats = None
@@ -1034,14 +1086,23 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                 df = pd.DataFrame([row], columns=BOXSCORE_COLS)
                 df = _coerce_boxscore_dtypes(df)
             except Exception as exc:  # noqa: BLE001
+                if cached is not None:
+                    serve("failed (%s)" % exc)
+                    continue
                 logger.warning("boxscore unavailable for game %s: %s", gid, exc)
                 prog.tick(failed=True)
                 continue
-            fetched += 1
             count_cols = [f"{side}_{stat}" for side in ("home", "away")
                           for stat in ("pp_goals", "pp_opportunities", "faceoff_wins",
                                        "faceoff_attempts")]
-            if not df.empty and df[count_cols].notna().all().all():
+            complete = (not df.empty and df[count_cols].notna().all().all())
+            if not complete and cached is not None:
+                # Observed counts already on disk beat a partial refresh; the
+                # next run inside the window retries.
+                serve("returned incomplete official team counts")
+                continue
+            fetched += 1
+            if complete:
                 df.to_parquet(path, index=False)
             else:
                 logger.warning("game %s has incomplete official team counts — "
