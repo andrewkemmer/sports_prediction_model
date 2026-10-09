@@ -136,7 +136,7 @@ for col in ("elo_diff", "ewm_net_pts_diff", "win_pct_diff", "rest_days_diff"):
 first_home_team = feats["home_team"].iloc[0]
 row0 = feats.iloc[0]
 check("first-game trailing stats are NaN",
-      (pd.isna(row0["ewm_net_pts_diff"]) or True), "")
+      pd.isna(row0["ewm_net_pts_diff"]), "")
 # structural: shift(1) discipline — construct 2-team 2-game timeline and
 # verify ewm uses only the prior game.
 two = pd.DataFrame([
@@ -5136,6 +5136,26 @@ check("features without a declared policy keep the raw thresholds "
       _rows3[0]["status"] == "STARVED" and _rows3[1]["status"] == "STARVED",
       f"{_rows3[0]['status']}/{_rows3[1]['status']} (20% measured, raw "
       "threshold: STARVED < 25%)")
+
+# Pending schedule rows are targets, never games in a result window.
+_pending_games = _synthetic_games(n_per_team=8)
+_pending_games["gameday"] = (pd.Timestamp("2023-09-01") + pd.to_timedelta(
+    (_pending_games.week - 1) * 7, unit="D")).dt.strftime("%Y-%m-%d")
+_pending_last = sorted(pd.to_datetime(_pending_games.gameday).unique())[-3:]
+_pending_mask = pd.to_datetime(_pending_games.gameday).isin(_pending_last)
+_pending_games.loc[_pending_mask, ["home_score", "away_score"]] = np.nan
+_pending_target_day = pd.to_datetime(_pending_games.gameday).max()
+_pending_reduced = _pending_games[
+    ~_pending_mask | (pd.to_datetime(_pending_games.gameday) == _pending_target_day)]
+_pending_full_f = feat_mod.build_slate_features(_pending_games, None).set_index("game_id")
+_pending_reduced_f = feat_mod.build_slate_features(_pending_reduced, None).set_index("game_id")
+for _col in ("win_pct_home", "win_pct_away", "ewm_net_pts_home", "ewm_net_pts_away",
+             "rest_days_home", "rest_days_away", "elo_home", "elo_away"):
+    check(f"unplayed rows cannot advance {_col}", np.allclose(
+        _pending_full_f.loc[_pending_reduced_f.index, _col].to_numpy(float),
+        _pending_reduced_f[_col].to_numpy(float), equal_nan=True))
+check("multi-game pending horizon rests from last settled game, not a phantom game",
+      _pending_reduced_f.rest_days_home.eq(21).all())
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

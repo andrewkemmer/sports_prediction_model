@@ -85,6 +85,7 @@ TEAM_STATS_SCHEMA: dict[str, str] = {
     "ast": "float", "tov": "float", "stl": "float", "blk": "float",
     "pf": "float",
     "efg_pct": "float", "turnover_margin": "float", "rebound_margin": "float",
+    "off_rating": "float", "def_rating": "float",
     "pace": "float", "ast_per_game": "float",
 }
 TEAM_STATS_REQUIRED = ("game_id", "team", "points_for", "points_against")

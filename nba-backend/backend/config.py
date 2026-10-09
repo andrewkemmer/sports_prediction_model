@@ -94,7 +94,9 @@ RFE_MAX_STEPS = 120
 #: aggregation weight - rather than by prior possessions. Columns are
 #: renamed pl_rapm_* / lineup_rapm_* throughout; historical notes below
 #: keep the pl_epm spelling because that is what those versions published.
-FEATURE_SET_VERSION = "nba-prod-v2.6-rapm"
+# v2.7 corrects Elo home advantage, measured efficiencies, pending-row
+# isolation and causal evaluation. Rebuild features/OOF/refits together.
+FEATURE_SET_VERSION = "nba-prod-v2.7-input-causal-parity"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -134,6 +136,9 @@ PER_SIDE_FEATURE_COLS: list[str] = [
 
 CALIBRATION_MODE = "platt"
 MIN_OOF_FOR_FIT = 300
+CAL_GATE_HOLDOUT_FRAC = 0.25
+CAL_GATE_MIN_HOLDOUT = 200
+CAL_GATE_EPS = 5e-3
 
 # One authoritative moneyline feature contract.  Every model, monitor,
 # manifest, and run-line regressor projects this list.

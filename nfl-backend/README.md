@@ -5,6 +5,33 @@ pipeline, point-in-time features, expanding walk-forward OOF, and three
 first-class production models (moneyline, run-line/margin distribution,
 totals distribution) serving the existing NFL frontend contract.
 
+## Pending-state repair — 2026-10-08
+
+Current representation: **`nfl-prod-v9.9-pending-state`**. Rebuild features and
+refit the bundle together. This extends the committed NHL-style causal NFL
+review, without changing parameters, blend policy, or adding programs.
+
+Result-based rolling/EWM state now advances only on settled games; pending
+schedule targets cannot evict real results, decay EWMs, inflate opponent prior
+game counts, or reset rest to a game nobody played. Rest retains its existing
+within-season opener NaN policy. The chronological Elo engine and all served
+feature names/side-difference identities remain unchanged. A pending target
+still reads only facts strictly before its own kickoff, not a later final.
+
+Final verification: existing production script **459 passed / 0 failed**;
+fold/log/name/delivery checks **34 passed**; compilation/whitespace checks pass.
+The official 2025 schedule loader returns **285 games including 13 postseason**;
+Elo coverage is 100%, trailing/rest coverage 94.39% (cold-start rows remain NaN).
+All three real estimators, unknown-team prediction and bit-identical joblib
+replay pass a bounded smoke. Missing enrichment features in that estimator-only
+smoke are explicitly synthetic, **not full feature-coverage evidence**.
+
+A full PBP/player/injury/weather historical rebuild was not run here. The
+existing coverage gates remain in place; full accuracy and coverage on that
+representation require the next full pipeline run. No AUC/log-loss improvement
+is claimed. Local smoke/test evidence remains gitignored in `run_diagnostics/`;
+no production model or delivery artifact was replaced.
+
 ## Architecture
 
 ```

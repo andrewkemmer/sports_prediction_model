@@ -1294,7 +1294,11 @@ class TestFoldEarlyStopIsPointInTime:
         real_fit = XGBClassifier.fit
 
         def spy(self, *args, **kwargs):
-            captured["eval_set"] = kwargs.get("eval_set")
+            if kwargs.get("eval_set"):
+                captured["eval_set"] = kwargs["eval_set"]
+                captured["probe"] = self
+            else:
+                captured["refit_rows"] = len(args[0])
             return real_fit(self, *args, **kwargs)
 
         monkeypatch.setattr(XGBClassifier, "fit", spy)
@@ -1302,6 +1306,8 @@ class TestFoldEarlyStopIsPointInTime:
         assert model is not None and "eval_set" in captured
         eval_X, eval_y = captured["eval_set"][0]
         assert eval_y is not None and len(eval_y) == 36
+        assert captured["refit_rows"] == len(train)
+        assert model.get_booster().num_boosted_rounds() == captured["probe"].best_iteration + 1
         # The watch rows map back to training-fold games, every one of them
         # strictly before the validation window's first game day.
         watch_positions = list(eval_X.index)
@@ -1331,6 +1337,77 @@ class TestFoldEarlyStopIsPointInTime:
             # after val_start ever entered the fold's fit set.
             n_prior = int((df.gameday < pd.Timestamp(row.val_start)).sum())
             assert row.n_train == n_prior
+
+
+class TestCausalMoneylineParity:
+    def test_future_labels_cannot_rewrite_headlines(self, monkeypatch):
+        import moneyline as ml
+        from types import SimpleNamespace
+        frame = TestFoldEarlyStopIsPointInTime._decided(90)
+        frame["game_type"] = 1
+        folds = [SimpleNamespace(fold_id=i, train_idx=np.arange(30 + 20*i),
+                 val_idx=np.arange(30 + 20*i, 50 + 20*i),
+                 val_start=frame.gameday.iloc[30 + 20*i],
+                 val_end=frame.gameday.iloc[49 + 20*i], provisional=False,
+                 season_type="regular", is_partial_tail=False) for i in range(3)]
+        monkeypatch.setattr(ml, "_fit_member", lambda name, train: (name, None))
+        def predict(model, name, X, pre):
+            offset = {"xgboost": .2, "lightgbm": -.2, "elasticnet": 0}[name]
+            return 1 / (1 + np.exp(-(X.iloc[:, 0].to_numpy(float) + offset)))
+        monkeypatch.setattr(ml, "_predict", predict)
+        before = ml.walk_forward_oof(frame, fold_list=folds, progress_every=0)
+        frame.loc[folds[-1].val_idx, "home_win"] = 1 - frame.loc[folds[-1].val_idx, "home_win"]
+        after = ml.walk_forward_oof(frame, fold_list=folds, progress_every=0)
+        for col in ("p_ensemble", "p_ensemble_causal", "p_ensemble_calibrated"):
+            np.testing.assert_array_equal(before["oof"][col], after["oof"][col])
+        np.testing.assert_array_equal(before["oof"].p_ensemble,
+                                      before["oof"].p_ensemble_causal)
+        assert "p_ensemble_retrospective" in before["oof"]
+        assert before["fold_table"].iloc[0].weights == config.ENSEMBLE_WEIGHTS
+
+    def test_gate_is_aligned_exclusion_safe_and_rejects_no_gain(self, monkeypatch):
+        import moneyline as ml
+        monkeypatch.setattr(config, "MIN_OOF_FOR_FIT", 4)
+        monkeypatch.setattr(config, "CAL_GATE_MIN_HOLDOUT", 2)
+        monkeypatch.setattr(ml, "moneyline_fit", lambda p, y: {"fake": True})
+        monkeypatch.setattr(ml, "moneyline_apply", lambda p, cal: p)
+        p, y = np.linspace(.2, .8, 12), np.tile([0., 1.], 6)
+        grades = np.arange(12) < 10
+        cal, audit = ml.gated_calibrator(p, y, grades)
+        assert cal is None and audit["reason"] == "gated_no_gain"
+        y[~grades] = 100
+        assert ml.gated_calibrator(p, y, grades) == (cal, audit)
+        with pytest.raises(ValueError, match="aligned"):
+            ml.gated_calibrator(p, y[:-1])
+        with pytest.raises(ValueError, match="align"):
+            ml.gated_calibrator(p, y, grades[:-1])
+
+    def test_gate_accepts_gain_and_refits_all_prior_evidence(self, monkeypatch):
+        import moneyline as ml
+        monkeypatch.setattr(config, "MIN_OOF_FOR_FIT", 4)
+        monkeypatch.setattr(config, "CAL_GATE_MIN_HOLDOUT", 2)
+        fits = []
+        def fit(p, y):
+            fits.append(len(p))
+            return {"fake": True}
+        monkeypatch.setattr(ml, "moneyline_fit", fit)
+        monkeypatch.setattr(ml, "moneyline_apply", lambda p, cal: np.where(p > .5, .8, .2))
+        p, y = np.tile([.49, .51], 6), np.tile([0., 1.], 6)
+        cal, audit = ml.gated_calibrator(p, y)
+        assert cal and audit["reason"] == "accepted"
+        assert fits == [9, 12]
+
+    def test_final_refit_uses_shared_policy_in_canonical_order(self, monkeypatch):
+        import moneyline as ml
+        frame = TestFoldEarlyStopIsPointInTime._decided(90)
+        seen = []
+        def fit(name, train):
+            seen.append((name, train.game_id.tolist()))
+            return object(), None
+        monkeypatch.setattr(ml, "_fit_member", fit)
+        models, _ = ml.fit_final_models(frame.sample(frac=1, random_state=7))
+        assert set(models) == set(config.ENSEMBLE_MEMBERS)
+        assert all(ids == frame.game_id.tolist() for name, ids in seen)
 
 
 class TestSealedDispersionHoldout:
@@ -1495,7 +1572,7 @@ class TestEloSeasonBoundary:
         b = ev[ev.game_id == "s2-b"].set_index("team").elo_entering
         ra, rb = float(a["BOS"]), float(a["LAL"])
         exp_home = 1.0 / (1.0 + 10.0 ** (
-            (rb + config.ELO_HOME_ADV - ra) / config.ELO_SCALE))
+            (rb - ra - config.ELO_HOME_ADV) / config.ELO_SCALE))
         # BOS lost s2-a at home (105-110).
         assert b["BOS"] == pytest.approx(
             ra + config.ELO_K * (0.0 - exp_home), abs=1e-9)

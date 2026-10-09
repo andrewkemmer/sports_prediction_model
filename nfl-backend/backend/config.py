@@ -148,7 +148,8 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # with the pinned config vocabulary (was: ordinal int64 in both). The
 # representation change invalidates old bundles: rerun features, OOF,
 # blend/calibration and the final refit together.
-FEATURE_SET_VERSION = "nfl-prod-v9.8-causal-evaluation"
+# Pending rows no longer advance trailing result/rest state. Rebuild/refit.
+FEATURE_SET_VERSION = "nfl-prod-v9.9-pending-state"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)

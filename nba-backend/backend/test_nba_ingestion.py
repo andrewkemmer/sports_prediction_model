@@ -716,6 +716,92 @@ class TestEventFeatures:
 # ---------------------------------------------------------------------------
 
 
+class TestInputSemanticParity:
+    def test_existing_smoke_fails_coverage_and_builds_rapm(self, monkeypatch):
+        import smoke_nba as smoke
+        import master_pipeline as mp
+        from types import SimpleNamespace
+        frame = TestEventFeatures()._ladder_rows()
+        facts = SimpleNamespace(games=frame, team_stats=pd.DataFrame(),
+            team_events=pd.DataFrame(), player_stats=pd.DataFrame(),
+            play_by_play=pd.DataFrame(), manifest={})
+        monkeypatch.setattr(smoke.ing, "load_ingested", lambda: facts)
+        monkeypatch.setattr(smoke.ing, "eligible_games", lambda f: f)
+        monkeypatch.setattr(smoke.ing, "trainable_games", lambda f: f)
+        monkeypatch.setattr(smoke, "declared_features", lambda: ["elo_diff", "ewm_pace_diff"])
+        calls = []
+        monkeypatch.setattr(mp, "_build_position_rapm_features",
+                            lambda *a: (calls.append(True) or None, None))
+        assert smoke.run(95, 0, None) == 1
+        assert calls == [True]
+        assert smoke.coverage(pd.DataFrame({"x": [np.inf]}), "x") == 0
+
+    def test_positive_home_advantage_and_conserved_elo(self):
+        games = TestEventFeatures()._ladder_rows().iloc[:1]
+        _, ratings = feat._elo_apply(feat.team_events(games))
+        expected = 1 / (1 + 10 ** (-config.ELO_HOME_ADV / config.ELO_SCALE))
+        assert expected > .5
+        assert ratings["BOS"] == pytest.approx(config.ELO_PRIOR + config.ELO_K * (1 - expected))
+        assert sum(ratings.values()) == pytest.approx(2 * config.ELO_PRIOR)
+
+    def test_efficiencies_use_paired_possessions_and_ot_duration(self):
+        games = pd.DataFrame([dict(nba_game_id="002", game_id="g", gameday="2024-01-01",
+                    home_team="BOS", away_team="NYK", home_score=110., away_score=100.)])
+        log = pd.DataFrame([dict(nba_game_id="002", team=t, points=p, fga=90.,
+                    fta=20., oreb=10., tov=12., minutes=265., fgm=40., fg3m=10.)
+                    for t, p in [("BOS", 110.), ("NYK", 100.)]])
+        stats = contract.normalize(src.team_stats_from_log(log, games),
+                                   "team_stats").set_index("team")
+        poss = 90 + .44*20 - 10 + 12
+        assert stats.loc["BOS", "off_rating"] == pytest.approx(11000/poss)
+        assert stats.loc["BOS", "def_rating"] == pytest.approx(10000/poss)
+        assert stats.loc["BOS", "pace"] == pytest.approx(48*poss/53)
+        assert stats.loc["NYK", "off_rating"] == stats.loc["BOS", "def_rating"]
+        log.loc[0, "fta"] = np.nan
+        missing = src.team_stats_from_log(log, games)
+        assert missing.off_rating.isna().all() and missing.pace.isna().all()
+
+    def test_missing_facts_never_become_measurements(self):
+        games = TestEventFeatures()._ladder_rows()
+        frame = feat.build_game_features(games)
+        for stem in ("ewm_off_rating", "ewm_def_rating", "ewm_pace", "ewm_efg_pct",
+                     "ewm_ast_per_game", "event_shooting_fouls", "event_q4_points"):
+            assert frame[f"{stem}_diff"].isna().all(), stem
+
+    def test_pending_games_do_not_advance_form_or_rest(self):
+        fixture = TestEventFeatures()
+        games = fixture._ladder_rows()
+        games.loc[games.index[-3:], ["home_score", "away_score"]] = np.nan
+        target = games.iloc[-1].game_id
+        full = feat.build_slate_features(games, None, fixture._event_stats()).set_index("game_id")
+        reduced = feat.build_slate_features(games.drop(index=games.index[-3:-1]),
+                    None, fixture._event_stats()).set_index("game_id")
+        cols = config.MONEYLINE_FEATURE_COLS
+        pd.testing.assert_series_equal(full.loc[target, cols], reduced.loc[target, cols])
+        assert full.loc[target, "rest_days_home"] == 3
+
+    def test_slate_elo_reverts_once_and_cannot_read_a_later_final(self):
+        games = TestEventFeatures()._ladder_rows().iloc[:3].copy()
+        games.loc[1, ["home_score", "away_score"]] = np.nan
+        games.loc[1:, "season"] = 2025
+        games.loc[1, "gameday"] = "2025-01-02"
+        games.loc[2, "gameday"] = "2025-01-03"
+        full = feat.build_slate_features(games).iloc[0]
+        truncated = feat.build_slate_features(games.iloc[:2]).iloc[0]
+        assert full.elo_home == truncated.elo_home
+        _, ratings = feat._elo_apply(feat.team_events(games.iloc[:1]))
+        assert full.elo_home == pytest.approx(ratings["BOS"] + config.ELO_REVERT_FACTOR *
+                                              (config.ELO_PRIOR - ratings["BOS"]))
+
+    def test_coverage_gate_detects_absent_nan_and_infinite_columns(self, monkeypatch):
+        import master_pipeline as mp
+        monkeypatch.setattr(mp.config, "_FEATURE_SUBSET", ["elo_diff", "win_pct_diff"])
+        assert mp._empty_contract_columns(pd.DataFrame({"elo_diff": [1.]})) == ["win_pct_diff"]
+        assert mp._empty_contract_columns(pd.DataFrame({"elo_diff": [np.inf],
+                                       "win_pct_diff": [np.nan]})) == ["elo_diff", "win_pct_diff"]
+        assert "NBA training feature coverage failed" in __import__("inspect").getsource(mp.run)
+
+
 class TestHttp:
     def test_a_4xx_is_not_retried(self, monkeypatch):
         """A 400 means the request is wrong. Repeating it unchanged wastes a
@@ -1638,8 +1724,9 @@ class TestEligibility:
     def test_two_teams_per_game_is_not_a_duplicate(self):
         games = pd.DataFrame([_schedule_row(game_id=f"g{i}") for i in range(60)])
         games["is_final"] = True
-        team = pd.DataFrame([{"game_id": f"g{i}", "team": t, "points_for": 1.0,
-                              "points_against": 1.0}
+        team = pd.DataFrame([{"game_id": f"g{i}", "team": t,
+                              "points_for": 110.0 if t == "BOS" else 105.0,
+                              "points_against": 105.0 if t == "BOS" else 110.0}
                              for i in range(60) for t in ("BOS", "NYK")])
         player = pd.DataFrame([{"game_id": f"g{i}", "player_id": str(p),
                                 "team": "BOS"}
@@ -1648,6 +1735,12 @@ class TestEligibility:
                              team_events=pd.DataFrame(), play_by_play=pd.DataFrame(),
                              team_names={})
         ing._validate(facts)
+        facts.team_stats.loc[0, "points_for"] += 1
+        with pytest.raises(RuntimeError, match="disagree with final scores"):
+            ing._validate(facts)
+        facts.team_stats = team.iloc[1:]
+        with pytest.raises(RuntimeError, match="missing or disagree"):
+            ing._validate(facts)
 
 
 class TestTrainableGames:

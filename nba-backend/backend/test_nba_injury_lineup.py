@@ -1101,7 +1101,9 @@ class TestPositionRapmBuildSurvivesAColdCache:
         frame = pd.DataFrame({
             "pl_rapm_c_away": [0.5, None], "pl_rapm_f_away": [None, None],
             "rest": [1, 2]})
-        assert mp._empty_contract_columns(frame) == ["pl_rapm_f_away"]
+        expected = [c for c in mp.config.active_moneyline_feature_cols()
+                    if c != "pl_rapm_c_away"]
+        assert mp._empty_contract_columns(frame) == expected
         assert mp._empty_contract_columns(None) == []
         assert mp._empty_contract_columns(pd.DataFrame()) == []
 

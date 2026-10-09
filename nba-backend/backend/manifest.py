@@ -35,9 +35,9 @@ _BASE = {
     "rest_days_diff": ("Home minus away rest days", "days since each team's prior game", "schedule"),
     "back_to_back_diff": ("Home minus away back-to-back indicator", "rest <= 1 day", "schedule"),
     "ewm_net_points_diff": ("Home minus away EWM point differential", "exponentially weighted points for minus against", "EWM(3 games)"),
-    "ewm_off_rating_diff": ("Home minus away EWM offensive rating", "exponentially weighted offensive efficiency", "EWM(3 games)"),
-    "ewm_def_rating_diff": ("Home minus away EWM defensive rating", "exponentially weighted defensive efficiency", "EWM(3 games)"),
-    "ewm_pace_diff": ("Home minus away EWM pace", "exponentially weighted possessions", "EWM(3 games)"),
+    "ewm_off_rating_diff": ("Home minus away EWM offensive rating", "EWM of 100 * points scored / paired estimated possessions", "EWM(3 games)"),
+    "ewm_def_rating_diff": ("Home minus away EWM defensive rating", "EWM of 100 * points allowed / paired estimated possessions", "EWM(3 games)"),
+    "ewm_pace_diff": ("Home minus away EWM pace", "EWM of paired estimated possessions * 48 / (team player minutes / 5)", "EWM(3 games)"),
     "ewm_efg_pct_diff": ("Home minus away EWM effective shooting", "exponentially weighted eFG%", "EWM(3 games)"),
     "ewm_turnover_margin_diff": ("Home minus away turnover margin", "exponentially weighted TOV margin", "EWM(3 games)"),
     "ewm_rebound_margin_diff": ("Home minus away rebound margin", "exponentially weighted rebound margin", "EWM(3 games)"),
@@ -216,12 +216,14 @@ _FAMILY: dict[str, dict] = {
         "summary": "Home−away exponentially weighted pace",
         "summary_level": "EWM pace",
         "definition": (
-            "Exponentially weighted estimated possessions per game "
-            "(both teams)."),
+            "Exponentially weighted paired box-score estimated possessions "
+            "per 48 minutes. Each side estimates FGA + 0.44*FTA - OREB + TOV; "
+            "the two estimates are averaged. Duration is team player minutes / 5, "
+            "including overtime; missing counts remain unknown."),
         "formula": "ewm_pace_home − ewm_pace_away",
         "source": "Season log team box-score facts",
         "window": "EWM(3 games)",
-        "units": "possessions per game (both teams)",
+        "units": "estimated possessions per 48 minutes",
         "direction": "higher = home team plays faster (style, not quality)",
         "direction_level": "higher = faster tempo",
     },

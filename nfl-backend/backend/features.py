@@ -159,17 +159,25 @@ def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
 # Trailing primitives — per-team, strictly-prior via shift(1)
 # ---------------------------------------------------------------------------
 def _trailing_per_team(srt: pd.DataFrame, value_col: str, window: int) -> np.ndarray:
-    roll = srt.groupby("team", sort=False)[value_col].rolling(
-        window, min_periods=1).mean()
-    roll = roll.groupby(level=0).shift(1)
-    return roll.reset_index(level=0, drop=True).to_numpy()
+    settled = (srt["for"].notna() & srt["against"].notna()
+               if {"for", "against"} <= set(srt.columns)
+               else pd.Series(True, index=srt.index))
+    post = (srt.loc[settled].groupby("team", sort=False)[value_col]
+            .rolling(window, min_periods=1).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    state = post.groupby(srt.team, sort=False).ffill()
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy()
 
 
 def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndarray:
-    roll = srt.groupby("team", sort=False)[value_col].ewm(
-        halflife=halflife, min_periods=1).mean()
-    roll = roll.groupby(level=0).shift(1)
-    return roll.reset_index(level=0, drop=True).to_numpy()
+    settled = (srt["for"].notna() & srt["against"].notna()
+               if {"for", "against"} <= set(srt.columns)
+               else pd.Series(True, index=srt.index))
+    post = (srt.loc[settled].groupby("team", sort=False)[value_col]
+            .ewm(halflife=halflife, min_periods=1).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    state = post.groupby(srt.team, sort=False).ffill()
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy()
 
 
 # Trailing-window spec for the pbp candidate-pool metrics: per-game metric ->
@@ -830,13 +838,16 @@ def _add_opp_adj_metrics(srt: pd.DataFrame) -> None:
             continue
 
         # Per-team strictly-prior defensive value (the shift(1) primitive).
-        d_prior = d.groupby(srt["team"], sort=False).shift(1)
+        settled = srt["for"].notna() & srt["against"].notna()
+        d_prior = (d.where(settled).groupby(srt.team, sort=False).ffill()
+                   .groupby(srt.team, sort=False).shift(1))
 
         # Expanding prior league mean keyed by gameday: at date G it averages
         # every team's PRIOR-game defensive value known by G.
-        by_day = d_prior.groupby(srt["gameday"], sort=True).mean()
+        by_day = d_prior[settled].groupby(srt.loc[settled, "gameday"], sort=True).mean()
         league_mean_by_day = by_day.sort_index().expanding(min_periods=1).mean()
-        league_mean = srt["gameday"].map(league_mean_by_day).to_numpy(dtype=float)
+        league_mean = league_mean_by_day.reindex(
+            pd.DatetimeIndex(srt.gameday), method="ffill").to_numpy(dtype=float)
 
         # Opponent's prior quality entering THIS game: its own shift(1) EWM
         # value on its row for the same game (exact keying, no timeline
@@ -845,7 +856,8 @@ def _add_opp_adj_metrics(srt: pd.DataFrame) -> None:
         row_key = pd.MultiIndex.from_frame(srt[["game_id", "team"]])
         strength_by_row = pd.Series(prior, index=row_key)
         n_prior_by_row = pd.Series(
-            srt.groupby("team", sort=False).cumcount().to_numpy(dtype=float),
+            (settled.groupby(srt.team, sort=False).cumsum() - settled.astype(int))
+            .to_numpy(dtype=float),
             index=row_key)
         opp_key = pd.MultiIndex.from_frame(srt[["game_id", "opponent"]])
         opp_prior = strength_by_row.reindex(opp_key).to_numpy(dtype=float)
@@ -927,10 +939,12 @@ def team_stats_ladder(events: pd.DataFrame,
     # twin coherence home - away == diff (structural promotion of the
     # rest_short_diff halves). rest_days itself keeps its honest opener NaN.
     rest_groups = ["team", "season"] if "season" in srt.columns else ["team"]
-    srt["rest_days"] = (
-        srt.groupby(rest_groups, sort=False, dropna=False)["gameday"]
-           .diff().dt.days
-    )
+    settled = srt["for"].notna() & srt["against"].notna()
+    groupers = [srt[c] for c in rest_groups]
+    prior_day = (srt.gameday.where(settled)
+                 .groupby(groupers, sort=False, dropna=False).ffill()
+                 .groupby(groupers, sort=False, dropna=False).shift())
+    srt["rest_days"] = (srt.gameday - prior_day).dt.days
     srt["short_rest"] = np.where(
         srt["rest_days"].isna(),
         0.0,  # season opener: no in-season predecessor is never short rest

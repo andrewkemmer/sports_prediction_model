@@ -7,10 +7,9 @@ fitted on the training fold only.  Fold ``k`` is blended with weights learned
 from folds strictly before ``k`` and is calibrated with a map fitted only on
 prior OOF blend/outcome pairs.
 
-Early stopping is likewise point-in-time: xgboost's fold fits watch a held-
-out chronological tail OF THE TRAINING FOLD (see ``_early_stop_watch``),
-never the validation window, so no fold's OOF row can influence the round
-count of the model that scored it.
+XGBoost probes a held-out chronological train tail for its round budget,
+then refits on all training rows. Folds and final serving use this same policy;
+no scored validation outcome can influence its own prediction.
 """
 from __future__ import annotations
 
@@ -122,21 +121,6 @@ def member_matrix_ndarray(
 
 
 
-
-
-def member_fit_input(
-    name: str,
-    X: pd.DataFrame,
-    pre: TrainFoldPreprocessor | None,
-):
-    """Apply the one authoritative preprocessing path for a member."""
-    if name in LINEAR_MEMBERS:
-        if pre is None:
-            raise ValueError("linear member requires a fitted train-fold preprocessor")
-        return pre.transform(X)
-    return X
-
-
 def _predict(model, name: str, X: pd.DataFrame,
              pre: TrainFoldPreprocessor | None) -> np.ndarray:
     values = model.predict_proba(member_fit_input(name, X, pre))[:, 1]
@@ -150,8 +134,8 @@ def _binary_labels(frame: pd.DataFrame) -> pd.Series:
 
 def _early_stop_watch(X_train: pd.DataFrame, y_train: np.ndarray,
                       pre: TrainFoldPreprocessor | None,
-                      ) -> tuple[np.ndarray, np.ndarray] | None:
-    """The strictly-train chronological tail xgboost early-stops against.
+                      ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame] | None:
+    """The strictly-train chronological tail used to measure XGB rounds.
 
     Structure aligned with MLB's config-driven fold-fit shape
     (``XGBOOST_FOLD_ROUNDS`` / ``XGBOOST_EARLY_STOP``), with one deliberate
@@ -187,6 +171,7 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
     stops at the fold's train end" is a property of the type, not a
     convention a call site can silently break.
     """
+    train = folds_mod.canonical_sort(train)
     labels = _binary_labels(train)
     train_mask = labels.notna()
     train = train.loc[train_mask]
@@ -223,20 +208,18 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
                 # Older sklearn wrappers do not accept ``verbose`` in fit.
                 model.fit(X_fit_set, y_fit_rows,
                           eval_set=[(X_watch, y_train[len(fit_rows):])])
-            except Exception as exc:  # noqa: BLE001
-                # A few xgboost releases reject constructor-level early
-                # stopping when the eval frame is categorical.  Preserve the
-                # configured ceiling and fit without the optional stopping
-                # mechanism rather than dropping the member.
-                logger.warning("xgboost early stopping unavailable; refitting: %s", exc)
-                fallback = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
-                fallback.fit(member_fit_input(name, X_train, pre), y_train)
-                return fallback, pre
+            # Probe labels are strictly prior. Refit on ALL training rows
+            # with the measured budget so folds and serving share one policy.
+            rounds = int(model.best_iteration) + 1
+            model = _make_member(name, rounds)
+            model.fit(member_fit_input(name, X_train, pre), y_train)
+            _check_xgb_categories(model, X_train)
             return model, pre
         # Too small for a watch tail: fit the full training fold with the
         # configured ceiling and no stopping - still strictly train-only.
         model = _make_member(name, config.XGBOOST_FOLD_ROUNDS)
         model.fit(member_fit_input(name, X_train, pre), y_train)
+        _check_xgb_categories(model, X_train)
         return model, pre
     # Every other member: fit on the whole training fold, no early stop.
     model = _make_member(name)
@@ -247,18 +230,15 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
                        if c in getattr(X_train_fit, "columns", [])]
         if categorical:
             fit_kwargs["categorical_feature"] = categorical
-    try:
-        model.fit(X_train_fit, y_train, **fit_kwargs)
-    except Exception as exc:  # noqa: BLE001
-        # LightGBM releases differ on pandas categorical routing.  The
-        # numeric tree view remains valid; retry without the optional
-        # keyword rather than dropping the member.
-        if name == "lightgbm" and fit_kwargs:
-            logger.warning("LightGBM categorical routing unavailable; retrying numerically: %s", exc)
-            model.fit(X_train_fit, y_train)
-        else:
-            raise
+    model.fit(X_train_fit, y_train, **fit_kwargs)
     return model, pre
+
+
+def _check_xgb_categories(model, X: pd.DataFrame) -> None:
+    booster = model.get_booster()
+    types = dict(zip(booster.feature_names, booster.feature_types))
+    if any(types.get(c) != "c" for c in config.TREE_CATEGORICAL_COLS if c in X):
+        raise RuntimeError("XGBoost team columns must remain categorical")
 
 
 def _logit_blend_matrix(P: np.ndarray, weights: np.ndarray) -> np.ndarray:
@@ -532,10 +512,10 @@ def walk_forward_oof(
         row["provisional"] = fold_provisional
         row["grades_pooled"] = grades
 
-        # This fold's blend uses only the prior weights. The fold-time
-        # (causal) blend is preserved as p_ensemble_causal below; the
-        # published p_ensemble is the DEPLOYED bundle's blend.
+        # Never rewrite this causal blend using weights learned later.
         row["p_ensemble"] = _blend(row, prior_weights)
+        for name in config.ENSEMBLE_MEMBERS:
+            row[f"weight_{name}"] = fold_weights.get(name, 0.0)
 
         # Add the scored fold only after its prediction has been fixed.
         # These values can train the next fold.
@@ -564,20 +544,9 @@ def walk_forward_oof(
         if progress_every and (fold.fold_id + 1) % progress_every == 0:
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1, len(folds))
 
-    # ── Published blend: the DEPLOYED bundle's blend (2026-10-05, MLB parity)
-    # ─────────────────────────────────────────────────────────────────────
-    # The published OOF blend — the artifact's headline metrics, calibration
-    # curve/buckets, the shipped Platt fit, predictions_history — is THE
-    # blend the deployed binary serves: member probabilities from each
-    # fold's strictly-prior models, combined with the deployed earning
-    # weights (the ``member_weights`` vector the bundle stores and predict
-    # serves with). The fold-time blend above (weights earned on PRIOR folds
-    # only) stays available as ``p_ensemble_causal`` — the honesty audit of
-    # the walk-forward process — but it is no longer what the dashboard
-    # claims to measure. Weight EARNING stays strictly causal; only the
-    # published application changed. Mirrors MLB's walk_forward_evaluate
-    # published-blend pass so all four sports report the binary's blend
-    # pooled OOF.
+    # NHL causal-evaluation parity: final weights replay only as a diagnostic.
+    # Headline/calibration/history probabilities retain each origin's weights.
+    gate_audit: list[dict] = []
     if parts:
         deployed_w = dict(prior_weights)
         # Uncapped denominators around the published-blend prequential
@@ -589,16 +558,16 @@ def walk_forward_oof(
         _degen0 = getattr(fit_platt, "_degen_total", 0)
         for row in parts:
             row["p_ensemble_causal"] = row["p_ensemble"].to_numpy(float).copy()
-            row["p_ensemble"] = _blend(row, deployed_w)
-        # Prequential calibrated twin of the published blend: fold k is
-        # scored by a map fitted strictly on folds < k's published pairs.
+            row["p_ensemble_retrospective"] = _blend(row, deployed_w)
+        # Apply the same nested prior-evidence gate at every fold origin.
         pub_p: list[float] = []
         pub_y: list[float] = []
         for row in parts:
             p_k = row["p_ensemble"].to_numpy(float)
-            cal_k = (moneyline_fit(np.asarray(pub_p, dtype=float),
-                                   np.asarray(pub_y, dtype=float))
-                     if pub_p else None)
+            cal_k, gate = gated_calibrator(np.asarray(pub_p, dtype=float),
+                                            np.asarray(pub_y, dtype=float))
+            gate["fold_id"] = int(row.fold_id.iloc[0])
+            gate_audit.append(gate)
             calibrated = moneyline_apply(p_k, cal_k)
             row["p_ensemble_calibrated"] = np.where(
                 np.isfinite(calibrated), calibrated, p_k)
@@ -608,15 +577,11 @@ def walk_forward_oof(
             pub_p.extend(p_k[gk].tolist())
             pub_y.extend(row["home_win"].to_numpy(float)[gk].tolist())
 
-        # Run-log evidence (2026-10-06 NBA log review, MLB/NHL parity): the
-        # published-blend pass left no trace in the log — a reviewer could
-        # not tell whether the headline metrics graded the rolling
-        # training-time blend or the deployed bundle's blend. One line
-        # states the applied weights and the row count so the log, the
-        # artifact and the serving binary make the same claim.
+        # Keep the causal headline and retrospective replay visibly distinct.
         logger.info(
-            "Published blend: %d OOF rows re-pooled with the deployed weights "
-            "%s — headline metrics grade THE serving blend",
+            "Published blend: %d OOF rows — headline metrics grade the causal "
+            "rolling blend; final weights %s replay only in "
+            "p_ensemble_retrospective (NOT OOF)",
             sum(len(r) for r in parts),
             {k: f"{v:.1%}" for k, v in sorted(deployed_w.items())},
         )
@@ -642,37 +607,21 @@ def walk_forward_oof(
         season_split = {"regular_rows": 0, "postseason_rows": 0,
                         "provisional_rows": 0, "grading_rows": 0}
     return {"oof": oof, "member_weights": prior_weights,
+            "calibration_gate": {"folds": gate_audit},
             "season_split": season_split,
             "fold_table": pd.DataFrame(fold_rows)}
 
 
 def fit_final_models(game_df: pd.DataFrame):
     """Fit all members on every labeled settled game for production serving."""
+    game_df = folds_mod.canonical_sort(game_df)
     labels = _binary_labels(game_df)
     frame = game_df.loc[labels.notna()].copy()
     if len(frame) < 2 or labels.loc[labels.notna()].nunique() < 2:
         raise ValueError("NBA final moneyline fit requires both outcome classes")
     models: dict[str, dict[str, Any]] = {}
-    y = labels.loc[labels.notna()].astype(int).to_numpy()
     for name in config.ENSEMBLE_MEMBERS:
-        X = member_matrix(name, frame)
-        pre = TrainFoldPreprocessor().fit(X) if name in LINEAR_MEMBERS else None
-        model = _make_member(name)
-        X_fit = member_fit_input(name, X, pre)
-        fit_kwargs = {}
-        if name == "lightgbm":
-            categorical = [c for c in config.TREE_CATEGORICAL_COLS
-                           if c in getattr(X_fit, "columns", [])]
-            if categorical:
-                fit_kwargs["categorical_feature"] = categorical
-        try:
-            model.fit(X_fit, y, **fit_kwargs)
-        except Exception as exc:  # noqa: BLE001
-            if name == "lightgbm" and fit_kwargs:
-                logger.warning("LightGBM categorical routing unavailable; retrying numerically: %s", exc)
-                model.fit(X_fit, y)
-            else:
-                raise
+        model, pre = _fit_member(name, frame)
         models[name] = {"model": model, "pre": pre}
     # Keep the historical two-tuple contract; per-member preprocessors live
     # in each entry and are used by predict_slate.
@@ -815,6 +764,41 @@ def moneyline_fit(p_home, home_win):
         cal.update({"method": FAVORED_CALIBRATOR_METHOD,
                     "floor": FAVORED_PROBABILITY_FLOOR})
     return cal
+
+
+def gated_calibrator(p_home, home_win, grades=None) -> tuple[dict | None, dict]:
+    """Use one nested chronological log-loss gate at every prediction origin."""
+    p, y = np.asarray(p_home, float), np.asarray(home_win, float)
+    if p.ndim != 1 or p.shape != y.shape:
+        raise ValueError("calibration probabilities/targets must be aligned vectors")
+    eligible = np.ones(len(p), bool) if grades is None else np.asarray(grades, bool)
+    if eligible.shape != p.shape:
+        raise ValueError("calibration grading mask must align with predictions")
+    ok = eligible & np.isfinite(p) & np.isin(y, [0, 1]) & (p > 0) & (p < 1)
+    p, y = p[ok], y[ok]
+    rec = {"n_prior": len(p), "decision": "identity",
+           "reason": "insufficient_prior_evidence", "raw_logloss": None,
+           "nested_holdout_logloss": None}
+    hold = max(config.CAL_GATE_MIN_HOLDOUT,
+               int(round(config.CAL_GATE_HOLDOUT_FRAC * len(p))))
+    n_fit = len(p) - hold
+    if n_fit < config.MIN_OOF_FOR_FIT:
+        return None, rec
+    candidate = moneyline_fit(p[:n_fit], y[:n_fit])
+    if candidate is None:
+        rec["reason"] = "candidate_declined"
+        return None, rec
+    from sklearn.metrics import log_loss
+    raw = float(log_loss(y[n_fit:], p[n_fit:], labels=[0, 1]))
+    cal = float(log_loss(y[n_fit:], moneyline_apply(p[n_fit:], candidate), labels=[0, 1]))
+    rec.update(raw_logloss=raw, nested_holdout_logloss=cal)
+    if cal >= raw - config.CAL_GATE_EPS:
+        rec["reason"] = "gated_no_gain"
+        return None, rec
+    final = moneyline_fit(p, y)
+    rec.update(decision="fitted" if final else "identity",
+               reason="accepted" if final else "final_fit_declined")
+    return final, rec
 
 
 def moneyline_apply(p_home, cal):

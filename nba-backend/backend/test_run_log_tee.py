@@ -355,7 +355,8 @@ def test_published_blend_line_names_the_deployed_weights():
     assert "Published blend:" in src, (
         "moneyline.py no longer logs the published-blend re-pool — the "
         "headline metrics' blend claim is unauditable from the run log")
-    assert "headline metrics grade THE serving blend" in src
+    assert "headline metrics grade the causal" in src
+    assert "p_ensemble_retrospective (NOT OOF)" in src
 
 
 def test_platt_fallbacks_report_n_and_the_block_summary():
@@ -379,8 +380,9 @@ def test_final_pooled_calibrator_line_states_the_shipped_map():
     or identity — next to the phase that fits it (2026-10-06 log review:
     zero calibration lines in the delivered log)."""
     src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
-    assert "final pooled calibrator: a=%.4f b=%.4f n=%d method=%s" in src
-    assert "final pooled calibrator: identity map" in src  # the None branch speaks too
+    assert "final serving calibrator: a=%.4f b=%.4f n=%d method=%s" in src
+    assert "final serving calibrator: identity map" in src
+    assert "ml_mod.gated_calibrator(" in src
 
 
 def test_final_run_log_delivery_pushes_the_complete_log_after_sync():

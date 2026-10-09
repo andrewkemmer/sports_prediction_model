@@ -125,7 +125,7 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
             last_season = season
         ra = ratings.get(home.team, config.ELO_PRIOR)
         rb = ratings.get(away.team, config.ELO_PRIOR)
-        exp_home = 1.0 / (1.0 + 10.0 ** ((rb + config.ELO_HOME_ADV - ra) / config.ELO_SCALE))
+        exp_home = 1.0 / (1.0 + 10.0 ** ((rb - ra - config.ELO_HOME_ADV) / config.ELO_SCALE))
         exp_away = 1.0 - exp_home
         entering[(str(gid), str(home.team))] = ra
         entering[(str(gid), str(away.team))] = rb
@@ -145,20 +145,24 @@ def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
 def _trailing(srt: pd.DataFrame, col: str, window: int) -> np.ndarray:
     if col not in srt:
         return np.full(len(srt), np.nan)
-    roll = srt.groupby("team", sort=False)[col].rolling(
-        window, min_periods=1).mean()
-    return (roll.groupby(level=0).shift(1).reset_index(level=0, drop=True)
-            .to_numpy(dtype=float))
+    settled = srt["for"].notna() & srt["against"].notna()
+    post = (srt.loc[settled].groupby("team", sort=False)[col]
+            .rolling(window, min_periods=1).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    state = post.groupby(srt.team, sort=False).ffill()
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy(dtype=float)
 
 
 def _ewm(srt: pd.DataFrame, col: str,
          halflife: float = config.EWM_HALFLIFE) -> np.ndarray:
     if col not in srt:
         return np.full(len(srt), np.nan)
-    roll = srt.groupby("team", sort=False)[col].ewm(
-        halflife=halflife, min_periods=1, adjust=True).mean()
-    return (roll.groupby(level=0).shift(1).reset_index(level=0, drop=True)
-            .to_numpy(dtype=float))
+    settled = srt["for"].notna() & srt["against"].notna()
+    post = (srt.loc[settled].groupby("team", sort=False)[col]
+            .ewm(halflife=halflife, min_periods=1, adjust=True).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    state = post.groupby(srt.team, sort=False).ffill()
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy(dtype=float)
 
 
 def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataFrame:
@@ -198,12 +202,10 @@ def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataF
     defaults = {
         "points_for": out["for"], "points_against": out["against"],
         "net_points": out["for"] - out["against"],
-        "off_rating": 100.0 + (out["for"] - out["against"]),
-        "def_rating": 100.0 - (out["for"] - out["against"]),
-        "pace": (out["for"] + out["against"]).clip(lower=1),
-        "efg_pct": 0.5, "fg_pct": 0.45, "three_point_pct": 0.35,
-        "free_throw_pct": 0.78, "ast": 0.0, "tov": 0.0, "reb": 0.0,
-        "oreb": 0.0, "dreb": 0.0, "stl": 0.0, "blk": 0.0,
+        **{c: np.nan for c in (
+            "off_rating", "def_rating", "pace", "efg_pct", "fg_pct",
+            "three_point_pct", "free_throw_pct", "ast", "tov", "reb",
+            "oreb", "dreb", "stl", "blk")},
     }
     for col, default in defaults.items():
         if col not in out:
@@ -236,11 +238,8 @@ def _attach_events(ev: pd.DataFrame,
                    event_stats: pd.DataFrame | None) -> pd.DataFrame:
     """Merge the play-by-play rollup onto the event frame and derive its rates.
 
-    The rollup is optional. A window with no play-by-play still builds every
-    other feature; the event columns are simply absent and the ladder fills them
-    with neutral defaults rather than failing. That is deliberate - the event
-    features are then NaN-free but constant, and a constant column carries no
-    signal instead of a wrong one.
+    The rollup is optional at construction time. Missing source facts stay
+    NaN; the pipeline coverage gate refuses a wholly unavailable served family.
 
     The rates are computed here, on the per-game values, BEFORE any window is
     applied, so a rolling mean of a rate is a mean of rates rather than a ratio
@@ -270,18 +269,17 @@ def _attach_events(ev: pd.DataFrame,
                 out = out.merge(stats, on=["game_id", "team"], how="left",
                                 validate="many_to_one",
                                 suffixes=("", "_event"))
-    # Neutral defaults. A rate and a mean are both undefined with no
-    # denominator and no observations, so they are NaN; a count is zero when
-    # the rollup said nothing happened. The distinction matters: defaulting a
-    # mean to 0 would make a team with no play-by-play look like the league's
-    # best close-range team. ``fga`` and ``possessions`` are rate denominators:
-    # the box score normally supplies fga, but a run with no team facts must
-    # leave it undefined rather than zero, or every rate divides by zero and
-    # reads as "no rim pressure" instead of "unknown".
+                for column in EVENT_DENOMINATOR_COLUMNS:
+                    fallback = f"{column}_event"
+                    if fallback in out:
+                        out[column] = out[column].fillna(out[fallback])
+                        out = out.drop(columns=fallback)
+    # Absent rollups are unknown, not observed zero. Real rollups retain their
+    # explicit zero counts. Never invent rate denominators or count facts.
     neutral = {"fga": np.nan, "possessions": np.nan, "shot_distance": np.nan}
     for column in raw_columns:
         if column not in out:
-            out[column] = neutral.get(column, 0.0)
+            out[column] = np.nan
         out[column] = pd.to_numeric(out[column], errors="coerce")
     for column, default in neutral.items():
         if column not in out:
@@ -305,14 +303,8 @@ def team_stats_ladder(events: pd.DataFrame,
     ev = _attach_stats(events, team_stats)
     ev = _attach_events(ev, event_stats)
     srt = ev.sort_values(["team", "gameday", "game_id"]).reset_index(drop=True)
-    # Carry each team's event profile forward across games that have no
-    # play-by-play. The sweep is incremental - a few hundred games per run - so
-    # for most of a run's history the rollup is simply absent, and an EWM over
-    # a column with interior NaNs propagates them: every value after the first
-    # gap is NaN and every event feature is empty. Filling forward uses only
-    # what the team had already shown, so it stays point-in-time safe, and a
-    # team whose profile is genuinely unknown stays NaN rather than becoming a
-    # league average.
+    # Preserve actual observation coverage before rolling. Missing event rows
+    # must not be forward-filled into fresh per-game measurements.
     event_columns = [c for c in srt.columns
                      if c in config.EVENT_TRAILING_SPECS
                      or c in config.EVENT_RATE_DENOMINATORS
@@ -323,26 +315,17 @@ def team_stats_ladder(events: pd.DataFrame,
                               "possessions", "q4_points", "ot_points"}]
     if event_columns:
         observed = srt[event_columns].notna()
-        srt[event_columns] = (srt.groupby("team", sort=False)[event_columns]
-                              .ffill())
-        # Provenance: a value that arrived only through the forward fill above
-        # is a CARRY of the team's last measured profile, not an observation
-        # of that game. The 13:29 run on 2026-09-29 published 99.6% frame-wide
-        # "coverage" for the event family that was substantially frozen
-        # constants riding the ffill - the number read as health and was
-        # actually the size of the cache hole. Each event column that carries
-        # at least one value gets a ``_measured_<col>`` 0/1 sidecar (1 = real
-        # observation). The sidecars are diagnostics by name: they are never
-        # copied onto the contract frame, and the model views select strictly
-        # from active_moneyline_feature_cols(), so no flag can reach a
-        # feature matrix. Consumers that find no sidecar may assume every
-        # non-null value is measured - which stays true when nothing carries.
+        # Missing games are not repeated measurements. EWM handles NaNs;
+        # preserve source absence rather than feeding a carried fact back in.
+        # Diagnostic flags never enter model matrices. A trailing value may
+        # remain available across a gap without claiming a fresh observation.
         for column in event_columns:
-            if (srt[column].notna() & ~observed[column]).any():
-                srt[f"_measured_{column}"] = observed[column].astype("float64")
+            srt[f"_measured_{column}"] = observed[column].astype("float64")
     srt["elo_entering"] = pd.to_numeric(srt["elo_entering"], errors="coerce")
     srt["win_pct"] = _trailing(srt, "team_win", config.WINPCT_WINDOW)
-    prior_date = srt.groupby("team", sort=False)["gameday"].shift()
+    settled = srt["for"].notna() & srt["against"].notna()
+    prior_date = (srt.gameday.where(settled).groupby(srt.team, sort=False)
+                  .ffill().groupby(srt.team, sort=False).shift())
     srt["rest_days"] = (srt["gameday"] - prior_date).dt.total_seconds() / 86400.0
     srt["back_to_back"] = np.where(srt.rest_days.notna(),
                                     (srt.rest_days <= 1).astype(float), np.nan)
@@ -573,7 +556,6 @@ def build_slate_features(schedule: pd.DataFrame,
         if col not in sched:
             sched[col] = np.nan
         sched[col] = pd.to_numeric(sched[col], errors="coerce")
-    decided = sched[sched.home_score.notna() & sched.away_score.notna()].copy()
     pending = sched[sched.home_score.isna() | sched.away_score.isna()].copy()
     # A postponed game is neither decided nor upcoming, and MLB's decided-frame
     # rule says so in one line: "postponements and pregame rows are excluded."
@@ -589,18 +571,12 @@ def build_slate_features(schedule: pd.DataFrame,
             pending = pending[~postponed].copy()
     if pending.empty:
         return pd.DataFrame()
-    decided_events = team_events(decided) if len(decided) else pd.DataFrame()
-    if len(decided_events):
-        _, ratings = _elo_apply(decided_events)
-    else:
-        ratings = {}
-    pending_events = team_events(pending)
-    pending_events["elo_entering"] = pending_events.team.map(
-        lambda t: ratings.get(t, config.ELO_PRIOR))
-    combined = pd.concat([decided_events, pending_events], ignore_index=True)
+    # One chronological engine for history and slate: season reversion and
+    # earlier missing finals cannot be bypassed by assigning final ratings.
+    combined = compute_elo(team_events(sched))
     ladder = team_stats_ladder(combined, team_stats, event_stats)
     out = _attach_contract(pending, ladder)
-    out = _records_for(out, decided_events)
+    out = _records_for(out, combined)
     out["home_score"] = np.nan
     out["away_score"] = np.nan
     out["margin"] = np.nan

@@ -3,6 +3,73 @@
 Standalone NBA moneyline and totals/spread backend structurally mirroring the
 MLB/NFL/NHL production contracts.
 
+## Input and evaluation repair — 2026-10-08
+
+Current representation: **`nba-prod-v2.7-input-causal-parity`**. Rebuild features,
+OOF, blend/calibration, and final refits together; do not score corrected inputs
+through an old v2.6 bundle. No new executable programs or speculative tuning
+were added.
+
+- Elo home advantage has the correct positive sign. History and slate now share
+  one chronological engine, including season reversion and missing-final isolation.
+- Offensive/defensive ratings use points per 100 estimated possessions, not
+  `100 +/- margin`. Possessions pair both teams' `FGA + .44*FTA - OREB + TOV`;
+  pace normalizes to 48 minutes using summed player minutes / 5 (including OT).
+  The normalized source schema retains both efficiency columns.
+- Missing box/event facts remain NaN, never invented league-average rates or
+  zero counts. Missing events are not repeated observations in EWMs. Pending
+  games do not advance result windows or reset rest to a phantom game.
+- Headlines/history/calibration retain the causal rolling blend. Final-weight
+  replay is `p_ensemble_retrospective`, diagnostic only, **NOT OOF**. One nested
+  chronological log-loss calibration gate applies at every fold and final origin.
+- Final member fits use the same canonical, train-only policy as folds. XGBoost
+  measures rounds on a train-tail probe then refits all training rows with that
+  budget; there is no implicit final 100-tree default. Team category routing
+  cannot silently fall back to numeric fitting, and SHAP retains categorical input.
+- Training refuses an absent or wholly non-finite served column. A nonempty
+  slate with a wholly unavailable column fails instead of shipping forecasts.
+  `smoke_nba.py` includes the production RAPM build and returns failure when
+  its requested coverage threshold is missed, not just when a name is absent.
+
+Cold-start/position-pool and genuinely unavailable facts remain honest NaNs;
+100% fabricated population is not full coverage. Final verification:
+
+- Existing backend suite: **569 passed**; selected NBA/shared frontend checks:
+  **79 passed**. Compilation/whitespace checks pass; no installed/configured
+  mypy or pyright checker. Dependency deprecation warnings remain.
+- Cache-only production ingestion/engineering, 2024-10-01 through 2026-07-31:
+  **2,629 trainable games**, 56,682 player rows, 1,313,478 PBP actions,
+  5,258 team-event rows; **5,258/5,258** player-summed scores agree exactly
+  with the independent schedule. All **71 served features** have observations;
+  all **113 served/candidate names** are present and source-mapped.
+- Source missingness is NOT eliminated: center RAPM difference is **91.82%**,
+  center home **94.48%**, weakest event feature **99.39%**. The existing smoke
+  correctly exits **1 at the unchanged 95% default**, explicitly naming the
+  center columns. An explicit 90% diagnostic run exits 0; it does not waive
+  the 95% failure. Center gaps occur outside opening night too (215 rows across
+  both seasons); position/availability/recency pools need a separate audit.
+  PBP/box cross-check is 61,938/63,096 exact comparisons (not perfect agreement).
+- Real-input/real-estimator interface smoke: three causal folds / 145 OOF rows,
+  all three members, canonical final refit, unknown-team prediction, bit-identical
+  joblib replay, history CSV and calibration JSON verified. Two categorical SHAP
+  CSVs, each 73 rows, verified. Reduced smoke budgets are NOT accuracy evidence.
+- Matched configured-budget replay: same 2,629 games, 56 folds, seed 42;
+  compare **raw CAUSAL**, never the baseline retrospective headline. On 2,130
+  grading rows, baseline -> corrected AUC **0.733526 -> 0.733511**, log loss
+  **0.602155 -> 0.602232** (slightly worse point estimates), ECE
+  **0.020918 -> 0.020434**. On all 2,400 scored rows, AUC
+  **0.727797 -> 0.728079**, loss **0.605444 -> 0.605316**. These are mixed,
+  essentially flat results, **not a demonstrated grading-population gain**.
+  Paired 2,000-fold-cluster bootstrap 95% intervals include zero: loss delta
+  **[-0.001047, +0.001336]**, AUC delta **[-0.001868, +0.001640]**.
+  The recent 19-game postseason slice worsens and is too thin for admission.
+
+Scratch evidence remains in gitignored `run_diagnostics/` (feature coverage,
+paired OOF/uncertainty, interface smoke, and test logs), never committed as new
+programs or production artifacts. This is historical replay, not a pristine
+holdout. No production bundle was replaced, no parameter/blend-policy change
+was promoted, and no claim of achieved AUC/log-loss improvement is made.
+
 ## Run
 
 ```bash

@@ -1967,6 +1967,25 @@ def _validate(facts: NBAFacts) -> None:
                 f"the {name} frame has {dupes} duplicated "
                 f"{' + '.join(keys)} row(s); a feature row that appears "
                 "twice is counted twice by every trailing window")
+    # A linked decided game must have both measured sides, and each side's
+    # player-summed points must equal the independently ingested final score.
+    linked = trainable_games(games)
+    expected = pd.concat([
+        linked[["game_id", "home_team", "home_score", "away_score"]].rename(
+            columns={"home_team": "team", "home_score": "points_for",
+                     "away_score": "points_against"}),
+        linked[["game_id", "away_team", "away_score", "home_score"]].rename(
+            columns={"away_team": "team", "away_score": "points_for",
+                     "home_score": "points_against"})], ignore_index=True)
+    observed = expected.merge(facts.team_stats[["game_id", "team", "points_for",
+                               "points_against"]], on=["game_id", "team"],
+                              how="left", suffixes=("_expected", "_observed"),
+                              validate="one_to_one")
+    bad = ((observed.points_for_expected != observed.points_for_observed)
+           | (observed.points_against_expected != observed.points_against_observed))
+    if bad.any():
+        raise RuntimeError(f"NBA team facts missing or disagree with final scores: "
+                           f"{int(bad.sum())} team-game(s)")
     if not facts.team_events.empty:
         duplicated = facts.team_events.duplicated(["game_id", "team"]).sum()
         if duplicated:

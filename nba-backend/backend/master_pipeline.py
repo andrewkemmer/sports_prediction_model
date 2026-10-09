@@ -131,6 +131,11 @@ def _config_meta(facts=None) -> dict:
             "cadence_days": config.RETRAIN_CADENCE_DAYS,
             "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
             "members": list(config.ENSEMBLE_MEMBERS), "market_free": True,
+            "moneyline_evaluation": {
+                "headline": "causal_rolling_blend",
+                "retrospective": "diagnostic_only_not_oof",
+                "calibration": "nested_prior_evidence_gate_at_every_origin",
+                "xgb_round_policy": "train_tail_probe_then_all_train_refit"},
             "source": source,
             "player_rows": int(tables.get("player_stats", 0)),
             # Per-frame provenance, so an artifact says which upstream filled
@@ -496,7 +501,8 @@ def _empty_contract_columns(frame: pd.DataFrame | None) -> list[str]:
     if frame is None or not len(frame):
         return []
     return [col for col in config.active_moneyline_feature_cols()
-            if col in frame.columns and not frame[col].notna().any()]
+            if col not in frame or not np.isfinite(
+                pd.to_numeric(frame[col], errors="coerce")).any()]
 
 
 def _build_position_rapm_features(facts, games: pd.DataFrame,
@@ -1270,6 +1276,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     slate_markets = pd.DataFrame()
     leaders = pd.DataFrame()
     try:
+        gaps = _empty_contract_columns(game_df)
+        if gaps:
+            raise ValueError(f"NBA training feature coverage failed: {gaps}")
         ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
         ml_oof = _merge_oof_metadata(ml["oof"], game_df)
         if not len(ml_oof):
@@ -1283,8 +1292,18 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                    if "grades_pooled" in ml_oof
                    else pd.Series(True, index=ml_oof.index))
         _grade = ml_oof[_grades]
-        platt = ml_mod.moneyline_fit(_grade.p_ensemble.to_numpy(float),
-                                     _grade.home_win.to_numpy(float))
+        platt, final_gate = ml_mod.gated_calibrator(
+            ml_oof.p_ensemble.to_numpy(float), ml_oof.home_win.to_numpy(float),
+            _grades.to_numpy(bool))
+        ml["calibration_gate"]["final_serving"] = final_gate
+        fold_info["calibration_gate"] = ml["calibration_gate"]
+        fold_info["moneyline_retrospective_not_oof"] = evaluation.binary_metrics(
+            _grade.p_ensemble_retrospective.to_numpy(float),
+            _grade.home_win.to_numpy(float))
+        logger.info("moneyline retrospective final-weight replay (NOT OOF): %s",
+                    fold_info["moneyline_retrospective_not_oof"])
+        logger.info("final serving calibration gate: %s (%s)",
+                    final_gate["decision"], final_gate["reason"])
         # The shipped map states itself (2026-10-06 NBA log review, MLB/
         # NHL parity): the delivered log carried no calibration line at
         # all — a reviewer could not tell a fitted map from an identity
@@ -1292,11 +1311,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # back; this line says which one actually ships.
         if platt is not None:
             logger.info(
-                "final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
+                "final serving calibrator: a=%.4f b=%.4f n=%d method=%s",
                 platt["a"], platt["b"], platt["n"], platt.get("method"))
         else:
             logger.info(
-                "final pooled calibrator: identity map "
+                "final serving calibrator: identity map "
                 "(no fitted correction)")
         _post = (ml_oof[ml_oof.is_playoffs.astype(bool)]
                  if "is_playoffs" in ml_oof else ml_oof.iloc[:0])
@@ -1360,6 +1379,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         final_models, _ = ml_mod.fit_final_models(game_df)
         final_reg = dist_mod.fit_final(game_df)
         if len(slate):
+            gaps = _empty_contract_columns(slate)
+            if gaps:
+                raise ValueError(f"NBA slate feature coverage failed: {gaps}")
             slate["home_win_prob_model"] = ml_mod.predict_slate(
                 final_models, slate, ml["member_weights"])
             slate["p_ensemble"] = slate.home_win_prob_model
@@ -1628,7 +1650,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     summary = {"status": "failed" if phase_error else "ok",
                "errors": [str(phase_error)] if phase_error else [],
                "run_date": run_day, "artifacts": artifacts,
-               "weights": ml["member_weights"], "folds": fold_info,
+               "weights": ml["member_weights"] if ml else {}, "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
                "n_features": len(config.active_moneyline_feature_cols()),
                "features_empty": {"frame": empty_frame, "slate": empty_slate},

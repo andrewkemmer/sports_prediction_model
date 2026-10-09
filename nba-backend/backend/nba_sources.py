@@ -910,8 +910,22 @@ def team_stats_from_log(log: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
         with np.errstate(divide="ignore", invalid="ignore"):
             out["efg_pct"] = np.where(
                 out.fga > 0, (out.fgm + 0.5 * out.fg3m) / out.fga, np.nan)
-    # The contract's id is ESPN's, and the context already supplied it, so the
-    # log's own id is dropped rather than renamed over it.
+    # Efficiency must use possessions, not 100 +/- score margin. Pair the
+    # two measured box-score estimates on the same game before dividing.
+    if {"fga", "fta", "oreb", "tov"}.issubset(out.columns):
+        out["_poss"] = out.fga + 0.44 * out.fta - out.oreb + out.tov
+        opp = out[["nba_game_id", "opponent", "_poss"]].rename(
+            columns={"opponent": "team", "_poss": "_opp_poss"})
+        out = out.merge(opp, on=["nba_game_id", "team"], how="left",
+                        validate="one_to_one")
+        poss = ((out._poss + out._opp_poss) / 2).where(
+            (out._poss > 0) & (out._opp_poss > 0))
+        out["off_rating"] = 100 * out.points_for / poss
+        out["def_rating"] = 100 * out.points_against / poss
+        # Player minutes sum to five times game duration, including OT.
+        duration = out.minutes / 5 if "minutes" in out else np.nan
+        out["pace"] = (48 * poss / duration).where(duration > 0)
+        out = out.drop(columns=["_poss", "_opp_poss"])
     return out.drop(columns=["nba_game_id"], errors="ignore")
 
 

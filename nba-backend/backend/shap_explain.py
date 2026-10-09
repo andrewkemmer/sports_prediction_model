@@ -96,7 +96,7 @@ def compute_nba_shap_per_game(bundle: dict, games: pd.DataFrame,
         for name, ex in explainers.items():
             try:
                 pre = (bundle.get("moneyline_preprocessors") or {}).get(name)
-                X = ml_mod.member_matrix_ndarray(name, one, pre)
+                X = ml_mod.member_fit_input(name, ml_mod.member_matrix(name, one), pre)
                 # shap's TreeExplainer warns on every LightGBM binary
                 # call that its output "has changed to a list of ndarray"
                 # - a version note the normalization just below already

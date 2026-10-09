@@ -83,14 +83,14 @@ FEATURE_UPSTREAM: dict[str, str] = {
     "is_home": "constant 1.0 by construction",
     "is_playoffs": f"{UPSTREAM_SCHEDULE} (season.type)",
     # --- Moneyline contract: box-score form ------------------------------
-    "ewm_off_rating_home": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_off_rating_away": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_def_rating_home": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_def_rating_away": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_off_rating_diff": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_def_rating_diff": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_net_points_diff": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_pace_diff": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
+    "ewm_off_rating_home": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_off_rating_away": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_def_rating_home": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_def_rating_away": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_off_rating_diff": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_def_rating_diff": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_net_points_diff": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_pace_diff": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
     "ewm_efg_pct_diff": f"{UPSTREAM_SEASON_LOG}: FGM/FGA/FG3M",
     "ewm_turnover_margin_diff": f"{UPSTREAM_SEASON_LOG}: TOV",
     "ewm_rebound_margin_diff": f"{UPSTREAM_SEASON_LOG}: REB",
@@ -134,8 +134,8 @@ FEATURE_UPSTREAM.update({
 # ``unmapped`` audit, which is the loud way to find out.
 PER_SIDE_UPSTREAM: dict[str, str] = {
     "back_to_back": f"{UPSTREAM_SCHEDULE} (date) -> prior games",
-    "ewm_net_points": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
-    "ewm_pace": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
+    "ewm_net_points": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
+    "ewm_pace": f"{UPSTREAM_SEASON_LOG}: PTS and measured box-score counts",
     "ewm_efg_pct": f"{UPSTREAM_SEASON_LOG}: FGM/FGA/FG3M",
     "ewm_turnover_margin": f"{UPSTREAM_SEASON_LOG}: TOV",
     "ewm_rebound_margin": f"{UPSTREAM_SEASON_LOG}: REB",
@@ -193,7 +193,7 @@ def coverage(frame: pd.DataFrame, feature: str) -> float:
     if feature not in frame.columns:
         return 0.0
     values = pd.to_numeric(frame[feature], errors="coerce")
-    return 100.0 * float(values.notna().mean()) if len(values) else 0.0
+    return 100.0 * float(np.isfinite(values).mean()) if len(values) else 0.0
 
 
 def unmapped(features_list: list[str]) -> list[str]:
@@ -221,13 +221,21 @@ def run(min_coverage: float, pbp_games: int, out_dir: str | None) -> int:
     started = time.time()
     facts = ing.load_ingested()
     games = ing.eligible_games(facts.games)
-    settled = games[games.home_score.notna() & games.away_score.notna()].copy()
+    settled = ing.trainable_games(games)
     if not len(settled):
         print("FAIL  no settled games in the window")
         return 1
 
     built = features.build_game_features(settled, facts.team_stats,
                                          facts.team_events)
+    # Exercise the production RAPM build as well, not all-NaN placeholders.
+    import master_pipeline
+    rapm, _ = master_pipeline._build_position_rapm_features(facts, games)
+    if rapm is not None and len(rapm):
+        built = built.drop(columns=config.PLAYER_RAPM_POSITION_FEATURE_COLS,
+                           errors="ignore").merge(
+            rapm[["game_id", *config.PLAYER_RAPM_POSITION_FEATURE_COLS]],
+            on="game_id", how="left", validate="one_to_one")
     # The categorical join is the one thing that must be a join and not an
     # assignment: ``team_category_ids`` returns a NEW frame keyed by index, and
     # reassigning the result replaces the whole linear contract with two
@@ -299,7 +307,7 @@ def run(min_coverage: float, pbp_games: int, out_dir: str | None) -> int:
 
     print()
     if below:
-        print(f"WARN  {len(below)} feature(s) below the gate:")
+        print(f"FAIL  {len(below)} feature(s) below the gate:")
         for feature, pct in below[:20]:
             print(f"        {feature:38s} {pct:5.1f}%   {FEATURE_UPSTREAM[feature]}")
         if len(below) > 20:
@@ -309,13 +317,13 @@ def run(min_coverage: float, pbp_games: int, out_dir: str | None) -> int:
         for problem in failures:
             print(f"        {problem}")
     elif below:
-        print(f"WARN  all {len(declared)} declared features are explained and "
+        print(f"FAIL  all {len(declared)} declared features are explained and "
               f"present; {len(below)} below the coverage gate")
     else:
         print(f"PASS  all {len(declared)} declared features are built from the "
               f"three declared upstreams and clear the gate")
     print(f"elapsed {time.time() - started:.1f}s")
-    return 1 if failures else 0
+    return 1 if failures or below else 0
 
 
 # ---------------------------------------------------------------------------
