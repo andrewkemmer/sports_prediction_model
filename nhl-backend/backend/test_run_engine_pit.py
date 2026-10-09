@@ -3297,6 +3297,49 @@ def test_coverage_splits_postseason_pool_boundary_from_warm_gap():
         "the documented postseason boundary must not page"
 
 
+def test_pool_default_mask_reads_prior_through_module_binding():
+    """2026-10-09 third review: the mask must resolve ``_POSITION_PRIOR``
+    through the module-level ``feat_mod`` binding, not a bare local import.
+
+    ``_pool_default_mask`` used ``from features import _POSITION_PRIOR``
+    inside a try/except. That resolves only when the backend directory is
+    ``sys.path[0]`` (the production run and this suite both put it there).
+    Imported as a PACKAGE — ``from backend import monitoring``, which is how
+    frontend tooling and real-frame audit replays reach it — the bare name
+    is unresolvable, the except swallowed it, and the mask returned None:
+    every ``pl_*`` default then counts as a MEASUREMENT again, which is the
+    exact 2026-10-06 defect the mask exists to prevent. A silent reversion
+    to dishonest coverage is the worst failure mode here, because the report
+    still prints a healthy measured% and no one is paged.
+
+    Pin: swapping the prior on the already-imported module changes what the
+    mask marks as default, proving it reads ``feat_mod`` rather than its own
+    import. A non-pool feature still returns None (unchanged contract).
+    """
+    sentinel = {"EVO": {"C": 0.5, "L": 0.721, "R": 0.698, "D": 0.169},
+                "PPO": {"C": 1.581, "L": 1.627, "R": 1.518, "D": 0.63}}
+    real = mon.feat_mod._POSITION_PRIOR
+    try:
+        mon.feat_mod._POSITION_PRIOR = sentinel
+        prior = 0.5
+        df = pd.DataFrame({
+            "pl_evo_c_home": [prior, prior + 0.3],
+            "pl_evo_c_away": [prior, prior + 0.3],
+        })
+        mask = mon._pool_default_mask(df, "pl_evo_c_home")
+        assert mask is not None, \
+            "the mask must resolve the prior via the module-level binding"
+        assert mask.tolist() == [True, False], mask.tolist()
+        # A diff defaults when either side still reads the prior.
+        dmask = mon._pool_default_mask(df, "pl_evo_c_diff")
+        assert dmask.tolist() == [True, False], dmask.tolist()
+    finally:
+        mon.feat_mod._POSITION_PRIOR = real
+    # Unchanged contract: a non-pool feature is still unjudgeable -> None.
+    assert mon._pool_default_mask(
+        pd.DataFrame({"elo_diff": [0.1]}), "elo_diff") is None
+
+
 def test_feature_coverage_artifacts_carry_both_windows():
     """The CSV the monitor page loads must contain the slate window."""
     import tempfile

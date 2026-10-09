@@ -262,3 +262,84 @@ The 2026-10-05-style true warm gap has not recurred in either run since.
 cause value lands in the coverage CSV and the verdict wording lands in the
 run log on the next pipeline run. The notebook-owned `NHL_FULL_REPULL=1`
 pin and the ops observations above are unchanged.
+
+## Third review — the remote 19:01 delivery (`0ef48389`), and one residual
+coverage-report defect (remediated)
+
+Re-reviewing the same remote delivery that closed above, this time walking
+the whole 428-line log and replaying the run's own drift windows through the
+fixed report on the real 2,855-row frame. The delivery itself is confirmed
+clean and the second review's boundary remediation is confirmed to land on
+the next run; the replay surfaced one residual defect **in the remediation
+code itself**, now fixed.
+
+**Delivery re-verified.** All 11 Phase-13 gates PASS; run green in 4,830 s
+(`NHL_FULL_REPULL=1`, 2,857/2,857 boxscores fetched, 0 cache hits — the
+notebook pin above, unchanged). Drift: 0 warnings / 0 alerts / 8 seasonal on
+both views. The three log WARNINGs are the already-triaged classes: the
+14-window OOF thin-population line (provisional by design, 189 rows excluded
+from grading) and the two warm-default coverage lines (the pre-fix wording —
+this run started 17:40 UTC, the boundary split landed 21:28 UTC, so its
+output belongs to the next run as stated). New since the 10-05 outage log:
+the **pre-game lineup channel is populated** (257 intervals, bound through
+2026-10-06), so the "historical `pl_*` availability gap stays OPEN" warning
+is gone; the pool line reports `368/5714` prior-served sides and the slate
+served `0/8` — every serving side had a real pool row.
+
+**Boundary fix replayed on the real frame (verified to land).** Slicing the
+run's own windows (250-game baseline / 60-game current) out of the
+2,855-row rebuilt frame and running them through the current
+`monitoring.coverage`: the baseline's six warm defaults per pool feature
+that sit only on the June-2026 Cup-Final games classify
+`position_prior_postseason_boundary` — 18 features (all 12 EVO + `pl_ppo_c_*`
++ `pl_ppo_d_*`) — while the six `pl_ppo_l/r_*` features whose warm defaults
+mix Cup-Final rows with regular-season per-group holes keep
+`position_prior_default`; the current window's three `pl_ppo_r_*` rows stay
+`position_prior_default` (the early-October 5on4 ramp). The next run's
+verdict will therefore WARN on the 6 + 3 true-gap features and disclose the
+18 boundary features on the INFO line, exactly as the remediation intends.
+Window geometry and per-feature default counts match the shipped CSV
+cell-for-cell within the two-game frame difference (2,855 local vs 2,857
+runner).
+
+**Residual defect (found by the replay, fixed).** The first replay — run
+with `from backend import monitoring` (the package-import context every
+frontend tool, audit replay, or external consumer uses) — reported **zero
+defaults in either window**, i.e. silently the pre-Finding-1 behavior. Root
+cause: `_pool_default_mask` resolved its prior with a bare
+`from features import _POSITION_PRIOR` inside a try/except. That name
+resolves only when `nhl-backend/backend/` is `sys.path[0]` (the production
+run and the test suite both put it there), so under a package import it
+raised ImportError, the guard swallowed it, and the mask returned None —
+reverting the coverage report to *defaults counted as measured*, the exact
+2026-10-06 defect the mask exists to prevent, with no signal at all. The
+failure mode is the dangerous kind: the report still prints a healthy
+measured% and nobody is paged.
+
+- **Fix (`nhl-backend/backend/monitoring.py`).** The mask now reads the
+  prior through the module-level `feat_mod` binding (features is imported
+  once at the top in *both* run contexts), removing the second import and
+  its silent failure path. Verified in both contexts: package import and
+  backend-dir script now return identical masks (`pl_evo_c_home` at the
+  prior → default; a diff defaults when either side still reads the prior).
+- **Pin** (`nhl-backend/backend/test_run_engine_pit.py`, existing file):
+  `test_pool_default_mask_reads_prior_through_module_binding` — swapping
+  `_POSITION_PRIOR` on the already-imported module changes what the mask
+  marks default, proving it consults `feat_mod` rather than its own import;
+  a non-pool feature still returns None (unchanged contract).
+
+**Coverage-audit status after this review.** The gap ledger above is
+unchanged — every documented gap is closed or holding, and the second
+review's residual boundary item is verified to land on the next run. The
+only outstanding coverage-audit line is environmental, not code: the
+committed 20261009 CSV and log still carry the pre-fix labels until the next
+Kaggle run executes, and the notebook-owned `NHL_FULL_REPULL=1` pin (a full
+repull every run) remains flagged for the notebook owner, not edited here.
+
+**Verification (this review).** Real-frame replay of both shipped windows
+through the fixed report (the 18/6 and 3-feature splits above); the new pin
+plus the surrounding coverage/verdict pins **11 passed**;
+`py_compile` clean on `monitoring.py`; `git diff --check` clean. The full
+backend suite is recorded in the commit message. No new programs: the
+replay script lives in the ignored `.freebuff/` diagnostics directory; the
+commit touches only the two existing files above plus this document.

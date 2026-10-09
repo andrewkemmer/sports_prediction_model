@@ -585,11 +585,15 @@ def _pool_default_mask(df: pd.DataFrame, feature: str) -> pd.Series | None:
     if len(parts) != 4:
         return None
     _, metric, pos, rep = parts
-    try:
-        from features import _POSITION_PRIOR  # local: avoids an import cycle
-    except Exception:  # noqa: BLE001 — a missing helper must not kill the report
-        return None
-    by_pos = _POSITION_PRIOR.get(metric.upper())
+    # Read the prior through the module-level ``feat_mod`` binding — features
+    # is imported once at the top in BOTH run contexts (backend-dir script and
+    # package import). The earlier bare ``from features import _POSITION_PRIOR``
+    # resolved only in the script context: imported as ``backend.monitoring``
+    # (frontend tooling, audit replays, any package consumer) it raised
+    # ImportError, the guard swallowed it, and the mask silently returned
+    # None — reverting the report to the very defect this function exists to
+    # prevent (defaults counted as measured, 2026-10-06 audit §E).
+    by_pos = getattr(feat_mod, "_POSITION_PRIOR", {}).get(metric.upper())
     if not by_pos or pos.upper() not in by_pos:
         return None
     prior = float(by_pos[pos.upper()])
