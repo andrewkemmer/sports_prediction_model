@@ -278,6 +278,19 @@ def main(argv: list[str] | None = None) -> int:
         (schedule["gameday"] >= pd.Timestamp(start_date))
         & (schedule["gameday"] <= pd.Timestamp(window_end))].copy()
     logger.info("schedule rows (date window): %d", len(schedule))
+    # MLB parity (2d58210e ingestion.warn_missing_finals): a frame whose
+    # horizon lags the official finals keeps those games out of
+    # predictions_history / Today's Record forever, and no gate reads what
+    # is NOT in the frame. Warn-only — the next run's forward top-up
+    # recovers genuine nflverse posting lag; an id that keeps re-warning
+    # stays visible instead of silently resolving nothing.
+    _late_finals = ingestion.warn_missing_finals(schedule)
+    if _late_finals:
+        logger.warning(
+            "%d recent game(s) past their gameday with no final score in "
+            "the frame: %s%s", len(_late_finals),
+            ", ".join(_late_finals[:8]),
+            " …" if len(_late_finals) > 8 else "")
 
     # Weather is a separate, provenance-bearing source. Historical games use
     # hourly archive observations (with MLB-style recent-past fallback); pending
@@ -397,6 +410,21 @@ def main(argv: list[str] | None = None) -> int:
                 len(game_df), game_df.shape[1])
     cov = feat_mod.feature_coverage_report(game_df)
     logger.info("feature coverage:\n%s", cov.to_string(index=False))
+    # Feature coverage contract (MLB parity — mlb master_pipeline's
+    # "feature coverage contract failed"): the served feature universe must
+    # exist in the built frame with at least one observation. Schema absence
+    # or wholly-starved history is not acceptable as a successful rebuild —
+    # a source that silently stops publishing a served column would
+    # otherwise train and ship a model blind on it. Fail BEFORE training,
+    # while the run is still cheap (the column-level sibling of the NHL
+    # c9bcc3b8 ingestion-coverage gate, which fails the run when a covered
+    # season's leading games never arrive).
+    _absent, _starved = _feature_coverage_gaps(
+        game_df, config.active_moneyline_feature_cols())
+    if _absent or _starved:
+        raise ValueError(
+            f"NFL feature coverage contract failed: missing={_absent}, "
+            f"entirely_unobserved={_starved}; repair sources before training")
 
     # Apply only an explicitly adopted RFE state. Ordinary runs retain the
     # full production list; a trial never changes serving width.
@@ -1057,7 +1085,8 @@ def main(argv: list[str] | None = None) -> int:
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
     drift = monitoring.feature_drift(drift_baseline, recent,
-                                     weights=feature_weights)
+                                     weights=feature_weights,
+                                     phase_frame=game_df)
     cov_rows = monitoring.coverage(drift_baseline, current_df=recent)
     # The Totals & Run Lines (run-engine) drift table reports the DISTRIBUTION
     # model's own MODEL WEIGHT — pooled split-gain of the shipped per-side
@@ -1070,7 +1099,8 @@ def main(argv: list[str] | None = None) -> int:
         final_reg, feature_frame=game_df)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
         out_dir, date_c, drift_baseline, recent,
-        weights=run_line_weights or None)
+        weights=run_line_weights or None,
+        phase_frame=game_df)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier
@@ -1157,7 +1187,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 14. Schema validation (gates) ─────────────────────────────────────
     _banner("PHASE 14", "schema validation")
-    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
+    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info,
+                              schedule=schedule, window_start=start_date,
+                              window_end=window_end)
     for name, ok in gates.items():
         logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
     if not all(gates.values()):
@@ -1513,9 +1545,96 @@ def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
     serve_mod._dump_json(path, record)
 
 
+def _feature_coverage_gaps(frame: pd.DataFrame, cols) -> tuple[list, list]:
+    """(absent, entirely-unobserved) columns of ``cols`` in ``frame``.
+
+    Extracted from the Phase-3 contract so tests can pin the check without
+    executing ``main()``: either list non-empty makes the run fail before
+    training (MLB parity).
+    """
+    absent = [c for c in cols if c not in frame.columns]
+    starved = [c for c in cols if c in frame.columns
+               and not pd.to_numeric(frame[c], errors="coerce").notna().any()]
+    return absent, starved
+
+
+def _season_openers_ingested(schedule: pd.DataFrame | None,
+                             window_start: str | None,
+                             window_end: str | None) -> bool:
+    """Ingestion-coverage gate: every covered season's week-1 band arrived.
+
+    NHL parity (c9bcc3b8): a date-window regression or a clipped schedule
+    filter silently drops leading games while every downstream gate only
+    reads frames that ARE present. The first regular-season game of an
+    nflverse season lands Sep 4-13 across 2016-2026, so for a season whose
+    opener band the window was meant to cover, the frame's earliest REG
+    gameday must fall in that band — anything later proves leading games
+    were dropped, whatever the cause; zero REG rows for a covered season
+    fails only once the window end has passed the opener band (a
+    pre-season run legitimately has none). Seasons the window never
+    covers are skipped (an operator's mid-season ``NFL_START_DATE`` is
+    legitimate), and missing inputs fail CLOSED: coverage can only be
+    certified from the frame that was pulled and the window that was
+    asked for.
+    """
+    if schedule is None or window_start is None or window_end is None:
+        return False
+    if not len(schedule) or "gameday" not in schedule.columns \
+            or "season" not in schedule.columns:
+        return False
+    try:
+        start = pd.Timestamp(window_start)
+        end = pd.Timestamp(window_end)
+    except (TypeError, ValueError):
+        return False
+    gameday = pd.to_datetime(schedule["gameday"], errors="coerce")
+    season = pd.to_numeric(schedule["season"], errors="coerce")
+    gtype = (schedule["game_type"].astype("string").str.upper()
+             if "game_type" in schedule.columns
+             else pd.Series("REG", index=schedule.index, dtype="string"))
+    ok = True
+    for s in config.ALL_SEASONS:
+        s = int(s)
+        # An operator window opening after the opener band was never meant
+        # to cover that season's first week — skip, don't fail.
+        if start > pd.Timestamp(year=s, month=9, day=16):
+            continue
+        # A season entirely beyond the window (future) has nothing to
+        # certify yet.
+        if end < pd.Timestamp(year=s, month=9, day=1):
+            continue
+        first = gameday[(season == s) & gtype.eq("REG") & gameday.notna()].min()
+        if pd.isna(first):
+            if end >= pd.Timestamp(year=s, month=9, day=20):
+                logger.error(
+                    "season %d: window ends %s with zero regular-season "
+                    "games ingested — the season's dates were never "
+                    "requested", s, end.date())
+                ok = False
+            continue
+        # Week 1 opens Sep 4-13 in this era; an earliest REG game after
+        # Sep 20 of a covered season means leading games are missing.
+        if first > pd.Timestamp(year=s, month=9, day=20):
+            logger.error(
+                "season %d opener coverage: earliest ingested REG game is "
+                "%s — leading games are missing from the ingested frame",
+                s, first.date())
+            ok = False
+    return ok
+
+
 def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
-                      slate: pd.DataFrame, fold_info: dict) -> dict:
-    """Schema/coherence gates over the written artifacts."""
+                      slate: pd.DataFrame, fold_info: dict,
+                      schedule: pd.DataFrame | None = None,
+                      window_start: str | None = None,
+                      window_end: str | None = None) -> dict:
+    """Schema/coherence gates over the written artifacts.
+
+    ``schedule`` / ``window_start`` / ``window_end`` feed the ingestion-
+    coverage gate (``season_openers_ingested``); absent, that gate fails
+    closed — coverage can only be certified from the frame that was pulled
+    and the window that was asked for (NHL parity).
+    """
     gates: dict[str, bool] = {}
     # moneyline probability coherence
     p = oof_ml["p_ensemble_calibrated"].to_numpy(float)
@@ -1571,6 +1690,8 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
             "p_away_win_derived"}
     gates["slate_contract_fields"] = need.issubset(slate.columns) if len(slate) else True
     gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
+    gates["season_openers_ingested"] = _season_openers_ingested(
+        schedule, window_start, window_end)
     return gates
 
 

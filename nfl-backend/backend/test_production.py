@@ -1948,6 +1948,186 @@ check("gated_calibrator refuses a map with no holdout gain",
 check("gated_calibrator's grades mask restricts the evidence",
       _gc_grec["n_prior"] == 400)
 
+# ---- Coverage gates (MLB column contract + NHL opener gate, 2026-10-08 pass)
+# Both classes of hole shipped silently before: a served column that a
+# source stops publishing, and a date-window regression that drops a
+# season's leading games — every downstream gate only reads frames that
+# ARE present. Extracted helpers so the checks run without executing main().
+_cov_frame = pd.DataFrame({
+    "elo_diff": [1.0, 2.0],
+    "ghost_never_published": [np.nan, np.nan],
+})
+_abs, _starv = mp_mod._feature_coverage_gaps(
+    _cov_frame, ["elo_diff", "ghost_never_published", "dropped_by_window"])
+check("feature coverage contract flags absent AND wholly-starved columns",
+      _abs == ["dropped_by_window"]
+      and _starv == ["ghost_never_published"])
+check("feature coverage contract is clean on a healthy frame",
+      mp_mod._feature_coverage_gaps(
+          pd.DataFrame({"a": [0.0, np.nan], "b": [1.0, 2.0]}),
+          ["a", "b"]) == ([], []))
+check("master raises on a broken feature coverage contract (MLB parity)",
+      "NFL feature coverage contract failed" in mp_src
+      and "_feature_coverage_gaps(" in mp_src)
+
+# Full-history healthy frame: every season 2016-2023 opens in the
+# Sep 4-13 band (the observed nflverse era); the gate's contract is that a
+# frame covering a window must CONTAIN each covered season's leading games.
+_op_rows = [{"season": s, "game_type": "REG",
+             "gameday": pd.Timestamp(year=s, month=9, day=8)}
+            for s in range(2016, 2024)]
+_op_rows += [{"season": 2023, "game_type": "REG",
+              "gameday": pd.Timestamp(d)}
+             for d in ("2023-09-10", "2023-09-14", "2023-09-17")]
+_op_ok = pd.DataFrame(_op_rows)
+_op_clipped = _op_ok.copy()
+# 2023's leading games pushed past the band — a clipped window that
+# dropped week 1 (the pre-b0ed45ad 2704-REG pathology, date-window form).
+_op_clipped.loc[_op_clipped["season"].eq(2023),
+                "gameday"] = pd.to_datetime(
+                    ["2023-09-24", "2023-09-28", "2023-10-01", "2023-10-05"])
+check("opener gate passes a frame whose week-1 bands all arrived",
+      mp_mod._season_openers_ingested(
+          _op_ok, "2016-01-01", "2023-12-31") is True)
+check("opener gate fails leading games dropped by a clipped window",
+      mp_mod._season_openers_ingested(
+          _op_clipped, "2016-01-01", "2023-12-31") is False)
+check("opener gate fails a covered season with zero rows",
+      mp_mod._season_openers_ingested(
+          _op_ok[_op_ok["season"] != 2023], "2016-01-01", "2023-12-31")
+      is False)
+check("opener gate skips an operator mid-season window start",
+      mp_mod._season_openers_ingested(
+          _op_ok, "2023-09-25", "2023-12-31") is True)
+check("opener gate skips seasons entirely beyond the window",
+      mp_mod._season_openers_ingested(
+          _op_ok, "2016-01-01", "2022-12-31") is True)
+check("opener gate fails closed on missing inputs",
+      mp_mod._season_openers_ingested(None, "2016-01-01", "2023-12-31")
+      is False
+      and mp_mod._season_openers_ingested(
+          _op_ok, None, "2023-12-31") is False)
+check("master wires the opener gate into the failing Phase-14 gates",
+      'gates["season_openers_ingested"]' in mp_src
+      and "schedule=schedule, window_start=start_date" in mp_src
+      and "window_end=window_end)" in mp_src)
+# Through the ENTRY POINT, like NHL's c9bcc3b8 pin: _validate_outputs must
+# surface the gate key itself — the helper could be correct while the
+# wiring silently dropped it.
+_v_oof = pd.DataFrame({"p_ensemble_calibrated": [0.5, 0.6],
+                       "season": [2023, 2023]})
+_v_fold = {"n_folds": 3}
+_v_dir = Path("__opener_gate_probe__")  # markets CSV absent → other gates
+#                                      # False; only the opener key matters.
+_g_holed = mp_mod._validate_outputs(
+    _v_dir, "2023-12-31", _v_oof, pd.DataFrame(), _v_fold,
+    schedule=_op_clipped, window_start="2016-01-01",
+    window_end="2023-12-31")
+_g_okfull = mp_mod._validate_outputs(
+    _v_dir, "2023-12-31", _v_oof, pd.DataFrame(), _v_fold,
+    schedule=_op_ok, window_start="2016-01-01",
+    window_end="2023-12-31")
+_g_absent = mp_mod._validate_outputs(
+    _v_dir, "2023-12-31", _v_oof, pd.DataFrame(), _v_fold)
+check("_validate_outputs surfaces season_openers_ingested=False on a holed frame",
+      _g_holed.get("season_openers_ingested") is False)
+check("_validate_outputs surfaces season_openers_ingested=True when bands arrived",
+      _g_okfull.get("season_openers_ingested") is True)
+check("_validate_outputs fails the opener gate closed when args are absent",
+      _g_absent.get("season_openers_ingested") is False)
+
+# ---- Drift visibility + season-seam guard (MLB/NHL parity, 2026-10-08 pass)
+check("DRIFT_PHASE_EXTENSION_MONTHS knob matches MLB/NHL",
+      tuple(config.DRIFT_PHASE_EXTENSION_MONTHS) == (-1, -2))
+_sd = np.random.default_rng(11)
+_col = "rest_days_home"                 # a real serving feature
+_base = pd.DataFrame({
+    _col: _sd.normal(2.3, 0.7, 130),
+    "gameday": pd.date_range("2026-02-01", periods=130, freq="D"),
+})
+_cur = pd.DataFrame({
+    _col: _sd.normal(42.5, 3.0, 45),
+    "gameday": pd.date_range("2026-09-25", periods=45, freq="D"),
+})
+_phase = pd.DataFrame({
+    _col: np.concatenate([_sd.normal(42.5, 3.0, 70),
+                          _sd.normal(42.5, 3.0, 70)]),
+    "gameday": (list(pd.to_datetime("2025-09-18")
+                     + pd.to_timedelta(_sd.integers(0, 38, 70), "D"))
+                + list(pd.to_datetime("2024-09-18")
+                       + pd.to_timedelta(_sd.integers(0, 38, 70), "D"))),
+})
+_phase_low = pd.DataFrame({            # same window, regime-shifted phase
+    _col: _sd.normal(2.3, 0.7, 140),
+    "gameday": _phase["gameday"].values,
+})
+_plain = {r["feature"]: r for r in monitoring_mod.feature_drift(_base, _cur)}
+_seam = {r["feature"]: r for r in monitoring_mod.feature_drift(
+    _base, _cur, phase_frame=_phase)}
+_regime = {r["feature"]: r for r in monitoring_mod.feature_drift(
+    _base, _cur, phase_frame=_phase_low)}
+check("baseline-only drift pages the season seam as ALERT",
+      _plain[_col]["status"] == "ALERT")
+check("same-calendar-phase re-check relabels the seam OK-SEASONAL",
+      _seam[_col]["status"] == "OK-SEASONAL")
+check("seasonal relabel is verdict-only: PSI evidence unchanged",
+      all(_seam[_col][k] == _plain[_col][k]
+          for k in ("psi", "psi_adjusted", "mean_shift", "n_baseline",
+                    "n_current")))
+check("a real regime shift stays ALERT through the phase re-check",
+      _regime[_col]["status"] == "ALERT")
+
+# View-labeled summary emitters (MLB 2026-10-05 / NHL b698f90b): the run
+# log must SAY drift happened and which surface reported it.
+_vf = pd.DataFrame(_sd.normal(0.0, 1.0, (300, 2)),
+                   columns=["rest_days_home", "rest_days_away"])
+_vr = pd.DataFrame(_sd.normal(0.0, 1.0, (40, 2)),
+                   columns=["rest_days_home", "rest_days_away"])
+with mock.patch.object(monitoring_mod.logger, "info") as _dlog:
+    monitoring_mod.feature_drift(_vf, _vr, view="moneyline")
+    monitoring_mod.feature_drift(_vf, _vr, view="run-engine")
+# The mock sees logger.info(fmt, view, ...): args[0] is the format string
+# and args[1] the view (a logging HANDLER would store them separately —
+# msg=fmt, args=(view, ...), which is why the standalone probe differs).
+_views = [c.args[1] for c in _dlog.call_args_list
+          if c.args and str(c.args[0]).startswith("Feature drift [")]
+check("drift summary lines announce their view (moneyline vs run-engine)",
+      _views == ["moneyline", "run-engine"])
+mon_src = inspect.getsource(monitoring_mod)
+check("both drift call sites pass the full decided pool as phase_frame",
+      mp_src.count("phase_frame=game_df") == 2)
+check("the run-engine artifact writer emits view='run-engine' rows",
+      'view="run-engine"' in mon_src
+      and "phase_frame=phase_frame" in mon_src)
+
+# ---- Missing-final score warning (MLB 2d58210e parity) ----
+ing_mod = __import__("ingestion")
+_mf = pd.DataFrame({
+    "game_id": ["g-outside", "g-resolved", "g-today", "g-future",
+                "g-lagged"],
+    "gameday": pd.to_datetime(["2026-09-20", "2026-10-02", "2026-10-08",
+                               "2026-10-20", "2026-10-05"]),
+    "home_score": [21.0, 20.0, None, None, np.nan],
+    "away_score": [17.0, 17.0, None, None, np.nan],
+})
+check("missing-finals flags only recent past-gameday null scores",
+      ing_mod.warn_missing_finals(
+          _mf, today=pd.Timestamp("2026-10-08")) == ["g-lagged"])
+check("missing-finals is silent on a resolved frame",
+      ing_mod.warn_missing_finals(
+          _mf[_mf["game_id"].eq("g-resolved")],
+          today=pd.Timestamp("2026-10-08")) == [])
+check("missing-finals fails safe on malformed inputs",
+      ing_mod.warn_missing_finals(None,
+                                  today=pd.Timestamp("2026-10-08")) == []
+      and ing_mod.warn_missing_finals(
+          pd.DataFrame(), today=pd.Timestamp("2026-10-08")) == []
+      and ing_mod.warn_missing_finals(
+          _mf.drop(columns=["home_score"]),
+          today=pd.Timestamp("2026-10-08")) == [])
+check("master warns on unresolved finals (MLB parity)",
+      "warn_missing_finals" in mp_src)
+
 
 # ---------------------------------------------------------------------------
 print("\n== 10. Moneyline calibration parity (prequential OOF + favored space) ==")

@@ -373,8 +373,42 @@ def drift_windows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return baseline, current
 
 
+def _phase_matched_baseline(bgames: pd.DataFrame, cgames: pd.DataFrame,
+                            col: str, months_back: tuple[int, ...]) -> list:
+    """Prior-season same-calendar-phase values for one feature.
+
+    MLB ``explainability._phase_matched_baseline`` port (2026-09-30
+    season-seam guard; NHL b698f90b). Current window's span = [min
+    gameday, max gameday] of ``cgames`` padded ±7 calendar days (a one-week
+    phase tolerance: the exact-span window can dip under the judge floor
+    and flip borderline seasonal features back to ALERT). For each k in
+    ``months_back`` (negative ints), take bgames rows whose gameday falls
+    in the padded same-phase window shifted k years — the season seam
+    moves WITH the calendar instead of across it. Only rows already
+    present in the frame qualify (no new data is fetched). Missing or
+    unparsable gameday columns yield [] — callers keep the plain baseline
+    verdict.
+    """
+    if "gameday" not in bgames.columns or "gameday" not in cgames.columns:
+        return []
+    cd = pd.to_datetime(cgames["gameday"], errors="coerce")
+    if cd.notna().sum() == 0:
+        return []
+    lo, hi = cd.min(), cd.max()
+    bd = pd.to_datetime(bgames["gameday"], errors="coerce")
+    out: list = []
+    for k in months_back:
+        lo2 = lo + pd.DateOffset(years=k) - pd.Timedelta(days=7)
+        hi2 = hi + pd.DateOffset(years=k) + pd.Timedelta(days=7)
+        win = bgames.loc[(bd >= lo2) & (bd <= hi2), col].dropna()
+        out.extend(win.tolist())
+    return out
+
+
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
-                  weights: dict[str, float] | None = None) -> list[dict]:
+                  weights: dict[str, float] | None = None,
+                  phase_frame: pd.DataFrame | None = None,
+                  view: str = "moneyline") -> list[dict]:
     """PSI per served feature: current window vs its preceding-era baseline.
 
     The frames come from :func:`drift_windows` (MLB's trailing-tail geometry:
@@ -396,6 +430,25 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     transparency. Status is then gated on a location shift before that excess
     is even read. ``psi_null_median`` is carried alongside so a reader can see
     the scale of the noise being removed rather than trusting a bare verdict.
+
+    ``phase_frame`` (season-seam guard, MLB 2026-09-30 / NHL b698f90b
+    parity): the frame the prior-season phase windows are pulled from. MUST
+    be the full decided pool — the trailing baseline only covers the recent
+    era and holds no prior-season rows, so without it the same-calendar-
+    phase re-check can never fire. A location shift that survives the
+    baseline is re-measured against the same calendar phase of prior years;
+    a clean re-check relabels the row OK-SEASONAL (an every-year season-
+    start seam — rest_days carrying the off-season gap, pace resetting with
+    the schedule — is not a regime break). Callers that omit it get the
+    old baseline-only behavior.
+
+    ``view`` labels which monitoring surface produced these rows (MLB's
+    2026-10-05 log review): the moneyline monitor and the run-engine CSV
+    writer run this same function on the same windows, and the summary
+    line emitted here — ``Feature drift [view]: ...`` — is how a run-log
+    reader tells them apart and can see that drift happened at all (the
+    2026-10-08 NHL log review read a fully clean log while the drift CSV
+    beside it carried six alerts).
     """
     wmap = weights or {}
     has_weight_map = weights is not None
@@ -505,6 +558,35 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             status = "OK"
         else:
             status = feature_status(psi_adjusted)
+
+        # Season-seam guard (MLB 2026-09-30 / NHL b698f90b): the trailing
+        # baseline sits at the end of the previous season, so the first
+        # window of a new season regularly flags REGULAR seasonal movement
+        # (rest_days carrying the off-season gap, pace resetting with the
+        # schedule) as drift. When a location shift survives the trailing
+        # baseline, re-check the same mean shift against the SAME calendar
+        # phase of prior years. A clean re-check means the shift is a
+        # season seam, not a regime break — verdict only: PSI and every
+        # evidence field in the row below stay exactly as computed.
+        if (status in ("WARN", "ALERT")
+                and n_base_n >= PSI_MIN_BASELINE
+                and n_cur_n >= PSI_MIN_CURRENT):
+            phase_vals = _phase_matched_baseline(
+                phase_frame if phase_frame is not None else full_df,
+                recent_df, f, tuple(config.DRIFT_PHASE_EXTENSION_MONTHS))
+            if len(phase_vals) >= 100:
+                pv = np.asarray(phase_vals, dtype=float)
+                pooled2 = float(np.sqrt(
+                    ((len(pv) - 1) * pv.var(ddof=1)
+                     + (n_cur_n - 1) * _cur_vals.var(ddof=1))
+                    / (len(pv) + n_cur_n - 2))) if len(pv) + n_cur_n > 2 else 0.0
+                shift2 = float(_cur_vals.mean() - pv.mean())
+                se2 = (pooled2 * np.sqrt(1.0 / len(pv) + 1.0 / n_cur_n)
+                       * PSI_LOCATION_CLUSTER_FACTOR
+                       if pooled2 > 0 else 0.0)
+                if se2 > 0 and abs(shift2) <= 2.0 * se2:
+                    status = "OK-SEASONAL"
+
         rows.append({
             "feature": f,
             "current_mean": mean_cur,
@@ -532,13 +614,34 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
             "n_baseline": int(full_df[f].notna().sum()),
             "n_current": int(recent_df[f].notna().sum()) if len(recent_df) else 0,
         })
+
+    if rows:
+        # MLB's view-labeled summary line (explainability
+        # compute_feature_drift; NHL b698f90b): without an emitter the run
+        # log never says drift happened — the 2026-10-08 review read an
+        # all-PASS log while the drift CSV beside it carried six alerts.
+        # The label is how a log reader tells the moneyline monitor apart
+        # from the run-engine CSV writer, which runs this same function on
+        # the same windows.
+        logger.info(
+            "Feature drift [%s]: %d features, %d warnings, %d alerts, %d "
+            "seasonal (statuses on noise-adjusted PSI; "
+            "mean noise floor %.3f)",
+            view, len(rows),
+            sum(r["status"] == "WARN" for r in rows),
+            sum(r["status"] == "ALERT" for r in rows),
+            sum(r["status"] == "OK-SEASONAL" for r in rows),
+            float(np.mean([r["noise_floor"] for r in rows])),
+        )
     return rows
 
 
 def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        full_df: pd.DataFrame,
                                        recent_df: pd.DataFrame,
-                                       weights: dict[str, float] | None = None) -> tuple[str, str]:
+                                       weights: dict[str, float] | None = None,
+                                       phase_frame: pd.DataFrame | None = None
+                                       ) -> tuple[str, str]:
     """Emit MLB-shaped run-engine drift/coverage CSVs for the NFL page.
 
     The drift CSV and the coverage CSV describe the SAME two frames — one
@@ -549,7 +652,8 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
     features.tree_view) as binary moneyline; this is monitoring output only
     and does not create a second training feature contract.
     """
-    drift = feature_drift(full_df, recent_df, weights=weights)
+    drift = feature_drift(full_df, recent_df, weights=weights,
+                          phase_frame=phase_frame, view="run-engine")
     cov = coverage(full_df, current_df=recent_df)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"

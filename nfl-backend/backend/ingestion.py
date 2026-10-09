@@ -90,6 +90,67 @@ def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def warn_missing_finals(schedule: pd.DataFrame,
+                        today=None) -> list[str]:
+    """Recent past-gameday games still lacking a final score in the frame.
+
+    MLB parity (mlb ingestion.warn_missing_finals, 2d58210e): a frame whose
+    horizon lags the official finals never resolves those games into
+    predictions_history / Today's Record, and every downstream gate only
+    reads rows that ARE present — so the hole ships silently. Returns the
+    unresolved game ids (frame order) for the caller to warn about;
+    warn-only, because the next run's forward top-up recovers genuine
+    posting lag. A row qualifies when its scheduled DATE falls in the
+    trailing week before ``today`` (default: the run's ET calendar day)
+    and either score is still null:
+
+    * ``gameday < today`` — today's slate is never claimed missing (a
+      same-day game may simply not have kicked off yet);
+    * ``gameday >= today - 7d`` — the bound caps the noise from a row that
+      NEVER resolves (a postponed-then-cancelled oddity; the live 2016-
+      2026 schedule carries zero historical past-score nulls, and the
+      guard's own target — the 2026-10-08 TB-DAL row still null the next
+      morning — sits inside the window). A stale ``--skip-pull`` cache
+      older than the bound is caught by its own staleness, not here.
+
+    Never raises: a None/empty frame or a schedules frame missing the
+    gameday/score columns simply has nothing to certify.
+    """
+    if schedule is None or not len(schedule):
+        return []
+    need = [c for c in ("gameday", "home_score", "away_score")
+            if c not in schedule.columns]
+    if need:
+        return []
+    day = pd.to_datetime(schedule["gameday"], errors="coerce")
+    if today is None:
+        from zoneinfo import ZoneInfo
+        cutoff = pd.Timestamp(pd.Timestamp.now(
+            ZoneInfo("America/New_York")).date())
+    else:
+        try:
+            cutoff = pd.Timestamp(today)
+        except (TypeError, ValueError):
+            return []
+        if cutoff.tzinfo is not None:
+            cutoff = cutoff.tz_convert("America/New_York").tz_localize(None)
+    if pd.isna(cutoff):
+        return []
+    unresolved = (day.notna()
+                  & (day >= cutoff - pd.Timedelta(days=7))
+                  & (day < cutoff)
+                  & (pd.to_numeric(schedule["home_score"],
+                                   errors="coerce").isna()
+                     | pd.to_numeric(schedule["away_score"],
+                                     errors="coerce").isna()))
+    if not unresolved.any():
+        return []
+    if "game_id" in schedule.columns:
+        ids = schedule.loc[unresolved, "game_id"].astype("string")
+        return [str(v) for v in ids if v and v == v]
+    return [str(v) for v in day[unresolved].dt.strftime("%Y-%m-%d")]
+
+
 def load_schedule(seasons: list[int] | None = None,
                   use_cache: bool = True) -> pd.DataFrame:
     """ nflverse schedules for the given seasons (default: config window)."""

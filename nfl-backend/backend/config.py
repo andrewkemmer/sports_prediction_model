@@ -829,6 +829,15 @@ TOTAL_GRID = list(range(24, 67))            # totals U: 24..66
 # companion, and every test quote the same geometry.
 DRIFT_CURRENT_GAMES = 60
 DRIFT_BASELINE_MIN_GAMES = 250
+# Season-seam guard (MLB 2026-09-30 / NHL b698f90b parity): when a
+# location shift survives the trailing baseline, monitoring re-measures it
+# against the SAME calendar phase of prior years — shifted back one and
+# two years, ±7 days — before it pages. A clean re-check labels the row
+# OK-SEASONAL instead of ALERT, so the first window of a new season does
+# not cry regime-break on regular seasonal movement (rest_days carrying
+# the off-season gap, pace resetting with the schedule). One knob, quoted
+# by the drift step and its tests alike.
+DRIFT_PHASE_EXTENSION_MONTHS = (-1, -2)
 # Canonical lines the Run-Engine Model card scores per-line OOF metrics at
 # (the pooled-diagnostics tab's fixed totals + the NFL key-number spread).
 RUN_ENGINE_FIXED_TOTALS = (38, 42, 46, 50, 54)

@@ -125,6 +125,52 @@ artifacts, no failed members, no crashes. It is the honest BASELINE the next
 - `pace_plays_min_away` WARN (mean 1.298 vs baseline 1.334, −2.8%): small
   but real location shift at 0.54% blend weight — monitored, no action.
 
+## Final parity pass (2026-10-09): coverage gates, drift visibility, missing finals
+
+A second review round against the newest MLB/NHL commits found four more
+structural gaps, all now closed in existing files (no new programs):
+
+- **Ingestion/column coverage gates** (NHL `c9bcc3b8` / MLB column
+  contract): `_feature_coverage_gaps` fails the run BEFORE training when a
+  served column is absent or wholly unobserved, and
+  `_season_openers_ingested` rides the Phase-14 gate dict — every covered
+  season must contain its Sep 4–20 opener band, fail-closed on missing
+  frame/window, skipping operator mid-season starts. Pinned through the
+  helper AND through `_validate_outputs` itself.
+- **Drift visibility + season-seam guard** (MLB 2026-09-30 / NHL
+  `b698f90b`): `feature_drift` now emits view-labeled summary lines
+  ("Feature drift [moneyline]/[run-engine]: …") so a run-log reader can
+  see drift and tell the two surfaces apart, and re-measures any WARN/ALERT
+  location shift against the same calendar phase of prior years
+  (`DRIFT_PHASE_EXTENSION_MONTHS = (-1, -2)`, ±7-day pad): a clean
+  re-check relabels the row `OK-SEASONAL` (verdict only — PSI evidence
+  untouched). Both call sites pass the full decided pool as `phase_frame`;
+  a genuine regime shift stays ALERT (pinned both ways).
+- **Missing-final warning** (MLB `2d58210e`): `ingestion.warn_missing_finals`
+  returns recent past-gameday games still lacking a score (7-day bound;
+  today's slate never claimed) and master logs them warn-only. The live
+  2016–2026 schedule currently carries exactly one such row —
+  `2026_05_TB_DAL` (2026-10-08), the defect class happening in real time —
+  and zero historical past-score nulls, so the bound costs no detection.
+- **Dashboard population labels** (MLB `758f745b`): the shared Calibration
+  page already reads `n_eval → n_games`, and NFL's writer carries the
+  grading population in `n_games` (buckets sum == n_games == 2447 on the
+  delivered artifact); `league_total`/`evening_games_league` fall back
+  exactly as NHL/NBA do — no label defect. `OK-SEASONAL` renders through
+  the existing green `ok` pill default on both drift tables.
+- **Artifact self-consistency**: cards store == predictions history ==
+  calibration `n_games` == bucket sum (2447) on the delivered v9.7
+  artifact; the new writer's grading-pool semantics are test-pinned for
+  the next run (v9.8).
+- MLB's `75c12cda` weather-fill and `01555b66` single-class/finality bugs
+  have no NFL surface: NFL never fills weather (documented structural-NaN
+  policy, single build path for train+serve) and every `log_loss` call
+  already passes `labels=[0, 1]` behind a single-class guard.
+
+Verification after this pass: production script **450 passed / 0 failed**,
+fold+tee 34, feature-name 39, data-delivery 102, calibration/gate-note
+smokes 5, monitor smoke and board-render smoke exit 0.
+
 ## Remaining limitations
 
 - The nested gate will hold most early-fold maps and possibly the final map
