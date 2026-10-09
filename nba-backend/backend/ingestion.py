@@ -1539,7 +1539,7 @@ def read_event_rollup_archive(directory) -> pd.DataFrame:
 
 
 def _absorb_event_rollup_archive(team_events: pd.DataFrame,
-                                 games: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+                                 games: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """Fold the shipped rollup archive into this run's team_events.
 
     Fresh rollups win over archived ones for the same (game_id, team); rows
@@ -1549,24 +1549,33 @@ def _absorb_event_rollup_archive(team_events: pd.DataFrame,
     profiles instead of forward-filled ones - the difference between the
     62.73% honest baseline coverage of 2026-09-29 and full coverage once the
     archive has seen one complete sweep.
+
+    Returns ``(union, absorbed)`` where ``absorbed`` is the SORTED list of
+    ``game_id|team`` keys that came from the archive - the run's own sweep
+    did not measure them. The 2026-10-08 coverage audit found both paths
+    feeding one frame with no provenance anywhere (1,414 team-games from the
+    archive in that window) and asked the manifest to say which team-games
+    came from which path; a bare count cannot answer that.
     """
     archive = read_event_rollup_archive(Path(config.DATA_DELIVERY_DIR))
     if archive.empty or games is None or games.empty or "game_id" not in games.columns:
-        return team_events, 0
+        return team_events, []
     archive = archive[archive.game_id.isin(games.game_id.astype(str))]
     if archive.empty:
-        return team_events, 0
+        return team_events, []
     base = team_events if team_events is not None and len(team_events) else pd.DataFrame()
     if not base.empty:
         pair = archive.game_id.str.cat(archive.team, sep="|")
         fresh = base.game_id.astype(str).str.cat(base.team.astype(str), sep="|")
         archive = archive[~pair.isin(set(fresh))]
         if archive.empty:
-            return team_events, 0
+            return team_events, []
         union = pd.concat([base, archive], ignore_index=True)
     else:
         union = archive
-    return union, len(union) - len(base)
+    absorbed = sorted(archive.game_id.astype(str)
+                      .str.cat(archive.team.astype(str), sep="|"))
+    return union, absorbed
 
 
 def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -2083,9 +2092,9 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
     # archive makes one full sweep permanent for every run after it.
     team_events, archived = _absorb_event_rollup_archive(team_events, games)
     if archived:
-        pbp_info["archive_rows"] = archived
+        pbp_info["archive_rows"] = len(archived)
         logger.info("event rollup archive absorbed: %d team-game(s) this "
-                    "run's own sweep did not cover", archived)
+                    "run's own sweep did not cover", len(archived))
     pbp_info["cross_check"] = pbp_report
 
     facts = NBAFacts(
@@ -2105,6 +2114,19 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
                     ("player_stats", player_stats),
                     ("team_events", team_events),
                     ("play_by_play", normalized_pbp))},
+            # WHICH team-events came from WHICH path (2026-10-08 coverage
+            # audit): this run's own sweep vs the committed
+            # ``nba_event_rollups.parquet`` archive it absorbs. The archive
+            # side is listed because it is the exceptional half (1,414
+            # team-games across 707 games in the audited window); the sweep
+            # is every other row of ``tables.team_events``. The two
+            # acquisition paths hold different action slices of the same
+            # events, so a manifest reporting only the total hides the split
+            # the audit had to reconstruct by hand.
+            "event_rollup": {
+                "sweep_team_games": max(int(len(team_events)) - len(archived), 0),
+                "archive_team_games": list(archived),
+            },
             "play_by_play": pbp_report,
             "feature_set_version": config.FEATURE_SET_VERSION,
         })

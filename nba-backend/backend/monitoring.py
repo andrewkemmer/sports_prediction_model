@@ -450,14 +450,54 @@ def coverage(baseline_games: pd.DataFrame,
             n_default = 0
             if feature in DEFAULT_ZERO_FEATURES and len(values):
                 n_default = int((values == 0).sum())
-            rows.append({"feature": feature, "window": window,
-                         "n_games": int(len(frame)),
-                         "n_nonnull": int(values.notna().sum()) if len(values) else 0,
-                         "pct_measured": pct, "pct_nonnull": pct,
-                         "n_measured": n_measured, "n_carried": n_carried,
-                         "n_default_zero": n_default,
-                         "status": "STARVED" if pct < 25
-                                   else "LOW_COVERAGE" if pct < 80 else "OK"})
+            # ELIGIBILITY MASK (2026-10-08 coverage audit). pl_rapm_* goes
+            # NaN when the projected pool has no builder-eligible member for
+            # that team-game - the prior-minutes floor, the 30-day recency
+            # gate, or a feed position listing with no centre for that club.
+            # The projection stamps that refusal per row in
+            # ``_eligible_<feature>`` (lineup_projection), so this is a
+            # measured mask, not a policy keyword: a null with a refusal
+            # behind it is source-supported missingness and must not page;
+            # a null with flag 1 or NO flag (team-game the projection never
+            # ran for) is unexplained and keeps the raw threshold. The row
+            # still reports the true pct - the mask changes what the status
+            # MEANS, never the numbers. STRUCTURAL only when every missing
+            # value is explained, so a partially-explained family keeps its
+            # real alarm.
+            n_refused = 0
+            structural_reason = None
+            flag_col = f"_eligible_{feature}"
+            if flag_col in frame.columns and len(values):
+                flag = pd.to_numeric(frame[flag_col], errors="coerce")
+                missing = values.isna()
+                n_refused = int((missing & (flag == 0)).sum())
+                if n_refused and n_refused == int(missing.sum()):
+                    structural_reason = (
+                        f"eligible-pool refusal on {n_refused} row(s): no "
+                        "builder-eligible member (minutes floor / 30-day "
+                        f"recency / position listing), mask {flag_col}; "
+                        "source-supported, not a build hole")
+            status = ("STARVED" if pct < 25
+                      else "LOW_COVERAGE" if pct < 80 else "OK")
+            if structural_reason and status != "OK":
+                status = "STRUCTURAL"
+            if status != "STRUCTURAL":
+                # The reason exists only to explain a STRUCTURAL status: a
+                # healthy family with a few refused rows keeps its OK and
+                # reports the count, never a stray explanation beside a
+                # pass (the monitor renders a reason as THE finding).
+                structural_reason = None
+            row = {"feature": feature, "window": window,
+                   "n_games": int(len(frame)),
+                   "n_nonnull": int(values.notna().sum()) if len(values) else 0,
+                   "pct_measured": pct, "pct_nonnull": pct,
+                   "n_measured": n_measured, "n_carried": n_carried,
+                   "n_default_zero": n_default,
+                   "n_pool_refused": n_refused,
+                   "status": status}
+            if structural_reason:
+                row["structural_reason"] = structural_reason
+            rows.append(row)
     return rows
 
 

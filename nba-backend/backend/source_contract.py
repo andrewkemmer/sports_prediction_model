@@ -86,7 +86,15 @@ TEAM_STATS_SCHEMA: dict[str, str] = {
     "pf": "float",
     "efg_pct": "float", "turnover_margin": "float", "rebound_margin": "float",
     "off_rating": "float", "def_rating": "float",
-    "pace": "float", "ast_per_game": "float",
+    "pace": "float",
+    # ``ast_per_game`` is deliberately NOT declared. The season log has no
+    # per-game assist column, so declaring it made ``normalize`` manufacture
+    # an all-NaN source column (2026-10-08 coverage audit: "a naming
+    # artifact") that ``features._attach_stats`` then overwrote with the
+    # player-summed ``ast`` anyway before anything read it. The served
+    # ``ewm_ast_per_game`` family derives from ``ast`` in one place, and a
+    # column no source can ever supply is a contract lie a coverage report
+    # has to keep explaining away.
 }
 TEAM_STATS_REQUIRED = ("game_id", "team", "points_for", "points_against")
 

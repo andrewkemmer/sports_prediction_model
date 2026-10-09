@@ -1180,8 +1180,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         game_df = game_df.drop(columns=[
             c for c in config.PLAYER_RAPM_POSITION_FEATURE_COLS
             if c in game_df.columns])
+        # The nine features PLUS their eligibility mask (2026-10-08 coverage
+        # audit): ``_eligible_<feature>`` is what lets coverage() tell a pool
+        # REFUSAL (minutes floor / 30-day recency / no listed centre -
+        # source-supported, STRUCTURAL with a reason) from a build hole
+        # (unexplained, keeps its alarm). Underscore provenance rides the
+        # merge alongside the values, the same convention ``_measured_*``
+        # uses, and is never a model input: every feature view is spelled
+        # out in config.
+        _pl_mask = [c for c in _pl_frame.columns
+                    if c.startswith("_eligible_pl_rapm_")]
+        game_df = game_df.drop(columns=[c for c in _pl_mask
+                                        if c in game_df.columns])
         game_df = game_df.merge(
-            _pl_frame[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS],
+            _pl_frame[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS
+                      + _pl_mask],
             on="game_id", how="left")
         _pl_attached = int(
             game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]

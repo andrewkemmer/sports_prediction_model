@@ -56,7 +56,17 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_rapm_concentration",
                "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
                "lineup_rapm_rest_count"] + [
-    f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
+    f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
+    # The per-position ELIGIBILITY MASK (2026-10-08 coverage audit): 1 when
+    # the eligible pool listed at least one member at the position, 0 when
+    # the gates (prior-minutes floor, 30-day recency, availability) or the
+    # feed's position listing left the segment empty. The value column stays
+    # NaN on a refusal - that is correct and stays - but without the flag the
+    # monitor cannot tell "no eligible centre for this club" (source-supported
+    # missingness) from a build hole, and the audit measured both paging as
+    # one flat low-coverage alarm: 43.84% at day 10 of the season and
+    # team-dependent holes like WAS 68.7% post-day-30.
+    f"pl_rapm_{p.lower()}_eligible" for p in config.PLAYER_EPM_POSITIONS]
 
 #: The seven model-facing features, as home-minus-away diffs, which is the
 #: convention ``features._attach_contract`` already uses for every other
@@ -389,7 +399,12 @@ def projected_lineup(ratings: pd.DataFrame | None,
     out = pd.DataFrame(rows)
     for column in AGG_COLUMNS:
         if column not in out.columns:
-            out[column] = np.nan
+            # An ABSENT eligibility flag is a refusal (0), not a hole: the
+            # rows that never reached the segment loop - the pool-empty and
+            # healthy-empty paths (the season-opener recency gate empties
+            # every roster) - are exactly "no eligible member on this
+            # team-game". An absent VALUE stays NaN, as it always has.
+            out[column] = 0.0 if column.endswith("_eligible") else np.nan
     return out[AGG_COLUMNS].sort_values(["gameday", "team"]).reset_index(drop=True)
 
 
@@ -406,7 +421,19 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 & (work.gameday >= window_start)
                 & work.rapm_shrunk.notna()]
     if pool.empty:
-        return None
+        # POOL refusal, emitted as a row: no team-member rating lands in the
+        # lookback — the season opener, where every prior target date sits
+        # outside the 10-day window (the run-engine's own gap note calls
+        # early-season rows "structural, not a build failure"). Emitting the
+        # row with the eligibility mask at 0 is what lets monitoring tell
+        # this apart from a team the ratings frame never contained at all:
+        # that case never reaches here (no row, mask unknown, alarm kept).
+        return {"gameday": pd.Timestamp(gameday), "team": team,
+                "pool_size": 0, "healthy_size": 0,
+                "lineup_rapm_mean": np.nan, "lineup_rapm_top3": np.nan,
+                "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
+                **{f"pl_rapm_{p.lower()}_eligible": 0.0
+                   for p in config.PLAYER_EPM_POSITIONS}}
     # One row per player: the most recent rating at or before the game. A
     # player's own current game can supply his prior rating but never a rating
     # that includes the game being projected.
@@ -453,10 +480,20 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     healthy = latest[latest.is_available.astype(bool)]
     healthy_size = len(healthy)
     if healthy.empty:
+        # Every candidate the gates admitted is unavailable (or the gates
+        # emptied the pool - the season-opener recency gate does it to every
+        # roster): refusal at every position, stated EXPLICITLY so a mixed
+        # frame still carries the 0. The column-level default below only
+        # fires when no row at all carries the flag, and a real run always
+        # mixes refused team-games with priced ones (the 2026-10-09 real-
+        # frame smoke caught exactly that: 56 healthy-empty rows riding NaN
+        # flags beside priced rows).
         return {"gameday": pd.Timestamp(gameday), "team": team,
                 "pool_size": pool_size, "healthy_size": 0,
                 "lineup_rapm_mean": np.nan, "lineup_rapm_top3": np.nan,
-                "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan}
+                "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
+                **{f"pl_rapm_{p.lower()}_eligible": 0.0
+                   for p in config.PLAYER_EPM_POSITIONS}}
 
     # STEP 4 - RANK BY PARTICIPATION, NOT BY RATING. MLB orders the pool by
     # trailing PA and averages the rating over the top nine. Ranking by the
@@ -536,12 +573,28 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # Wendell Carter Jr., Goga Bitadze) with no C segment at all - most
     # of the 62% pl_rapm_c coverage the monitor flags.
     segmented: dict = {}
+    eligible: dict = {}
     if "position" in healthy.columns:
         for position, group in _position_segments(healthy):
             if position in config.PLAYER_EPM_POSITIONS and len(group):
+                # Eligibility is MEMBERSHIP, not blend success: a segment
+                # whose members all carry unweightable ratings is eligible
+                # (1) with a refused value, so that null keeps its alarm.
+                # Only an empty segment is a refusal (0).
+                eligible[f"pl_rapm_{str(position).lower()}_eligible"] = 1.0
                 value = _blend(group)
                 if value == value:
                     segmented[f"pl_rapm_{str(position).lower()}"] = value
+        for position in config.PLAYER_EPM_POSITIONS:
+            eligible.setdefault(f"pl_rapm_{position.lower()}_eligible", 0.0)
+    else:
+        # No position listing at all (a v1 frame is handled inside
+        # _position_segments; this is a frame with no position column): the
+        # refusal cannot be attributed, so the mask stays UNKNOWN (NaN) -
+        # never "refused", which would silence a real hole, and never a
+        # fabricated eligibility claim.
+        eligible = {f"pl_rapm_{p.lower()}_eligible": np.nan
+                    for p in config.PLAYER_EPM_POSITIONS}
     return {
         "gameday": pd.Timestamp(gameday),
         "team": team,
@@ -564,6 +617,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "lineup_rapm_std": std if std == std else np.nan,
         "lineup_rapm_rest_count": rest_count,
         **segmented,
+        **eligible,
     }
 
 
@@ -627,6 +681,15 @@ def attach_position_rapm(slate: pd.DataFrame,
     Unlike :func:`attach_to_slate` this KEEPS the per-side columns instead of
     dropping them as scaffolding, because the sides are the point: the nine
     published features are ``{away, home, diff}`` per position, not three diffs.
+
+    The ``_eligible_*`` provenance columns are the audit's mask (same
+    underscore convention as ``_measured_*``): one flag per published
+    feature saying whether a null on this row is a builder REFUSAL (0,
+    source-supported) or not (1 / unknown). The diff's flag is the minimum
+    of the sides - a refused side makes the difference NaN by construction,
+    so one refusal explains the diff; two eligible sides with a NaN diff
+    stay unexplained. A team-game the projection never produced a row for
+    joins to NaN: unknown cause is never "refused".
     """
     out = slate.copy() if slate is not None else pd.DataFrame()
     for column in POSITION_RAPM_FEATURES:
@@ -634,6 +697,8 @@ def attach_position_rapm(slate: pd.DataFrame,
     if out.empty or aggregates is None or not len(aggregates):
         return out
     out = _attach_sides(out, aggregates, POSITION_RAPM_SOURCES)
+    out = _attach_sides(out, aggregates,
+                        [f"{column}_eligible" for column in POSITION_RAPM_SOURCES])
     for column in POSITION_RAPM_SOURCES:
         away = f"_away_{column}"
         home = f"_home_{column}"
@@ -641,6 +706,14 @@ def attach_position_rapm(slate: pd.DataFrame,
             out[f"{column}_away"] = out[away]
             out[f"{column}_home"] = out[home]
             out[f"{column}_diff"] = out[home] - out[away]
+        away_flag = f"_away_{column}_eligible"
+        home_flag = f"_home_{column}_eligible"
+        if away_flag in out.columns and home_flag in out.columns:
+            away_elig = pd.to_numeric(out[away_flag], errors="coerce")
+            home_elig = pd.to_numeric(out[home_flag], errors="coerce")
+            out[f"_eligible_{column}_away"] = away_elig
+            out[f"_eligible_{column}_home"] = home_elig
+            out[f"_eligible_{column}_diff"] = np.minimum(away_elig, home_elig)
     drop = [c for c in out.columns if c.startswith("_home_") or c.startswith("_away_")]
     return out.drop(columns=drop)
 

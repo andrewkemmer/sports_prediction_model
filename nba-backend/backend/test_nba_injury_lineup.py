@@ -750,6 +750,155 @@ class TestPositionRapmFeatures:
         assert out.pl_rapm_g_home.iloc[0] == pytest.approx(0.58)
         assert out.pl_rapm_g_away.iloc[0] == pytest.approx(0.54)
 
+    def test_an_empty_position_segment_is_a_refused_row_not_just_a_hole(self):
+        """The mask the 2026-10-08 coverage audit asked for.
+
+        A club whose feed listing carries no eligible centre (the audit's
+        team-dependent residual: WAS 68.7%, GSW 73.1%, CHA 85.2% of their
+        full slices) refuses the segment: ``pl_rapm_c`` stays NaN - correct,
+        never zero-filled - AND the eligibility flag says 0, so monitoring
+        can tell source-supported missingness from a build hole instead of
+        paging both as one low-coverage alarm.
+        """
+        frame = pd.DataFrame(
+            [_rating(f"g{i}", "BOS", "2026-03-01", 0.55, 300 - i)
+             for i in range(6)])
+        frame["position"] = "G"
+        out = proj.projected_lineup(frame)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.pl_rapm_c != row.pl_rapm_c      # refused: NaN, not 0
+        assert row.pl_rapm_c_eligible == 0.0
+        assert row.pl_rapm_f_eligible == 0.0       # no forwards listed either
+        assert row.pl_rapm_g_eligible == 1.0
+        assert row.pl_rapm_g == row.pl_rapm_g      # the guarded segment priced
+
+    def test_the_recency_gate_leaves_a_masked_refusal_behind(self):
+        """Season-opener geometry: every roster's appearance gap exceeds the
+        30-day gate, so the healthy pool empties league-wide - the audit's
+        43.84% first-10-days coverage. The row still exists and the mask
+        says refusal, not hole."""
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400,
+                    days_since_appearance=200),
+            _rating("b", "BOS", "2026-03-01", 0.58, 380,
+                    days_since_appearance=190),
+        ])
+        out = proj.projected_lineup(ratings)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.healthy_size == 0
+        for position in ("c", "f", "g"):
+            assert row[f"pl_rapm_{position}"] != row[f"pl_rapm_{position}"]
+            assert row[f"pl_rapm_{position}_eligible"] == 0.0
+
+    def test_an_eligible_segment_that_cannot_blend_keeps_its_alarm(self):
+        """Flag 1 says members EXISTED at the position. A NaN value behind a
+        1 is the unexplained kind of gap and must never be masked."""
+        frame = pd.DataFrame([
+            _rating("g1", "BOS", "2026-03-01", 0.55, 300),
+            _rating("c1", "BOS", "2026-03-01", 0.62, 240),
+        ])
+        frame["position"] = ["G", "C"]
+        frame.loc[frame.player_id == "c1", "prior_minutes_per_game"] = np.nan
+        out = proj.projected_lineup(frame)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.pl_rapm_c_eligible == 1.0
+        assert row.pl_rapm_c != row.pl_rapm_c      # no weight to divide by
+        assert row.pl_rapm_g_eligible == 1.0
+        assert row.pl_rapm_g == row.pl_rapm_g      # the blendable one prices
+
+    def test_attach_publishes_the_mask_for_all_nine_features(self):
+        slate = pd.DataFrame({
+            "gameday": pd.to_datetime(["2026-03-05"]),
+            "home_team": ["BOS"], "away_team": ["NYK"],
+            "game_id": ["g1"],
+        })
+        day = pd.Timestamp("2026-03-05")
+        aggregates = pd.DataFrame([
+            {"gameday": day, "team": "BOS",
+             "pl_rapm_c": 0.62, "pl_rapm_f": 0.55, "pl_rapm_g": 0.58,
+             "pl_rapm_c_eligible": 1.0, "pl_rapm_f_eligible": 1.0,
+             "pl_rapm_g_eligible": 1.0},
+            {"gameday": day, "team": "NYK",
+             "pl_rapm_c": np.nan, "pl_rapm_f": 0.57, "pl_rapm_g": 0.54,
+             "pl_rapm_c_eligible": 0.0, "pl_rapm_f_eligible": 1.0,
+             "pl_rapm_g_eligible": 1.0},
+        ])
+        out = proj.attach_position_rapm(slate, aggregates)
+        for position in ("c", "f", "g"):
+            for side in ("away", "home", "diff"):
+                assert f"_eligible_pl_rapm_{position}_{side}" in out.columns
+        row = out.iloc[0]
+        assert row["_eligible_pl_rapm_c_away"] == 0.0   # NYK refused
+        assert row["_eligible_pl_rapm_c_home"] == 1.0
+        # One refusal explains the difference: a refused side is NaN, so the
+        # diff cannot exist for any other reason.
+        assert row["_eligible_pl_rapm_c_diff"] == 0.0
+        assert row["_eligible_pl_rapm_g_diff"] == 1.0
+        assert row.pl_rapm_c_diff != row.pl_rapm_c_diff  # still NaN, still refused
+
+    def test_a_team_game_the_projection_never_ran_for_keeps_the_mask_unknown(self):
+        """Missing aggregates row = unknown cause. The flag joins to NaN and
+        monitoring keeps its alarm - absence of evidence is never a
+        refusal."""
+        slate = pd.DataFrame({
+            "gameday": pd.to_datetime(["2026-03-05"]),
+            "home_team": ["BOS"], "away_team": ["NYK"],
+            "game_id": ["g1"],
+        })
+        day = pd.Timestamp("2026-03-01")   # aggregates exist, but not this date
+        aggregates = pd.DataFrame([
+            {"gameday": day, "team": team,
+             **{f"pl_rapm_{p}": 0.5 for p in ("c", "f", "g")},
+             **{f"pl_rapm_{p}_eligible": 1.0 for p in ("c", "f", "g")}}
+            for team in ("BOS", "NYK")
+        ])
+        out = proj.attach_position_rapm(slate, aggregates)
+        row = out.iloc[0]
+        for position in ("c", "f", "g"):
+            for side in ("away", "home", "diff"):
+                assert pd.isna(row[f"_eligible_pl_rapm_{position}_{side}"])
+        assert row.pl_rapm_c_diff != row.pl_rapm_c_diff
+
+    def test_a_refusal_row_next_to_a_priced_row_keeps_its_zero_mask(self):
+        """The column-level flag default only fires when NO row carries the
+        column; a real run always mixes refused team-games with priced ones
+        (the 2026-10-09 real-frame smoke caught 56 healthy-empty rows
+        riding NaN flags beside priced rows). Mixed frame, exact masks."""
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+            _rating("z", "NYK", "2026-03-01", 0.62, 900,
+                    days_since_appearance=400),   # past the recency gate
+        ])
+        ratings["position"] = ["G", "C"]
+        out = proj.projected_lineup(ratings)
+        bos = out[out.team == "BOS"].iloc[0]
+        nyk = out[out.team == "NYK"].iloc[0]
+        assert nyk.healthy_size == 0
+        assert nyk.pl_rapm_c_eligible == 0.0      # refused, not unknown
+        assert nyk.pl_rapm_c != nyk.pl_rapm_c
+        assert bos.pl_rapm_g_eligible == 1.0      # the priced side keeps 1
+        assert bos.pl_rapm_g == bos.pl_rapm_g
+
+    def test_a_team_with_no_rating_in_the_lookback_is_a_pool_refusal_row(self):
+        """The season opener: every prior target date sits outside the
+        10-day lookback, so the pool is empty. That is a POOL refusal - the
+        row EXISTS with the mask at 0 - while a team the ratings frame never
+        contained at all still produces NO row (mask unknown, alarm kept),
+        which is the distinction the 2026-10-08 audit's mask has to hold.
+        """
+        ratings = pd.DataFrame([
+            _rating("a", "BOS", "2026-03-01", 0.60, 400),
+        ])
+        games = pd.DataFrame({"gameday": [pd.Timestamp("2026-03-20")],
+                              "home_team": ["BOS"], "away_team": ["NYK"]})
+        out = proj.projected_lineup(ratings, games=games)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.pool_size == 0 and row.healthy_size == 0
+        assert row.pl_rapm_c_eligible == 0.0   # refusal: masked
+        assert row.pl_rapm_c != row.pl_rapm_c  # value still NaN, never 0
+        # NYK has no rating rows at all: no row at all, so no mask claim.
+        assert "NYK" not in set(out.team)
+
     def _centerless_roster(self):
         """Eight guards out-rank every center, so the projected
         lineup (top-8) is centerless while the roster is not.

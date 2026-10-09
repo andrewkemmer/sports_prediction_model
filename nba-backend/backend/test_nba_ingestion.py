@@ -584,6 +584,29 @@ class TestContract:
         assert report.loc["game_id", "coverage_pct"] == 100.0
         assert report.loc["nba_game_id", "coverage_pct"] == 0.0
 
+    def test_a_column_no_source_can_supply_is_not_declared(self):
+        """2026-10-08 coverage audit, low finding: ``team_stats``.
+
+        ``ast_per_game`` was declared while the season log has no per-game
+        assist column, so ``normalize`` manufactured an all-NaN SOURCE
+        column every run - a naming artifact a coverage report had to keep
+        explaining away. The schema must not declare it, the normalized
+        frame must not carry it, and the served feature must still arrive
+        (derived from ``ast`` in exactly one place, ``_attach_stats``).
+        """
+        assert "ast_per_game" not in contract.TEAM_STATS_SCHEMA
+        frame = contract.normalize(
+            pd.DataFrame({"game_id": ["g1"], "team": ["BOS"],
+                          "points_for": [110.0], "points_against": [105.0],
+                          "ast": [24.0]}), "team_stats", source="test")
+        assert "ast_per_game" not in frame.columns
+        events = pd.DataFrame({"game_id": ["g1"], "team": ["BOS"],
+                               "for": [110.0], "against": [105.0]})
+        out = feat._attach_stats(events, frame)
+        # The served name still exists and still reads the player-summed
+        # assists - dropping a dead SOURCE column must not touch the model.
+        assert out["ast_per_game"].iloc[0] == pytest.approx(24.0)
+
 
 # ---------------------------------------------------------------------------
 # Feature wiring
@@ -2474,7 +2497,7 @@ class TestEventRollupArchive:
         monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
         frame, added = ing._absorb_event_rollup_archive(
             self._rollup_rows(["g1"]), self._rows())
-        assert added == 0 and len(frame) == 1
+        assert added == [] and len(frame) == 1
 
     def test_the_archive_fills_games_the_sweep_did_not_cover(self, tmp_path,
                                                             monkeypatch):
@@ -2485,7 +2508,9 @@ class TestEventRollupArchive:
         archive = self._rollup_rows(["g5", "g6", "g7", "g8"])
         archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
         union, added = ing._absorb_event_rollup_archive(fresh, self._rows())
-        assert added == 4
+        # The provenance half of the 2026-10-08 audit finding: WHICH
+        # team-games came from the archive, at team-game grain, sorted.
+        assert added == [f"g{i}|BOS" for i in range(5, 9)]
         assert set(union.game_id) == {f"g{i}" for i in range(1, 9)}
         assert not union.duplicated(["game_id", "team"]).any()
 
@@ -2495,8 +2520,28 @@ class TestEventRollupArchive:
         stale = self._rollup_rows(["g1"]).assign(rim_attempts=99)
         stale.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
         union, added = ing._absorb_event_rollup_archive(fresh, self._rows())
-        assert added == 0
+        assert added == []
         assert (union.loc[union.game_id == "g1", "rim_attempts"] == 40).all()
+
+    def test_the_absorbed_keys_are_team_game_grain_not_game_grain(self, tmp_path,
+                                                                  monkeypatch):
+        """A swept game's OTHER team can still come from the archive, so the
+        provenance must be keyed (game_id, team) - an archive row for the
+        opponent of a swept game is absorbed, not skipped."""
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        fresh = pd.DataFrame([{"game_id": "g1", "team": "BOS",
+                               "rim_attempts": 40, "possessions": 100.0},
+                              {"game_id": "g2", "team": "BOS",
+                               "rim_attempts": 41, "possessions": 101.0}])
+        archive = pd.DataFrame([{"game_id": "g1", "team": "NYK",
+                                 "rim_attempts": 38, "possessions": 99.0},
+                                {"game_id": "g2", "team": "NYK",
+                                 "rim_attempts": 39, "possessions": 98.0}])
+        archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        union, added = ing._absorb_event_rollup_archive(fresh, self._rows())
+        assert added == ["g1|NYK", "g2|NYK"]
+        assert len(union) == 4
+        assert not union.duplicated(["game_id", "team"]).any()
 
     def test_an_archive_game_outside_the_window_is_dropped(self, tmp_path,
                                                           monkeypatch):
@@ -2505,7 +2550,7 @@ class TestEventRollupArchive:
         archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
         union, added = ing._absorb_event_rollup_archive(
             self._rollup_rows(["g1"]), self._rows())
-        assert added == 0 and "g99" not in set(union.game_id)
+        assert added == [] and "g99" not in set(union.game_id)
 
     def test_a_rollup_dedupes_on_reread(self, tmp_path):
         frame = pd.concat([self._rollup_rows(["g1"]),

@@ -632,6 +632,75 @@ class TestCarryProvenance:
         assert by[("baseline", "elo_diff")] == 50.0
         assert by[("current", "elo_diff")] == 100.0
 
+    @staticmethod
+    def _refusal_frame(values, flags, n=None):
+        return pd.DataFrame({"pl_rapm_c_diff": values,
+                             "_eligible_pl_rapm_c_diff": flags})
+
+    def test_a_fully_refused_family_reads_structural_and_never_pages(self, tmp_path):
+        """2026-10-08 coverage audit, medium-high finding: pl_rapm_c* was the
+        only served family below full coverage, and its nulls are the
+        eligible pool's REFUSAL (minutes floor / 30-day recency / a feed
+        listing with no centre for that club) - measured per row by
+        lineup_projection's flag, not inferred from a policy keyword. Fully
+        explained -> STRUCTURAL with the reason and the count, the true 0%
+        number kept, and no coverage alert."""
+        baseline = self._refusal_frame([np.nan] * 60, [0.0] * 60)
+        current = self._refusal_frame([np.nan] * 40, [0.0] * 40)
+        rows = mon.coverage(baseline, current, feature_cols=["pl_rapm_c_diff"])
+        assert len(rows) == 2
+        for row in rows:
+            assert row["status"] == "STRUCTURAL"
+            assert row["pct_measured"] == 0.0          # numbers stay honest
+            assert row["n_pool_refused"] == row["n_games"]
+            assert "eligible-pool refusal" in row["structural_reason"]
+        record = mon.write_monitor_json(tmp_path / "m.json", "20261008",
+                                        [], rows, [], [], 0.5)
+        assert record["alerts"]["coverage"] == []
+
+    def test_an_unexplained_hole_keeps_its_alarm(self):
+        """Flag 1 (or no flag at all) behind a null = no refusal evidence:
+        the old thresholds apply unchanged - the mask may only silence what
+        the builder itself refused."""
+        flagged = self._refusal_frame([np.nan] * 60, [1.0] * 60)
+        bare = pd.DataFrame({"pl_rapm_c_diff": [np.nan] * 60})
+        for frame in (flagged, bare):
+            rows = mon.coverage(frame, frame, feature_cols=["pl_rapm_c_diff"])
+            assert {r["status"] for r in rows} == {"STARVED"}
+            assert all("structural_reason" not in r for r in rows)
+            assert all(r["n_pool_refused"] == 0 for r in rows)
+
+    def test_a_partially_explained_family_keeps_the_real_alarm(self):
+        """STRUCTURAL only when EVERY missing value is explained. Half
+        refused + half a genuine hole must still page on the raw number."""
+        values = [np.nan] * 30 + [np.nan] * 20 + [0.5] * 50
+        flags = [0.0] * 30 + [1.0] * 20 + [1.0] * 50
+        frame = self._refusal_frame(values, flags)
+        row = mon.coverage(frame, feature_cols=["pl_rapm_c_diff"])[0]
+        assert row["status"] == "LOW_COVERAGE"        # 50% measured
+        assert "structural_reason" not in row
+        assert row["n_pool_refused"] == 30            # the explained share is still reported
+
+    def test_healthy_coverage_stays_ok_with_refusals_counted(self):
+        values = [np.nan] * 10 + [0.5] * 90
+        flags = [0.0] * 10 + [1.0] * 90
+        row = mon.coverage(self._refusal_frame(values, flags),
+                           feature_cols=["pl_rapm_c_diff"])[0]
+        assert row["status"] == "OK"                  # never relabel a pass
+        assert row["n_pool_refused"] == 10
+        assert "structural_reason" not in row
+
+    def test_the_mlb_projection_carries_the_reason_but_not_the_extra_field(self):
+        row = {"feature": "pl_rapm_c_diff", "window": "current",
+               "n_games": 60, "n_nonnull": 0, "pct_measured": 0.0,
+               "pct_nonnull": 0.0, "n_measured": 0, "n_default_zero": 0,
+               "n_pool_refused": 60, "status": "STRUCTURAL",
+               "structural_reason": "eligible-pool refusal on 60 row(s)"}
+        projected = mon._coverage_row_mlb(row)
+        assert projected["structural_reason"] == row["structural_reason"]
+        # The MLB report schema is nine fields; extras stay on the CSV.
+        assert "n_pool_refused" not in projected
+
 
 class TestFeatureImportanceWeights:
     """The MODEL WEIGHT column answers with the ensemble, not a table of zeros."""
