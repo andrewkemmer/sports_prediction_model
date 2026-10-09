@@ -1,0 +1,610 @@
+{
+  "commit": "bce1c4c35c9fdf64b119558cc1f17cd5c8dc028b",
+  "source_reconciliation": {
+    "team_stats": {
+      "expected_team_games": 6922,
+      "matched": 6922,
+      "raw_rows": 6922
+    },
+    "team_events": {
+      "expected_team_games": 6922,
+      "matched": 6922,
+      "raw_rows": 6922
+    },
+    "player_stats": {
+      "expected_team_games": 6922,
+      "matched": 6922,
+      "raw_rows": 74449
+    },
+    "play_by_play": {
+      "expected_team_games": 6922,
+      "matched": 5508,
+      "raw_rows": 1372130
+    }
+  },
+  "box_derived_semantics": {
+    "efg_pct": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 0.0
+    },
+    "turnover_margin": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 0.0
+    },
+    "rebound_margin": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 0.0
+    },
+    "off_rating": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 2.842170943040401e-14
+    },
+    "def_rating": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 2.842170943040401e-14
+    },
+    "pace": {
+      "compared": 6922,
+      "different": 0,
+      "max_error": 2.842170943040401e-14
+    }
+  },
+  "schedule_counts": [
+    {
+      "season": 2023.0,
+      "game_type": 1,
+      "games": 752
+    },
+    {
+      "season": 2023.0,
+      "game_type": 2,
+      "games": 82
+    },
+    {
+      "season": 2024.0,
+      "game_type": 1,
+      "games": 1236
+    },
+    {
+      "season": 2024.0,
+      "game_type": 2,
+      "games": 84
+    },
+    {
+      "season": 2025.0,
+      "game_type": 1,
+      "games": 1235
+    },
+    {
+      "season": 2025.0,
+      "game_type": 2,
+      "games": 85
+    },
+    {
+      "season": 2026.0,
+      "game_type": 1,
+      "games": 43
+    }
+  ],
+  "history_counts": [
+    {
+      "season": 2023.0,
+      "game_type": 1,
+      "games": 750
+    },
+    {
+      "season": 2023.0,
+      "game_type": 2,
+      "games": 82
+    },
+    {
+      "season": 2024.0,
+      "game_type": 1,
+      "games": 1230
+    },
+    {
+      "season": 2024.0,
+      "game_type": 2,
+      "games": 84
+    },
+    {
+      "season": 2025.0,
+      "game_type": 1,
+      "games": 1230
+    },
+    {
+      "season": 2025.0,
+      "game_type": 2,
+      "games": 85
+    }
+  ],
+  "metadata_missing": {
+    "start_time_utc": 0,
+    "venue": 0,
+    "game_state": 0
+  },
+  "duplicate_games": 0,
+  "duplicate_team_stats": 0,
+  "duplicate_player_games": 0,
+  "box_allnull_columns": [
+    "ast_per_game"
+  ],
+  "event_allnull_columns": [],
+  "cache_inventory": {
+    "schedule_days": 1029,
+    "missing_days": 0,
+    "season_log_units": 34,
+    "missing_log_units": 0
+  },
+  "default_window": {
+    "start": "2024-04-21",
+    "end": "2026-10-08",
+    "schedule_rows": 2718,
+    "raw_log_rows": 56682
+  },
+  "raw_pbp_game_ids": 2754,
+  "event_rollup_games": 3461,
+  "excluded_finished_games": [
+    {
+      "game_id": "401734908",
+      "gameday": "2024-12-17 00:00:00",
+      "home_team": "OKC",
+      "away_team": "MIL"
+    },
+    {
+      "game_id": "401809839",
+      "gameday": "2025-12-16 00:00:00",
+      "home_team": "NYK",
+      "away_team": "SAS"
+    }
+  ],
+  "player_positions": {
+    "player_games": 74449,
+    "position_joined": 74449,
+    "by_season": {
+      "2023-24": {
+        "rows": 17767,
+        "positions": 17767
+      },
+      "2024-25": {
+        "rows": 28110,
+        "positions": 28110
+      },
+      "2025-26": {
+        "rows": 28572,
+        "positions": 28572
+      }
+    }
+  },
+  "unmatched_raw_log_games": 0,
+  "fresh_feature_sample": {
+    "fresh_rows": 40,
+    "cached_rows": 40,
+    "joined": 40,
+    "value_mismatches": {
+      "points": 0,
+      "minutes": 0,
+      "fga": 0,
+      "fgm": 0,
+      "tov": 0,
+      "reb": 0
+    }
+  },
+  "designation_provenance": {
+    "rows": 37211,
+    "start": "2024-01-01 00:00:00",
+    "end": "2026-06-13 00:00:00",
+    "missing_publication": 1385,
+    "missing_tipoff": 0,
+    "published_at_or_after_tipoff": 0,
+    "provenance_counts": {
+      "game_day_submission": 37179,
+      "pre_window_fallback": 32
+    },
+    "status_counts": {
+      "Out": 25252,
+      "Questionable": 5969,
+      "Probable": 2067,
+      "Available": 1601,
+      "": 1385,
+      "Doubtful": 937
+    },
+    "empty_status_rows": 1385,
+    "status_tipoff_difference_rows": 9913,
+    "submission_before_cutoff_unflagged": 0
+  },
+  "injury_game_coverage": {
+    "2023.0": {
+      "games": 832,
+      "supported": 832,
+      "with_status": 832
+    },
+    "2024.0": {
+      "games": 1314,
+      "supported": 1313,
+      "with_status": 1313
+    },
+    "2025.0": {
+      "games": 1315,
+      "supported": 1313,
+      "with_status": 1313
+    }
+  },
+  "designation_name_support": {
+    "out_keys": 26189,
+    "keys_with_any_log_name": 24671,
+    "note": "Any-log match is identity evidence only, not target-date pool eligibility."
+  },
+  "designation_tipoff_comparison": {
+    "compared": 37211,
+    "different": 14,
+    "max_abs_hours": 1.0
+  },
+  "fold_geometry": {
+    "folds": 56,
+    "validation_games": 2400,
+    "history": 3461,
+    "first_validation_season": 2024,
+    "by_season": {
+      "2024.0": 1085,
+      "2025.0": 1315
+    },
+    "diagnostics": {
+      "n_candidates": 56,
+      "dropped_windows": 0,
+      "dropped_games": 0,
+      "provisional_windows": 16,
+      "provisional_games": 270,
+      "postseason_windows": 14,
+      "min_val_fold_games": 40
+    }
+  },
+  "feature_summary": {
+    "core": {
+      "served_features": 71,
+      "served_fully_populated": 62,
+      "all_null_known": []
+    },
+    "history": {
+      "served_features": 71,
+      "served_fully_populated": 5,
+      "all_null_known": []
+    },
+    "slate": {
+      "served_features": 71,
+      "served_fully_populated": 71,
+      "all_null_known": []
+    }
+  },
+  "features": {
+    "known": 113,
+    "served": 71,
+    "history_infinities": 0,
+    "slate_infinities": 0,
+    "side_diff_mismatches": 0,
+    "linear_width": 31,
+    "tree_width": 73
+  },
+  "position_rapm_coverage": [
+    {
+      "slice": "history",
+      "feature": "pl_rapm_c_away",
+      "rows": 3461,
+      "finite": 3272,
+      "coverage": 0.9453915053452759
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_c_home",
+      "rows": 3461,
+      "finite": 3260,
+      "coverage": 0.9419242993354522
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_c_diff",
+      "rows": 3461,
+      "finite": 3157,
+      "coverage": 0.9121641144177983
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_f_away",
+      "rows": 3461,
+      "finite": 3374,
+      "coverage": 0.9748627564287778
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_f_home",
+      "rows": 3461,
+      "finite": 3372,
+      "coverage": 0.9742848887604738
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_f_diff",
+      "rows": 3461,
+      "finite": 3364,
+      "coverage": 0.971973418087258
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_g_away",
+      "rows": 3461,
+      "finite": 3374,
+      "coverage": 0.9748627564287778
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_g_home",
+      "rows": 3461,
+      "finite": 3375,
+      "coverage": 0.9751516902629298
+    },
+    {
+      "slice": "history",
+      "feature": "pl_rapm_g_diff",
+      "rows": 3461,
+      "finite": 3366,
+      "coverage": 0.9725512857555619
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_c_away",
+      "rows": 2629,
+      "finite": 2498,
+      "coverage": 0.9501711677443895
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_c_home",
+      "rows": 2629,
+      "finite": 2484,
+      "coverage": 0.9448459490300495
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_c_diff",
+      "rows": 2629,
+      "finite": 2411,
+      "coverage": 0.9170787371624192
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_f_away",
+      "rows": 2629,
+      "finite": 2571,
+      "coverage": 0.9779383796120198
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_f_home",
+      "rows": 2629,
+      "finite": 2573,
+      "coverage": 0.9786991251426398
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_f_diff",
+      "rows": 2629,
+      "finite": 2567,
+      "coverage": 0.9764168885507798
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_g_away",
+      "rows": 2629,
+      "finite": 2572,
+      "coverage": 0.9783187523773298
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_g_home",
+      "rows": 2629,
+      "finite": 2574,
+      "coverage": 0.9790794979079498
+    },
+    {
+      "slice": "core",
+      "feature": "pl_rapm_g_diff",
+      "rows": 2629,
+      "finite": 2568,
+      "coverage": 0.9767972613160898
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_c_away",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_c_home",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_c_diff",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_f_away",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_f_home",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_f_diff",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_g_away",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_g_home",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "slate",
+      "feature": "pl_rapm_g_diff",
+      "rows": 43,
+      "finite": 43,
+      "coverage": 1.0
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_c_away",
+      "rows": 219,
+      "finite": 115,
+      "coverage": 0.5251141552511416
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_c_home",
+      "rows": 219,
+      "finite": 116,
+      "coverage": 0.5296803652968036
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_c_diff",
+      "rows": 219,
+      "finite": 96,
+      "coverage": 0.4383561643835616
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_f_away",
+      "rows": 219,
+      "finite": 132,
+      "coverage": 0.6027397260273972
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_f_home",
+      "rows": 219,
+      "finite": 130,
+      "coverage": 0.593607305936073
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_f_diff",
+      "rows": 219,
+      "finite": 122,
+      "coverage": 0.5570776255707762
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_g_away",
+      "rows": 219,
+      "finite": 132,
+      "coverage": 0.6027397260273972
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_g_home",
+      "rows": 219,
+      "finite": 133,
+      "coverage": 0.6073059360730594
+    },
+    {
+      "slice": "first_10_days",
+      "feature": "pl_rapm_g_diff",
+      "rows": 219,
+      "finite": 124,
+      "coverage": 0.5662100456621004
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_c_away",
+      "rows": 2793,
+      "finite": 2726,
+      "coverage": 0.9760114572144647
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_c_home",
+      "rows": 2793,
+      "finite": 2710,
+      "coverage": 0.9702828499820981
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_c_diff",
+      "rows": 2793,
+      "finite": 2644,
+      "coverage": 0.9466523451485858
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_f_away",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_f_home",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_f_diff",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_g_away",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_g_home",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    },
+    {
+      "slice": "after_30_days",
+      "feature": "pl_rapm_g_diff",
+      "rows": 2793,
+      "finite": 2793,
+      "coverage": 1.0
+    }
+  ]
+}
