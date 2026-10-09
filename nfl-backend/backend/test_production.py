@@ -81,6 +81,20 @@ check("rest manifest documents season-boundary missingness",
       all("season" in manifest.FEATURE_MANIFEST[name]["point_in_time_rule"]
           and "season" in manifest.FEATURE_MANIFEST[name]["missing_value_policy"]
           for name in _rest_manifest_names))
+# The Elo ``source`` string is derived from config (2026-10-08 coverage-audit
+# doc-drift finding), so it must track WARMUP_SEASONS / OOF_FIRST_SEASON and
+# can never re-harden the stale "2018 warmup onward" phrasing. Pin it to the
+# authoritative config values.
+_elo_src = manifest.FEATURE_MANIFEST["elo_diff"]["source"]
+check("Elo source string tracks config (no stale 2018-warmup drift)",
+      "2018" not in _elo_src
+      and f"{min(config.WARMUP_SEASONS)} warmup" in _elo_src
+      and f"{config.OOF_FIRST_SEASON} onward" in _elo_src
+      and manifest.FEATURE_MANIFEST["elo_home"]["source"] == _elo_src
+      and manifest.FEATURE_MANIFEST["elo_away"]["source"] == _elo_src,
+      _elo_src)
+check("Elo source string names every rendered game type (REG + postseason)",
+      all(t in _elo_src for t in config.GAME_TYPES - {"POST"}), _elo_src)
 
 # ---------------------------------------------------------------------------
 print("\n== 3. Feature tests (leakage / determinism) ==")

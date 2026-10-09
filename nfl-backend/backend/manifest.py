@@ -471,12 +471,36 @@ def _build_static_diff_manifest() -> None:
 _build_static_side_manifest()
 _build_static_diff_manifest()
 
+
+def _elo_schedule_source() -> str:
+    """The Elo ``source`` string, derived from config (never hand-typed).
+
+    The 2026-10-08 coverage audit flagged a documentation-drift finding: the
+    manifest hard-coded ``"2018 warmup onward, REG"`` for the Elo schedule
+    source while the shipped contract was ``config.WARMUP_SEASONS = [2016]`` /
+    ``OOF_FIRST_SEASON = 2017`` / REG + postseason. A hand-typed string
+    re-accrues drift the moment config changes, so derive it once from the
+    authoritative config here and reuse it for every Elo entry.
+    """
+    try:
+        from backend import config as _c
+    except ImportError:  # running as a top-level module
+        import config as _c
+    warmup = min(_c.WARMUP_SEASONS)
+    start = _c.OOF_FIRST_SEASON
+    types = "/".join(sorted(_c.GAME_TYPES - {"POST"}))
+    return (f"nflverse schedules (all decided {types} games; {warmup} warmup "
+            f"season, {start} onward)")
+
+
+_ELO_SOURCE = _elo_schedule_source()
+
 # One entry per served feature. Field order mirrors the spec (section 11).
 FEATURE_MANIFEST = {
     "elo_diff": {
         "description": "Home minus away pre-game Elo rating",
         "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
-        "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+        "source": _ELO_SOURCE,
         "lookback": "full history (iterative)",
         "aggregation": "iterative state update",
         "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
@@ -721,7 +745,7 @@ FEATURE_MANIFEST = {
     "elo_home": {
         "description": "Home team's pre-game Elo rating",
         "definition": "team Elo entering kickoff (home side of elo_diff); ratings carry across the offseason with a 1/3 revert toward ELO_PRIOR at each season boundary",
-        "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+        "source": _ELO_SOURCE,
         "lookback": "full history (iterative)",
         "aggregation": "iterative state update",
         "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
@@ -733,7 +757,7 @@ FEATURE_MANIFEST = {
     "elo_away": {
         "description": "Away team's pre-game Elo rating",
         "definition": "team Elo entering kickoff (away side of elo_diff)",
-        "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+        "source": _ELO_SOURCE,
         "lookback": "full history (iterative)",
         "aggregation": "iterative state update",
         "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
