@@ -239,7 +239,7 @@ def test_single_list_no_margin_in_any_enumeration():
     feature_selection.reset_feature_subset()
     active = training.active_moneyline_feature_cols()
     assert MARGIN_COL not in active
-    # 109 = the 2026-10-03 contract: 101 − 9 (re24) − 7 (depth/sp_era/
+    # 109 = the 2026-10-03 contract: 101 − 9 (re24) − 7 (depth/sp_xfip/
     # slug) + 24 (8 pl pools × home/away/diff) → 101 + 8.
     assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 109, (
         f"width drift: universe={len(training.MONEYLINE_FEATURE_COLS)} "

@@ -8,7 +8,7 @@ D1 — the full-history re-pull burned CHUNK_RETRIES + backoff on three
 D2 — the drift monitor's ~21-day trailing baseline crosses the season
      seam every final week, so REGULAR seasonal movement (playoff bullpen
      usage, eliminated-team call-ups) pages as WARN/ALERT. Measured
-     2026-09-29: bullpen_whip_diff z=+2.78 and bullpen_whip_10g_away
+     2026-09-29: bullpen_whip_diff z=+2.78 and bullpen_kbb_10g_away
      z=-3.37 vs trailing, BOTH vanishing against the same calendar phase
      of 2024-25 (z=+1.94 / -1.28). A location shift that survives the
      trailing baseline is now re-checked against prior-season

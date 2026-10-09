@@ -6,11 +6,11 @@ Pins:
   * il_stints_pitchers.parquet registers; a missing ledger degrades LOUDLY
     to all-pitched-innings semantics (pre-availability behavior)
   * innings by an unavailable arm are EXCLUDED from bullpen_raw, so every
-    served bullpen feature (bullpen_whip_10g, bullpen_whip_3g, era_10g and
+    served bullpen feature (bullpen_kbb_10g, bullpen_kbb_3g, era_10g and
     everything derived from them) inherits tonight's availability
   * PIT rule: innings ON the placement date and ON the return date stay
     available (strictly-between predicate)
-  * bullpen_whip_diff is RENAMED bullpen_whip_10g_diff (values unchanged)
+  * bullpen_whip_diff is RENAMED bullpen_kbb_10g_diff (values unchanged)
   * bullpen_meltdown_risk is RENAMED ..._risk_diff; per-side twins exist
     as the within-side product of the family's own factors
   * the serving contract carries exactly the family: 100 cols, NO
@@ -40,7 +40,7 @@ BACKEND = Path(__file__).resolve().parent
 
 def test_contract_carries_the_renamed_bullpen_family():
     cols = set(training.MONEYLINE_FEATURE_COLS)
-    for c in ("bullpen_whip_10g_diff", "bullpen_whip_3g_diff",
+    for c in ("bullpen_kbb_10g_diff", "bullpen_kbb_3g_diff",
               "bullpen_pitches_diff", "bullpen_meltdown_risk_diff",
               "bullpen_meltdown_risk_home", "bullpen_meltdown_risk_away"):
         assert c in cols, f"{c} missing from the serving contract"
@@ -59,32 +59,32 @@ def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):
         "home_team": ["BOS"] * n,
         "away_team": ["NYY"] * n,
         "game_pk": np.arange(n),
-        "bullpen_whip_10g_home": rng.uniform(0.8, 1.8, n),
-        "bullpen_whip_10g_away": rng.uniform(0.8, 1.8, n),
-        "bullpen_whip_3g_home": rng.uniform(0.8, 1.8, n),
-        "bullpen_whip_3g_away": rng.uniform(0.8, 1.8, n),
+        "bullpen_kbb_10g_home": rng.uniform(0.8, 1.8, n),
+        "bullpen_kbb_10g_away": rng.uniform(0.8, 1.8, n),
+        "bullpen_kbb_3g_home": rng.uniform(0.8, 1.8, n),
+        "bullpen_kbb_3g_away": rng.uniform(0.8, 1.8, n),
         "bullpen_pitches_3d_home": rng.uniform(0, 300, n),
         "bullpen_pitches_3d_away": rng.uniform(0, 300, n),
         "bullpen_ip_3d_home": rng.uniform(0, 12, n),
         "bullpen_ip_3d_away": rng.uniform(0, 12, n),
     })
     out = features.add_diff_features(df.copy())
-    d = out["bullpen_whip_10g_diff"]
-    expected = out["bullpen_whip_10g_home"] - out["bullpen_whip_10g_away"]
+    d = out["bullpen_kbb_10g_diff"]
+    expected = out["bullpen_kbb_10g_home"] - out["bullpen_kbb_10g_away"]
     assert np.allclose(d, expected, equal_nan=True)
     assert "bullpen_whip_diff" not in out.columns
     # meltdown twins are within-side products of the family's own factors
     assert np.allclose(
         out["bullpen_meltdown_risk_home"],
-        out["bullpen_pitches_3d_home"] * out["bullpen_whip_10g_home"],
+        out["bullpen_pitches_3d_home"] * out["bullpen_kbb_10g_home"],
         equal_nan=True)
     assert np.allclose(
         out["bullpen_meltdown_risk_away"],
-        out["bullpen_pitches_3d_away"] * out["bullpen_whip_10g_away"],
+        out["bullpen_pitches_3d_away"] * out["bullpen_kbb_10g_away"],
         equal_nan=True)
     assert np.allclose(
         out["bullpen_meltdown_risk_diff"],
-        out["bullpen_pitches_diff"] * out["bullpen_whip_10g_diff"],
+        out["bullpen_pitches_diff"] * out["bullpen_kbb_10g_diff"],
         equal_nan=True)
 
 
@@ -578,7 +578,7 @@ def test_slate_withholds_stale_return_starter(tmp_path, caplog):
         "away_team": "AWAY", "home_win": 1.0, "home_score": 5,
         "away_score": 3, "home_starter_id": 101, "away_starter_id": 202,
         "sp_k9_home": 8.0, "sp_k9_away": 7.0,
-        "sp_era_home": 3.0, "sp_era_away": 4.0,
+        "sp_xfip_home": 3.0, "sp_xfip_away": 4.0,
     }])
     schedule = pd.DataFrame([{
         "game_id": "20260628_AWAY@HOME", "game_date": "2026-06-28",
@@ -596,10 +596,10 @@ def test_slate_withholds_stale_return_starter(tmp_path, caplog):
     assert len(slate) == 1
     # stale return: SP columns withheld (NaN), team evidence still priced
     assert pd.isna(slate.loc[0, "sp_k9_home"])
-    assert pd.isna(slate.loc[0, "sp_era_home"])
+    assert pd.isna(slate.loc[0, "sp_xfip_home"])
     # healthy starter: carried line intact
     assert slate.loc[0, "sp_k9_away"] == 7.0
-    assert slate.loc[0, "sp_era_away"] == 4.0
+    assert slate.loc[0, "sp_xfip_away"] == 4.0
     assert any("stale" in r.message.lower() for r in caplog.records)
     # observability: ONE summary entry for the gated side — the generic
     # unmapped loop must not double-count a mapped-and-gated starter nor
@@ -655,12 +655,15 @@ def test_sp_gate_is_infilter_only_and_wired_upstream():
     # orchestrator: gate built from pitcher_game_stats BEFORE pitcher_shifted
     assert src.index("_register_sp_staleness_gate(con)") < src.index(
         "CREATE TABLE pitcher_shifted AS")
-    # all three per-pitcher sources consume the gate
+    # all three per-pitcher sources consume the gate (the xFIP rewrite of
+    # pitcher_season_features moved the CASE to the outer select, so it no
+    # longer carries the `st.` alias there)
     for tbl in ("pitcher_season_features", "pitcher_features",
                 "pitcher_stuff"):
         seg = src[src.index(f"CREATE TABLE {tbl} AS"):]
         assert "LEFT JOIN pitcher_stale st" in seg[:2000], tbl
-        assert "CASE WHEN st.sp_stale THEN NULL" in seg[:2000], tbl
+        assert ("CASE WHEN st.sp_stale THEN NULL" in seg[:2000]
+                or "CASE WHEN sp_stale THEN NULL" in seg[:2000]), tbl
     # cleanup list drops the gate table
     assert '"pitcher_stale"' in src
 
@@ -672,15 +675,27 @@ def test_sp_gate_is_infilter_only_and_wired_upstream():
 
 
 def _shrink_chain(con, features_src, k_pitches: float | None = None,
-                  k_ip: float | None = None, lg_whip: float | None = None,
-                  lg_era: float | None = None):
+                  k_ip: float | None = None, k_pa: float | None = None,
+                  lg_kbb: float | None = None, lg_xfip: float | None = None,
+                  lg_hrfb: float = 0.11):
     """Build the production shrink-prior + rolling/season tables on ``con``
-    from the LIFTED shipped SQL. k_pitches None = keep the shipped data-
-    derived prior; pass (k_pitches, k_ip, lg_whip, lg_era) to override the
-    prior row analytically after the shipped derivation runs."""
+    from the LIFTED shipped SQL (Scenario C: K-BB%/xFIP). k_pitches None =
+    keep the shipped data-derived prior; pass (k_pitches, k_ip, k_pa) to
+    override the prior row analytically, and (lg_kbb, lg_xfip) to seed the
+    point-in-time league prior (xfip_league) the windows shrink toward."""
+    import re as _re
+    _xfip_call = _re.compile(r"\{_xfip_sql\(([^)]*)\)\}")
+
     def lift(name):
         j0 = features_src.index(f"CREATE TABLE {name} AS")
-        return features_src[j0:features_src.index('"""', j0)]
+        statement = features_src[j0:features_src.index('"""', j0)]
+        # render the { _xfip_sql(...) } helper calls the production f-string
+        # emits, so the raw lifted SQL compiles against the fixtures.
+        statement = _xfip_call.sub(
+            lambda m: features._xfip_sql(
+                *[a.strip().strip('"') for a in m.group(1).split(",")]),
+            statement)
+        return statement
     # The prior SQL reads bp_outing + the two filters; stub them minimally
     # (empty ledger/spent = NOT EXISTS trivially true) so the SHIPPED
     # derivation (population alignment, COALESCE floor, GREATEST) executes.
@@ -715,8 +730,14 @@ def _shrink_chain(con, features_src, k_pitches: float | None = None,
     if k_pitches is not None:
         con.execute(f"CREATE OR REPLACE TABLE bp_shrink_prior AS SELECT "
                     f"season, game_date, {k_pitches} AS k_pitches, "
-                    f"{k_ip} AS k_ip, {lg_whip} AS lg_whip, "
-                    f"{lg_era} AS lg_era FROM bp_shrink_prior")
+                    f"{k_ip} AS k_ip, {k_pa} AS k_pa "
+                    f"FROM bp_shrink_prior")
+    # Scenario C: the windows shrink toward the PIT league K-BB%/xFIP from
+    # xfip_league; seed it analytically for the test.
+    con.execute(f"CREATE OR REPLACE TABLE xfip_league AS SELECT "
+                f"2026 AS season, DATE '2026-04-03' AS game_date, "
+                f"{lg_hrfb} AS lg_hrfb, {lg_xfip} AS lg_xfip, "
+                f"{lg_kbb} AS lg_kbb")
     con.execute(lift("bullpen_rolling"))
     con.execute(lift("bullpen_season"))
 
@@ -727,44 +748,51 @@ def test_shrinkage_pulls_thin_window_toward_prior_and_leaves_thick_one():
     # ONE shifted row per team at the prior's date: the w10/w3 window
     # arithmetic is pre-existing tested code; what is under test is the
     # BLEND. With a single row each window collapses to that row, so the
-    # expected value is analytic. TB: 2 IP window (thin, raw WHIP 2.50).
-    # LAD: 60 IP window (thick, raw 1.50). Prior: k = 6 IP, lg_whip 1.30.
+    # expected value is analytic. TB: thin window (raw K-BB% 0.05).
+    # LAD: thick window (raw 0.075). Prior: k_pa = k_ip = 6, lg_kbb 0.15,
+    # lg_xfip 4.0, lg_hrfb 0.11.
     con.register("bs_reg", pd.DataFrame({
         "game_date": pd.to_datetime(["2026-04-03"] * 2),
         "game_pk": [1, 2], "team": ["TB", "LAD"],
-        "_s_bbs": [2.0, 30.0], "_s_hits": [3.0, 60.0],
-        "_s_ip": [2.0, 60.0], "_s_runs": [1.0, 30.0],
+        "_s_ks": [3.0, 60.0], "_s_bbs": [2.0, 30.0],
+        "_s_pa": [20.0, 400.0], "_s_fb": [5.0, 100.0],
+        "_s_ip": [2.0, 60.0],
     }))
     con.execute("CREATE TABLE bullpen_shifted AS "
                 "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
-                "team, _s_bbs, _s_hits, _s_ip, _s_runs FROM bs_reg")
+                "team, _s_ks, _s_bbs, _s_pa, _s_fb, _s_ip FROM bs_reg")
     # bullpen_season re-derives its own LAGs from bullpen_raw: minimal rows.
     con.register("br_reg", pd.DataFrame({
         "game_date": pd.to_datetime(["2026-04-03"] * 2),
         "game_pk": [1, 2], "team": ["TB", "LAD"],
-        "bullpen_bbs": [2.0, 30.0], "bullpen_hits": [3.0, 60.0],
-        "bullpen_ip": [2.0, 60.0], "bullpen_runs": [1.0, 30.0],
+        "bullpen_ks": [3.0, 60.0], "bullpen_bbs": [2.0, 30.0],
+        "bullpen_pa": [20.0, 400.0], "bullpen_fb": [5.0, 100.0],
+        "bullpen_ip": [2.0, 60.0], "bullpen_hits": [3.0, 60.0],
+        "bullpen_runs": [1.0, 30.0],
     }))
     con.execute("CREATE TABLE bullpen_raw AS "
                 "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
-                "team, bullpen_bbs, bullpen_hits, bullpen_ip, bullpen_runs "
-                "FROM br_reg")
-    # analytic prior override after the shipped derivation: k = 6 IP,
-    # lg_whip 1.30, lg_era 4.20
-    _shrink_chain(con, src, k_pitches=93.0, k_ip=6.0,
-                  lg_whip=1.30, lg_era=4.20)
-    out = con.execute("SELECT team, bullpen_whip_3g, bullpen_whip_10g "
-                      "FROM bullpen_rolling ORDER BY team").fetchall()
-    got = {t: (w3, w10) for t, w3, w10 in out}
-    # TB: raw = (2+3)/2 = 2.50; w = 2/(2+6) = 0.25
-    exp_tb = 0.25 * 2.50 + 0.75 * 1.30
-    assert abs(got["TB"][0] - exp_tb) < 1e-9
-    assert abs(got["TB"][1] - exp_tb) < 1e-9
-    # LAD: raw = 90/60 = 1.50; w = 60/66
-    exp_lad = (60.0 / 66.0) * 1.50 + (6.0 / 66.0) * 1.30
-    assert abs(got["LAD"][0] - exp_lad) < 1e-9
-    # direction: the thin window moved toward the prior, the thick barely moved
-    assert got["TB"][0] < 2.50 and abs(exp_lad - 1.50) < 0.02
+                "team, bullpen_ks, bullpen_bbs, bullpen_pa, bullpen_fb, "
+                "bullpen_ip, bullpen_hits, bullpen_runs FROM br_reg")
+    # analytic prior override after the shipped derivation
+    _shrink_chain(con, src, k_pitches=93.0, k_ip=6.0, k_pa=6.0,
+                  lg_kbb=0.15, lg_xfip=4.0, lg_hrfb=0.11)
+    out = con.execute("SELECT team, bullpen_kbb_3g, bullpen_kbb_10g, "
+                      "bullpen_xfip_10g FROM bullpen_rolling "
+                      "ORDER BY team").fetchall()
+    got = {t: (w3, w10, x10) for t, w3, w10, x10 in out}
+    # K-BB%: TB raw = (3-2)/20 = 0.05; w = 20/(20+6) = 0.76923
+    exp_tb_kbb = (20.0 / 26.0) * 0.05 + (6.0 / 26.0) * 0.15
+    assert abs(got["TB"][0] - exp_tb_kbb) < 1e-9
+    assert abs(got["TB"][1] - exp_tb_kbb) < 1e-9
+    # LAD: raw = (60-30)/400 = 0.075; w = 400/406
+    exp_lad_kbb = (400.0 / 406.0) * 0.075 + (6.0 / 406.0) * 0.15
+    assert abs(got["LAD"][1] - exp_lad_kbb) < 1e-9
+    # xFIP: TB raw = (13*5*0.11 + 3*2 - 2*3)/2 + 3.10 = 6.675; w = 2/8 = 0.25
+    exp_tb_x = 0.25 * 6.675 + 0.75 * 4.0
+    assert abs(got["TB"][2] - exp_tb_x) < 1e-6
+    # direction: the thin K-BB% window moved toward the prior, the thick barely
+    assert got["TB"][0] > 0.05 and abs(exp_lad_kbb - 0.075) < 0.01
 
 
 def test_shrinkage_volumes_and_degenerate_prior_paths():
@@ -776,30 +804,34 @@ def test_shrinkage_volumes_and_degenerate_prior_paths():
     con.register("bs_reg", pd.DataFrame({
         "game_date": pd.to_datetime(["2026-04-03"] * 2),
         "game_pk": [1, 2], "team": ["TB", "LAD"],
-        "_s_bbs": [2.0, 30.0], "_s_hits": [3.0, 60.0],
-        "_s_ip": [2.0, 60.0], "_s_runs": [1.0, 30.0],
+        "_s_ks": [3.0, 60.0], "_s_bbs": [2.0, 30.0],
+        "_s_pa": [20.0, 400.0], "_s_fb": [5.0, 100.0],
+        "_s_ip": [2.0, 60.0],
     }))
     con.execute("CREATE TABLE bullpen_shifted AS "
                 "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
-                "team, _s_bbs, _s_hits, _s_ip, _s_runs FROM bs_reg")
-    # degenerate prior override: k_ip = 0 -> the CASE guard ships raw rates
+                "team, _s_ks, _s_bbs, _s_pa, _s_fb, _s_ip FROM bs_reg")
+    # degenerate prior override: k_ip = k_pa = 0 -> the CASE guard ships
+    # raw rates
     con.register("br_reg", pd.DataFrame({
         "game_date": pd.to_datetime(["2026-04-03"] * 2),
         "game_pk": [1, 2], "team": ["TB", "LAD"],
-        "bullpen_bbs": [2.0, 30.0], "bullpen_hits": [3.0, 60.0],
-        "bullpen_ip": [2.0, 60.0], "bullpen_runs": [1.0, 30.0],
+        "bullpen_ks": [3.0, 60.0], "bullpen_bbs": [2.0, 30.0],
+        "bullpen_pa": [20.0, 400.0], "bullpen_fb": [5.0, 100.0],
+        "bullpen_ip": [2.0, 60.0], "bullpen_hits": [3.0, 60.0],
+        "bullpen_runs": [1.0, 30.0],
     }))
     con.execute("CREATE TABLE bullpen_raw AS "
                 "SELECT CAST(game_date AS DATE) AS game_date, game_pk, "
-                "team, bullpen_bbs, bullpen_hits, bullpen_ip, bullpen_runs "
-                "FROM br_reg")
-    _shrink_chain(con, src, k_pitches=0.0, k_ip=0.0,
-                  lg_whip=1.30, lg_era=4.20)
-    row = con.execute("SELECT bullpen_whip_3g, bullpen_whip_10g "
+                "team, bullpen_ks, bullpen_bbs, bullpen_pa, bullpen_fb, "
+                "bullpen_ip, bullpen_hits, bullpen_runs FROM br_reg")
+    _shrink_chain(con, src, k_pitches=0.0, k_ip=0.0, k_pa=0.0,
+                  lg_kbb=0.15, lg_xfip=4.0, lg_hrfb=0.11)
+    row = con.execute("SELECT bullpen_kbb_3g, bullpen_kbb_10g "
                       "FROM bullpen_rolling WHERE team = 'TB'").fetchone()
-    # single row: both windows collapse to raw (2+3)/2 = 2.50, and the
-    # k_ip = 0 guard ships them UNSHRUNK despite lg_whip = 1.30
-    assert abs(row[0] - 2.50) < 1e-9 and abs(row[1] - 2.50) < 1e-9
+    # single row: both windows collapse to raw (3-2)/20 = 0.05, and the
+    # k_pa = 0 guard ships them UNSHRUNK despite lg_kbb = 0.15
+    assert abs(row[0] - 0.05) < 1e-9 and abs(row[1] - 0.05) < 1e-9
     # volumes never shrink: no CASE wraps the workload expressions
     roll = src[src.index("CREATE TABLE bullpen_rolling AS"):
                src.index('"""', src.index("CREATE TABLE bullpen_rolling AS"))]
@@ -1086,11 +1118,20 @@ def test_recent_pitcher_era_windows_and_prior_league_are_point_in_time():
     every game on the current calendar date."""
     src = (BACKEND / "features.py").read_text(encoding="utf-8")
 
+    import re as _re
+    _xfip_call = _re.compile(r"\{_xfip_sql\(([^)]*)\)\}")
+
     def lift(name):
         j0 = src.index(f"CREATE TABLE {name} AS")
         statement = src[j0:src.index('"""', j0)]
-        return statement.replace(
+        statement = _xfip_call.sub(
+            lambda m: features._xfip_sql(
+                *[a.strip().strip('"') for a in m.group(1).split(",")]),
+            statement)
+        return (statement.replace(
             "{_SP_ERA_5G_SHRINK_IP}", str(features._SP_ERA_5G_SHRINK_IP))
+            .replace("{_HRFB_CEIL}", str(features._HRFB_CEIL))
+            .replace("{_HRFB_FLOOR}", str(features._HRFB_FLOOR)))
 
     con = duckdb.connect(database=":memory:")
     shifted = pd.DataFrame({
@@ -1100,6 +1141,8 @@ def test_recent_pitcher_era_windows_and_prior_league_are_point_in_time():
         "_s_runs": [None, 2.0, 0.0, 1.0, 3.0, 0.0, 2.0],
         "_s_ip": [None, 3.0, 6.0, 3.0, 6.0, 3.0, 6.0],
         "_s_ks": [None, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+        "_s_bbs": [None, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0],
+        "_s_fb": [None, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0],
     })
     con.register("shifted_fixture", shifted)
     con.execute("CREATE TABLE pitcher_shifted AS SELECT * FROM shifted_fixture")
@@ -1113,22 +1156,29 @@ def test_recent_pitcher_era_windows_and_prior_league_are_point_in_time():
 
     raw = pd.DataFrame({
         "game_date": pd.to_datetime([
-            "2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02",
-            "2026-01-03",
+            "2026-01-01", "2026-01-02", "2026-01-03",
         ]),
-        "runs": [1.0, 2.0, 0.0, 6.0, 2.0],
-        "ip": [3.0, 6.0, 3.0, 6.0, 3.0],
+        "ks": [1.0, 2.0, 0.0], "bbs": [0.0, 1.0, 2.0],
+        "hrs_allowed": [0.0, 1.0, 0.0], "fb": [1.0, 2.0, 1.0],
+        "ip": [3.0, 6.0, 3.0], "n_batters_faced": [12.0, 24.0, 12.0],
     })
     con.register("raw_fixture", raw)
     con.execute("CREATE TABLE pitcher_game_stats AS SELECT * FROM raw_fixture")
-    con.execute(lift("pitcher_era_league"))
+    con.execute(lift("xfip_league"))
     league = dict(con.execute("""
-        SELECT game_date, league_era_prior FROM pitcher_era_league
+        SELECT game_date, lg_kbb FROM xfip_league
     """).fetchall())
+    xfit = dict(con.execute("""
+        SELECT game_date, lg_xfip FROM xfip_league
+    """).fetchall())
+    # PIT: the first date has NO prior games, so its league prior is NULL.
     assert league[pd.Timestamp("2026-01-01").date()] is None
-    assert league[pd.Timestamp("2026-01-02").date()] == pytest.approx(3.0)
-    # Jan 2 contributes 6 runs / 9 IP; Jan 3 sees only the prior dates.
-    assert league[pd.Timestamp("2026-01-03").date()] == pytest.approx(4.5)
+    assert xfit[pd.Timestamp("2026-01-01").date()] is None
+    # Jan 2 sees ONLY Jan 1's totals: (1-0)/12.
+    assert league[pd.Timestamp("2026-01-02").date()] == pytest.approx(1.0 / 12.0)
+    assert xfit[pd.Timestamp("2026-01-02").date()] is not None
+    # Jan 3 sees Jan 1 + Jan 2 (never itself): (3-1)/36.
+    assert league[pd.Timestamp("2026-01-03").date()] == pytest.approx(2.0 / 36.0)
 
 
 def test_gated_sp_tables_execute_end_to_end(tmp_path):
@@ -1144,11 +1194,20 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
     survives real compilation: clean rows produce values, stale rows NULL."""
     src = (BACKEND / "features.py").read_text(encoding="utf-8")
 
+    import re as _re
+    _xfip_call = _re.compile(r"\{_xfip_sql\(([^)]*)\)\}")
+
     def lift(name):
         j0 = src.index(f"CREATE TABLE {name} AS")
         statement = src[j0:src.index('"""', j0)]
-        return statement.replace(
+        statement = _xfip_call.sub(
+            lambda m: features._xfip_sql(
+                *[a.strip().strip('"') for a in m.group(1).split(",")]),
+            statement)
+        return (statement.replace(
             "{_SP_ERA_5G_SHRINK_IP}", str(features._SP_ERA_5G_SHRINK_IP))
+            .replace("{_HRFB_CEIL}", str(features._HRFB_CEIL))
+            .replace("{_HRFB_FLOOR}", str(features._HRFB_FLOOR)))
 
     apps = pd.DataFrame({
         "game_date": pd.to_datetime(["2026-05-01", "2026-06-20",
@@ -1173,21 +1232,26 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
         con.execute("""
             CREATE TABLE pitcher_season_rolling AS
             SELECT game_date, game_pk, pitcher,
-                   5.0 AS _s_runs_s, 40.0 AS _s_ks_s, 40.0 AS _s_ip_s
+                   5.0 AS _s_runs_s, 40.0 AS _s_ks_s, 10.0 AS _s_bbs_s,
+                   20.0 AS _s_fb_s, 40.0 AS _s_ip_s
             FROM pitcher_game_stats
         """)
+        # career == last-5 (no older history) so the xFIP 5g shrink falls
+        # back to the league xFIP prior (xfip_last5 * ip + 30 * lg)/(ip+30).
         con.execute("""
             CREATE TABLE pitcher_5g_rolling AS
             SELECT game_date, game_pk, pitcher,
-                   5.0 AS _roll5_runs, 40.0 AS _roll5_ks, 40.0 AS _roll5_ip,
-                   CASE WHEN pitcher = 202 THEN 10.0 ELSE 0.0 END AS _older_runs,
-                   CASE WHEN pitcher = 202 THEN 20.0 ELSE 0.0 END AS _older_ip
+                   40.0 AS _roll5_ks, 10.0 AS _roll5_bbs,
+                   20.0 AS _roll5_fb, 40.0 AS _roll5_ip,
+                   40.0 AS _car_ks, 10.0 AS _car_bbs,
+                   20.0 AS _car_fb, 40.0 AS _car_ip
             FROM pitcher_game_stats
         """)
         con.execute("""
-            CREATE TABLE pitcher_era_league AS
+            CREATE TABLE xfip_league AS
             SELECT game_date,
-                   CASE WHEN pitcher = 303 THEN NULL ELSE 4.0 END AS league_era_prior
+                   0.11 AS lg_hrfb,
+                   CASE WHEN pitcher = 303 THEN NULL ELSE 4.0 END AS lg_xfip
             FROM pitcher_game_stats
         """)
         # pitcher_features inputs (minimal trailing-window aggregates)
@@ -1218,7 +1282,7 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
     # control start (long gap, NO stint -> must stay ungated). The remaining
     # clean rows pin league-prior and raw-rate fallback behavior.
     seas = con.execute("""
-        SELECT game_pk, pitcher, sp_k9, sp_era_5g FROM pitcher_season_features
+        SELECT game_pk, pitcher, sp_k9, sp_xfip_5g FROM pitcher_season_features
         WHERE game_pk IN (1, 2, 4, 5)
     """).fetchall()
     feats = con.execute("""
@@ -1233,17 +1297,16 @@ def test_gated_sp_tables_execute_end_to_end(tmp_path):
             for game_pk, pitcher, k9, e5 in seas}
     feats = {p: w for p, w in feats}
     stuff = {p: (v, wf) for p, v, wf in stuff}
-    # 101 clean row: older history absent, so blend the recent 1.125 runs/9
-    # with the league prior 4.0 using 30 pseudo innings.
-    assert seas[1] == (101, 9.0, pytest.approx(33.0 / 14.0))
+    # 101 clean row: older history absent, so blend the recent xFIP 2.565
+    # with the league xFIP prior 4.0 using 30 pseudo innings -> 3.18.
+    assert seas[1] == (101, 9.0, pytest.approx(3.18, abs=1e-6))
     # 101 stale return: every SP metric stays NULL despite available priors.
     assert seas[2] == (101, None, None)
     assert feats[101] is None
     assert stuff[101] == (None, None)
-    # 202: recent 1.125 is blended toward older personal rate 4.5.
-    assert seas[4] == (202, 9.0, pytest.approx(18.0 / 7.0))
+    # 202: ungated control start (long gap, no stint) — same clean blend.
+    assert seas[4] == (202, 9.0, pytest.approx(3.18, abs=1e-6))
     assert feats[202] is not None
     assert stuff[202][0] == 93.0
-    # 303 has neither older personal exposure nor a prior league rate, so
-    # the raw recent estimate is preserved.
-    assert seas[5] == (303, 9.0, pytest.approx(1.125))
+    # 303 has no league prior, so the raw recent xFIP estimate is preserved.
+    assert seas[5] == (303, 9.0, pytest.approx(2.565, abs=1e-6))

@@ -3604,13 +3604,10 @@ FEATURE_DESCRIPTIONS = {
     "elo_diff": "Home Elo − away Elo (skill-gap anchor, updated each game)",
     "rest_days_diff": "Home rest days − away rest days (schedule fatigue)",
     # 5–8. SP season-to-date + last-5-start diffs
-    "sp_era_diff": "Home SP season-to-date ERA − away SP",
-    # 2026-10-09: pinned to the backend features_metadata summary — the
-    # feature is a SHRUNK RECENT RUNS-ALLOWED rate, not earned-run average;
-    # calling it "ERA" in the fallback wording contradicted the served
-    # summary the Model Monitor renders ("Home SP recent runs allowed per
-    # nine − away SP (shrunk recent form)").
-    "sp_era_5g_diff": "Home SP recent runs allowed per nine − away SP (shrunk recent form)",
+    "sp_xfip_diff": "Home SP season-to-date xFIP − away SP",
+    # 2026-10-09 Scenario C: the SP ERA family became point-in-time xFIP, so
+    # the served diff is sp_xfip_5g_diff (expected ERA, shrunk recent form).
+    "sp_xfip_5g_diff": "Home SP recent xFIP − away SP (shrunk recent form)",
     "sp_k9_diff": "Home SP season-to-date K/9 − away SP",
     "sp_k9_5g_diff": "Home SP last-5-start K/9 − away SP (recent form)",
     # 7–9. SP trailing-3-game stuff diffs
@@ -3635,10 +3632,10 @@ FEATURE_DESCRIPTIONS = {
     # 15. Team rolling wOBA diff
     "woba_30g_diff": "Home team 30-game wOBA − away team 30-game wOBA",
     # 16–19. Bullpen diffs (workload + quality)
-    # 2026-10-09: spelled out to match the backend summary rewrite — the
-    # metric IS walks+hits per inning; the label need not brand it WHIP.
-    "bullpen_whip_10g_diff": "Home bullpen 10-game walks+hits per inning − away bullpen (lower = better)",
-    "bullpen_whip_3g_diff": "Home bullpen 3-game walks+hits per inning − away bullpen (short-term form)",
+    # 2026-10-09 Scenario C: the bullpen WHIP family became K-BB% =
+    # (K − BB)/batters-faced; labels spell the metric out.
+    "bullpen_kbb_10g_diff": "Home bullpen 10-game K-BB% − away bullpen (higher = better)",
+    "bullpen_kbb_3g_diff": "Home bullpen 3-game K-BB% − away bullpen (short-term form)",
     "bullpen_pitches_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
     "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
     # 20–22. Team contact form diffs (trailing 15g, balls in play only)
@@ -3656,17 +3653,17 @@ FEATURE_DESCRIPTIONS = {
     "dome_is_neutral": "1 if home park is a fixed dome/closed roof, 0 if open-air",
     # 25–27. Context interaction features
     "park_factor_slug_diff": "Home park SLG factor × lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
-    "wind_advantage_flyball_factor": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
+    "wind_advantage_flyball_factor": "Wind direction multiplier × SP xFIP diff (flyball risk in windy conditions)",
     "air_density_velocity_boost": "Stadium air density × SP velo diff (cold/thin air affects velocity)",
     # 29–32. Derived interaction features
-    "bullpen_meltdown_risk_diff": "Bullpen pitches 3d diff × WHIP 10g diff (overworked + low quality = meltdown)",
-    "bullpen_meltdown_risk_home": "Home bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
-    "bullpen_meltdown_risk_away": "Away bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+    "bullpen_meltdown_risk_diff": "Bullpen pitches 3d diff × K-BB% 10g diff (overworked + low quality = meltdown)",
+    "bullpen_meltdown_risk_home": "Home bullpen meltdown risk (3-day pitch count × 10-game K-BB%)",
+    "bullpen_meltdown_risk_away": "Away bullpen meltdown risk (3-day pitch count × 10-game K-BB%)",
     "bullpen_budget_2d_home": "Home bullpen pitches over the prior 2 calendar days (acute fatigue budget)",
     "bullpen_budget_2d_away": "Away bullpen pitches over the prior 2 calendar days (acute fatigue budget)",
     "bp_ready_share_home": "Home pen readiness: next-day availability of arms used in last 2 days (0-1; 1 = all light outings)",
     "bp_ready_share_away": "Away pen readiness: next-day availability of arms used in last 2 days (0-1; 1 = all light outings)",
-    "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
+    "pitcher_regression_indicator": "SP velo diff × xFIP diff (physical drop vs surface results = regression)",
     "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
     "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
     # 33–40. Position-pool xwOBA (projected lineup seat pools). Per-side
@@ -3783,12 +3780,12 @@ NFL_FEATURE_DESCRIPTIONS = {
 
 def describe_feature(name: str, sport: str = "mlb",
                      served_metadata: dict | None = None) -> str:
-    """Human description for a feature column like 'sp_era_5g_diff'.
+    """Human description for a feature column like 'sp_xfip_5g_diff'.
 
     Sport-dispatched: MLB and NFL share this page but describe their own
     served pools (MLB's dict is keyed on MLB feature names; NFL's on the
     12-feature market-free pool). Exact match wins first; legacy per-side
-    names (('sp_era_5g_home')) strip the _home/_away slot suffix and note
+    names (('sp_xfip_5g_home')) strip the _home/_away slot suffix and note
     which side of the matchup the value describes. 'is_home' is a baseline
     feature whose name genuinely ends in '_home' — the exact match must win
     so it is not mangled into a name-repeating label. Default sport is MLB,
@@ -3798,8 +3795,8 @@ def describe_feature(name: str, sport: str = "mlb",
     ``features_metadata_*.json`` (as embedded in ``model_monitor_*.json``
     under ``features_metadata``) — takes PRECEDENCE over the static dict:
     each entry's one-line ``summary`` is authored against the exact served
-    name, so ``sp_era_home`` reads "Starting-pitcher earned-run average —
-    home team" instead of the diff twin's "Home SP season-to-date ERA −
+    name, so ``sp_xfip_home`` reads "Starting-pitcher xFIP —
+    home team" instead of the diff twin's "Home SP season-to-date xFIP −
     away SP — home team", and names with no ``*_diff`` sibling (the
     bullpen/team level columns, elo, the exp2 per-side halves) stop leaking
     as their bare column name — the exact mislabels the 2026-09-27 MLB

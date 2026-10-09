@@ -347,9 +347,23 @@ ELASTICNET_PARAMS = {
 # Paired causal walk (seeds 42/7/2026, min_train_days=30, UNROUNDED OOF
 # logloss): B's blend deltas [-0.00010, -0.00005, +0.00021] all ride inside
 # the 0.000681 seed-noise floor (pool gate FAIL, seal non-refuting); C at
-# seed 42 is +0.00035 worse than A. Params and FEATURE SET CONFIRMED,
-# unchanged. Artifacts: data_delivery/mlb_xfip_ab_20261009.json,
+# seed 42 is +0.00035 worse than A. Params CONFIRMED, unchanged.
+# Artifacts: data_delivery/mlb_xfip_ab_20261009.json,
 # docs/mlb_xfip_ab_20261009.md.
+#
+# ADOPTED 2026-10-09 (user-directed): Scenario C is now the production
+# feature set. The ERA-family columns became point-in-time xFIP analogues
+# (sp_era* -> sp_xfip_*, bullpen_era* -> bullpen_xfip_*) and the bullpen
+# WHIP family became K-BB% (bullpen_whip_* -> bullpen_kbb_*), built from
+# pitches.parquet over the IDENTICAL windows/shrink/staleness gates and
+# LAG-first (no same-day self-inclusion). The 4 served ERA composites
+# (pitcher_regression_indicator_*, wind_advantage_flyball_factor) and the
+# 3 meltdown composites recompute on the new inputs. This is a rename +
+# value swap at the SAME column positions: serving width stays 109 and the
+# model-matrix order is unchanged, so the next refit trains the shipped
+# members on the xFIP/K-BB% estimators. sp_whip_* (the STARTER WHIP
+# family) is untouched — it was not part of the A/B/C test and is not
+# served in the 109.
 XGBOOST_PARAMS = {
     "max_depth": 2,
     "min_child_weight": 12,
@@ -747,7 +761,7 @@ RFE_GRID_MAX_STATES = 16       # grid-mode lattice cap (MLB_RFE_ADDITION_REMOVAL
 # RFE_SLATE_COVERAGE_FLOOR non-null coverage.
 RFE_CANDIDATE_COLS = [
     # --- form deltas (5g/10g vs season momentum) (42) ---
-    "sp_era_delta_home",
+    "sp_xfip_delta_home",
     "sp_k9_delta_home",
     "sp_bb9_delta_home",
     "sp_whip_delta_home",
@@ -762,11 +776,11 @@ RFE_CANDIDATE_COLS = [
     "team_barrel_delta_home",
     "team_hardhit_delta_home",
     "team_exitvelo_delta_home",
-    "bullpen_whip_delta_home",
-    "bullpen_era_delta_home",
+    "bullpen_kbb_delta_home",
+    "bullpen_xfip_delta_home",
     "lineup_re24_mean_delta_home",
     "lineup_re24_top3_delta_home",
-    "sp_era_delta_away",
+    "sp_xfip_delta_away",
     "sp_k9_delta_away",
     "sp_bb9_delta_away",
     "sp_whip_delta_away",
@@ -781,8 +795,8 @@ RFE_CANDIDATE_COLS = [
     "team_barrel_delta_away",
     "team_hardhit_delta_away",
     "team_exitvelo_delta_away",
-    "bullpen_whip_delta_away",
-    "bullpen_era_delta_away",
+    "bullpen_kbb_delta_away",
+    "bullpen_xfip_delta_away",
     "lineup_re24_mean_delta_away",
     "lineup_re24_top3_delta_away",
     # lineup_actual_*/lineup_rest_count_* REMOVED 2026-09-26. They were
@@ -803,7 +817,8 @@ RFE_CANDIDATE_COLS = [
     "sp_xwoba_vs_l_diff",
     "bullpen_ip_diff",
     # --- universe departures (pl_[pos] + removals plan, 2026-10-03) (14) ---
-    # The re24 / depth / sp_era / park-factor-slug families left
+    # The re24 / depth / sp_xfip (era->xFIP 2026-10-09) / park-factor-slug
+    # families left
     # MONEYLINE_FEATURE_COLS for the position-pool xwOBA swap (plan: replace
     # 9, remove 7). They remain generated (features.py) and enter the
     # addition pool so RFE may re-trial them with evidence — the 2026-09-07
@@ -820,9 +835,9 @@ RFE_CANDIDATE_COLS = [
     "lineup_depth_multiplier_home",
     "lineup_depth_multiplier_away",
     "park_factor_slug_diff",
-    "sp_era_diff",
-    "sp_era_home",
-    "sp_era_away",
+    "sp_xfip_diff",
+    "sp_xfip_home",
+    "sp_xfip_away",
     # --- raw per-side levels (shadowed by diff-only routing) (76) ---
     "rest_days_home",
     "rest_days_away",
@@ -832,9 +847,9 @@ RFE_CANDIDATE_COLS = [
     "sp_bb9_away",
     "sp_whip_away",
     "sp_fip_away",
-    "sp_era_5g_home",
+    "sp_xfip_5g_home",
     "sp_k9_5g_home",
-    "sp_era_5g_away",
+    "sp_xfip_5g_away",
     "sp_k9_5g_away",
     "team_iso_30g_home",
     "team_k_rate_30g_home",
@@ -842,8 +857,8 @@ RFE_CANDIDATE_COLS = [
     "team_iso_30g_away",
     "team_k_rate_30g_away",
     "team_bb_rate_30g_away",
-    "bullpen_era_10g_home",
-    "bullpen_era_10g_away",
+    "bullpen_xfip_10g_home",
+    "bullpen_xfip_10g_away",
     "sp_fbvelo_3g_home",
     "sp_fbpct_3g_home",
     "sp_whiff_3g_home",

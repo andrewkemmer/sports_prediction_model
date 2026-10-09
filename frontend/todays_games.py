@@ -140,10 +140,12 @@ def _fmt_stat(v: str) -> str:
         return s
 
 
-def _pitcher_box(name: str, era: str, k9: str) -> str:
+def _pitcher_box(name: str, xfip: str, k9: str) -> str:
     name_html = f'<div class="pname">{name}</div>' if name else ""
+    # 2026-10-09 Scenario C: the starter feature is now point-in-time xFIP
+    # (sp_xfip_home/away), so the card labels it xFIP, not raw ERA.
     return (f'<div class="fb-pitcher">{name_html}'
-            f'<div class="pstats">ERA {_fmt_stat(era)} · K/9 {_fmt_stat(k9)}</div></div>')
+            f'<div class="pstats">xFIP {_fmt_stat(xfip)} · K/9 {_fmt_stat(k9)}</div></div>')
 
 
 # ---------------------------------------------------------------------------
@@ -592,8 +594,8 @@ def _card_html(g: pd.Series, re_bits=None, board_date: str | None = None) -> str
     # --- pitchers / venue ---
     pitchers = (
         f'<div class="fb-pitchers">'
-        f'{_pitcher_box(_val(g, "starting_pitcher_home", "sp_name_home"), _val(g, "sp_home_era", "sp_era_home"), _val(g, "sp_home_k9", "sp_k9_home"))}'
-        f'{_pitcher_box(_val(g, "starting_pitcher_away", "sp_name_away"), _val(g, "sp_away_era", "sp_era_away"), _val(g, "sp_away_k9", "sp_k9_away"))}'
+        f'{_pitcher_box(_val(g, "starting_pitcher_home", "sp_name_home"), _val(g, "sp_xfip_home"), _val(g, "sp_home_k9", "sp_k9_home"))}'
+        f'{_pitcher_box(_val(g, "starting_pitcher_away", "sp_name_away"), _val(g, "sp_xfip_away"), _val(g, "sp_away_k9", "sp_k9_away"))}'
         f'</div>'
     )
     start_et = utils.start_time_et(g.get("start_time_utc", ""))

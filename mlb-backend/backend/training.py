@@ -128,7 +128,7 @@ def get_last_fold_signature() -> str | None:
 # Wave-2 ablation candidates (univariate |lift| < ~0.01, need walk-forward
 # retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_re24_std_diff,
 # park_factor_slug_diff, closer_availability_diff, travel_fatigue_diff,
-# bullpen_whip_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
+# bullpen_kbb_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
 MONEYLINE_FEATURE_COLS = [
     # 1. Baseline (home-field anchor; constant by construction)
     "is_home",
@@ -137,8 +137,8 @@ MONEYLINE_FEATURE_COLS = [
     "elo_diff",
     "rest_days_diff",
     # 5–8. Starting pitcher diffs (season-to-date + last-5-start)
-    "sp_era_diff",
-    "sp_era_5g_diff",
+    "sp_xfip_diff",
+    "sp_xfip_5g_diff",
     "sp_k9_diff",
     "sp_k9_5g_diff",
     # 9–11. SP stuff diffs (trailing 3-game)
@@ -156,8 +156,8 @@ MONEYLINE_FEATURE_COLS = [
     "woba_30g_diff",
     # 16–18. Bullpen diffs (whip_diff RENAMED 2026-09-30: the name now
     # carries its window; values unchanged — it was always the 10g form)
-    "bullpen_whip_10g_diff",
-    "bullpen_whip_3g_diff",
+    "bullpen_kbb_10g_diff",
+    "bullpen_kbb_3g_diff",
     "bullpen_pitches_diff",
     # 19–21. Team contact form diffs (trailing 15g)
     "team_barrel_diff",
@@ -215,11 +215,11 @@ MONEYLINE_FEATURE_COLS = [
     "woba_30g_home",
     "woba_30g_away",
     # Bullpen 10-game WHIP
-    "bullpen_whip_10g_home",
-    "bullpen_whip_10g_away",
+    "bullpen_kbb_10g_home",
+    "bullpen_kbb_10g_away",
     # Bullpen 3-game WHIP
-    "bullpen_whip_3g_home",
-    "bullpen_whip_3g_away",
+    "bullpen_kbb_3g_home",
+    "bullpen_kbb_3g_away",
     # Team barrel% (15-game)
     "team_barrel_15g_home",
     "team_barrel_15g_away",
@@ -370,7 +370,7 @@ MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
 # EXPANDED 2026-09-27 (structural, mirrors the NHL d83e0c1 per-side twin
 # rollout): every served diff family now also exposes its raw home/away
 # halves, so the tree members see the levels the matchup gaps summarize.
-#   * 12 level twins (rest_days, sp_era_5g, sp_fbvelo_3g, lineup_re24_std,
+#   * 12 level twins (rest_days, sp_xfip_5g, sp_fbvelo_3g, lineup_re24_std,
 #     bullpen_pitches_3d, team_hardhit_15g) + the travel twins are the
 #     diff pass's OWN input columns — the same strictly-prior source, so
 #     home − away == diff by construction and no second derivation can
@@ -389,7 +389,7 @@ MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
 MONEYLINE_FEATURE_COLS += [
     # Raw per-side levels for the remaining served diff families
     "rest_days_home", "rest_days_away",
-    "sp_era_5g_home", "sp_era_5g_away",
+    "sp_xfip_5g_home", "sp_xfip_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
     "lineup_re24_std_home", "lineup_re24_std_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
@@ -414,7 +414,7 @@ MONEYLINE_FEATURE_COLS += [
 #                (the plan sheet's 8 pools; pl_dh is generated in the frame
 #                 but NOT served)
 #   REPLACE   9  the lineup re24 family (mean/top3/std × diff/home/away)
-#   REMOVE    7  lineup_depth_multiplier ×3, the plain sp_era trio ×3, and
+#   REMOVE    7  lineup_depth_multiplier ×3, the plain sp_xfip trio ×3, and
 #                park_factor_slug_diff (built on lineup_re24_top3_diff)
 # → 101 − 9 − 7 + 24 = 109. RAW_PER_SIDE 60 − 10 + 16 = 66 (the 10
 # departed levels out, the 16 pl levels in); the logistic slice
@@ -438,9 +438,9 @@ _PL_PLAN_REMOVALS = [
     "lineup_depth_multiplier_home",
     "lineup_depth_multiplier_away",
     # remove: the plain SP ERA trio (3) (sp_era_5g_* stays)
-    "sp_era_diff",
-    "sp_era_home",
-    "sp_era_away",
+    "sp_xfip_diff",
+    "sp_xfip_home",
+    "sp_xfip_away",
     # remove: park slugging × re24 top3 (the 7th removal — consumes the
     # re24 family that just left)
     "park_factor_slug_diff",
@@ -1014,13 +1014,13 @@ RAW_PER_SIDE_COLS = [
     "sp_k9_home", "sp_k9_away",
     "sp_xwoba_home", "sp_xwoba_away",
     "woba_30g_home", "woba_30g_away",
-    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
-    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+    "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
+    "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
     "team_barrel_15g_home", "team_barrel_15g_away",
     "team_exitvelo_15g_home", "team_exitvelo_15g_away",
     # 2026-09-27 twin expansion (all tree-only, mirroring the rule above)
     "rest_days_home", "rest_days_away",
-    "sp_era_5g_home", "sp_era_5g_away",
+    "sp_xfip_5g_home", "sp_xfip_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
     "team_hardhit_15g_home", "team_hardhit_15g_away",
@@ -1039,7 +1039,7 @@ RAW_PER_SIDE_COLS = [
     "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
 ]
 
-# 2026-10-03 (pl_[pos] plan): the re24 / sp_era / depth level twins left
+# 2026-10-03 (pl_[pos] plan): the re24 / sp_xfip / depth level twins left
 # this list with their families (universe filter _PL_PLAN_REMOVALS above);
 # the 16 pl position-pool levels (8 pools × home/away — no DH) take their
 # tree-only seat under the same mirror rule. 60 − 10 + 16 = 66; the

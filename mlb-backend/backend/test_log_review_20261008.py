@@ -346,7 +346,7 @@ def test_indoor_fill_is_wired_into_both_passes_and_old_conditionals_gone():
     # The old input-conditioned / forced-NaN lines must be gone.
     assert 'df.loc[dome_flag & _era_ok' not in src
     assert 'df.loc[dome_flag & ~_density_ok' not in src
-    assert 'df.loc[_closed & df["sp_era_diff"].notna()' not in src
+    assert 'df.loc[_closed & df["sp_xfip_diff"].notna()' not in src
 
 
 # ── T5: venue accuracy + TB's season-dependent dome (2026-10-08 review) ─────
@@ -613,7 +613,7 @@ def _games_frame() -> pd.DataFrame:
         "home_team": ["NYY"], "away_team": ["BOS"],
         "venue": ["Yankee Stadium"], "home_win": [1.0],
         "start_time_utc": ["2026-09-30 00:00:00"],
-        "sp_era_diff": [0.5], "sp_fbvelo_diff": [1.0],
+        "sp_xfip_diff": [0.5], "sp_fbvelo_diff": [1.0],
         "dome_is_neutral": [0.0],
     })
 
@@ -801,7 +801,7 @@ def _explained_frame() -> pd.DataFrame:
             [0.0, 0.0, 0.0, -0.1, -0.1, -0.1, -0.1, -0.1, np.nan, np.nan],
         "dome_is_neutral_game": [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0],
-        "sp_era_diff": [0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1,
+        "sp_xfip_diff": [0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1,
                         np.nan, np.nan],
         "sp_fbvelo_diff": [0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4,
                            np.nan, np.nan],
@@ -819,7 +819,7 @@ def test_fully_explained_weather_window_is_structural_and_never_pages(
             feature_cols=["wind_advantage_flyball_factor",
                           "air_density_velocity_boost"])
 
-    for col, input_col in (("wind_advantage_flyball_factor", "sp_era_diff"),
+    for col, input_col in (("wind_advantage_flyball_factor", "sp_xfip_diff"),
                            ("air_density_velocity_boost", "sp_fbvelo_diff")):
         for window in ("current", "baseline"):
             row = cov[(cov.feature == col) & (cov.window == window)].iloc[0]
@@ -845,7 +845,7 @@ def test_fully_explained_weather_window_is_structural_and_never_pages(
     assert "structural_reason" in out.columns
     srow = out[(out.feature == "wind_advantage_flyball_factor")
                & (out.window == "current")].iloc[0]
-    assert srow.status == "STRUCTURAL" and "sp_era_diff" in str(srow.structural_reason)
+    assert srow.status == "STRUCTURAL" and "sp_xfip_diff" in str(srow.structural_reason)
 
 
 def test_an_unobserved_open_air_row_keeps_the_raw_alarm(tmp_path, monkeypatch,
@@ -857,7 +857,7 @@ def test_an_unobserved_open_air_row_keeps_the_raw_alarm(tmp_path, monkeypatch,
     monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
     frame = _explained_frame()
     # Row 9: inputs present, weather missing → unobserved, not gated.
-    frame.loc[9, "sp_era_diff"] = 0.1
+    frame.loc[9, "sp_xfip_diff"] = 0.1
     frame.loc[9, "sp_fbvelo_diff"] = 0.2
 
     with caplog.at_level(logging.WARNING, logger="explainability"):
@@ -876,7 +876,7 @@ def test_an_unobserved_open_air_row_keeps_the_raw_alarm(tmp_path, monkeypatch,
 
 def test_structural_is_per_feature_and_gated_on_its_declared_input(
         tmp_path, monkeypatch):
-    """wind is governed by sp_era_diff, air by sp_fbvelo_diff: the same
+    """wind is governed by sp_xfip_diff, air by sp_fbvelo_diff: the same
     two NULL rows can be policy for one feature and an outage for the other."""
     import explainability
     monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
@@ -895,7 +895,7 @@ def test_structural_is_per_feature_and_gated_on_its_declared_input(
     air = cov[(cov.feature == "air_density_velocity_boost")
               & (cov.window == "current")].iloc[0]
     assert wind.status == "STRUCTURAL"
-    assert "missing sp_era_diff" in str(wind.structural_reason)
+    assert "missing sp_xfip_diff" in str(wind.structural_reason)
     assert air.status == "LOW_COVERAGE"
     assert pd.isna(air.structural_reason)
 
@@ -927,7 +927,7 @@ def test_missing_governing_input_column_fails_open(tmp_path, monkeypatch):
     what keeps T9's input-less mini frame paging as before."""
     import explainability
     monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
-    frame = _explained_frame().drop(columns=["sp_era_diff", "sp_fbvelo_diff"])
+    frame = _explained_frame().drop(columns=["sp_xfip_diff", "sp_fbvelo_diff"])
 
     cov = explainability.compute_feature_coverage(
         frame, frame, "20990115",

@@ -50,7 +50,7 @@ import distributions as re_engine
 # their columns — they are just no longer served).
 LEVEL_FAMILIES = {
     "rest_days_diff": ("rest_days_home", "rest_days_away"),
-    "sp_era_5g_diff": ("sp_era_5g_home", "sp_era_5g_away"),
+    "sp_xfip_5g_diff": ("sp_xfip_5g_home", "sp_xfip_5g_away"),
     "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
     "bullpen_pitches_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
     "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
@@ -99,7 +99,7 @@ def _diff_frame(n: int = 4) -> pd.DataFrame:
 
     d: dict[str, object] = {}
     d.update(sides("rest_days", 1, 5))
-    d.update(sides("sp_era_5g", 2.5, 6.0))
+    d.update(sides("sp_xfip_5g", 2.5, 6.0))
     d.update(sides("sp_fbvelo_3g", 90.0, 99.0))
     d.update(sides("lineup_re24_std", 0.03, 0.08))
     d.update(sides("bullpen_pitches_3d", 20.0, 80.0))
@@ -125,13 +125,13 @@ def _diff_frame(n: int = 4) -> pd.DataFrame:
 def test_weather_recompute_preserves_levels_and_updates_products():
     from weather import apply_weather_features
     df = _diff_frame()
-    df["sp_era_home"], df["sp_era_away"] = 4.5, 3.0
+    df["sp_xfip_home"], df["sp_xfip_away"] = 4.5, 3.0
     df["park_wind_factor"], df["air_density_level"] = 0.8, 1.1
     out = features.add_diff_features(df)
-    np.testing.assert_allclose(out.wind_advantage_flyball_factor, 0.8 * out.sp_era_diff)
+    np.testing.assert_allclose(out.wind_advantage_flyball_factor, 0.8 * out.sp_xfip_diff)
     np.testing.assert_allclose(out.air_density_velocity_boost, -0.125 * out.sp_fbvelo_diff)
     changed = out.copy()
-    changed["sp_era_home"] = 6.0
+    changed["sp_xfip_home"] = 6.0
     changed["sp_fbvelo_3g_home"] += 1
     again = features.add_diff_features(changed)
     np.testing.assert_allclose(again.wind_advantage_flyball_factor, 2.4)
@@ -242,8 +242,8 @@ def test_interaction_twins_are_the_within_side_product():
     df = _diff_frame()
     out = features.add_diff_features(df)
     expected = {
-        "pitcher_regression_indicator_home": ("sp_fbvelo_3g_home", "sp_era_5g_home"),
-        "pitcher_regression_indicator_away": ("sp_fbvelo_3g_away", "sp_era_5g_away"),
+        "pitcher_regression_indicator_home": ("sp_fbvelo_3g_home", "sp_xfip_5g_home"),
+        "pitcher_regression_indicator_away": ("sp_fbvelo_3g_away", "sp_xfip_5g_away"),
         "lineup_depth_multiplier_home": ("lineup_re24_mean_home", "lineup_re24_top3_home"),
         "lineup_depth_multiplier_away": ("lineup_re24_mean_away", "lineup_re24_top3_away"),
         "ace_efficiency_factor_home": ("sp_k9_5g_home", "sp_whiff_3g_home"),
@@ -369,7 +369,7 @@ def test_run_engine_side_view_carries_every_served_feature():
         "frame extras must not change the side view")
     # Side-agnostic matchup gaps are shared environment — present in BOTH
     # side views; per-side levels appear in their own side's view.
-    for shared in ("win_pct_diff", "elo_diff", "bullpen_whip_3g_diff",
+    for shared in ("win_pct_diff", "elo_diff", "bullpen_kbb_3g_diff",
                    "bullpen_meltdown_risk_diff",
                    "lineup_handedness_matchup_advantage"):
         assert shared in home_cols and shared in away_cols, shared

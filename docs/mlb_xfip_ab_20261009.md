@@ -80,3 +80,72 @@ WHIP path remains. kbb corr vs whip -0.53..-0.57, coverage 7251/7350.
 C - A raw blend logloss: +0.000347; C - B: +0.000447
 (single seed by request; half the 0.000681 blend noise floor - directionally
 negative, not gate-decidable from one seed.)
+
+## ADOPTED into production (2026-10-09, user-directed)
+
+Scenario C is now the production feature set. This is a rename + value swap
+at the SAME column positions (serving width stays 109; the model-matrix order
+is unchanged, so the next refit trains the shipped members on the new
+estimators):
+
+  * ERA family -> point-in-time xFIP (built from pitches.parquet, LAG-first,
+    no same-day self-inclusion, identical windows/shrink/staleness gates):
+      sp_era_{home,away}          -> sp_xfip_{home,away}
+      sp_era_5g_{home,away,diff}  -> sp_xfip_5g_{home,away,diff}
+      sp_era_delta_{home,away}    -> sp_xfip_delta_{home,away}
+      sp_era_diff                 -> sp_xfip_diff
+      bullpen_era_10g_{home,away} -> bullpen_xfip_10g_{home,away}
+      bullpen_era_delta_{home,away} -> bullpen_xfip_delta_{home,away}
+  * bullpen WHIP family -> K-BB% = (K - BB)/batters-faced (same windows/shrink):
+      bullpen_whip_10g_{home,away,diff} -> bullpen_kbb_10g_{home,away,diff}
+      bullpen_whip_3g_{home,away,diff}  -> bullpen_kbb_3g_{home,away,diff}
+  * composites recompute on the new inputs (names unchanged):
+      pitcher_regression_indicator_* = fbvelo x sp_xfip_5g_*
+      wind_advantage_flyball_factor  = dome-wind x sp_xfip_diff
+      bullpen_meltdown_risk_*        = bullpen_pitches x bullpen_kbb_10g_*
+
+sp_whip_* (the STARTER WHIP family) is untouched — it was not part of the
+A/B/C test and is not served in the 109.
+
+Code surfaces updated: features.py (SQL + league priors + composites),
+config.py (pool + adoption note), training.py (universe), distributions.py,
+explainability.py, master_pipeline.py, data_ingestion.py, weather.py,
+feature_metadata.py (served labels), frontend utils.py/todays_games.py/
+model_monitor.py, and the adopted-subset state. The next MLB pipeline run
+regenerates game_level_features.csv / features_metadata_*.json with the new
+names AND real xFIP/K-BB% values; until then the committed artifacts carry
+the pre-adoption values under their old names.
+
+## Feature coverage review — the 9 served Scenario C features (2026-10-09)
+
+Scope: the served 109 only (the production feature set). The unserved
+starter `sp_whip_*` / `sp_fip_*` / `sp_bb9_*` RFE candidates are untouched
+by design (they are not model inputs and reach no dashboard).
+
+1. Contract — all 9 served features present, same positions, width 109:
+   sp_xfip_5g_{home,away,diff}, bullpen_kbb_{10g,3g}_{home,away,diff}.
+   Adopted-subset state == 109, every col in the known pool.
+2. Metadata — every served feature resolves a backend-authored summary +
+   tooltip (feature_metadata.py; per-side via the sp_xfip / bullpen_kbb
+   prefix families, diffs via explicit entries). The dashboard monitor and
+   its smoke pin the new labels.
+3. Source/SQL — built by the production DuckDB SQL in features.py (PIT
+   league priors via xfip_league, LAG-first, no same-day self-inclusion).
+   The lifted-SQL tests EXECUTE these statements against fixtures and assert
+   specific xFIP/K-BB% values and PIT-prior behavior.
+4. Data coverage (real 7,402-game frame, from the A/B/C validate block):
+   * SP xFIP (sp_xfip_5g_home/away/diff + the level/delta twins) — EXACT
+     coverage parity with the ERA they replace (new nonnull == old nonnull
+     on every row; corr 0.29-0.53, expected for an ERA estimator).
+   * Bullpen xFIP/K-BB% — the first port shipped ~1.3% fewer rows than the
+     ERA/WHIP it replaced (~99 of 7,350 per column), because the PIT league
+     xFIP/K-BB% prior is NULL on a season's opening date (no prior league
+     game) while the old ERA/WHIP league prior had an all-history fallback.
+     FIXED: each bullpen rate now COALESCEs to the raw window rate when the
+     league prior is NULL — the same fallback the SP xFIP 5g path uses —
+     restoring coverage parity. Re-verified: backend 385 passed, monitor +
+     board smokes PASS.
+5. Artifacts — the committed game_level_features.csv / features_metadata
+   regenerate with the new names AND real xFIP/K-BB% values on the next
+   MLB pipeline run; the coverage above is the challenger-vs-incumbent
+   measurement on the shipped frame (the production SQL mirrors it).

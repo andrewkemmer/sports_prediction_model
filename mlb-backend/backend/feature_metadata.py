@@ -83,16 +83,20 @@ _RICH: dict[str, dict[str, str]] = {
     # sp_era_diff RETIRED 2026-10-03 (pl_[pos] + removals plan — plain SP
     # ERA trio left serving; sp_era_5g_diff stays). Column still generated;
     # candidate pool carries it. Restore its authored entry if re-promoted.
-    "sp_era_5g_diff": {
-        "summary": "Home SP recent runs allowed per nine − away SP (shrunk recent form)",
+    # 2026-10-09 Scenario C: the SP ERA family became point-in-time xFIP, so
+    # the served diff is now sp_xfip_5g_diff (renamed, values are xFIP).
+    "sp_xfip_5g_diff": {
+        "summary": "Home SP recent xFIP − away SP (shrunk recent form)",
         "definition": (
-            "Recent rate uses up to five prior pitcher appearances, weighted by "
-            "innings and blended toward the same pitcher's older, non-overlapping "
-            "career rate with 30 pseudo innings. A strictly prior league rate is "
-            "the cold-start fallback. This is runs allowed per nine, not official "
-            "earned-run ERA."
+            "Recent expected ERA (xFIP) over up to five prior pitcher "
+            "appearances, weighted by innings and blended toward the same "
+            "pitcher's older, non-overlapping career xFIP with 30 pseudo "
+            "innings. xFIP estimates ERA from K/BB/fly-balls with a "
+            "point-in-time league HR/FB rate, so it strips out the "
+            "luck-driven home-run-per-fly-ball variance of raw ERA. A "
+            "strictly prior league xFIP is the cold-start fallback."
         ),
-        "formula": "shrunk_recent_runs_per_9_home − shrunk_recent_runs_per_9_away",
+        "formula": "shrunk_recent_xfip_home − shrunk_recent_xfip_away",
         "source": "Statcast pitcher appearance aggregates (LAG-shifted)",
         "window": "5 prior appearances + older pitcher history (30 pseudo-IP)",
         "units": "runs / 9 innings",
@@ -256,27 +260,26 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage",
     },
     # ---- bullpen ----------------------------------------------------------
-    # 2026-10-09: summaries spell the metric out as "walks+hits per
-    # inning" (the same wording the per-side level rows use) so the drift
-    # table never advertises the WHIP brand name; the units field keeps
-    # the technical unit.
-    "bullpen_whip_10g_diff": {
-        "summary": "Home bullpen 10-game walks+hits per inning − away bullpen (lower = better)",
-        "definition": "Relief corps baserunner allowance over the last 10 games.",
-        "formula": "bullpen_whip_10g_home − bullpen_whip_10g_away",
+    # 2026-10-09 Scenario C: the bullpen WHIP family became K-BB% =
+    # (K − BB)/batters-faced over the same windows/shrink. The summaries
+    # spell the metric out; the units field carries the technical unit.
+    "bullpen_kbb_10g_diff": {
+        "summary": "Home bullpen 10-game K-BB% − away bullpen (higher = better)",
+        "definition": "Relief corps strikeout-minus-walk rate over the last 10 games.",
+        "formula": "bullpen_kbb_10g_home − bullpen_kbb_10g_away",
         "source": "Statcast relief-pitching aggregates",
         "window": "10g",
-        "units": "WHIP",
-        "direction": "lower = home advantage",
+        "units": "K-BB%",
+        "direction": "higher = home advantage",
     },
-    "bullpen_whip_3g_diff": {
-        "summary": "Home bullpen 3-game walks+hits per inning − away bullpen (short-term form)",
+    "bullpen_kbb_3g_diff": {
+        "summary": "Home bullpen 3-game K-BB% − away bullpen (short-term form)",
         "definition": "Very recent bullpen form; noisy but catches slumps fast.",
-        "formula": "bullpen_whip_3g_home − bullpen_whip_3g_away",
+        "formula": "bullpen_kbb_3g_home − bullpen_kbb_3g_away",
         "source": "Statcast relief-pitching aggregates",
         "window": "3g",
-        "units": "WHIP",
-        "direction": "lower = home advantage",
+        "units": "K-BB%",
+        "direction": "higher = home advantage",
     },
     "bullpen_pitches_diff": {
         "summary": "Home bullpen 3-day pitch count − away (fatigue signal)",
@@ -392,12 +395,12 @@ _RICH: dict[str, dict[str, str]] = {
     # the 7th removal; built on lineup_re24_top3_diff, which left with the
     # re24 family).
     "wind_advantage_flyball_factor": {
-        "summary": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
+        "summary": "Wind direction multiplier × SP xFIP diff (flyball risk in windy conditions)",
         "definition": (
             "Wind blowing out multiplies the cost of a flyball-prone, weaker "
             "SP gap; measured from observed first-pitch weather (dome → exact 0)."
         ),
-        "formula": "wind_direction_multiplier × sp_era_diff",
+        "formula": "wind_direction_multiplier × sp_xfip_diff",
         "source": "Open-Meteo archive / StatsAPI game-feed weather × stadium bearing",
         "window": "per-game (observed)",
         "units": "index",
@@ -414,27 +417,27 @@ _RICH: dict[str, dict[str, str]] = {
     },
     # ---- engineered interactions -------------------------------------------
     "bullpen_meltdown_risk_diff": {
-        "summary": "Bullpen pitches 3d diff × WHIP 10g diff (overworked + low quality = meltdown)",
+        "summary": "Bullpen pitches 3d diff × K-BB% 10g diff (overworked + low quality = meltdown)",
         "definition": "Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games — late-inning blowup potential.",
-        "formula": "bullpen_pitches_diff × bullpen_whip_10g_diff",
+        "formula": "bullpen_pitches_diff × bullpen_kbb_10g_diff",
         "source": "DuckDB feature engineering: workload × form interaction",
         "window": "3d × 10g",
         "units": "index",
         "direction": "higher = home-side meltdown risk (negative for home)",
     },
     "bullpen_meltdown_risk_home": {
-        "summary": "Home bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+        "summary": "Home bullpen meltdown risk (3-day pitch count × 10-game K-BB%)",
         "definition": "Within-side fatigue × quality product for the home pen.",
-        "formula": "bullpen_pitches_3d_home × bullpen_whip_10g_home",
+        "formula": "bullpen_pitches_3d_home × bullpen_kbb_10g_home",
         "source": "DuckDB feature engineering: workload × form interaction",
         "window": "3d × 10g",
         "units": "index",
         "direction": "higher = home pen more melt-prone",
     },
     "bullpen_meltdown_risk_away": {
-        "summary": "Away bullpen meltdown risk (3-day pitch count × 10-game WHIP)",
+        "summary": "Away bullpen meltdown risk (3-day pitch count × 10-game K-BB%)",
         "definition": "Within-side fatigue × quality product for the away pen.",
-        "formula": "bullpen_pitches_3d_away × bullpen_whip_10g_away",
+        "formula": "bullpen_pitches_3d_away × bullpen_kbb_10g_away",
         "source": "DuckDB feature engineering: workload × form interaction",
         "window": "3d × 10g",
         "units": "index",
@@ -483,7 +486,7 @@ _RICH: dict[str, dict[str, str]] = {
             "velocity (or vice versa); the recent runs/9 inputs are shrunk "
             "toward older pitcher history."
         ),
-        "formula": "sp_fbvelo_diff × sp_era_5g_diff",
+        "formula": "sp_fbvelo_diff × sp_xfip_5g_diff",
         "source": "DuckDB feature engineering: velo × shrunk recent runs/9 interaction",
         "window": "season × 3g; recent runs/9 uses up to 5 prior appearances",
         "units": "index",
@@ -636,14 +639,14 @@ _RICH: dict[str, dict[str, str]] = {
 }
 
 _PER_SIDE_FAMILIES = {
-    "sp_era": ("Starting-pitcher earned-run average", "ERA runs", "lower = better for that side", "season to date (prior in-season starts; LAG-shifted)"),
+    "sp_xfip": ("Starting-pitcher expected ERA (xFIP)", "xFIP", "lower = better for that side", "season to date (prior in-season starts; LAG-shifted)"),
     "sp_k9": ("Starting-pitcher strikeouts per 9 innings", "K/9", "higher = better", "season to date (prior in-season starts; LAG-shifted)"),
     "sp_xwoba": ("Expected wOBA allowed by the starter", "xwOBA", "lower = better", "last 6 appearances (LAG-shifted; the legacy _30g name)"),
     "lineup_re24_mean": ("Projected lineup average RE24", "RE24 (runs per PA)", "higher = better"),
     "lineup_re24_top3": ("Top-3 hitters' projected RE24", "RE24 (runs per PA)", "higher = better"),
     "woba_30g": ("Team offensive wOBA", "wOBA points", "higher = better"),
-    "bullpen_whip_10g": ("Bullpen walks+hits per inning", "WHIP", "lower = better", "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)"),
-    "bullpen_whip_3g": ("Bullpen walks+hits per inning, short form", "WHIP", "lower = better", "3 team games (opportunity-shrunk)"),
+    "bullpen_kbb_10g": ("Bullpen K-BB% (K−BB per batter faced)", "K-BB%", "higher = better", "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)"),
+    "bullpen_kbb_3g": ("Bullpen K-BB% (K−BB per batter faced), short form", "K-BB%", "higher = better", "3 team games (opportunity-shrunk)"),
     "team_barrel_15g": ("Team barreled-ball rate", "rate (0–1)", "higher = better"),
     "team_exitvelo_15g": ("Team average exit velocity", "mph", "higher = better"),
     # Position-pool xwOBA levels (pl_[pos] + removals plan, 2026-10-03):
@@ -666,7 +669,7 @@ _PER_SIDE_FAMILIES = {
 # diff's input for that side, so home − away reproduces the diff.
 _LEVEL_TWIN_FAMILIES = {
     "rest_days": ("Days of rest entering the game", "days", "more rest = fresher club", "per game (capped 1–6)"),
-    "sp_era_5g": ("SP recent runs allowed per nine", "runs / 9 innings", "lower = better", "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP"),
+    "sp_xfip_5g": ("SP recent xFIP (expected ERA)", "xFIP", "lower = better", "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP"),
     "sp_fbvelo_3g": ("SP fastball velocity, last 3 starts", "mph", "higher = better", "3g"),
     "lineup_re24_std": ("Projected lineup RE24 dispersion (std dev)", "RE24 (std, runs per PA)", "n/a (order-quality spread)", "season to date (shrunk)"),
     "bullpen_pitches_3d": ("Bullpen pitches thrown, last 3 days", "pitches", "more = heavier workload", "3d"),
@@ -676,7 +679,7 @@ _LEVEL_TWIN_FAMILIES = {
 
 # Interaction twins: each side's OWN product of the interaction's factors.
 _INTERACTION_TWIN_FAMILIES = {
-    "pitcher_regression_indicator": ("SP regression indicator (fastball velo × ERA, last 5 starts)", "index", "n/a (regression signal)"),
+    "pitcher_regression_indicator": ("SP regression indicator (fastball velo × xFIP, last 5 starts)", "index", "n/a (regression signal)"),
     "lineup_depth_multiplier": ("Lineup depth multiplier (mean RE24 × top-3 RE24)", "index", "higher = deeper, star-heavier lineup"),
     "ace_efficiency_factor": ("Ace efficiency factor (K/9 × whiff rate)", "index", "higher = strikeout volume backed by raw stuff"),
 }
@@ -696,9 +699,10 @@ _EXP2_FAMILIES = {
 # Momentum form-delta families (recent window − season-to-date baseline, per
 # side). Tuple: (label, units, direction, window). Direction is from the
 # DELTA's perspective: positive = recent better than the season baseline
-# (for cost stats like ERA/WHIP a positive delta means worse).
+# (for cost stats like xFIP a positive delta means worse; for K-BB% a
+# positive delta means better).
 _FORM_DELTA_FAMILIES = {
-    "sp_era_delta": ("SP ERA momentum (last 5 starts − season)", "ERA runs", "negative = hot streak (recent better)", "5g − season"),
+    "sp_xfip_delta": ("SP xFIP momentum (last 5 starts − season)", "xFIP", "negative = hot streak (recent better)", "5g − season"),
     "sp_k9_delta": ("SP K/9 momentum (last 5 starts − season)", "K/9", "positive = strikeout surge", "5g − season"),
     "sp_bb9_delta": ("SP BB/9 momentum (30g − season)", "BB/9", "negative = control improvement", "30g − season"),
     "sp_whip_delta": ("SP WHIP momentum (30g − season)", "WHIP", "negative = form improvement", "30g − season"),
@@ -713,8 +717,8 @@ _FORM_DELTA_FAMILIES = {
     "team_barrel_delta": ("Team barrel-rate momentum (15g − season)", "rate (0–1)", "positive = quality-of-contact surge", "15g − season"),
     "team_hardhit_delta": ("Team hard-hit-rate momentum (15g − season)", "rate (0–1)", "positive = contact quality up", "15g − season"),
     "team_exitvelo_delta": ("Team exit-velocity momentum (15g − season)", "mph", "positive = velo up", "15g − season"),
-    "bullpen_whip_delta": ("Bullpen WHIP momentum (10g − season)", "WHIP", "negative = pen tightening up", "10g − season"),
-    "bullpen_era_delta": ("Bullpen ERA momentum (10g − season)", "ERA runs", "negative = recent better", "10g − season"),
+    "bullpen_kbb_delta": ("Bullpen K-BB% momentum (10g − season)", "K-BB%", "positive = pen tightening up", "10g − season"),
+    "bullpen_xfip_delta": ("Bullpen xFIP momentum (10g − season)", "xFIP", "negative = recent better", "10g − season"),
     "lineup_re24_mean_delta": ("Lineup RE24 momentum (today's lineup − season lineup)", "RE24 (runs per PA)", "positive = current lineup stronger than season average", "per-game lineup − season"),
     "lineup_re24_top3_delta": ("Top-3 RE24 momentum (today's top-3 − season top-3)", "RE24 (runs per PA)", "positive = star power up today", "per-game lineup − season"),
 }
@@ -756,7 +760,7 @@ _CATEGORICAL_CONTEXT: dict[str, dict[str, str]] = {
             "The home starter's MLB StatsAPI player ID, remapped to a compact "
             "integer category for the LightGBM/XGBoost members (native "
             "categorical, never one-hot). Pitcher identity carries skill level "
-            "the numeric diffs (ERA/K9/xwOBA) only approximate, especially for "
+            "the numeric diffs (xFIP/K9/xwOBA) only approximate, especially for "
             "elite or struggling arms. Starters never seen in training "
             "(callups, trades, spot starts) map to a dedicated UNK category."
         ),

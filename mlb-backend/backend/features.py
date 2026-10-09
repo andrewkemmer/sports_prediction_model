@@ -878,8 +878,8 @@ _BATTER_LEAGUE_POS_SQL = """
 # numbers. Fix (same directive as the lineup pool — NO new features):
 # innings thrown by an unavailable arm are EXCLUDED from bullpen_raw
 # before any window/season aggregate is formed, so the whole served
-# family (bullpen_whip_10g_home/away, bullpen_whip_10g_diff,
-# bullpen_whip_3g_*, bullpen_era_10g_*, bullpen_pitches_3d_* and the
+# family (bullpen_kbb_10g_home/away, bullpen_kbb_10g_diff,
+# bullpen_kbb_3g_*, bullpen_xfip_10g_*, bullpen_pitches_3d_* and the
 # meltdown twins) inherits tonight's real availability.
 #
 # Ledger: the generalized availability table (build_il_stints.py →
@@ -918,7 +918,7 @@ _BP_READY_P_HEAVY = 0.007            # 35+ pitches (sits tomorrow)
 # near-certainly an unavailability exception (P(appear) = 0.007 at 1 day
 # rest, 0.066 at 2 - both below the 0.13 doubtful bar), so those rows are
 # EXCLUDED from bullpen_raw before the WHIP/ERA windows form. Every served
-# bullpen quality feature (bullpen_whip_10g home/away/diff, whip_3g,
+# bullpen quality feature (bullpen_kbb_10g home/away/diff, whip_3g,
 # era_10g and the meltdown twins) therefore prices only innings from arms
 # in a tonight-ready state. The fatigue channel (bullpen_pitches_3d) stays
 # raw by design: the budget IS its signal. Window is STRICTLY the
@@ -948,7 +948,7 @@ _BP_SPENT_LOOKBACK_DAYS = 2          # strict availability rule: P(appear)
 # prior genuinely bites on thin samples. k is derived from the frame
 # each build (season-stable; derivation logged) with a hard floor — the
 # portable 20% fraction is the point, not any one season's mean. RATES
-# ONLY: bullpen_whip_10g, bullpen_era_10g, bullpen_whip_3g and the
+# ONLY: bullpen_kbb_10g, bullpen_xfip_10g, bullpen_kbb_3g and the
 # *_std season baselines are shrunk as w*rate + (1-w)*prior with
 # w = window_IP/(window_IP + k_IP); workloads (bullpen_pitches_3d/
 # ip_3d, budget_2d, ready_share) are COUNTS, not rate estimates, and
@@ -994,7 +994,7 @@ _BP_K_FLOOR = 20.0           # pitch floor: k can never collapse to ~0
 # identically under either arm.
 #
 # SCOPE: batter ratings only (shrunk_woba + shrunk_re24 -> lineup_*).
-# The bullpen, sp_era_5g, win% and exp2 shrinkers are NOT in this A/B.
+# The bullpen, sp_xfip_5g, win% and exp2 shrinkers are NOT in this A/B.
 # Measured record — .adhoc shrink A/B on the production frame (7387
 # decided games; sealed 21-day holdout 2026-09-11..2026-10-01): ramp
 # holdout blend logloss 0.66578 vs bayesian 0.66564 (delta +0.00014,
@@ -1111,6 +1111,36 @@ def batter_xwoba_rating_sql(arm: str) -> str:
 # been selected by a full walk-forward search. Sparse/no older history falls
 # back to a strictly prior league runs/9 rate, then to the raw recent rate.
 _SP_ERA_5G_SHRINK_IP = 30.0
+
+# ── Scenario C: point-in-time xFIP / K-BB% (2026-10-09 adoption) ─────────
+# The xFIP-family columns (sp_xfip*, bullpen_xfip_*) and the K-BB% family
+# (bullpen_kbb_10g/3g) are replaced at the source by their estimator
+# analogues so no earned-run or walks+hits path reaches the model:
+#   xFIP  = (13 * HR_est + 3 * BB - 2 * K) / IP + _XFIP_C
+#           HR_est = FB * lg_hrfb (point-in-time league HR/FB, prior dates)
+#   K-BB% = (K - BB) / batters_faced, shrunk toward the PIT league K-BB%.
+# Every window, shrink constant and staleness gate is IDENTICAL to the ERA
+# features they replace (see docs/mlb_xfip_ab_20261009.md; the A/B/C test
+# held the frame/folds/members/seeds fixed and swapped only these columns).
+_XFIP_C = 3.10
+# League HR/FB clamp (FanGraphs-style): guards a thin early-season or
+# debut-frame denominator from producing an absurd HR estimator.
+_HRFB_FLOOR, _HRFB_CEIL = 0.05, 0.25
+
+
+def _xfip_sql(k: str, bb: str, fb: str, ip: str, hrfb: str = "lg_hrfb") -> str:
+    """xFIP rate expression over window-summed counting stats.
+
+    ``hrfb`` is the point-in-time league HR/FB through the prior date; a
+    NULL prior (season's first dates) falls back to the 0.11 league norm.
+    NULL when the window has no innings — never a fabricated rate.
+    """
+    return (
+        f"(CASE WHEN {ip} > 0 THEN "
+        f"(13.0 * ({fb}) * COALESCE({hrfb}, 0.11)"
+        f" + 3.0 * ({bb}) - 2.0 * ({k})) / NULLIF({ip}, 0)"
+        f" + {_XFIP_C} END)")
+
 
 # Zero-prior fallback for SP pitch-category cells (2026-10-01 exp2 coverage
 # remediation; mirrors the 6b3b3e2 shrinkage philosophy at the feature layer).
@@ -1239,7 +1269,7 @@ _BP_LEDGER_EXCLUDE_ASOF_SQL = """EXISTS (
 # (the model prices that start on team-level evidence); all other rows are
 # byte-identical. Gates the per-pitcher SOURCES (pitcher_season_features,
 # pitcher_features, pitcher_stuff) so the whole served SP family inherits
-# it: sp_era/k9 (season to date), sp_era_5g/k9_5g (last 5),
+# it: sp_xfip/k9 (season to date), sp_xfip_5g/k9_5g (last 5),
 # sp_bb9/whip/fip/xwoba (trailing-6-appearance window), sp_fbvelo/fbpct/
 # whiff_3g and sp_xwoba_vs_l/r. The exp2 SP-category chain is date-level
 # ASOF season-to-date feeding candidate-only columns — out of scope.
@@ -2026,7 +2056,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     Fixes the outs_on_pa map (force_out and fielders_choice credit their
     outs; batter_interference too) and keeps intent_walk / truncated_pa
     PAs as boundaries in pa_boundary so they stop vanishing from
-    pitcher_game_stats. Everything downstream (sp_era, sp_k9, bb9, whip,
+    pitcher_game_stats. Everything downstream (sp_xfip, sp_k9, bb9, whip,
     bullpen family) re-derives from the corrected pitcher_game_stats.
     When False, the SQL produced is byte-identical to the pre-flag
     production path.
@@ -2119,15 +2149,17 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    pitcher, events,
                    launch_speed, launch_angle,
                    home_score + away_score AS pre_tot_score,
-                   post_home_score + post_away_score AS tot_score,
-                   launch_speed_angle,
+                   post_home_score + post_away_score AS tot_score,                   launch_speed_angle,
                    estimated_woba_using_speedangle AS xwoba_val,
+                   -- Savant's batted-ball classification on the PA's final
+                   -- pitch; feeds the xFIP fly-ball (HR-estimator) count.
+                   bb_type,
                    ROW_NUMBER() OVER (
                        PARTITION BY game_pk, inning, inning_topbot, at_bat_number
                        ORDER BY pitch_number DESC
                    ) AS rn
-            FROM pitches
-            WHERE events IN ({_pa_events})
+           FROM pitches
+           WHERE events IN ({_pa_events})
         ),
         lp AS (SELECT * FROM lastp WHERE rn = 1),
         seq AS (
@@ -2173,7 +2205,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                     THEN CASE WHEN launch_speed_angle = 6 THEN 1.0 ELSE 0.0 END
                     ELSE NULL END AS barrel_flag,
                CASE WHEN launch_speed IS NULL THEN NULL
-                    WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
+                    WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag,
+               -- Fly-ball indicator (incl. HR, per Statcast bb_type) on the
+               -- PA's final pitch; summed in pitcher_game_stats as the xFIP
+               -- HR-estimator denominator's input (FB).
+               CASE WHEN bb_type = 'fly_ball' THEN 1.0 ELSE 0.0 END AS fb_flag
         FROM seq
     """)
     con.execute(f"""
@@ -2189,7 +2225,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                SUM(runs_on_pa) AS runs,
                AVG(xwoba_val) AS xwoba,
                AVG(barrel_flag) AS barrel_rate,
-               AVG(hard_flag) AS hard_contact_rate
+               AVG(hard_flag) AS hard_contact_rate,
+               -- Fly balls for xFIP (one row per PA, so this is the PA's FBs).
+               SUM(fb_flag) AS fb
         FROM pa_boundary
         GROUP BY game_date, game_pk, pitcher
     """)
@@ -2210,7 +2248,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             LAG(hits_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hits,
             LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hrs,
             LAG(hbps, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hbps,
-            LAG(xwoba, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_xwoba
+            LAG(xwoba, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_xwoba,
+            LAG(fb, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_fb
         FROM pitcher_game_stats
     """)
 
@@ -2246,7 +2285,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             LAG(hits_allowed, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hits,
             LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hrs,
             LAG(hbps, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hbps,
-            LAG(xwoba, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_xwoba
+            LAG(xwoba, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_xwoba,
+            LAG(fb, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_fb
         FROM (SELECT *, EXTRACT(YEAR FROM game_date) AS season FROM pitcher_game_stats)
     """)
     con.execute("""
@@ -2254,6 +2294,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         SELECT game_date, game_pk, pitcher,
             SUM(_s_runs) OVER w_season AS _s_runs_s,
             SUM(_s_ks)  OVER w_season AS _s_ks_s,
+            SUM(_s_bbs) OVER w_season AS _s_bbs_s,
+            SUM(_s_fb)  OVER w_season AS _s_fb_s,
             SUM(_s_ip)  OVER w_season AS _s_ip_s
         FROM pitcher_shifted_season
         WINDOW w_season AS (PARTITION BY pitcher, season ORDER BY game_date
@@ -2264,12 +2306,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # The all-history sum minus the recent-five sum is the same pitcher's older
     # career baseline, with no overlap between baseline and recent sample.
     # A career debut has NULL recent innings and remains NULL naturally.
+    # Career (wall) sums for K/BB/FB/IP feed the xFIP 5g shrink's older rate.
     con.execute("""
         CREATE TABLE pitcher_5g_rolling AS
         SELECT game_date, game_pk, pitcher,
             SUM(_s_runs) OVER w5 AS _roll5_runs,
             SUM(_s_ks)  OVER w5 AS _roll5_ks,
+            SUM(_s_bbs) OVER w5 AS _roll5_bbs,
+            SUM(_s_fb)  OVER w5 AS _roll5_fb,
             SUM(_s_ip)  OVER w5 AS _roll5_ip,
+            SUM(_s_ks)  OVER wall AS _car_ks,
+            SUM(_s_bbs) OVER wall AS _car_bbs,
+            SUM(_s_fb)  OVER wall AS _car_fb,
+            SUM(_s_ip)  OVER wall AS _car_ip,
             COALESCE(SUM(_s_runs) OVER wall, 0.0)
                 - COALESCE(SUM(_s_runs) OVER w5, 0.0) AS _older_runs,
             COALESCE(SUM(_s_ip) OVER wall, 0.0)
@@ -2281,68 +2330,104 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
-    # A date-level league fallback for pitchers without older personal innings.
-    # Publish only the cumulative value through the PREVIOUS date so none of
-    # today's games, including another game in a doubleheader, affect it.
-    con.execute("""
-        CREATE TABLE pitcher_era_league AS
+    # Point-in-time league xFIP / K-BB% priors (Scenario C). Per (season,
+    # date): counting totals over PRIOR dates only (the upper window bound is
+    # 1 PRECEDING, so none of today's games — including a doubleheader's other
+    # leg — feed the prior). lg_hrfb is the HR/FB rate used to estimate a
+    # window's home runs; lg_xfip is the shrink target for the SP 5g and
+    # bullpen windows; lg_kbb is the bullpen K-BB% shrink target.
+    con.execute(f"""
+        CREATE TABLE xfip_league AS
         WITH daily AS (
-            SELECT CAST(game_date AS DATE) AS game_date,
-                   SUM(runs) AS runs, SUM(ip) AS ip
+            SELECT EXTRACT(YEAR FROM game_date) AS season,
+                   CAST(game_date AS DATE) AS game_date,
+                   SUM(ks) AS k, SUM(bbs) AS bb, SUM(hrs_allowed) AS hr,
+                   SUM(fb) AS fb, SUM(ip) AS ip,
+                   SUM(n_batters_faced) AS pa
             FROM pitcher_game_stats
-            GROUP BY CAST(game_date AS DATE)
-        ), cumulative AS (
-            SELECT game_date,
-                   SUM(runs) OVER w AS runs_thru,
-                   SUM(ip) OVER w AS ip_thru
+            GROUP BY 1, 2
+        ), thru AS (
+            SELECT season, game_date,
+                SUM(k)  OVER w AS k_thru,
+                SUM(bb) OVER w AS bb_thru,
+                SUM(hr) OVER w AS hr_thru,
+                SUM(fb) OVER w AS fb_thru,
+                SUM(ip) OVER w AS ip_thru,
+                SUM(pa) OVER w AS pa_thru
             FROM daily
-            WINDOW w AS (ORDER BY game_date
-                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            WINDOW w AS (PARTITION BY season ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ), hrfb AS (
+            -- League HR/FB through the prior date, clamped to a sane range.
+            SELECT season, game_date,
+                GREATEST(LEAST(hr_thru / NULLIF(fb_thru, 0),
+                               {_HRFB_CEIL}), {_HRFB_FLOOR}) AS lg_hrfb
+            FROM thru
         )
-        SELECT game_date,
-               LAG(runs_thru) OVER (ORDER BY game_date)
-                 / NULLIF(LAG(ip_thru) OVER (ORDER BY game_date), 0) * 9.0
-                 AS league_era_prior
-        FROM cumulative
+        SELECT t.season, t.game_date, h.lg_hrfb,
+            {_xfip_sql("t.k_thru", "t.bb_thru", "t.fb_thru", "t.ip_thru",
+                       "h.lg_hrfb")} AS lg_xfip,
+            (t.k_thru - t.bb_thru) / NULLIF(t.pa_thru, 0) AS lg_kbb
+        FROM thru t
+        JOIN hrfb h ON h.season = t.season AND h.game_date = t.game_date
     """)
 
     con.execute(f"""
         CREATE TABLE pitcher_season_features AS
-        SELECT psr.game_date, psr.game_pk, psr.pitcher,
-            -- True season-to-date ERA / K/9 (through the prior in-season
-            -- appearances only; NULL for a season's opening appearance).
-            -- SP staleness gate keeps its stronger NULL semantics.
-            CASE WHEN st.sp_stale THEN NULL
-                 ELSE psr._s_runs_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_era,
-            CASE WHEN st.sp_stale THEN NULL
-                 ELSE psr._s_ks_s / NULLIF(psr._s_ip_s, 0) * 9.0 END AS sp_k9,
-            -- Recent runs/9 across the prior five appearances, blended with
-            -- non-overlapping older pitcher history. _SP_ERA_5G_SHRINK_IP is
-            -- pseudo prior innings; league prior is only a cold-start fallback.
-            CASE WHEN st.sp_stale THEN NULL
-                 WHEN p5._roll5_ip > 0 THEN
-                    (9.0 * p5._roll5_runs
+        WITH x AS (
+            SELECT psr.game_date, psr.game_pk, psr.pitcher,
+                st.sp_stale,
+                psr._s_ks_s, psr._s_bbs_s, psr._s_fb_s, psr._s_ip_s,
+                p5._roll5_ks, p5._roll5_bbs, p5._roll5_fb, p5._roll5_ip,
+                p5._car_ks, p5._car_bbs, p5._car_fb, p5._car_ip,
+                lg.lg_hrfb, lg.lg_xfip,
+                -- Season-to-date xFIP (through the prior in-season
+                -- appearances; NULL for a season's opening appearance).
+                {_xfip_sql("psr._s_ks_s", "psr._s_bbs_s", "psr._s_fb_s",
+                           "psr._s_ip_s", "lg.lg_hrfb")} AS xfip_season,
+                -- Last-5-appearance and career xFIP rates for the shrink.
+                {_xfip_sql("p5._roll5_ks", "p5._roll5_bbs", "p5._roll5_fb",
+                           "p5._roll5_ip", "lg.lg_hrfb")} AS xfip_last5,
+                {_xfip_sql("p5._car_ks", "p5._car_bbs", "p5._car_fb",
+                           "p5._car_ip", "lg.lg_hrfb")} AS xfip_career
+            FROM pitcher_season_rolling psr
+            LEFT JOIN pitcher_5g_rolling p5
+                   ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
+            LEFT JOIN xfip_league lg
+                   ON psr.game_date = lg.game_date
+            LEFT JOIN pitcher_stale st
+                   ON psr.game_date = st.game_date AND psr.game_pk = st.game_pk
+                  AND psr.pitcher = st.pitcher
+        )
+        SELECT game_date, game_pk, pitcher,
+            -- Season-to-date xFIP (replaces sp_xfip). SP staleness gate keeps
+            -- its stronger NULL semantics.
+            CASE WHEN sp_stale THEN NULL ELSE xfip_season END AS sp_xfip,
+            CASE WHEN sp_stale THEN NULL
+                 ELSE _s_ks_s / NULLIF(_s_ip_s, 0) * 9.0 END AS sp_k9,
+            -- Recent xFIP across the prior five appearances, blended with
+            -- non-overlapping older pitcher history (the older-history rate is
+            -- the career xFIP net of the last-5 window). _SP_ERA_5G_SHRINK_IP
+            -- is pseudo prior innings; league xFIP is the cold-start fallback.
+            CASE WHEN sp_stale THEN NULL
+                 WHEN _roll5_ip > 0 THEN
+                    (xfip_last5 * _roll5_ip
                      + {_SP_ERA_5G_SHRINK_IP} * COALESCE(
-                         9.0 * p5._older_runs / NULLIF(p5._older_ip, 0),
-                         lg.league_era_prior,
-                         9.0 * p5._roll5_runs / NULLIF(p5._roll5_ip, 0))
-                    ) / (p5._roll5_ip + {_SP_ERA_5G_SHRINK_IP})
-            END AS sp_era_5g,
-            CASE WHEN st.sp_stale THEN NULL
-                 ELSE p5._roll5_ks / NULLIF(p5._roll5_ip, 0) * 9.0 END AS sp_k9_5g
-        FROM pitcher_season_rolling psr
-        LEFT JOIN pitcher_5g_rolling p5
-               ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
-        LEFT JOIN pitcher_era_league lg
-               ON psr.game_date = lg.game_date
-        LEFT JOIN pitcher_stale st
-               ON psr.game_date = st.game_date AND psr.game_pk = st.game_pk
-              AND psr.pitcher = st.pitcher
+                         (xfip_career * _car_ip
+                          - xfip_last5 * _roll5_ip)
+                         / NULLIF(_car_ip - _roll5_ip, 0),
+                         lg_xfip,
+                         xfip_last5)
+                    ) / (_roll5_ip + {_SP_ERA_5G_SHRINK_IP})
+            END AS sp_xfip_5g,
+            CASE WHEN sp_stale THEN NULL
+                 ELSE _roll5_ks / NULLIF(_roll5_ip, 0) * 9.0 END AS sp_k9_5g
+        FROM x
     """)
 
     # Season-to-date SP bb9/WHIP/xwOBA baselines — the momentum companion
     # terms for the 30g SP windows. Built from the SAME shifted per-game
-    # stats as sp_era/sp_k9 above, season-partitioned cumulative so an
+    # stats as sp_xfip/sp_k9 above, season-partitioned cumulative so an
     # April start never averages in the prior October (point-in-time safe:
     # rows hold the PREVIOUS game's stats via LAG).
     con.execute("""
@@ -2572,7 +2657,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    p.pitcher,
                    CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
                         ELSE p.away_team END AS fielding_team,
-                   p.events
+                   p.events, p.bb_type
             FROM pitches p
             JOIN starters s ON p.game_pk = s.game_pk
             WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
@@ -2609,7 +2694,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             SUM(CASE WHEN events IN ('strikeout','strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
             SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
             SUM(CASE WHEN events IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
-            SUM(CASE WHEN events IN ('single','double','triple','home_run','walk','hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
+            SUM(CASE WHEN events IN ('single','double','triple','home_run','walk','hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs,
+            COUNT(*) AS bullpen_pa,
+            SUM(CASE WHEN bb_type = 'fly_ball' THEN 1 ELSE 0 END) AS bullpen_fb
         FROM reliever_events
         GROUP BY game_date, game_pk, fielding_team
     """)
@@ -2662,7 +2749,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                        {_BP_SHRINK_FRACTION} * COALESCE(
                            (SELECT AVG(pitches) FROM arm_season),
                            {_BP_K_FLOOR}))
-                       / {_BP_PITCHES_PER_IP} AS k_ip
+                       /                       {_BP_PITCHES_PER_IP} AS k_ip,
+                   -- Scenario C: the K-BB% shrink uses the same effective
+                   -- pseudo-innings as the IP shrink, converted to batters
+                   -- faced via the observed reliever PA-per-IP.
+                   GREATEST(
+                       {_BP_K_FLOOR},
+                       {_BP_SHRINK_FRACTION} * COALESCE(
+                           (SELECT AVG(pitches) FROM arm_season),
+                           {_BP_K_FLOOR}))
+                       / {_BP_PITCHES_PER_IP}
+                   * COALESCE((SELECT SUM(bullpen_pa) * 1.0
+                                   / NULLIF(SUM(bullpen_ip), 0)
+                               FROM bullpen_raw), 4.3) AS k_pa
             FROM (SELECT 1) anchor),
         daily AS (
             SELECT game_date,
@@ -2686,7 +2785,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             WINDOW w AS (ORDER BY game_date
                          ROWS BETWEEN UNBOUNDED PRECEDING
                               AND 1 PRECEDING))
-        SELECT t.season, t.game_date, k.k_pitches, k.k_ip,
+        SELECT t.season, t.game_date, k.k_pitches, k.k_ip, k.k_pa,
             CASE WHEN t.ip > 0
                  THEN (t.bbs + t.hits) / t.ip
                  ELSE (a.bbs + a.hits) / NULLIF(a.ip, 0) END AS lg_whip,
@@ -2863,50 +2962,72 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             LAG(bullpen_bbs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_bbs,
             LAG(bullpen_hits, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_hits,
             LAG(bullpen_ip, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_ip,
-            LAG(bullpen_runs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_runs
+            LAG(bullpen_runs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_runs,
+            LAG(bullpen_ks, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_ks,
+            LAG(bullpen_pa, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_pa,
+            LAG(bullpen_fb, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_fb
         FROM bullpen_raw
     """)
-    con.execute("""
+    con.execute(f"""
         CREATE TABLE bullpen_rolling AS
-        SELECT bullpen_shifted.game_date, bullpen_shifted.game_pk,
-               bullpen_shifted.team,
+        WITH win AS (
+            SELECT game_date, game_pk, team,
+                SUM(_s_ks) OVER w10 AS ks10, SUM(_s_bbs) OVER w10 AS bb10,
+                SUM(_s_fb) OVER w10 AS fb10, SUM(_s_ip) OVER w10 AS ip10,
+                SUM(_s_pa) OVER w10 AS pa10,
+                SUM(_s_ks) OVER w3 AS ks3,  SUM(_s_bbs) OVER w3 AS bb3,
+                SUM(_s_fb) OVER w3 AS fb3,  SUM(_s_ip) OVER w3 AS ip3,
+                SUM(_s_pa) OVER w3 AS pa3
+            FROM bullpen_shifted
+            WINDOW w10 AS (PARTITION BY team ORDER BY game_date
+                           ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
+                   w3 AS (PARTITION BY team ORDER BY game_date
+                          ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+        )
+        SELECT w.game_date, w.game_pk, w.team,
             -- Opportunity-weighted shrinkage (NBA player_ts alignment):
-            -- shrunk = w*rate + (1-w)*league_prior, w = window_IP/(window_IP+k).
-            -- Thin windows (April 3g median ~11 IP) blend hardest toward the
-            -- PIT league reliever prior; k comes from bp_shrink_prior
-            -- (data-derived, see the constants block). Rates only —
-            -- workloads never shrink.
-            CASE WHEN p.k_ip > 0 THEN
-                (SUM(_s_ip) OVER w10 / (SUM(_s_ip) OVER w10 + p.k_ip))
-                * ((SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
-                   / NULLIF(SUM(_s_ip) OVER w10, 0))
-                + (p.k_ip / (SUM(_s_ip) OVER w10 + p.k_ip)) * p.lg_whip
-            ELSE (SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
-                 / NULLIF(SUM(_s_ip) OVER w10, 0) END AS bullpen_whip_10g,
-            CASE WHEN p.k_ip > 0 THEN
-                (SUM(_s_ip) OVER w10 / (SUM(_s_ip) OVER w10 + p.k_ip))
-                * (SUM(_s_runs) OVER w10
-                   / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0)
-                + (p.k_ip / (SUM(_s_ip) OVER w10 + p.k_ip)) * p.lg_era
-            ELSE SUM(_s_runs) OVER w10
-                 / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0 END AS bullpen_era_10g,
-            CASE WHEN p.k_ip > 0 THEN
-                (SUM(_s_ip) OVER w3 / (SUM(_s_ip) OVER w3 + p.k_ip))
-                * ((SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
-                   / NULLIF(SUM(_s_ip) OVER w3, 0))
-                + (p.k_ip / (SUM(_s_ip) OVER w3 + p.k_ip)) * p.lg_whip
-            ELSE (SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
-                 / NULLIF(SUM(_s_ip) OVER w3, 0) END AS bullpen_whip_3g
-        FROM bullpen_shifted
+            -- shrunk = w*rate + (1-w)*league_prior. Thin windows blend
+            -- hardest toward the PIT league prior; k comes from
+            -- bp_shrink_prior (data-derived). Rates only, never workloads.
+            -- COALESCE: when the PIT league prior is NULL (a season's first
+            -- dates, before any league game accumulates), ship the raw
+            -- window rate — the same fallback the SP xFIP 5g path uses — so
+            -- coverage matches the ERA/WHIP features these replace.
+            -- K-BB% (replaces bullpen_whip_10g): shrunk toward league K-BB%
+            -- with pseudo-PA k_pa.
+            (CASE WHEN w.pa10 > 0 THEN COALESCE(
+                 (CASE WHEN p.k_pa > 0
+                       THEN (w.pa10 / (w.pa10 + p.k_pa))
+                            * ((w.ks10 - w.bb10) / NULLIF(w.pa10, 0))
+                            + (p.k_pa / (w.pa10 + p.k_pa)) * lg.lg_kbb
+                  END),
+                 (w.ks10 - w.bb10) / NULLIF(w.pa10, 0))
+             END) AS bullpen_kbb_10g,
+            -- xFIP (replaces bullpen_era_10g): shrunk toward league xFIP.
+            (CASE WHEN w.ip10 > 0 THEN COALESCE(
+                 (CASE WHEN p.k_ip > 0
+                       THEN (w.ip10 / (w.ip10 + p.k_ip))
+                            * {_xfip_sql("w.ks10", "w.bb10", "w.fb10", "w.ip10", "lg.lg_hrfb")}
+                            + (p.k_ip / (w.ip10 + p.k_ip)) * lg.lg_xfip
+                  END),
+                 {_xfip_sql("w.ks10", "w.bb10", "w.fb10", "w.ip10", "lg.lg_hrfb")})
+             END) AS bullpen_xfip_10g,
+            -- K-BB% short form (replaces bullpen_whip_3g).
+            (CASE WHEN w.pa3 > 0 THEN COALESCE(
+                 (CASE WHEN p.k_pa > 0
+                       THEN (w.pa3 / (w.pa3 + p.k_pa))
+                            * ((w.ks3 - w.bb3) / NULLIF(w.pa3, 0))
+                            + (p.k_pa / (w.pa3 + p.k_pa)) * lg.lg_kbb
+                  END),
+                 (w.ks3 - w.bb3) / NULLIF(w.pa3, 0))
+             END) AS bullpen_kbb_3g
+        FROM win w
         JOIN bp_shrink_prior p
-               ON p.season = EXTRACT(YEAR FROM bullpen_shifted.game_date)
-              AND p.game_date = CAST(bullpen_shifted.game_date AS DATE)
-        WINDOW w10 AS (PARTITION BY bullpen_shifted.team
-                       ORDER BY bullpen_shifted.game_date
-                       ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
-               w3 AS (PARTITION BY bullpen_shifted.team
-                      ORDER BY bullpen_shifted.game_date
-                      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+               ON p.season = EXTRACT(YEAR FROM w.game_date)
+              AND p.game_date = CAST(w.game_date AS DATE)
+        LEFT JOIN xfip_league lg
+               ON lg.season = EXTRACT(YEAR FROM w.game_date)
+              AND lg.game_date = CAST(w.game_date AS DATE)
     """)
 
     # NOTE: no separate availability layer — unavailable arms' innings are
@@ -2919,43 +3040,63 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # season-partitioned so a season opener never averages the prior season.
     con.execute("""
         CREATE TABLE bullpen_season AS
-        SELECT b.game_date, b.game_pk, b.team,
-            -- Opportunity-weighted shrinkage on the season baselines too:
-            -- an April season-to-date WHIP (a handful of IP) is noise-
-            -- dominated; the season-as-of league prior takes the slack.
-            CASE WHEN p.k_ip > 0 THEN
-                (SUM(_s_ip) OVER w / (SUM(_s_ip) OVER w + p.k_ip))
-                * ((SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
-                   / NULLIF(SUM(_s_ip) OVER w, 0))
-                + (p.k_ip / (SUM(_s_ip) OVER w + p.k_ip)) * p.lg_whip
-            ELSE (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
-                 / NULLIF(SUM(_s_ip) OVER w, 0) END AS bullpen_whip_std,
-            CASE WHEN p.k_ip > 0 THEN
-                (SUM(_s_ip) OVER w / (SUM(_s_ip) OVER w + p.k_ip))
-                * (SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0)
-                + (p.k_ip / (SUM(_s_ip) OVER w + p.k_ip)) * p.lg_era
-            ELSE SUM(_s_runs) OVER w
-                 / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 END AS bullpen_era_std
-        FROM (SELECT game_date, game_pk, team,
-                     EXTRACT(YEAR FROM game_date) AS season,
-                     LAG(bullpen_bbs, 1) OVER (
-                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
-                         ORDER BY game_date) AS _s_bbs,
-                     LAG(bullpen_hits, 1) OVER (
-                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
-                         ORDER BY game_date) AS _s_hits,
-                     LAG(bullpen_ip, 1) OVER (
-                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
-                         ORDER BY game_date) AS _s_ip,
-                     LAG(bullpen_runs, 1) OVER (
-                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
-                         ORDER BY game_date) AS _s_runs
-              FROM bullpen_raw) AS b
+        WITH b AS (
+            SELECT game_date, game_pk, team,
+                   EXTRACT(YEAR FROM game_date) AS season,
+                   LAG(bullpen_bbs, 1) OVER (
+                       PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                       ORDER BY game_date) AS _s_bbs,
+                   LAG(bullpen_ks, 1) OVER (
+                       PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                       ORDER BY game_date) AS _s_ks,
+                   LAG(bullpen_pa, 1) OVER (
+                       PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                       ORDER BY game_date) AS _s_pa,
+                   LAG(bullpen_fb, 1) OVER (
+                       PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                       ORDER BY game_date) AS _s_fb,
+                   LAG(bullpen_ip, 1) OVER (
+                       PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                       ORDER BY game_date) AS _s_ip
+              FROM bullpen_raw),
+        win AS (
+            SELECT game_date, game_pk, team, season,
+                SUM(_s_ks) OVER w AS ks, SUM(_s_bbs) OVER w AS bb,
+                SUM(_s_fb) OVER w AS fb, SUM(_s_ip) OVER w AS ip,
+                SUM(_s_pa) OVER w AS pa
+            FROM b
+            WINDOW w AS (PARTITION BY team, season ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+        )
+        SELECT w.game_date, w.game_pk, w.team,
+            -- K-BB% season baseline (replaces bullpen_whip_std): shrunk
+            -- toward the PIT league K-BB% with pseudo-PA k_pa. COALESCE to
+            -- the raw rate when the league prior is NULL (season opener).
+            (CASE WHEN w.pa > 0 THEN COALESCE(
+                 (CASE WHEN p.k_pa > 0
+                       THEN (w.pa / (w.pa + p.k_pa))
+                            * ((w.ks - w.bb) / NULLIF(w.pa, 0))
+                            + (p.k_pa / (w.pa + p.k_pa)) * lg.lg_kbb
+                  END),
+                 (w.ks - w.bb) / NULLIF(w.pa, 0))
+             END) AS bullpen_kbb_std,
+            -- xFIP season baseline (replaces bullpen_era_std): shrunk toward
+            -- the PIT league xFIP.
+            (CASE WHEN w.ip > 0 THEN COALESCE(
+                 (CASE WHEN p.k_ip > 0
+                       THEN (w.ip / (w.ip + p.k_ip))
+                            * {_xfip_sql("w.ks", "w.bb", "w.fb", "w.ip", "lg.lg_hrfb")}
+                            + (p.k_ip / (w.ip + p.k_ip)) * lg.lg_xfip
+                  END),
+                 {_xfip_sql("w.ks", "w.bb", "w.fb", "w.ip", "lg.lg_hrfb")})
+             END) AS bullpen_xfip_std
+        FROM win w
         JOIN bp_shrink_prior p
-               ON p.season = b.season
-              AND p.game_date = CAST(b.game_date AS DATE)
-        WINDOW w AS (PARTITION BY b.team, b.season ORDER BY b.game_date
-                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+               ON p.season = w.season
+              AND p.game_date = CAST(w.game_date AS DATE)
+        LEFT JOIN xfip_league lg
+               ON lg.season = w.season
+              AND lg.game_date = CAST(w.game_date AS DATE)
     """)
 
     _build_pitcher_stuff(con)
@@ -3356,7 +3497,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # (data-layer only; consumed by future research candidates, never by
     # MONEYLINE_FEATURE_COLS). All windows are LAG-shifted so the current game never
     # enters its own features; expanding season windows are season-partitioned
-    # like sp_era/sp_k9; league priors are per-date cumulative from already-
+    # like sp_xfip/sp_k9; league priors are per-date cumulative from already-
     # shifted stats (same construction as batter_league.lg_woba).
     #
     # Taxonomy (production pitch_category, defined here and in pbp_level):
@@ -3487,7 +3628,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # same-date games merge, so a target game never sees its date's PAs — then
     # a cumulative is carried and ASOF-joined so every pitching date gets the
     # prior-total even when that date itself had no PAs of the category.
-    # Season-partitioned (prior October never leaks — sp_era/sp_k9 semantics).
+    # Season-partitioned (prior October never leaks — sp_xfip/sp_k9 semantics).
     # NULL until the pitcher has a prior in-season start.
     con.execute(f"""
         CREATE TABLE exp2_sp_cat_daily AS
@@ -3662,25 +3803,25 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             w.home_score, w.away_score, w.home_win, w.total_runs,
             s.home_starter_id, s.away_starter_id, v.venue,
             rh.rest_days AS rest_days_home, ra.rest_days AS rest_days_away,
-            sh.sp_era AS sp_era_home, sh.sp_k9 AS sp_k9_home,
+            sh.sp_xfip AS sp_xfip_home, sh.sp_k9 AS sp_k9_home,
             ph.sp_bb9_30g AS sp_bb9_home, ph.sp_whip_30g AS sp_whip_home,
             ph.sp_fip_30g AS sp_fip_home, ph.sp_xwoba_30g AS sp_xwoba_home,
-            sa.sp_era AS sp_era_away, sa.sp_k9 AS sp_k9_away,
+            sa.sp_xfip AS sp_xfip_away, sa.sp_k9 AS sp_k9_away,
             pa.sp_bb9_30g AS sp_bb9_away, pa.sp_whip_30g AS sp_whip_away,
             pa.sp_fip_30g AS sp_fip_away, pa.sp_xwoba_30g AS sp_xwoba_away,
             -- Recent-form SP twins under their existing model-contract names.
-            sh.sp_era_5g AS sp_era_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
-            sa.sp_era_5g AS sp_era_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
+            sh.sp_xfip_5g AS sp_xfip_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
+            sa.sp_xfip_5g AS sp_xfip_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
             th.team_woba_30g AS team_woba_30g_home, th.team_iso_30g AS team_iso_30g_home,
             th.team_k_rate_30g AS team_k_rate_30g_home, th.team_bb_rate_30g AS team_bb_rate_30g_home,
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
             ta.team_k_rate_30g AS team_k_rate_30g_away, ta.team_bb_rate_30g AS team_bb_rate_30g_away,
-            bh.bullpen_whip_10g AS bullpen_whip_10g_home,
-            bh.bullpen_era_10g AS bullpen_era_10g_home,
+            bh.bullpen_kbb_10g AS bullpen_kbb_10g_home,
+            bh.bullpen_xfip_10g AS bullpen_xfip_10g_home,
 
-            ba.bullpen_whip_10g AS bullpen_whip_10g_away, ba.bullpen_era_10g AS bullpen_era_10g_away,
-            bh.bullpen_whip_3g AS bullpen_whip_3g_home,
-            ba.bullpen_whip_3g AS bullpen_whip_3g_away,
+            ba.bullpen_kbb_10g AS bullpen_kbb_10g_away, ba.bullpen_xfip_10g AS bullpen_xfip_10g_away,
+            bh.bullpen_kbb_3g AS bullpen_kbb_3g_home,
+            ba.bullpen_kbb_3g AS bullpen_kbb_3g_away,
             hst.sp_fbvelo_3g AS sp_fbvelo_3g_home, hst.sp_fbpct_3g AS sp_fbpct_3g_home,
             hst.sp_whiff_3g AS sp_whiff_3g_home,
             hst.sp_xwoba_vs_l AS sp_xwoba_vs_l_home, hst.sp_xwoba_vs_r AS sp_xwoba_vs_r_home,
@@ -3745,7 +3886,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             -- per side. Continuous (no binary flags); the model learns its
             -- own thresholds. Computed here from the SAME shifted per-game
             -- stats as the levels above (no parallel computation path).
-            sh.sp_era_5g - sh.sp_era AS sp_era_delta_home,
+            sh.sp_xfip_5g - sh.sp_xfip AS sp_xfip_delta_home,
             sh.sp_k9_5g - sh.sp_k9 AS sp_k9_delta_home,
             ph.sp_bb9_30g - phs.sp_bb9_std AS sp_bb9_delta_home,
             ph.sp_whip_30g - phs.sp_whip_std AS sp_whip_delta_home,
@@ -3760,11 +3901,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ch.team_barrel_15g - tcsh.team_barrel_std AS team_barrel_delta_home,
             ch.team_hardhit_15g - tcsh.team_hardhit_std AS team_hardhit_delta_home,
             ch.team_exitvelo_15g - tcsh.team_exitvelo_std AS team_exitvelo_delta_home,
-            bh.bullpen_whip_10g - bpsh.bullpen_whip_std AS bullpen_whip_delta_home,
-            bh.bullpen_era_10g - bpsh.bullpen_era_std AS bullpen_era_delta_home,
+            bh.bullpen_kbb_10g - bpsh.bullpen_kbb_std AS bullpen_kbb_delta_home,
+            bh.bullpen_xfip_10g - bpsh.bullpen_xfip_std AS bullpen_xfip_delta_home,
             lh.lineup_re24_mean - lsh.lineup_re24_mean_std AS lineup_re24_mean_delta_home,
             lh.lineup_re24_top3 - lsh.lineup_re24_top3_std AS lineup_re24_top3_delta_home,
-            sa.sp_era_5g - sa.sp_era AS sp_era_delta_away,
+            sa.sp_xfip_5g - sa.sp_xfip AS sp_xfip_delta_away,
             sa.sp_k9_5g - sa.sp_k9 AS sp_k9_delta_away,
             pa.sp_bb9_30g - pas.sp_bb9_std AS sp_bb9_delta_away,
             pa.sp_whip_30g - pas.sp_whip_std AS sp_whip_delta_away,
@@ -3779,8 +3920,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ca.team_barrel_15g - tcsa.team_barrel_std AS team_barrel_delta_away,
             ca.team_hardhit_15g - tcsa.team_hardhit_std AS team_hardhit_delta_away,
             ca.team_exitvelo_15g - tcsa.team_exitvelo_std AS team_exitvelo_delta_away,
-            ba.bullpen_whip_10g - bpsa.bullpen_whip_std AS bullpen_whip_delta_away,
-            ba.bullpen_era_10g - bpsa.bullpen_era_std AS bullpen_era_delta_away,
+            ba.bullpen_kbb_10g - bpsa.bullpen_kbb_std AS bullpen_kbb_delta_away,
+            ba.bullpen_xfip_10g - bpsa.bullpen_xfip_std AS bullpen_xfip_delta_away,
             la.lineup_re24_mean - lsa.lineup_re24_mean_std AS lineup_re24_mean_delta_away,
             la.lineup_re24_top3 - lsa.lineup_re24_top3_std AS lineup_re24_top3_delta_away,
             -- Experiment #2 source layer (see the exp2 block above). Side map:
@@ -3941,7 +4082,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "game_winners", "starters", "venues", "rest_days",
         "pa_boundary",        "pitcher_game_stats", "pitcher_stale", "pitcher_shifted", "pitcher_rolling",
         "pitcher_shifted_season", "pitcher_season_rolling", "pitcher_5g_rolling",
-        "pitcher_era_league", "pitcher_season_features", "pitcher_features",
+        "xfip_league", "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
         "team_off_season",
         "bullpen_raw", "bp_shrink_prior", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
@@ -3987,12 +4128,12 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             SELECT game_pk,
                    home_win, total_runs, venue,
                    rest_days_home, rest_days_away,
-                   sp_era_home, sp_k9_home, sp_bb9_home, sp_whip_home, sp_fip_home, sp_xwoba_home,
-                   sp_era_away, sp_k9_away, sp_bb9_away, sp_whip_away, sp_fip_away, sp_xwoba_away,
+                   sp_xfip_home, sp_k9_home, sp_bb9_home, sp_whip_home, sp_fip_home, sp_xwoba_home,
+                   sp_xfip_away, sp_k9_away, sp_bb9_away, sp_whip_away, sp_fip_away, sp_xwoba_away,
                    team_woba_30g_home, team_iso_30g_home, team_k_rate_30g_home, team_bb_rate_30g_home,
                    team_woba_30g_away, team_iso_30g_away, team_k_rate_30g_away, team_bb_rate_30g_away,
-                   bullpen_whip_10g_home, bullpen_era_10g_home,
-                   bullpen_whip_10g_away, bullpen_era_10g_away
+                   bullpen_kbb_10g_home, bullpen_xfip_10g_home,
+                   bullpen_kbb_10g_away, bullpen_xfip_10g_away
             FROM game_level
         )
         SELECT
@@ -4037,12 +4178,12 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             -- Game-level features
             gf.home_win, gf.total_runs, gf.venue,
             gf.rest_days_home, gf.rest_days_away,
-            gf.sp_era_home, gf.sp_k9_home, gf.sp_bb9_home, gf.sp_whip_home, gf.sp_fip_home, gf.sp_xwoba_home,
-            gf.sp_era_away, gf.sp_k9_away, gf.sp_bb9_away, gf.sp_whip_away, gf.sp_fip_away, gf.sp_xwoba_away,
+            gf.sp_xfip_home, gf.sp_k9_home, gf.sp_bb9_home, gf.sp_whip_home, gf.sp_fip_home, gf.sp_xwoba_home,
+            gf.sp_xfip_away, gf.sp_k9_away, gf.sp_bb9_away, gf.sp_whip_away, gf.sp_fip_away, gf.sp_xwoba_away,
             gf.team_woba_30g_home, gf.team_iso_30g_home, gf.team_k_rate_30g_home, gf.team_bb_rate_30g_home,
             gf.team_woba_30g_away, gf.team_iso_30g_away, gf.team_k_rate_30g_away, gf.team_bb_rate_30g_away,
-            gf.bullpen_whip_10g_home, gf.bullpen_era_10g_home,
-            gf.bullpen_whip_10g_away, gf.bullpen_era_10g_away
+            gf.bullpen_kbb_10g_home, gf.bullpen_xfip_10g_home,
+            gf.bullpen_kbb_10g_away, gf.bullpen_xfip_10g_away
         FROM pitches p
         LEFT JOIN game_feats gf ON p.game_pk = gf.game_pk
         ORDER BY p.game_date, p.game_pk, p.inning, p.at_bat_number, p.pitch_number
@@ -4356,9 +4497,9 @@ def apply_indoor_neutral_fills(df: pd.DataFrame) -> pd.DataFrame:
     """Indoor-neutral policy: a game-resolved CLOSED roof makes both weather
     interactions zero, whatever the pitcher-side or observation inputs say.
 
-    ``wind_advantage_flyball_factor = wind_multiplier × sp_era_diff`` — the
+    ``wind_advantage_flyball_factor = wind_multiplier × sp_xfip_diff`` — the
     wind multiplier is 0 indoors, so the product is 0 even when
-    ``sp_era_diff`` is missing; ``air_density_velocity_boost`` is
+    ``sp_xfip_diff`` is missing; ``air_density_velocity_boost`` is
     policy-neutral indoors (the production stance since the hallucination
     gate). Conditioning the fill on those inputs (the pre-2026-10-08
     behavior) left 214 wind + 188 air closed-roof rows NULL — opener,
@@ -4516,7 +4657,7 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
 
 # (delta_base, recent_col_base, season_col_base, window_label)
 FORM_DELTA_SPECS: list[tuple[str, str, str, str]] = [
-    ("sp_era_delta",        "sp_era_5g",       "sp_era",             "last 5 starts − season to date"),
+    ("sp_xfip_delta",       "sp_xfip_5g",       "sp_xfip",             "last 5 starts − season to date"),
     ("sp_k9_delta",         "sp_k9_5g",        "sp_k9",              "last 5 starts − season to date"),
     ("sp_bb9_delta",        "sp_bb9",          "sp_bb9_std",         "last 30 starts − season to date"),
     ("sp_whip_delta",       "sp_whip",         "sp_whip_std",        "last 30 starts − season to date"),
@@ -4531,8 +4672,8 @@ FORM_DELTA_SPECS: list[tuple[str, str, str, str]] = [
     ("team_barrel_delta",   "team_barrel_15g", "team_barrel_std",    "last 15 games − season to date"),
     ("team_hardhit_delta",  "team_hardhit_15g","team_hardhit_std",   "last 15 games − season to date"),
     ("team_exitvelo_delta", "team_exitvelo_15g","team_exitvelo_std", "last 15 games − season to date"),
-    ("bullpen_whip_delta",  "bullpen_whip_10g","bullpen_whip_std",   "last 10 games − season to date"),
-    ("bullpen_era_delta",   "bullpen_era_10g", "bullpen_era_std",    "last 10 games − season to date"),
+    ("bullpen_kbb_delta",   "bullpen_kbb_10g","bullpen_kbb_std",   "last 10 games − season to date"),
+    ("bullpen_xfip_delta",  "bullpen_xfip_10g", "bullpen_xfip_std",    "last 10 games − season to date"),
     ("lineup_re24_mean_delta", "lineup_re24_mean", "lineup_re24_mean_std", "today's lineup − season-to-date lineup"),
     ("lineup_re24_top3_delta", "lineup_re24_top3", "lineup_re24_top3_std", "today's lineup − season-to-date lineup"),
 ]
@@ -5121,10 +5262,10 @@ def add_diff_features(
                                (smoothed to 0.500 if early season)
          3. elo_diff           home_elo − away_elo
          4. rest_days_diff     rest_days_home − rest_days_away
-         5. sp_era_diff        home_sp_era − away_sp_era
-                               (true season-to-date ERA, per-season)
-         6. sp_era_5g_diff     home_sp_era_5g − away_sp_era_5g
-                               (last 5 starts, across seasons)
+         5. sp_xfip_diff        home_sp_xfip − away_sp_xfip
+                               (point-in-time xFIP, season to date, per-season)
+         6. sp_xfip_5g_diff     home_sp_xfip_5g − away_sp_xfip_5g
+                               (last 5 starts xFIP, across seasons)
          7. sp_k9_diff         home_sp_k9 − away_sp_k9
                                (true season-to-date K/9, per-season)
          8. sp_k9_5g_diff      home_sp_k9_5g − away_sp_k9_5g
@@ -5150,8 +5291,8 @@ def add_diff_features(
                                construction. Served only by an explicit
                                arm (computed, not in the default universe).
         17. woba_30g_diff      home_woba_30g − away_woba_30g
-        18. bullpen_whip_10g_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
-        19. bullpen_whip_3g_diff
+        18. bullpen_kbb_10g_diff  home_bullpen_kbb_10g − away_bullpen_kbb_10g
+        19. bullpen_kbb_3g_diff
         20. bullpen_pitches_diff  (home_bullpen_pitches_3d − away_…)
         21. bullpen_ip_diff       (home_bullpen_ip_3d − away_…)
         22. team_barrel_diff   (trailing 15g barrel rate)
@@ -5170,11 +5311,11 @@ def add_diff_features(
         29. park_factor_slug_diff  home_park_slug_factor × lineup_re24_top3_diff
         30. wind_advantage_flyball_factor
                                wind_direction_multiplier (Out=1, In=-1, Dome=0)
-                               × sp_era_diff
+                               × sp_xfip_diff
         31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
-        32. bullpen_meltdown_risk_diff  bullpen_pitches_diff × bullpen_whip_10g_diff
+        32. bullpen_meltdown_risk_diff  bullpen_pitches_diff × bullpen_kbb_10g_diff
         33. pitcher_regression_indicator_diff
-                                        sp_fbvelo_diff × sp_era_5g_diff
+                                        sp_fbvelo_diff × sp_xfip_5g_diff
         34. lineup_depth_multiplier_diff
                                         lineup_re24_mean_diff × lineup_re24_top3_diff
         35. ace_efficiency_factor_diff   sp_k9_5g_diff × sp_whiff_diff
@@ -5270,8 +5411,8 @@ def add_diff_features(
     simple_diffs = [
         ("elo_diff", "home_elo", "away_elo"),                                    # 3
         ("rest_days_diff", "rest_days_home", "rest_days_away"),                  # 4
-        ("sp_era_diff", "sp_era_home", "sp_era_away"),                           # 5
-        ("sp_era_5g_diff", "sp_era_5g_home", "sp_era_5g_away"),                   # 6
+        ("sp_xfip_diff", "sp_xfip_home", "sp_xfip_away"),                           # 5
+        ("sp_xfip_5g_diff", "sp_xfip_5g_home", "sp_xfip_5g_away"),                   # 6
         ("sp_k9_diff", "sp_k9_home", "sp_k9_away"),                              # 7
         ("sp_k9_5g_diff", "sp_k9_5g_home", "sp_k9_5g_away"),                     # 8
         ("sp_fbvelo_diff", "sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),            # 9
@@ -5296,8 +5437,8 @@ def add_diff_features(
         ("pl_dh_xwoba_diff", "pl_dh_xwoba_home", "pl_dh_xwoba_away"),
         ("lineup_il_flag_diff", "lineup_il_flag_home", "lineup_il_flag_away"),        # 16b availability
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
-        ("bullpen_whip_10g_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),  # 18 (RENAMED 2026-09-30)
-        ("bullpen_whip_3g_diff", "bullpen_whip_3g_home", "bullpen_whip_3g_away"),     # 19
+        ("bullpen_kbb_10g_diff", "bullpen_kbb_10g_home", "bullpen_kbb_10g_away"),  # 18 (RENAMED 2026-09-30)
+        ("bullpen_kbb_3g_diff", "bullpen_kbb_3g_home", "bullpen_kbb_3g_away"),     # 19
         ("bullpen_pitches_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20
         ("bullpen_ip_diff", "bullpen_ip_3d_home", "bullpen_ip_3d_away"),         # 21
         ("team_barrel_diff", "team_barrel_15g_home", "team_barrel_15g_away"),    # 22
@@ -5316,7 +5457,7 @@ def add_diff_features(
     # coercion so the serving matrix sees one dtype contract.
     for h_col, a_col in (
         ("rest_days_home", "rest_days_away"),
-        ("sp_era_5g_home", "sp_era_5g_away"),
+        ("sp_xfip_5g_home", "sp_xfip_5g_away"),
         ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
         ("lineup_re24_std_home", "lineup_re24_std_away"),
         ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
@@ -5383,7 +5524,7 @@ def add_diff_features(
                   if "air_density_level" in df else pd.Series(np.nan, index=df.index))
 
     # ── 30. wind_advantage_flyball_factor
-    # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
+    # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_xfip_diff.
     # Flags when mistake-prone pitchers are at risk of wind-blown home runs.
     # NULL when weather is missing or the SP diff is missing — never 0.
     df["wind_advantage_flyball_factor"] = np.nan
@@ -5430,14 +5571,14 @@ def add_diff_features(
         ad = pd.Series(air_dens, index=df.index, dtype="float64")
         dome = pd.Series(dome_mask, index=df.index)
         df["wind_advantage_flyball_factor"] = (
-            wm * pd.to_numeric(df["sp_era_diff"], errors="coerce"))
+            wm * pd.to_numeric(df["sp_xfip_diff"], errors="coerce"))
         df["air_density_velocity_boost"] = (
             (ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce"))
         # Dome games: wind and air density are genuinely neutral indoors —
         # a real, valid 0 (not a fabricated default) — but only when the
         # underlying diff input is present; a dome game with a missing ERA
         # diff stays NULL (never a fabricated 0).
-        _era_ok = pd.to_numeric(df["sp_era_diff"], errors="coerce").notna()
+        _era_ok = pd.to_numeric(df["sp_xfip_diff"], errors="coerce").notna()
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
@@ -5452,7 +5593,7 @@ def add_diff_features(
         # neutral 0 — but only where the underlying diff input exists; every
         # other game stays NULL until real weather exists.
         dome = df["dome_is_neutral"] == 1
-        _era_ok = pd.to_numeric(df["sp_era_diff"], errors="coerce").notna()
+        _era_ok = pd.to_numeric(df["sp_xfip_diff"], errors="coerce").notna()
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
@@ -5462,7 +5603,7 @@ def add_diff_features(
     _wm = pd.to_numeric(df.get("park_wind_factor", _wind_level), errors="coerce")
     _ad = pd.to_numeric(df.get("air_density_level", _air_level), errors="coerce")
     df["wind_advantage_flyball_factor"] = (
-        _wm * pd.to_numeric(df["sp_era_diff"], errors="coerce")
+        _wm * pd.to_numeric(df["sp_xfip_diff"], errors="coerce")
     ).combine_first(df["wind_advantage_flyball_factor"])
     df["air_density_velocity_boost"] = (
         (_ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce")
@@ -5473,10 +5614,10 @@ def add_diff_features(
     apply_indoor_neutral_fills(df)
 
     # ── 32. bullpen_meltdown_risk_diff (RENAMED 2026-09-30): the family's
-    # cross-side form, bullpen_pitches_diff × bullpen_whip_10g_diff.
+    # cross-side form, bullpen_pitches_diff × bullpen_kbb_10g_diff.
     # Overworked + low quality bullpen = elevated meltdown risk.
     df["bullpen_meltdown_risk_diff"] = (
-        df["bullpen_pitches_diff"] * df["bullpen_whip_10g_diff"])
+        df["bullpen_pitches_diff"] * df["bullpen_kbb_10g_diff"])
 
     # Interaction twins: each side's OWN product of the interaction's
     # factors (the within-side form the cross-side gap only summarizes).
@@ -5498,13 +5639,13 @@ def add_diff_features(
             df[out] = (pd.to_numeric(df[c1], errors="coerce")
                        * pd.to_numeric(df[c2], errors="coerce"))
 
-    # ── 33. pitcher_regression_indicator_diff: sp_fbvelo_diff × sp_era_5g_diff
+    # ── 33. pitcher_regression_indicator_diff: sp_fbvelo_diff × sp_xfip_5g_diff
     # Physical velocity drop vs shrunk recent runs/9 results — flags
     # regression candidates before the recent results fully catch up to stuff.
     df["pitcher_regression_indicator_diff"] = (
-        df["sp_fbvelo_diff"] * df["sp_era_5g_diff"])
-    _twin("pitcher_regression_indicator_home", "sp_fbvelo_3g_home", "sp_era_5g_home")
-    _twin("pitcher_regression_indicator_away", "sp_fbvelo_3g_away", "sp_era_5g_away")
+        df["sp_fbvelo_diff"] * df["sp_xfip_5g_diff"])
+    _twin("pitcher_regression_indicator_home", "sp_fbvelo_3g_home", "sp_xfip_5g_home")
+    _twin("pitcher_regression_indicator_away", "sp_fbvelo_3g_away", "sp_xfip_5g_away")
 
     # ── 34. lineup_depth_multiplier_diff:
     #        lineup_re24_mean_diff × lineup_re24_top3_diff
@@ -5516,9 +5657,9 @@ def add_diff_features(
     # Bullpen meltdown per-side twins (2026-09-30): the within-side product
     # of the family's own factors — 3-day pitch count x 10-game WHIP.
     _twin("bullpen_meltdown_risk_home", "bullpen_pitches_3d_home",
-          "bullpen_whip_10g_home")
+          "bullpen_kbb_10g_home")
     _twin("bullpen_meltdown_risk_away", "bullpen_pitches_3d_away",
-          "bullpen_whip_10g_away")
+          "bullpen_kbb_10g_away")
 
     # ── 35. ace_efficiency_factor_diff: sp_k9_5g_diff × sp_whiff_diff
     # Last-5-start strikeout volume driven by raw swing-and-miss stuff —

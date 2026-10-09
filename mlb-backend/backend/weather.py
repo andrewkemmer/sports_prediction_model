@@ -1095,7 +1095,7 @@ def apply_weather_features(
     existing diff-feature frame from a ``{game_id: weather}`` mapping.
 
     Same formulas as ``features.add_diff_features``:
-      * wind_advantage_flyball_factor = wind_multiplier × sp_era_diff
+      * wind_advantage_flyball_factor = wind_multiplier × sp_xfip_diff
       * air_density_velocity_boost   = (air_density − 1.225) × sp_fbvelo_diff
     Dome games are genuinely neutral → a valid 0.  Rows without weather stay
     NULL.  Idempotent: rows absent from ``weather_data`` are left untouched.
@@ -1112,7 +1112,7 @@ def apply_weather_features(
     # Series-safe: df.get returns None when the column is absent, and
     # to_numeric(None) yields a scalar nan — .iloc on it then crashes.
     # Absent inputs mean the formulas produce NULL, never a fabricated value.
-    era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    era = pd.to_numeric(df.get("sp_xfip_diff"), errors="coerce")
     if not isinstance(era, pd.Series):
         era = pd.Series(np.nan, index=df.index)
     velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
@@ -1153,7 +1153,7 @@ def apply_weather_features(
     # behind the interactions, un-multiplied by any SP diff. Additive — the
     # interaction columns above are untouched.
     wm_col = pd.to_numeric(df.get("wind_advantage_flyball_factor"), errors="coerce")
-    era2 = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    era2 = pd.to_numeric(df.get("sp_xfip_diff"), errors="coerce")
     park_wind = []
     air_level = []
     for i, (idx, row) in enumerate(df.iterrows()):

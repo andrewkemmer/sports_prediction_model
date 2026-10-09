@@ -232,7 +232,7 @@ if drift:
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
         # served_metadata first (MLB + NBA + NHL): the backend-authored
-        # per-side summaries match the exact feature name (sp_era_home gets its own
+        # per-side summaries match the exact feature name (sp_xfip_5g_home gets its own
         # wording, not the diff twin's text with a tacked-on side); the static
         # dict remains the fallback for rows absent from the run's
         # features_metadata artifact. NHL adopted the served-metadata source

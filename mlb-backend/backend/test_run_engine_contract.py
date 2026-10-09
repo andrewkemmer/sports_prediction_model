@@ -862,7 +862,7 @@ def test_slate_carries_bullpen_three_game_family_and_unknown_opener_rate():
     history = pd.DataFrame([{
         "game_date": pd.Timestamp("2025-10-01"), "home_team": "NYY",
         "away_team": "BOS", "home_win": 1.0, "home_score": 3, "away_score": 1,
-        "bullpen_whip_3g_home": 1.1, "bullpen_whip_3g_away": 1.4}])
+        "bullpen_kbb_3g_home": 1.1, "bullpen_kbb_3g_away": 1.4}])
     schedule = pd.DataFrame([{
         "game_date": pd.Timestamp("2026-03-25"), "home_team": "NYY",
         "away_team": "BOS", "start_time_utc": pd.Timestamp("2026-03-25T19:00:00")}])
@@ -870,7 +870,7 @@ def test_slate_carries_bullpen_three_game_family_and_unknown_opener_rate():
     assert slate.home_win_pct.isna().all() and slate.away_win_pct.isna().all()
     assert slate.home_record.tolist() == ["0-0"]
     out = add_diff_features(slate)
-    np.testing.assert_allclose(out.bullpen_whip_3g_diff, -0.3)
+    np.testing.assert_allclose(out.bullpen_kbb_3g_diff, -0.3)
 
 
 def test_slate_handedness_uses_opposing_probable_starter():
@@ -944,13 +944,14 @@ def test_statcast_source_sql_uses_post_scores_and_observed_barrels(tmp_path):
          "pitch_number": 1, "pitcher": 101, "batter": 201, "events": "home_run",
          "description": "hit_into_play", "home_score": 0, "away_score": 0,
          "post_home_score": 0, "post_away_score": 1, "launch_speed": 110,
-         "launch_angle": 35, "launch_speed_angle": 6},
+         "launch_angle": 35, "launch_speed_angle": 6, "bb_type": "fly_ball"},
         {"game_pk": 1, "game_date": "2026-09-01", "game_type": "R", "home_team": "NYY",
          "away_team": "BOS", "inning": 1, "inning_topbot": "Bot", "at_bat_number": 2,
          "pitch_number": 1, "pitcher": 102, "batter": 202, "events": "home_run",
          "description": "hit_into_play", "home_score": 0, "away_score": 1,
          "post_home_score": 2, "post_away_score": 1, "launch_speed": 100,
-         "launch_angle": 28, "launch_speed_angle": np.nan}])
+         "launch_angle": 28, "launch_speed_angle": np.nan,
+         "bb_type": "fly_ball"}])
     unknown_baseline = rows.iloc[[0]].copy()
     unknown_baseline["game_pk"], unknown_baseline["pitcher"] = 2, 103
     unknown_baseline[["home_score", "away_score"]] = np.nan

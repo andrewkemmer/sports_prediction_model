@@ -18,8 +18,8 @@ path). This test:
 3. Runs the same page under ``sport=mlb`` against a staged minimal MLB
    monitor fixture (backed up/restored if a committed artifact exists) and
    asserts it renders clean WHILE pinning describe_feature's served-metadata
-   precedence: backend-authored per-side summaries (sp_era_home,
-   bullpen_whip_10g_home, home_elo) beat the legacy diff-text + side-suffix
+   precedence: backend-authored per-side summaries (sp_xfip_5g_home,
+   bullpen_kbb_10g_home, home_elo) beat the legacy diff-text + side-suffix
    and bare-name fallbacks; the static dict still answers unserved rows
    (elo_diff); a degenerate served summary equal to the bare column name is
    ignored (is_home keeps its dict wording).
@@ -227,10 +227,10 @@ def _mlb_monitor_record() -> dict:
     """Minimal MLB monitor fixture exercising the served-metadata label path.
 
     Each drift row pins one branch of describe_feature's precedence:
-    - sp_era_home: served summary WINS over the legacy diff-text + side
+    - sp_xfip_5g_home: served summary WINS over the legacy diff-text + side
       fallback (the 2026-09-27 mislabel: "Home SP season-to-date ERA −
       away SP — home team").
-    - bullpen_whip_10g_home: served summary wins over the legacy BARE-NAME
+    - bullpen_kbb_10g_home: served summary wins over the legacy BARE-NAME
       leak (no *_diff entry exists for the stem).
     - home_elo: served summary wins over the legacy bare-name leak.
     - elo_diff: no served entry -> the static dict exact match must still
@@ -240,11 +240,11 @@ def _mlb_monitor_record() -> dict:
       baseline feature keeps its real wording.
     """
     drift = [
-        {"feature": "sp_era_home", "current_mean": 4.21, "baseline_mean": 4.08,
+        {"feature": "sp_xfip_5g_home", "current_mean": 4.21, "baseline_mean": 4.08,
          "psi": 0.068, "psi_adjusted": 0.002, "noise_floor": 0.066,
          "mean_shift": 0.13, "shift_se": 0.15, "location_shift": False,
          "status": "OK", "weight_pct": 1.30, "n_baseline": 273, "n_current": 91},
-        {"feature": "bullpen_whip_10g_home", "current_mean": 1.36,
+        {"feature": "bullpen_kbb_10g_home", "current_mean": 1.36,
          "baseline_mean": 1.34, "psi": 0.175, "psi_adjusted": 0.11,
          "noise_floor": 0.066, "mean_shift": 0.02, "shift_se": 0.04,
          "location_shift": False, "status": "OK", "weight_pct": 1.03,
@@ -263,12 +263,12 @@ def _mlb_monitor_record() -> dict:
          "status": "OK", "weight_pct": 0.0, "n_baseline": 273, "n_current": 91},
     ]
     served = {
-        "sp_era_home": {
-            "summary": "Starting-pitcher earned-run average — home team",
-            "tooltip": "What: Starting-pitcher earned-run average — home team."},
-        "bullpen_whip_10g_home": {
-            "summary": "Bullpen walks+hits per inning — home team",
-            "tooltip": "What: Bullpen walks+hits per inning — home team."},
+        "sp_xfip_5g_home": {
+            "summary": "Starting-pitcher recent xFIP — home team",
+            "tooltip": "What: Starting-pitcher recent xFIP — home team."},
+        "bullpen_kbb_10g_home": {
+            "summary": "Bullpen K-BB% — home team",
+            "tooltip": "What: Bullpen K-BB% — home team."},
         "home_elo": {
             "summary": "Home team Elo rating (level)",
             "tooltip": "What: Home team Elo rating (level)."},
@@ -769,8 +769,8 @@ def run() -> int:
         mlb_text = _all_text(mlb)
         _served_ok = all(
             needle in mlb_text for needle in (
-                "Starting-pitcher earned-run average — home team",
-                "Bullpen walks+hits per inning — home team",
+                "Starting-pitcher recent xFIP — home team",
+                "Bullpen K-BB% — home team",
                 "Home team Elo rating (level)",
             ))
         _dict_fallback_ok = (
@@ -779,21 +779,21 @@ def run() -> int:
         _degenerate_ok = (
             "Always 1 — anchors the ~53% MLB home-field win advantage"
             in mlb_text and "is_home\nis_home" not in mlb_text)
-        # (7b) 2026-10-09: the static FALLBACK wording must never
-        # contradict the served summaries — sp_era_5g is a shrunk recent
-        # RUNS-ALLOWED rate, not earned-run average. Any surface without
+        # (7b) 2026-10-09 Scenario C: the static FALLBACK wording must never
+        # contradict the served summaries — sp_xfip_5g is a point-in-time
+        # expected ERA and bullpen_kbb_10g is K-BB%, so any surface without
         # served metadata (older artifacts, bare describe_feature calls)
-        # must still read "runs allowed per nine", never "ERA".
+        # must read "xFIP" / "K-BB%", never brand them "ERA" / "WHIP".
         if "utils" in sys.modules:  # already loaded by the AppTest legs
             _utils = sys.modules["utils"]
         else:
             sys.path.insert(0, str(FRONTEND_DIR))
             import utils as _utils  # noqa: E402
-        _fb_era = _utils.describe_feature("sp_era_5g_diff", sport="mlb")
-        _era_fallback_ok = ("runs allowed per nine" in _fb_era
+        _fb_era = _utils.describe_feature("sp_xfip_5g_diff", sport="mlb")
+        _era_fallback_ok = ("xFIP" in _fb_era
                             and "ERA" not in _fb_era)
-        _fb_whip = _utils.describe_feature("bullpen_whip_10g_diff", sport="mlb")
-        _whip_fallback_ok = ("walks+hits per inning" in _fb_whip
+        _fb_whip = _utils.describe_feature("bullpen_kbb_10g_diff", sport="mlb")
+        _whip_fallback_ok = ("K-BB%" in _fb_whip
                              and "WHIP" not in _fb_whip)
         if not (_served_ok and _dict_fallback_ok and _degenerate_ok
                 and _era_fallback_ok and _whip_fallback_ok):
@@ -805,10 +805,10 @@ def run() -> int:
             if not _degenerate_ok:
                 print("  - degenerate served summary (== bare name) not ignored")
             if not _era_fallback_ok:
-                print("  - sp_era_5g fallback contradicts the served summary: "
+                print("  - sp_xfip_5g fallback contradicts the served summary: "
                       f"{_fb_era!r}")
             if not _whip_fallback_ok:
-                print("  - bullpen_whip_10g fallback brands the metric WHIP: "
+                print("  - bullpen_kbb_10g fallback brands the metric WHIP: "
                       f"{_fb_whip!r}")
             return 1
         # (8) per-sport member-card derivation: the MLB leg runs AFTER the

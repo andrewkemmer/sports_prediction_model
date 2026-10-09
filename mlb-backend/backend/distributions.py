@@ -2,7 +2,7 @@
 models (λ per side).
 
 THE GOLDEN RULE (REVISED 2026-08-30): run models consume LEVELS + ENVIRONMENT
-+ the 24 restored matchup-gap _diff features. Diff features (sp_era_diff ≈ 0
++ the 24 restored matchup-gap _diff features. Diff features (sp_xfip_diff ≈ 0
 for ace-vs-ace AND bad-vs-bad) carry no scoring-LEVEL information, so an
 earlier rule excluded them all — but the 2026-08-30 A/B on the current frame
 (run_engine_cull_diagnostic_20260830.json, 6,829 OOF) showed that restore
@@ -193,11 +193,11 @@ RUN_EXP2_TWIN_EXCLUSIONS = frozenset({
 
 RUN_RESTORED_DIFF_FEATURES = frozenset({
     "win_pct_diff", "elo_diff", "rest_days_diff",
-    "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
+    "sp_xfip_diff", "sp_xfip_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
     "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff", "lineup_re24_mean_diff", "lineup_re24_top3_diff",
-    "lineup_re24_std_diff", "woba_30g_diff", "bullpen_whip_10g_diff",
-    "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
+    "lineup_re24_std_diff", "woba_30g_diff", "bullpen_kbb_10g_diff",
+    "bullpen_kbb_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
     "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
     "closer_availability_diff",
 })

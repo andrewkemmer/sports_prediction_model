@@ -568,7 +568,7 @@ def compute_feature_drift(
         the shifted window must hold enough rows for a stable mean-shift
         SE — the exact-span window can dip near the 100-row judge floor
         and flip borderline seasonal features back to ALERT, which the
-        2026-09-29 bullpen_whip_10g_diff replay demonstrated). For each k in
+        2026-09-29 bullpen_kbb_10g_diff replay demonstrated). For each k in
         ``months_back`` (negative ints), take bgames rows whose game_date
         falls in the padded same-phase window shifted k years — the
         season seam moves WITH the calendar instead of across it. Only
@@ -746,7 +746,7 @@ def compute_feature_drift(
 # starvation is unchanged — STRUCTURAL is granted only when every single
 # unmeasured row carries a declared reason (NBA 2026-10-08 semantics).
 _DECLARED_POLICY_INPUTS = {
-    "wind_advantage_flyball_factor": "sp_era_diff",
+    "wind_advantage_flyball_factor": "sp_xfip_diff",
     "air_density_velocity_boost": "sp_fbvelo_diff",
 }
 

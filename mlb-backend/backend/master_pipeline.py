@@ -789,7 +789,7 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
         # starters AND their ERA/K9 lines (names alone don't re-derive stats
         # without the pbp mapping), plus the StatsAPI ids.
         "sp_name_home", "sp_name_away",
-        "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
+        "sp_xfip_home", "sp_k9_home", "sp_xfip_away", "sp_k9_away",
         "sp_id_home", "sp_id_away",
         "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice",
     ) if c in prev.columns and c in slate.columns]
@@ -1010,7 +1010,7 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         "moneyline_home", "moneyline_away", "total_line", "run_line_home",
         "juice", "edge_home", "edge_away",
         "sp_name_home", "sp_name_away",
-        "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
+        "sp_xfip_home", "sp_k9_home", "sp_xfip_away", "sp_k9_away",
         "venue", "model_pick", "home_win",
         # Finals for finished games (ESPN results merged onto the slate)
         "home_score", "away_score", "total_runs",
@@ -2759,8 +2759,8 @@ try:
     # run_diff and maps columns to training.py's MONEYLINE_FEATURE_COLS format.
     train_games = load_game_features(csv_path)
     print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
-    key_feats = ["home_elo", "home_win_pct", "sp_era_5g_home", "woba_30g_home",
-                 "bullpen_whip_10g_home", "rest_days_home"]
+    key_feats = ["home_elo", "home_win_pct", "sp_xfip_5g_home", "woba_30g_home",
+                 "bullpen_kbb_10g_home", "rest_days_home"]
     cov = ", ".join(
         f"{c}:{train_games[c].notna().mean()*100:.0f}%"
         for c in key_feats if c in train_games.columns

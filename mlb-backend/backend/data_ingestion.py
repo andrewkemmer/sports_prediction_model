@@ -398,12 +398,12 @@ def generate_synthetic_games(
         game_id, game_date, start_time_utc, home_team, away_team,
         home_wins, away_wins, home_losses, away_losses,
         home_win (float 0/1 or NaN), total_runs,
-        sp_name_home, sp_era_home, sp_k9_home,
-        sp_name_away, sp_era_away, sp_k9_away,
+        sp_name_home, sp_xfip_home, sp_k9_home,
+        sp_name_away, sp_xfip_away, sp_k9_away,
         venue, rest_days_home, rest_days_away,
         woba_30g_home, woba_30g_away,
-        bullpen_whip_10g_home, bullpen_whip_10g_away,
-        sp_era_5g_home, sp_era_5g_away,
+        bullpen_kbb_10g_home, bullpen_kbb_10g_away,
+        sp_xfip_5g_home, sp_xfip_5g_away,
         sp_k9_5g_home, sp_k9_5g_away,
     """
     rng = np.random.RandomState(seed)
@@ -463,10 +463,10 @@ def generate_synthetic_games(
 
             woba_h = _rolling_mean(prior_h, "woba", WOBA_WINDOW)
             woba_a = _rolling_mean(prior_a, "woba", WOBA_WINDOW)
-            bp_whip_h = _rolling_mean(prior_h, "bullpen_whip", BULLPEN_WHIP_WINDOW)
-            bp_whip_a = _rolling_mean(prior_a, "bullpen_whip", BULLPEN_WHIP_WINDOW)
-            sp_era_h = _rolling_mean(prior_h, "sp_era", SP_ERA_WINDOW)
-            sp_era_a = _rolling_mean(prior_a, "sp_era", SP_ERA_WINDOW)
+            bp_whip_h = _rolling_mean(prior_h, "bullpen_kbb", BULLPEN_WHIP_WINDOW)
+            bp_whip_a = _rolling_mean(prior_a, "bullpen_kbb", BULLPEN_WHIP_WINDOW)
+            sp_era_h = _rolling_mean(prior_h, "sp_xfip", SP_ERA_WINDOW)
+            sp_era_a = _rolling_mean(prior_a, "sp_xfip", SP_ERA_WINDOW)
             sp_k9_h = _rolling_mean(prior_h, "sp_k9", SP_K9_WINDOW)
             sp_k9_a = _rolling_mean(prior_a, "sp_k9", SP_K9_WINDOW)
 
@@ -488,20 +488,20 @@ def generate_synthetic_games(
                 "home_win": float(home_win),
                 "total_runs": total_runs,
                 "sp_name_home": sp_home[0],
-                "sp_era_home": round(sp_home[1] + rng.normal(0, 0.3), 2),
+                "sp_xfip_home": round(sp_home[1] + rng.normal(0, 0.3), 2),
                 "sp_k9_home": round(sp_home[2] + rng.normal(0, 0.5), 1),
                 "sp_name_away": sp_away[0],
-                "sp_era_away": round(sp_away[1] + rng.normal(0, 0.3), 2),
+                "sp_xfip_away": round(sp_away[1] + rng.normal(0, 0.3), 2),
                 "sp_k9_away": round(sp_away[2] + rng.normal(0, 0.5), 1),
                 "venue": STADIUMS.get(home, "Unknown"),
                 "rest_days_home": rest_h,
                 "rest_days_away": rest_a,
                 "woba_30g_home": round(woba_h, 3),
                 "woba_30g_away": round(woba_a, 3),
-                "bullpen_whip_10g_home": round(bp_whip_h, 3),
-                "bullpen_whip_10g_away": round(bp_whip_a, 3),
-                "sp_era_5g_home": round(sp_era_h, 2),
-                "sp_era_5g_away": round(sp_era_a, 2),
+                "bullpen_kbb_10g_home": round(bp_whip_h, 3),
+                "bullpen_kbb_10g_away": round(bp_whip_a, 3),
+                "sp_xfip_5g_home": round(sp_era_h, 2),
+                "sp_xfip_5g_away": round(sp_era_a, 2),
                 "sp_k9_5g_home": round(sp_k9_h, 1),
                 "sp_k9_5g_away": round(sp_k9_a, 1),
             })
@@ -509,16 +509,16 @@ def generate_synthetic_games(
             # Record for future rolling stats
             team_games_played[home].append({
                 "woba": 0.250 + rng.normal(0, 0.030),
-                "bullpen_whip": 1.20 + rng.normal(0, 0.15),
-                "sp_era": sp_home[1],
+                "bullpen_kbb": 1.20 + rng.normal(0, 0.15),
+                "sp_xfip": sp_home[1],
                 "sp_k9": sp_home[2],
                 "runs_scored": total_runs // 2 + home_win,
                 "runs_allowed": total_runs - (total_runs // 2 + home_win),
             })
             team_games_played[away].append({
                 "woba": 0.250 + rng.normal(0, 0.030),
-                "bullpen_whip": 1.20 + rng.normal(0, 0.15),
-                "sp_era": sp_away[1],
+                "bullpen_kbb": 1.20 + rng.normal(0, 0.15),
+                "sp_xfip": sp_away[1],
                 "sp_k9": sp_away[2],
                 "runs_scored": total_runs - (total_runs // 2 + home_win),
                 "runs_allowed": total_runs // 2 + home_win,
@@ -778,19 +778,19 @@ def _parse_espn_event(event: dict) -> dict | None:
         "total_runs": (home_score + away_score) if home_score is not None and away_score is not None else None,
         "sp_name_home": sp_home,
         "sp_name_away": sp_away,
-        "sp_era_home": None,
+        "sp_xfip_home": None,
         "sp_k9_home": None,
-        "sp_era_away": None,
+        "sp_xfip_away": None,
         "sp_k9_away": None,
         "venue": venue,
         "rest_days_home": None,
         "rest_days_away": None,
         "woba_30g_home": None,
         "woba_30g_away": None,
-        "bullpen_whip_10g_home": None,
-        "bullpen_whip_10g_away": None,
-        "sp_era_5g_home": None,
-        "sp_era_5g_away": None,
+        "bullpen_kbb_10g_home": None,
+        "bullpen_kbb_10g_away": None,
+        "sp_xfip_5g_home": None,
+        "sp_xfip_5g_away": None,
         "sp_k9_5g_home": None,
         "sp_k9_5g_away": None,
     }
@@ -913,11 +913,11 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     The features.py module produces a game_level_features.csv with columns like:
         game_pk, game_date, home_team, away_team, home_win, total_runs,
-        sp_era_home, team_woba_30g_home, bullpen_whip_10g_home, etc.
+        sp_xfip_home, team_woba_30g_home, bullpen_kbb_10g_home, etc.
 
     This function maps those to the column names expected by training.py:
         game_id, home_elo, home_win_pct, away_win_pct,
-        woba_30g_home, sp_era_5g_home, sp_k9_5g_home, etc.
+        woba_30g_home, sp_xfip_5g_home, sp_k9_5g_home, etc.
 
     It also computes ELO, win percentage, and run differential from the data.
     """
@@ -1013,7 +1013,7 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         "sp_k9_30g_home", "sp_k9_30g_away",
     } & set(df.columns)
     canonical_pitcher_cols = {
-        "sp_era_5g_home", "sp_era_5g_away",
+        "sp_xfip_5g_home", "sp_xfip_5g_away",
         "sp_k9_5g_home", "sp_k9_5g_away",
     }
     missing_canonical = canonical_pitcher_cols - set(df.columns)
@@ -1855,8 +1855,8 @@ def build_upcoming_slate(
         # add_diff_features() could not compute the 24 model columns.
         *[f"pl_{p}_xwoba_{side}"
           for p in _pl_pools for side in ("home", "away")],
-        "bullpen_whip_10g_home", "bullpen_whip_10g_away",
-        "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+        "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
+        "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
         "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
         "bullpen_ip_3d_home", "bullpen_ip_3d_away",
         # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
@@ -1942,14 +1942,14 @@ def build_upcoming_slate(
         _RAW_INPUTS = [
             "home_elo", "away_elo", "home_win_pct", "away_win_pct",
             "rest_days_home", "rest_days_away",
-            "sp_era_home", "sp_era_away",
+            "sp_xfip_home", "sp_xfip_away",
             "sp_k9_home", "sp_k9_away",
             "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
             "sp_fbpct_3g_home", "sp_fbpct_3g_away",
             "sp_whiff_3g_home", "sp_whiff_3g_away",
             "sp_xwoba_home", "sp_xwoba_away",
             "sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away",
-            "sp_era_5g_home", "sp_era_5g_away",
+            "sp_xfip_5g_home", "sp_xfip_5g_away",
             "sp_k9_5g_home", "sp_k9_5g_away",
             "woba_30g_home", "woba_30g_away",
             "lineup_re24_mean_home", "lineup_re24_mean_away",
@@ -1961,8 +1961,8 @@ def build_upcoming_slate(
             # triples (pl_dh is intentionally absent from the served set).
             *[f"pl_{p}_xwoba_{side}"
               for p in _pl_pools for side in ("home", "away")],
-            "bullpen_whip_10g_home", "bullpen_whip_10g_away",
-            "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+            "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
+            "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
             "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
             "bullpen_ip_3d_home", "bullpen_ip_3d_away",
             "team_barrel_15g_home", "team_barrel_15g_away",
