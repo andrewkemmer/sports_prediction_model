@@ -12,70 +12,65 @@
   INFO   Chunk: 2024-03-01 → 2024-04-29
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 46/46 [01:06<00:00,  1.44s/it]
+100%|##########| 46/46 [00:45<00:00,  1.01it/s]
   INFO     → 164216 pitches
   INFO   Chunk: 2024-04-30 → 2024-06-28
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:34<00:00,  1.57s/it]
+100%|##########| 60/60 [01:08<00:00,  1.14s/it]
   INFO     → 230719 pitches
   INFO   Chunk: 2024-06-29 → 2024-08-27
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:26<00:00,  1.43s/it]
+100%|##########| 60/60 [01:09<00:00,  1.16s/it]
   INFO     → 222680 pitches
   INFO   Chunk: 2024-08-28 → 2024-10-26
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:53<00:00,  1.12it/s]
+100%|##########| 60/60 [00:46<00:00,  1.30it/s]
   INFO     → 141645 pitches
   INFO   Chunk: 2024-10-27 → 2024-12-25
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 20/20 [00:00<00:00, 25.66it/s]
+100%|##########| 20/20 [00:03<00:00,  5.69it/s]
   INFO     → 989 pitches
   INFO   Chunk: 2024-12-26 → 2025-02-23 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
   INFO   Chunk: 2025-02-24 → 2025-04-24
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 41/41 [00:58<00:00,  1.44s/it]
+100%|##########| 41/41 [00:46<00:00,  1.13s/it]
   INFO     → 154157 pitches
   INFO   Chunk: 2025-04-25 → 2025-06-23
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:33<00:00,  1.55s/it]
+100%|##########| 60/60 [01:10<00:00,  1.17s/it]
   INFO     → 233471 pitches
   INFO   Chunk: 2025-06-24 → 2025-08-22
 This is a large query, it may take a moment to complete
- 30%|###       | 18/60 [01:08<02:38,  3.78s/it]
-  WARNING     → Chunk 2025-06-24 → 2025-08-22 attempt 1/3 failed: Error tokenizing data. C error: Expected 1 fields in line 12, saw 2
-
-  INFO     ↻ retrying 2025-06-24 → 2025-08-22 (attempt 2/3, backoff 1.0s)
-This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:30<00:00,  1.51s/it]
+100%|##########| 60/60 [01:01<00:00,  1.03s/it]
   INFO     → 221858 pitches
   INFO   Chunk: 2025-08-23 → 2025-10-21
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:06<00:00,  1.11s/it]
+100%|##########| 60/60 [00:49<00:00,  1.21it/s]
   INFO     → 158880 pitches
   INFO   Chunk: 2025-10-22 → 2025-12-20
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 25/25 [00:01<00:00, 21.17it/s]
+100%|##########| 25/25 [00:03<00:00,  6.63it/s]
   INFO     → 2429 pitches
   INFO   Chunk: 2025-12-21 → 2026-02-18 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
   INFO   Chunk: 2026-02-19 → 2026-04-19
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 36/36 [00:55<00:00,  1.55s/it]
+100%|##########| 36/36 [00:48<00:00,  1.36s/it]
   INFO     → 136267 pitches
   INFO   Chunk: 2026-04-20 → 2026-06-18
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:34<00:00,  1.57s/it]
+100%|##########| 60/60 [01:15<00:00,  1.27s/it]
   INFO     → 231114 pitches
   INFO   Chunk: 2026-06-19 → 2026-08-17
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:28<00:00,  1.48s/it]
+100%|##########| 60/60 [01:13<00:00,  1.22s/it]
   INFO     → 224816 pitches
   INFO   Chunk: 2026-08-18 → 2026-10-09
 This is a large query, it may take a moment to complete
-100%|##########| 53/53 [01:06<00:00,  1.25s/it]
+100%|##########| 53/53 [00:56<00:00,  1.06s/it]
   INFO     → 169576 pitches
   INFO Total raw pitches: 2292817
   INFO Dropped 117501 non-regular-season pitches (game_type S/E)
@@ -97,7 +92,7 @@ il stints: 10,522 over 2,239 batters (224 still open at window end)
   on-IL while batting: 0 player-games (3420 before reconciliation, budget 250)
 wrote /content/mlb_clean_data/il_stints/il_stints.parquet (61 KB) + .meta.json
 wrote /content/mlb_clean_data/il_stints/il_stints_pitchers.parquet (6,816 stints, 1,234 pitchers; stats={'stints_raw': 10537, 'reconciled': True, 'pitchers': 1310, 'appearances': 63527, 'stints_reconciled': 10522, 'stints_closed_by_appearance': 15, 'stints_pitchers': 6816, 'open_at_end': 152, 'median_on_il_weekly': 331.0})
-decided games to backfill: 7401
+decided games to backfill: 7402
 pending: 0 (complete 7402)
 lineups.parquet now: 7402 games
   🧾 lineups: 0 posted row(s) captured for 2026-10-09
@@ -107,8 +102,8 @@ lineups.parquet now: 7402 games
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   INFO === DuckDB Feature Engineering ===
-  INFO [MEM] Start: 644 MB
-  INFO [MEM] After DuckDB load: 2482 MB
+  INFO [MEM] Start: 703 MB
+  INFO [MEM] After DuckDB load: 2536 MB
   INFO Building game-level features (corrected_outs=False)...
   INFO pitcher availability ledger: 6816 stints, 1234 pitchers
   INFO SP staleness gate: 63501 appearance rows, 2400 flagged stale (gap >= 10d overlapping an availability stint)
@@ -123,15 +118,15 @@ lineups.parquet now: 7402 games
   INFO pl_* pool coverage: 100.0% non-NULL across 9 pools (8 served)
   INFO slate pl_*: no upcoming team-games resolved — the serving slate marks every side 'carry'
   INFO game_level built: 7402 games
-  INFO [MEM] After game_level: 3502 MB
+  INFO [MEM] After game_level: 3474 MB
   INFO Exported game_level: 9.0 MB
   INFO Building PBP-level features...
   INFO pbp_level built: 2175316 pitches
-  INFO [MEM] After pbp_level: 2961 MB
+  INFO [MEM] After pbp_level: 3020 MB
   INFO Exported pbp_level: 52.3 MB
-  INFO [MEM] After DuckDB close: 631 MB
+  INFO [MEM] After DuckDB close: 687 MB
   INFO Official results applied: 7402 games verified/corrected
-  INFO [MEM] After pandas load: 3679 MB
+  INFO [MEM] After pandas load: 3740 MB
   INFO === Complete: 7402 games, 2175316 pitches ===
   ✅ Game: (7402, 201)
   ✅ PBP:  (2175316, 88)
@@ -201,6 +196,14 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   INFO Weather history: start times 2024: 2472/2472 (100%)
   INFO Weather history: start times 2025: 2477/2477 (100%)
   INFO Weather history: start times 2026: 2453/2453 (100%)
+  WARNING Weather API 429 for archive — retrying in 1.2s (1/6)
+  WARNING Weather API 429 for archive — retrying in 2.1s (2/6)
+  WARNING Weather API 429 for archive — retrying in 4.4s (3/6)
+  WARNING Weather API 429 for archive — retrying in 8.4s (4/6)
+  WARNING Weather API 429 for archive — retrying in 1.1s (1/6)
+  WARNING Weather API 429 for archive — retrying in 2.1s (2/6)
+  WARNING Weather API 429 for archive — retrying in 4.1s (3/6)
+  WARNING Weather API 429 for archive — retrying in 8.4s (4/6)
   INFO Weather batches: skipped 18 gameless window(s) (2024-03-19→2026-10-08 span) — no Open-Meteo requests sent for them
   INFO Weather fetched: 7402/7402 games from batched observations
   INFO Weather cache saved: 7402 games → /content/mlb_clean_data/weather_history.parquet
@@ -213,8 +216,7 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   INFO Pipeline snapshot: 7402 decided games, hash=63bb8dc962ce
   INFO Re-exporting features CSV with applied weather (wind coverage 6635/7402, air-density 6711/7402)
   INFO Refreshed game_level_features.csv with applied weather
-  INFO Umpire gap-fill 2026: appended 0, patched 26 (map 8893 rows)
-  INFO Umpire map: 8893 games, 139 umpires (fetched seasons none, gap-filled 2026, rows added 0)
+  INFO Umpire map: 8893 games, 139 umpires (fetched seasons none, gap-filled none, rows added 0)
   INFO Step 2: Generating market lines
   INFO Step 3: Walk-forward evaluation
   INFO Applied adopted feature subset: 109/275 pool features
@@ -335,7 +337,7 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   WARNING Calibration: degenerate Platt params (a=-0.18043053235276937, n=557) — identity map
   INFO Run engine OOF: 7031 rows -> run_engine_oof_20261009.csv
   INFO Run engine markets: 7031 rows -> run_engine_markets_20261009.csv (+ meta json)
-  INFO Totals history store: 7333 rows (1 added this run, seeded=False) -> run_engine_totals_history.csv
+  INFO Totals history store: 7333 rows (0 added this run, seeded=False) -> run_engine_totals_history.csv
   INFO Calibration: 231 of 6140 prequential Platt fits degenerated to identity in the run-engine block (the WARNING line prints only the first 3)
   INFO Run-engine monitor: 3 winner cards, rolling 44 days -> run_engine_monitor_20261009.json
   INFO Step 6: Explainability
@@ -344,10 +346,12 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   INFO Drift decided frame: 7402 games, hash=63bb8dc962ce
   INFO Drift post-margin frame: 7402 games, hash=f03d87e7ef77
   INFO Feature drift [moneyline]: 109 features, 0 warnings, 0 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.321)
-  WARNING Feature coverage gaps [moneyline]: wind_advantage_flyball_factor/current=73% measured | open-air 92% (12 rows, 3 closed-roof policy zeros excluded); air_density_velocity_boost/current=73% measured | open-air 92% (12 rows, 3 closed-roof policy zeros excluded); wind_advantage_flyball_factor/baseline=75% measured | open-air 92% (203 rows, 47 closed-roof policy zeros excluded); air_density_velocity_boost/baseline=75% measured | open-air 92% (203 rows, 47 closed-roof policy zeros excluded)
+  INFO Feature coverage [moneyline]: all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)
+  INFO Feature coverage [moneyline]: STRUCTURAL (declared missing-value policy, not starvation): wind_advantage_flyball_factor/current=73%, air_density_velocity_boost/current=73%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/baseline=75% — declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed
   INFO Run-engine monitoring view: 109 active moneyline features
   INFO Feature drift [run-engine]: 109 features, 0 warnings, 0 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.321)
-  WARNING Feature coverage gaps [run-engine]: wind_advantage_flyball_factor/current=73% measured | open-air 92% (12 rows, 3 closed-roof policy zeros excluded); air_density_velocity_boost/current=73% measured | open-air 92% (12 rows, 3 closed-roof policy zeros excluded); wind_advantage_flyball_factor/baseline=75% measured | open-air 92% (203 rows, 47 closed-roof policy zeros excluded); air_density_velocity_boost/baseline=75% measured | open-air 92% (203 rows, 47 closed-roof policy zeros excluded)
+  INFO Feature coverage [run-engine]: all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)
+  INFO Feature coverage [run-engine]: STRUCTURAL (declared missing-value policy, not starvation): wind_advantage_flyball_factor/current=73%, air_density_velocity_boost/current=73%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/baseline=75% — declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed
   INFO Step 7: Skipping GitHub sync (Phase 5 owns the artifact push)
   INFO === Pipeline complete: ok ===
   📊 Status: ok
@@ -383,49 +387,3 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   PHASE 5 — GitHub Sync — push new artifacts
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  📋 Staging 26 files:
-    mlb-backend/data_delivery/game_level_features.csv
-    mlb-backend/data_delivery/calibration_20261009.json
-    mlb-backend/data_delivery/feature_coverage_20261009.csv
-    mlb-backend/data_delivery/feature_drift_20261009.csv
-    mlb-backend/data_delivery/features_metadata_20261009.json
-    mlb-backend/data_delivery/mlb_pipeline_run_log.txt
-    mlb-backend/data_delivery/model_history.json
-    mlb-backend/data_delivery/model_monitor_20261009.json
-    mlb-backend/data_delivery/model_version_history.json
-    mlb-backend/data_delivery/models/ensemble_latest.joblib
-    mlb-backend/data_delivery/pbp_defense_20261009.meta.json
-    mlb-backend/data_delivery/pbp_defense_20261009.parquet
-    mlb-backend/data_delivery/power_rankings_20261009.csv
-    mlb-backend/data_delivery/predictions_history_20261009.csv
-    mlb-backend/data_delivery/rolling_brier_20261009.json
-    mlb-backend/data_delivery/run_engine_feature_coverage_20261009.csv
-    mlb-backend/data_delivery/run_engine_feature_drift_20261009.csv
-    mlb-backend/data_delivery/run_engine_markets_20261009.csv
-    mlb-backend/data_delivery/run_engine_markets_20261009.meta.json
-    mlb-backend/data_delivery/run_engine_monitor_20261009.json
-    mlb-backend/data_delivery/run_engine_oof_20261009.csv
-    mlb-backend/data_delivery/run_engine_totals_history.csv
-    mlb-backend/data_delivery/run_engine_totals_history.meta.json
-    mlb-backend/data_delivery/todays_games_20261009.csv
-    mlb-backend/data_delivery/umpire_map.csv
-    mlb-backend/data_delivery/umpire_stats.csv
-  ✅ Pushed and remotely verified 26 files — confirmed on sports_prediction_model@main
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 6 — Stale artifact cleanup (final step)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  synced clone to remote tip 2cc8f88f5d (main)
-  🛡️  Kept 48 protected file(s) (never deleted)
-  📅 Kept 167 artifact(s) within the retention window (anchor 20261009 -10d)
-  ✅ No stale files — data_delivery holds exactly this run's artifacts
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE ✅ — 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Games: 7402  |  Pitches: 2,175,316  |  Columns: 290 game + 88 pbp
-  Output: /content/mlb_clean_data
-  📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
-  synced clone to remote tip 2cc8f88f5d (main)

@@ -1726,7 +1726,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "win_pct_diff",
@@ -1739,7 +1740,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "elo_diff",
@@ -1752,7 +1754,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_diff",
@@ -1765,7 +1768,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_diff",
@@ -1778,7 +1782,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_diff",
@@ -1791,7 +1796,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_diff",
@@ -1804,7 +1810,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_diff",
@@ -1817,7 +1824,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_diff",
@@ -1830,7 +1838,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_diff",
@@ -1843,7 +1852,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_diff",
@@ -1856,7 +1866,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_diff",
@@ -1869,7 +1880,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_diff",
@@ -1882,7 +1894,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_diff",
@@ -1895,7 +1908,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "lineup_handedness_matchup_advantage",
@@ -1908,7 +1922,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "travel_fatigue_diff",
@@ -1921,7 +1936,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_availability_diff",
@@ -1934,7 +1950,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "dome_is_neutral",
@@ -1947,7 +1964,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "wind_advantage_flyball_factor",
@@ -1958,9 +1976,10 @@
       "n_measured": 11,
       "pct_measured": 73.3,
       "n_default_zero": 3,
-      "status": "LOW_COVERAGE",
+      "status": "STRUCTURAL",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": "declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed"
     },
     {
       "feature": "air_density_velocity_boost",
@@ -1971,9 +1990,10 @@
       "n_measured": 11,
       "pct_measured": 73.3,
       "n_default_zero": 3,
-      "status": "LOW_COVERAGE",
+      "status": "STRUCTURAL",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": "declared missing-value policy on all 4 unmeasured row(s): 3 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 1 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed"
     },
     {
       "feature": "bullpen_meltdown_risk_diff",
@@ -1986,7 +2006,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_meltdown_risk_home",
@@ -1999,7 +2020,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_meltdown_risk_away",
@@ -2012,7 +2034,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_diff",
@@ -2025,7 +2048,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_home",
@@ -2038,7 +2062,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_away",
@@ -2051,7 +2076,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_diff",
@@ -2064,7 +2090,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_home",
@@ -2077,7 +2104,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_away",
@@ -2090,7 +2118,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "home_elo",
@@ -2103,7 +2132,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "away_elo",
@@ -2116,7 +2146,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "home_win_pct",
@@ -2129,7 +2160,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "away_win_pct",
@@ -2142,7 +2174,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_home",
@@ -2155,7 +2188,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_away",
@@ -2168,7 +2202,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_xwoba_home",
@@ -2181,7 +2216,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_xwoba_away",
@@ -2194,7 +2230,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_home",
@@ -2207,7 +2244,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_away",
@@ -2220,7 +2258,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_home",
@@ -2233,7 +2272,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_away",
@@ -2246,7 +2286,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_home",
@@ -2259,7 +2300,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_away",
@@ -2272,7 +2314,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_15g_home",
@@ -2285,7 +2328,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_15g_away",
@@ -2298,7 +2342,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_15g_home",
@@ -2311,7 +2356,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_15g_away",
@@ -2324,7 +2370,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_diff",
@@ -2337,7 +2384,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_diff",
@@ -2350,7 +2398,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_diff",
@@ -2363,7 +2412,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_diff",
@@ -2376,7 +2426,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_diff",
@@ -2389,7 +2440,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_diff",
@@ -2402,7 +2454,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_diff",
@@ -2415,7 +2468,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_diff",
@@ -2428,7 +2482,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_available_home",
@@ -2441,7 +2496,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_available_away",
@@ -2454,7 +2510,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_home",
@@ -2467,7 +2524,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_away",
@@ -2480,7 +2538,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_home",
@@ -2493,7 +2552,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_away",
@@ -2506,7 +2566,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_3g_home",
@@ -2519,7 +2580,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_3g_away",
@@ -2532,7 +2594,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_3d_home",
@@ -2545,7 +2608,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_3d_away",
@@ -2558,7 +2622,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_15g_home",
@@ -2571,7 +2636,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_15g_away",
@@ -2584,7 +2650,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "time_zones_crossed_last_3d_home",
@@ -2597,7 +2664,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "time_zones_crossed_last_3d_away",
@@ -2610,7 +2678,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_home",
@@ -2623,7 +2692,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_away",
@@ -2636,7 +2706,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_home",
@@ -2649,7 +2720,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_away",
@@ -2662,7 +2734,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_home",
@@ -2675,7 +2748,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_away",
@@ -2688,7 +2762,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_home",
@@ -2701,7 +2776,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_away",
@@ -2714,7 +2790,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_home",
@@ -2727,7 +2804,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_away",
@@ -2740,7 +2818,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_home",
@@ -2753,7 +2832,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_away",
@@ -2766,7 +2846,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_home",
@@ -2779,7 +2860,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_away",
@@ -2792,7 +2874,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_home",
@@ -2805,7 +2888,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_away",
@@ -2818,7 +2902,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_home",
@@ -2831,7 +2916,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_away",
@@ -2844,7 +2930,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_diff",
@@ -2857,7 +2944,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_home",
@@ -2870,7 +2958,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_away",
@@ -2883,7 +2972,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_diff",
@@ -2896,7 +2986,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_home",
@@ -2909,7 +3000,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_away",
@@ -2922,7 +3014,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_diff",
@@ -2935,7 +3028,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_home",
@@ -2948,7 +3042,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_away",
@@ -2961,7 +3056,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_diff",
@@ -2974,7 +3070,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_home",
@@ -2987,7 +3084,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_away",
@@ -3000,7 +3098,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_diff",
@@ -3013,7 +3112,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_home",
@@ -3026,7 +3126,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_away",
@@ -3039,7 +3140,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_diff",
@@ -3052,7 +3154,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_home",
@@ -3065,7 +3168,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_away",
@@ -3078,7 +3182,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_diff",
@@ -3091,7 +3196,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_home",
@@ -3104,7 +3210,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_away",
@@ -3117,7 +3224,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_diff",
@@ -3130,7 +3238,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "is_home",
@@ -3143,7 +3252,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "win_pct_diff",
@@ -3156,7 +3266,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "elo_diff",
@@ -3169,7 +3280,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_diff",
@@ -3182,7 +3294,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_diff",
@@ -3195,7 +3308,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_diff",
@@ -3208,7 +3322,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_diff",
@@ -3221,7 +3336,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_diff",
@@ -3234,7 +3350,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_diff",
@@ -3247,7 +3364,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_diff",
@@ -3260,7 +3378,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_diff",
@@ -3273,7 +3392,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_diff",
@@ -3286,7 +3406,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_diff",
@@ -3299,7 +3420,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_diff",
@@ -3312,7 +3434,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "lineup_handedness_matchup_advantage",
@@ -3325,7 +3448,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "travel_fatigue_diff",
@@ -3338,7 +3462,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_availability_diff",
@@ -3351,7 +3476,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "dome_is_neutral",
@@ -3364,7 +3490,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "wind_advantage_flyball_factor",
@@ -3375,9 +3502,10 @@
       "n_measured": 187,
       "pct_measured": 74.8,
       "n_default_zero": 47,
-      "status": "LOW_COVERAGE",
+      "status": "STRUCTURAL",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": "declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_era_diff (SP staleness gate); every open-air row with a valid input is observed"
     },
     {
       "feature": "air_density_velocity_boost",
@@ -3388,9 +3516,10 @@
       "n_measured": 187,
       "pct_measured": 74.8,
       "n_default_zero": 47,
-      "status": "LOW_COVERAGE",
+      "status": "STRUCTURAL",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": "declared missing-value policy on all 63 unmeasured row(s): 47 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 16 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed"
     },
     {
       "feature": "bullpen_meltdown_risk_diff",
@@ -3403,7 +3532,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_meltdown_risk_home",
@@ -3416,7 +3546,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_meltdown_risk_away",
@@ -3429,7 +3560,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_diff",
@@ -3442,7 +3574,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_home",
@@ -3455,7 +3588,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pitcher_regression_indicator_away",
@@ -3468,7 +3602,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_diff",
@@ -3481,7 +3616,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_home",
@@ -3494,7 +3630,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "ace_efficiency_factor_away",
@@ -3507,7 +3644,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "home_elo",
@@ -3520,7 +3658,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "away_elo",
@@ -3533,7 +3672,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "home_win_pct",
@@ -3546,7 +3686,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "away_win_pct",
@@ -3559,7 +3700,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_home",
@@ -3572,7 +3714,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_k9_away",
@@ -3585,7 +3728,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_xwoba_home",
@@ -3598,7 +3742,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_xwoba_away",
@@ -3611,7 +3756,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_home",
@@ -3624,7 +3770,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "woba_30g_away",
@@ -3637,7 +3784,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_home",
@@ -3650,7 +3798,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_10g_away",
@@ -3663,7 +3812,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_home",
@@ -3676,7 +3826,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_whip_3g_away",
@@ -3689,7 +3840,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_15g_home",
@@ -3702,7 +3854,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_barrel_15g_away",
@@ -3715,7 +3868,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_15g_home",
@@ -3728,7 +3882,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_exitvelo_15g_away",
@@ -3741,7 +3896,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_diff",
@@ -3754,7 +3910,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_diff",
@@ -3767,7 +3924,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_diff",
@@ -3780,7 +3938,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_diff",
@@ -3793,7 +3952,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_diff",
@@ -3806,7 +3966,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_diff",
@@ -3819,7 +3980,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_diff",
@@ -3832,7 +3994,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_diff",
@@ -3845,7 +4008,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_available_home",
@@ -3858,7 +4022,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "closer_available_away",
@@ -3871,7 +4036,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_home",
@@ -3884,7 +4050,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "rest_days_away",
@@ -3897,7 +4064,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_home",
@@ -3910,7 +4078,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_era_5g_away",
@@ -3923,7 +4092,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_3g_home",
@@ -3936,7 +4106,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "sp_fbvelo_3g_away",
@@ -3949,7 +4120,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_3d_home",
@@ -3962,7 +4134,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "bullpen_pitches_3d_away",
@@ -3975,7 +4148,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_15g_home",
@@ -3988,7 +4162,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "team_hardhit_15g_away",
@@ -4001,7 +4176,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "time_zones_crossed_last_3d_home",
@@ -4014,7 +4190,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "time_zones_crossed_last_3d_away",
@@ -4027,7 +4204,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_home",
@@ -4040,7 +4218,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_centered_k_away",
@@ -4053,7 +4232,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_home",
@@ -4066,7 +4246,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_fastball_away",
@@ -4079,7 +4260,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_home",
@@ -4092,7 +4274,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_breaking_away",
@@ -4105,7 +4288,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_home",
@@ -4118,7 +4302,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_k_offspeed_away",
@@ -4131,7 +4316,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_home",
@@ -4144,7 +4330,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_fastball_away",
@@ -4157,7 +4344,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_home",
@@ -4170,7 +4358,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_breaking_away",
@@ -4183,7 +4372,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_home",
@@ -4196,7 +4386,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_xwoba_offspeed_away",
@@ -4209,7 +4400,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_home",
@@ -4222,7 +4414,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "exp2_cat_platoon_k_fastball_away",
@@ -4235,7 +4428,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_home",
@@ -4248,7 +4442,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_away",
@@ -4261,7 +4456,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_c_xwoba_diff",
@@ -4274,7 +4470,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_home",
@@ -4287,7 +4484,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_away",
@@ -4300,7 +4498,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_fb_xwoba_diff",
@@ -4313,7 +4512,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_home",
@@ -4326,7 +4526,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_away",
@@ -4339,7 +4540,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_sb_xwoba_diff",
@@ -4352,7 +4554,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_home",
@@ -4365,7 +4568,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_away",
@@ -4378,7 +4582,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_ss_xwoba_diff",
@@ -4391,7 +4596,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_home",
@@ -4404,7 +4610,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_away",
@@ -4417,7 +4624,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_tb_xwoba_diff",
@@ -4430,7 +4638,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_home",
@@ -4443,7 +4652,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_away",
@@ -4456,7 +4666,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_rf_xwoba_diff",
@@ -4469,7 +4680,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_home",
@@ -4482,7 +4694,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_away",
@@ -4495,7 +4708,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_cf_xwoba_diff",
@@ -4508,7 +4722,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_home",
@@ -4521,7 +4736,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_away",
@@ -4534,7 +4750,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     },
     {
       "feature": "pl_lf_xwoba_diff",
@@ -4547,7 +4764,8 @@
       "n_default_zero": 0,
       "status": "OK",
       "column_present": true,
-      "n_invalid": 0
+      "n_invalid": 0,
+      "structural_reason": null
     }
   ],
   "rolling_brier": [
