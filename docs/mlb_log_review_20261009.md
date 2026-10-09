@@ -290,3 +290,75 @@ coverage holds.
   calibration, power rankings, calibration gate note (2 passed).
 - Artifact reconciliation of all 218 coverage rows against the
   committed frame; live StatsAPI off-day check.
+
+
+---
+
+## Third delivery — the 19:08 run, and the notebook traceback
+
+**Subject:** artifacts `129c3fd3`, final log `f4ce14d9` (434 lines, run
+trained 2026-10-09 19:08). **Verdict: pipeline and delivery clean — the
+first run to ship the coverage audit's `STRUCTURAL` statuses, verified
+end-to-end.** The reported `FileNotFoundError` is **not** in the pushed
+log (434 lines, no traceback): it comes from the Kaggle notebook's
+post-run confirmation block, executed from the LIVE Kaggle copy which
+carries a typo'd duplicate of the `repo` literal. Delivery was
+unaffected (pipeline exit 0; Phase 5 pushed and remotely verified 25
+files).
+
+### Validated clean
+
+| Check | Evidence |
+|---|---|
+| Coverage remediation live (end-to-end) | Log carries `INFO Feature coverage [moneyline]/[run-engine]: all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)` with the full reasons — **no `Feature coverage gaps` WARNING in either view**. CSVs: 214 `OK` + 4 `STRUCTURAL`, `structural_reason` column present, run-engine ≡ moneyline. This closes the "verify on next run" item from the coverage audit |
+| Run otherwise identical to the 17:15 delivery | Same frame (7,402 games / 2,175,316 pitches, horizon 2026-10-08), same folds and metrics, missing-finals guard clean, totals history 7333 (0 added — already current), ingestion guard pass, off-day board honest again (still no 10-09 games) |
+| New log class: Open-Meteo 429 retries (lines 199-206) | Two rate-limit backoff ladders (1/6 → 4/6) during the fresh-cache weather refetch of this back-to-back same-day full repull. **Recovered completely**: `Weather fetched: 7402/7402`, wind/air coverage byte-identical to the prior run (6635/6711). The retry machinery worked as designed — no action |
+
+### The reported traceback — root cause
+
+```
+FileNotFoundError: [Errno 2] No such file or directory:
+    '/kaggle/working/sports_predictio_model'
+    ... subprocess.run([...], cwd=repo)   # notebook confirmation block
+```
+
+- The traceback is **kernel output** of the notebook session (ipykernel
+  cell after "Pipeline completed — artifacts pushed to GitHub by Phase 5
+  sync."), not tee'd log content — the pushed log is clean.
+- The confirmation block of the live Kaggle copy re-types the `repo`
+  literal a **second** time (the pipeline block already defines it) and
+  the duplicate was typo'd: `sports_predictio_model` (missing `n`).
+  Every **committed** notebook version — including the Kaggle-synced
+  Version 5 (`89bd0879`) — is correctly spelled; the live copy has an
+  unsaved/unsynced edit.
+- Consequence class: a **successful** delivery was rendered a red run
+  by an advisory post-run check that duplicated state it did not need
+  to redefine.
+
+### Remediation
+
+- **Repo side (this commit).** The notebook is Kaggle-owned — never
+  edited from the repo (standing guardrail, T7 of the 2026-10-06
+  review). Defense is therefore a content pin in the existing
+  [test_log_review_20261008.py](../mlb-backend/backend/test_log_review_20261008.py)
+  (**T12**): every `repo = "..."` literal in the notebook must be the
+  canonical `/kaggle/working/sports_prediction_model`; any
+  `sports_predictio` not followed by `n_model` fails the suite; the
+  post-run sanity footer (`Repo HEAD after run:` +
+  `Latest dated artifacts:`) must stay. A Kaggle re-upload carrying the
+  defect class now fails loudly at the next sync instead of shipping.
+- **Kaggle side (action needed on the live notebook).** Fix the
+  confirmation block of the running copy: delete its duplicate
+  `repo = "..."` line (the pipeline block's value is already in scope)
+  or correct the spelling, and save so Version 6 syncs the corrected
+  notebook. Optionally guard the verification with `os.path.isdir(repo)`
+  so an advisory check can never again redden a delivered run.
+
+### Verification for this section
+
+- `python -m pytest mlb-backend/backend/ -q` — **380 passed** (3 new
+  T12 pins, all green on the committed notebook and red against a
+  typo'd copy).
+- `python check_production_graph.py` — **OK, 27 modules**.
+- 19:08 artifacts re-read directly: coverage CSVs, monitor JSON parity,
+  weather fetch counts, guard/totals lines (table above).

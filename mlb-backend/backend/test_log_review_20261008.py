@@ -43,6 +43,16 @@ only when EVERY unmeasured row is explained by a declared policy
 row beside a valid SP input keeps the raw alarm (the 2026-10-07
 truncation class).
 
+PLUS (2026-10-09, third-delivery pass) the T12 notebook pins: the 19:08
+run's artifacts and log were perfect (first run carrying the STRUCTURAL
+statuses), but the notebook SESSION died after delivery with
+FileNotFoundError on a typo'd duplicate of the ``repo`` literal in the
+confirmation block of the LIVE Kaggle copy
+(``/kaggle/working/sports_predictio_model``). The notebook is
+Kaggle-owned (T7, test_log_review_20261006) — never edited from the
+repo — so the repo-side defense is a content pin: a Kaggle re-upload
+carrying this defect class fails the suite instead of shipping silently.
+
 Convention: behavioral tests for the importable module (ingestion),
 source pins for the run-once script (master_pipeline) — same style as
 test_log_review_{20260929,20261005,20261007}.
@@ -936,3 +946,67 @@ def test_run_engine_coverage_shares_the_structural_rule(tmp_path, monkeypatch):
     assert w.status == "STRUCTURAL"
     assert "declared missing-value policy" in str(w.structural_reason)
     assert "structural_reason" in out.columns
+
+
+# ── T12: the Kaggle notebook's repo path + post-run sanity footer ──────────
+# 2026-10-09 third delivery (artifacts 129c3fd3, log f4ce14d9): the run
+# itself was CLEAN — the first to ship the T11 STRUCTURAL statuses — but
+# the notebook session ended red AFTER delivery:
+#   FileNotFoundError: No such file or directory:
+#       '/kaggle/working/sports_predictio_model'
+# in the confirmation block's ``subprocess.run(..., cwd=repo)``. The live
+# Kaggle copy's confirmation block re-typed the ``repo`` literal a SECOND
+# time and typo'd it; every committed notebook version (through Kaggle
+# Version 5, 89bd0879) is correctly spelled, and the pushed run log is
+# clean — delivery was unaffected (pipeline exit 0; Phase 5 pushed and
+# remotely verified 25 files). Standing guardrail (T7,
+# test_log_review_20261006): the notebook is Kaggle-owned and is never
+# edited from the repo, so the defense is a content pin — a Kaggle
+# re-upload carrying the defect must fail this suite.
+
+_MLB_NB = BACKEND.parent.parent / "kaggle_mlb_run.ipynb"
+_CANONICAL_REPO = "/kaggle/working/sports_prediction_model"
+
+
+def _mlb_notebook_source() -> str:
+    import json
+    nb = json.loads(_MLB_NB.read_text(encoding="utf-8"))
+    parts = []
+    for cell in nb["cells"]:
+        src = cell["source"]
+        parts.append("".join(src) if isinstance(src, list) else src)
+    return "\n".join(parts)
+
+
+def test_every_notebook_repo_literal_is_canonical():
+    """The 2026-10-09 incident: the confirmation block DUPLICATES the
+    ``repo`` literal instead of reusing the pipeline block's value, and a
+    typo in that duplicate (sports_predictio_model) crashed the cell
+    AFTER a successful delivery. Every ``repo = "..."`` literal in the
+    notebook must be the canonical clone path — one drift anywhere and
+    the sanity footer dies on a directory that does not exist."""
+    import re
+    literals = re.findall(r'repo = "([^"]*)"', _mlb_notebook_source())
+    assert literals, "the notebook must keep a repo path for its sanity footer"
+    assert set(literals) == {_CANONICAL_REPO}, (
+        "every repo literal in the Kaggle notebook must be the canonical "
+        f"clone path; found {literals}")
+
+
+def test_notebook_has_no_typo_class_repo_path():
+    """The exact defect string from the 19:08 session, pinned: any
+    'sports_predictio' that is not followed by 'n_model' is this typo."""
+    import re
+    bad = re.findall(r"sports_predictio(?!n_model)", _mlb_notebook_source())
+    assert not bad, (
+        "typo'd sports_prediction_model path in the Kaggle notebook — "
+        "the 2026-10-09 FileNotFoundError class (fix on the Kaggle side)")
+
+
+def test_notebook_keeps_the_post_run_sanity_footer():
+    """The footer the crash silenced must stay: HEAD after the run + the
+    newest dated artifacts on origin/main, plus the typo-safe runner."""
+    src = _mlb_notebook_source()
+    assert "Repo HEAD after run:" in src
+    assert "Latest dated artifacts:" in src
+    assert '["git", "log", "--oneline", "-1"]' in src
