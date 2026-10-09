@@ -3605,7 +3605,12 @@ FEATURE_DESCRIPTIONS = {
     "rest_days_diff": "Home rest days − away rest days (schedule fatigue)",
     # 5–8. SP season-to-date + last-5-start diffs
     "sp_era_diff": "Home SP season-to-date ERA − away SP",
-    "sp_era_5g_diff": "Home SP last-5-start ERA − away SP (recent form)",
+    # 2026-10-09: pinned to the backend features_metadata summary — the
+    # feature is a SHRUNK RECENT RUNS-ALLOWED rate, not earned-run average;
+    # calling it "ERA" in the fallback wording contradicted the served
+    # summary the Model Monitor renders ("Home SP recent runs allowed per
+    # nine − away SP (shrunk recent form)").
+    "sp_era_5g_diff": "Home SP recent runs allowed per nine − away SP (shrunk recent form)",
     "sp_k9_diff": "Home SP season-to-date K/9 − away SP",
     "sp_k9_5g_diff": "Home SP last-5-start K/9 − away SP (recent form)",
     # 7–9. SP trailing-3-game stuff diffs

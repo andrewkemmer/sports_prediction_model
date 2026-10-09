@@ -779,7 +779,21 @@ def run() -> int:
         _degenerate_ok = (
             "Always 1 — anchors the ~53% MLB home-field win advantage"
             in mlb_text and "is_home\nis_home" not in mlb_text)
-        if not (_served_ok and _dict_fallback_ok and _degenerate_ok):
+        # (7b) 2026-10-09: the static FALLBACK wording must never
+        # contradict the served summaries — sp_era_5g is a shrunk recent
+        # RUNS-ALLOWED rate, not earned-run average. Any surface without
+        # served metadata (older artifacts, bare describe_feature calls)
+        # must still read "runs allowed per nine", never "ERA".
+        if "utils" in sys.modules:  # already loaded by the AppTest legs
+            _utils = sys.modules["utils"]
+        else:
+            sys.path.insert(0, str(FRONTEND_DIR))
+            import utils as _utils  # noqa: E402
+        _fb_era = _utils.describe_feature("sp_era_5g_diff", sport="mlb")
+        _era_fallback_ok = ("runs allowed per nine" in _fb_era
+                            and "ERA" not in _fb_era)
+        if not (_served_ok and _dict_fallback_ok and _degenerate_ok
+                and _era_fallback_ok):
             print("MONITOR SMOKE TEST — FAIL (sport=mlb)")
             if not _served_ok:
                 print("  - served-metadata labels missing from the drift table")
@@ -787,6 +801,9 @@ def run() -> int:
                 print("  - static-dict fallback for unserved rows broken")
             if not _degenerate_ok:
                 print("  - degenerate served summary (== bare name) not ignored")
+            if not _era_fallback_ok:
+                print("  - sp_era_5g fallback contradicts the served summary: "
+                      f"{_fb_era!r}")
             return 1
         # (8) per-sport member-card derivation: the MLB leg runs AFTER the
         #     NFL leg in the SAME process, so a sys.modules-borne `config`
