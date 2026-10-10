@@ -1,0 +1,15 @@
+2026-10-10 02:19:15,393 INFO frame nhl_game_frame_20261007.parquet: 2847 x 148
+2026-10-10 02:19:15,412 WARNING OOF validation population is thin on 14 of 60 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2025-04-17..2025-04-24 n=27 mixed], [2025-04-25..2025-05-01 n=24 postseason], [2025-05-02..2025-05-08 n=10 postseason], [2025-05-09..2025-05-15 n=13 postseason], [2025-05-16..2025-05-23 n=7 postseason], +9 more - retained for evidence, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-10-10 02:19:15,413 INFO OOF season-type split: 14 window(s) carry postseason games (168 rows); their playoff rows are reported as oof_postseason and never grade the blend
+[    0.1s] frame (2847, 148), folds=60; config instances aligned: True
+2026-10-10 02:19:47,587 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67723, lightgbm ll=0.67632, elasticnet ll=0.67614 | rolling-blend pooled logloss 0.67462 | xgb causal fold budgets: median 127 over 60 fold(s), range 2-697
+2026-10-10 02:20:04,180 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67838, lightgbm ll=0.67999, elasticnet ll=0.67791 | rolling-blend pooled logloss 0.67770 | xgb causal fold budgets: median 116 over 60 fold(s), range 1-507
+2026-10-10 02:20:23,641 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.68100, lightgbm ll=0.68066, elasticnet ll=0.67870 | rolling-blend pooled logloss 0.67903 | xgb causal fold budgets: median 99 over 60 fold(s), range 1-719
+2026-10-10 02:20:45,136 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67736, lightgbm ll=0.67847, elasticnet ll=0.67556 | rolling-blend pooled logloss 0.67574 | xgb causal fold budgets: median 123 over 60 fold(s), range 1-495
+2026-10-10 02:21:13,008 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67723, lightgbm ll=0.67632, elasticnet ll=0.67626 | rolling-blend pooled logloss 0.67470 | xgb causal fold budgets: median 127 over 60 fold(s), range 2-697
+2026-10-10 02:21:52,687 INFO moneyline member OOF (weight-earning evidence): xgboost ll=0.67723, lightgbm ll=0.67632, elasticnet ll=0.67614 | rolling-blend pooled logloss 0.67462 | xgb causal fold budgets: median 127 over 60 fold(s), range 2-697
+[    0.1s] arm baseline: active=68 linear=40 tree=68 pl_in_linear=24
+[   32.3s] arm no_pl: active=44 linear=16 tree=44 pl_in_linear=0
+[   48.9s] arm no_evo: active=56 linear=28 tree=56 pl_in_linear=12
+[   68.3s] arm no_ppo: active=56 linear=28 tree=56 pl_in_linear=12
+[   89.8s] arm tree_only_levels: active=68 linear=24 tree=68 pl_in_linear=8

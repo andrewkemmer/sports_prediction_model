@@ -1,0 +1,813 @@
+{
+ "window_rows": 30,
+ "shrink_fraction": 0.2,
+ "source": {
+  "rows": 1559414,
+  "players": 3079,
+  "seasons": [
+   2008,
+   2009,
+   2010,
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019,
+   2020,
+   2021,
+   2022,
+   2023,
+   2024,
+   2025,
+   2026
+  ],
+  "max_game_date": "2026-10-08",
+  "situations": [
+   "5on4",
+   "5on5"
+  ]
+ },
+ "production_reproduction": {
+  "label": "production_vs_inline_full",
+  "rows_a": 1559414,
+  "rows_b": 1559414,
+  "only_a": 0,
+  "only_b": 0,
+  "matched": 1559414,
+  "columns": {
+   "player_name": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "team": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "pool_date": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "position": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "metric": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "prior_rows": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "prior_xg": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "prior_ice_seconds": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "league_rate_per60": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "k_seconds": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "raw_rate_per60": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "shrunk_rate_per60": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "injury_multiplier": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "availability_status": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   },
+   "final_rate_per60": {
+    "max_abs_diff": 0.0,
+    "exact": true,
+    "nan_pattern_equal": true
+   }
+  },
+  "bitwise_identical": true
+ },
+ "independent_filter": {
+  "input_rows": 1559414,
+  "eligible_rows": 1559414,
+  "dropped_bad_position": 0,
+  "dropped_bad_situation": 0,
+  "dropped_bad_ice": 0
+ },
+ "row_set_equality": {
+  "label": "production_rows_vs_independent_rows",
+  "rows_a": 1559414,
+  "rows_b": 1559414,
+  "only_a": 0,
+  "only_b": 0,
+  "matched": 1559414,
+  "columns": {},
+  "bitwise_identical": true
+ },
+ "arithmetic": {
+  "n_sampled": 950,
+  "n_matched_to_independent": 950,
+  "prior_xg": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "prior_ice": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "league_rate_60": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "k_seconds": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "raw_rate_60": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "shrunk_rate_60": {
+   "max_abs_diff": 0.0,
+   "max_rel_diff": 0.0,
+   "nan_pattern_equal": true,
+   "close_rtol_1e-9": true
+  },
+  "all_close": true
+ },
+ "causal": {
+  "2026-01-15": {
+   "prefix_deletion": {
+    "label": "prefix_deleted_vs_full_before_2026-01-15",
+    "rows_a": 1513444,
+    "rows_b": 1513444,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1513444,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   },
+   "future_poisoning": {
+    "label": "future_poisoned_vs_full_before_2026-01-15",
+    "rows_a": 1513444,
+    "rows_b": 1513444,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1513444,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   }
+  },
+  "2025-10-09": {
+   "prefix_deletion": {
+    "label": "prefix_deleted_vs_full_before_2025-10-09",
+    "rows_a": 1460814,
+    "rows_b": 1460814,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1460814,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   },
+   "future_poisoning": {
+    "label": "future_poisoned_vs_full_before_2025-10-09",
+    "rows_a": 1460814,
+    "rows_b": 1460814,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1460814,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   }
+  },
+  "2024-10-22": {
+   "prefix_deletion": {
+    "label": "prefix_deleted_vs_full_before_2024-10-22",
+    "rows_a": 1372340,
+    "rows_b": 1372340,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1372340,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   },
+   "future_poisoning": {
+    "label": "future_poisoned_vs_full_before_2024-10-22",
+    "rows_a": 1372340,
+    "rows_b": 1372340,
+    "only_a": 0,
+    "only_b": 0,
+    "matched": 1372340,
+    "columns": {
+     "player_name": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "team": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "pool_date": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "position": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "metric": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_rows": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_xg": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "prior_ice_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "league_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "k_seconds": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "raw_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "shrunk_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "injury_multiplier": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "availability_status": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     },
+     "final_rate_per60": {
+      "max_abs_diff": 0.0,
+      "exact": true,
+      "nan_pattern_equal": true
+     }
+    },
+    "bitwise_identical": true
+   }
+  }
+ },
+ "feature_level": {
+  "2026-01-15": {
+   "games": 10,
+   "n_pl_cols": 25,
+   "arms": {
+    "trunc": {
+     "games": 10,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "poison": {
+     "games": 10,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "same_day_dropped": {
+     "games": 10,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    }
+   }
+  },
+  "2025-10-09": {
+   "games": 14,
+   "n_pl_cols": 25,
+   "arms": {
+    "trunc": {
+     "games": 14,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "poison": {
+     "games": 14,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "same_day_dropped": {
+     "games": 14,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    }
+   }
+  },
+  "2024-10-22": {
+   "games": 16,
+   "n_pl_cols": 25,
+   "arms": {
+    "trunc": {
+     "games": 16,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "poison": {
+     "games": 16,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    },
+    "same_day_dropped": {
+     "games": 16,
+     "n_cols": 25,
+     "identical": true,
+     "cols_not_identical": [],
+     "max_abs_diff": 0.0
+    }
+   }
+  }
+ },
+ "elapsed_s": 244.9,
+ "pl_columns": [
+  "pl_evo_c_away",
+  "pl_evo_c_home",
+  "pl_evo_c_diff",
+  "pl_evo_l_away",
+  "pl_evo_l_home",
+  "pl_evo_l_diff",
+  "pl_evo_r_away",
+  "pl_evo_r_home",
+  "pl_evo_r_diff",
+  "pl_evo_d_away",
+  "pl_evo_d_home",
+  "pl_evo_d_diff",
+  "pl_ppo_c_away",
+  "pl_ppo_c_home",
+  "pl_ppo_c_diff",
+  "pl_ppo_l_away",
+  "pl_ppo_l_home",
+  "pl_ppo_l_diff",
+  "pl_ppo_r_away",
+  "pl_ppo_r_home",
+  "pl_ppo_r_diff",
+  "pl_ppo_d_away",
+  "pl_ppo_d_home",
+  "pl_ppo_d_diff",
+  "pl_il_out_fraction"
+ ]
+}
