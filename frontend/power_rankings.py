@@ -53,6 +53,13 @@ for _, r in top15.iterrows():
         f'<span style="color:#94A3B8;font-size:0.85rem;">{r.get("team_name", "")}</span>'
         f'</span>'
     )
+    # A pandas-read CSV turns an absent cell (blank l10/split) into NaN, and
+    # the `r.get(key, default)` fallback never fires for a PRESENT key — so
+    # normalize to the em-dash here. A stub artifact then renders the same
+    # 'no value' marker as every other page, never the literal 'nan'.
+    _l10 = r.get("l10")
+    l10 = ("—" if (_l10 is None or (isinstance(_l10, float) and _l10 != _l10)
+                   or not str(_l10).strip()) else str(_l10))
     rows.append(
         f"<tr>"
         f"<td style='color:#94A3B8;font-weight:700;'>{int(r['rank'])}</td>"
@@ -61,9 +68,9 @@ for _, r in top15.iterrows():
         f"<td>{w}-{l}</td>"
         f"<td style='color:#94A3B8;'>{utils.record_pct(w, l)}</td>"
         f"<td style='color:{rd_color};font-weight:700;'>{rd_str}</td>"
-        f"<td>{r.get('l10', '—')}</td>"
-        f"<td>{utils.pct(r.get('home_pct', 0), 1)}</td>"
-        f"<td>{utils.pct(r.get('away_pct', 0), 1)}</td>"
+        f"<td>{l10}</td>"
+        f"<td>{utils.pct(r.get('home_pct'), 1)}</td>"
+        f"<td>{utils.pct(r.get('away_pct'), 1)}</td>"
         f"</tr>"
     )
 

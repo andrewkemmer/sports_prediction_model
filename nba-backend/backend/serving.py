@@ -212,18 +212,39 @@ def write_predictions_history_csv(path, oof: pd.DataFrame, p_cal=None) -> pd.Dat
 
 
 def write_power_rankings_csv(path, ratings, records, team_names=None,
-                             point_diff=None) -> pd.DataFrame:
+                             point_diff=None, derived=None) -> pd.DataFrame:
+    """Write the power-rankings CSV on MLB's 12-column contract.
+
+    The per-team net margin is published ONCE, in ``run_diff`` — MLB's
+    contract has no ``point_diff`` column, and a duplicate bought nothing but
+    a 13th field that only this sport carried. The NBA page still labels the
+    column POINT DIFF: it reads ``run_diff`` and switches the header text by
+    sport, so the label survives the column's removal.
+
+    ``derived`` (optional) supplies the remaining MLB columns — ``l10``,
+    ``home_pct``, ``away_pct`` — computed off the decided ``team_events``
+    rows; when absent they fall back to the historical placeholders so the
+    writer stays usable without a game frame.
+    """
     names = team_names or {}
+    dv = derived if derived is not None else pd.DataFrame()
+    has = lambda col: col in dv.columns  # noqa: E731
     rows = []
     for team, elo in sorted((ratings or {}).items(), key=lambda item: -float(item[1])):
         w, l = (records or {}).get(team, (0, 0))
         diff = int((point_diff or {}).get(team, 0) or 0)
+        if team in dv.index:
+            l10 = str(dv.loc[team, "l10"]) if has("l10") else ""
+            home_pct = float(dv.loc[team, "home_pct"]) if has("home_pct") else np.nan
+            away_pct = float(dv.loc[team, "away_pct"]) if has("away_pct") else np.nan
+        else:
+            l10, home_pct, away_pct = "", np.nan, np.nan
         rows.append({"rank": 0, "team": team, "team_name": names.get(team, team),
                      "elo": round(float(elo), 1), "wins": int(w), "losses": int(l),
                      "record": f"{int(w)}-{int(l)}",
                      "pct": round(w / (w + l), 3) if w + l else np.nan,
-                     "run_diff": diff, "point_diff": diff, "l10": "",
-                     "home_pct": np.nan, "away_pct": np.nan})
+                     "run_diff": diff, "l10": l10,
+                     "home_pct": home_pct, "away_pct": away_pct})
     out = pd.DataFrame(rows)
     if len(out):
         out["rank"] = range(1, len(out) + 1)

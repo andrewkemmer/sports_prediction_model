@@ -3,17 +3,24 @@
 The NFL Power Rankings page now runs the SAME code as MLB (no sport-special
 path). This test:
 
-1. Writes a REPRESENTATIVE ``nfl_power_rankings_*.csv`` (matching the exact
-   shape the NFL backend ``nfl_moneyline._power_rankings_csv`` emits — the
-   MLB-identical column set with wins/losses, exercised through the loader's
-   w/l fallback) into the real ``nfl-backend/data_delivery`` dir, so the page
-   renders with real data (removed after the run).
+1. Writes a REPRESENTATIVE ``{sport}_power_rankings_*.csv`` (matching the
+   exact shape each backend writer emits — the MLB-identical 12-column
+   contract, exercised through the loader's w/l fallback) into the real
+   ``{sport}-backend/data_delivery`` dir, so the page renders with real data
+   (restored after the run, never left behind).
 2. Runs the ACTUAL ``power_rankings.py`` under ``sport=nfl`` and asserts the
    top-15 table renders with the exact 9 column headers — RANK | TEAM | ELO |
    W-L | PCT | RUN DIFF | L10 | HOME% | AWAY% — and the top-15 team rows are
    present (a below-top-15 team is NOT shown), with no exceptions.
-3. Runs the same page under ``sport=mlb`` and asserts it also runs clean
-   (locally it warns on a missing MLB rankings artifact rather than crashing).
+3. Renders the SAME page under ``sport=mlb``, ``sport=nhl`` and ``sport=nba``
+   and asserts each runs the shared path clean. All four artifacts carry
+   MLB's exact column contract — the diff lives in ``run_diff`` everywhere —
+   and NBA's page alone relabels that column header ``POINT DIFF``. The label
+   is a header-text switch, not a column fork, so no sport-special code path
+   exists anywhere in the page.
+
+The point of (3) is structural alignment: all four sports go through one
+renderer, and only the diff column's label/sources differ.
 
 Run from the frontend/ directory:
     python -m test_power_rankings_smoke
@@ -36,6 +43,16 @@ ARTIFACT_DATE = "20260831"
 ARTIFACT_NAME = f"nfl_power_rankings_{ARTIFACT_DATE}.csv"
 ARTIFACT_PATH = NFL_DD / ARTIFACT_NAME
 
+# Every sport the shared renderer must handle, and the diff header each
+# publishes. All four share MLB's byte-identical column contract (the diff
+# is ``run_diff``); only NBA's header text differs.
+SPORTS = {
+    "nfl": ("nfl-backend", "nfl_power_rankings_", "RUN DIFF"),
+    "nhl": ("nhl-backend", "nhl_power_rankings_", "RUN DIFF"),
+    "nba": ("nba-backend", "nba_power_rankings_", "POINT DIFF"),
+    "mlb": ("mlb-backend", "power_rankings_", "RUN DIFF"),
+}
+
 WRITTEN: list[Path] = []
 # Path -> original bytes of a PRE-EXISTING (committed) artifact this test
 # overwrites with a fixture; restored on cleanup, never deleted.
@@ -56,16 +73,18 @@ _TEAMS = [
 ]
 
 
-def _rankings_frame() -> pd.DataFrame:
+def _rankings_frame(sport: str) -> pd.DataFrame:
+    # Every sport publishes the diff under the same column name — NBA's
+    # POINT DIFF is a header label applied by the page, never a CSV fork.
+    diff_col = "run_diff"
     rows = []
     for i, (team, elo, w, l, home_wins, run_diff) in enumerate(_TEAMS, start=1):
-        rows.append({
-            "team": team, "team_name": team, "elo": round(float(elo), 1),
-            "wins": w, "losses": l, "record": f"{w}-{l}",
-            "pct": round(w / (w + l), 3), "run_diff": run_diff,
-            "l10": f"{max(0, 5 - i % 6)}-{min(5, i % 6)}",
-            "home_pct": round(home_wins / max(w, 1), 3), "away_pct": 0.5,
-        })
+        row = {"team": team, "team_name": team, "elo": round(float(elo), 1),
+               "wins": w, "losses": l, "record": f"{w}-{l}",
+               "pct": round(w / (w + l), 3), diff_col: run_diff,
+               "l10": f"{max(0, 5 - i % 6)}-{min(5, i % 6)}",
+               "home_pct": round(home_wins / max(w, 1), 3), "away_pct": 0.5}
+        rows.append(row)
     df = pd.DataFrame(rows)
     df.index += 1
     df.index.name = "rank"
@@ -82,12 +101,14 @@ def _stage(path: Path, data: bytes) -> None:
 
 
 def _write_artifacts() -> None:
-    NFL_DD.mkdir(parents=True, exist_ok=True)
-    # ``rank`` is the frame's NAMED index, so write it to the CSV (index=True),
-    # byte-for-byte the same as the original ``to_csv(ARTIFACT_PATH)``.
-    buf = io.BytesIO()
-    _rankings_frame().to_csv(buf)
-    _stage(ARTIFACT_PATH, buf.getvalue())
+    for sport, (subdir, prefix, _hdr) in SPORTS.items():
+        dd = REPO_ROOT / subdir / "data_delivery"
+        dd.mkdir(parents=True, exist_ok=True)
+        # ``rank`` is the frame's NAMED index, so write it to the CSV
+        # (index=True), byte-for-byte the same as the backend's to_csv().
+        buf = io.BytesIO()
+        _rankings_frame(sport).to_csv(buf)
+        _stage(dd / f"{prefix}{ARTIFACT_DATE}.csv", buf.getvalue())
 
 
 def _remove_artifacts() -> None:
@@ -159,18 +180,35 @@ def run() -> int:
         print("  - no exceptions; top-15 table + 9 headers rendered; "
               "below-top-15 teams cut")
 
-        # sport=mlb must still run the SAME shared path, no exception.
-        mlb = AppTest.from_file(str(FRONTEND_DIR / "power_rankings.py"),
-                                default_timeout=60)
-        mlb.session_state["sport"] = "mlb"
-        mlb.session_state["selected_date"] = ARTIFACT_DATE
-        mlb.run()
-        if mlb.exception:
-            prob = "\n  ".join(str(e.value) for e in mlb.exception)
-            print("POWER-RANKINGS SMOKE TEST — FAIL (sport=mlb)")
-            print("  - mlb path raised:\n    " + prob)
-            return 1
-        print("  - sport=mlb path clean (no exception)")
+        # Every other sport must run the SAME shared path, no exception, and
+        # publish its own diff header. Only the diff column's label differs.
+        for sport, (_sub, _prefix, diff_header) in SPORTS.items():
+            if sport == "nfl":
+                continue  # already asserted in full above
+            other = AppTest.from_file(str(FRONTEND_DIR / "power_rankings.py"),
+                                      default_timeout=60)
+            other.session_state["sport"] = sport
+            other.session_state["selected_date"] = ARTIFACT_DATE
+            other.run()
+            if other.exception:
+                prob = "\n  ".join(str(e.value) for e in other.exception)
+                print(f"POWER-RANKINGS SMOKE TEST — FAIL (sport={sport})")
+                print("  - path raised:\n    " + prob)
+                return 1
+            otext = _all_text(other)
+            # the sport's own diff header must render; the other label must not
+            if diff_header not in otext:
+                print(f"POWER-RANKINGS SMOKE TEST — FAIL (sport={sport})")
+                print(f"  - missing diff header {diff_header!r}")
+                return 1
+            wrong = "POINT DIFF" if diff_header == "RUN DIFF" else "RUN DIFF"
+            if wrong in otext:
+                print(f"POWER-RANKINGS SMOKE TEST — FAIL (sport={sport})")
+                print(f"  - rendered the wrong diff header {wrong!r}")
+                return 1
+            print(f"  - sport={sport} path clean (no exception), "
+                  f"diff header {diff_header!r}")
+        print("POWER-RANKINGS SMOKE TEST — PASS (all sports)")
         return 0
     finally:
         _remove_artifacts()

@@ -431,22 +431,41 @@ def write_predictions_history_csv(path, oof: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Power rankings CSV — shared page shape (rank/team/team_name/elo/record)
 # ---------------------------------------------------------------------------
+
+
 def write_power_rankings_csv(path, ratings: dict[str, float],
                              records: dict[str, tuple[int, int]],
                              team_names: dict[str, str],
-                             ladder_stats: pd.DataFrame | None = None) -> pd.DataFrame:
+                             ladder_stats: pd.DataFrame | None = None,
+                             derived: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Write the power-rankings CSV on MLB's 12-column contract.
+
+    ``derived`` (optional) is the per-team frame the pipeline computes off the
+    decided ``team_events`` rows: ``net`` (run/point diff), ``l10``,
+    ``home_pct``, ``away_pct``. When present those columns are published like
+    MLB's reference writer; when absent they fall back to the historical
+    placeholders (diff 0, blank l10, NaN splits) so the writer stays usable
+    without a game frame.
+    """
+    dv = derived if derived is not None else pd.DataFrame()
+    has = lambda col: col in dv.columns  # noqa: E731
     rows = []
     for team, elo in sorted(ratings.items(), key=lambda kv: -kv[1]):
         w, l = records.get(team, (0, 0))
+        if team in dv.index:
+            rd = int(round(float(dv.loc[team, "net"]))) if has("net") else 0
+            l10 = str(dv.loc[team, "l10"]) if has("l10") else ""
+            home_pct = float(dv.loc[team, "home_pct"]) if has("home_pct") else np.nan
+            away_pct = float(dv.loc[team, "away_pct"]) if has("away_pct") else np.nan
+        else:
+            rd, l10, home_pct, away_pct = 0, "", np.nan, np.nan
         row = {
-            "rank": 0, "team": team,
-            "team_name": team_names.get(team, team),
-            "elo": round(float(elo), 1),
-            "wins": int(w), "losses": int(l),
+            "rank": 0, "team": team, "team_name": team_names.get(team, team),
+            "elo": round(float(elo), 1), "wins": int(w), "losses": int(l),
             "record": f"{int(w)}-{int(l)}",
             "pct": round(w / (w + l), 3) if (w + l) else np.nan,
-            "run_diff": 0,
-            "l10": "", "home_pct": np.nan, "away_pct": np.nan,
+            "run_diff": rd,
+            "l10": l10, "home_pct": home_pct, "away_pct": away_pct,
         }
         rows.append(row)
     df = pd.DataFrame(rows)

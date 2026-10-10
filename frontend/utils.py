@@ -3163,9 +3163,15 @@ def arrow_nav(dates: list[str]) -> None:
 
 def pct(x, digits: int = 0) -> str:
     try:
-        return f"{float(x) * 100:.{digits}f}%"
+        v = float(x)
     except (TypeError, ValueError):
         return "—"
+    # NaN is an absent CSV cell (pandas reads a blank cell as NaN) — render
+    # the same em-dash as every other missing value here, never the literal
+    # 'nan%'. Same convention as the weight/drift tables in markets.py.
+    if v != v:
+        return "—"
+    return f"{v * 100:.{digits}f}%"
 
 
 def american(odds) -> str:

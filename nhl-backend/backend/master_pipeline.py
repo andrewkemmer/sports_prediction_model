@@ -1283,24 +1283,75 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
 
 
 def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
-    """Elo-based power rankings from the feature engine's state."""
+    """Elo-based power rankings from the feature engine's state.
+
+    Structurally the MLB reference writer (``mlb master_pipeline._power_rankings_csv``):
+    the same 12-column contract, and the same four derived columns — run_diff,
+    l10, home_pct, away_pct — computed from the SAME decided ``team_events``
+    rows the rest of the ranking uses. An undecided game (missing score) has
+    ``team_win = NaN`` and is neither a win nor a loss, and its net margin is
+    never fabricated into run_diff.
+    """
     ev = feat_mod.team_events(game_df)
     _, ratings = feat_mod._elo_apply(ev)
-    rec = ev.groupby("team").agg(
-        wins=("team_win", lambda s: float((s == 1).sum())),
-        losses=("team_win", lambda s: float((s == 0).sum())),
+    decided = ev[ev["team_win"].notna()].copy()
+
+    # Per-team aggregates straight off the decided events (team perspective).
+    agg = decided.groupby("team").agg(
+        wins=("team_win", lambda s: float((s >= 0.5).sum())),
+        losses=("team_win", lambda s: float((s < 0.5).sum())),
+        net=("net_from_team", "sum"),
     )
+    # home%/away% splits count STRICT wins over every decided home/away game —
+    # the same ``team_win == 1.0`` rule the sibling ``wins`` column uses, so a
+    # tie (0.5) can never pay out a half-win the record does not carry. The NHL
+    # is tie-free after 1983 (OT/SO always yields a winner, 0 ties in the
+    # 20261009 frame) so this matches a plain ``team_win`` sum today, but
+    # keeping one tie policy across all three remediated writers is what stops
+    # the NFL's half-win inflation (fixed in its writer) from being reintroduced
+    # here by a future rule change. Matches the NFL writer's tie policy.
+    _is_win = decided["team_win"] == 1.0
+    _home = decided["is_home"]
+    home_w = decided[_home].assign(_w=_is_win[_home]).groupby("team")["_w"].sum()
+    home_n = decided[_home].groupby("team").size()
+    away_w = decided[~_home].assign(_w=_is_win[~_home]).groupby("team")["_w"].sum()
+    away_n = decided[~_home].groupby("team").size()
+    # l10 = the last 10 decided games per team. Sort by gameday (with game_id
+    # as a deterministic tiebreak) so within each team the rows are in
+    # chronological order; cumcount then ranks each row 0..n-1 oldest->newest
+    # and the >= n-10 slice is the team's most recent 10 decided games.
+    _l10_keys = [c for c in ("gameday", "game_id") if c in decided.columns]
+    recent = decided.sort_values(_l10_keys, kind="stable").copy()
+    recent["_seq"] = recent.groupby("team").cumcount()
+    last10 = recent[recent["_seq"] >= recent.groupby("team")["_seq"].transform("max") - 9]
+    l10_agg = last10.groupby("team")["team_win"].agg(
+        w=lambda s: float((s >= 0.5).sum()), n="size")
+
     names = _team_names()
     rows = []
     for team, elo in sorted(ratings.items(), key=lambda kv: -kv[1]):
-        w = int(rec.loc[team, "wins"]) if team in rec.index else 0
-        l = int(rec.loc[team, "losses"]) if team in rec.index else 0
+        if team in agg.index:
+            w = int(agg.loc[team, "wins"])
+            l = int(agg.loc[team, "losses"])
+            rd = int(round(float(agg.loc[team, "net"])))
+        else:
+            w = l = 0
+            rd = 0
+        hn, hw = int(home_n.get(team, 0)), float(home_w.get(team, 0.0))
+        an, aw = int(away_n.get(team, 0)), float(away_w.get(team, 0.0))
+        home_pct = round(hw / max(hn, 1), 3) if hn else np.nan
+        away_pct = round(aw / max(an, 1), 3) if an else np.nan
+        if team in l10_agg.index:
+            lw, ln = int(l10_agg.loc[team, "w"]), int(l10_agg.loc[team, "n"])
+            l10_str = f"{lw}-{ln - lw}"
+        else:
+            l10_str = ""
         rows.append({"rank": 0, "team": team, "team_name": names.get(team, team),
                      "elo": round(float(elo), 1), "wins": w, "losses": l,
                      "record": f"{w}-{l}",
                      "pct": round(w / (w + l), 3) if (w + l) else np.nan,
-                     "run_diff": 0, "l10": "", "home_pct": np.nan,
-                     "away_pct": np.nan})
+                     "run_diff": rd, "l10": l10_str, "home_pct": home_pct,
+                     "away_pct": away_pct})
     df = pd.DataFrame(rows)
     df["rank"] = range(1, len(df) + 1)
     df.to_csv(path, index=False)

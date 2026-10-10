@@ -756,7 +756,30 @@ def _power_state(game_df: pd.DataFrame):
         records[team] = (int((group.team_win >= 0.5).sum()),
                          int((group.team_win < 0.5).sum()))
     point_diff = decided.groupby("team").net_from_team.sum().to_dict()
-    return ratings, records, point_diff
+    # Derived MLB-contract columns (l10, home/away win%% splits) computed off
+    # the same decided rows. ``team_events`` is already sorted by
+    # (gameday, game_id, team), so a transform("size") cumcount is
+    # chronological within each team and _seq >= n-10 selects the team's
+    # most recent 10 decided games.
+    home_w = decided[decided.is_home].groupby("team").team_win.sum()
+    home_n = decided[decided.is_home].groupby("team").size()
+    away_w = decided[~decided.is_home].groupby("team").team_win.sum()
+    away_n = decided[~decided.is_home].groupby("team").size()
+    seq = decided.groupby("team").cumcount()
+    nmax = seq.groupby(decided.team).transform("max")
+    last10 = decided[seq >= nmax - 9]
+    l10_agg = last10.groupby("team").team_win.agg(
+        w=lambda s: float((s >= 0.5).sum()), n="size")
+    teams = list(records)
+    derived = pd.DataFrame({
+        "l10": [f"{int(l10_agg.loc[t, 'w'])}-{int(l10_agg.loc[t, 'n'] - l10_agg.loc[t, 'w'])}"
+                if t in l10_agg.index else "" for t in teams],
+        "home_pct": [round(float(home_w.get(t, 0.0)) / max(int(home_n.get(t, 0)), 1), 3)
+                     if int(home_n.get(t, 0)) else np.nan for t in teams],
+        "away_pct": [round(float(away_w.get(t, 0.0)) / max(int(away_n.get(t, 0)), 1), 3)
+                     if int(away_n.get(t, 0)) else np.nan for t in teams],
+    }, index=teams)
+    return ratings, records, point_diff, derived
 
 
 def _validate_slate_contract(slate: pd.DataFrame,
@@ -1494,9 +1517,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         artifacts += [p_markets.name,
                       (out / config.MARKETS_META_JSON.format(date=date_c)).name]
 
-    ratings, records, point_diff = _power_state(settled)
+    ratings, records, point_diff, derived = _power_state(settled)
     p_rank = out / config.POWER_RANKINGS_CSV.format(date=date_c)
-    serving.write_power_rankings_csv(p_rank, ratings, records, facts.team_names, point_diff)
+    serving.write_power_rankings_csv(p_rank, ratings, records, facts.team_names,
+                                     point_diff, derived=derived)
     artifacts.append(p_rank.name)
 
     # Player-level RAPM, shrunk toward a position-segmented prior.

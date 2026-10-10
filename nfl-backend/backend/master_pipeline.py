@@ -1476,13 +1476,54 @@ def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
     """
     ev = feat_mod.team_events(game_df)
     _, ratings = feat_mod._elo_apply(ev)
-    rec = ev.groupby("team").agg(
-        wins=("team_win", lambda s: float((s == 1).sum())),
-        losses=("team_win", lambda s: float((s == 0).sum())),
+    decided = ev[ev["team_win"].notna()].copy()
+    rec = decided.groupby("team").agg(
+        wins=("team_win", lambda s: float((s >= 0.5).sum())),
+        losses=("team_win", lambda s: float((s < 0.5).sum())),
+        net=("net_from_team", "sum"),
     )
     records = {team: (int(row.wins), int(row.losses))
                for team, row in rec.iterrows()}
-    serve_mod.write_power_rankings_csv(path, ratings, records, _team_names())
+    # Per-team derived columns for the power-rankings CSV: run_diff (net
+    # margin), l10 (last 10 decided), and the home/away win% splits — the same
+    # four columns MLB's reference writer publishes. ``kickoff_utc`` keeps the
+    # within-season chronological order for the l10 window.
+    # A TIE scores ``team_win == 0.5`` (features.team_events keeps a real
+    # equal score at 0.5), so summing that column would pay out a HALF-win
+    # that never happened. The NFL is the one frame that still has ties — the
+    # 20261009 markets carry 8 of them — and the half-win inflated the splits
+    # while the sibling ``wins`` column, which counts only ``team_win >= 0.5``,
+    # stayed honest: PHI read home_pct 0.672 from 58.5/87 beside a 58-win
+    # record. Both splits now count STRICT wins and divide by every decided
+    # home/away game, so they agree with ``pct`` and ``record``. NHL/NBA have
+    # no ties (0 in the same frame), so this is a no-op there.
+    _is_win = decided["team_win"] == 1.0
+    _home = decided["is_home"]
+    home_w = decided[_home].assign(_w=_is_win[_home]).groupby("team")["_w"].sum()
+    home_n = decided[_home].groupby("team").size()
+    away_w = decided[~_home].assign(_w=_is_win[~_home]).groupby("team")["_w"].sum()
+    away_n = decided[~_home].groupby("team").size()
+    order_col = "kickoff_utc" if "kickoff_utc" in decided.columns else "gameday"
+    order_cols = [c for c in (order_col, "game_id") if c in decided.columns]
+    recent = decided.sort_values(order_cols, kind="stable").copy()
+    # l10 window: after the stable time sort each team's rows are in
+    # chronological order, so cumcount 0..n-1 ranks oldest->newest and
+    # _seq >= n-10 selects the team's most recent 10 decided games.
+    recent["_seq"] = recent.groupby("team").cumcount()
+    last10 = recent[recent["_seq"] >= recent.groupby("team")["_seq"].transform("max") - 9]
+    l10_agg = last10.groupby("team")["team_win"].agg(
+        w=lambda s: float((s >= 0.5).sum()), n="size")
+    derived = pd.DataFrame({
+        "net": rec["net"],
+        "l10": [f"{int(l10_agg.loc[t, 'w'])}-{int(l10_agg.loc[t, 'n'] - l10_agg.loc[t, 'w'])}"
+                if t in l10_agg.index else "" for t in rec.index],
+        "home_pct": [round(float(home_w.get(t, 0.0)) / max(int(home_n.get(t, 0)), 1), 3)
+                     if int(home_n.get(t, 0)) else np.nan for t in rec.index],
+        "away_pct": [round(float(away_w.get(t, 0.0)) / max(int(away_n.get(t, 0)), 1), 3)
+                     if int(away_n.get(t, 0)) else np.nan for t in rec.index],
+    })
+    serve_mod.write_power_rankings_csv(path, ratings, records, _team_names(),
+                                       derived=derived)
 
 
 # The four published OOF populations. Seeded as {"n": 0, "sufficient":
