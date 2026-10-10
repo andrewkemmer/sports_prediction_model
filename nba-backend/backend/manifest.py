@@ -467,13 +467,13 @@ _FAMILY: dict[str, dict] = {
         "summary": "Home−away projected-lineup center RAPM",
         "summary_level": "Projected-lineup center RAPM",
         "definition": (
-            "Position-segmented shrunk RAPM for the center pool of the "
+            "Position-segmented game-level MIN/48 ridge proxy for the center pool of the "
             "projected lineup, minutes-weighted and injury-filtered "
             "(Out/Doubtful/Recovery excluded before tip-off)."),
         "formula": "pl_rapm_c_home − pl_rapm_c_away",
-        "source": "Season log player lines → position-segmented shrunk RAPM → projected lineup average",
-        "window": "season to date",
-        "units": "points per 100 possessions",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "window": "season to date; last completed season before own-season evidence",
+        "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
@@ -481,12 +481,12 @@ _FAMILY: dict[str, dict] = {
         "summary": "Home−away projected-lineup forward RAPM",
         "summary_level": "Projected-lineup forward RAPM",
         "definition": (
-            "Position-segmented shrunk RAPM for the forward pool of the "
+            "Position-segmented game-level MIN/48 ridge proxy for the forward pool of the "
             "projected lineup, minutes-weighted and injury-filtered."),
         "formula": "pl_rapm_f_home − pl_rapm_f_away",
-        "source": "Season log player lines → position-segmented shrunk RAPM → projected lineup average",
-        "window": "season to date",
-        "units": "points per 100 possessions",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "window": "season to date; last completed season before own-season evidence",
+        "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
@@ -494,12 +494,12 @@ _FAMILY: dict[str, dict] = {
         "summary": "Home−away projected-lineup guard RAPM",
         "summary_level": "Projected-lineup guard RAPM",
         "definition": (
-            "Position-segmented shrunk RAPM for the guard pool of the "
+            "Position-segmented game-level MIN/48 ridge proxy for the guard pool of the "
             "projected lineup, minutes-weighted and injury-filtered."),
         "formula": "pl_rapm_g_home − pl_rapm_g_away",
-        "source": "Season log player lines → position-segmented shrunk RAPM → projected lineup average",
-        "window": "season to date",
-        "units": "points per 100 possessions",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "window": "season to date; last completed season before own-season evidence",
+        "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },

@@ -468,7 +468,9 @@ class TestCarryProvenance:
         row = rows[0]
         assert row["n_nonnull"] == 4
         assert row["pct_measured"] == 50.0
+        assert row["pct_nonnull"] == 100.0  # carries are present, not measured
         assert row["n_measured"] == 2 and row["n_carried"] == 2
+        assert row["status"] == "LOW_COVERAGE"
 
     def test_no_provenance_means_every_non_null_is_measured(self, monkeypatch):
         monkeypatch.setattr(config, "MONEYLINE_FEATURE_COLS", [self.FEATURE])

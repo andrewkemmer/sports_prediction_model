@@ -12,11 +12,12 @@ where each team-game is one row, ``y`` is that team's point margin
 minutes. Solving the ridge ``(X'X + lambda I) beta = X'y`` over
 all players simultaneously is what makes the rating ADJUSTED: every
 teammate's contribution is claimed by that teammate's own column,
-so a player's beta is his effect CONDITIONAL on the co-players in
-the model - naive per-player plus-minus is team-contaminated, the
-regression removes exactly that. Every row's shares sum to ~1, so
-each beta is directly a per-game average in points, and the
-ridge's minimum-norm solution centers the league mean at zero.
+so a player's beta is conditional on game-level teammate/opponent minutes.
+This is a GAME-LEVEL ridge proxy, not possession/stint RAPM: it cannot
+identify who shared the floor or separate offensive and defensive impact.
+Each team's MIN/48 shares sum to about FIVE (more in overtime), not one.
+Beta is a full-48-minute coefficient in the game-margin equation, not a
+player's observed points per game or conventional points per 100 possessions.
 
 The evidence window is the target's own season - with the most
 recent season that has a game before the target as the fallback
@@ -123,12 +124,14 @@ def participation_share(minutes) -> pd.Series:
 
     The design-matrix entry of the RAPM fit: a starter who plays 40
     of 48 minutes carries a 0.833 in his row, a DNP exactly 0.0.
-    Every row's shares sum to ~1, which is what makes each solved
-    beta a per-game average in points and what centers the league
-    mean at zero without an explicit constraint.
+    A regulation team's shares sum to about five, one per on-court slot.
+    This is a per-48-minute exposure, not a fraction of total team minutes;
+    overtime can increase the team sum. It is not possession-normalized.
     """
     mins = pd.to_numeric(pd.Series(minutes), errors="coerce").fillna(0.0)
-    return (mins / 48.0).clip(upper=1.0).where(mins > 0, 0.0)
+    # Full-48-minute exposure is linear even in overtime. Clipping 50+
+    # minutes to one undercounts the exposure in X and in eff-games.
+    return (mins / 48.0).where(np.isfinite(mins) & (mins > 0), 0.0)
 
 
 def team_game_entries(games: pd.DataFrame,
@@ -212,9 +215,17 @@ def team_game_entries(games: pd.DataFrame,
             side[(key, teams[1])] = -1.0
             margin[key] = float(tp.loc[(key, teams[0])]
                                 - tp.loc[(key, teams[1])])
-        work["sign"] = [side.get((k, t), np.nan)
-                        for k, t in zip(work.game_key, work.team)]
-        work["y"] = [margin.get(k, np.nan) for k in work.game_key]
+        # Reorient only unsupported games. A missing official row in ONE
+        # game must not relabel every other game's genuine home-court side.
+        unsupported = work.loc[work.y.isna() | work.sign.isna(),
+                               "game_key"].unique()
+        missing_game = work.game_key.isin(unsupported)
+        fallback = work.loc[missing_game]
+        work.loc[missing_game, "sign"] = [
+            side.get((k, t), np.nan)
+            for k, t in zip(fallback.game_key, fallback.team)]
+        work.loc[missing_game, "y"] = [margin.get(k, np.nan)
+                                      for k in fallback.game_key]
     return work[["player_id", "gameday", "season", "team", "game_key",
                  "minutes", "share", "sign", "y"]]
 
@@ -447,8 +458,8 @@ def _k_table_for_season(k_by_season: dict, full_frame_table: dict,
 
     Exact season first; else the most recent table built from an earlier
     season (a target in a season the frame has no rows for - a preseason
-    date, say - still rates on a completed-season scale); else the
-    whole-frame table, the only scale the frame knows.
+    date, say - still rates on a completed-season scale);    else the
+    fixed fallback table; no future season may calibrate an early target.
     """
     if season in k_by_season:
         return k_by_season[season]
@@ -509,15 +520,10 @@ def _evidence_season(games: pd.DataFrame, target,
     from. A player who never appears in the last completed season has no row
     either way, which is the honest answer rather than a borrowed one.
 
-    ``strict=True`` asks the same question with the inequality the FIT needs:
-    a season qualifies only if it has a row STRICTLY BEFORE the target, not
-    on it. The rating's solve and priors use the strict reading - a game
-    played on the target day has not been solved for yet - while the roster
-    side keeps the non-strict one so the players taking the floor TONIGHT are
-    in the frame to be rated. The two readings diverge exactly on a season's
-    first day: the roster is this season's, the solve falls back to the last
-    season's, and a rating dated there is last season's fit rather than no
-    fit at all.
+    ``strict=True`` qualifies only seasons with a row STRICTLY BEFORE the
+    target. Production uses this for BOTH roster membership and the fit:
+    today's participation is a post-game fact, not a pregame roster source.
+    The non-strict option remains available for diagnostics only.
     """
     own = _season_of(target)
     if index is None:
@@ -722,7 +728,7 @@ class _SeasonDesign:
         # exactly zero without letting players who have not appeared yet
         # (zero columns, beta = 0 by construction) drag the reference
         # toward itself. Each row's signed shares sum to ~0 (home share -
-        # away share ~ 1 - 1), so the shift moves every beta together and
+        # away share ~ 5 - 5), so the shift moves every beta together and
         # leaves the intercept's reading of the home edge alone.
         center = raw[seen].mean() if seen.any() else raw.mean()
         beta = pd.Series(raw - center,
@@ -786,11 +792,10 @@ def build_player_rapm(games: pd.DataFrame,
     the position prior the fit's own betas define for that date, and the
     raw and shrunk ratings in points per game.
 
-    A player with no window evidence is still emitted - with a NaN raw
-    rating and a shrunk rating equal to the position prior. "This player
-    has no rating" and "this player was never in the data" are different
-    facts, and a projection that cannot tell them apart will happily
-    project a player who does not exist.
+    Membership uses strictly-prior positive-minute appearances too: target-
+    day box rows cannot establish a debut, trade, or renewed recency. A prior
+    roster member without a fitted beta keeps NaN raw impact and may shrink
+    to the position prior; an unknown player is not fabricated.
 
     ``team_stats`` supplies official sides and margins to the design
     (``net_points``/``is_home``); without it ``team_game_entries`` falls
@@ -840,36 +845,40 @@ def build_player_rapm(games: pd.DataFrame,
     # seasons only (NHL's season_ice_time_table discipline): a season cannot
     # tune its own k, and an in-progress season - whose player-seasons are
     # partial - would otherwise drag the mean down as the season accumulates
-    # and silently weaken every rating's prior weight game by game. The
-    # whole-frame table stays as the fallback for a target whose season
-    # predates every season the frame knows.
-    k_table = season_eff_table(games, shrink_fraction=shrink_fraction)
+    # and silently weaken every rating's prior weight game by game.
+    # A target with no completed prior season uses the fixed fallback.
+    # The old whole-frame fallback saw future games/seasons and changed
+    # earliest-season ratings when the same history was rebuilt later.
+    k_table = {pos: float(config.PLAYER_RAPM_FALLBACK_K_EFF)
+               for pos in config.PLAYER_EPM_POSITIONS}
     k_by_season: dict = {}
     if "season" in games.columns:
         frame_seasons = sorted(
             {s for s in games["season"].dropna().unique()},
             key=_season_key)
-        for index_, season in enumerate(frame_seasons):
-            k_by_season[season] = (
-                k_table if index_ == 0 else
-                season_eff_table(games, shrink_fraction=shrink_fraction,
-                                 through_season=season))
+        # Include target seasons even when no player row has appeared in
+        # them yet (opening slates). Their k uses ALL completed priors,
+        # rather than reusing the previous target season's older table.
+        target_seasons = {_season_of(d) for d in dates}
+        for season in set(frame_seasons) | target_seasons:
+            k_by_season[season] = season_eff_table(
+                games, shrink_fraction=shrink_fraction, through_season=season)
 
     designs: dict = {}
     rows = []
     for target in dates:
-        # The roster and the solve may draw on different seasons, and only
-        # on a season's first day. The roster is non-strict: the players
-        # taking the floor TONIGHT are in the frame to be rated, even
-        # though none of them has played yet. The solve is strict: a game
-        # on the target day cannot be evidence for that day's rating, so
-        # the fit falls back to the last season that has one - which makes
-        # opening night's ratings last season's fit (or the position prior
-        # for a debut) rather than no rating at all. See _evidence_season.
-        roster_season = _evidence_season(work, target, roster_index)
+        # Box-score membership, team changes and recency are post-game
+        # facts too. Use the SAME strict cutoff as the solve: otherwise a
+        # traded player moves before his first known appearance and an
+        # actual target-day appearance resurrects a stale player in backtests
+        # while the pending slate cannot see it. A debut is unknown until
+        # its first PRIOR appearance; no timestamped roster source is read.
+        roster_season = _evidence_season(work, target, roster_index,
+                                         strict=True)
         fit_season = _evidence_season(entries, target, fit_index,
                                       strict=True)
-        known = work[work.gameday <= target]
+        known = work[(work.gameday < target)
+                     & (pd.to_numeric(work.share, errors="coerce") > 0)]
         if "season" in known.columns and roster_season:
             known = known[known.season == roster_season]
         if known.empty:
@@ -885,12 +894,9 @@ def build_player_rapm(games: pd.DataFrame,
         solved = design.solve()
         beta = solved[0] if solved is not None else None
 
-        # A player who has already appeared on or before the target date is
-        # rated even with no prior evidence, so the row exists with a zero
-        # prior. The distinction matters to a caller: "this player has no
-        # rating yet" and "this player was never in the data" are different
-        # facts, and a projection that cannot tell them apart will happily
-        # project a player who does not exist.
+        # Only players with an actual PRIOR appearance may enter the roster.
+        # A target-day box line, including a DNP, cannot establish pregame
+        # membership, a trade or freshness.
         snapshot = _prior_for(work, target, season=fit_season)
         roster_cols = ["player_id", "position"]
         if "positions" in known.columns:
@@ -946,14 +952,14 @@ def build_player_rapm(games: pd.DataFrame,
             snapshot.lg_rapm, snapshot.k_eff)
         snapshot["target_date"] = target
         # Recency of the player's actual evidence, carried for the pool's
-        # availability gate: days from the player's LAST appearance at or
-        # before the target, within the rated season. The gap is only
+        # availability gate: days from the player's LAST strictly-prior
+        # positive-minute appearance within the rated season. The gap is only
         # defined when the roster season IS the target's own season; a
         # carryover target (rated across a season boundary) carries NaN -
         # that is the season-start carryover case, governed by the min-eff
         # floor, and NOT an infinitely stale row.
         if roster_season == _season_of(target):
-            known_early = known[known.gameday <= target]
+            known_early = known[known.gameday < target]
             if len(known_early):
                 last_seen = (known_early.groupby("player_id").gameday.max()
                              .rename("_last_seen"))

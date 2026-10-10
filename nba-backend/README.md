@@ -5,7 +5,11 @@ MLB/NFL/NHL production contracts.
 
 ## Input and evaluation repair — 2026-10-08
 
-Current representation: **`nba-prod-v2.7-input-causal-parity`**. Rebuild features,
+Current representation: **`nba-prod-v2.8-rapm-strict-pregame`**. The 2026-10-09
+RAPM follow-up removes target-day roster/recency leakage, future-derived cold-
+start shrinkage, and overtime exposure clipping; see
+[the predictive and coverage audit](../docs/nba_rapm_review_20261009.md).
+Rebuild features,
 OOF, blend/calibration, and final refits together; do not score corrected inputs
 through an old v2.6 bundle. No new executable programs or speculative tuning
 were added.
@@ -470,19 +474,25 @@ Two things are deliberately **not** done here:
 
 ### Player-level Regularized Adjusted Plus-Minus, shrunk to a position-segmented prior
 
-`backend/player_rapm.py` rates every player on Regularized Adjusted
-Plus-Minus — the NBA analogue of NFL's EPA-per-target — the way MLB rates a
-batter on wOBA and NHL rates a skater:
+`backend/player_rapm.py` implements a **game-level minutes-weighted ridge
+proxy**, exposed under the existing RAPM column names. It is not conventional
+possession/stint RAPM and does not identify actual five-player combinations
+or offensive/defensive impact. Its usefulness must be measured on future
+win probabilities, not inferred from recognizable player rankings:
 
 ```
 (X'X + λI) β = X'y        RAPM_raw = β[player]
 ```
 
 The design has **one row per game**. `y` is the home margin, each home
-player's column carries his minutes share of the game (`MIN / 48`, clipped at
-1.0; a player who did not play contributes no row) and each away player's
+player's column carries his full-48-minute exposure (`MIN / 48`, including
+overtime without clipping; a player who did not play contributes no row) and each away player's
 carries the negative of his, so every coefficient is signed toward its own
-side. The regression is what makes it *adjusted*: each teammate's share is
+side. Each regulation team's shares sum to approximately **five**, not one;
+over-time raises that exposure and the source rounds minutes. Beta's units
+are game-margin points per full-48-minute player exposure, **not points per
+100 possessions** or observed player points per game. The regression is
+adjusted for game-level minutes only: each teammate's share is
 claimed by his own column, so a player's beta is his effect conditional on
 who he played with. The ridge is what makes it *regularized* — λ = 16 sits
 on the player columns only, and the home-court intercept column is never
@@ -538,17 +548,22 @@ player with a full season of evidence looks equally well-rated whether or not
 the boundary holds — so both are pinned by tests. The same discipline governs
 the prior *strength*: `k` is derived per target season from completed prior
 seasons only, so a season never tunes its own shrinkage, and the frame's
-earliest season (no completed prior to measure against) keeps the whole-frame
-mean. Before a season's first decided game there is no in-season evidence to
+earliest season (no completed prior to measure against) uses the fixed
+`PLAYER_RAPM_FALLBACK_K_EFF`, never a future whole-frame mean. Roster identity,
+trades and appearance recency also use **strictly-prior positive-minute rows**;
+a target-day box score cannot refresh a stale player or establish a debut.
+Before a season's first decided game there is no in-season evidence to
 solve on, so the fit falls back to the last season that has one — the bridge
 the opening slate needs.
 
-**Availability is a separate column, never folded into the rating.** An injured
-player still has a RAPM; what changes is how much a lineup
-projection should lean on it. `out` carries a 0.0 multiplier, `day_to_day` 0.5,
-`healthy` 1.0. Note that this is a *current* input, like MLB's IL: it describes
-today's roster, so it is only meaningful for a live slate. A rating dated to a
-historical game takes its availability from the roster as it stands now.
+**Availability removes pool members, never scales their ratings.** Official
+PIT Out/Doubtful/Recovery designations remove the player from that target
+game's pool. No 0/0.5/1 availability multiplier is used. Historical removals
+come from the designation archive; pending dates resolve filings separately.
+Missing/future filings mean unfiltered availability, not proof of health.
+Offseason team assignments still follow the last known box appearance: a
+timestamped roster/transaction feed is needed to resolve moves before a
+player's first new-team game without leaking that game's box score.
 
 #### What the source can and cannot do
 

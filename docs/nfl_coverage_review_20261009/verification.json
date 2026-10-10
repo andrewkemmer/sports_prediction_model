@@ -1,0 +1,27 @@
+{
+  "python": "3.14.3",
+  "syntax_files": 26,
+  "syntax_compile": "passed",
+  "static_typecheck": "not run: none configured/installed; compile is not typechecking",
+  "environment": "PYTHONUTF8=1; OPENBLAS_NUM_THREADS=1; OMP_NUM_THREADS=1; seed=42",
+  "libraries": {
+    "pandas": "3.0.1",
+    "numpy": "2.4.3",
+    "scipy": "1.18.0",
+    "scikit-learn": "1.9.0",
+    "xgboost": "3.4.0",
+    "lightgbm": "4.7.0",
+    "pyarrow": "24.0.0",
+    "pytest": "9.1.1"
+  },
+  "production_artifacts_replaced": false,
+  "no_new_committed_programs": true,
+  "checks": {
+    "production_passed": 523,
+    "production_failed": 0,
+    "backend_pytest": 34,
+    "after_refresh_causal_replay": "passed",
+    "board_utc_rows": 29,
+    "board_utc_mismatches": 0
+  }
+}

@@ -1,0 +1,174 @@
+{
+  "version": "nba-prod-v2.8-rapm-strict-pregame",
+  "columns": 71,
+  "known": 113,
+  "history": 3461,
+  "slate": 43,
+  "infinite_cells": 0,
+  "linear_width": 31,
+  "tree_width": 73,
+  "real_final_refit_and_slate": {
+    "games": 43,
+    "all_finite": true,
+    "joblib_replay_bit_identical": true,
+    "seconds": 3.339667099993676,
+    "min_probability": 0.1443504678579269,
+    "max_probability": 0.8560960311530449,
+    "weights": {
+      "elasticnet": 0.7769,
+      "lightgbm": 0.2231,
+      "xgboost": 0.0
+    },
+    "production_files_replaced": false
+  },
+  "monitor_status": {
+    "OK": 142
+  },
+  "team_game_reconciliation": {
+    "team_games": 6922,
+    "missing": 0,
+    "player_sum_score_mismatches": 0
+  },
+  "event_box_crosscheck": {
+    "fga": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "fgm": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "fg3a": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "fg3m": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "fta": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "ftm": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "oreb": {
+      "compared": 6922,
+      "exact": 6761,
+      "max_abs_diff": 5.0,
+      "mean_abs_diff": 0.0287,
+      "worst_offenders": [
+        {
+          "game_id": "401705312",
+          "team": "OKC",
+          "abs_diff": 5.0
+        },
+        {
+          "game_id": "401705293",
+          "team": "SAC",
+          "abs_diff": 3.0
+        },
+        {
+          "game_id": "401705305",
+          "team": "OKC",
+          "abs_diff": 3.0
+        }
+      ]
+    },
+    "dreb": {
+      "compared": 6922,
+      "exact": 6470,
+      "max_abs_diff": 10.0,
+      "mean_abs_diff": 0.1725,
+      "worst_offenders": [
+        {
+          "game_id": "401705095",
+          "team": "OKC",
+          "abs_diff": 10.0
+        },
+        {
+          "game_id": "401705149",
+          "team": "OKC",
+          "abs_diff": 10.0
+        },
+        {
+          "game_id": "401705111",
+          "team": "OKC",
+          "abs_diff": 10.0
+        }
+      ]
+    },
+    "tov": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "pf": {
+      "compared": 6922,
+      "exact": 6387,
+      "max_abs_diff": 3.0,
+      "mean_abs_diff": 0.0809,
+      "worst_offenders": [
+        {
+          "game_id": "401705661",
+          "team": "BKN",
+          "abs_diff": 3.0
+        },
+        {
+          "game_id": "401810968",
+          "team": "GSW",
+          "abs_diff": 3.0
+        },
+        {
+          "game_id": "401705658",
+          "team": "WAS",
+          "abs_diff": 2.0
+        }
+      ]
+    },
+    "assists": {
+      "compared": 6922,
+      "exact": 6566,
+      "max_abs_diff": 22.0,
+      "mean_abs_diff": 0.2101,
+      "worst_offenders": [
+        {
+          "game_id": "401705475",
+          "team": "DEN",
+          "abs_diff": 22.0
+        },
+        {
+          "game_id": "401704679",
+          "team": "DEN",
+          "abs_diff": 16.0
+        },
+        {
+          "game_id": "401704743",
+          "team": "DEN",
+          "abs_diff": 16.0
+        }
+      ]
+    },
+    "points": {
+      "compared": 6922,
+      "exact": 6922,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    }
+  }
+}

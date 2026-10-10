@@ -449,7 +449,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # is a phantom (injury never filed, quiet shutdown, roster cut), and no
     # designation will ever remove him - the row only LOOKS fresh because it
     # is re-emitted per target date. The gap is the player's actual last
-    # appearance strictly at or before the target within the rated season;
+    # strictly-prior appearance within the rated season;
     # NaN means the season has not started for him yet, which is the
     # season-start carryover the min-minutes floor already governs, not
     # staleness.

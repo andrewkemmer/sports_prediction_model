@@ -38,7 +38,8 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("ab")
 
-CACHE = Path(os.path.expanduser("~/.cache/sports_prediction_model/nba"))
+CACHE = Path(os.environ.get("NBA_CACHE_DIR")
+             or os.path.expanduser("~/.cache/sports_prediction_model/nba"))
 
 POSITION_FEATURES = [f"pl_rapm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
@@ -55,8 +56,9 @@ def build_player_games():
     has to reach the player rather than the team.
     """
     import player_rapm as rapm_mod
-    frames = [pd.read_parquet(f)
-              for f in sorted(CACHE.glob("season_logs/log_*_Regular_Season.parquet"))]
+    paths = sorted({*CACHE.glob("season_logs/log_*_Regular_Season.parquet"),
+                    *CACHE.glob("season_logs/log_*_Playoffs.parquet")})
+    frames = [pd.read_parquet(f) for f in paths]
     log = pd.concat(frames, ignore_index=True)
     log = log.drop_duplicates(subset=["nba_game_id", "player_id", "SEASON_ID"],
                               keep="first")
@@ -101,7 +103,9 @@ def _flip_name(name: str) -> str:
 def build_position_features(games: pd.DataFrame,
                             designations: pd.DataFrame | None,
                             team_stats: pd.DataFrame | None = None,
-                            ) -> pd.DataFrame:
+                            player_stats: pd.DataFrame | None = None,
+                            positions: pd.DataFrame | None = None,
+                            ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The nine features, for every decided game in the window.
 
     The pool is built for EVERY date in the frame rather than one target, which
@@ -110,7 +114,14 @@ def build_position_features(games: pd.DataFrame,
     """
     import lineup_projection as proj
     import player_rapm as rapm_mod
-    games_frame, name_by_id = build_player_games()
+    if player_stats is None:
+        games_frame, name_by_id = build_player_games()
+    else:
+        # The production fact population, not a separate regular-season-only
+        # cache sweep: playoff evidence must enter the same ratings as serving.
+        games_frame = rapm_mod.prepare_player_games(player_stats, positions)
+        name_by_id = dict(zip(rapm_mod._player_id_str(player_stats.player_id),
+                              player_stats.player_name.astype(str)))
     dates = pd.Series(sorted(pd.to_datetime(games.gameday).dropna().unique()))
     logger.info("building ratings for %d target dates", len(dates))
     started = time.time()
@@ -175,13 +186,21 @@ def main() -> None:
     # archive was invisible to the experiment that justifies the features.
     import lineup_projection as proj_mod
     designations = proj_mod.load_designations(CACHE)
+    if designations is None:
+        designations = proj_mod.load_designations(config.DATA_DELIVERY_DIR)
     logger.info("designations: %s",
                 "none - full pool retained" if designations is None
                 else f"{len(designations)} rows")
 
     logger.info("building the nine position features")
-    enriched, aggregates = build_position_features(base, designations,
-                                                    team_stats=facts.team_stats)
+    positions = pd.concat([
+        ingestion._fetch_positions(season)
+        for season in sorted({ingestion.season_label(d.date())
+                              for d in pd.to_datetime(games.gameday).dropna()})
+    ], ignore_index=True)
+    enriched, aggregates = build_position_features(
+        base, designations, team_stats=facts.team_stats,
+        player_stats=facts.player_stats, positions=positions)
 
     missing = [c for c in POSITION_FEATURES if c not in enriched.columns]
     if missing:
@@ -232,8 +251,15 @@ def main() -> None:
         result = ml_mod.walk_forward_oof(joined, fold_list=fold_list,
                                         progress_every=0)
         oof = result["oof"]
-        metrics = score(oof.p_ensemble.to_numpy(float),
-                        oof.home_win.to_numpy(float))
+        if oof.empty or any(oof[f"p_{m}"].isna().any()
+                            for m in config.ENSEMBLE_MEMBERS):
+            config.reset_feature_subset()
+            raise RuntimeError(f"{name}: incomplete member OOF; A/B is invalid")
+        grading = oof[oof.grades_pooled.astype(bool)]
+        metrics = score(grading.p_ensemble_calibrated.to_numpy(float),
+                        grading.home_win.to_numpy(float))
+        print(f"  grading rows: {len(grading)}; all-row diagnostic: "
+              f"{score(oof.p_ensemble_calibrated, oof.home_win)}")
         results[name] = (metrics, oof)
         print(f"\n=== {name}: {len(columns)} features, "
               f"{len(oof)} OOF rows, {time.time()-started:.0f}s")
@@ -259,7 +285,17 @@ def main() -> None:
     # wider, which on 2,000 games they usually are.
     base_oof = results["baseline"][1]
     treat_oof = results["position_rapm"][1]
-    merged = (base_oof[["game_id", "home_win", "p_ensemble"]]
+    if (base_oof.game_id.duplicated().any()
+            or not base_oof.game_id.equals(treat_oof.game_id)
+            or not base_oof.home_win.equals(treat_oof.home_win)
+            or not base_oof.grades_pooled.equals(treat_oof.grades_pooled)):
+        raise RuntimeError("A/B OOF populations differ; paired scoring refused")
+    base_oof = base_oof[base_oof.grades_pooled].copy()
+    treat_oof = treat_oof[treat_oof.grades_pooled].copy()
+    # Score the probability actually served, not a final-weight replay.
+    base_oof["p_ensemble"] = base_oof.p_ensemble_calibrated
+    treat_oof["p_ensemble"] = treat_oof.p_ensemble_calibrated
+    merged = (base_oof[["game_id", "gameday", "home_win", "p_ensemble"]]
               .rename(columns={"p_ensemble": "p_ensemble_b"})
               .merge(treat_oof[["game_id", "p_ensemble"]]
                      .rename(columns={"p_ensemble": "p_ensemble_t"}),
@@ -285,7 +321,13 @@ def main() -> None:
               "did not reach the model or changed nothing")
         return
     rng = np.random.default_rng(config.RANDOM_SEED)
-    boot = np.array([rng.choice(d, n, replace=True).mean() for _ in range(4000)])
+    # Resample game dates together: same-night outcomes share injuries,
+    # travel and league conditions and are not independent observations.
+    blocks = [part.index.to_numpy() for _, part in merged.groupby("gameday")]
+    boot = np.array([
+        d[np.concatenate([blocks[i] for i in
+                          rng.integers(0, len(blocks), len(blocks))])].mean()
+        for _ in range(4000)])
     lo, hi = np.percentile(boot, [2.5, 97.5])
     print(f"\n=== paired per-game log-loss difference (treatment - baseline)")
     print(f"  n = {n}")
@@ -299,8 +341,10 @@ def main() -> None:
     print(f"  treatment better on {int((d < 0).sum())} of {n} games "
           f"({100*(d<0).mean():.1f}%)")
 
-    merged.to_csv(Path("/tmp/ab_paired_oof.csv"), index=False)
-    print("\n  paired OOF written to /tmp/ab_paired_oof.csv")
+    output = Path(config.RUN_DIAGNOSTICS_DIR) / "ab_paired_oof.csv"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(output, index=False)
+    print(f"\n  paired OOF written to {output}")
 
 
 if __name__ == "__main__":

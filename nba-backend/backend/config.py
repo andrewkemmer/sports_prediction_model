@@ -96,7 +96,9 @@ RFE_MAX_STEPS = 120
 #: keep the pl_epm spelling because that is what those versions published.
 # v2.7 corrects Elo home advantage, measured efficiencies, pending-row
 # isolation and causal evaluation. Rebuild features/OOF/refits together.
-FEATURE_SET_VERSION = "nba-prod-v2.7-input-causal-parity"
+# v2.8 also makes RAPM roster membership, trades, recency and earliest-season
+# shrinkage strictly prior. Existing v2.7 models require a synchronized rebuild.
+FEATURE_SET_VERSION = "nba-prod-v2.8-rapm-strict-pregame"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -663,10 +665,10 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 #     opening-slate build) is numerically identical to the old whole-frame
 #     mean; the difference appears in-season and when rating a season the
 #     frame itself contains. The frame's EARLIEST season has no completed
-#     prior to measure against, so it keeps the whole-frame mean - the
-#     pre-2026-10-01 behavior - rather than a constant that ignores the
-#     frame's own season scale; PLAYER_RAPM_FALLBACK_K_EFF remains only
-#     for cells with no evidence at all. The position prior is no longer a
+#     prior to measure against, so it uses PLAYER_RAPM_FALLBACK_K_EFF.
+#     A whole-frame mean here would leak future games and seasons into k.
+#     Opening slates absent from the player frame compute their own target-
+#     season k from all completed priors, not the previous season's table. The position prior is no longer a
 #     per-date cumulative table: it is the mean beta of that position's
 #     evidenced members IN THE SAME FIT, so the prior and the rating it
 #     shrinks can never disagree about scale or about date.
@@ -705,7 +707,10 @@ PLAYER_EPM_PRIMARY_MIN_COVERAGE = 0.90
 #: RAPM ridge strength (lambda) on the player columns of the signed
 #: single-row design; the home-court intercept column is NEVER ridged.
 #: Measured 2026-10-03 on the cached 2-season frame (.adhoc/rapm_prototype.py):
-#: candidates 4/8/16, and 16 is the one that surfaces stars at the top
+#: candidates 4/8/16, and 16 was chosen by descriptive player rankings,
+#: NOT held-out win prediction. The paired predictive audit must justify
+#: retention; ranking recognizable stars is not an admission gate.
+#: In that descriptive check, 16 surfaces stars at the top
 #: (Wemby +5.2, Haliburton +3.9, Curry +3.6) while fringe players sink to
 #: -6..-7 and thin players (<=5 games) sit at mean|beta| 0.39 versus 1.64
 #: for regulars (>=20 games) - the shrinkage working through the ridge.

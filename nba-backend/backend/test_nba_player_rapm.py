@@ -57,11 +57,19 @@ def _prepared(rows):
 
 
 class TestParticipationShare:
-    """The design-matrix entry: MIN/48, clipped at one, zero for a DNP."""
+    """The design-matrix entry: linear MIN/48 exposure, zero for a DNP."""
 
-    def test_a_full_game_is_one_and_an_ot_game_is_still_one(self):
+    def test_overtime_exposure_is_not_clipped_to_regulation(self):
         got = rapm.participation_share(pd.Series([48.0, 72.0, 0.0, -5.0]))
-        assert list(got) == [1.0, 1.0, 0.0, 0.0]
+        assert list(got) == [1.0, 1.5, 0.0, 0.0]
+
+    def test_five_regulation_slots_sum_to_five_not_one(self):
+        assert rapm.participation_share([48] * 5).sum() == pytest.approx(5)
+        assert rapm.participation_share([53] * 5).sum() == pytest.approx(265 / 48)
+
+    def test_infinite_minutes_cannot_poison_the_design(self):
+        got = rapm.participation_share([np.inf, -np.inf, np.nan])
+        assert got.eq(0.0).all()
 
     def test_minutes_scale_linearly_below_the_full_game(self):
         got = rapm.participation_share(pd.Series([24.0, 12.0]))
@@ -877,32 +885,24 @@ class TestPointInTimeDiscipline:
     def test_a_games_own_line_never_enters_its_own_prior(self):
         """A rating dated on a player's own game must not see that game.
 
-        The player's opener is the clean case: with the target day
-        excluded there is nothing before it, so the prior is zero however
-        much he was on the court - and the rating collapses to the league
-        prior, which is the only defensible answer for a player with no
-        evidence.
+        With no strictly-prior appearance, even roster membership is unknown.
+        The target's box line cannot establish a pregame player row.
         """
         games = rapm.prepare_player_games(self._season_games())
         ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-01"]))
-        row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_eff == 0
-        assert row.prior_minutes == 0
-        assert row.prior_games == 0
+        assert ratings.empty
 
-    def test_a_player_with_no_evidence_is_still_emitted(self):
-        """"No rating yet" and "never in the data" are different facts.
+    def test_a_target_day_debut_is_not_a_pregame_roster_source(self):
+        """A player discovered only after tipoff must not appear in a backtest.
 
-        A projection that cannot tell them apart will happily project a
-        player who does not exist, so the row is present with a zero prior
-        rather than dropped.
+        Pending games have no target-day box score, so history must not read
+        it either. Prior roster knowledge requires strictly-prior participation.
         """
         games = rapm.prepare_player_games(self._season_games())
         ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-01"]))
-        assert list(ratings.player_id) == ["a"]
-        assert pd.isna(ratings.iloc[0].rapm_raw)
+        assert ratings.empty
 
     def test_a_rating_does_not_see_the_target_game(self):
         games = rapm.prepare_player_games(self._season_games())
@@ -1110,9 +1110,8 @@ class TestShrinkageBehaviour:
         A 2025-26 target's k is 20% of the 2024-25 mean only - the
         2025-26 player-seasons, including games AFTER the target date,
         never enter it. A 2024-25 target has no completed prior season in
-        the frame, so it keeps the whole-frame mean (the pre-2026-10-01
-        behavior) rather than a constant that ignores the frame's own
-        season scale. Eff-games per 48-minute game is 1, so the counts
+        the frame, so it uses the fixed fallback. Later games and seasons
+        cannot set an earlier target's shrinkage strength. Eff-games per 48-minute game is 1, so the counts
         read directly: five games and twenty games.
         """
         rows = []
@@ -1127,11 +1126,11 @@ class TestShrinkageBehaviour:
         late = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-11-03"]))
         assert late.k_eff.iloc[0] == pytest.approx(0.20 * 5)
-        # The earliest season keeps the whole-frame mean: both player-
-        # seasons, 5 and 20 games, averaged.
+        # No completed season is available to the earliest target.
         early = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-03"]))
-        assert early.k_eff.iloc[0] == pytest.approx(0.20 * (5 + 20) / 2)
+        assert early.k_eff.iloc[0] == pytest.approx(
+            config.PLAYER_RAPM_FALLBACK_K_EFF)
         assert early.k_eff.iloc[0] != late.k_eff.iloc[0]
 
     def test_the_rating_carries_no_availability_multiplier(self):
@@ -1162,6 +1161,108 @@ class TestShrinkageBehaviour:
             games, target_dates=pd.Series(["2024-11-02"]))
         assert ratings.iloc[0].rapm_shrunk == pytest.approx(
             without.iloc[0].rapm_shrunk)
+
+
+class TestStrictPregameRegression:
+    @staticmethod
+    def _history():
+        return _prepared([
+            _row("h", "2024-11-01", 0, 0, team="HOME", points=110,
+                 game_id="g1"),
+            _row("a", "2024-11-01", 0, 0, team="AWAY", points=90,
+                 game_id="g1"),
+            _row("h", "2024-12-05", 0, 0, team="TRADED", points=120,
+                 game_id="g2"),
+            _row("a", "2024-12-05", 0, 0, team="AWAY", points=100,
+                 game_id="g2"),
+        ])
+
+    def test_same_day_trade_and_appearance_cannot_change_pregame_rows(self):
+        games = self._history()
+        target = pd.Timestamp("2024-12-05")
+        full = rapm.build_player_rapm(games, [target])
+        prefix = rapm.build_player_rapm(games[games.gameday < target], [target])
+        pd.testing.assert_frame_equal(full, prefix, rtol=1e-10, atol=1e-10)
+        h = full[full.player_id == "h"].iloc[0]
+        assert h.team == "HOME"
+        assert h.days_since_appearance == 34  # not refreshed to zero
+
+    def test_future_seasons_cannot_change_earliest_season_k_or_rating(self):
+        games = self._history()
+        target = pd.Timestamp("2024-11-02")
+        prefix = games[games.gameday < target]
+        future = prefix.copy()
+        future["season"] = "2025-26"
+        future["gameday"] = pd.Timestamp("2025-11-01")
+        future["minutes"] = 4800
+        future["share"] = 100
+        expanded = pd.concat([games, future], ignore_index=True)
+        pd.testing.assert_frame_equal(
+            rapm.build_player_rapm(expanded, [target]),
+            rapm.build_player_rapm(prefix, [target]), rtol=1e-10, atol=1e-10)
+
+    def test_dnp_cannot_refresh_recency_or_change_team(self):
+        games = self._history()
+        dnp = games.iloc[[0]].copy()
+        dnp["gameday"] = pd.Timestamp("2024-12-03")
+        dnp["team"] = "TRADED"
+        dnp["minutes"] = 0
+        dnp["share"] = 0.0
+        with_dnp = pd.concat([games, dnp], ignore_index=True)
+        target = pd.Timestamp("2024-12-04")
+        pd.testing.assert_frame_equal(
+            rapm.build_player_rapm(with_dnp, [target]),
+            rapm.build_player_rapm(games, [target]), rtol=1e-10, atol=1e-10)
+
+    def test_opening_slate_k_uses_all_completed_seasons(self):
+        games = self._history()
+        second = games.iloc[:2].copy()
+        second["season"] = "2025-26"
+        second["gameday"] = pd.Timestamp("2025-11-01")
+        games = pd.concat([games, second], ignore_index=True)
+        ratings = rapm.build_player_rapm(games, ["2026-10-20"])
+        assert ratings.k_eff.iloc[0] == pytest.approx(0.20 * 1.5)
+
+    def test_partial_official_table_does_not_reorient_supported_games(self):
+        games = self._history()
+        ts = pd.DataFrame({"gameday": ["2024-11-01"] * 2,
+                           "team": ["HOME", "AWAY"],
+                           "net_points": [20, -20], "is_home": [True, False]})
+        entries = rapm.team_game_entries(games, ts)
+        supported = entries[entries.game_key == "g1"]
+        assert supported[supported.team == "HOME"].sign.iloc[0] == 1.0
+        assert supported.y.eq(20).all()
+        fallback = entries[entries.game_key == "g2"]
+        assert set(fallback.sign) == {-1.0, 1.0}
+        assert fallback.y.nunique() == 1
+
+    def test_ab_builder_uses_the_supplied_production_population(self, monkeypatch):
+        import ab_position_rapm as ab
+        import lineup_projection as projection
+        games = self._history()
+        games["player_name"] = games.player_id
+        target = pd.DataFrame({"gameday": [pd.Timestamp("2024-11-02")],
+                               "home_team": ["HOME"], "away_team": ["AWAY"]})
+        monkeypatch.setattr(ab, "build_player_games", lambda: pytest.fail(
+            "a supplied production population must not fall back to a cache sweep"))
+        actual, aggregates = ab.build_position_features(
+            target, None, player_stats=games)
+        ratings = rapm.build_player_rapm(games, target.gameday).rename(
+            columns={"target_date": "gameday"})
+        expected = projection.attach_position_rapm(
+            target, projection.projected_lineup(ratings, games=target))
+        pd.testing.assert_frame_equal(actual, expected)
+        assert not aggregates.empty
+
+    def test_manifest_does_not_claim_possession_rapm_units(self):
+        import manifest
+        for stem in ("pl_rapm_c", "pl_rapm_f", "pl_rapm_g"):
+            # Exercise the published docs interface, not a string-only pin.
+            metadata, missing = manifest.build_features_metadata([stem + "_diff"])
+            assert not missing
+            docs = metadata[stem + "_diff"]
+            assert "100 possessions" not in docs["units"]
+            assert "48" in docs["units"]
 
 
 class TestPlayerRapmWithoutInputs:
@@ -1205,15 +1306,10 @@ class TestPlayerRapmWithoutInputs:
 class TestEvidenceSeasonFallback:
     """A target whose OWN season has no game yet fits from the last one.
 
-    Two seasons read differently on purpose: the ROSTER side is non-strict
-    (the players taking the floor tonight are in the frame to be rated,
-    even though none has played yet) and the FIT side is strict (a game on
-    the target day cannot be evidence for that day's rating). They diverge
-    exactly on a season's first day - the roster is this season's, the
-    solve falls back to last season's - so opening night rates against the
-    completed season's fit rather than against nothing, and day 2 onward
-    is strictly in-season. Every fallback row is still strictly before the
-    target: the point-in-time floor is untouched.
+    The roster and fit both use strictly-prior participation. On opening
+    night both fall back to the completed season; target-day debutants and
+    trades are not knowable from a post-game box score. Day two onward is
+    in-season. Pending and historical targets must resolve identically.
     """
 
     @staticmethod
@@ -1298,8 +1394,7 @@ class TestEvidenceSeasonFallback:
         """A decided opening-night game with no season to fall back to
         rates from NOTHING - no prior, no league cell, NaN rating.
 
-        Not a rating wearing a prior's clothes: the row still exists (the
-        players ARE in the frame to be rated), but nothing is invented.
+        No row exists: a target-day box score is not pregame roster evidence.
         """
         rows = [
             _row("a", "2025-10-22", 0, 0, team="A", minutes=48,
@@ -1310,20 +1405,15 @@ class TestEvidenceSeasonFallback:
         games = rapm.prepare_player_games(_frame(rows))
         ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-22"]))
-        row = ratings[ratings.player_id == "a"].iloc[0]
-        assert row.prior_eff == 0 and row.prior_minutes == 0
-        assert row.prior_games == 0
-        assert pd.isna(row.rapm_raw)
-        assert pd.isna(row.rapm_shrunk)
+        assert ratings.empty  # no pregame evidence of this roster
 
     def test_opening_night_shrinks_toward_the_prior_seasons_fit(self):
         """Game 1 gets the treatment game 2 already had.
 
         The veteran played last season, so opening night his zero OWN
         prior mixes against last season's fit: his rating exists from the
-        first tip. The debutant has no prior-season row at all, so his
-        rating IS the position prior carried out of that fit - zero prior
-        plus a real shrink target lands exactly on it.
+        first tip. A target-day debutant is not admitted from a box score;
+        only strictly-prior roster members are knowable through this source.
         """
         rows = [
             _row("c", "2024-11-01", 0, 0, team="A", minutes=48,
@@ -1338,11 +1428,8 @@ class TestEvidenceSeasonFallback:
         games = rapm.prepare_player_games(_frame(rows))
         ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2025-10-22"]))
-        debut = ratings[ratings.player_id == "d"].iloc[0]
-        assert debut.prior_eff == 0 and debut.prior_games == 0
-        assert pd.isna(debut.rapm_raw)
-        assert pd.notna(debut.lg_rapm)   # the borrowed fit's cell exists
-        assert debut.rapm_shrunk == pytest.approx(debut.lg_rapm)
+        assert "d" not in set(ratings.player_id)  # post-game debut is unknown
+        assert "z" in set(ratings.player_id)  # prior roster, not actual lineup
         vet = ratings[ratings.player_id == "c"].iloc[0]
         assert vet.prior_eff == pytest.approx(1.0)   # last season's game
         assert pd.notna(vet.rapm_raw)

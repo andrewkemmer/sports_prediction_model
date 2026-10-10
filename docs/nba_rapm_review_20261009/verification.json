@@ -1,0 +1,28 @@
+{
+  "python": "3.14.3",
+  "syntax_files": 38,
+  "syntax_compile": "passed",
+  "static_typecheck": "not run: none configured/installed; compile is not typechecking",
+  "environment": "PYTHONUTF8=1; OPENBLAS_NUM_THREADS=1; OMP_NUM_THREADS=1; seed=42",
+  "libraries": {
+    "pandas": "3.0.1",
+    "numpy": "2.4.3",
+    "scipy": "1.18.0",
+    "scikit-learn": "1.9.0",
+    "xgboost": "3.4.0",
+    "lightgbm": "4.7.0",
+    "pyarrow": "24.0.0",
+    "pytest": "9.1.1"
+  },
+  "production_artifacts_replaced": false,
+  "no_new_committed_programs": true,
+  "checks": {
+    "backend_pytest": 593,
+    "real_ab_cli_exit": 0,
+    "matched_oof_arms": 6,
+    "folds": 56,
+    "oof_games_per_arm": 2400,
+    "grading_games": 2130,
+    "date_block_bootstrap_replicates": 1200
+  }
+}

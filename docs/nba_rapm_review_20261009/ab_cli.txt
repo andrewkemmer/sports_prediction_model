@@ -1,0 +1,68 @@
+2026-10-10 00:00:33,825 INFO ab loading the fact set from cache
+2026-10-10 00:00:33,826 WARNING nba_ingestion NBA_END_DATE 2026-06-13 is stale (before today) — extended to 2026-10-10 so the daily slate cannot freeze; re-date the notebook pin (or unset it) for a past-window backfill
+2026-10-10 00:00:33,826 INFO nba_ingestion NBA window 2024-01-01..2026-10-10 (cache only)
+2026-10-10 00:00:43,538 WARNING nba_ingestion 13 scheduled game(s) have no season-log match; they have no player lines and no play-by-play: 401585204 (2024-01-17 UTA@GSW), 401585217 (2024-01-19 GSW@DAL), 401734908 (2024-12-17 OKC@MIL), 401705090 (2025-01-09 LAL@CHA), 401705098 (2025-01-11 ATL@HOU), 401705103 (2025-01-11 LAL@SAS), 401705104 (2025-01-11 LAC@CHA), 401705183 (2025-01-22 NOP@MIL), 401809839 (2025-12-16 NYK@SAS), 401810384 (2026-01-08 CHI@MIA), 401810499 (2026-01-24 MIN@GSW), 401810506 (2026-01-25 MEM@DEN), 401810507 (2026-01-25 MIL@DAL)
+2026-10-10 00:00:48,576 INFO nba_ingestion event rollup archive absorbed: 1414 team-game(s) this run's own sweep did not cover
+2026-10-10 00:00:48,803 INFO nba_ingestion 2 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-10-10 00:00:48,828 INFO nba_ingestion NBA facts: 3474 games, 6922 team rows, 74449 player rows, 1372130 play-by-play actions, 6922 event rows
+2026-10-10 00:00:48,887 INFO nba_ingestion 2 finished game(s) have no season-log player lines and so no features; they are excluded from training. These are the postponed, neutral-site and all-star games, not a join failure: 2024-12-17 MIL@OKC, 2025-12-16 SAS@NYK
+2026-10-10 00:00:48,890 INFO ab settled eligible games: 3461
+2026-10-10 00:00:53,055 INFO lineup_projection PIT designations: 37211 record(s) from the published archive
+2026-10-10 00:00:53,055 INFO ab designations: 37211 rows
+2026-10-10 00:00:53,055 INFO ab building the nine position features
+2026-10-10 00:00:53,460 INFO ab building ratings for 559 target dates
+2026-10-10 00:01:29,837 INFO ab ratings: 289307 rows in 36s
+2026-10-10 00:02:46,789 INFO ab aggregates: 6922 team-games in 76s
+2026-10-10 00:02:53,088 WARNING folds OOF validation population is thin on 16 of 56 window(s) (< MIN_VAL_FOLD_GAMES=40 games): [2024-12-07..2024-12-13 n=35 regular], [2025-04-19..2025-04-25 n=22 postseason], [2025-04-26..2025-05-02 n=19 postseason], [2025-05-03..2025-05-09 n=12 postseason], [2025-05-10..2025-05-16 n=12 postseason], +11 more - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks and season ramps are the usual cause)
+2026-10-10 00:02:53,089 INFO folds OOF season-type split: 14 window(s) carry postseason games (169 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-10-10 00:02:53,089 INFO ab folds: 56
+2026-10-10 00:03:11,388 INFO moneyline Published blend: 2400 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '88.3%', 'lightgbm': '11.7%', 'xgboost': '0.0%'} replay only in p_ensemble_retrospective (NOT OOF)
+2026-10-10 00:03:28,946 INFO moneyline Published blend: 2400 OOF rows — headline metrics grade the causal rolling blend; final weights {'elasticnet': '77.7%', 'lightgbm': '22.3%', 'xgboost': '0.0%'} replay only in p_ensemble_retrospective (NOT OOF)
+
+=== coverage of the nine features on the decided frame
+  pl_rapm_c_away    3336/ 3461 rows  ( 96.4%)  distinct  3324
+  pl_rapm_c_home    3315/ 3461 rows  ( 95.8%)  distinct  3309
+  pl_rapm_c_diff    3220/ 3461 rows  ( 93.0%)  distinct  3220
+  pl_rapm_f_away    3432/ 3461 rows  ( 99.2%)  distinct  3432
+  pl_rapm_f_home    3428/ 3461 rows  ( 99.0%)  distinct  3428
+  pl_rapm_f_diff    3426/ 3461 rows  ( 99.0%)  distinct  3426
+  pl_rapm_g_away    3431/ 3461 rows  ( 99.1%)  distinct  3431
+  pl_rapm_g_home    3430/ 3461 rows  ( 99.1%)  distinct  3430
+  pl_rapm_g_diff    3427/ 3461 rows  ( 99.0%)  distinct  3427
+  grading rows: 2130; all-row diagnostic: {'n': 2400, 'auc': 0.7224173305678272, 'logloss': 0.6096836154437205, 'brier': 0.21094163003494462, 'ece': 0.020885501306932563}
+
+=== baseline: 62 features, 2400 OOF rows, 18s
+  logloss    0.60640
+  brier      0.20940
+  auc        0.72863
+  ece        0.02614
+  n          2130.00000
+  weights   {'elasticnet': 0.8834, 'lightgbm': 0.1166, 'xgboost': 0.0}
+  grading rows: 2130; all-row diagnostic: {'n': 2400, 'auc': 0.7258277793372445, 'logloss': 0.6058753027176313, 'brier': 0.20953896027578567, 'ece': 0.025297260803386235}
+
+=== position_rapm: 71 features, 2400 OOF rows, 18s
+  logloss    0.60261
+  brier      0.20805
+  auc        0.73123
+  ece        0.02656
+  n          2130.00000
+  weights   {'elasticnet': 0.7769, 'lightgbm': 0.2231, 'xgboost': 0.0}
+
+=== side by side (position_rapm minus baseline)
+  metric       baseline position_rapm      delta
+  logloss       0.60640      0.60261   -0.00379
+  brier         0.20940      0.20805   -0.00135
+  auc           0.72863      0.73123   +0.00260
+  ece           0.02614      0.02656   +0.00042
+
+=== paired per-game log-loss difference (treatment - baseline)
+  n = 2130
+  mean delta        -0.00379
+  standard error    0.00246
+  t statistic       -1.54
+  95% bootstrap CI  [-0.00871, +0.00128]
+  verdict: NOT distinguishable from zero
+  treatment better on 1150 of 2130 games (54.0%)
+
+  paired OOF written to E:\nba-backend\run_diagnostics\ab_paired_oof.csv
+EXIT=0
