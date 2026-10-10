@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-09-30T03:47:54.599272+00:00",
- "feature_set_version": "nhl-prod-v1.1-player-game-ratings",
+ "created_utc": "2026-10-10T06:29:42.464940+00:00",
+ "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
@@ -15,7 +15,7 @@
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "win_pct_diff": {
    "description": "Home minus away trailing win percentage",
@@ -95,7 +95,7 @@
   "shots_for_per_game_diff": {
    "description": "Home minus away trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -110,7 +110,7 @@
   "shots_against_per_game_diff": {
    "description": "Home minus away trailing shots against per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -124,33 +124,33 @@
   },
   "pp_success_diff": {
    "description": "Home minus away trailing power-play success rate",
-   "definition": "rolling(5).mean() of power-play goals / power-play opportunities over strictly-prior games",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "definition": "pooled team power-play goals / opportunities over five prior games",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5,
-   "aggregation": "trailing windowed mean of a per-game rate",
-   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
-   "missing_value_policy": "NaN when the team has no prior games; a game with zero PP opportunities is excluded from that game's rate",
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
+   "missing_value_policy": "NaN without observed opportunities; zero chances contribute zero counts, missing games contribute neither count",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "faceoff_win_diff": {
    "description": "Home minus away trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
    "missing_value_policy": "NaN when the team has no prior games with faceoff data",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "back_to_back_diff": {
    "description": "Home minus away back-to-back flag (rest < 1 day)",
@@ -173,14 +173,14 @@
    "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start save fraction",
-   "point_in_time_rule": "each goalie's strictly-prior starts only; the expected starter is the highest-prior-workload AVAILABLE goalie \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; the expected starter is the highest SEASON-TO-DATE prior-workload AVAILABLE goalie (season-scoped, so a prior-season workhorse cannot be served as tonight's starter) \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when the team has no goalie with a prior start this season (e.g. opening-night unknown starter); never fabricated",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_gaa_diff": {
    "description": "Home minus away expected-starter rolling goals-against average",
@@ -188,14 +188,14 @@
    "source": "official NHL API boxscores (goalie goals against + TOI)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
-   "point_in_time_rule": "each goalie's strictly-prior starts only",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_starts_diff": {
    "description": "Home minus away expected-starter season starts",
@@ -203,14 +203,14 @@
    "source": "official NHL API boxscores (goalie appearances)",
    "lookback": "season to date",
    "aggregation": "per-goalie start count",
-   "point_in_time_rule": "strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves)",
+   "point_in_time_rule": "strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves); starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "is_playoffs": {
    "description": "Postseason game flag",
@@ -254,7 +254,7 @@
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "elo_away": {
    "description": "Away team's pre-game Elo rating",
@@ -268,7 +268,7 @@
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "win_pct_home": {
    "description": "Home team's trailing win percentage",
@@ -360,13 +360,13 @@
    "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start save fraction",
-   "point_in_time_rule": "each goalie's strictly-prior starts only",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when the team has no goalie with a prior start this season; never fabricated",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_sv_pct_away": {
    "description": "Away team's expected-starter rolling save percentage",
@@ -374,13 +374,13 @@
    "source": "official NHL API boxscores (goalie TOI + decision + shots faced)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start save fraction",
-   "point_in_time_rule": "each goalie's strictly-prior starts only",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when the team has no goalie with a prior start this season; never fabricated",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_gaa_home": {
    "description": "Home team's expected-starter rolling goals-against average",
@@ -388,13 +388,13 @@
    "source": "official NHL API boxscores (goalie goals against + TOI)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
-   "point_in_time_rule": "each goalie's strictly-prior starts only",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_gaa_away": {
    "description": "Away team's expected-starter rolling goals-against average",
@@ -402,13 +402,13 @@
    "source": "official NHL API boxscores (goalie goals against + TOI)",
    "lookback": "decaying (halflife=3 starts) over the season's starts",
    "aggregation": "per-goalie EWM of the per-start goals-against rate (per 60 min)",
-   "point_in_time_rule": "each goalie's strictly-prior starts only",
+   "point_in_time_rule": "each goalie's strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "ewm_goal_share_home": {
    "description": "Home team's exponentially-weighted goal share",
@@ -469,7 +469,7 @@
   "shots_for_per_game_home": {
    "description": "Home team's trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -483,7 +483,7 @@
   "shots_for_per_game_away": {
    "description": "Away team's trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -497,7 +497,7 @@
   "shots_against_per_game_home": {
    "description": "Home team's trailing shots allowed per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -511,7 +511,7 @@
   "shots_against_per_game_away": {
    "description": "Away team's trailing shots allowed per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5,
    "aggregation": "trailing windowed mean",
    "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
@@ -525,58 +525,58 @@
   "pp_success_home": {
    "description": "Home team's trailing power-play success rate",
    "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5,
    "aggregation": "trailing pooled count ratio",
-   "point_in_time_rule": "per-team rolling(5) sums then shift(1) -- a zero-opportunity game contributes nothing rather than voiding the window",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
    "missing_value_policy": "NaN when the team has no power-play opportunities in the window",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "pp_success_away": {
    "description": "Away team's trailing power-play success rate",
    "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5,
    "aggregation": "trailing pooled count ratio",
-   "point_in_time_rule": "per-team rolling(5) sums then shift(1) -- a zero-opportunity game contributes nothing rather than voiding the window",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
    "missing_value_policy": "NaN when the team has no power-play opportunities in the window",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "faceoff_win_home": {
    "description": "Home team's trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games (home side of faceoff_win_diff)",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
    "missing_value_policy": "NaN when the team has no prior games with faceoff data",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "faceoff_win_away": {
    "description": "Away team's trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games (away side of faceoff_win_diff)",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5,
-   "aggregation": "trailing windowed mean",
-   "point_in_time_rule": "per-team rolling(5).mean().shift(1)",
+   "aggregation": "trailing pooled count ratio",
+   "point_in_time_rule": "per-team rolling(5) sums then shift(1)",
    "missing_value_policy": "NaN when the team has no prior games with faceoff data",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "back_to_back_home": {
    "description": "Home team's back-to-back flag (rest < 1 day)",
@@ -612,13 +612,13 @@
    "source": "official NHL API boxscores (goalie appearances)",
    "lookback": "season to date",
    "aggregation": "per-goalie start count",
-   "point_in_time_rule": "strictly-prior starts only",
+   "point_in_time_rule": "strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "goalie_starts_away": {
    "description": "Away team's expected-starter season starts",
@@ -626,13 +626,13 @@
    "source": "official NHL API boxscores (goalie appearances)",
    "lookback": "season to date",
    "aggregation": "per-goalie start count",
-   "point_in_time_rule": "strictly-prior starts only",
+   "point_in_time_rule": "strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates",
    "missing_value_policy": "NaN when no goalie has a prior start; never fabricated",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
    ],
-   "feature_version": 1
+   "feature_version": 2
   },
   "pl_evo_c_away": {
    "description": "even-strength (EVO) centres healthy-pool mean shrunk rate, away",
@@ -1052,491 +1052,530 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": -2.6172651625238483,
-   "std": 73.77449149653931
+   "mean": 0.08258566610462025,
+   "std": 73.5857132185193
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.0030841750841750825,
-   "std": 0.2336640350543877
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": -0.0031591877948794517,
+   "std": 0.23288736262408358
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.22558558558558559,
-   "std": 9.577008928075973
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": 0.21400915170714538,
+   "std": 13.519311727675293
   },
   {
    "feature": "ewm_net_goals_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.01130488549292946,
-   "std": 1.4351885938041489
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": -0.01711040554141069,
+   "std": 1.4338696791067151
   },
   {
    "feature": "ewm_goal_share_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.0013289956404505838,
-   "std": 0.13329611483201834
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": -0.0019341888471640905,
+   "std": 0.13288445350231912
   },
   {
    "feature": "ga_per_game_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.022840840840840846,
-   "std": 1.1877222942554018
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": 0.026956470726270096,
+   "std": 1.1897303246555488
   },
   {
    "feature": "shots_for_per_game_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.07971171171171172,
-   "std": 4.863442234948401
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": -0.06033086941217882,
+   "std": 4.862074730069894
   },
   {
    "feature": "shots_against_per_game_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.02845645645645648,
-   "std": 4.850936218054859
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": 0.024416285345535613,
+   "std": 4.875141111528815
   },
   {
    "feature": "pp_success_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.004033258449775882,
-   "std": 0.14619400687286238
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": 0.0007297870167250334,
+   "std": 0.16174039640381957
   },
   {
    "feature": "faceoff_win_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.00017355900233566863,
-   "std": 0.04280191409552305
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": 0.0009571157668136876,
+   "std": 0.059741845473253626
   },
   {
    "feature": "back_to_back_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.09477477477477478,
-   "std": 0.44205484422674796
+   "n_games": 2861,
+   "coverage_pct": 99.3,
+   "mean": -0.09574093629003871,
+   "std": 0.4416512171964405
   },
   {
    "feature": "goalie_sv_pct_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": -0.0004032869744171837,
-   "std": 0.03900469209963726
+   "n_games": 2861,
+   "coverage_pct": 97.87,
+   "mean": -0.0008753255984922536,
+   "std": 0.043056856596212806
   },
   {
    "feature": "goalie_gaa_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.007939517017700957,
-   "std": 1.1359980521709307
+   "n_games": 2861,
+   "coverage_pct": 97.87,
+   "mean": 0.01909275980297442,
+   "std": 1.2666072910370962
   },
   {
    "feature": "goalie_starts_diff",
-   "n_games": 2795,
-   "coverage_pct": 99.28,
-   "mean": 0.003243243243243243,
-   "std": 14.363709111560715
+   "n_games": 2861,
+   "coverage_pct": 97.87,
+   "mean": -0.027142857142857142,
+   "std": 7.8285015574842705
   },
   {
    "feature": "is_playoffs",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.06010733452593918,
-   "std": 0.23772812786300376
+   "mean": 0.058720727018524994,
+   "std": 0.23514235969299044
   },
   {
    "feature": "elo_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1502.86817784025,
-   "std": 54.612488896802205
+   "mean": 1504.0831780174701,
+   "std": 54.492399662533444
   },
   {
    "feature": "elo_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1505.4854430027735,
-   "std": 53.919396668319074
+   "mean": 1504.0005923513654,
+   "std": 53.81425712599395
   },
   {
    "feature": "win_pct_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.5017891036249568,
-   "std": 0.16773611053488027
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 0.5004290189416771,
+   "std": 0.16750882776149678
   },
   {
    "feature": "win_pct_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.5058256771206412,
-   "std": 0.16686872526750463
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.504519342607888,
+   "std": 0.16636018372978487
   },
   {
    "feature": "ewm_net_goals_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.009423032682345123,
-   "std": 1.031707363055506
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": -0.0025972988936342227,
+   "std": 1.031603901201782
   },
   {
    "feature": "ewm_net_goals_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.022518079361951847,
-   "std": 1.0026690319714666
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.016260000942179952,
+   "std": 1.004095483906215
   },
   {
    "feature": "ewm_goal_share_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.5008608746581209,
-   "std": 0.09276711696909605
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 0.49966063630578533,
+   "std": 0.09269081445228365
   },
   {
    "feature": "ewm_goal_share_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.5023230118736169,
-   "std": 0.09395489126163009
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.5017246593375235,
+   "std": 0.09399749361501013
   },
   {
    "feature": "rest_days_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 3.5341972642188626,
-   "std": 13.064743509154573
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 4.2074542897327705,
+   "std": 16.536932541183173
   },
   {
    "feature": "rest_days_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 3.306474820143885,
-   "std": 13.228346941758552
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 3.9908643710470835,
+   "std": 16.73767166874069
   },
   {
    "feature": "ga_per_game_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 3.089590832733381,
-   "std": 0.8429537949833845
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 3.0959505391467417,
+   "std": 0.8460560688680853
   },
   {
    "feature": "ga_per_game_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 3.0651079136690647,
-   "std": 0.840096799652813
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 3.067392832044976,
+   "std": 0.8412086341402291
   },
   {
    "feature": "shots_for_per_game_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 28.044510439164863,
-   "std": 3.415274324260027
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 28.02174753867792,
+   "std": 3.4143992100445204
   },
   {
    "feature": "shots_for_per_game_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 28.128423261390886,
-   "std": 3.5330093155529587
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 28.08623213867416,
+   "std": 3.5364094018201526
   },
   {
    "feature": "shots_against_per_game_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 28.075875929925605,
-   "std": 3.43771239130056
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 28.067364041256443,
+   "std": 3.4497397671886385
   },
   {
    "feature": "shots_against_per_game_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 28.046576738609108,
-   "std": 3.468376584514506
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 28.04212344811431,
+   "std": 3.4792268207023884
   },
   {
    "feature": "pp_success_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.16565694935955932,
-   "std": 0.11066238382325838
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 0.21402333659998127,
+   "std": 0.11631936601898954
   },
   {
    "feature": "pp_success_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.16151576411289167,
-   "std": 0.09370626132045172
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.2130326291488578,
+   "std": 0.1129748372650123
   },
   {
    "feature": "faceoff_win_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.18061735941850143,
-   "std": 0.02995357454074179
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 0.500381022106757,
+   "std": 0.041071849003032325
   },
   {
    "feature": "faceoff_win_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.18079386295355873,
-   "std": 0.030274971275916225
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.49947211108379486,
+   "std": 0.04154434390194907
   },
   {
    "feature": "back_to_back_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.10151187904967603,
-   "std": 0.30205969816582956
+   "n_games": 2861,
+   "coverage_pct": 99.41,
+   "mean": 0.10021097046413502,
+   "std": 0.30033389404689215
   },
   {
    "feature": "back_to_back_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.19640287769784173,
-   "std": 0.3973481857316176
+   "n_games": 2861,
+   "coverage_pct": 99.48,
+   "mean": 0.1960646521433591,
+   "std": 0.3970877836765596
   },
   {
    "feature": "goalie_sv_pct_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 0.8899449734159819,
-   "std": 0.02865271524791335
+   "n_games": 2861,
+   "coverage_pct": 98.25,
+   "mean": 0.8910716687098321,
+   "std": 0.03174041622966263
   },
   {
    "feature": "goalie_sv_pct_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 0.8903867585499278,
-   "std": 0.026931568428795166
+   "n_games": 2861,
+   "coverage_pct": 98.39,
+   "mean": 0.8919013287809526,
+   "std": 0.029217469224477512
   },
   {
    "feature": "goalie_gaa_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 2.991681485223654,
-   "std": 0.8253407878542979
+   "n_games": 2861,
+   "coverage_pct": 98.25,
+   "mean": 2.986913891794826,
+   "std": 0.9393944106592496
   },
   {
    "feature": "goalie_gaa_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 2.982575203822335,
-   "std": 0.7877666034119772
+   "n_games": 2861,
+   "coverage_pct": 98.39,
+   "mean": 2.970371444903213,
+   "std": 0.8872404421051513
   },
   {
    "feature": "goalie_starts_home",
-   "n_games": 2795,
-   "coverage_pct": 99.39,
-   "mean": 54.21814254859611,
-   "std": 31.79335400491876
+   "n_games": 2861,
+   "coverage_pct": 98.25,
+   "mean": 26.254357879758093,
+   "std": 16.193680219296375
   },
   {
    "feature": "goalie_starts_away",
-   "n_games": 2795,
-   "coverage_pct": 99.46,
-   "mean": 54.176978417266184,
-   "std": 31.7322763309509
+   "n_games": 2861,
+   "coverage_pct": 98.39,
+   "mean": 26.246181172291298,
+   "std": 16.17627221194838
   },
   {
    "feature": "is_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   },
   {
    "feature": "pl_evo_c_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.6757015936609494,
-   "std": 0.06221069034820289
+   "mean": 0.6763724170127553,
+   "std": 0.06323829502880897
   },
   {
    "feature": "pl_evo_c_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.6760810398567586,
-   "std": 0.06194432879999429
+   "mean": 0.6768813293623408,
+   "std": 0.06274920454858891
   },
   {
    "feature": "pl_evo_c_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.0003794461958092602,
-   "std": 0.08696949758321902
+   "mean": 0.0005089123495855664,
+   "std": 0.08856651762156677
   },
   {
    "feature": "pl_evo_l_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.743250828131828,
-   "std": 0.09006304504252435
+   "mean": 0.7445650407417478,
+   "std": 0.09358521686669816
   },
   {
    "feature": "pl_evo_l_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.7434429828382938,
-   "std": 0.08906710855333078
+   "mean": 0.7444238334019703,
+   "std": 0.09215676627482088
   },
   {
    "feature": "pl_evo_l_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.00019215470646584713,
-   "std": 0.1253255268311616
+   "mean": -0.000141207339777548,
+   "std": 0.13038263533818903
   },
   {
    "feature": "pl_evo_r_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.7135533038537182,
-   "std": 0.09357562142091602
+   "mean": 0.7153951018304465,
+   "std": 0.09428725159201279
   },
   {
    "feature": "pl_evo_r_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.7130290598360188,
-   "std": 0.09305678919735383
+   "mean": 0.715105627065339,
+   "std": 0.093741710112679
   },
   {
    "feature": "pl_evo_r_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": -0.0005242440176993818,
-   "std": 0.1343752828709919
+   "mean": -0.00028947476510743163,
+   "std": 0.13554729227690304
   },
   {
    "feature": "pl_evo_d_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.1733963923042846,
-   "std": 0.02337549450022745
+   "mean": 0.17380695530280818,
+   "std": 0.023889069383479226
   },
   {
    "feature": "pl_evo_d_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.17332579652389707,
-   "std": 0.023105746357162595
+   "mean": 0.17390917485425303,
+   "std": 0.023659589785851552
   },
   {
    "feature": "pl_evo_d_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": -7.059578038754392e-05,
-   "std": 0.03258155895501212
+   "mean": 0.00010221955144482236,
+   "std": 0.03354274812475545
   },
   {
    "feature": "pl_ppo_c_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.6585149360175213,
-   "std": 0.462723056931792
+   "mean": 1.6602509633559541,
+   "std": 0.4687152505354906
   },
   {
    "feature": "pl_ppo_c_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.6563340246897873,
-   "std": 0.4605779014666901
+   "mean": 1.6575345588113535,
+   "std": 0.4635874619127511
   },
   {
    "feature": "pl_ppo_c_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": -0.002180911327733506,
-   "std": 0.661480107864921
+   "mean": -0.002716404544600668,
+   "std": 0.6685505585945214
   },
   {
    "feature": "pl_ppo_l_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.745127724280738,
-   "std": 0.5665963195591919
+   "mean": 1.7391896945953076,
+   "std": 0.5725766028373398
   },
   {
    "feature": "pl_ppo_l_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.7298960823728382,
-   "std": 0.5716988750225226
+   "mean": 1.72744316488229,
+   "std": 0.5777191371260769
   },
   {
    "feature": "pl_ppo_l_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": -0.015231641907899704,
-   "std": 0.802060946011117
+   "mean": -0.011746529713017437,
+   "std": 0.8130707600845689
   },
   {
    "feature": "pl_ppo_r_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.6170484027412044,
-   "std": 0.4785057099108573
+   "mean": 1.6209352448444767,
+   "std": 0.48637320864387296
   },
   {
    "feature": "pl_ppo_r_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 1.6209271988738332,
-   "std": 0.4815175862361331
+   "mean": 1.6237030918810986,
+   "std": 0.48539558199761024
   },
   {
    "feature": "pl_ppo_r_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.0038787961326287664,
-   "std": 0.6851247126078861
+   "mean": 0.0027678470366219177,
+   "std": 0.6937706941606768
   },
   {
    "feature": "pl_ppo_d_away",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.6641661789607832,
-   "std": 0.22161046172929266
+   "mean": 0.664860940601062,
+   "std": 0.22349803316444838
   },
   {
    "feature": "pl_ppo_d_home",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.6654788176193515,
-   "std": 0.2231704096708632
+   "mean": 0.6646657142347718,
+   "std": 0.22387694666497332
   },
   {
    "feature": "pl_ppo_d_diff",
-   "n_games": 2795,
+   "n_games": 2861,
    "coverage_pct": 100.0,
-   "mean": 0.001312638658568303,
-   "std": 0.3150165883104968
+   "mean": -0.000195226366290148,
+   "std": 0.3163939999601367
   }
  ],
  "fold_geometry": {
-  "n_folds": 45,
+  "n_folds": 60,
   "first_val_start": "2024-11-05",
-  "last_val_end": "2026-04-20",
+  "last_val_end": "2026-10-09",
   "min_train": 192,
-  "max_train": 2679,
-  "total_val_games": 2429
+  "max_train": 2844,
+  "total_val_games": 2669,
+  "n_candidates": 60,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 14,
+  "provisional_games": 193,
+  "postseason_windows": 14,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 2465,
+   "auc": 0.5959569634053661,
+   "logloss": 0.6747233520061257,
+   "brier": 0.24096250560794427,
+   "ece": 0.009133974311502226,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 168,
+   "auc": 0.5769944341372912,
+   "logloss": 0.6812594299417544,
+   "brier": 0.24402182851632437,
+   "ece": 0.04084001551005564,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 193,
+   "auc": 0.5625540190146932,
+   "logloss": 0.6855117248632235,
+   "brier": 0.24612850341589743,
+   "ece": 0.06027855410900497,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 2669,
+   "auc": 0.5947159714444106,
+   "logloss": 0.6752415621519664,
+   "brier": 0.2412084835139779,
+   "ece": 0.00997705226341881,
+   "sufficient": true
+  }
  },
  "config": {
-  "feature_set_version": "nhl-prod-v1.1-player-game-ratings",
+  "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
   "warmup_days": 30,
   "first_season": 2024,
   "oof_first_season": 2024,
@@ -1645,6 +1684,77 @@
    ]
   },
   "random_seed": 42,
-  "market_independence": true
+  "market_independence": true,
+  "moneyline_evaluation": {
+   "headline_view": "causal_rolling_blend",
+   "calibration_view": "gated_prequential_causal_blend",
+   "training_population": "grades_pooled",
+   "retrospective_column": "p_ensemble_retrospective",
+   "retrospective_is_oof": false,
+   "final_xgb_rounds": 160,
+   "xgb_best_rounds": [
+    388,
+    247,
+    182,
+    430,
+    255,
+    145,
+    104,
+    102,
+    202,
+    166,
+    117,
+    3,
+    135,
+    184,
+    163,
+    439,
+    244,
+    257,
+    175,
+    1,
+    34,
+    12,
+    197,
+    11,
+    448,
+    2,
+    5,
+    260,
+    221,
+    50,
+    299,
+    20,
+    46,
+    104,
+    10,
+    109,
+    283,
+    315,
+    46,
+    11,
+    77,
+    338,
+    157,
+    275,
+    452,
+    127,
+    7,
+    406,
+    260,
+    103,
+    169,
+    152,
+    31,
+    230,
+    99,
+    9,
+    195,
+    142,
+    217,
+    292
+   ],
+   "xgb_round_policy": "median_prior_probe_rounds"
+  }
  }
 }
