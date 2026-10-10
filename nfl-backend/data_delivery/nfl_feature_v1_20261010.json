@@ -1,11 +1,11 @@
 {
- "created_utc": "2026-09-30T02:37:16.883675+00:00",
- "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
+ "created_utc": "2026-10-10T06:35:21.175312+00:00",
+ "feature_set_version": "nfl-prod-v9.9-pending-state",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
    "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie; ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at each season boundary (MLB/NHL/NBA parity)",
-   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
    "lookback": "full history (iterative)",
    "aggregation": "iterative state update",
    "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
@@ -177,7 +177,7 @@
   "travel_miles_diff": {
    "description": "Home minus away distance traveled to the venue (miles)",
    "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team\u2192stadium map",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "each side uses its most recent home venue strictly before kickoff; no current/future venue association",
@@ -193,7 +193,7 @@
   "altitude_home": {
    "description": "Game-venue elevation in feet",
    "definition": "altitude_ft of the game stadium",
-   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation) + nfl_neutral_venues.csv (neutral-site rows)",
    "lookback": 0,
    "aggregation": "static pre-game fact",
    "point_in_time_rule": "venue attribute known before kickoff",
@@ -322,7 +322,7 @@
   "elo_home": {
    "description": "Home team's pre-game Elo rating",
    "definition": "team Elo entering kickoff (home side of elo_diff); ratings carry across the offseason with a 1/3 revert toward ELO_PRIOR at each season boundary",
-   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
    "lookback": "full history (iterative)",
    "aggregation": "iterative state update",
    "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
@@ -336,7 +336,7 @@
   "elo_away": {
    "description": "Away team's pre-game Elo rating",
    "definition": "team Elo entering kickoff (away side of elo_diff)",
-   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "source": "nflverse schedules (all decided CON/DIV/REG/SB/WC games; 2016 warmup season, 2017 onward)",
    "lookback": "full history (iterative)",
    "aggregation": "iterative state update",
    "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
@@ -490,7 +490,7 @@
   "travel_miles_home": {
    "description": "Home team's travel distance to the game venue (miles)",
    "definition": "haversine(home team's prior scheduled home stadium, game stadium); the home side of travel_miles_diff, from the same strictly-prior home-venue computation",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "the home team's most recent home venue strictly before kickoff; no current/future venue association",
@@ -504,7 +504,7 @@
   "travel_miles_away": {
    "description": "Away team's travel distance to the game venue (miles)",
    "definition": "haversine(away team's prior scheduled home stadium, game stadium); the away side of travel_miles_diff, from the same strictly-prior home-venue computation",
-   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names + nfl_neutral_venues.csv (true venue for Neutral-site games)",
    "lookback": "prior home games",
    "aggregation": "point-in-time static venue fact",
    "point_in_time_rule": "the away team's most recent home venue strictly before kickoff; no current/future venue association",
@@ -781,7 +781,7 @@
   },
   "epa_qb_home": {
    "description": "Home team's projected-lineup quality",
-   "definition": "The home team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "definition": "The home team's projected EPA per game from the quarterbacks: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (dropbacks), summed over the lineup; ratings from an 8-game strictly-prior window shrunk to a position-segmented league prior",
    "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -795,7 +795,7 @@
   },
   "epa_qb_away": {
    "description": "Away team's projected-lineup quality",
-   "definition": "The away team's mean shrunk EPA per opportunity of the projected quarterbacks, over an 8-game strictly-prior window, shrunk to a position-segmented league prior",
+   "definition": "The away team's projected EPA per game from the quarterbacks: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (dropbacks), summed over the lineup; ratings from an 8-game strictly-prior window shrunk to a position-segmented league prior",
    "source": "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -825,7 +825,7 @@
   },
   "epa_wr_home": {
    "description": "Home team's projected-lineup quality",
-   "definition": "The home team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "definition": "The home team's projected EPA per game from the wide receivers: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -839,7 +839,7 @@
   },
   "epa_wr_away": {
    "description": "Away team's projected-lineup quality",
-   "definition": "The away team's mean shrunk EPA per opportunity of the projected wide receivers",
+   "definition": "The away team's projected EPA per game from the wide receivers: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -869,7 +869,7 @@
   },
   "epa_te_home": {
    "description": "Home team's projected-lineup quality",
-   "definition": "The home team's mean shrunk EPA per opportunity of the projected tight ends",
+   "definition": "The home team's projected EPA per game from the tight ends: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -883,7 +883,7 @@
   },
   "epa_te_away": {
    "description": "Away team's projected-lineup quality",
-   "definition": "The away team's mean shrunk EPA per opportunity of the projected tight ends",
+   "definition": "The away team's projected EPA per game from the tight ends: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -913,7 +913,7 @@
   },
   "epa_rb_home": {
    "description": "Home team's projected-lineup quality",
-   "definition": "The home team's mean shrunk EPA per opportunity of the projected running backs",
+   "definition": "The home team's projected EPA per game from the running backs: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (rush attempts + targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -927,7 +927,7 @@
   },
   "epa_rb_away": {
    "description": "Away team's projected-lineup quality",
-   "definition": "The away team's mean shrunk EPA per opportunity of the projected running backs",
+   "definition": "The away team's projected EPA per game from the running backs: each member's shrunk EPA-per-opportunity rating, weighted by his own projected opportunities per game (rush attempts + targets), summed over the lineup",
    "source": "nflverse play-by-play EPA + opportunity flags; weekly player stats for position labels; weekly roster snapshots (nflverse weekly_rosters)",
    "lookback": "8 player-games; 21-calendar-day roster window",
    "aggregation": "opportunity-weighted mean by position among the team's top 11 prior-opportunity leaders after excluding players with an Out/IR/Doubtful report published strictly before target kickoff or a weekly-roster-snapshot unavailability (carried RES/SUS/PUP, same-week INA/CUT); each member's weight is his own rolling-8 opportunity total, so the blend is the projected lineup's combined shrunk EPA over combined opportunities",
@@ -1125,505 +1125,544 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -1.029088828150386,
-   "std": 101.25205619287121
+   "mean": 0.5488035169664084,
+   "std": 101.61282006519292
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2687,
-   "coverage_pct": 99.33,
-   "mean": -0.002438112863365768,
-   "std": 0.2938110410572368
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 0.00036189295086092217,
+   "std": 0.2838454247893207
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2687,
-   "coverage_pct": 93.41,
-   "mean": -0.03386454183266932,
-   "std": 2.523395631629766
+   "n_games": 2826,
+   "coverage_pct": 93.74,
+   "mean": 0.039637599093997736,
+   "std": 2.554750776543111
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.28879791589132864,
-   "std": 0.4532881510731692
+   "mean": 0.28768577494692144,
+   "std": 0.4527639659229591
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2687,
-   "coverage_pct": 99.33,
-   "mean": -0.4859662538932966,
-   "std": 10.411360435544763
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.3048465933325582,
+   "std": 10.10468350417111
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2687,
-   "coverage_pct": 96.5,
-   "mean": -0.012902576523252027,
-   "std": 0.6984629346779694
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.007094398960991145,
+   "std": 0.6886905411714562
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2687,
-   "coverage_pct": 96.5,
-   "mean": -0.002259455369104979,
-   "std": 0.1226740454788285
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.0018780440436111986,
+   "std": 0.1225561028659688
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.018980275400074433,
-   "std": 0.35996194365046685
+   "mean": 0.013446567586694975,
+   "std": 0.3606724449444424
   },
   {
    "feature": "rest_short_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.15593598809080758,
-   "std": 0.3628621748353888
+   "mean": 0.15605095541401273,
+   "std": 0.36296786891239485
   },
   {
    "feature": "rest_short_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.13695571269073317,
-   "std": 0.3438645823272292
+   "mean": 0.14260438782731777,
+   "std": 0.34973083541621347
   },
   {
    "feature": "div_game",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.36211388165240044,
-   "std": 0.48070096231656706
+   "mean": 0.35173389950460016,
+   "std": 0.4775959353721976
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2687,
-   "coverage_pct": 96.84,
-   "mean": -955.7835525872056,
-   "std": 660.3528567426353
+   "n_games": 2826,
+   "coverage_pct": 98.69,
+   "mean": -937.8336508548783,
+   "std": 681.8728766957994
   },
   {
    "feature": "altitude_home",
-   "n_games": 2687,
-   "coverage_pct": 98.21,
-   "mean": 594.3857521788557,
-   "std": 944.3476853952708
+   "n_games": 2826,
+   "coverage_pct": 100.0,
+   "mean": 597.0837225760793,
+   "std": 965.790867409774
   },
   {
    "feature": "prime_time",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.2084108671380722,
-   "std": 0.40624770548760764
+   "mean": 0.22045293701344656,
+   "std": 0.4146254606889848
   },
   {
    "feature": "is_turf_home",
-   "n_games": 2687,
-   "coverage_pct": 98.36,
-   "mean": 0.4279228149829739,
-   "std": 0.49487123408503997
+   "n_games": 2826,
+   "coverage_pct": 98.44,
+   "mean": 0.4284687275341481,
+   "std": 0.4949457878337749
   },
   {
    "feature": "temp_f",
-   "n_games": 2687,
-   "coverage_pct": 71.12,
-   "mean": 58.66771323914181,
-   "std": 16.86246052094246
+   "n_games": 2826,
+   "coverage_pct": 71.23,
+   "mean": 57.783209140586195,
+   "std": 17.342370064032437
   },
   {
    "feature": "wind_mph",
-   "n_games": 2687,
-   "coverage_pct": 71.12,
-   "mean": 7.947619047619048,
-   "std": 4.461535825219912
+   "n_games": 2826,
+   "coverage_pct": 71.23,
+   "mean": 7.927471435668157,
+   "std": 4.446755402889271
   },
   {
    "feature": "is_precip",
-   "n_games": 2687,
-   "coverage_pct": 71.12,
-   "mean": 0.012035583464154892,
-   "std": 0.10907315759148137
+   "n_games": 2826,
+   "coverage_pct": 71.23,
+   "mean": 0.011425732737208148,
+   "std": 0.10630521754765797
   },
   {
    "feature": "is_snow",
-   "n_games": 2687,
-   "coverage_pct": 71.12,
-   "mean": 0.0052328623757195184,
-   "std": 0.07216789389352711
+   "n_games": 2826,
+   "coverage_pct": 71.23,
+   "mean": 0.006954793840039742,
+   "std": 0.08312555142267401
   },
   {
    "feature": "pbp_air_yards_att_ewm_diff",
-   "n_games": 2687,
-   "coverage_pct": 96.5,
-   "mean": -0.00985659025197092,
-   "std": 1.5594114803124353
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.006763009450020895,
+   "std": 1.5590911585737965
   },
   {
    "feature": "pbp_air_yards_att_ewm_home",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 7.967939030573392,
-   "std": 1.1232588348473895
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 7.973416872032922,
+   "std": 1.1206197861727925
   },
   {
    "feature": "pbp_air_yards_att_ewm_away",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 7.972548488398027,
-   "std": 1.1097830328500107
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 7.980179881482945,
+   "std": 1.112859206661396
   },
   {
    "feature": "pbp_def_epa_play_ewm_diff",
-   "n_games": 2687,
-   "coverage_pct": 96.5,
-   "mean": 0.0007101840163798705,
-   "std": 0.10881954274443476
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -2.5276526073788894e-05,
+   "std": 0.10748537813519134
   },
   {
    "feature": "pbp_def_epa_play_ewm_home",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": -0.0114791704860523,
-   "std": 0.0760848754264411
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.009322983227070796,
+   "std": 0.07575860626565746
   },
   {
    "feature": "pbp_def_epa_play_ewm_away",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": -0.012213364666572038,
-   "std": 0.0797153488834673
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.009297706700997006,
+   "std": 0.07901172233594567
   },
   {
    "feature": "travel_miles_home",
-   "n_games": 2687,
-   "coverage_pct": 96.95,
-   "mean": 0.0048941364262220744,
-   "std": 0.1798527905355505
+   "n_games": 2826,
+   "coverage_pct": 98.8,
+   "mean": 73.13158738303254,
+   "std": 557.5824260050888
   },
   {
    "feature": "travel_miles_away",
-   "n_games": 2687,
-   "coverage_pct": 97.39,
-   "mean": 957.489686506744,
-   "std": 661.2723697124534
+   "n_games": 2826,
+   "coverage_pct": 99.22,
+   "mean": 1012.3360915615308,
+   "std": 774.0512226056243
   },
   {
    "feature": "elo_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 1500.286165422494,
-   "std": 72.50008989943443
+   "mean": 1504.3427557259565,
+   "std": 76.18191971413432
   },
   {
    "feature": "elo_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 1501.3152542506443,
-   "std": 71.97073502655748
+   "mean": 1503.7939522089905,
+   "std": 73.80278551456792
   },
   {
    "feature": "win_pct_home",
-   "n_games": 2687,
-   "coverage_pct": 99.4,
-   "mean": 0.49911442607062223,
-   "std": 0.2098245267929811
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 0.5009330082728659,
+   "std": 0.20822921345391077
   },
   {
    "feature": "win_pct_away",
-   "n_games": 2687,
-   "coverage_pct": 99.33,
-   "mean": 0.5016767660548103,
-   "std": 0.2093174536833372
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 0.500571115322005,
+   "std": 0.2058337756864706
   },
   {
    "feature": "ewm_net_pts_home",
-   "n_games": 2687,
-   "coverage_pct": 99.4,
-   "mean": -0.24038148405526316,
-   "std": 7.5155901782051036
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -0.1440766912438323,
+   "std": 7.516704050767264
   },
   {
    "feature": "ewm_net_pts_away",
-   "n_games": 2687,
-   "coverage_pct": 99.33,
-   "mean": 0.2535861584728675,
-   "std": 7.514112568517759
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 0.1607699020887259,
+   "std": 7.381353974919502
   },
   {
    "feature": "ewm_ypp_home",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 4.193406262219884,
-   "std": 0.5043368245519128
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 4.20423917606121,
+   "std": 0.502689117781825
   },
   {
    "feature": "ewm_ypp_away",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 4.207247943876574,
-   "std": 0.5028959788823032
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 4.211333575022201,
+   "std": 0.4961799274476177
   },
   {
    "feature": "rest_days_home",
-   "n_games": 2687,
-   "coverage_pct": 93.45,
-   "mean": 7.434090003982477,
-   "std": 2.100544597915582
+   "n_games": 2826,
+   "coverage_pct": 93.77,
+   "mean": 7.5052830188679245,
+   "std": 2.179940987642155
   },
   {
    "feature": "rest_days_away",
-   "n_games": 2687,
-   "coverage_pct": 93.45,
-   "mean": 7.468339307048985,
-   "std": 2.0769300988291337
+   "n_games": 2826,
+   "coverage_pct": 93.77,
+   "mean": 7.466037735849056,
+   "std": 2.0737118008000026
   },
   {
    "feature": "pace_plays_min_home",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 1.3550570796198986,
-   "std": 0.08873179076183413
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 1.3553417419577158,
+   "std": 0.08905442818680741
   },
   {
    "feature": "pace_plays_min_away",
-   "n_games": 2687,
-   "coverage_pct": 97.92,
-   "mean": 1.357265651992341,
-   "std": 0.08872056211562895
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 1.357219786001327,
+   "std": 0.08839767493834759
   },
   {
    "feature": "epa_qb_home",
-   "n_games": 2687,
-   "coverage_pct": 90.66,
-   "mean": 0.02642386623046271,
-   "std": 0.11138664698771292
+   "n_games": 2826,
+   "coverage_pct": 98.05,
+   "mean": 1.2127094321644192,
+   "std": 4.728031038614757
   },
   {
    "feature": "epa_qb_away",
-   "n_games": 2687,
-   "coverage_pct": 90.55,
-   "mean": 0.026538176806142465,
-   "std": 0.11097536510125929
+   "n_games": 2826,
+   "coverage_pct": 97.98,
+   "mean": 1.1353171380033438,
+   "std": 4.696132265467263
   },
   {
    "feature": "epa_qb_diff",
-   "n_games": 2687,
-   "coverage_pct": 87.87,
-   "mean": 3.852578552565952e-05,
-   "std": 0.15515036990538178
+   "n_games": 2826,
+   "coverage_pct": 96.67,
+   "mean": 0.07198738586150157,
+   "std": 6.50154045165333
   },
   {
    "feature": "epa_wr_home",
-   "n_games": 2687,
-   "coverage_pct": 92.04,
-   "mean": 0.21902874384209678,
-   "std": 0.14925255999157724
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": 4.5696247382376685,
+   "std": 3.204324040146478
   },
   {
    "feature": "epa_wr_away",
-   "n_games": 2687,
-   "coverage_pct": 92.04,
-   "mean": 0.21821929391896464,
-   "std": 0.1464390150428094
+   "n_games": 2826,
+   "coverage_pct": 99.4,
+   "mean": 4.5322012430840415,
+   "std": 3.2198578242313736
   },
   {
    "feature": "epa_wr_diff",
-   "n_games": 2687,
-   "coverage_pct": 90.66,
-   "mean": 0.0016246162928213593,
-   "std": 0.2015898525183225
+   "n_games": 2826,
+   "coverage_pct": 99.4,
+   "mean": 0.03828273658557918,
+   "std": 4.36414161094418
   },
   {
    "feature": "epa_te_home",
-   "n_games": 2687,
-   "coverage_pct": 91.37,
-   "mean": 0.2033515728354404,
-   "std": 0.2090915448448197
+   "n_games": 2826,
+   "coverage_pct": 98.69,
+   "mean": 1.5859454386778786,
+   "std": 1.6291721093253633
   },
   {
    "feature": "epa_te_away",
-   "n_games": 2687,
-   "coverage_pct": 91.37,
-   "mean": 0.1958578449654121,
-   "std": 0.2034930676278521
+   "n_games": 2826,
+   "coverage_pct": 98.58,
+   "mean": 1.5610694207546325,
+   "std": 1.6164558714968416
   },
   {
    "feature": "epa_te_diff",
-   "n_games": 2687,
-   "coverage_pct": 89.32,
-   "mean": 0.007800411070178785,
-   "std": 0.2938354715900945
+   "n_games": 2826,
+   "coverage_pct": 97.84,
+   "mean": 0.024026304836364105,
+   "std": 2.293475553838603
   },
   {
    "feature": "epa_rb_home",
-   "n_games": 2687,
-   "coverage_pct": 92.04,
-   "mean": -0.05186847261962784,
-   "std": 0.0806753324588043
+   "n_games": 2826,
+   "coverage_pct": 99.43,
+   "mean": -1.3953910631299042,
+   "std": 2.2818217484772894
   },
   {
    "feature": "epa_rb_away",
-   "n_games": 2687,
-   "coverage_pct": 92.04,
-   "mean": -0.05164374124989551,
-   "std": 0.07943670303895604
+   "n_games": 2826,
+   "coverage_pct": 99.4,
+   "mean": -1.4495824918637417,
+   "std": 2.2527487350965325
   },
   {
    "feature": "epa_rb_diff",
-   "n_games": 2687,
-   "coverage_pct": 90.66,
-   "mean": 6.924467864062951e-05,
-   "std": 0.11478792850172483
+   "n_games": 2826,
+   "coverage_pct": 99.4,
+   "mean": 0.054186588386277316,
+   "std": 3.2354037158793836
   },
   {
    "feature": "inj_ol_out_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 2.3126163007071083,
-   "std": 1.5579405697396407
+   "mean": 2.3128096249115355,
+   "std": 1.5552908604938853
   },
   {
    "feature": "inj_ol_out_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 2.3308522515816894,
-   "std": 1.529174260740437
+   "mean": 2.3276716206652512,
+   "std": 1.533874275664335
   },
   {
    "feature": "inj_ol_out_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.018235950874581318,
-   "std": 2.0181701086980377
+   "mean": -0.014861995753715499,
+   "std": 2.0187945054621887
   },
   {
    "feature": "ol_snaps_lost_share_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 1.4812151540928988,
-   "std": 1.135721532548948
+   "mean": 1.4706019992922856,
+   "std": 1.128305595544327
   },
   {
    "feature": "ol_snaps_lost_share_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 1.4964977005688767,
-   "std": 1.115271008827166
+   "mean": 1.489507426785293,
+   "std": 1.1153758332559893
   },
   {
    "feature": "ol_snaps_lost_share_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.015282546475977812,
-   "std": 1.5055817036666894
+   "mean": -0.018905427493007113,
+   "std": 1.4977847318129451
   },
   {
    "feature": "ol_key_out_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.7253442500930406,
-   "std": 0.4464237210404787
+   "mean": 0.7200990799716914,
+   "std": 0.44902977895912316
   },
   {
    "feature": "ol_key_out_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.7394864160774097,
-   "std": 0.43899655906792984
+   "mean": 0.7374380750176929,
+   "std": 0.44010419187252003
   },
   {
    "feature": "ol_key_out_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.014142165984369185,
-   "std": 0.618486189559903
+   "mean": -0.017338995046001414,
+   "std": 0.6172019044708011
   },
   {
    "feature": "inj_def_out_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 7.1313732787495345,
-   "std": 3.3155371749127127
+   "mean": 7.1461429582448694,
+   "std": 3.2852926733886534
   },
   {
    "feature": "inj_def_out_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 7.1793822106438405,
-   "std": 3.3533269825651217
+   "mean": 7.193205944798302,
+   "std": 3.3343749758150554
   },
   {
    "feature": "inj_def_out_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.04800893189430592,
-   "std": 4.109394230430645
+   "mean": -0.04706298655343241,
+   "std": 4.103473194241011
   },
   {
    "feature": "def_snaps_lost_share_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 3.0878285262374394,
-   "std": 1.6270729570973654
+   "mean": 3.0814805083746166,
+   "std": 1.6109835818071858
   },
   {
    "feature": "def_snaps_lost_share_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 3.1183034495897357,
-   "std": 1.6231046354026566
+   "mean": 3.1147508340915984,
+   "std": 1.6148900970201427
   },
   {
    "feature": "def_snaps_lost_share_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.0304749233522959,
-   "std": 2.1194129950647356
+   "mean": -0.03327032571698178,
+   "std": 2.116303483759242
   },
   {
    "feature": "def_key_out_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.854484555266096,
-   "std": 0.35268540120378195
+   "mean": 0.8527954706298655,
+   "std": 0.35437239339031285
   },
   {
    "feature": "def_key_out_away",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": 0.861183475995534,
-   "std": 0.3458193226620115
+   "mean": 0.8591648973814578,
+   "std": 0.34791293242913585
   },
   {
    "feature": "def_key_out_diff",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
-   "mean": -0.006698920729438035,
-   "std": 0.48117171281186877
+   "mean": -0.006369426751592357,
+   "std": 0.4855014195976306
   },
   {
    "feature": "is_home",
-   "n_games": 2687,
+   "n_games": 2826,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   }
  ],
  "fold_geometry": {
-  "n_folds": 106,
+  "n_folds": 200,
   "first_val_start": "2017-09-07",
-  "last_val_end": "2026-09-30",
-  "min_train": 256,
-  "max_train": 2671,
-  "total_val_games": 1673
+  "last_val_end": "2026-10-14",
+  "min_train": 267,
+  "max_train": 2825,
+  "total_val_games": 2559,
+  "n_candidates": 200,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 93,
+  "provisional_games": 870,
+  "postseason_windows": 36,
+  "min_val_fold_games": 15,
+  "oof_regular": {
+   "n": 1689,
+   "auc": 0.6994305661242005,
+   "logloss": 0.6284987558450107,
+   "brier": 0.21931326158186948,
+   "ece": 0.028950424492268284,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 111,
+   "auc": 0.6356107660455486,
+   "logloss": 0.6338657250918408,
+   "brier": 0.22102969004367018,
+   "ece": 0.0416681407785704,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 870,
+   "auc": 0.6829273486074439,
+   "logloss": 0.6386650432676292,
+   "brier": 0.22391354512555978,
+   "ece": 0.030091995947182492,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 2559,
+   "auc": 0.6938735542992277,
+   "logloss": 0.631955055203228,
+   "brier": 0.22087725012544532,
+   "ece": 0.025110563366061944,
+   "sufficient": true
+  }
  },
  "config": {
-  "feature_set_version": "nfl-prod-v9.7-elo-season-revert",
+  "feature_set_version": "nfl-prod-v9.9-pending-state",
   "warmup_seasons": [
    2016
   ],
@@ -1631,8 +1670,12 @@
   "retrain_cadence_days": 7,
   "min_val_fold_games": 15,
   "game_types": [
+   "CON",
+   "DIV",
    "POST",
-   "REG"
+   "REG",
+   "SB",
+   "WC"
   ],
   "ensemble_members": [
    "xgboost",
@@ -1746,6 +1789,1830 @@
    "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
    "daily_aggregates_allowed": false
   },
-  "market_independence": true
+  "market_independence": true,
+  "moneyline_evaluation": {
+   "headline_view": "causal_rolling_blend",
+   "calibration_view": "gated_prequential_causal_blend",
+   "training_population": "grades_pooled",
+   "retrospective_column": "p_ensemble_retrospective",
+   "retrospective_is_oof": false,
+   "calibrator_gate": "nested_prior_evidence",
+   "xgb_round_policy": "fixed_config_budgets_no_early_stop"
+  },
+  "calibration_gate": {
+   "method": "nested_prior_evidence_gate",
+   "input_view": "causal_rolling_blend",
+   "training_population": "grades_pooled",
+   "fold_records": [
+    {
+     "n_prior": 0,
+     "decision": "identity",
+     "reason": "no_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 0
+    },
+    {
+     "n_prior": 15,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 1
+    },
+    {
+     "n_prior": 31,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 2
+    },
+    {
+     "n_prior": 47,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 3
+    },
+    {
+     "n_prior": 63,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 4
+    },
+    {
+     "n_prior": 63,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 5
+    },
+    {
+     "n_prior": 63,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 6
+    },
+    {
+     "n_prior": 78,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 7
+    },
+    {
+     "n_prior": 78,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 8
+    },
+    {
+     "n_prior": 78,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 9
+    },
+    {
+     "n_prior": 78,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 10
+    },
+    {
+     "n_prior": 78,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 11
+    },
+    {
+     "n_prior": 94,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 12
+    },
+    {
+     "n_prior": 110,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 13
+    },
+    {
+     "n_prior": 126,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 14
+    },
+    {
+     "n_prior": 142,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 15
+    },
+    {
+     "n_prior": 158,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 16
+    },
+    {
+     "n_prior": 174,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 17
+    },
+    {
+     "n_prior": 174,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 18
+    },
+    {
+     "n_prior": 174,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 19
+    },
+    {
+     "n_prior": 174,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 20
+    },
+    {
+     "n_prior": 174,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 21
+    },
+    {
+     "n_prior": 190,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 22
+    },
+    {
+     "n_prior": 206,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 23
+    },
+    {
+     "n_prior": 222,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 24
+    },
+    {
+     "n_prior": 237,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 25
+    },
+    {
+     "n_prior": 252,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 26
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 27
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 28
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 29
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 30
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 31
+    },
+    {
+     "n_prior": 267,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 32
+    },
+    {
+     "n_prior": 282,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 33
+    },
+    {
+     "n_prior": 298,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 34
+    },
+    {
+     "n_prior": 314,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 35
+    },
+    {
+     "n_prior": 330,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 36
+    },
+    {
+     "n_prior": 346,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 37
+    },
+    {
+     "n_prior": 362,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 38
+    },
+    {
+     "n_prior": 362,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 39
+    },
+    {
+     "n_prior": 362,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 40
+    },
+    {
+     "n_prior": 362,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 41
+    },
+    {
+     "n_prior": 362,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 42
+    },
+    {
+     "n_prior": 378,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 43
+    },
+    {
+     "n_prior": 394,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 44
+    },
+    {
+     "n_prior": 410,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 45
+    },
+    {
+     "n_prior": 425,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 46
+    },
+    {
+     "n_prior": 440,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 47
+    },
+    {
+     "n_prior": 440,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 48
+    },
+    {
+     "n_prior": 440,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 49
+    },
+    {
+     "n_prior": 455,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 50
+    },
+    {
+     "n_prior": 455,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 51
+    },
+    {
+     "n_prior": 455,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 52
+    },
+    {
+     "n_prior": 455,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 53
+    },
+    {
+     "n_prior": 455,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 54
+    },
+    {
+     "n_prior": 471,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 55
+    },
+    {
+     "n_prior": 487,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "nested_holdout_logloss": null,
+     "raw_logloss": null,
+     "params": null,
+     "fold_id": 56
+    },
+    {
+     "n_prior": 503,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.646681,
+     "raw_logloss": 0.644956,
+     "params": null,
+     "fold_id": 57
+    },
+    {
+     "n_prior": 519,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.633224,
+     "raw_logloss": 0.636457,
+     "params": null,
+     "fold_id": 58
+    },
+    {
+     "n_prior": 535,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637394,
+     "raw_logloss": 0.638491,
+     "params": null,
+     "fold_id": 59
+    },
+    {
+     "n_prior": 535,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637394,
+     "raw_logloss": 0.638491,
+     "params": null,
+     "fold_id": 60
+    },
+    {
+     "n_prior": 535,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637394,
+     "raw_logloss": 0.638491,
+     "params": null,
+     "fold_id": 61
+    },
+    {
+     "n_prior": 535,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637394,
+     "raw_logloss": 0.638491,
+     "params": null,
+     "fold_id": 62
+    },
+    {
+     "n_prior": 535,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637394,
+     "raw_logloss": 0.638491,
+     "params": null,
+     "fold_id": 63
+    },
+    {
+     "n_prior": 551,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.643001,
+     "raw_logloss": 0.639329,
+     "params": null,
+     "fold_id": 64
+    },
+    {
+     "n_prior": 567,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638838,
+     "raw_logloss": 0.634388,
+     "params": null,
+     "fold_id": 65
+    },
+    {
+     "n_prior": 583,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.652641,
+     "raw_logloss": 0.644445,
+     "params": null,
+     "fold_id": 66
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 67
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 68
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 69
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 70
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 71
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 72
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 73
+    },
+    {
+     "n_prior": 598,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.654081,
+     "raw_logloss": 0.64587,
+     "params": null,
+     "fold_id": 74
+    },
+    {
+     "n_prior": 614,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.636639,
+     "raw_logloss": 0.633461,
+     "params": null,
+     "fold_id": 75
+    },
+    {
+     "n_prior": 629,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638168,
+     "raw_logloss": 0.630523,
+     "params": null,
+     "fold_id": 76
+    },
+    {
+     "n_prior": 645,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638515,
+     "raw_logloss": 0.632363,
+     "params": null,
+     "fold_id": 77
+    },
+    {
+     "n_prior": 661,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640439,
+     "raw_logloss": 0.638629,
+     "params": null,
+     "fold_id": 78
+    },
+    {
+     "n_prior": 677,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.634819,
+     "raw_logloss": 0.632171,
+     "params": null,
+     "fold_id": 79
+    },
+    {
+     "n_prior": 693,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628735,
+     "raw_logloss": 0.627532,
+     "params": null,
+     "fold_id": 80
+    },
+    {
+     "n_prior": 693,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628735,
+     "raw_logloss": 0.627532,
+     "params": null,
+     "fold_id": 81
+    },
+    {
+     "n_prior": 693,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628735,
+     "raw_logloss": 0.627532,
+     "params": null,
+     "fold_id": 82
+    },
+    {
+     "n_prior": 693,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628735,
+     "raw_logloss": 0.627532,
+     "params": null,
+     "fold_id": 83
+    },
+    {
+     "n_prior": 693,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628735,
+     "raw_logloss": 0.627532,
+     "params": null,
+     "fold_id": 84
+    },
+    {
+     "n_prior": 709,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.641299,
+     "raw_logloss": 0.636509,
+     "params": null,
+     "fold_id": 85
+    },
+    {
+     "n_prior": 725,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632335,
+     "raw_logloss": 0.629088,
+     "params": null,
+     "fold_id": 86
+    },
+    {
+     "n_prior": 741,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628309,
+     "raw_logloss": 0.626162,
+     "params": null,
+     "fold_id": 87
+    },
+    {
+     "n_prior": 757,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.639455,
+     "raw_logloss": 0.636168,
+     "params": null,
+     "fold_id": 88
+    },
+    {
+     "n_prior": 773,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.630805,
+     "raw_logloss": 0.628168,
+     "params": null,
+     "fold_id": 89
+    },
+    {
+     "n_prior": 773,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.630805,
+     "raw_logloss": 0.628168,
+     "params": null,
+     "fold_id": 90
+    },
+    {
+     "n_prior": 773,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.630805,
+     "raw_logloss": 0.628168,
+     "params": null,
+     "fold_id": 91
+    },
+    {
+     "n_prior": 788,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.633521,
+     "raw_logloss": 0.632097,
+     "params": null,
+     "fold_id": 92
+    },
+    {
+     "n_prior": 788,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.633521,
+     "raw_logloss": 0.632097,
+     "params": null,
+     "fold_id": 93
+    },
+    {
+     "n_prior": 788,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.633521,
+     "raw_logloss": 0.632097,
+     "params": null,
+     "fold_id": 94
+    },
+    {
+     "n_prior": 803,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63976,
+     "raw_logloss": 0.639011,
+     "params": null,
+     "fold_id": 95
+    },
+    {
+     "n_prior": 818,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.648545,
+     "raw_logloss": 0.648287,
+     "params": null,
+     "fold_id": 96
+    },
+    {
+     "n_prior": 818,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.648545,
+     "raw_logloss": 0.648287,
+     "params": null,
+     "fold_id": 97
+    },
+    {
+     "n_prior": 818,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.648545,
+     "raw_logloss": 0.648287,
+     "params": null,
+     "fold_id": 98
+    },
+    {
+     "n_prior": 834,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.648496,
+     "raw_logloss": 0.648779,
+     "params": null,
+     "fold_id": 99
+    },
+    {
+     "n_prior": 850,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.641745,
+     "raw_logloss": 0.641826,
+     "params": null,
+     "fold_id": 100
+    },
+    {
+     "n_prior": 866,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632622,
+     "raw_logloss": 0.633952,
+     "params": null,
+     "fold_id": 101
+    },
+    {
+     "n_prior": 882,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638498,
+     "raw_logloss": 0.637627,
+     "params": null,
+     "fold_id": 102
+    },
+    {
+     "n_prior": 882,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638498,
+     "raw_logloss": 0.637627,
+     "params": null,
+     "fold_id": 103
+    },
+    {
+     "n_prior": 882,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638498,
+     "raw_logloss": 0.637627,
+     "params": null,
+     "fold_id": 104
+    },
+    {
+     "n_prior": 882,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638498,
+     "raw_logloss": 0.637627,
+     "params": null,
+     "fold_id": 105
+    },
+    {
+     "n_prior": 882,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.638498,
+     "raw_logloss": 0.637627,
+     "params": null,
+     "fold_id": 106
+    },
+    {
+     "n_prior": 898,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640431,
+     "raw_logloss": 0.64202,
+     "params": null,
+     "fold_id": 107
+    },
+    {
+     "n_prior": 914,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.64937,
+     "raw_logloss": 0.649281,
+     "params": null,
+     "fold_id": 108
+    },
+    {
+     "n_prior": 930,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.660628,
+     "raw_logloss": 0.659197,
+     "params": null,
+     "fold_id": 109
+    },
+    {
+     "n_prior": 946,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.653545,
+     "raw_logloss": 0.651987,
+     "params": null,
+     "fold_id": 110
+    },
+    {
+     "n_prior": 962,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.656154,
+     "raw_logloss": 0.653685,
+     "params": null,
+     "fold_id": 111
+    },
+    {
+     "n_prior": 962,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.656154,
+     "raw_logloss": 0.653685,
+     "params": null,
+     "fold_id": 112
+    },
+    {
+     "n_prior": 962,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.656154,
+     "raw_logloss": 0.653685,
+     "params": null,
+     "fold_id": 113
+    },
+    {
+     "n_prior": 977,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.655344,
+     "raw_logloss": 0.652867,
+     "params": null,
+     "fold_id": 114
+    },
+    {
+     "n_prior": 977,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.655344,
+     "raw_logloss": 0.652867,
+     "params": null,
+     "fold_id": 115
+    },
+    {
+     "n_prior": 977,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.655344,
+     "raw_logloss": 0.652867,
+     "params": null,
+     "fold_id": 116
+    },
+    {
+     "n_prior": 977,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.655344,
+     "raw_logloss": 0.652867,
+     "params": null,
+     "fold_id": 117
+    },
+    {
+     "n_prior": 993,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.650889,
+     "raw_logloss": 0.64984,
+     "params": null,
+     "fold_id": 118
+    },
+    {
+     "n_prior": 1008,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.641061,
+     "raw_logloss": 0.641656,
+     "params": null,
+     "fold_id": 119
+    },
+    {
+     "n_prior": 1008,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.641061,
+     "raw_logloss": 0.641656,
+     "params": null,
+     "fold_id": 120
+    },
+    {
+     "n_prior": 1024,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640655,
+     "raw_logloss": 0.640625,
+     "params": null,
+     "fold_id": 121
+    },
+    {
+     "n_prior": 1040,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637927,
+     "raw_logloss": 0.638436,
+     "params": null,
+     "fold_id": 122
+    },
+    {
+     "n_prior": 1055,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632553,
+     "raw_logloss": 0.632814,
+     "params": null,
+     "fold_id": 123
+    },
+    {
+     "n_prior": 1071,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627835,
+     "raw_logloss": 0.626819,
+     "params": null,
+     "fold_id": 124
+    },
+    {
+     "n_prior": 1071,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627835,
+     "raw_logloss": 0.626819,
+     "params": null,
+     "fold_id": 125
+    },
+    {
+     "n_prior": 1071,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627835,
+     "raw_logloss": 0.626819,
+     "params": null,
+     "fold_id": 126
+    },
+    {
+     "n_prior": 1071,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627835,
+     "raw_logloss": 0.626819,
+     "params": null,
+     "fold_id": 127
+    },
+    {
+     "n_prior": 1071,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627835,
+     "raw_logloss": 0.626819,
+     "params": null,
+     "fold_id": 128
+    },
+    {
+     "n_prior": 1087,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627214,
+     "raw_logloss": 0.626305,
+     "params": null,
+     "fold_id": 129
+    },
+    {
+     "n_prior": 1103,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.625778,
+     "raw_logloss": 0.625645,
+     "params": null,
+     "fold_id": 130
+    },
+    {
+     "n_prior": 1119,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627125,
+     "raw_logloss": 0.628511,
+     "params": null,
+     "fold_id": 131
+    },
+    {
+     "n_prior": 1135,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.623797,
+     "raw_logloss": 0.624663,
+     "params": null,
+     "fold_id": 132
+    },
+    {
+     "n_prior": 1135,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.623797,
+     "raw_logloss": 0.624663,
+     "params": null,
+     "fold_id": 133
+    },
+    {
+     "n_prior": 1150,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629228,
+     "raw_logloss": 0.629796,
+     "params": null,
+     "fold_id": 134
+    },
+    {
+     "n_prior": 1150,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629228,
+     "raw_logloss": 0.629796,
+     "params": null,
+     "fold_id": 135
+    },
+    {
+     "n_prior": 1166,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629378,
+     "raw_logloss": 0.629193,
+     "params": null,
+     "fold_id": 136
+    },
+    {
+     "n_prior": 1166,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629378,
+     "raw_logloss": 0.629193,
+     "params": null,
+     "fold_id": 137
+    },
+    {
+     "n_prior": 1166,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629378,
+     "raw_logloss": 0.629193,
+     "params": null,
+     "fold_id": 138
+    },
+    {
+     "n_prior": 1166,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629378,
+     "raw_logloss": 0.629193,
+     "params": null,
+     "fold_id": 139
+    },
+    {
+     "n_prior": 1182,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627162,
+     "raw_logloss": 0.628071,
+     "params": null,
+     "fold_id": 140
+    },
+    {
+     "n_prior": 1182,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.627162,
+     "raw_logloss": 0.628071,
+     "params": null,
+     "fold_id": 141
+    },
+    {
+     "n_prior": 1197,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.634834,
+     "raw_logloss": 0.633552,
+     "params": null,
+     "fold_id": 142
+    },
+    {
+     "n_prior": 1213,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632802,
+     "raw_logloss": 0.632264,
+     "params": null,
+     "fold_id": 143
+    },
+    {
+     "n_prior": 1229,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.635064,
+     "raw_logloss": 0.634022,
+     "params": null,
+     "fold_id": 144
+    },
+    {
+     "n_prior": 1245,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.629151,
+     "raw_logloss": 0.628843,
+     "params": null,
+     "fold_id": 145
+    },
+    {
+     "n_prior": 1261,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628378,
+     "raw_logloss": 0.628115,
+     "params": null,
+     "fold_id": 146
+    },
+    {
+     "n_prior": 1261,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628378,
+     "raw_logloss": 0.628115,
+     "params": null,
+     "fold_id": 147
+    },
+    {
+     "n_prior": 1261,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628378,
+     "raw_logloss": 0.628115,
+     "params": null,
+     "fold_id": 148
+    },
+    {
+     "n_prior": 1261,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628378,
+     "raw_logloss": 0.628115,
+     "params": null,
+     "fold_id": 149
+    },
+    {
+     "n_prior": 1261,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.628378,
+     "raw_logloss": 0.628115,
+     "params": null,
+     "fold_id": 150
+    },
+    {
+     "n_prior": 1277,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.623363,
+     "raw_logloss": 0.623069,
+     "params": null,
+     "fold_id": 151
+    },
+    {
+     "n_prior": 1293,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.631115,
+     "raw_logloss": 0.631498,
+     "params": null,
+     "fold_id": 152
+    },
+    {
+     "n_prior": 1309,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.636366,
+     "raw_logloss": 0.637908,
+     "params": null,
+     "fold_id": 153
+    },
+    {
+     "n_prior": 1325,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640889,
+     "raw_logloss": 0.641713,
+     "params": null,
+     "fold_id": 154
+    },
+    {
+     "n_prior": 1325,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640889,
+     "raw_logloss": 0.641713,
+     "params": null,
+     "fold_id": 155
+    },
+    {
+     "n_prior": 1325,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.640889,
+     "raw_logloss": 0.641713,
+     "params": null,
+     "fold_id": 156
+    },
+    {
+     "n_prior": 1340,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63762,
+     "raw_logloss": 0.638455,
+     "params": null,
+     "fold_id": 157
+    },
+    {
+     "n_prior": 1356,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637794,
+     "raw_logloss": 0.638256,
+     "params": null,
+     "fold_id": 158
+    },
+    {
+     "n_prior": 1371,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637834,
+     "raw_logloss": 0.637972,
+     "params": null,
+     "fold_id": 159
+    },
+    {
+     "n_prior": 1371,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637834,
+     "raw_logloss": 0.637972,
+     "params": null,
+     "fold_id": 160
+    },
+    {
+     "n_prior": 1371,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637834,
+     "raw_logloss": 0.637972,
+     "params": null,
+     "fold_id": 161
+    },
+    {
+     "n_prior": 1371,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.637834,
+     "raw_logloss": 0.637972,
+     "params": null,
+     "fold_id": 162
+    },
+    {
+     "n_prior": 1387,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632381,
+     "raw_logloss": 0.63169,
+     "params": null,
+     "fold_id": 163
+    },
+    {
+     "n_prior": 1387,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.632381,
+     "raw_logloss": 0.63169,
+     "params": null,
+     "fold_id": 164
+    },
+    {
+     "n_prior": 1403,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.631725,
+     "raw_logloss": 0.630013,
+     "params": null,
+     "fold_id": 165
+    },
+    {
+     "n_prior": 1421,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.625978,
+     "raw_logloss": 0.624656,
+     "params": null,
+     "fold_id": 166
+    },
+    {
+     "n_prior": 1421,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.625978,
+     "raw_logloss": 0.624656,
+     "params": null,
+     "fold_id": 167
+    },
+    {
+     "n_prior": 1437,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63162,
+     "raw_logloss": 0.630673,
+     "params": null,
+     "fold_id": 168
+    },
+    {
+     "n_prior": 1437,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63162,
+     "raw_logloss": 0.630673,
+     "params": null,
+     "fold_id": 169
+    },
+    {
+     "n_prior": 1437,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63162,
+     "raw_logloss": 0.630673,
+     "params": null,
+     "fold_id": 170
+    },
+    {
+     "n_prior": 1437,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63162,
+     "raw_logloss": 0.630673,
+     "params": null,
+     "fold_id": 171
+    },
+    {
+     "n_prior": 1437,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.63162,
+     "raw_logloss": 0.630673,
+     "params": null,
+     "fold_id": 172
+    },
+    {
+     "n_prior": 1453,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.625286,
+     "raw_logloss": 0.624134,
+     "params": null,
+     "fold_id": 173
+    },
+    {
+     "n_prior": 1469,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.620582,
+     "raw_logloss": 0.618299,
+     "params": null,
+     "fold_id": 174
+    },
+    {
+     "n_prior": 1485,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.617389,
+     "raw_logloss": 0.614577,
+     "params": null,
+     "fold_id": 175
+    },
+    {
+     "n_prior": 1501,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.619024,
+     "raw_logloss": 0.616105,
+     "params": null,
+     "fold_id": 176
+    },
+    {
+     "n_prior": 1501,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.619024,
+     "raw_logloss": 0.616105,
+     "params": null,
+     "fold_id": 177
+    },
+    {
+     "n_prior": 1516,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.623704,
+     "raw_logloss": 0.620929,
+     "params": null,
+     "fold_id": 178
+    },
+    {
+     "n_prior": 1531,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.62058,
+     "raw_logloss": 0.617777,
+     "params": null,
+     "fold_id": 179
+    },
+    {
+     "n_prior": 1531,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.62058,
+     "raw_logloss": 0.617777,
+     "params": null,
+     "fold_id": 180
+    },
+    {
+     "n_prior": 1531,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.62058,
+     "raw_logloss": 0.617777,
+     "params": null,
+     "fold_id": 181
+    },
+    {
+     "n_prior": 1531,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.62058,
+     "raw_logloss": 0.617777,
+     "params": null,
+     "fold_id": 182
+    },
+    {
+     "n_prior": 1546,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.612453,
+     "raw_logloss": 0.610779,
+     "params": null,
+     "fold_id": 183
+    },
+    {
+     "n_prior": 1546,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.612453,
+     "raw_logloss": 0.610779,
+     "params": null,
+     "fold_id": 184
+    },
+    {
+     "n_prior": 1562,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.618043,
+     "raw_logloss": 0.616142,
+     "params": null,
+     "fold_id": 185
+    },
+    {
+     "n_prior": 1562,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.618043,
+     "raw_logloss": 0.616142,
+     "params": null,
+     "fold_id": 186
+    },
+    {
+     "n_prior": 1578,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.613109,
+     "raw_logloss": 0.610433,
+     "params": null,
+     "fold_id": 187
+    },
+    {
+     "n_prior": 1594,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.611323,
+     "raw_logloss": 0.60978,
+     "params": null,
+     "fold_id": 188
+    },
+    {
+     "n_prior": 1610,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.611075,
+     "raw_logloss": 0.608604,
+     "params": null,
+     "fold_id": 189
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 190
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 191
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 192
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 193
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 194
+    },
+    {
+     "n_prior": 1626,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61223,
+     "raw_logloss": 0.610831,
+     "params": null,
+     "fold_id": 195
+    },
+    {
+     "n_prior": 1641,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.611629,
+     "raw_logloss": 0.609733,
+     "params": null,
+     "fold_id": 196
+    },
+    {
+     "n_prior": 1657,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.610838,
+     "raw_logloss": 0.608121,
+     "params": null,
+     "fold_id": 197
+    },
+    {
+     "n_prior": 1673,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.61314,
+     "raw_logloss": 0.611118,
+     "params": null,
+     "fold_id": 198
+    },
+    {
+     "n_prior": 1689,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "nested_holdout_logloss": 0.613035,
+     "raw_logloss": 0.61142,
+     "params": null,
+     "fold_id": 199
+    }
+   ],
+   "final_serving": {
+    "n_prior": 1689,
+    "decision": "identity",
+    "reason": "gated_no_gain",
+    "nested_holdout_logloss": 0.613035,
+    "raw_logloss": 0.61142,
+    "params": null
+   }
+  }
  }
 }
