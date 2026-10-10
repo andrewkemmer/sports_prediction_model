@@ -1,0 +1,21 @@
+{
+  "fetched_utc": "2026-10-10T01:40Z",
+  "espn_scoreboard": {
+    "endpoint": "site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+    "days_probed": ["2026-10-04", "2026-10-05", "2026-10-08"],
+    "completed_events_vs_schedule_cache_finals": "16/16 score multisets identical, 0 unmatched"
+  },
+  "nflverse_fresh_pbp_vs_cache": {
+    "source": "nflreadpy.load_pbp([2026]) fetched fresh at probe time",
+    "fresh_rows": 11327,
+    "cached_rows": 11327,
+    "joined_games": 65,
+    "latest_16_games_play_count_diffs": 0,
+    "latest_16_games_max_abs_epa_sum_diff": 0.0
+  },
+  "serving_surface": {
+    "artifact": "nfl-backend/data_delivery/nfl_shap_game_2026_05_SF_SEA.csv",
+    "epa_columns_with_nonzero_attribution": 12,
+    "largest": "epa_qb_diff (shap_value -0.215130, perspective SEA)"
+  }
+}

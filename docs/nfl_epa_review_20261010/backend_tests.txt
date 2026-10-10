@@ -1,0 +1,31 @@
+NFL backend suite — full run 2026-10-10 (evidence for docs/nfl_epa_review_20261010.md)
+commit base: b2edfb29
+
+=== 1/4 pytest: test_fold_season_split.py + test_run_log_tee.py ===
+...................................                                      [100%]
+============================== warnings summary ===============================
+test_fold_season_split.py: 44 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+35 passed, 44 warnings in 16.57s
+rc=0
+
+=== 2/4 test_production.py (targeted, no network) ===
+RESULTS: 523 passed, 0 failed
+ALL TARGETED TESTS PASSED
+phases:   0%|          | 0/3
+rc=0
+
+=== 3/4 test_data_delivery.py ===
+============================================================
+RESULTS: 102 passed, 0 failed
+ALL DATA DELIVERY TESTS PASSED
+rc=0
+
+=== 4/4 test_feature_name_consistency.py ===
+  PASS  active contract returns to the full list after reset
+
+39 passed, 0 failed
+rc=0

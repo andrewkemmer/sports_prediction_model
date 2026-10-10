@@ -1,0 +1,252 @@
+{
+  "n_folds": 200,
+  "arms": {
+    "served": {
+      "dropped": 0,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.697713,
+        "logloss": 0.630125,
+        "brier": 0.220009,
+        "ece": 0.029316
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.697713,
+        "logloss": 0.630125,
+        "brier": 0.220009,
+        "ece": 0.029316
+      },
+      "seconds": 111.7
+    },
+    "no_epa": {
+      "dropped": 12,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.692849,
+        "logloss": 0.632501,
+        "brier": 0.221157,
+        "ece": 0.030237
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.692849,
+        "logloss": 0.632501,
+        "brier": 0.221157,
+        "ece": 0.030237
+      },
+      "seconds": 96.6
+    },
+    "no_qb": {
+      "dropped": 3,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.692189,
+        "logloss": 0.632131,
+        "brier": 0.221062,
+        "ece": 0.024815
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.692189,
+        "logloss": 0.632131,
+        "brier": 0.221062,
+        "ece": 0.024815
+      },
+      "seconds": 109.7
+    },
+    "no_wr": {
+      "dropped": 3,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.698834,
+        "logloss": 0.629934,
+        "brier": 0.219886,
+        "ece": 0.030496
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.698834,
+        "logloss": 0.629934,
+        "brier": 0.219886,
+        "ece": 0.030496
+      },
+      "seconds": 116.5
+    },
+    "no_te": {
+      "dropped": 3,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.698586,
+        "logloss": 0.629508,
+        "brier": 0.219767,
+        "ece": 0.030332
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.698586,
+        "logloss": 0.629508,
+        "brier": 0.219767,
+        "ece": 0.030332
+      },
+      "seconds": 108.8
+    },
+    "no_rb": {
+      "dropped": 3,
+      "oof_rows": 2559,
+      "grading_rows": 1689,
+      "raw": {
+        "n": 1689,
+        "auc": 0.698457,
+        "logloss": 0.629753,
+        "brier": 0.219842,
+        "ece": 0.030885
+      },
+      "calibrated": {
+        "n": 1689,
+        "auc": 0.698457,
+        "logloss": 0.629753,
+        "brier": 0.219842,
+        "ece": 0.030885
+      },
+      "seconds": 107.0
+    }
+  },
+  "paired_bootstrap": {
+    "served_minus_no_epa": {
+      "n_games": 1689,
+      "n_dates": 327,
+      "auc": {
+        "point": 0.004864,
+        "ci95": [
+          -0.001268,
+          0.010995
+        ]
+      },
+      "logloss": {
+        "point": -0.002376,
+        "ci95": [
+          -0.00591,
+          0.001196
+        ]
+      },
+      "brier": {
+        "point": -0.001148,
+        "ci95": [
+          -0.002744,
+          0.00048
+        ]
+      }
+    },
+    "served_minus_no_qb": {
+      "n_games": 1689,
+      "n_dates": 327,
+      "auc": {
+        "point": 0.005525,
+        "ci95": [
+          0.00048,
+          0.010588
+        ]
+      },
+      "logloss": {
+        "point": -0.002006,
+        "ci95": [
+          -0.004997,
+          0.000953
+        ]
+      },
+      "brier": {
+        "point": -0.001053,
+        "ci95": [
+          -0.002408,
+          0.000303
+        ]
+      }
+    },
+    "served_minus_no_wr": {
+      "n_games": 1689,
+      "n_dates": 327,
+      "auc": {
+        "point": -0.00112,
+        "ci95": [
+          -0.002733,
+          0.000665
+        ]
+      },
+      "logloss": {
+        "point": 0.00019,
+        "ci95": [
+          -0.000838,
+          0.00109
+        ]
+      },
+      "brier": {
+        "point": 0.000123,
+        "ci95": [
+          -0.000349,
+          0.000546
+        ]
+      }
+    },
+    "served_minus_no_te": {
+      "n_games": 1689,
+      "n_dates": 327,
+      "auc": {
+        "point": -0.000873,
+        "ci95": [
+          -0.002748,
+          0.000754
+        ]
+      },
+      "logloss": {
+        "point": 0.000616,
+        "ci95": [
+          -0.000225,
+          0.001632
+        ]
+      },
+      "brier": {
+        "point": 0.000242,
+        "ci95": [
+          -0.000155,
+          0.00073
+        ]
+      }
+    },
+    "served_minus_no_rb": {
+      "n_games": 1689,
+      "n_dates": 327,
+      "auc": {
+        "point": -0.000744,
+        "ci95": [
+          -0.001929,
+          0.000544
+        ]
+      },
+      "logloss": {
+        "point": 0.000371,
+        "ci95": [
+          -0.000261,
+          0.001
+        ]
+      },
+      "brier": {
+        "point": 0.000167,
+        "ci95": [
+          -0.000128,
+          0.000452
+        ]
+      }
+    }
+  }
+}

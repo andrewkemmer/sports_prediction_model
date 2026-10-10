@@ -201,6 +201,16 @@ class TestGradingSplit:
         assert split["grading_rows"] == 0
         assert not oof.grades_pooled.astype(bool).any()
 
+    def test_walk_forward_accepts_quiet_progress(self, monkeypatch):
+        """``progress_every=0`` means "log nothing" (MLB parity), not a
+        ZeroDivisionError: the modulo guard must short-circuit on 0 before
+        dividing. Found while driving the OOF replay from an audit harness
+        (2026-10-10 NFL EPA review); production's default of 25 never
+        divided by zero, but the quiet contract was silently broken."""
+        monkeypatch.setattr(config, "MIN_VAL_FOLD_GAMES", 15)
+        result = ml_mod.walk_forward_oof(self._feats(), progress_every=0)
+        assert len(result["oof"])
+
     def test_windows_at_the_gate_grade_every_row(self, monkeypatch):
         # ...and with a gate every window clears, all rows grade.
         monkeypatch.setattr(config, "MIN_VAL_FOLD_GAMES", 3)

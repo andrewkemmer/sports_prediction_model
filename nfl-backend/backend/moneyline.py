@@ -311,7 +311,7 @@ def walk_forward_oof(game_df: pd.DataFrame,
             "n_grading": int(grades.sum()),
         })
         oof_parts.append(rows)
-        if (fold.fold_id + 1) % progress_every == 0:
+        if progress_every and (fold.fold_id + 1) % progress_every == 0:
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1,
                         len(fold_list))
         # Optional display-only progress hook (master_pipeline passes a
