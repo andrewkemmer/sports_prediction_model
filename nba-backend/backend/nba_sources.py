@@ -298,6 +298,55 @@ def primary_positions(payload: Any) -> dict:
     return primary
 
 
+def roster_membership(payload: Any) -> "pd.DataFrame":
+    """Current NBA-id membership from playerindex; never a historical roster.
+
+    ROSTER_STATUS is membership, not availability. Only a complete league
+    snapshot can establish absence; truncated/malformed pulls are refused.
+    """
+    import pandas as pd
+
+    columns = ["player_id", "player_name", "team", "position", "positions"]
+    empty = pd.DataFrame(columns=columns)
+    blocks = payload.get("resultSets") if isinstance(payload, dict) else None
+    if not isinstance(blocks, list) or not blocks or not isinstance(blocks[0], dict):
+        return empty
+    headers = blocks[0].get("headers") or []
+    required = {"PERSON_ID", "TEAM_ABBREVIATION", "POSITION", "ROSTER_STATUS"}
+    if not required <= set(headers):
+        return empty
+    records = []
+    for values in blocks[0].get("rowSet") or []:
+        if len(values) != len(headers):
+            return empty
+        row = dict(zip(headers, values))
+        try:
+            active = float(row["ROSTER_STATUS"])
+            pid = int(row["PERSON_ID"])
+            if float(row["PERSON_ID"]) != pid or pid <= 0 or active not in (0, 1):
+                return empty
+        except (TypeError, ValueError, OverflowError):
+            return empty
+        if not active:
+            continue
+        team = config.normalize_team_abbr(row["TEAM_ABBREVIATION"])
+        code = str(row["POSITION"] or "").strip().upper()
+        listing = code.split("-") if code else []
+        if team not in config.NBA_TEAM_ID or not set(listing) <= set(config.PLAYER_EPM_POSITIONS):
+            return empty
+        records.append({"player_id": str(pid), "team": team,
+                        "player_name": " ".join(str(row.get(k) or "").strip()
+                                                for k in ("PLAYER_FIRST_NAME", "PLAYER_LAST_NAME")),
+                        "position": listing[0] if listing else "", "positions": "|".join(listing)})
+    frame = pd.DataFrame(records, columns=columns)
+    counts = frame.groupby("team").size()
+    if (frame.player_id.duplicated().any()
+            or set(counts.index) != set(config.NBA_TEAM_ID)
+            or counts.min() < 10):
+        return empty
+    return frame
+
+
 def assign_positions(by_position: dict, primary: dict | None = None) -> dict:
     """Collapse per-position player id sets into one position per player.
 

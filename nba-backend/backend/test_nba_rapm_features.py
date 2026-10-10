@@ -1766,3 +1766,39 @@ def test_the_lineup_inventory_log_splits_priced_from_refusal_rows():
         encoding="utf-8")
     assert "pool-refusal mask rows" in src
     assert "over priced rows" in src
+
+
+def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_path, monkeypatch):
+    """Exercise the real production join and CSV interfaces, not source text."""
+    from types import SimpleNamespace
+    import ingestion as ing
+    import player_rapm as rapm
+    import master_pipeline as pipeline
+    from test_nba_player_rapm import TestDatedRosterMembership
+
+    games_frame = TestDatedRosterMembership.games()
+    games_frame["player_name"] = games_frame.player_id
+    history = TestDatedRosterMembership.history()
+    positions = games_frame[["player_id", "position"]].drop_duplicates()
+    slate = pd.DataFrame({"game_id": ["pending"], "gameday": [pd.Timestamp("2025-10-22")],
+                          "home_team": ["LAL"], "away_team": ["NYK"],
+                          "home_score": [np.nan], "away_score": [np.nan]})
+    facts = SimpleNamespace(player_stats=games_frame, team_stats=None)
+    monkeypatch.setattr(pipeline.ingestion, "_fetch_positions", lambda *a, **k: positions)
+    monkeypatch.setattr(pipeline.ingestion, "fetch_roster_history", lambda *a, **k: history)
+    monkeypatch.setattr(pipeline.ingestion, "load_roster_history", lambda *a, **k: history)
+    monkeypatch.setattr(proj, "load_designations", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "_slate_designations", lambda *a, **k: None)
+    decided, pending = pipeline._build_position_rapm_features(facts, slate, cache_dir=tmp_path)
+    expected_ratings = rapm.build_player_rapm(games_frame, slate.gameday, roster_history=history)
+    aggregates = proj.projected_lineup(expected_ratings.rename(columns={"target_date": "gameday"}), games=slate)
+    expected = proj.attach_position_rapm(slate, aggregates)
+    assert decided is None
+    pd.testing.assert_frame_equal(pending, expected)
+    assert np.isfinite(pending.pl_rapm_g_diff).all()
+    assert pending.game_id.tolist() == ["pending"]
+    assert pipeline._write_player_rapm(tmp_path, "20251022", facts, slate) == "nba_player_rapm_20251022.csv"
+    published = pd.read_csv(tmp_path / "nba_player_rapm_20251022.csv", keep_default_na=False)
+    assert published.set_index("player_id").loc["a", "team"] == "LAL"
+    assert published.set_index("player_id").loc["a", "roster_source"] == "nba_playerindex"
+    assert "cut" not in set(published.player_id)

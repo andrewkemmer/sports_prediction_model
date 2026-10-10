@@ -125,8 +125,10 @@ def build_position_features(games: pd.DataFrame,
     dates = pd.Series(sorted(pd.to_datetime(games.gameday).dropna().unique()))
     logger.info("building ratings for %d target dates", len(dates))
     started = time.time()
+    import ingestion
     ratings = rapm_mod.build_player_rapm(games_frame, target_dates=dates,
-                                         team_stats=team_stats)
+                                         team_stats=team_stats,
+                                         roster_history=ingestion.load_roster_history(CACHE))
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:

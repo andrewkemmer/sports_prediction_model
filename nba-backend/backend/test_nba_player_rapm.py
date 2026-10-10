@@ -1503,3 +1503,128 @@ class TestEvidenceSeasonFallback:
         row = ratings[ratings.player_id == "a"].iloc[0]
         assert row.rapm_raw == pytest.approx(beta["a"])
         assert row.lg_rapm == pytest.approx(float(beta.mean()))
+
+
+class TestDatedRosterMembership:
+    @staticmethod
+    def history(stamp="2025-10-21T12:00:00Z", season="2025-26"):
+        rows = [{"player_id": f"reserve_{team}_{i}", "team": team,
+                 "position": "G", "positions": "G"}
+                for team in config.NBA_TEAM_ID for i in range(10)]
+        rows.extend([{"player_id": "a", "team": "LAL", "position": "G", "positions": "G"},
+                     {"player_id": "b", "team": "NYK", "position": "G", "positions": "G"}])
+        return pd.DataFrame(rows).assign(observed_at=stamp, season=season, source="nba_playerindex")
+
+    @staticmethod
+    def games():
+        return _prepared([
+            _row(player, f"2025-04-{day}", margin, 10, team=team, points=points,
+                 season="2024-25", game_id=f"game_{day}")
+            for day in range(10, 15)
+            for player, team, points, margin in (("a", "BOS", 100, 10),
+                                                ("b", "NYK", 90, -10),
+                                                ("cut", "BOS", 0, 10))
+        ])
+
+    def test_offseason_move_and_exit_without_new_team_box_score(self):
+        games = self.games()
+        baseline = rapm.build_player_rapm(games, ["2025-10-22"])
+        out = rapm.build_player_rapm(games, ["2025-10-22"], roster_history=self.history())
+        row = out.set_index("player_id").loc["a"]
+        assert row.team == "LAL" and "cut" not in set(out.player_id)
+        for column in ("prior_eff", "prior_minutes", "prior_games", "rapm_raw", "rapm_shrunk", "lg_rapm", "k_eff"):
+            assert row[column] == pytest.approx(baseline.set_index("player_id").loc["a", column])
+        assert pd.isna(row.days_since_appearance)
+        assert row.roster_source == "nba_playerindex"
+
+    def test_newcomer_has_no_invented_impact_minutes_or_slot(self):
+        import lineup_projection as proj
+        out = rapm.build_player_rapm(self.games(), ["2025-10-22"], roster_history=self.history())
+        newcomer = out[out.player_id == "reserve_LAL_0"].iloc[0]
+        assert newcomer.prior_eff == 0 and newcomer.prior_minutes == 0
+        assert pd.isna(newcomer.rapm_raw)
+        assert newcomer.rapm_shrunk == pytest.approx(newcomer.lg_rapm)
+        aggregates = proj.projected_lineup(out.rename(columns={"target_date": "gameday"}))
+        assert aggregates.loc[aggregates.team == "LAL", "healthy_size"].iloc[0] == 1
+
+    @pytest.mark.parametrize("stamp", ["2025-10-22T04:00:00Z", "2025-10-22T03:59:59-01:00",
+                                      "2025-10-23T12:00Z", "2025-10-14T03:59:59Z", "not-a-date"])
+    def test_same_day_future_expired_or_undated_history_cannot_change_replay(self, stamp):
+        games = self.games()
+        pd.testing.assert_frame_equal(
+            rapm.build_player_rapm(games, ["2025-10-22"]),
+            rapm.build_player_rapm(games, ["2025-10-22"], roster_history=self.history(stamp)))
+
+    def test_utc_midnight_is_not_the_eastern_midnight_cutoff(self):
+        out = rapm.build_player_rapm(self.games(), ["2025-10-22"],
+                                     roster_history=self.history("2025-10-22T03:59:59Z"))
+        assert out.set_index("player_id").loc["a", "team"] == "LAL"
+
+    def test_wrong_season_does_not_backfill_membership(self):
+        games = self.games()
+        pd.testing.assert_frame_equal(
+            rapm.build_player_rapm(games, ["2025-10-22"]),
+            rapm.build_player_rapm(games, ["2025-10-22"], roster_history=self.history(season="2024-25")))
+
+    def test_latest_observation_wins_and_future_rows_are_inert(self):
+        earlier = self.history("2025-10-20T12:00Z")
+        later = self.history()
+        later.loc[later.player_id == "a", "team"] = "DAL"
+        future = self.history("2025-10-23T12:00Z")
+        history = pd.concat([earlier, later, future], ignore_index=True)
+        out = rapm.build_player_rapm(self.games(), ["2025-10-22"], roster_history=history)
+        assert out.set_index("player_id").loc["a", "team"] == "DAL"
+        pd.testing.assert_frame_equal(out, rapm.build_player_rapm(
+            self.games(), ["2025-10-22"], roster_history=later))
+
+    def test_observing_a_stale_player_does_not_refresh_appearance_recency(self):
+        games = self.games()
+        games["season"] = "2025-26"
+        games["gameday"] = pd.Timestamp("2025-10-01")
+        out = rapm.build_player_rapm(games, ["2025-10-22"], roster_history=self.history())
+        assert out.set_index("player_id").loc["a", "days_since_appearance"] == 21
+
+    def test_later_positive_appearance_supersedes_older_observation(self):
+        games = pd.concat([self.games(), _prepared([
+            _row("a", "2025-10-22", 5, 10, team="DAL", points=100, season="2025-26", game_id="two"),
+            _row("b", "2025-10-22", -5, 10, team="NYK", points=95, season="2025-26", game_id="two"),
+            _row("returned", "2025-10-22", 5, 10, team="DAL", points=0, season="2025-26", game_id="two"),
+        ])], ignore_index=True)
+        out = rapm.build_player_rapm(games, ["2025-10-23"], roster_history=self.history())
+        assert out.set_index("player_id").loc["a", "team"] == "DAL"
+        assert out.set_index("player_id").loc["a", "roster_source"] == "prior_appearance"
+        assert "returned" in set(out.player_id)
+
+    def test_partial_or_ambiguous_history_is_rejected(self):
+        partial = self.history().iloc[:10]
+        with pytest.raises(ValueError, match="incomplete/ambiguous"):
+            rapm.build_player_rapm(self.games(), ["2025-10-22"], roster_history=partial)
+        conflict = self.history()
+        second = conflict[conflict.player_id == "a"].assign(team="DAL")
+        with pytest.raises(ValueError, match="incomplete/ambiguous"):
+            rapm.build_player_rapm(self.games(), ["2025-10-22"],
+                                   roster_history=pd.concat([conflict, second], ignore_index=True))
+
+    def test_unpublished_position_preserves_old_label_but_never_invents_new_one(self):
+        history = self.history()
+        history.loc[history.player_id.isin(["a", "reserve_LAL_0"]), ["position", "positions"]] = ""
+        out = rapm.build_player_rapm(self.games(), ["2025-10-22"], roster_history=history).set_index("player_id")
+        assert out.loc["a", "position"] == "G" and out.loc["a", "team"] == "LAL"
+        assert pd.isna(out.loc["reserve_LAL_0", "position"])
+        assert pd.isna(out.loc["reserve_LAL_0", "rapm_shrunk"])
+
+    def test_new_membership_does_not_resurrect_old_team_pool_history(self):
+        import lineup_projection as proj
+        history = self.history("2025-10-20T12:00Z")
+        history.loc[history.player_id == "a", "team"] = "BOS"
+        newer = self.history("2025-10-21T12:00Z")
+        newer = newer[newer.player_id != "b"]
+        out = rapm.build_player_rapm(self.games(), ["2025-10-21", "2025-10-22"],
+            roster_history=pd.concat([history, newer], ignore_index=True))
+        aggregates = proj.projected_lineup(out.rename(columns={"target_date": "gameday"}))
+        nyk = aggregates[(aggregates.team == "NYK") & (aggregates.gameday == pd.Timestamp("2025-10-22"))].iloc[0]
+        assert nyk.healthy_size == 0
+        bos = aggregates[(aggregates.team == "BOS") & (aggregates.gameday == pd.Timestamp("2025-10-22"))].iloc[0]
+        assert bos.healthy_size == 0  # the prior BOS row cannot resurrect a
+        lal = aggregates[(aggregates.team == "LAL") & (aggregates.gameday == pd.Timestamp("2025-10-22"))].iloc[0]
+        assert lal.healthy_size == 1

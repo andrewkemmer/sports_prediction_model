@@ -5,13 +5,15 @@ MLB/NFL/NHL production contracts.
 
 ## Input and evaluation repair — 2026-10-08
 
-Current representation: **`nba-prod-v2.8-rapm-strict-pregame`**. The 2026-10-09
+Current representation: **`nba-prod-v2.9-rapm-dated-rosters`**. The 2026-10-10
+follow-up adds dated official roster observations; see
+[the roster evidence review](../docs/nba_roster_review_20261010.md). The 2026-10-09
 RAPM follow-up removes target-day roster/recency leakage, future-derived cold-
 start shrinkage, and overtime exposure clipping; see
 [the predictive and coverage audit](../docs/nba_rapm_review_20261009.md).
 Rebuild features,
 OOF, blend/calibration, and final refits together; do not score corrected inputs
-through an old v2.6 bundle. No new executable programs or speculative tuning
+through an old v2.6–v2.8 bundle. No new executable programs or speculative tuning
 were added.
 
 - Elo home advantage has the correct positive sign. History and slate now share
@@ -561,9 +563,41 @@ PIT Out/Doubtful/Recovery designations remove the player from that target
 game's pool. No 0/0.5/1 availability multiplier is used. Historical removals
 come from the designation archive; pending dates resolve filings separately.
 Missing/future filings mean unfiltered availability, not proof of health.
-Offseason team assignments still follow the last known box appearance: a
-timestamped roster/transaction feed is needed to resolve moves before a
-player's first new-team game without leaking that game's box score.
+Current membership comes from the official NBA `playerindex` (`Historical=0`,
+current season), in the same NBA IDs as the season log. Complete 30-team
+observations (at least ten valid members per team, unique IDs) are appended to
+`NBA_CACHE_DIR/roster_history.jsonl` at the actual response-completion time in
+UTC. The union is published as `data_delivery/nba_roster_history.parquet`, a
+retention-protected master, and merged back on cold/ephemeral hosts. Older
+position and ESPN roster caches have no membership observation instant and
+are never converted into this ledger. An unpublished position does not erase
+known membership: prior labels may be retained, while position-unknown
+newcomers remain unrated/unprojected.
+
+For each target date, the latest same-season observation **strictly before
+midnight America/New_York**, at most **seven days old**, establishes arrivals,
+team changes and exits. Same-day observations are deliberately excluded:
+ratings are date-keyed, not tipoff-keyed. A subsequent strictly-prior positive-
+minute appearance supersedes the older roster. Missing/expired observations
+fall back to strictly-prior appearances with `roster_source=prior_appearance`;
+eligible ones carry `roster_source=nba_playerindex` and `roster_observed_at`
+in the rating CSV. Partial live pulls are refused; ambiguous archive rows fail
+rather than silently removing a team.
+
+Membership changes never fabricate minutes, raw impact, or refreshed appearance
+recency. Newcomers can receive the position prior, but zero prior exposure
+cannot pass the existing rotation evidence floor. The fit and league means
+remain strictly game-derived; official roster positions segment membership,
+not historical design columns. Projection consumes the current target roster,
+so earlier old-team rating rows cannot resurrect a transferred/cut player.
+
+This closes **observed forward membership**, not a historical transaction
+backfill. Current endpoint observations cannot prove when an offseason move
+became knowable before the first stored observation. Seven-day expiry is a
+freshness guard, not a measured predictive optimum; refresh daily/near game
+days. Availability remains a separate official injury-filing gate. Rebuild
+features, OOF, calibration and final models together for v2.9; production
+model bundles are not replaced by this change.
 
 #### What the source can and cannot do
 

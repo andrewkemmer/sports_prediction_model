@@ -2782,3 +2782,91 @@ class TestPositionPrimaryIndex:
         assert "positions" in frame.columns
         assert list(frame.position) == ["C"]
 
+
+class TestOfficialRosterHistory:
+    @staticmethod
+    def payload():
+        return {"resultSets": [{"headers": ["PERSON_ID", "TEAM_ABBREVIATION", "POSITION", "ROSTER_STATUS",
+                                             "PLAYER_FIRST_NAME", "PLAYER_LAST_NAME"],
+                                "rowSet": [[1000 + j * 10 + i, team, "C-F", 1, "First", str(i)]
+                                           for j, team in enumerate(config.NBA_TEAM_ID) for i in range(10)]}]}
+
+    def test_parser_uses_nba_ids_and_ordered_positions(self):
+        frame = src.roster_membership(self.payload())
+        assert len(frame) == 300 and frame.player_id.iloc[0] == "1000"
+        assert frame.position.eq("C").all() and frame.positions.eq("C|F").all()
+        assert frame.team.nunique() == 30
+
+    @pytest.mark.parametrize("defect", ["partial", "duplicate", "unknown_team", "position", "status", "short_row", "missing_header"])
+    def test_incomplete_ambiguous_or_malformed_pull_is_refused(self, defect):
+        payload = self.payload()
+        block = payload["resultSets"][0]
+        rows = block["rowSet"]
+        if defect == "partial":
+            block["rowSet"] = rows[:10]
+        elif defect == "duplicate":
+            rows.append(rows[0].copy())
+        elif defect == "unknown_team":
+            rows[0][1] = "FAKE"
+        elif defect == "position":
+            rows[0][2] = "UNKNOWN"
+        elif defect == "status":
+            rows[0][3] = "unknown"
+        elif defect == "short_row":
+            rows[0].pop()
+        else:
+            block["headers"].remove("ROSTER_STATUS")
+        assert src.roster_membership(payload).empty
+
+    def test_unpublished_position_does_not_erase_membership(self):
+        payload = self.payload()
+        payload["resultSets"][0]["rowSet"][0][2] = None
+        frame = src.roster_membership(payload)
+        assert len(frame) == 300
+        assert frame.iloc[0].position == "" and frame.iloc[0].positions == ""
+
+    def test_inactive_records_do_not_establish_active_membership(self):
+        payload = self.payload()
+        payload["resultSets"][0]["rowSet"].append([99999, "BOS", "G", 0, "Cut", "Player"])
+        assert "99999" not in set(src.roster_membership(payload).player_id)
+
+    def test_snapshot_roundtrip_and_delivered_union_keep_observation_time(self, tmp_path, monkeypatch):
+        cache = tmp_path / "cache"
+        delivery = tmp_path / "delivery"
+        delivery.mkdir()
+        monkeypatch.setattr(ing, "http_json", lambda *a, **k: self.payload())
+        before = pd.Timestamp.now(tz="UTC")
+        history = ing.fetch_roster_history(cache, delivery)
+        after = pd.Timestamp.now(tz="UTC")
+        stamps = pd.to_datetime(history.observed_at, utc=True)
+        assert stamps.between(before, after).all()
+        assert history.season.eq(ing.season_label(before.date())).all()
+        assert history.source.eq("nba_playerindex").all()
+        pd.testing.assert_frame_equal(history, ing.load_roster_history(cache, delivery))
+        history.to_parquet(delivery / ing.ROSTER_HISTORY_ARCHIVE, index=False)
+        pd.testing.assert_frame_equal(history, ing.load_roster_history(cache, delivery))
+        pd.testing.assert_frame_equal(history, ing.load_roster_history(tmp_path / "cold", delivery))
+        earlier_bytes = (cache / "roster_history.jsonl").read_bytes()
+        newer = ing.fetch_roster_history(cache, delivery)
+        assert len(newer) == 600
+        assert (cache / "roster_history.jsonl").read_bytes().startswith(earlier_bytes)
+
+    def test_failed_or_partial_pull_never_retimes_existing_history(self, tmp_path, monkeypatch):
+        cache = tmp_path / "cache"
+        delivery = tmp_path / "delivery"
+        monkeypatch.setattr(ing, "http_json", lambda *a, **k: self.payload())
+        history = ing.fetch_roster_history(cache, delivery)
+        original = (cache / "roster_history.jsonl").read_bytes()
+        def dead(*a, **k):
+            raise TimeoutError("source unavailable")
+        monkeypatch.setattr(ing, "http_json", dead)
+        pd.testing.assert_frame_equal(history, ing.fetch_roster_history(cache, delivery))
+        monkeypatch.setattr(ing, "http_json", lambda *a, **k: {"resultSets": []})
+        pd.testing.assert_frame_equal(history, ing.fetch_roster_history(cache, delivery))
+        assert (cache / "roster_history.jsonl").read_bytes() == original
+
+    def test_roster_archive_survives_retention(self):
+        import retention_policy
+        assert retention_policy.classify_artifact(ing.ROSTER_HISTORY_ARCHIVE,
+                                                  set(), set(), set(), set()) == "protected"
+

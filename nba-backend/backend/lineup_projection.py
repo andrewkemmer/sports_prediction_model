@@ -416,6 +416,10 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
     # whether or not they appeared recently. This is the step that gives the
     # injury filter something to remove.
+    if "roster_source" in work.columns:
+        # Rating history is not membership history: yesterday's old-team row
+        # must not resurrect a player removed/moved by today's observation.
+        work = work[work.gameday == pd.Timestamp(gameday)]
     pool = work[(work.team == team)
                 & (work.gameday <= pd.Timestamp(gameday))
                 & (work.gameday >= window_start)

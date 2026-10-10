@@ -366,6 +366,7 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             logger.warning("player RAPM skipped: the player log has no "
                            "rows to rate")
             return None
+        roster_history = ingestion.load_roster_history()
         # Availability is ANNOTATED, not applied. The rating is computed for
         # every player regardless of injury, and the removal happens at pool
         # construction, where a replacement inherits the vacated slot.
@@ -375,12 +376,12 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             import injury_stints as stints_mod
             ratings = rapm_mod.build_player_rapm(
                 games_frame, target_dates=pd.Series([target]),
-                team_stats=facts.team_stats)
+                team_stats=facts.team_stats, roster_history=roster_history)
             ratings = stints_mod.annotate_availability(ratings, stints)
         else:
             ratings = rapm_mod.build_player_rapm(
                 games_frame, target_dates=pd.Series([target]),
-                team_stats=facts.team_stats)
+                team_stats=facts.team_stats, roster_history=roster_history)
             ratings["is_available"] = True
         if not len(ratings):
             logger.warning("player RAPM skipped: no player had strictly-prior "
@@ -633,9 +634,11 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
 
     dates = pd.Series(sorted(pd.to_datetime(decided.gameday).dropna().unique())
                       + sorted(pd.to_datetime(pending.gameday).dropna().unique()))
+    roster_history = ingestion.fetch_roster_history(cache_dir=cache_dir)
     ratings = rapm_mod.build_player_rapm(games_frame,
                                         target_dates=pd.Series(dates),
-                                        team_stats=facts.team_stats)
+                                        team_stats=facts.team_stats,
+                                        roster_history=roster_history)
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:
@@ -1740,6 +1743,14 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     except Exception as exc:  # noqa: BLE001 - publication is best-effort
         logger.warning("designation archive not published (%s); the PIT "
                        "removal falls back to the machine cache only", exc)
+    # Preserve the roster ledger on ephemeral hosts, just like designations.
+    try:
+        roster_history = ingestion.load_roster_history()
+        if len(roster_history):
+            roster_history.to_parquet(out / ingestion.ROSTER_HISTORY_ARCHIVE, index=False)
+            artifacts.append(ingestion.ROSTER_HISTORY_ARCHIVE)
+    except Exception as exc:  # noqa: BLE001 - reported publication degradation
+        logger.warning("roster history not published (%s); local ledger only", exc)
     # The event rollup archive: the union of every team-game rollup this run
     # produced plus whatever earlier runs shipped, republished into the
     # delivery so the next run - on this machine or an ephemeral cloud one -

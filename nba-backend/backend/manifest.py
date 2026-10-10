@@ -471,7 +471,7 @@ _FAMILY: dict[str, dict] = {
             "projected lineup, minutes-weighted and injury-filtered "
             "(Out/Doubtful/Recovery excluded before tip-off)."),
         "formula": "pl_rapm_c_home − pl_rapm_c_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
         "window": "season to date; last completed season before own-season evidence",
         "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",
@@ -484,7 +484,7 @@ _FAMILY: dict[str, dict] = {
             "Position-segmented game-level MIN/48 ridge proxy for the forward pool of the "
             "projected lineup, minutes-weighted and injury-filtered."),
         "formula": "pl_rapm_f_home − pl_rapm_f_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
         "window": "season to date; last completed season before own-season evidence",
         "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",
@@ -497,7 +497,7 @@ _FAMILY: dict[str, dict] = {
             "Position-segmented game-level MIN/48 ridge proxy for the guard pool of the "
             "projected lineup, minutes-weighted and injury-filtered."),
         "formula": "pl_rapm_g_home − pl_rapm_g_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy → projected position average (not possession/stint RAPM)",
+        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
         "window": "season to date; last completed season before own-season evidence",
         "units": "game-margin points per full-48-minute player exposure",
         "direction": "higher = home advantage",

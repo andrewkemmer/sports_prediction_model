@@ -98,7 +98,9 @@ RFE_MAX_STEPS = 120
 # isolation and causal evaluation. Rebuild features/OOF/refits together.
 # v2.8 also makes RAPM roster membership, trades, recency and earliest-season
 # shrinkage strictly prior. Existing v2.7 models require a synchronized rebuild.
-FEATURE_SET_VERSION = "nba-prod-v2.8-rapm-strict-pregame"
+# v2.9 admits current membership from bounded, dated official observations;
+# same-day/future pulls never backfill roster knowledge into historical rows.
+FEATURE_SET_VERSION = "nba-prod-v2.9-rapm-dated-rosters"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -759,6 +761,8 @@ PLAYER_EPM_POOL_LOOKBACK_DAYS = 10
 #: NOT padded: the mean of the best 5-7 healthy players is the correct quantity
 #: for a short-handed team, and padding would fabricate full strength.
 PLAYER_EPM_TOP_K = 8
+#: A current-state roster is evidence only within a bounded freshness window.
+PLAYER_RAPM_ROSTER_MAX_AGE_DAYS = 7
 #: The "regular" floor for a top-5 rest count, mirroring MLB's
 #: LINEUP_REST_PA discipline: 126 accumulated MINUTES, the minutes
 #: equivalent of the 300-possession floor this replaced (300 / 2.38, and

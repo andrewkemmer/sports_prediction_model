@@ -780,11 +780,93 @@ def shrunk_rapm(prior_eff, beta, league_rapm, k) -> pd.Series:
     return (eff * raw + lg * weight) / (eff + weight)
 
 
+def _roster_as_of(history, target):
+    """Latest complete observation before target-day midnight Eastern.
+
+    This is deliberately earlier than tipoff: current callers rate dates,
+    not instants. Seven-day expiry prevents indefinite transaction carries.
+    A partial archive or a conflicting player/team observation is refused.
+    """
+    if history is None or not len(history):
+        return None
+    required = {"player_id", "team", "position", "positions", "observed_at", "season", "source"}
+    if not required <= set(history.columns):
+        raise ValueError("roster history is missing required evidence columns")
+    cutoff = pd.Timestamp(target).normalize().tz_localize("America/New_York").tz_convert("UTC")
+    stamps = pd.to_datetime(history.observed_at, errors="coerce", utc=True, format="mixed")
+    eligible = history[(stamps < cutoff)
+                       & (stamps >= cutoff - pd.Timedelta(days=config.PLAYER_RAPM_ROSTER_MAX_AGE_DAYS))
+                       & history.season.eq(_season_of(target))
+                       & history.source.eq("nba_playerindex")].copy()
+    if eligible.empty:
+        return None
+    eligible["_observed"] = stamps.loc[eligible.index]
+    chosen = eligible[eligible._observed == eligible._observed.max()].copy()
+    chosen["player_id"] = _player_id_str(chosen.player_id).values
+    chosen["team"] = chosen.team.map(config.normalize_team_abbr)
+    chosen = chosen.drop_duplicates(subset=["player_id", "team", "position", "positions"])
+    counts = chosen.groupby("team").size()
+    if (chosen.player_id.duplicated().any()
+            or set(counts.index) != set(config.NBA_TEAM_ID) or counts.min() < 10
+            or not chosen.position.isin((*config.PLAYER_EPM_POSITIONS, "")).all()
+            or not chosen.positions.map(lambda s: isinstance(s, str) and
+                (not s or set(s.split("|")) <= set(config.PLAYER_EPM_POSITIONS))).all()):
+        raise ValueError("roster history contains an incomplete/ambiguous observation")
+    return chosen
+
+
+def _apply_roster_observation(snapshot, observed, known, target, lg, k):
+    """Replace membership only; preserve fit evidence and appearance recency.
+
+    Complete observations establish exits as well as arrivals. A subsequent
+    strictly-prior appearance wins over the older roster, even for a player
+    absent from it. A debutant retains zero exposure/NaN raw impact and cannot
+    satisfy the existing evidence floor for a projected rotation slot.
+    """
+    members = observed[["player_id", "team", "position", "positions"]].copy()
+    # Membership can be known while position is unpublished. Retain a
+    # strictly-prior label if one exists; never guess a newcomer's segment.
+    previous = snapshot.set_index("player_id")
+    for col in ("position", "positions"):
+        missing = members[col].eq("")
+        if col in previous:
+            members.loc[missing, col] = members.loc[missing, "player_id"].map(previous[col])
+    stamp = observed._observed.iloc[0]
+    members["roster_source"] = "nba_playerindex"
+    members["roster_observed_at"] = stamp.isoformat()
+    if len(known):
+        latest = known.sort_values("gameday").groupby("player_id").tail(1).copy()
+        # A box line is admitted only on the following calendar day, just as
+        # in the fit. This makes a later appearance supersede a prior pull.
+        knowledge = (latest.gameday + pd.Timedelta(days=1)).dt.tz_localize(
+            "America/New_York").dt.tz_convert("UTC")
+        latest = latest[knowledge > stamp]
+        if len(latest):
+            members = members[~members.player_id.isin(latest.player_id)]
+            if "positions" not in latest:
+                latest["positions"] = latest.position
+            latest["roster_source"] = "prior_appearance"
+            latest["roster_observed_at"] = ""
+            members = pd.concat([members, latest[members.columns]], ignore_index=True)
+    evidence_cols = [c for c in snapshot if c not in
+                     ("team", "position", "positions", "roster_source", "roster_observed_at")]
+    out = members.merge(snapshot[evidence_cols], on="player_id", how="left", validate="one_to_one")
+    for col in ("prior_eff", "prior_minutes", "prior_games"):
+        out[col] = out[col].fillna(0.0)
+    out["prior_minutes_per_game"] = out.prior_minutes / out.prior_games.where(out.prior_games > 0)
+    out["lg_rapm"] = out.position.map(lg)
+    out["k_eff"] = out.position.map(k).astype(float)
+    out["rapm_shrunk"] = shrunk_rapm(out.prior_eff, out.rapm_raw, out.lg_rapm, out.k_eff)
+    out["target_date"] = target
+    return out
+
+
 def build_player_rapm(games: pd.DataFrame,
                       target_dates=None,
                       shrink_fraction: float = config.PLAYER_RAPM_SHRINK_FRACTION,
                       team_stats: pd.DataFrame | None = None,
                       availability: pd.DataFrame | None = None,
+                      roster_history: pd.DataFrame | None = None,
                       ) -> pd.DataFrame:
     """Player-level RAPM ratings as of each target date.
 
@@ -796,6 +878,11 @@ def build_player_rapm(games: pd.DataFrame,
     day box rows cannot establish a debut, trade, or renewed recency. A prior
     roster member without a fitted beta keeps NaN raw impact and may shrink
     to the position prior; an unknown player is not fabricated.
+
+    ``roster_history`` optionally replaces membership with complete official
+    observations fetched strictly before target-day midnight Eastern, no
+    older than seven days and in the target season. It cannot backdate a
+    trade, refresh appearance recency or contribute exposure to the fit.
 
     ``team_stats`` supplies official sides and margins to the design
     (``net_points``/``is_home``); without it ``team_game_entries`` falls
@@ -811,7 +898,8 @@ def build_player_rapm(games: pd.DataFrame,
     columns = ["target_date", "player_id", "position", "positions", "team",
                "prior_eff", "prior_minutes", "prior_minutes_per_game",
                "prior_games", "lg_rapm", "k_eff",
-               "rapm_raw", "rapm_shrunk", "days_since_appearance"]
+               "rapm_raw", "rapm_shrunk", "days_since_appearance",
+               "roster_source", "roster_observed_at"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if games is None or not len(games):
         return empty
@@ -872,7 +960,7 @@ def build_player_rapm(games: pd.DataFrame,
         # traded player moves before his first known appearance and an
         # actual target-day appearance resurrects a stale player in backtests
         # while the pending slate cannot see it. A debut is unknown until
-        # its first PRIOR appearance; no timestamped roster source is read.
+        # its first PRIOR appearance unless a dated roster observation exists.
         roster_season = _evidence_season(work, target, roster_index,
                                          strict=True)
         fit_season = _evidence_season(entries, target, fit_index,
@@ -972,6 +1060,12 @@ def build_player_rapm(games: pd.DataFrame,
                 snapshot["days_since_appearance"] = np.nan
         else:
             snapshot["days_since_appearance"] = np.nan
+        snapshot["roster_source"] = "prior_appearance"
+        snapshot["roster_observed_at"] = ""
+        observation = _roster_as_of(roster_history, target)
+        if observation is not None:
+            snapshot = _apply_roster_observation(
+                snapshot, observation, known, target, lg, k_for_target)
         rows.append(snapshot)
     if not rows:
         return empty

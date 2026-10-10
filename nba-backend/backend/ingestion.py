@@ -67,7 +67,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -832,6 +832,71 @@ def _season_primary(season: str, by_position: dict) -> dict:
                     and sources.assign_positions(by_position).get(pid) != pos),
                 "/".join(config.PLAYER_EPM_POSITION_PRIORITY))
     return {pid: pos for pid, pos in primary.items() if pid in everyone}
+
+
+ROSTER_HISTORY_ARCHIVE = "nba_roster_history.parquet"
+
+
+def load_roster_history(cache_dir=None, delivery_dir=None) -> pd.DataFrame:
+    """Union durable delivered observations with the local append-only ledger.
+
+    Legacy position/ESPN caches have no membership observation instant and
+    cannot be upgraded into this history. A corrupt record is reported.
+    """
+    root = Path(cache_dir) if cache_dir is not None else _cache_dir()
+    delivery = Path(delivery_dir) if delivery_dir is not None else Path(config.DATA_DELIVERY_DIR)
+    frames = [_read_parquet(delivery / ROSTER_HISTORY_ARCHIVE)]
+    path = root / "roster_history.jsonl"
+    if path.exists():
+        with path.open(encoding="utf-8") as handle:
+            for number, line in enumerate(handle, 1):
+                try:
+                    item = json.loads(line)
+                    frame = pd.DataFrame(item["players"])
+                    frame["observed_at"] = item["observed_at"]
+                    frame["season"] = item["season"]
+                    frame["source"] = "nba_playerindex"
+                    frames.append(frame)
+                except (ValueError, KeyError, TypeError) as exc:
+                    logger.warning("roster history line %d unreadable (%s)", number, exc)
+    frames = [f for f in frames if len(f)]
+    return pd.concat(frames, ignore_index=True).drop_duplicates().reset_index(drop=True) \
+        if frames else pd.DataFrame()
+
+
+def fetch_roster_history(cache_dir=None, delivery_dir=None) -> pd.DataFrame:
+    """Observe CURRENT membership once per run, then retain it permanently.
+
+    Completion time (UTC) is the knowledge floor: the endpoint supplies no
+    transaction/publication instant. No cache mtime or past season query can
+    backdate this observation. Failure leaves the dated history unchanged.
+    """
+    root = Path(cache_dir) if cache_dir is not None else _cache_dir()
+    history = load_roster_history(root, delivery_dir)
+    season = season_label(datetime.now(timezone.utc).date())
+    url = f"{sources.PLAYER_INDEX_URL}?{sources.player_index_query(season)}"
+    try:
+        payload = http_json(url, STATS_HEADERS, timeout=30.0, attempts=2)
+        observed = datetime.now(timezone.utc).isoformat()
+        frame = sources.roster_membership(payload)
+        if frame.empty:
+            raise ValueError("incomplete or ambiguous official league roster")
+    except Exception as exc:  # noqa: BLE001 - optional evidence must degrade visibly
+        logger.warning("current roster unresolved (%s); using dated history/strict-prior appearances", _short(exc))
+        return history
+    item = {"observed_at": observed, "season": season,
+            "players": frame.to_dict("records")}
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "roster_history.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(item) + "\n")
+    except OSError as exc:
+        logger.warning("roster observation not persisted (%s); current run only", exc)
+    frame["observed_at"] = observed
+    frame["season"] = season
+    frame["source"] = "nba_playerindex"
+    logger.info("observed official roster: %d players, %d teams, %s", len(frame), frame.team.nunique(), observed)
+    return pd.concat([history, frame], ignore_index=True) if len(history) else frame
 
 
 def _fetch_roster(team: str, use_cache: bool = True) -> pd.DataFrame:

@@ -1,0 +1,28 @@
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+........................................................................ [ 34%]
+........................................................................ [ 46%]
+........................................................................ [ 57%]
+........................................................................ [ 69%]
+........................................................................ [ 81%]
+........................................................................ [ 92%]
+..............................................                           [100%]
+============================== warnings summary ===============================
+test_fold_season_split.py: 66 warnings
+test_nba_rapm_features.py: 181 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+test_nba_rapm_features.py::TestCarryProvenance::test_insufficient_rows_do_not_page_in_the_monitor_json
+test_nba_rapm_features.py::TestCarryProvenance::test_a_fully_refused_family_reads_structural_and_never_pages
+test_nba_rapm_features.py::TestFeatureImportanceWeights::test_the_monitor_json_carries_the_decomposition
+test_nba_rapm_features.py::TestFeatureImportanceWeights::test_the_monitor_json_carries_the_decomposition
+  E:\nba-backend\backend\monitoring.py:826: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.
+    "created_utc": pd.Timestamp.utcnow().isoformat(), "date": date_c,
+
+test_nba_rapm_features.py::TestSealedDispersionHoldout::test_the_monitor_carries_the_gate_scope
+  E:\nba-backend\backend\monitoring.py:896: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.
+    "created_utc": pd.Timestamp.utcnow().isoformat(), "date": date_c,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+622 passed, 252 warnings in 57.44s

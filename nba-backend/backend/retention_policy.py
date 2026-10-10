@@ -10,6 +10,7 @@ EXACT_MASTER_NAMES = frozenset({
     "nba_pipeline_summary.json",
     "nba_feature_selection_state.json",
     "nba_designations.parquet",
+    "nba_roster_history.parquet",
     "nba_projected_lineup_status.json",
     # The shipped play-by-play rollup union: it IS the machine-independent
     # event coverage. Pruning it re-opens the cache hole it exists to close,
