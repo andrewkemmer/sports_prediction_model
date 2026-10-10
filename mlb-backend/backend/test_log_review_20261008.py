@@ -61,6 +61,22 @@ advisory git checks reporting the ACTUAL repository. The notebook
 program is never modified; the pins remain the defense for the
 committed copy.
 
+PLUS (2026-10-10, crash-delivery pass over the 2026-10-10 01:29 run
+log) the T14 f-string placeholder pin: Scenario C's ``bullpen_season``
+rewrite interpolates ``{_xfip_sql(...)}`` helper calls into a PLAIN
+triple-quoted ``con.execute`` at features.py:3041, so DuckDB parsed the
+rendered call's literal "(" — ParserException, PHASE 2-3 died, and
+every statement after line 3041 (the rest of ``_build_game_level``)
+never executed on the remote run. The suite could not see this class:
+``test_bullpen_availability``'s ``lift()`` REGEX-RENDERS the
+``{helper(...)}`` placeholders itself, so the tests exercise a
+SIMULATED render and pass whether or not production's own
+``con.execute`` is an f-string — and run_engine_contract only expects
+``build_features`` to fail EARLY. The pin therefore walks the AST of
+features.py: any SQL LITERAL passed to ``execute()`` that still
+contains ``{`` is exactly this defect class (a helper placeholder in a
+non-f string), and the file fails until the f-prefix is restored.
+
 Convention: behavioral tests for the importable module (ingestion),
 source pins for the run-once script (master_pipeline) — same style as
 test_log_review_{20260929,20261005,20261007}.
@@ -1117,3 +1133,41 @@ def test_master_pipeline_owns_the_notebook_typo_repair():
     assert "sports_predictio_model" in block
     assert "try:" in block and "except Exception" in block, (
         "the alias step must be non-fatal")
+
+
+# ── T14 (2026-10-10): a SQL literal carrying placeholders must be f-string ──
+
+def test_sql_literals_with_placeholder_braces_are_fstrings():
+    """The 2026-10-10 01:29 crash class: ``{_xfip_sql(...)}`` inside a
+    PLAIN triple-quoted ``con.execute`` renders as literal text, so DuckDB
+    raises ``ParserException: syntax error at or near "("`` at the call's
+    parenthesis and everything after that statement never runs.
+
+    This is invisible to the behavioral suite by construction:
+    ``test_bullpen_availability.lift()`` regex-renders the placeholders
+    itself, so a broken production f-prefix still passes. The AST walk
+    makes the class checkable directly: any SQL STRING LITERAL handed to
+    ``execute()`` that still contains ``{`` is an unrendered placeholder
+    (f-strings parse as JoinedStr and never appear as a Constant here).
+    """
+    tree = ast.parse(FEATURES_SRC)
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = (fn.attr if isinstance(fn, ast.Attribute)
+                else fn.id if isinstance(fn, ast.Name) else "")
+        if name != "execute" or not node.args:
+            continue
+        arg = node.args[0]
+        if (isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and "{" in arg.value):
+            offenders.append((getattr(arg, "lineno", node.lineno),
+                              arg.value[:70].replace("\n", " ")))
+    assert not offenders, (
+        "SQL literals passed to execute() contain '{' but are NOT "
+        "f-strings — the helper placeholders would render as literal "
+        "text and crash DuckDB (2026-10-10 ParserException class): "
+        + repr(offenders))

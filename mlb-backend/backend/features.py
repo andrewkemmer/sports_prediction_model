@@ -3038,7 +3038,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # Season-to-date bullpen baselines (momentum companion for the 10g/3g
     # windows) — season-partitioned cumulative sums; the LAG shift is
     # season-partitioned so a season opener never averages the prior season.
-    con.execute("""
+    con.execute(f"""
         CREATE TABLE bullpen_season AS
         WITH b AS (
             SELECT game_date, game_pk, team,
