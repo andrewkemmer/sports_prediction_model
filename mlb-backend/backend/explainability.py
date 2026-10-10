@@ -714,14 +714,35 @@ def compute_feature_drift(
 
     n_warns = (df["status"] == "WARN").sum()
     n_alerts = (df["status"] == "ALERT").sum()
+    has_status = "status" in df.columns
+    n_seasonal = int((df["status"] == "OK-SEASONAL").sum()) if has_status else 0
+    n_insufficient = (int((df["status"] == "INSUFFICIENT").sum())
+                      if has_status else 0)
+    n_evaluated = len(df) - n_insufficient
+    # 2026-10-10 log review (second delivery): this line advertised
+    # "0 warnings, 0 alerts" on seven consecutive runs during which NOT
+    # ONE feature was evaluated — the trailing 7-day current window falls
+    # under the 30-row judge floor once the regular season ends, so every
+    # row is INSUFFICIENT and the summary still read as a clean result.
+    # Publish how many rows were actually judged, and say so at WARNING
+    # when nothing was: an inert monitor must not look like a healthy one.
+    # INSUFFICIENT itself still never pages (it is a window-size
+    # statement, not a defect) — only the all-unevaluated case does.
     logger.info(
-        "Feature drift [%s]: %d features, %d warnings, %d alerts, %d "
-        "seasonal (statuses on noise-adjusted PSI; mean noise floor %.3f)",
+        "Feature drift [%s]: %d features, %d evaluated, %d INSUFFICIENT, "
+        "%d warnings, %d alerts, %d seasonal (statuses on noise-adjusted "
+        "PSI; mean noise floor %.3f)",
         view,
-        len(df), n_warns, n_alerts,
-        int((df["status"] == "OK-SEASONAL").sum()) if "status" in df.columns else 0,
+        len(df), n_evaluated, n_insufficient, n_warns, n_alerts, n_seasonal,
         float(df["noise_floor"].mean()) if "noise_floor" in df.columns else float("nan"),
     )
+    if len(df) and n_evaluated == 0:
+        logger.warning(
+            "Feature drift [%s]: 0 of %d features evaluable this run "
+            "(every row INSUFFICIENT — current/baseline windows under the "
+            "PSI sample floor) — drift is UNMEASURED, not clean",
+            view, len(df),
+        )
 
     return df
 
@@ -939,14 +960,19 @@ def compute_feature_coverage(
         if not structural.empty:
             _log_structural(view, df, structural)
     elif not structural.empty:
+        # 2026-10-10 log review: "all 218 ... OK (4 STRUCTURAL)" was
+        # self-contradictory — the delivered CSV holds 214 OK + 4
+        # STRUCTURAL, and a reader reconciling the two numbers could not
+        # tell which one was wrong. Print the counts that match the CSV.
         logger.info(
-            "Feature coverage [%s]: all %d feature-window pairs OK "
-            "(%d STRUCTURAL by declared policy)",
-            view, len(df), len(structural))
+            "Feature coverage [%s]: %d feature-window pairs — %d OK, "
+            "%d STRUCTURAL by declared policy, 0 alarms",
+            view, len(df), len(df) - len(structural), len(structural))
         _log_structural(view, df, structural)
     else:
-        logger.info("Feature coverage [%s]: all %d feature-window pairs OK",
-                    view, len(df))
+        logger.info(
+            "Feature coverage [%s]: %d feature-window pairs — %d OK, "
+            "0 STRUCTURAL, 0 alarms", view, len(df), len(df))
     return df
 
 

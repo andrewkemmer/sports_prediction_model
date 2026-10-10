@@ -1,0 +1,48 @@
+........................................................................ [ 18%]
+........................................................................ [ 36%]
+........................................................................ [ 55%]
+..........................s............................................. [ 73%]
+........................................................................ [ 92%]
+...............................                                          [100%]
+============================== warnings summary ===============================
+backend/test_run_engine_contract.py::test_fold_path_ships_xgb_at_floored_rounds_end_to_end
+  E:\mlb-backend\backend\training.py:846: RuntimeWarning: All-NaN slice encountered
+    medians = np.nanmedian(X, axis=0) if len(X) else np.zeros(X.shape[1])
+
+backend/test_run_engine_contract.py::test_fold_path_ships_xgb_at_floored_rounds_end_to_end
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+backend/test_run_engine_pit.py::test_slate_resolver_never_binds_across_a_distant_date
+  E:\frontend\utils.py:3229: AltairDeprecationWarning:
+  Deprecated since `altair=5.5.0`. Use altair.theme instead.
+  Most cases require only the following change:
+
+      # Deprecated
+      alt.themes.enable('quartz')
+
+      # Updated
+      alt.theme.enable('quartz')
+
+  If your code registers a theme, make the following change:
+
+      # Deprecated
+      def custom_theme():
+          return {'height': 400, 'width': 700}
+      alt.themes.register('theme_name', custom_theme)
+      alt.themes.enable('theme_name')
+
+      # Updated
+      @alt.theme.register('theme_name', enable=True)
+      def custom_theme():
+          return alt.theme.ThemeConfig(
+              {'height': 400, 'width': 700}
+          )
+
+  See the updated User Guide for further details:
+      https://altair-viz.github.io/user_guide/api.html#theme
+      https://altair-viz.github.io/user_guide/customization.html#chart-themes
+    alt.themes.register("fb_dark", _fb_theme)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+390 passed, 1 skipped, 3 warnings in 9.66s

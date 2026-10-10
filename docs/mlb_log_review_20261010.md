@@ -215,3 +215,130 @@ weather attached) and the drift table will be written normally. If the next
 remote delivery shows the weather rows as anything other than STRUCTURAL/OK,
 or any `MISSING_COLUMN`, that is a new defect — this review's audit bounds
 everything else.
+
+---
+
+## Second delivery — the 05:30 run on remote (reviewed the same day)
+
+**Subject:** `mlb-backend/data_delivery/mlb_pipeline_run_log.txt` as delivered
+on remote — the **successful re-run** (452 lines, six phases, run 2026-10-10
+05:29 → 05:30, commits `dbb6e5b5` features + `c3bbe223` stale cleanup +
+`b2edfb29` final log).
+
+**Verdict:** the first delivery's fix worked — PHASE 2-3 now executes
+`bullpen_season` and the whole pipeline runs to `ok`, pushing 15 artifacts,
+staging 28 files and removing 10 stale ones, every claim confirmed against the
+remote commits. The run is clean; **two reporting defects in it are not**, and
+both are remediated below. Nothing in the log required touching a model,
+threshold, the notebook or a delivered value.
+
+### Claims reconciliation — every count in the log against the delivered artifacts
+
+| Log claim | Artifact check | Verdict |
+|---|---|---|
+| `Total raw pitches 2292817`, `Dropped 117501 (S/E)`, `Saved 2175316` | `pbp_defense_20261010.parquet` = 2,175,316 rows | ✅ |
+| `game_level built: 7402 games`, `✅ Game: (7402, 201)` → 290 cols at the Phase-4 load | delivered frame 7402 rows × 297 cols (the 290/293 counts predate Step 1's weather refresh, which re-exported the CSV) | ✅ |
+| `Feature width: RFE subset (109 cols)`, `Applied adopted feature subset: 109/275` | `mlb_feature_selection_state.json` `n_cols=109`, `len(cols)=109` | ✅ |
+| `Feature metadata: 109 features written` | `features_metadata_20261010.json` 109 entries, 0 warnings | ✅ |
+| `Feature coverage: all 218 feature-window pairs OK (4 STRUCTURAL …)` | CSV: **214 OK + 4 STRUCTURAL** | ❌ **Finding 2** |
+| `Feature drift [moneyline]: 109 features, 0 warnings, 0 alerts, 0 seasonal` | CSV: **109/109 INSUFFICIENT** (n_current 14–15) | ❌ **Finding 1** |
+| `model_monitor` `drift_summary` warnings 0 / alerts 0 | same 109 INSUFFICIENT rows | ❌ ships with Finding 1 |
+| `Run engine OOF: 7031 rows`, `Prediction history written: 7031 games` | both CSVs 7031 rows | ✅ |
+| `Run engine markets: 7032 rows` | 7031 `kind=oof` + 1 `kind=slate` (2026-10-10) | ✅ |
+| `Rolling Brier: 511 points … 7031 games … mean 0.2445` | `rolling_brier_20261010.json` 511 / 7031 / 0.244496 | ✅ |
+| `Version history: 20 versions recorded (v2026.10.10 latest)` | `model_version_history.json` 20 entries, last `v2026.10.10` | ✅ |
+| `Upcoming slate built: 1 games`, `SHAP … over 1 games` | `todays_games_20261010.csv` 1 row, `shap_game_…CHW@CLE.csv` | ✅ |
+| `Staging 28 files` → `Pushed … 28 files` | `dbb6e5b5` commits **26** (2 staged files — `run_engine_totals_history.csv`, `umpire_stats.csv` — were already identical), `c3bbe223` deletes the **10** named stale files | ✅ (wording: 28 staged, 26 changed) |
+| `Final run-log delivery … synced clone to remote tip c3bbe223d5` | `b2edfb29` touches only the log | ✅ log is complete, self-describing |
+| Metrics `auc 0.573 brier 0.2445 logloss 0.6821 ece 0.0091` | `model_history.json`: prior run 0.5721 / 0.2446 / 0.6821; six-run band 0.5721–0.5746 | ✅ first Scenario C delivery, inside noise |
+
+### Finding 1 (remediated): a monitor that measures nothing still read as clean
+
+`Feature drift [moneyline]: 109 features, 0 warnings, 0 alerts, 0 seasonal`
+(lines 352 and 356, both views) was true and vacuous: **every one of the 109
+rows is INSUFFICIENT**, because the trailing 7-day current window holds 14–15
+games against the 30-row judge floor (`n_b < 100 or n_c < 30` in
+[explainability.py](../mlb-backend/backend/explainability.py#L660)). This is not
+new — [drift_status_history.csv](mlb_log_review_20261010/drift_status_history.csv)
+shows **seven consecutive deliveries (20261004 → 20261010) with 109/109
+INSUFFICIENT** after 20261003's 109 OK, every one of them carrying 0 warnings
+and 0 alerts in its drift summary (only the current run's log survives, so the
+status column of each delivered CSV is the proof), and
+`model_monitor_20261010.json` ships the same green `drift_summary`. A reader of the delivery log cannot distinguish "no drift"
+from "no measurement" — the exact failure mode the monitor exists to prevent.
+
+**Remediation (message only, no threshold and no status changed):**
+
+* the summary line now publishes how many rows were judged —
+  `109 features, 0 evaluated, 109 INSUFFICIENT, 0 warnings, 0 alerts, …` — and
+* when **nothing** was evaluable it additionally emits ONE WARNING that names
+  the condition: `0 of 109 features evaluable this run (… ) — drift is
+  UNMEASURED, not clean`.
+* `drift_summary` in the monitor JSON gains `evaluated` and `insufficient`, so
+  the card can no longer show warnings 0 / alerts 0 without the context.
+
+INSUFFICIENT rows themselves still never page (window-size statement, not a
+defect); only the all-unevaluated case does. Reproduction of both the delivered
+and the remediated lines from the committed frame is recorded in
+[monitor_replay.txt](mlb_log_review_20261010/monitor_replay.txt) — the replayed
+pre-remediation messages are identical to the delivered ones, so the defect was
+in the message, not the run.
+
+### Finding 2 (remediated): a coverage line that contradicts its own CSV
+
+`all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)` — 218
+cannot be all-OK when 4 of them are STRUCTURAL; the CSV holds 214 OK + 4
+STRUCTURAL. The line now prints what the artifact contains:
+`218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms`
+(and `218 feature-window pairs — 218 OK, 0 STRUCTURAL, 0 alarms` when there is
+no structural row). The STRUCTURAL detail line is unchanged.
+
+### Reviewed, no defect
+
+| Log line(s) | Finding | Action |
+|---|---|---|
+| `WARNING SP slate staleness gate: 146 pitcher(s) … (pre-stint form)` | Population-level notice: the gate fires only for a ≥10d gap that overlaps an IL stint. Both starters of the day's one game carry non-null lines in `todays_games_20261010.csv` (`sp_xfip` 2.684 / 3.825, `sp_k9` 12.61 / 10.01) — no slot went empty | None |
+| `WARNING Calibration: degenerate Platt params (a=-0.33 …)` ×3 + `322 of 6140 …` | Working as designed since the 2026-10-06 review: `a <= 0` refuses an inverting fit, the 3-line cap plus uncapped counters feed the block-delta summary (5.2% of fits, identity fallback) | None |
+| `Fold 83 … auc=nan brier=0.2639 [PROVISIONAL]` | AUC is undefined on a 1-game, single-class val set; the fold is fitted+scored and excluded from grading, and the PROVISIONAL marker rides the same line | None — honest value, not an error |
+| Two identical 16-line `StatsAPI schedule …` blocks | Two consumers of the schedule: the start-time refresh and the weather start-time lookup. Redundant work (~32 range fetches), no correctness impact | None (documented) |
+| `MLB_END_DATE=2026-10-09 is stale …` warning **absent** | The notebook pin was re-dated/unset by the operator, exactly what the first delivery's warning asked for; the self-heal guard remains armed | Resolved upstream, guard untouched |
+| `STRUCTURAL … 4 unmeasured row(s) … 63 unmeasured row(s)` (one long line) | Four reason blocks = 2 declared-policy features × 2 windows (wind ← `sp_xfip_diff`, air density ← `sp_fbvelo_diff`); counts reconcile with the CSV (3+1 of 15, 47+16 of 250) | None |
+| `Diff features complete: 0 columns added` (Step 1) | Recompute over an already-enriched frame adds nothing; the build itself reported 53 | None |
+| `on-IL while batting: 0 player-games`, `missing-finals guard … no official finals beyond it`, `Dome refinement … 0 UNKNOWN roof`, `Ingestion guard … expected ≥2044874 pitches / 6960 decided` | All prior-review guards reporting healthy | None |
+
+### Verification for this section
+
+* Both monitor summary lines were **replayed locally from the committed frame**
+  with production's own window construction (`cutoff = target − 7d`, current
+  15 games, baseline `prior.tail(max(3·|current|, 250))` = 250) and the active
+  109-column serving list: replayed statuses match the committed CSVs exactly
+  — **109/109 drift rows and 218/218 coverage rows, 0 disagreements** — and the
+  replayed pre-remediation messages are identical to the delivered lines.
+  Evidence: [monitor_replay.txt](mlb_log_review_20261010/monitor_replay.txt).
+* Full MLB backend suite: **390 passed, 1 skipped** (386 before this review),
+  including the four new pins T15/T16 in the existing
+  [test_log_review_20261008.py](../mlb-backend/backend/test_log_review_20261008.py):
+  an all-INSUFFICIENT drift window must disclose its counts and WARN, a
+  judgeable window must stay quiet, the monitor JSON must carry `evaluated` /
+  `insufficient`, and the coverage line's counts must reconcile with the CSV it
+  describes. [Test output](mlb_xfip_kbb_xwoba_review_20261010/backend_tests.txt).
+* Python compilation and `git diff --check` pass. Feature values, models,
+  thresholds, calibration, the notebook and every delivered artifact are
+  untouched; the feature-side audit of this same delivery is the
+  [xFIP / K-BB% / xwOBA review](mlb_xfip_kbb_xwoba_review_20261010.md).
+
+### Deliberately not changed
+
+* **NFL and NHL emit the same drift summary shape**
+  (`nfl-backend/backend/monitoring.py`, `nhl-backend/backend/monitoring.py`)
+  and would hide the same condition; they were out of scope for an MLB log
+  review and are recorded here as the follow-up.
+* **Drift window policy** (trailing 7 days against a 30-row floor) stays an
+  owner decision — changing it would make the monitor judge offseason windows,
+  not just make the line honest.
+* **The `auc=nan` token, the schedule double-fetch and the calibration
+  identity fallbacks** are behavior, not defects, and are documented above.
+* **The negative-xFIP tail** (9 rows, unserved trio) is a feature-value
+  decision recorded in the
+  [feature review](mlb_xfip_kbb_xwoba_review_20261010.md#findings), not a
+  log defect.

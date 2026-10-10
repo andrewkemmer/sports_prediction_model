@@ -1,0 +1,255 @@
+{
+  "coverage_artifact": {
+    "all_columns_present": true,
+    "family_rows": 94,
+    "status_counts": {
+      "OK": 94
+    }
+  },
+  "diff_identities": {
+    "failures_gt_1e-6": 0,
+    "failures_gt_1e-9": 1,
+    "families_checked": 19,
+    "max_abs_residual": 1.18e-09,
+    "pairs_checked": 137025
+  },
+  "drift_artifact": {
+    "family_rows": 47,
+    "n_baseline": [
+      "234",
+      "239",
+      "243",
+      "249",
+      "250"
+    ],
+    "n_current": [
+      "14",
+      "15"
+    ],
+    "status_counts": {
+      "INSUFFICIENT": 47
+    }
+  },
+  "exact_zero_delta_reconciliation": {
+    "column": "bullpen_kbb_delta_home",
+    "exact_zero_rows": 180,
+    "home_game_index_in_season": {
+      "1": 16,
+      "2": 30,
+      "3": 27,
+      "4": 34,
+      "5": 33,
+      "6": 17,
+      "7": 11,
+      "8": 11,
+      "9": 1
+    },
+    "nonnull_rows": 7320,
+    "pct_exact_zero": 2.459,
+    "pre_c_column": "bullpen_whip_delta_home",
+    "pre_c_exact_zero_rows": 180,
+    "same_rows_pre_c": true
+  },
+  "generated_from": {
+    "frame_shape": [
+      7402,
+      297
+    ],
+    "post_c_frame_commit": "dbb6e5b5",
+    "pre_c_frame_commit": "2cc8f88f",
+    "pre_c_frame_shape": [
+      7402,
+      297
+    ]
+  },
+  "metadata": {
+    "entries_missing_from_frame": [],
+    "family_entries": 47,
+    "served_entries": 109
+  },
+  "no_fabricated_history": {
+    "frame_opening_date": "2024-03-20",
+    "games_on_opening_date": 1,
+    "non_null_on_opening_date": {
+      "bullpen_kbb_10g_home": 0,
+      "sp_k9_home": 0,
+      "sp_xfip_5g_home": 0,
+      "sp_xfip_home": 0,
+      "sp_xwoba_home": 0,
+      "woba_30g_home": 0
+    }
+  },
+  "ranges": {
+    "family_columns_with_invalid_values": [],
+    "level_rate_columns_with_negatives": {
+      "bullpen_kbb_10g_away": 2,
+      "bullpen_kbb_10g_home": 1,
+      "bullpen_kbb_3g_away": 49,
+      "bullpen_kbb_3g_home": 35,
+      "exp2_cat_xwoba_breaking_away": 3242,
+      "exp2_cat_xwoba_breaking_home": 3224,
+      "exp2_cat_xwoba_fastball_away": 3540,
+      "exp2_cat_xwoba_fastball_home": 3551,
+      "exp2_cat_xwoba_offspeed_away": 2769,
+      "exp2_cat_xwoba_offspeed_home": 2787,
+      "sp_xfip_away": 3,
+      "sp_xfip_home": 6
+    },
+    "served_level_columns_with_negatives": {
+      "bullpen_kbb_10g_away": 2,
+      "bullpen_kbb_10g_home": 1,
+      "bullpen_kbb_3g_away": 49,
+      "bullpen_kbb_3g_home": 35,
+      "exp2_cat_xwoba_breaking_away": 3242,
+      "exp2_cat_xwoba_breaking_home": 3224,
+      "exp2_cat_xwoba_fastball_away": 3540,
+      "exp2_cat_xwoba_fastball_home": 3551,
+      "exp2_cat_xwoba_offspeed_away": 2769,
+      "exp2_cat_xwoba_offspeed_home": 2787
+    }
+  },
+  "reestimation_vs_pre_c": {
+    "max_pct_exact_equal": 2.459,
+    "min_pearson_r": -0.578258,
+    "pairs": 20
+  },
+  "rename_contract": {
+    "added_columns_pre_to_post": [
+      "bullpen_kbb_10g_away",
+      "bullpen_kbb_10g_diff",
+      "bullpen_kbb_10g_home",
+      "bullpen_kbb_3g_away",
+      "bullpen_kbb_3g_diff",
+      "bullpen_kbb_3g_home",
+      "bullpen_kbb_delta_away",
+      "bullpen_kbb_delta_home",
+      "bullpen_xfip_10g_away",
+      "bullpen_xfip_10g_home",
+      "bullpen_xfip_delta_away",
+      "bullpen_xfip_delta_home",
+      "sp_xfip_5g_away",
+      "sp_xfip_5g_diff",
+      "sp_xfip_5g_home",
+      "sp_xfip_away",
+      "sp_xfip_delta_away",
+      "sp_xfip_delta_home",
+      "sp_xfip_diff",
+      "sp_xfip_home"
+    ],
+    "all_20_present_both_sides": true,
+    "coverage_parity_columns": 20,
+    "coverage_parity_nonnull_equal": 20,
+    "coverage_parity_null_pattern_disagreements": 0,
+    "dropped_columns_pre_to_post": [
+      "bullpen_era_10g_away",
+      "bullpen_era_10g_home",
+      "bullpen_era_delta_away",
+      "bullpen_era_delta_home",
+      "bullpen_whip_10g_away",
+      "bullpen_whip_10g_diff",
+      "bullpen_whip_10g_home",
+      "bullpen_whip_3g_away",
+      "bullpen_whip_3g_diff",
+      "bullpen_whip_3g_home",
+      "bullpen_whip_delta_away",
+      "bullpen_whip_delta_home",
+      "sp_era_5g_away",
+      "sp_era_5g_diff",
+      "sp_era_5g_home",
+      "sp_era_away",
+      "sp_era_delta_away",
+      "sp_era_delta_home",
+      "sp_era_diff",
+      "sp_era_home"
+    ],
+    "renamed_columns": 20
+  },
+  "review": "MLB xFIP / K-BB% / xwOBA feature review",
+  "serving_contract": {
+    "family_columns_generated": 84,
+    "family_columns_served": 47,
+    "legacy_era_or_whip_columns_served": [],
+    "legacy_era_or_whip_columns_still_generated": [
+      "sp_whip_away",
+      "sp_whip_delta_away",
+      "sp_whip_delta_home",
+      "sp_whip_home"
+    ],
+    "served_family_columns": [
+      "bullpen_kbb_10g_away",
+      "bullpen_kbb_10g_diff",
+      "bullpen_kbb_10g_home",
+      "bullpen_kbb_3g_away",
+      "bullpen_kbb_3g_diff",
+      "bullpen_kbb_3g_home",
+      "exp2_cat_xwoba_breaking_away",
+      "exp2_cat_xwoba_breaking_diff",
+      "exp2_cat_xwoba_breaking_home",
+      "exp2_cat_xwoba_fastball_away",
+      "exp2_cat_xwoba_fastball_diff",
+      "exp2_cat_xwoba_fastball_home",
+      "exp2_cat_xwoba_offspeed_away",
+      "exp2_cat_xwoba_offspeed_diff",
+      "exp2_cat_xwoba_offspeed_home",
+      "pl_c_xwoba_away",
+      "pl_c_xwoba_diff",
+      "pl_c_xwoba_home",
+      "pl_cf_xwoba_away",
+      "pl_cf_xwoba_diff",
+      "pl_cf_xwoba_home",
+      "pl_fb_xwoba_away",
+      "pl_fb_xwoba_diff",
+      "pl_fb_xwoba_home",
+      "pl_lf_xwoba_away",
+      "pl_lf_xwoba_diff",
+      "pl_lf_xwoba_home",
+      "pl_rf_xwoba_away",
+      "pl_rf_xwoba_diff",
+      "pl_rf_xwoba_home",
+      "pl_sb_xwoba_away",
+      "pl_sb_xwoba_diff",
+      "pl_sb_xwoba_home",
+      "pl_ss_xwoba_away",
+      "pl_ss_xwoba_diff",
+      "pl_ss_xwoba_home",
+      "pl_tb_xwoba_away",
+      "pl_tb_xwoba_diff",
+      "pl_tb_xwoba_home",
+      "sp_xfip_5g_away",
+      "sp_xfip_5g_diff",
+      "sp_xfip_5g_home",
+      "sp_xwoba_away",
+      "sp_xwoba_home",
+      "woba_30g_away",
+      "woba_30g_diff",
+      "woba_30g_home"
+    ],
+    "served_missing_from_frame": [],
+    "served_set_delta_vs_pre_c": {
+      "added": [
+        "bullpen_kbb_10g_away",
+        "bullpen_kbb_10g_diff",
+        "bullpen_kbb_10g_home",
+        "bullpen_kbb_3g_away",
+        "bullpen_kbb_3g_diff",
+        "bullpen_kbb_3g_home",
+        "sp_xfip_5g_away",
+        "sp_xfip_5g_diff",
+        "sp_xfip_5g_home"
+      ],
+      "removed": [
+        "bullpen_whip_10g_away",
+        "bullpen_whip_10g_diff",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_3g_away",
+        "bullpen_whip_3g_diff",
+        "bullpen_whip_3g_home",
+        "sp_era_5g_away",
+        "sp_era_5g_diff",
+        "sp_era_5g_home"
+      ]
+    },
+    "served_width": 109
+  },
+  "target_date": "20261010"
+}

@@ -437,7 +437,8 @@ _PL_PLAN_REMOVALS = [
     "lineup_depth_multiplier_diff",
     "lineup_depth_multiplier_home",
     "lineup_depth_multiplier_away",
-    # remove: the plain SP ERA trio (3) (sp_era_5g_* stays)
+    # remove: the plain SP xFIP trio (3) — the 2026-10-09 Scenario C rename
+    # of the plain SP ERA trio (sp_xfip_5g_* stays)
     "sp_xfip_diff",
     "sp_xfip_home",
     "sp_xfip_away",

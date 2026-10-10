@@ -1402,6 +1402,13 @@ def _model_monitor_json(
     n_warns = int((drift_df["status"] == "WARN").sum()) if not drift_df.empty else 0
     n_alerts = int((drift_df["status"] == "ALERT").sum()) if not drift_df.empty else 0
     n_seasonal = int((drift_df["status"] == "OK-SEASONAL").sum()) if not drift_df.empty else 0
+    # 2026-10-10 log review: warnings=0/alerts=0 is only a clean result
+    # when features were actually judged. INSUFFICIENT rows (window under
+    # the PSI sample floor) are reported separately so a fully inert drift
+    # run cannot ship a green summary card.
+    n_insufficient = (int((drift_df["status"] == "INSUFFICIENT").sum())
+                      if not drift_df.empty else 0)
+    n_evaluated = (len(drift_df) - n_insufficient) if not drift_df.empty else 0
     warn_features = drift_df[drift_df["status"].isin(["WARN", "ALERT"])]["feature"].tolist() if not drift_df.empty else []
 
     data = {
@@ -1424,6 +1431,8 @@ def _model_monitor_json(
             "warnings": n_warns,
             "alerts": n_alerts,
             "seasonal": n_seasonal,
+            "evaluated": n_evaluated,
+            "insufficient": n_insufficient,
             "features": warn_features,
         },
         "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],

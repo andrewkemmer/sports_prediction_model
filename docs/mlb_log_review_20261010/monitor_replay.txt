@@ -1,0 +1,69 @@
+Monitor-line replay — MLB run 2026-10-10 05:30 (second delivery)
+================================================================================
+Scope: reproduce the two monitor summary lines the remote run printed, from the
+COMMITTED delivery artifacts only, and show them after the 2026-10-10 log-review
+remediation.
+
+Method (scratch harness, not committed):
+  * read mlb-backend/data_delivery/game_level_features.csv (7402 x 297)
+  * sort by game_date, cutoff = target(2026-10-10) - 7d = 2026-10-03
+    current  = game_date >= cutoff  -> 15 games
+    baseline = prior.tail(max(3 * 15, 250)) -> 250 games
+    (identical window construction to master_pipeline's drift step)
+  * call explainability.compute_feature_drift(baseline, current, ..., feature_cols
+    = training.active_moneyline_feature_cols()) and
+    explainability.compute_feature_coverage(baseline, current, ..., feature_cols
+    = same list)
+  * capture the logger records and compare statuses with the committed CSVs.
+
+Reconciliation against the committed artifacts (unchanged by the remediation):
+  drift:    109 rows replayed, 109 rows committed, 0 status disagreements
+            replay statuses {INSUFFICIENT: 109} == committed statuses
+  coverage: 218 rows replayed, 218 rows committed, 0 status disagreements
+            replay statuses {OK: 214, STRUCTURAL: 4} == committed statuses
+
+--------------------------------------------------------------------------------
+1. AS DELIVERED (mlb_pipeline_run_log.txt on remote, lines 352 and 353)
+--------------------------------------------------------------------------------
+  INFO Feature drift [moneyline]: 109 features, 0 warnings, 0 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.321)
+  INFO Feature coverage [moneyline]: all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)
+
+Defect 1 — the drift line reads as a clean bill of health while the delivered
+feature_drift_20261010.csv holds 109/109 INSUFFICIENT rows (n_current 14-15,
+under the 30-row judge floor), so NOT ONE feature was evaluated. The same
+green summary ships inside model_monitor_20261010.json
+(drift_summary.warnings=0, drift_summary.alerts=0).
+Defect 2 — "all 218 ... OK (4 STRUCTURAL)" is self-contradictory: the CSV holds
+214 OK + 4 STRUCTURAL. A reader reconciling line against artifact cannot tell
+which number is wrong.
+
+--------------------------------------------------------------------------------
+2. REPLAY OF THE SAME CODE ON THE SAME WINDOWS (pre-remediation capture)
+--------------------------------------------------------------------------------
+Feature drift [moneyline]: 109 features, 0 warnings, 0 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.321)
+Feature coverage [moneyline]: all 218 feature-window pairs OK (4 STRUCTURAL by declared policy)
+
+Identical message text to the delivered lines (the run-log tee only adds the
+INFO/WARNING prefix) — the remote log is reproducible from the committed frame,
+so the defects are in the message, not in the run.
+
+--------------------------------------------------------------------------------
+3. AFTER THE 2026-10-10 REMEDIATION (same windows, same call)
+--------------------------------------------------------------------------------
+Feature drift [moneyline]: 109 features, 0 evaluated, 109 INSUFFICIENT, 0 warnings, 0 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.321)
+Feature drift [moneyline]: 0 of 109 features evaluable this run (every row INSUFFICIENT — current/baseline windows under the PSI sample floor) — drift is UNMEASURED, not clean
+Feature coverage [moneyline]: 218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms
+
+The drift line now separates "evaluated" from "INSUFFICIENT", and a fully
+unevaluated window additionally emits ONE WARNING that names the condition
+(UNMEASURED, not clean) instead of silently reporting zero alarms. INSUFFICIENT
+rows themselves still never page — only the all-unevaluated case does. The
+coverage counts now add up to the rows the CSV contains.
+
+--------------------------------------------------------------------------------
+4. HOW OFTEN THE INERT CASE OCCURRED (feature_drift_*.csv status counts)
+--------------------------------------------------------------------------------
+See drift_status_history.csv in this directory: 20261003 was 109 OK; every run
+from 20261004 through 20261010 (7 consecutive deliveries) was 109/109
+INSUFFICIENT with n_current 10-25, each time summarised as "0 warnings,
+0 alerts".

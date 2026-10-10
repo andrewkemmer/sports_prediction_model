@@ -80,6 +80,19 @@ non-f string), and the file fails until the f-prefix is restored.
 Convention: behavioral tests for the importable module (ingestion),
 source pins for the run-once script (master_pipeline) — same style as
 test_log_review_{20260929,20261005,20261007}.
+
+PLUS (2026-10-10, second-delivery pass over the 05:30 run log) the
+T15/T16 monitor-accuracy pins: the drift summary printed
+``109 features, 0 warnings, 0 alerts, 0 seasonal`` while the delivered
+``feature_drift_20261010.csv`` held 109/109 INSUFFICIENT rows — seven
+consecutive runs (20261004 → 20261010) reported a clean drift result
+without judging a single feature, because the trailing 7-day current
+window drops under the 30-row judge floor once the regular season ends.
+T15 requires the summary to publish evaluated/INSUFFICIENT counts and to
+say UNMEASURED at WARNING when nothing was judged; T16 requires the
+coverage summary's counts to reconcile with the CSV it describes (the
+shipped line claimed "all 218 ... OK (4 STRUCTURAL)" against 214 OK + 4
+STRUCTURAL).
 """
 from __future__ import annotations
 
@@ -1171,3 +1184,107 @@ def test_sql_literals_with_placeholder_braces_are_fstrings():
         "f-strings — the helper placeholders would render as literal "
         "text and crash DuckDB (2026-10-10 ParserException class): "
         + repr(offenders))
+
+
+# ── T15/T16 (2026-10-10, second delivery): the monitor lines must not
+# advertise a clean result when nothing was measured ───────────────────────
+
+def _drift_pair(current_n: int, baseline_n: int = 250):
+    """Two synthetic windows; current_n drives the 30-row judge floor."""
+    rng = np.random.default_rng(11)
+
+    def rows(n, start):
+        d = pd.date_range(start, periods=n, freq="D")
+        return pd.DataFrame({"game_date": d, "f_view": rng.normal(0, 1, n)})
+
+    return rows(baseline_n, "2026-01-01"), rows(current_n, "2026-09-01")
+
+
+def _msgs(caplog, prefix):
+    return [m for m in caplog.messages if m.startswith(prefix)]
+
+
+def test_drift_summary_says_unmeasured_when_nothing_was_judged(
+        tmp_path, monkeypatch, caplog):
+    """The 20261004 → 20261010 class: every row INSUFFICIENT, summary
+    green. Counts must be disclosed and the inert monitor must be
+    distinguishable from a healthy one in the run log."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    base, cur = _drift_pair(15)
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        df = explainability.compute_feature_drift(
+            base, cur, "20990101", feature_cols=["f_view"],
+            out_name="_t15_ins.csv")
+
+    assert set(df["status"]) == {"INSUFFICIENT"}
+    line = _msgs(caplog, "Feature drift [moneyline]:")[0]
+    assert "1 features, 0 evaluated, 1 INSUFFICIENT" in line, line
+    assert "0 warnings, 0 alerts" in line, line
+    warnings = [r.getMessage() for r in caplog.records
+                if r.levelno >= logging.WARNING]
+    assert any("drift is UNMEASURED, not clean" in w for w in warnings), (
+        "a fully unevaluated drift run must not look clean", warnings)
+
+
+def test_drift_summary_stays_quiet_when_the_window_is_judgable(
+        tmp_path, monkeypatch, caplog):
+    """Same code path with a judgeable window: evaluated counts, no
+    false UNMEASURED alarm."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    base, cur = _drift_pair(60)
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        df = explainability.compute_feature_drift(
+            base, cur, "20990102", feature_cols=["f_view"],
+            out_name="_t15_ok.csv")
+
+    assert set(df["status"]) != {"INSUFFICIENT"}
+    line = _msgs(caplog, "Feature drift [moneyline]:")[0]
+    assert "1 features, 1 evaluated, 0 INSUFFICIENT" in line, line
+    warnings = [r.getMessage() for r in caplog.records
+                if r.levelno >= logging.WARNING]
+    assert not warnings, warnings
+
+
+def test_master_pipeline_drift_summary_publishes_evaluated_counts():
+    """The monitor JSON card must carry the same disclosure as the log
+    line: warnings=0 is only a clean result alongside `evaluated`."""
+    block = MASTER_SRC[MASTER_SRC.index("# Drift summary"):]
+    assert '"evaluated": n_evaluated' in block
+    assert '"insufficient": n_insufficient' in block
+    assert 'n_insufficient = (int((drift_df["status"] == "INSUFFICIENT").sum())' \
+        in block
+
+
+def test_coverage_summary_counts_reconcile_with_the_artifact(
+        tmp_path, monkeypatch, caplog):
+    """The 05:30 log claimed "all 218 ... OK (4 STRUCTURAL)" while the
+    delivered CSV held 214 OK + 4 STRUCTURAL. The line must print counts
+    that add up to the rows the CSV contains."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+    frame = _explained_frame()
+    frame["home_elo"] = 0.5          # fully observed, never structural
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        cov = explainability.compute_feature_coverage(
+            frame, frame, "20990113",
+            feature_cols=["wind_advantage_flyball_factor",
+                          "air_density_velocity_boost", "home_elo"],
+            out_name="_t16_cov.csv")
+
+    counts = cov["status"].value_counts().to_dict()
+    assert counts == {"STRUCTURAL": 4, "OK": 2}, counts
+    line = _msgs(caplog, "Feature coverage [moneyline]:")[0]
+    n_ok = int((cov["status"] == "OK").sum())
+    n_struct = int((cov["status"] == "STRUCTURAL").sum())
+    assert (f"{len(cov)} feature-window pairs — {n_ok} OK, {n_struct} "
+            "STRUCTURAL by declared policy, 0 alarms") in line, line
+    assert "all" not in line.split(":", 1)[1].split(" — ")[0], line
+
+    out = pd.read_csv(tmp_path / "_t16_cov.csv")
+    assert int((out["status"] == "OK").sum()) == n_ok
+    assert int((out["status"] == "STRUCTURAL").sum()) == n_struct
