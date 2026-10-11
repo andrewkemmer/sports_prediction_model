@@ -1,36 +1,36 @@
 {
- "date": "20260930",
- "version": "v2026.09.30",
- "last_retrained": "2026-09-30",
+ "date": "20261011",
+ "version": "v2026.10.11",
+ "last_retrained": "2026-10-11",
  "last_retrained_note": null,
- "next_retrain": "2026-09-30",
+ "next_retrain": "2026-10-11",
  "next_retrain_note": null,
  "upset_note": null,
  "feature_drift": [
   {
    "feature": "elo_diff",
-   "current_mean": -2.389,
-   "baseline_mean": -1.1627,
-   "psi": 0.27340908009778375,
-   "psi_adjusted": 0.180409,
+   "current_mean": -1.0912,
+   "baseline_mean": 5.8194,
+   "psi": 0.46234166688502676,
+   "psi_adjusted": 0.369342,
    "noise_floor": 0.093,
-   "mean_shift": -1.22636,
-   "shift_se": 18.223096,
+   "mean_shift": -6.910619,
+   "shift_se": 17.150616,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 4.24,
+   "weight_pct": 5.52,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "win_pct_diff",
-   "current_mean": 0.0028,
-   "baseline_mean": -0.0137,
-   "psi": 0.1940949556206126,
-   "psi_adjusted": 0.101095,
+   "current_mean": -0.0153,
+   "baseline_mean": -0.0057,
+   "psi": 0.15764560726026006,
+   "psi_adjusted": 0.064646,
    "noise_floor": 0.093,
-   "mean_shift": 0.016444,
-   "shift_se": 0.045954,
+   "mean_shift": -0.009611,
+   "shift_se": 0.045063,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.46,
@@ -39,193 +39,193 @@
   },
   {
    "feature": "rest_days_diff",
-   "current_mean": 0.2667,
-   "baseline_mean": 0.084,
-   "psi": 0.45180050821698686,
-   "psi_adjusted": 0.358801,
+   "current_mean": 0.2,
+   "baseline_mean": -0.132,
+   "psi": 0.4021500465740805,
+   "psi_adjusted": 0.30915,
    "noise_floor": 0.093,
-   "mean_shift": 0.182667,
-   "shift_se": 0.215978,
+   "mean_shift": 0.332,
+   "shift_se": 6.392769,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.91,
+   "weight_pct": 1.78,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_net_goals_diff",
-   "current_mean": 0.143,
-   "baseline_mean": 0.0659,
-   "psi": 1.2668442556145738,
-   "psi_adjusted": 1.173844,
+   "current_mean": -0.2909,
+   "baseline_mean": 0.037,
+   "psi": 0.235298944456602,
+   "psi_adjusted": 0.142299,
    "noise_floor": 0.093,
-   "mean_shift": 0.077086,
-   "shift_se": 0.300028,
+   "mean_shift": -0.327919,
+   "shift_se": 0.304112,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.22,
+   "weight_pct": 1.0,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_goal_share_diff",
-   "current_mean": 0.0151,
-   "baseline_mean": 0.0073,
-   "psi": 0.18610206046294941,
-   "psi_adjusted": 0.093102,
+   "current_mean": -0.03,
+   "baseline_mean": 0.0017,
+   "psi": 0.30968583493334184,
+   "psi_adjusted": 0.216686,
    "noise_floor": 0.093,
-   "mean_shift": 0.007802,
-   "shift_se": 0.028167,
+   "mean_shift": -0.031775,
+   "shift_se": 0.02762,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.78,
+   "weight_pct": 0.63,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ga_per_game_diff",
-   "current_mean": -0.0267,
-   "baseline_mean": -0.0696,
-   "psi": 0.15988848282911972,
-   "psi_adjusted": 0.066888,
+   "current_mean": 0.11,
+   "baseline_mean": -0.02,
+   "psi": 0.05712759570611306,
+   "psi_adjusted": 0.0,
    "noise_floor": 0.093,
-   "mean_shift": 0.042933,
-   "shift_se": 0.257663,
+   "mean_shift": 0.13,
+   "shift_se": 0.26242,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 2.15,
+   "weight_pct": 1.94,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "shots_for_per_game_diff",
-   "current_mean": 0.24,
-   "baseline_mean": 0.2584,
-   "psi": 0.09840104156127287,
-   "psi_adjusted": 0.005401,
+   "current_mean": 0.67,
+   "baseline_mean": 0.4848,
+   "psi": 0.09945813931838611,
+   "psi_adjusted": 0.006458,
    "noise_floor": 0.093,
-   "mean_shift": -0.0184,
-   "shift_se": 1.124363,
+   "mean_shift": 0.1852,
+   "shift_se": 1.09218,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 2.12,
+   "weight_pct": 2.17,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "shots_against_per_game_diff",
-   "current_mean": -0.4267,
-   "baseline_mean": -0.444,
-   "psi": 0.28852642243192483,
-   "psi_adjusted": 0.195526,
+   "current_mean": -0.5967,
+   "baseline_mean": -0.5384,
+   "psi": 0.11728285219473052,
+   "psi_adjusted": 0.024283,
    "noise_floor": 0.093,
-   "mean_shift": 0.017333,
-   "shift_se": 1.205223,
+   "mean_shift": -0.058267,
+   "shift_se": 1.186906,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 10.07,
+   "weight_pct": 13.62,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pp_success_diff",
-   "current_mean": 0.0014,
-   "baseline_mean": 0.0061,
-   "psi": 0.17276565986696507,
-   "psi_adjusted": 0.079766,
+   "current_mean": -0.0168,
+   "baseline_mean": -0.0013,
+   "psi": 0.24925705293206896,
+   "psi_adjusted": 0.156257,
    "noise_floor": 0.093,
-   "mean_shift": -0.004748,
-   "shift_se": 0.030802,
+   "mean_shift": -0.015441,
+   "shift_se": 0.034696,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.53,
+   "weight_pct": 0.54,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "faceoff_win_diff",
-   "current_mean": -0.0061,
-   "baseline_mean": 0.0024,
-   "psi": 0.1771027120166261,
-   "psi_adjusted": 0.084103,
+   "current_mean": -0.0073,
+   "baseline_mean": 0.004,
+   "psi": 1.3839117549050315,
+   "psi_adjusted": 1.290912,
    "noise_floor": 0.093,
-   "mean_shift": -0.008445,
-   "shift_se": 0.008211,
+   "mean_shift": -0.011355,
+   "shift_se": 0.013949,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.43,
+   "weight_pct": 1.02,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "back_to_back_diff",
-   "current_mean": 0.0,
-   "baseline_mean": -0.056,
-   "psi": 1.4706811000096374,
-   "psi_adjusted": 1.377681,
+   "current_mean": -0.1667,
+   "baseline_mean": -0.036,
+   "psi": 0.12672632090991767,
+   "psi_adjusted": 0.033726,
    "noise_floor": 0.093,
-   "mean_shift": 0.056,
-   "shift_se": 0.08443,
+   "mean_shift": -0.130667,
+   "shift_se": 0.080581,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 4.32,
+   "weight_pct": 8.09,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "goalie_sv_pct_diff",
-   "current_mean": 0.0028,
-   "baseline_mean": -0.0012,
-   "psi": 0.2402619957144158,
-   "psi_adjusted": 0.147262,
-   "noise_floor": 0.093,
-   "mean_shift": 0.004005,
-   "shift_se": 0.006641,
+   "current_mean": -0.0097,
+   "baseline_mean": -0.0004,
+   "psi": 0.6549317911874417,
+   "psi_adjusted": 0.560281,
+   "noise_floor": 0.094651,
+   "mean_shift": -0.009269,
+   "shift_se": 0.011228,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.49,
-   "n_baseline": 250,
+   "weight_pct": 0.79,
+   "n_baseline": 229,
    "n_current": 60
   },
   {
    "feature": "goalie_gaa_diff",
-   "current_mean": -0.0418,
-   "baseline_mean": 0.0232,
-   "psi": 0.6561201455267194,
-   "psi_adjusted": 0.56312,
-   "noise_floor": 0.093,
-   "mean_shift": -0.065072,
-   "shift_se": 0.200451,
+   "current_mean": 0.2052,
+   "baseline_mean": -0.0155,
+   "psi": 1.6458345639030225,
+   "psi_adjusted": 1.551184,
+   "noise_floor": 0.094651,
+   "mean_shift": 0.220669,
+   "shift_se": 0.321274,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.45,
-   "n_baseline": 250,
+   "weight_pct": 0.62,
+   "n_baseline": 229,
    "n_current": 60
   },
   {
    "feature": "goalie_starts_diff",
-   "current_mean": 0.7167,
-   "baseline_mean": 0.764,
-   "psi": 0.14918319564897417,
-   "psi_adjusted": 0.056183,
-   "noise_floor": 0.093,
-   "mean_shift": -0.047333,
-   "shift_se": 4.713836,
+   "current_mean": -0.1667,
+   "baseline_mean": 0.1659,
+   "psi": 10.638627356086397,
+   "psi_adjusted": 10.543977,
+   "noise_floor": 0.094651,
+   "mean_shift": -0.332606,
+   "shift_se": 2.920917,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.05,
-   "n_baseline": 250,
+   "weight_pct": 1.62,
+   "n_baseline": 229,
    "n_current": 60
   },
   {
    "feature": "is_playoffs",
-   "current_mean": 1.0,
-   "baseline_mean": 0.088,
+   "current_mean": 0.0,
+   "baseline_mean": 0.328,
    "psi": null,
    "psi_adjusted": 0.0,
    "noise_floor": 0.093,
-   "mean_shift": 0.912,
-   "shift_se": 0.055038,
+   "mean_shift": -0.328,
+   "shift_se": 0.09121,
    "location_shift": true,
    "status": "INSUFFICIENT",
    "weight_pct": 0.0,
@@ -234,178 +234,178 @@
   },
   {
    "feature": "elo_home",
-   "current_mean": 1572.0695,
-   "baseline_mean": 1503.6299,
-   "psi": 2.989062132360735,
-   "psi_adjusted": 2.896062,
+   "current_mean": 1501.0413,
+   "baseline_mean": 1524.1763,
+   "psi": 1.3752582486833582,
+   "psi_adjusted": 1.282258,
    "noise_floor": 0.093,
-   "mean_shift": 68.439605,
-   "shift_se": 13.384842,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 2.31,
+   "mean_shift": -23.134945,
+   "shift_se": 13.828242,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.53,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "elo_away",
-   "current_mean": 1574.4585,
-   "baseline_mean": 1504.7925,
-   "psi": 3.971586877078964,
-   "psi_adjusted": 3.878587,
+   "current_mean": 1502.1325,
+   "baseline_mean": 1518.3568,
+   "psi": 1.3223423055011356,
+   "psi_adjusted": 1.229342,
    "noise_floor": 0.093,
-   "mean_shift": 69.665965,
-   "shift_se": 13.699878,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 1.58,
+   "mean_shift": -16.224326,
+   "shift_se": 14.273467,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.6,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "win_pct_home",
-   "current_mean": 0.6375,
-   "baseline_mean": 0.5003,
-   "psi": 0.5781512682598104,
-   "psi_adjusted": 0.485151,
+   "current_mean": 0.4333,
+   "baseline_mean": 0.5327,
+   "psi": 0.6539263866871752,
+   "psi_adjusted": 0.560926,
    "noise_floor": 0.093,
-   "mean_shift": 0.137167,
-   "shift_se": 0.031136,
+   "mean_shift": -0.099333,
+   "shift_se": 0.033855,
    "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 1.38,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.82,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "win_pct_away",
-   "current_mean": 0.6347,
-   "baseline_mean": 0.514,
-   "psi": 1.3710919709304439,
-   "psi_adjusted": 1.278092,
+   "current_mean": 0.4486,
+   "baseline_mean": 0.5383,
+   "psi": 0.5158950878330215,
+   "psi_adjusted": 0.422895,
    "noise_floor": 0.093,
-   "mean_shift": 0.120722,
-   "shift_se": 0.03272,
+   "mean_shift": -0.089722,
+   "shift_se": 0.033341,
    "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.62,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.68,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_net_goals_home",
-   "current_mean": 0.6416,
-   "baseline_mean": 0.0716,
-   "psi": 1.7896208858609972,
-   "psi_adjusted": 1.696621,
+   "current_mean": -0.4229,
+   "baseline_mean": 0.1388,
+   "psi": 0.47361283872189347,
+   "psi_adjusted": 0.380613,
    "noise_floor": 0.093,
-   "mean_shift": 0.570041,
-   "shift_se": 0.198781,
+   "mean_shift": -0.561752,
+   "shift_se": 0.219484,
    "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.64,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.71,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_net_goals_away",
-   "current_mean": 0.4986,
-   "baseline_mean": 0.0056,
-   "psi": 1.4303534148958548,
-   "psi_adjusted": 1.337353,
+   "current_mean": -0.1321,
+   "baseline_mean": 0.1018,
+   "psi": 1.2880049195952958,
+   "psi_adjusted": 1.195005,
    "noise_floor": 0.093,
-   "mean_shift": 0.492956,
-   "shift_se": 0.21071,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.89,
+   "mean_shift": -0.233833,
+   "shift_se": 0.218728,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.54,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_goal_share_home",
-   "current_mean": 0.5606,
-   "baseline_mean": 0.5075,
-   "psi": 1.4731131854422184,
-   "psi_adjusted": 1.380113,
+   "current_mean": 0.4573,
+   "baseline_mean": 0.5124,
+   "psi": 1.4823018304811624,
+   "psi_adjusted": 1.389302,
    "noise_floor": 0.093,
-   "mean_shift": 0.053066,
-   "shift_se": 0.018324,
+   "mean_shift": -0.055035,
+   "shift_se": 0.019724,
    "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.66,
+   "status": "OK-SEASONAL",
+   "weight_pct": 1.01,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ewm_goal_share_away",
-   "current_mean": 0.5455,
-   "baseline_mean": 0.5002,
-   "psi": 0.3848317248042129,
-   "psi_adjusted": 0.291832,
+   "current_mean": 0.4874,
+   "baseline_mean": 0.5106,
+   "psi": 0.23344500333720336,
+   "psi_adjusted": 0.140445,
    "noise_floor": 0.093,
-   "mean_shift": 0.045264,
-   "shift_se": 0.019404,
-   "location_shift": true,
-   "status": "ALERT",
+   "mean_shift": -0.023261,
+   "shift_se": 0.020073,
+   "location_shift": false,
+   "status": "OK",
    "weight_pct": 0.48,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "rest_days_home",
-   "current_mean": 2.75,
-   "baseline_mean": 2.112,
-   "psi": 1.6455216144107698,
-   "psi_adjusted": 1.552522,
+   "current_mean": 2.3667,
+   "baseline_mean": 11.924,
+   "psi": 0.09155914070896613,
+   "psi_adjusted": 0.0,
    "noise_floor": 0.093,
-   "mean_shift": 0.638,
-   "shift_se": 0.211437,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.0,
+   "mean_shift": -9.557333,
+   "shift_se": 7.237219,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.37,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "rest_days_away",
-   "current_mean": 2.4833,
-   "baseline_mean": 2.028,
-   "psi": 2.4037312253694463,
-   "psi_adjusted": 2.310731,
+   "current_mean": 2.1667,
+   "baseline_mean": 12.056,
+   "psi": 0.09490163156782322,
+   "psi_adjusted": 0.001902,
    "noise_floor": 0.093,
-   "mean_shift": 0.455333,
-   "shift_se": 0.166575,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 1.94,
+   "mean_shift": -9.889333,
+   "shift_se": 7.385093,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.18,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ga_per_game_home",
-   "current_mean": 2.78,
-   "baseline_mean": 3.0856,
-   "psi": 0.46777785671665884,
-   "psi_adjusted": 0.374778,
+   "current_mean": 3.24,
+   "baseline_mean": 3.1112,
+   "psi": 0.16259348357925774,
+   "psi_adjusted": 0.069593,
    "noise_floor": 0.093,
-   "mean_shift": -0.3056,
-   "shift_se": 0.18371,
+   "mean_shift": 0.1288,
+   "shift_se": 0.197717,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.47,
+   "weight_pct": 0.51,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "ga_per_game_away",
-   "current_mean": 2.8067,
-   "baseline_mean": 3.1552,
-   "psi": 0.32894363689714656,
-   "psi_adjusted": 0.235944,
+   "current_mean": 3.13,
+   "baseline_mean": 3.1312,
+   "psi": 0.14429025553799668,
+   "psi_adjusted": 0.05129,
    "noise_floor": 0.093,
-   "mean_shift": -0.348533,
-   "shift_se": 0.188076,
+   "mean_shift": -0.0012,
+   "shift_se": 0.196103,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.45,
@@ -414,103 +414,28 @@
   },
   {
    "feature": "shots_for_per_game_home",
-   "current_mean": 28.8533,
-   "baseline_mean": 27.5256,
-   "psi": 0.38349940424755735,
-   "psi_adjusted": 0.290499,
+   "current_mean": 27.1867,
+   "baseline_mean": 27.8368,
+   "psi": 1.2684134629753068,
+   "psi_adjusted": 1.175413,
    "noise_floor": 0.093,
-   "mean_shift": 1.327733,
-   "shift_se": 0.760804,
+   "mean_shift": -0.650133,
+   "shift_se": 0.773967,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.61,
+   "weight_pct": 0.55,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "shots_for_per_game_away",
-   "current_mean": 28.6133,
-   "baseline_mean": 27.2672,
-   "psi": 0.2914986368194263,
-   "psi_adjusted": 0.198499,
+   "current_mean": 26.5167,
+   "baseline_mean": 27.352,
+   "psi": 0.22623212861705538,
+   "psi_adjusted": 0.133232,
    "noise_floor": 0.093,
-   "mean_shift": 1.346133,
-   "shift_se": 0.801964,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.29,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "shots_against_per_game_home",
-   "current_mean": 27.3633,
-   "baseline_mean": 27.1376,
-   "psi": 0.06628586275459407,
-   "psi_adjusted": 0.0,
-   "noise_floor": 0.093,
-   "mean_shift": 0.225733,
-   "shift_se": 0.73601,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 2.03,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "shots_against_per_game_away",
-   "current_mean": 27.79,
-   "baseline_mean": 27.5816,
-   "psi": 0.33612769828002836,
-   "psi_adjusted": 0.243128,
-   "noise_floor": 0.093,
-   "mean_shift": 0.2084,
-   "shift_se": 0.863309,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.32,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pp_success_home",
-   "current_mean": 0.1553,
-   "baseline_mean": 0.1712,
-   "psi": 0.27368347128901993,
-   "psi_adjusted": 0.180683,
-   "noise_floor": 0.093,
-   "mean_shift": -0.015908,
-   "shift_se": 0.024979,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.69,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pp_success_away",
-   "current_mean": 0.1539,
-   "baseline_mean": 0.1651,
-   "psi": 0.10507367267068264,
-   "psi_adjusted": 0.012074,
-   "noise_floor": 0.093,
-   "mean_shift": -0.01116,
-   "shift_se": 0.020047,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.75,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "faceoff_win_home",
-   "current_mean": 0.1757,
-   "baseline_mean": 0.1752,
-   "psi": 0.33189420194066827,
-   "psi_adjusted": 0.238894,
-   "noise_floor": 0.093,
-   "mean_shift": 0.00052,
-   "shift_se": 0.005892,
+   "mean_shift": -0.835333,
+   "shift_se": 0.786939,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.94,
@@ -518,89 +443,29 @@
    "n_current": 60
   },
   {
-   "feature": "faceoff_win_away",
-   "current_mean": 0.1818,
-   "baseline_mean": 0.1729,
-   "psi": 0.35917644934475706,
-   "psi_adjusted": 0.266176,
+   "feature": "shots_against_per_game_home",
+   "current_mean": 27.0833,
+   "baseline_mean": 27.1472,
+   "psi": 0.3826785505234844,
+   "psi_adjusted": 0.289679,
    "noise_floor": 0.093,
-   "mean_shift": 0.008965,
-   "shift_se": 0.005506,
+   "mean_shift": -0.063867,
+   "shift_se": 0.74109,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.63,
+   "weight_pct": 1.31,
    "n_baseline": 250,
    "n_current": 60
   },
   {
-   "feature": "back_to_back_home",
-   "current_mean": 0.0,
-   "baseline_mean": 0.132,
-   "psi": null,
-   "psi_adjusted": 0.0,
+   "feature": "shots_against_per_game_away",
+   "current_mean": 27.68,
+   "baseline_mean": 27.6856,
+   "psi": 0.15721392698760137,
+   "psi_adjusted": 0.064214,
    "noise_floor": 0.093,
-   "mean_shift": -0.132,
-   "shift_se": 0.065761,
-   "location_shift": true,
-   "status": "INSUFFICIENT",
-   "weight_pct": 0.0,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "back_to_back_away",
-   "current_mean": 0.0,
-   "baseline_mean": 0.188,
-   "psi": null,
-   "psi_adjusted": 0.0,
-   "noise_floor": 0.093,
-   "mean_shift": -0.188,
-   "shift_se": 0.075906,
-   "location_shift": true,
-   "status": "INSUFFICIENT",
-   "weight_pct": 0.7,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "goalie_sv_pct_home",
-   "current_mean": 0.8813,
-   "baseline_mean": 0.8833,
-   "psi": 0.5579508892333779,
-   "psi_adjusted": 0.464951,
-   "noise_floor": 0.093,
-   "mean_shift": -0.001972,
-   "shift_se": 0.004688,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.86,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "goalie_sv_pct_away",
-   "current_mean": 0.8785,
-   "baseline_mean": 0.8844,
-   "psi": 0.4860587372513503,
-   "psi_adjusted": 0.393059,
-   "noise_floor": 0.093,
-   "mean_shift": -0.005977,
-   "shift_se": 0.004464,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.95,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "goalie_gaa_home",
-   "current_mean": 3.0493,
-   "baseline_mean": 3.1112,
-   "psi": 0.28540544836093834,
-   "psi_adjusted": 0.192405,
-   "noise_floor": 0.093,
-   "mean_shift": -0.061999,
-   "shift_se": 0.148529,
+   "mean_shift": -0.0056,
+   "shift_se": 0.846739,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 1.06,
@@ -608,48 +473,183 @@
    "n_current": 60
   },
   {
-   "feature": "goalie_gaa_away",
-   "current_mean": 3.0911,
-   "baseline_mean": 3.088,
-   "psi": 0.4428198214790887,
-   "psi_adjusted": 0.34982,
+   "feature": "pp_success_home",
+   "current_mean": 0.1987,
+   "baseline_mean": 0.2191,
+   "psi": 0.28655003581709876,
+   "psi_adjusted": 0.19355,
    "noise_floor": 0.093,
-   "mean_shift": 0.003073,
-   "shift_se": 0.131418,
+   "mean_shift": -0.020432,
+   "shift_se": 0.026599,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.76,
+   "weight_pct": 0.53,
    "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pp_success_away",
+   "current_mean": 0.2155,
+   "baseline_mean": 0.2204,
+   "psi": 0.09707942456357235,
+   "psi_adjusted": 0.004079,
+   "noise_floor": 0.093,
+   "mean_shift": -0.004991,
+   "shift_se": 0.025338,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.54,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "faceoff_win_home",
+   "current_mean": 0.4927,
+   "baseline_mean": 0.5028,
+   "psi": 0.37700088033523355,
+   "psi_adjusted": 0.284001,
+   "noise_floor": 0.093,
+   "mean_shift": -0.010109,
+   "shift_se": 0.00885,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.58,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "faceoff_win_away",
+   "current_mean": 0.5,
+   "baseline_mean": 0.4988,
+   "psi": 0.28628118921456214,
+   "psi_adjusted": 0.193281,
+   "noise_floor": 0.093,
+   "mean_shift": 0.001247,
+   "shift_se": 0.009228,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.54,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_home",
+   "current_mean": 0.05,
+   "baseline_mean": 0.1,
+   "psi": 0.03736072009151105,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": -0.05,
+   "shift_se": 0.061864,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_away",
+   "current_mean": 0.2167,
+   "baseline_mean": 0.136,
+   "psi": null,
+   "psi_adjusted": 0.0,
+   "noise_floor": 0.093,
+   "mean_shift": 0.080667,
+   "shift_se": 0.077282,
+   "location_shift": false,
+   "status": "INSUFFICIENT",
+   "weight_pct": 0.8,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "current_mean": 0.8856,
+   "baseline_mean": 0.8851,
+   "psi": 2.8065928590504132,
+   "psi_adjusted": 2.712362,
+   "noise_floor": 0.094231,
+   "mean_shift": 0.00051,
+   "shift_se": 0.008448,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.73,
+   "n_baseline": 234,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "current_mean": 0.8953,
+   "baseline_mean": 0.8856,
+   "psi": 1.8990788995981334,
+   "psi_adjusted": 1.804848,
+   "noise_floor": 0.094231,
+   "mean_shift": 0.009697,
+   "shift_se": 0.007841,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.6,
+   "n_baseline": 234,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "current_mean": 3.141,
+   "baseline_mean": 3.0414,
+   "psi": 1.8220113758340255,
+   "psi_adjusted": 1.727781,
+   "noise_floor": 0.094231,
+   "mean_shift": 0.099575,
+   "shift_se": 0.264226,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.81,
+   "n_baseline": 234,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "current_mean": 2.9358,
+   "baseline_mean": 3.0714,
+   "psi": 0.5726144002656822,
+   "psi_adjusted": 0.478384,
+   "noise_floor": 0.094231,
+   "mean_shift": -0.13557,
+   "shift_se": 0.235535,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.47,
+   "n_baseline": 234,
    "n_current": 60
   },
   {
    "feature": "goalie_starts_home",
-   "current_mean": 97.5,
-   "baseline_mean": 99.304,
-   "psi": 0.544373670613431,
-   "psi_adjusted": 0.451374,
-   "noise_floor": 0.093,
-   "mean_shift": -1.804,
-   "shift_se": 3.315844,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.78,
-   "n_baseline": 250,
+   "current_mean": 2.0667,
+   "baseline_mean": 44.7906,
+   "psi": 12.485312616394948,
+   "psi_adjusted": 12.391082,
+   "noise_floor": 0.094231,
+   "mean_shift": -42.723932,
+   "shift_se": 2.314875,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.61,
+   "n_baseline": 234,
    "n_current": 60
   },
   {
    "feature": "goalie_starts_away",
-   "current_mean": 96.7833,
-   "baseline_mean": 98.54,
-   "psi": 1.850430859129405,
-   "psi_adjusted": 1.757431,
-   "noise_floor": 0.093,
-   "mean_shift": -1.756667,
-   "shift_se": 3.451711,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.3,
-   "n_baseline": 250,
+   "current_mean": 2.2333,
+   "baseline_mean": 44.6325,
+   "psi": 12.633923198319785,
+   "psi_adjusted": 12.539692,
+   "noise_floor": 0.094231,
+   "mean_shift": -42.399145,
+   "shift_se": 2.268001,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.75,
+   "n_baseline": 234,
    "n_current": 60
   },
   {
@@ -669,208 +669,13 @@
   },
   {
    "feature": "pl_evo_c_away",
-   "current_mean": 0.6974,
-   "baseline_mean": 0.6744,
-   "psi": 2.617780656135782,
-   "psi_adjusted": 2.524781,
+   "current_mean": 0.6809,
+   "baseline_mean": 0.678,
+   "psi": 0.1248019217489857,
+   "psi_adjusted": 0.031802,
    "noise_floor": 0.093,
-   "mean_shift": 0.023028,
-   "shift_se": 0.01476,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.87,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_c_home",
-   "current_mean": 0.6992,
-   "baseline_mean": 0.6809,
-   "psi": 3.977091348457273,
-   "psi_adjusted": 3.884091,
-   "noise_floor": 0.093,
-   "mean_shift": 0.018296,
-   "shift_se": 0.014115,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 3.71,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_c_diff",
-   "current_mean": 0.0018,
-   "baseline_mean": 0.0065,
-   "psi": 0.3458566016448053,
-   "psi_adjusted": 0.252857,
-   "noise_floor": 0.093,
-   "mean_shift": -0.004733,
-   "shift_se": 0.01935,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 2.54,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_l_away",
-   "current_mean": 0.7941,
-   "baseline_mean": 0.7414,
-   "psi": 1.6976125090129774,
-   "psi_adjusted": 1.604613,
-   "noise_floor": 0.093,
-   "mean_shift": 0.052699,
-   "shift_se": 0.017926,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 0.74,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_l_home",
-   "current_mean": 0.7905,
-   "baseline_mean": 0.7506,
-   "psi": 1.6973253815463496,
-   "psi_adjusted": 1.604325,
-   "noise_floor": 0.093,
-   "mean_shift": 0.039941,
-   "shift_se": 0.018397,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 3.94,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_l_diff",
-   "current_mean": -0.0036,
-   "baseline_mean": 0.0092,
-   "psi": 0.4250458132475749,
-   "psi_adjusted": 0.332046,
-   "noise_floor": 0.093,
-   "mean_shift": -0.012757,
-   "shift_se": 0.025355,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.35,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_r_away",
-   "current_mean": 0.7611,
-   "baseline_mean": 0.7255,
-   "psi": 2.780924929413717,
-   "psi_adjusted": 2.687925,
-   "noise_floor": 0.093,
-   "mean_shift": 0.035589,
-   "shift_se": 0.019089,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.94,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_r_home",
-   "current_mean": 0.7714,
-   "baseline_mean": 0.7183,
-   "psi": 2.681055488403681,
-   "psi_adjusted": 2.588055,
-   "noise_floor": 0.093,
-   "mean_shift": 0.053057,
-   "shift_se": 0.019198,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 3.27,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_r_diff",
-   "current_mean": 0.0103,
-   "baseline_mean": -0.0072,
-   "psi": 2.640393429022755,
-   "psi_adjusted": 2.547393,
-   "noise_floor": 0.093,
-   "mean_shift": 0.017468,
-   "shift_se": 0.028652,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 2.24,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_d_away",
-   "current_mean": 0.1948,
-   "baseline_mean": 0.1794,
-   "psi": 2.8542332230675855,
-   "psi_adjusted": 2.761233,
-   "noise_floor": 0.093,
-   "mean_shift": 0.015491,
-   "shift_se": 0.005488,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 3.77,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_d_home",
-   "current_mean": 0.194,
-   "baseline_mean": 0.1778,
-   "psi": 1.795403433739297,
-   "psi_adjusted": 1.702403,
-   "noise_floor": 0.093,
-   "mean_shift": 0.016198,
-   "shift_se": 0.00556,
-   "location_shift": true,
-   "status": "ALERT",
-   "weight_pct": 1.56,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_evo_d_diff",
-   "current_mean": -0.0008,
-   "baseline_mean": -0.0015,
-   "psi": 0.2507356496259744,
-   "psi_adjusted": 0.157736,
-   "noise_floor": 0.093,
-   "mean_shift": 0.000708,
-   "shift_se": 0.008103,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 4.54,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_ppo_c_away",
-   "current_mean": 1.77,
-   "baseline_mean": 1.7522,
-   "psi": 0.6428984655742357,
-   "psi_adjusted": 0.549898,
-   "noise_floor": 0.093,
-   "mean_shift": 0.017813,
-   "shift_se": 0.117119,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.14,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_ppo_c_home",
-   "current_mean": 1.8288,
-   "baseline_mean": 1.7243,
-   "psi": 0.6105757509195786,
-   "psi_adjusted": 0.517576,
-   "noise_floor": 0.093,
-   "mean_shift": 0.104445,
-   "shift_se": 0.109617,
+   "mean_shift": 0.002877,
+   "shift_se": 0.015564,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.64,
@@ -878,89 +683,314 @@
    "n_current": 60
   },
   {
-   "feature": "pl_ppo_c_diff",
-   "current_mean": 0.0588,
-   "baseline_mean": -0.0279,
-   "psi": 0.40714607993563384,
-   "psi_adjusted": 0.314146,
+   "feature": "pl_evo_c_home",
+   "current_mean": 0.6745,
+   "baseline_mean": 0.6871,
+   "psi": 0.2266517973200182,
+   "psi_adjusted": 0.133652,
    "noise_floor": 0.093,
-   "mean_shift": 0.086632,
-   "shift_se": 0.16548,
+   "mean_shift": -0.012673,
+   "shift_se": 0.014745,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.09,
+   "weight_pct": 4.81,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_c_diff",
+   "current_mean": -0.0065,
+   "baseline_mean": 0.0091,
+   "psi": 0.37336111029827335,
+   "psi_adjusted": 0.280361,
+   "noise_floor": 0.093,
+   "mean_shift": -0.01555,
+   "shift_se": 0.020899,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.15,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_l_away",
+   "current_mean": 0.7456,
+   "baseline_mean": 0.7551,
+   "psi": 0.28451440746476575,
+   "psi_adjusted": 0.191514,
+   "noise_floor": 0.093,
+   "mean_shift": -0.00953,
+   "shift_se": 0.020274,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.49,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_l_home",
+   "current_mean": 0.7237,
+   "baseline_mean": 0.7673,
+   "psi": 0.39784549030863964,
+   "psi_adjusted": 0.304845,
+   "noise_floor": 0.093,
+   "mean_shift": -0.04362,
+   "shift_se": 0.020552,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 5.35,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_l_diff",
+   "current_mean": -0.0219,
+   "baseline_mean": 0.0122,
+   "psi": 0.40804637554888096,
+   "psi_adjusted": 0.315046,
+   "noise_floor": 0.093,
+   "mean_shift": -0.03409,
+   "shift_se": 0.028694,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.17,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_r_away",
+   "current_mean": 0.7195,
+   "baseline_mean": 0.7347,
+   "psi": 0.13496075952030753,
+   "psi_adjusted": 0.041961,
+   "noise_floor": 0.093,
+   "mean_shift": -0.015189,
+   "shift_se": 0.019821,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.8,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_r_home",
+   "current_mean": 0.7399,
+   "baseline_mean": 0.7379,
+   "psi": 0.33552814280111987,
+   "psi_adjusted": 0.242528,
+   "noise_floor": 0.093,
+   "mean_shift": 0.002084,
+   "shift_se": 0.020466,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 2.45,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_r_diff",
+   "current_mean": 0.0204,
+   "baseline_mean": 0.0032,
+   "psi": 0.0951526150910422,
+   "psi_adjusted": 0.002153,
+   "noise_floor": 0.093,
+   "mean_shift": 0.017272,
+   "shift_se": 0.030553,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 4.11,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_d_away",
+   "current_mean": 0.1763,
+   "baseline_mean": 0.1823,
+   "psi": 0.6325168815319521,
+   "psi_adjusted": 0.539517,
+   "noise_floor": 0.093,
+   "mean_shift": -0.005985,
+   "shift_se": 0.005709,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 3.95,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_d_home",
+   "current_mean": 0.1829,
+   "baseline_mean": 0.1835,
+   "psi": 0.20319582975328637,
+   "psi_adjusted": 0.110196,
+   "noise_floor": 0.093,
+   "mean_shift": -0.000671,
+   "shift_se": 0.005673,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.89,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_evo_d_diff",
+   "current_mean": 0.0065,
+   "baseline_mean": 0.0012,
+   "psi": 1.4292513984453037,
+   "psi_adjusted": 1.336251,
+   "noise_floor": 0.093,
+   "mean_shift": 0.005313,
+   "shift_se": 0.008318,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 5.96,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ppo_c_away",
+   "current_mean": 1.8249,
+   "baseline_mean": 1.7528,
+   "psi": 0.15180351106876205,
+   "psi_adjusted": 0.058804,
+   "noise_floor": 0.093,
+   "mean_shift": 0.072069,
+   "shift_se": 0.12897,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 1.5,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ppo_c_home",
+   "current_mean": 1.6783,
+   "baseline_mean": 1.7749,
+   "psi": 0.2716440462739431,
+   "psi_adjusted": 0.178644,
+   "noise_floor": 0.093,
+   "mean_shift": -0.096566,
+   "shift_se": 0.117947,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.47,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ppo_c_diff",
+   "current_mean": -0.1465,
+   "baseline_mean": 0.0221,
+   "psi": 0.2338716994808208,
+   "psi_adjusted": 0.140872,
+   "noise_floor": 0.093,
+   "mean_shift": -0.168635,
+   "shift_se": 0.182866,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.7,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_l_away",
-   "current_mean": 1.663,
-   "baseline_mean": 1.711,
-   "psi": 3.913280864793766,
-   "psi_adjusted": 3.820281,
+   "current_mean": 1.6819,
+   "baseline_mean": 1.6994,
+   "psi": 0.16932804343484298,
+   "psi_adjusted": 0.076328,
    "noise_floor": 0.093,
-   "mean_shift": -0.047988,
-   "shift_se": 0.103791,
+   "mean_shift": -0.017507,
+   "shift_se": 0.093726,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.75,
+   "weight_pct": 0.46,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_l_home",
-   "current_mean": 1.6497,
-   "baseline_mean": 1.7415,
-   "psi": 3.7668200115175177,
-   "psi_adjusted": 3.67382,
+   "current_mean": 1.5269,
+   "baseline_mean": 1.6968,
+   "psi": 2.0469068683926075,
+   "psi_adjusted": 1.953907,
    "noise_floor": 0.093,
-   "mean_shift": -0.091839,
-   "shift_se": 0.102924,
+   "mean_shift": -0.169911,
+   "shift_se": 0.091012,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.43,
+   "weight_pct": 0.46,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_l_diff",
-   "current_mean": -0.0133,
-   "baseline_mean": 0.0305,
-   "psi": 2.7506137208926065,
-   "psi_adjusted": 2.657614,
+   "current_mean": -0.155,
+   "baseline_mean": -0.0026,
+   "psi": 0.2801303650715914,
+   "psi_adjusted": 0.18713,
    "noise_floor": 0.093,
-   "mean_shift": -0.04385,
-   "shift_se": 0.143981,
+   "mean_shift": -0.152404,
+   "shift_se": 0.133515,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.43,
+   "weight_pct": 0.44,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_r_away",
-   "current_mean": 1.7145,
-   "baseline_mean": 1.5848,
-   "psi": 2.729195929132376,
-   "psi_adjusted": 2.636196,
+   "current_mean": 1.6015,
+   "baseline_mean": 1.62,
+   "psi": 0.2599603066432565,
+   "psi_adjusted": 0.16696,
    "noise_floor": 0.093,
-   "mean_shift": 0.129723,
-   "shift_se": 0.080607,
+   "mean_shift": -0.018517,
+   "shift_se": 0.089599,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 1.96,
+   "weight_pct": 2.16,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_r_home",
-   "current_mean": 1.6776,
-   "baseline_mean": 1.5906,
-   "psi": 1.9366618398140814,
-   "psi_adjusted": 1.843662,
+   "current_mean": 1.4513,
+   "baseline_mean": 1.6387,
+   "psi": 0.6161646155151099,
+   "psi_adjusted": 0.523165,
    "noise_floor": 0.093,
-   "mean_shift": 0.087006,
-   "shift_se": 0.082708,
+   "mean_shift": -0.187471,
+   "shift_se": 0.08534,
+   "location_shift": true,
+   "status": "OK-SEASONAL",
+   "weight_pct": 0.45,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ppo_r_diff",
+   "current_mean": -0.1502,
+   "baseline_mean": 0.0187,
+   "psi": 0.3528494807181223,
+   "psi_adjusted": 0.259849,
+   "noise_floor": 0.093,
+   "mean_shift": -0.168953,
+   "shift_se": 0.126109,
+   "location_shift": false,
+   "status": "OK",
+   "weight_pct": 0.73,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ppo_d_away",
+   "current_mean": 0.674,
+   "baseline_mean": 0.6764,
+   "psi": 0.19931276966051567,
+   "psi_adjusted": 0.106313,
+   "noise_floor": 0.093,
+   "mean_shift": -0.00235,
+   "shift_se": 0.043897,
    "location_shift": false,
    "status": "OK",
    "weight_pct": 0.95,
@@ -968,62 +998,32 @@
    "n_current": 60
   },
   {
-   "feature": "pl_ppo_r_diff",
-   "current_mean": -0.0369,
-   "baseline_mean": 0.0058,
-   "psi": 0.28384227657830874,
-   "psi_adjusted": 0.190842,
-   "noise_floor": 0.093,
-   "mean_shift": -0.042717,
-   "shift_se": 0.116762,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 0.66,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
-   "feature": "pl_ppo_d_away",
-   "current_mean": 0.7114,
-   "baseline_mean": 0.6698,
-   "psi": 0.13638423890481222,
-   "psi_adjusted": 0.043384,
-   "noise_floor": 0.093,
-   "mean_shift": 0.041586,
-   "shift_se": 0.044774,
-   "location_shift": false,
-   "status": "OK",
-   "weight_pct": 1.41,
-   "n_baseline": 250,
-   "n_current": 60
-  },
-  {
    "feature": "pl_ppo_d_home",
-   "current_mean": 0.6971,
-   "baseline_mean": 0.674,
-   "psi": 0.4896863373552934,
-   "psi_adjusted": 0.396686,
+   "current_mean": 0.6813,
+   "baseline_mean": 0.6992,
+   "psi": 0.11614593970750985,
+   "psi_adjusted": 0.023146,
    "noise_floor": 0.093,
-   "mean_shift": 0.02311,
-   "shift_se": 0.0464,
+   "mean_shift": -0.01789,
+   "shift_se": 0.044999,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.99,
+   "weight_pct": 0.91,
    "n_baseline": 250,
    "n_current": 60
   },
   {
    "feature": "pl_ppo_d_diff",
-   "current_mean": -0.0143,
-   "baseline_mean": 0.0042,
-   "psi": 0.31456171831144814,
-   "psi_adjusted": 0.221562,
+   "current_mean": 0.0073,
+   "baseline_mean": 0.0228,
+   "psi": 0.330591051170771,
+   "psi_adjusted": 0.237591,
    "noise_floor": 0.093,
-   "mean_shift": -0.018476,
-   "shift_se": 0.064727,
+   "mean_shift": -0.01554,
+   "shift_se": 0.063641,
    "location_shift": false,
    "status": "OK",
-   "weight_pct": 0.76,
+   "weight_pct": 0.5,
    "n_baseline": 250,
    "n_current": 60
   }
@@ -1078,35 +1078,35 @@
    "lookback": 5
   },
   "shots_for_per_game_diff": {
-   "tooltip": "What: Home minus away trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away trailing shots on goal per game",
    "description": "Home minus away trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "shots_against_per_game_diff": {
-   "tooltip": "What: Home minus away trailing shots against per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away trailing shots against per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away trailing shots against per game",
    "description": "Home minus away trailing shots against per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "pp_success_diff": {
-   "tooltip": "What: Home minus away trailing power-play success rate\nDefinition: rolling(5).mean() of power-play goals / power-play opportunities over strictly-prior games\nSource: official NHL API boxscores (powerPlayGoals)\nWindow: 5 \u00b7 Built as: trailing windowed mean of a per-game rate\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games; a game with zero PP opportunities is excluded from that game\u2019s rate\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away trailing power-play success rate\nDefinition: pooled team power-play goals / opportunities over five prior games\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN without observed opportunities; zero chances contribute zero counts, missing games contribute neither count\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away trailing power-play success rate",
    "description": "Home minus away trailing power-play success rate",
-   "definition": "rolling(5).mean() of power-play goals / power-play opportunities over strictly-prior games",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "definition": "pooled team power-play goals / opportunities over five prior games",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5
   },
   "faceoff_win_diff": {
-   "tooltip": "What: Home minus away trailing faceoff win rate\nDefinition: rolling(5).mean() of faceoffWinningPctg over strictly-prior games\nSource: official NHL API boxscores (faceoffWinningPctg)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away trailing faceoff win rate",
    "description": "Home minus away trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5
   },
   "back_to_back_diff": {
@@ -1118,7 +1118,7 @@
    "lookback": 1
   },
   "goalie_sv_pct_diff": {
-   "tooltip": "What: Home minus away expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP ERA diff\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; the expected starter is the highest-prior-workload AVAILABLE goalie \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN\nMissing values: NaN when the team has no goalie with a prior start this season (e.g. opening-night unknown starter); never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP ERA diff\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; the expected starter is the highest SEASON-TO-DATE prior-workload AVAILABLE goalie (season-scoped, so a prior-season workhorse cannot be served as tonight\u2019s starter) \u2014 goalies known unavailable strictly before puck drop (Out/IR/Doubtful from the ESPN snapshot replay, or an announced non-medical leave from the versioned nhl_leave_events.json ledger, replayed as intervals) are removed from the workload vote before it runs, and the fallback follows the same opportunity order over the remaining goalies; every candidate excluded -> honest NaN; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season (e.g. opening-night unknown starter); never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away expected-starter rolling save percentage",
    "description": "Home minus away expected-starter rolling save percentage",
    "definition": "season-to-date (rolling-30-start EWM) save percentage of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP ERA diff",
@@ -1126,7 +1126,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_gaa_diff": {
-   "tooltip": "What: Home minus away expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP K/9 diff\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of each team\u2019s expected starting goalie; home \u2212 away. The NHL analog of MLB\u2019s SP K/9 diff\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away expected-starter rolling goals-against average",
    "description": "Home minus away expected-starter rolling goals-against average",
    "definition": "season-to-date (rolling-30-start EWM) GAA of each team's expected starting goalie; home \u2212 away. The NHL analog of MLB's SP K/9 diff",
@@ -1134,7 +1134,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_starts_diff": {
-   "tooltip": "What: Home minus away expected-starter season starts\nDefinition: season-to-date starts of each team\u2019s expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves)\nMissing values: NaN when no goalie has a prior start\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
+   "tooltip": "What: Home minus away expected-starter season starts\nDefinition: season-to-date starts of each team\u2019s expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; the expected starter excludes goalies known unavailable strictly before puck drop (injury snapshots or announced non-medical leaves); starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start\nAvailable to: [\u2019linear\u2019, \u2019tree\u2019]",
    "summary": "Home minus away expected-starter season starts",
    "description": "Home minus away expected-starter season starts",
    "definition": "season-to-date starts of each team's expected starting goalie \u2014 a workload/experience proxy for the SV%/GAA pair",
@@ -1246,67 +1246,67 @@
    "lookback": 5
   },
   "shots_for_per_game_home": {
-   "tooltip": "What: Home team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's trailing shots on goal per game",
    "description": "Home team's trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (home side of shots_for_per_game_diff)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "shots_for_per_game_away": {
-   "tooltip": "What: Away team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s trailing shots on goal per game\nDefinition: rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's trailing shots on goal per game",
    "description": "Away team's trailing shots on goal per game",
    "definition": "rolling(5).mean() of team shots on goal over strictly-prior games (away side of shots_for_per_game_diff)",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "shots_against_per_game_home": {
-   "tooltip": "What: Home team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's trailing shots allowed per game",
    "description": "Home team's trailing shots allowed per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- home side of shots_against_per_game_diff",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "shots_against_per_game_away": {
-   "tooltip": "What: Away team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s trailing shots allowed per game\nDefinition: rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff\nSource: official NHL API boxscores (team SOG), falling back to the settled score feed\u2019s identical team SOG when a boxscore row is missing\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with SOG recorded\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's trailing shots allowed per game",
    "description": "Away team's trailing shots allowed per game",
    "definition": "rolling(5).mean() of opponent shots on goal over strictly-prior games (lower = better defensive structure) -- away side of shots_against_per_game_diff",
-   "source": "official NHL API boxscores (team SOG)",
+   "source": "official NHL API boxscores (team SOG), falling back to the settled score feed's identical team SOG when a boxscore row is missing",
    "lookback": 5
   },
   "pp_success_home": {
-   "tooltip": "What: Home team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff\nSource: official NHL API boxscores (powerPlayGoals)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1) -- a zero-opportunity game contributes nothing rather than voiding the window\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's trailing power-play success rate",
    "description": "Home team's trailing power-play success rate",
    "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- home side of pp_success_diff",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5
   },
   "pp_success_away": {
-   "tooltip": "What: Away team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff\nSource: official NHL API boxscores (powerPlayGoals)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1) -- a zero-opportunity game contributes nothing rather than voiding the window\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s trailing power-play success rate\nDefinition: pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff\nSource: official NHL API right-rail teamGameStats (powerPlay)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no power-play opportunities in the window\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's trailing power-play success rate",
    "description": "Away team's trailing power-play success rate",
    "definition": "pooled power-play goals / opportunities over the trailing window (volume-weighted) -- away side of pp_success_diff",
-   "source": "official NHL API boxscores (powerPlayGoals)",
+   "source": "official NHL API right-rail teamGameStats (powerPlay)",
    "lookback": 5
   },
   "faceoff_win_home": {
-   "tooltip": "What: Home team\u2019s trailing faceoff win rate\nDefinition: rolling(5).mean() of faceoffWinningPctg over strictly-prior games (home side of faceoff_win_diff)\nSource: official NHL API boxscores (faceoffWinningPctg)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's trailing faceoff win rate",
    "description": "Home team's trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games (home side of faceoff_win_diff)",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (home side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5
   },
   "faceoff_win_away": {
-   "tooltip": "What: Away team\u2019s trailing faceoff win rate\nDefinition: rolling(5).mean() of faceoffWinningPctg over strictly-prior games (away side of faceoff_win_diff)\nSource: official NHL API boxscores (faceoffWinningPctg)\nWindow: 5 \u00b7 Built as: trailing windowed mean\nPoint-in-time rule: per-team rolling(5).mean().shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s trailing faceoff win rate\nDefinition: pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)\nSource: official NHL API right-rail teamGameStats (faceoffWins)\nWindow: 5 \u00b7 Built as: trailing pooled count ratio\nPoint-in-time rule: per-team rolling(5) sums then shift(1)\nMissing values: NaN when the team has no prior games with faceoff data\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's trailing faceoff win rate",
    "description": "Away team's trailing faceoff win rate",
-   "definition": "rolling(5).mean() of faceoffWinningPctg over strictly-prior games (away side of faceoff_win_diff)",
-   "source": "official NHL API boxscores (faceoffWinningPctg)",
+   "definition": "pooled team faceoff wins / attempts over five strictly-prior games (away side of faceoff_win_diff)",
+   "source": "official NHL API right-rail teamGameStats (faceoffWins)",
    "lookback": 5
   },
   "back_to_back_home": {
@@ -1326,7 +1326,7 @@
    "lookback": 1
   },
   "goalie_sv_pct_home": {
-   "tooltip": "What: Home team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the home team\u2019s expected starting goalie (home side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the home team\u2019s expected starting goalie (home side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's expected-starter rolling save percentage",
    "description": "Home team's expected-starter rolling save percentage",
    "definition": "season-to-date (rolling-30-start EWM) save percentage of the home team's expected starting goalie (home side of goalie_sv_pct_diff)",
@@ -1334,7 +1334,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_sv_pct_away": {
-   "tooltip": "What: Away team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the away team\u2019s expected starting goalie (away side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s expected-starter rolling save percentage\nDefinition: season-to-date (rolling-30-start EWM) save percentage of the away team\u2019s expected starting goalie (away side of goalie_sv_pct_diff)\nSource: official NHL API boxscores (goalie TOI + decision + shots faced)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start save fraction\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when the team has no goalie with a prior start this season; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's expected-starter rolling save percentage",
    "description": "Away team's expected-starter rolling save percentage",
    "definition": "season-to-date (rolling-30-start EWM) save percentage of the away team's expected starting goalie (away side of goalie_sv_pct_diff)",
@@ -1342,7 +1342,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_gaa_home": {
-   "tooltip": "What: Home team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the home team\u2019s expected starting goalie (home side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the home team\u2019s expected starting goalie (home side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's expected-starter rolling goals-against average",
    "description": "Home team's expected-starter rolling goals-against average",
    "definition": "season-to-date (rolling-30-start EWM) GAA of the home team's expected starting goalie (home side of goalie_gaa_diff)",
@@ -1350,7 +1350,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_gaa_away": {
-   "tooltip": "What: Away team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the away team\u2019s expected starting goalie (away side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s expected-starter rolling goals-against average\nDefinition: season-to-date (rolling-30-start EWM) GAA of the away team\u2019s expected starting goalie (away side of goalie_gaa_diff)\nSource: official NHL API boxscores (goalie goals against + TOI)\nWindow: decaying (halflife=3 starts) over the season\u2019s starts \u00b7 Built as: per-goalie EWM of the per-start goals-against rate (per 60 min)\nPoint-in-time rule: each goalie\u2019s strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's expected-starter rolling goals-against average",
    "description": "Away team's expected-starter rolling goals-against average",
    "definition": "season-to-date (rolling-30-start EWM) GAA of the away team's expected starting goalie (away side of goalie_gaa_diff)",
@@ -1358,7 +1358,7 @@
    "lookback": "decaying (halflife=3 starts) over the season's starts"
   },
   "goalie_starts_home": {
-   "tooltip": "What: Home team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the home team\u2019s expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Home team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the home team\u2019s expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Home team's expected-starter season starts",
    "description": "Home team's expected-starter season starts",
    "definition": "season-to-date starts of the home team's expected starting goalie (home side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
@@ -1366,7 +1366,7 @@
    "lookback": "season to date"
   },
   "goalie_starts_away": {
-   "tooltip": "What: Away team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the away team\u2019s expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
+   "tooltip": "What: Away team\u2019s expected-starter season starts\nDefinition: season-to-date starts of the away team\u2019s expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair\nSource: official NHL API boxscores (goalie appearances)\nWindow: season to date \u00b7 Built as: per-goalie start count\nPoint-in-time rule: strictly-prior starts only; starter vote uses team/season workload, prior observed team changes and fresh roster captures strictly before exact puck drop; quality uses only earlier game dates\nMissing values: NaN when no goalie has a prior start; never fabricated\nAvailable to: [\u2019tree\u2019]",
    "summary": "Away team's expected-starter season starts",
    "description": "Away team's expected-starter season starts",
    "definition": "season-to-date starts of the away team's expected starting goalie (away side of goalie_starts_diff) -- a workload/experience proxy for the SV%/GAA pair",
@@ -1700,10 +1700,10 @@
    "feature": "goalie_sv_pct_diff",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 229,
+   "pct_nonnull": 91.6,
+   "n_measured": 229,
+   "pct_measured": 91.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -1711,10 +1711,10 @@
    "feature": "goalie_gaa_diff",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 229,
+   "pct_nonnull": 91.6,
+   "n_measured": 229,
+   "pct_measured": 91.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -1722,10 +1722,10 @@
    "feature": "goalie_starts_diff",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 229,
+   "pct_nonnull": 91.6,
+   "n_measured": 229,
+   "pct_measured": 91.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -1986,10 +1986,10 @@
    "feature": "goalie_sv_pct_home",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -1997,10 +1997,10 @@
    "feature": "goalie_sv_pct_away",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -2008,10 +2008,10 @@
    "feature": "goalie_gaa_home",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -2019,10 +2019,10 @@
    "feature": "goalie_gaa_away",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -2030,10 +2030,10 @@
    "feature": "goalie_starts_home",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -2041,10 +2041,10 @@
    "feature": "goalie_starts_away",
    "window": "baseline",
    "n_games": 250,
-   "n_nonnull": 250,
-   "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
+   "n_nonnull": 234,
+   "pct_nonnull": 93.6,
+   "n_measured": 234,
+   "pct_measured": 93.6,
    "n_default_zero": 0,
    "status": "OK"
   },
@@ -2065,9 +2065,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2076,9 +2076,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2087,9 +2087,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2098,9 +2098,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2109,9 +2109,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2120,9 +2120,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2131,9 +2131,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2142,9 +2142,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2153,9 +2153,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2164,9 +2164,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2175,9 +2175,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2186,9 +2186,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2197,9 +2197,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2208,9 +2208,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2219,9 +2219,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2230,9 +2230,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 235,
+   "pct_measured": 94.0,
+   "n_default_zero": 15,
    "status": "OK"
   },
   {
@@ -2241,9 +2241,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 237,
+   "pct_measured": 94.8,
+   "n_default_zero": 13,
    "status": "OK"
   },
   {
@@ -2252,9 +2252,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 228,
+   "pct_measured": 91.2,
+   "n_default_zero": 22,
    "status": "OK"
   },
   {
@@ -2263,9 +2263,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 237,
+   "pct_measured": 94.8,
+   "n_default_zero": 13,
    "status": "OK"
   },
   {
@@ -2274,9 +2274,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 238,
+   "pct_measured": 95.2,
+   "n_default_zero": 12,
    "status": "OK"
   },
   {
@@ -2285,9 +2285,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 232,
+   "pct_measured": 92.8,
+   "n_default_zero": 18,
    "status": "OK"
   },
   {
@@ -2296,9 +2296,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2307,9 +2307,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -2318,9 +2318,9 @@
    "n_games": 250,
    "n_nonnull": 250,
    "pct_nonnull": 100.0,
-   "n_measured": 250,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 244,
+   "pct_measured": 97.6,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -3011,9 +3011,9 @@
    "n_games": 60,
    "n_nonnull": 60,
    "pct_nonnull": 100.0,
-   "n_measured": 60,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 54,
+   "pct_measured": 90.0,
+   "n_default_zero": 6,
    "status": "OK"
   },
   {
@@ -3022,9 +3022,9 @@
    "n_games": 60,
    "n_nonnull": 60,
    "pct_nonnull": 100.0,
-   "n_measured": 60,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 55,
+   "pct_measured": 91.67,
+   "n_default_zero": 5,
    "status": "OK"
   },
   {
@@ -3033,9 +3033,9 @@
    "n_games": 60,
    "n_nonnull": 60,
    "pct_nonnull": 100.0,
-   "n_measured": 60,
-   "pct_measured": 100.0,
-   "n_default_zero": 0,
+   "n_measured": 49,
+   "pct_measured": 81.67,
+   "n_default_zero": 11,
    "status": "OK"
   },
   {
@@ -3823,2075 +3823,2135 @@
  "ensemble": [
   {
    "name": "xgboost",
-   "weight": 0.34,
-   "auc": 0.5932975743488885,
-   "brier": 0.24175746948297686,
-   "logloss": 0.6763852592129433,
-   "n_eval": 2600
+   "weight": 0.3292,
+   "auc": 0.5931438280127805,
+   "brier": 0.24141213126530375,
+   "logloss": 0.6756336937421029,
+   "n_eval": 2465
   },
   {
    "name": "lightgbm",
-   "weight": 0.4079,
-   "auc": 0.5916186900292032,
-   "brier": 0.24185480014811486,
-   "logloss": 0.6765741031773745,
-   "n_eval": 2600
+   "weight": 0.228,
+   "auc": 0.5931451543378123,
+   "brier": 0.2417346527878538,
+   "logloss": 0.6763228150694043,
+   "n_eval": 2465
   },
   {
    "name": "elasticnet",
-   "weight": 0.2521,
-   "auc": 0.5897341915489599,
-   "brier": 0.24226382298894028,
-   "logloss": 0.6787609970571514,
-   "n_eval": 2600
+   "weight": 0.4428,
+   "auc": 0.5912776886929465,
+   "brier": 0.2416295029142674,
+   "logloss": 0.6761365454647419,
+   "n_eval": 2465
   }
  ],
  "rolling_brier": [
   {
    "date": "2024-11-05",
-   "brier": 0.2290390589053518,
+   "brier": 0.22715239476467872,
    "games": 11
   },
   {
    "date": "2024-11-06",
-   "brier": 0.2692260696682525,
+   "brier": 0.2655045430619018,
    "games": 3
   },
   {
    "date": "2024-11-07",
-   "brier": 0.2514363164375645,
+   "brier": 0.24766497837178622,
    "games": 12
   },
   {
    "date": "2024-11-08",
-   "brier": 0.24675828722305448,
+   "brier": 0.2401440728475575,
    "games": 4
   },
   {
    "date": "2024-11-09",
-   "brier": 0.23732389918860253,
+   "brier": 0.23652301496433373,
    "games": 12
   },
   {
    "date": "2024-11-10",
-   "brier": 0.25657666912475546,
+   "brier": 0.25826164217917674,
    "games": 3
   },
   {
    "date": "2024-11-11",
-   "brier": 0.24481446234288637,
+   "brier": 0.24167460012430164,
    "games": 6
   },
   {
    "date": "2024-11-12",
-   "brier": 0.28383957776234425,
+   "brier": 0.27452609170249376,
    "games": 7
   },
   {
    "date": "2024-11-13",
-   "brier": 0.2547005879559897,
+   "brier": 0.2516743874147419,
    "games": 5
   },
   {
    "date": "2024-11-14",
-   "brier": 0.20548688757919004,
+   "brier": 0.20071252043800386,
    "games": 10
   },
   {
    "date": "2024-11-15",
-   "brier": 0.255034586695605,
+   "brier": 0.2633036204058002,
    "games": 5
   },
   {
    "date": "2024-11-16",
-   "brier": 0.20890895118665642,
+   "brier": 0.20306783364826222,
    "games": 12
   },
   {
    "date": "2024-11-17",
-   "brier": 0.21197804538385356,
+   "brier": 0.18833514086707293,
    "games": 4
   },
   {
    "date": "2024-11-18",
-   "brier": 0.2940630410341085,
+   "brier": 0.30118772231953433,
    "games": 6
   },
   {
    "date": "2024-11-19",
-   "brier": 0.24623230458148163,
+   "brier": 0.2584254404615844,
    "games": 7
   },
   {
    "date": "2024-11-20",
-   "brier": 0.2434209185287625,
+   "brier": 0.2142805706350634,
    "games": 5
   },
   {
    "date": "2024-11-21",
-   "brier": 0.2748132053314578,
+   "brier": 0.2739976770779757,
    "games": 10
   },
   {
    "date": "2024-11-22",
-   "brier": 0.27156646466533424,
+   "brier": 0.2928036541521194,
    "games": 2
   },
   {
    "date": "2024-11-23",
-   "brier": 0.24000692443305865,
+   "brier": 0.2500401576966221,
    "games": 15
   },
   {
    "date": "2024-11-24",
-   "brier": 0.17510654051532126,
+   "brier": 0.13328022214384888,
    "games": 1
   },
   {
    "date": "2024-11-25",
-   "brier": 0.26758336655938214,
+   "brier": 0.26086769938671356,
    "games": 11
   },
   {
    "date": "2024-11-26",
-   "brier": 0.19808194772835758,
+   "brier": 0.1843774348472421,
    "games": 2
   },
   {
    "date": "2024-11-27",
-   "brier": 0.2641670347481201,
+   "brier": 0.2560292178519952,
    "games": 15
   },
   {
    "date": "2024-11-29",
-   "brier": 0.22871490023038896,
+   "brier": 0.23181762322479385,
    "games": 14
   },
   {
    "date": "2024-11-30",
-   "brier": 0.2409873145284616,
+   "brier": 0.2408522078918145,
    "games": 12
   },
   {
    "date": "2024-12-01",
-   "brier": 0.25266982738882127,
+   "brier": 0.2485786145573651,
    "games": 5
   },
   {
    "date": "2024-12-02",
-   "brier": 0.21804354399570577,
+   "brier": 0.2141175320764027,
    "games": 3
   },
   {
    "date": "2024-12-03",
-   "brier": 0.2585739164013125,
+   "brier": 0.24036549041370092,
    "games": 10
   },
   {
    "date": "2024-12-04",
-   "brier": 0.20597378003897196,
+   "brier": 0.20357991922197993,
    "games": 4
   },
   {
    "date": "2024-12-05",
-   "brier": 0.2396287913802995,
+   "brier": 0.2198400378259034,
    "games": 9
   },
   {
    "date": "2024-12-06",
-   "brier": 0.22883496720533847,
+   "brier": 0.23094367824302084,
    "games": 6
   },
   {
    "date": "2024-12-07",
-   "brier": 0.2096799118242189,
+   "brier": 0.20540401559588312,
    "games": 11
   },
   {
    "date": "2024-12-08",
-   "brier": 0.2295856870609934,
+   "brier": 0.22840225527017993,
    "games": 7
   },
   {
    "date": "2024-12-09",
-   "brier": 0.34798711408149224,
+   "brier": 0.373153062555527,
    "games": 3
   },
   {
    "date": "2024-12-10",
-   "brier": 0.2645675117714226,
+   "brier": 0.2512728400866036,
    "games": 11
   },
   {
    "date": "2024-12-11",
-   "brier": 0.20765616399215242,
+   "brier": 0.2301591131066528,
    "games": 2
   },
   {
    "date": "2024-12-12",
-   "brier": 0.24593587371755316,
+   "brier": 0.24260106242100082,
    "games": 14
   },
   {
    "date": "2024-12-13",
-   "brier": 0.45472649692061473,
+   "brier": 0.5032524945745903,
    "games": 1
   },
   {
    "date": "2024-12-14",
-   "brier": 0.22774375887971357,
+   "brier": 0.22610372509066864,
    "games": 15
   },
   {
    "date": "2024-12-15",
-   "brier": 0.23173492370932705,
+   "brier": 0.2137187502600081,
    "games": 5
   },
   {
    "date": "2024-12-16",
-   "brier": 0.24406783182444872,
+   "brier": 0.24878596526484398,
    "games": 3
   },
   {
    "date": "2024-12-17",
-   "brier": 0.22388237032618302,
+   "brier": 0.2052564080863258,
    "games": 10
   },
   {
    "date": "2024-12-18",
-   "brier": 0.26277668146674543,
+   "brier": 0.2465626984002191,
    "games": 5
   },
   {
    "date": "2024-12-19",
-   "brier": 0.23432320458955466,
+   "brier": 0.21068970258662276,
    "games": 9
   },
   {
    "date": "2024-12-20",
-   "brier": 0.2561196578595661,
+   "brier": 0.23216484288710607,
    "games": 7
   },
   {
    "date": "2024-12-21",
-   "brier": 0.1950095529758918,
+   "brier": 0.20545977041405097,
    "games": 11
   },
   {
    "date": "2024-12-22",
-   "brier": 0.22355161701424472,
+   "brier": 0.23941039338102746,
    "games": 6
   },
   {
    "date": "2024-12-23",
-   "brier": 0.2735280036905682,
+   "brier": 0.2579264518608865,
    "games": 13
   },
   {
    "date": "2024-12-27",
-   "brier": 0.2867106290024578,
+   "brier": 0.29606832842544073,
    "games": 8
   },
   {
    "date": "2024-12-28",
-   "brier": 0.2323167745730827,
+   "brier": 0.22558201849747805,
    "games": 11
   },
   {
    "date": "2024-12-29",
-   "brier": 0.22482796098606483,
+   "brier": 0.22128322834809852,
    "games": 9
   },
   {
    "date": "2024-12-30",
-   "brier": 0.22480791501258834,
+   "brier": 0.2183384284116109,
    "games": 3
   },
   {
    "date": "2024-12-31",
-   "brier": 0.22603555155584637,
+   "brier": 0.23267350381368648,
    "games": 13
   },
   {
    "date": "2025-01-01",
-   "brier": 0.26984658421908897,
+   "brier": 0.26723238413809725,
    "games": 1
   },
   {
    "date": "2025-01-02",
-   "brier": 0.23491361899468907,
+   "brier": 0.24026549325031898,
    "games": 12
   },
   {
    "date": "2025-01-03",
-   "brier": 0.2165112370445704,
+   "brier": 0.23968713107649933,
    "games": 5
   },
   {
    "date": "2025-01-04",
-   "brier": 0.25646579600541813,
+   "brier": 0.24388794269836356,
    "games": 12
   },
   {
    "date": "2025-01-05",
-   "brier": 0.17876159868986133,
+   "brier": 0.20149239593953486,
    "games": 5
   },
   {
    "date": "2025-01-06",
-   "brier": 0.22081648623297248,
+   "brier": 0.24737387391618082,
    "games": 4
   },
   {
    "date": "2025-01-07",
-   "brier": 0.2607102138559135,
+   "brier": 0.2549356069371159,
    "games": 10
   },
   {
    "date": "2025-01-08",
-   "brier": 0.20286480317182543,
+   "brier": 0.23345533925077225,
    "games": 3
   },
   {
    "date": "2025-01-09",
-   "brier": 0.2621129185580237,
+   "brier": 0.256258032150705,
    "games": 10
   },
   {
    "date": "2025-01-10",
-   "brier": 0.16672148594803352,
+   "brier": 0.1743322556488744,
    "games": 5
   },
   {
    "date": "2025-01-11",
-   "brier": 0.270890433063632,
+   "brier": 0.26690083788803187,
    "games": 15
   },
   {
    "date": "2025-01-12",
-   "brier": 0.22882110368738928,
+   "brier": 0.23877173925046832,
    "games": 5
   },
   {
    "date": "2025-01-13",
-   "brier": 0.24251140624929202,
+   "brier": 0.2311534146830283,
    "games": 3
   },
   {
    "date": "2025-01-14",
-   "brier": 0.28000926322750597,
+   "brier": 0.24876122814337437,
    "games": 13
   },
   {
    "date": "2025-01-15",
-   "brier": 0.25251201998430167,
+   "brier": 0.2526410823882359,
    "games": 2
   },
   {
    "date": "2025-01-16",
-   "brier": 0.216772344500636,
+   "brier": 0.22408539018242749,
    "games": 13
   },
   {
    "date": "2025-01-17",
-   "brier": 0.3080834475452249,
+   "brier": 0.27110260613690684,
    "games": 2
   },
   {
    "date": "2025-01-18",
-   "brier": 0.21732025016008988,
+   "brier": 0.2267174219769266,
    "games": 15
   },
   {
    "date": "2025-01-19",
-   "brier": 0.26774559158524197,
+   "brier": 0.27431052584561044,
    "games": 3
   },
   {
    "date": "2025-01-20",
-   "brier": 0.29142601907704385,
+   "brier": 0.29081709386463195,
    "games": 9
   },
   {
    "date": "2025-01-21",
-   "brier": 0.2235253201811519,
+   "brier": 0.23049163369127745,
    "games": 8
   },
   {
    "date": "2025-01-22",
-   "brier": 0.22258747069197543,
+   "brier": 0.23320976550337758,
    "games": 4
   },
   {
    "date": "2025-01-23",
-   "brier": 0.18483011924235918,
+   "brier": 0.19524366787049968,
    "games": 11
   },
   {
    "date": "2025-01-24",
-   "brier": 0.24752656619716074,
+   "brier": 0.2354201381365082,
    "games": 4
   },
   {
    "date": "2025-01-25",
-   "brier": 0.23201560409132307,
+   "brier": 0.23134079696056917,
    "games": 13
   },
   {
    "date": "2025-01-26",
-   "brier": 0.23723139982865243,
+   "brier": 0.2293706122859378,
    "games": 5
   },
   {
    "date": "2025-01-27",
-   "brier": 0.20834770530608257,
+   "brier": 0.2412349749123644,
    "games": 5
   },
   {
    "date": "2025-01-28",
-   "brier": 0.28636875259402916,
+   "brier": 0.2757563501775909,
    "games": 8
   },
   {
    "date": "2025-01-29",
-   "brier": 0.31259139907526,
+   "brier": 0.2863302851879916,
    "games": 5
   },
   {
    "date": "2025-01-30",
-   "brier": 0.2722478536927231,
+   "brier": 0.2575065227539245,
    "games": 10
   },
   {
    "date": "2025-01-31",
-   "brier": 0.27518057169193005,
+   "brier": 0.26679795602215184,
    "games": 4
   },
   {
    "date": "2025-02-01",
-   "brier": 0.2845356949911823,
+   "brier": 0.28512392099312767,
    "games": 9
   },
   {
    "date": "2025-02-02",
-   "brier": 0.21755910906830309,
+   "brier": 0.23491181645951423,
    "games": 9
   },
   {
    "date": "2025-02-03",
-   "brier": 0.3649110398768328,
+   "brier": 0.38913523052052434,
    "games": 1
   },
   {
    "date": "2025-02-04",
-   "brier": 0.21542471855619794,
+   "brier": 0.2232192441430537,
    "games": 14
   },
   {
    "date": "2025-02-05",
-   "brier": 0.1745235274305733,
+   "brier": 0.1782830166501185,
    "games": 3
   },
   {
    "date": "2025-02-06",
-   "brier": 0.22404393051106464,
+   "brier": 0.22943203651171393,
    "games": 9
   },
   {
    "date": "2025-02-07",
-   "brier": 0.2837187562099109,
+   "brier": 0.2656556828740956,
    "games": 5
   },
   {
    "date": "2025-02-08",
-   "brier": 0.2385177497395623,
+   "brier": 0.24273451223796524,
    "games": 14
   },
   {
    "date": "2025-02-09",
-   "brier": 0.25652147823834814,
+   "brier": 0.26902645008644316,
    "games": 2
   },
   {
    "date": "2025-02-22",
-   "brier": 0.2630085299544352,
+   "brier": 0.25753699469621955,
    "games": 14
   },
   {
    "date": "2025-02-23",
-   "brier": 0.22235479229985233,
+   "brier": 0.2261250993718646,
    "games": 10
   },
   {
    "date": "2025-02-24",
-   "brier": 0.1537008253885997,
+   "brier": 0.15552183083094645,
    "games": 2
   },
   {
    "date": "2025-02-25",
-   "brier": 0.22335385530232602,
+   "brier": 0.23223936577098825,
    "games": 12
   },
   {
    "date": "2025-02-26",
-   "brier": 0.26871688853003284,
+   "brier": 0.284231645728044,
    "games": 3
   },
   {
    "date": "2025-02-27",
-   "brier": 0.23013166931261245,
+   "brier": 0.22473468717960576,
    "games": 12
   },
   {
    "date": "2025-02-28",
-   "brier": 0.18595050667566967,
+   "brier": 0.17857664458423994,
    "games": 3
   },
   {
    "date": "2025-03-01",
-   "brier": 0.26885396680890744,
+   "brier": 0.2580338343488241,
    "games": 13
   },
   {
    "date": "2025-03-02",
-   "brier": 0.1447552275871277,
+   "brier": 0.16278483946103942,
    "games": 6
   },
   {
    "date": "2025-03-03",
-   "brier": 0.23733950913476717,
+   "brier": 0.24947250030732868,
    "games": 6
   },
   {
    "date": "2025-03-04",
-   "brier": 0.3092794456994511,
+   "brier": 0.2888592019409017,
    "games": 10
   },
   {
    "date": "2025-03-05",
-   "brier": 0.19444763023690687,
+   "brier": 0.21141279095298895,
    "games": 5
   },
   {
    "date": "2025-03-06",
-   "brier": 0.12988820242739052,
+   "brier": 0.1471933901689725,
    "games": 9
   },
   {
    "date": "2025-03-07",
-   "brier": 0.21725397018880477,
+   "brier": 0.22436671839769154,
    "games": 6
   },
   {
    "date": "2025-03-08",
-   "brier": 0.20733336851424297,
+   "brier": 0.22375182676980493,
    "games": 10
   },
   {
    "date": "2025-03-09",
-   "brier": 0.2844538873221665,
+   "brier": 0.27242002611714766,
    "games": 8
   },
   {
    "date": "2025-03-10",
-   "brier": 0.2356078817427037,
+   "brier": 0.2339161915308035,
    "games": 4
   },
   {
    "date": "2025-03-11",
-   "brier": 0.2136893290038193,
+   "brier": 0.2143089320827537,
    "games": 11
   },
   {
    "date": "2025-03-12",
-   "brier": 0.17460919919297752,
+   "brier": 0.20502398838777222,
    "games": 4
   },
   {
    "date": "2025-03-13",
-   "brier": 0.23114970392967812,
+   "brier": 0.24034298019946343,
    "games": 9
   },
   {
    "date": "2025-03-14",
-   "brier": 0.2175582249847663,
+   "brier": 0.20499909054336865,
    "games": 6
   },
   {
    "date": "2025-03-15",
-   "brier": 0.24961884586581268,
+   "brier": 0.24540131167500598,
    "games": 11
   },
   {
    "date": "2025-03-16",
-   "brier": 0.1981765808734912,
+   "brier": 0.19930588911071248,
    "games": 7
   },
   {
    "date": "2025-03-17",
-   "brier": 0.2033237924206857,
+   "brier": 0.1989316933579866,
    "games": 5
   },
   {
    "date": "2025-03-18",
-   "brier": 0.25286396614945406,
+   "brier": 0.2519891262778983,
    "games": 9
   },
   {
    "date": "2025-03-19",
-   "brier": 0.21822179342688075,
+   "brier": 0.24365207833843092,
    "games": 2
   },
   {
    "date": "2025-03-20",
-   "brier": 0.25763180342316677,
+   "brier": 0.2469946385802415,
    "games": 14
   },
   {
    "date": "2025-03-21",
-   "brier": 0.2045947982188322,
+   "brier": 0.24182667194692506,
    "games": 1
   },
   {
    "date": "2025-03-22",
-   "brier": 0.18802293962199454,
+   "brier": 0.1946918865287099,
    "games": 14
   },
   {
    "date": "2025-03-23",
-   "brier": 0.2231078457733158,
+   "brier": 0.203314783348615,
    "games": 7
   },
   {
    "date": "2025-03-24",
-   "brier": 0.1962386332315023,
+   "brier": 0.23300112099988796,
    "games": 4
   },
   {
    "date": "2025-03-25",
-   "brier": 0.19200621630850573,
+   "brier": 0.1962190010775957,
    "games": 10
   },
   {
    "date": "2025-03-26",
-   "brier": 0.24190450208754827,
+   "brier": 0.25457661825075856,
    "games": 4
   },
   {
    "date": "2025-03-27",
-   "brier": 0.2480034481424817,
+   "brier": 0.24190783840859598,
    "games": 10
   },
   {
    "date": "2025-03-28",
-   "brier": 0.13292392178178683,
+   "brier": 0.15545905787987108,
    "games": 6
   },
   {
    "date": "2025-03-29",
-   "brier": 0.21874621782439999,
+   "brier": 0.22786717088871364,
    "games": 11
   },
   {
    "date": "2025-03-30",
-   "brier": 0.2502890265620103,
+   "brier": 0.23590638433544459,
    "games": 8
   },
   {
    "date": "2025-03-31",
-   "brier": 0.2697483553627108,
+   "brier": 0.26814341033989375,
    "games": 4
   },
   {
    "date": "2025-04-01",
-   "brier": 0.22852653576197074,
+   "brier": 0.23460992434829694,
    "games": 10
   },
   {
    "date": "2025-04-02",
-   "brier": 0.229514380630553,
+   "brier": 0.235164010614246,
    "games": 5
   },
   {
    "date": "2025-04-03",
-   "brier": 0.20686222999108028,
+   "brier": 0.19669159530221048,
    "games": 9
   },
   {
    "date": "2025-04-04",
-   "brier": 0.14952300721066067,
+   "brier": 0.15154967697240931,
    "games": 3
   },
   {
    "date": "2025-04-05",
-   "brier": 0.22563963699490305,
+   "brier": 0.22766295045258142,
    "games": 13
   },
   {
    "date": "2025-04-06",
-   "brier": 0.26071590436033093,
+   "brier": 0.2345517194901469,
    "games": 8
   },
   {
    "date": "2025-04-07",
-   "brier": 0.3078565341813305,
+   "brier": 0.2849156098134974,
    "games": 5
   },
   {
    "date": "2025-04-08",
-   "brier": 0.22194123827613912,
+   "brier": 0.24203561637115856,
    "games": 10
   },
   {
    "date": "2025-04-09",
-   "brier": 0.24481907060806604,
+   "brier": 0.24817865714128434,
    "games": 5
   },
   {
    "date": "2025-04-10",
-   "brier": 0.23231485860077083,
+   "brier": 0.2267870002899329,
    "games": 10
   },
   {
    "date": "2025-04-11",
-   "brier": 0.24935413612298482,
+   "brier": 0.2500490634403942,
    "games": 5
   },
   {
    "date": "2025-04-12",
-   "brier": 0.16714929688263133,
+   "brier": 0.1839718708234937,
    "games": 11
   },
   {
    "date": "2025-04-13",
-   "brier": 0.3343082531944568,
+   "brier": 0.30604492800417904,
    "games": 9
   },
   {
    "date": "2025-04-14",
-   "brier": 0.3245159882822163,
+   "brier": 0.3096869421052025,
    "games": 6
   },
   {
    "date": "2025-04-15",
-   "brier": 0.28603572376624187,
+   "brier": 0.2739688917383326,
    "games": 10
   },
   {
    "date": "2025-04-16",
-   "brier": 0.21408489192430605,
+   "brier": 0.22222459345278778,
    "games": 6
   },
   {
    "date": "2025-04-17",
-   "brier": 0.25440420942609315,
+   "brier": 0.26154716339446177,
    "games": 7
   },
   {
    "date": "2025-04-19",
-   "brier": 0.2202204421138932,
+   "brier": 0.20433815881530898,
    "games": 2
   },
   {
    "date": "2025-04-20",
-   "brier": 0.15550032237101222,
+   "brier": 0.1684858859609121,
    "games": 3
   },
   {
    "date": "2025-04-21",
-   "brier": 0.1544505289486906,
+   "brier": 0.1686169019313438,
    "games": 4
   },
   {
    "date": "2025-04-22",
-   "brier": 0.28545218545084805,
+   "brier": 0.27993280860251035,
    "games": 4
   },
   {
    "date": "2025-04-23",
-   "brier": 0.1951885568450813,
+   "brier": 0.19385616109552684,
    "games": 3
   },
   {
    "date": "2025-04-24",
-   "brier": 0.3597139872738844,
+   "brier": 0.33482336069891205,
    "games": 4
   },
   {
    "date": "2025-04-25",
-   "brier": 0.24229876100443212,
+   "brier": 0.24656302927815957,
    "games": 3
   },
   {
    "date": "2025-04-26",
-   "brier": 0.29737226445224957,
+   "brier": 0.2709447772370145,
    "games": 4
   },
   {
    "date": "2025-04-27",
-   "brier": 0.207769180119391,
+   "brier": 0.22462063852399444,
    "games": 4
   },
   {
    "date": "2025-04-28",
-   "brier": 0.1399897367267811,
+   "brier": 0.1672872468554137,
    "games": 2
   },
   {
    "date": "2025-04-29",
-   "brier": 0.25560194354181653,
+   "brier": 0.24408356629365735,
    "games": 4
   },
   {
    "date": "2025-04-30",
-   "brier": 0.19814862914405593,
+   "brier": 0.2008870763660743,
    "games": 3
   },
   {
    "date": "2025-05-01",
-   "brier": 0.22640572869391715,
+   "brier": 0.22237819416551627,
    "games": 4
   },
   {
    "date": "2025-05-02",
-   "brier": 0.17057178084120847,
+   "brier": 0.1907869877567318,
    "games": 1
   },
   {
    "date": "2025-05-03",
-   "brier": 0.187193919766938,
+   "brier": 0.2096398668607741,
    "games": 1
   },
   {
    "date": "2025-05-04",
-   "brier": 0.07023006542605931,
+   "brier": 0.07748029713266483,
    "games": 1
   },
   {
    "date": "2025-05-05",
-   "brier": 0.14810196641521436,
+   "brier": 0.15679290216480815,
    "games": 1
   },
   {
    "date": "2025-05-06",
-   "brier": 0.3806119621238797,
+   "brier": 0.37767780359499037,
    "games": 2
   },
   {
    "date": "2025-05-07",
-   "brier": 0.3046749592318379,
+   "brier": 0.2908452086516041,
    "games": 2
   },
   {
    "date": "2025-05-08",
-   "brier": 0.2476861936456946,
+   "brier": 0.272774158429091,
    "games": 2
   },
   {
    "date": "2025-05-09",
-   "brier": 0.11171479122572078,
+   "brier": 0.13870886754826528,
    "games": 2
   },
   {
    "date": "2025-05-10",
-   "brier": 0.20703859514490183,
+   "brier": 0.19238046452226648,
    "games": 2
   },
   {
    "date": "2025-05-11",
-   "brier": 0.1788885941207045,
+   "brier": 0.20840317867772867,
    "games": 2
   },
   {
    "date": "2025-05-12",
-   "brier": 0.1287096355292948,
+   "brier": 0.14260219437576113,
    "games": 2
   },
   {
    "date": "2025-05-13",
-   "brier": 0.2259920118913336,
+   "brier": 0.23264848330555551,
    "games": 1
   },
   {
    "date": "2025-05-14",
-   "brier": 0.33416538652745775,
+   "brier": 0.34120515965081094,
    "games": 2
   },
   {
    "date": "2025-05-15",
-   "brier": 0.2370190461232457,
+   "brier": 0.23828479385558338,
    "games": 2
   },
   {
    "date": "2025-05-16",
-   "brier": 0.46599924077561117,
+   "brier": 0.3754064790981647,
    "games": 1
   },
   {
    "date": "2025-05-17",
-   "brier": 0.17506843189218896,
+   "brier": 0.18531538158066457,
    "games": 1
   },
   {
    "date": "2025-05-18",
-   "brier": 0.27826500169441243,
+   "brier": 0.2997859181014595,
    "games": 1
   },
   {
    "date": "2025-05-20",
-   "brier": 0.4992016490366084,
+   "brier": 0.45716426393692555,
    "games": 1
   },
   {
    "date": "2025-05-21",
-   "brier": 0.16610877854929912,
+   "brier": 0.1813990530757468,
    "games": 1
   },
   {
    "date": "2025-05-22",
-   "brier": 0.47552516143688345,
+   "brier": 0.4574598133402387,
    "games": 1
   },
   {
    "date": "2025-05-23",
-   "brier": 0.35388746360020196,
+   "brier": 0.33284648633021857,
    "games": 1
   },
   {
    "date": "2025-05-24",
-   "brier": 0.11387449113710808,
+   "brier": 0.1258324891681242,
    "games": 1
   },
   {
    "date": "2025-05-25",
-   "brier": 0.15534311089143338,
+   "brier": 0.16161188465850432,
    "games": 1
   },
   {
    "date": "2025-05-26",
-   "brier": 0.4858831153302328,
+   "brier": 0.4495890574564758,
    "games": 1
   },
   {
    "date": "2025-05-27",
-   "brier": 0.16866565309225395,
+   "brier": 0.18414237711894715,
    "games": 1
   },
   {
    "date": "2025-05-28",
-   "brier": 0.44811555773483425,
+   "brier": 0.42888092336709954,
    "games": 1
   },
   {
    "date": "2025-05-29",
-   "brier": 0.420982535051122,
+   "brier": 0.398853774746945,
    "games": 1
   },
   {
    "date": "2025-06-04",
-   "brier": 0.188862346217344,
+   "brier": 0.24208489724989343,
    "games": 1
   },
   {
    "date": "2025-06-06",
-   "brier": 0.3402777442698562,
+   "brier": 0.27626382506940456,
    "games": 1
   },
   {
    "date": "2025-06-09",
-   "brier": 0.32892165530798856,
+   "brier": 0.3060043769359262,
    "games": 1
   },
   {
    "date": "2025-06-12",
-   "brier": 0.1754379860171978,
+   "brier": 0.19552489781370852,
    "games": 1
   },
   {
    "date": "2025-06-14",
-   "brier": 0.3047548486984691,
+   "brier": 0.24497645303390259,
    "games": 1
   },
   {
    "date": "2025-06-17",
-   "brier": 0.31425442412020543,
+   "brier": 0.2875623863535125,
    "games": 1
   },
   {
    "date": "2025-10-07",
-   "brier": 0.19984944141406347,
+   "brier": 0.17810092722411272,
    "games": 3
   },
   {
    "date": "2025-10-08",
-   "brier": 0.34406791451629704,
+   "brier": 0.3192223244367475,
    "games": 4
   },
   {
    "date": "2025-10-09",
-   "brier": 0.23843063519598334,
+   "brier": 0.24036235031947337,
    "games": 14
   },
   {
    "date": "2025-10-11",
-   "brier": 0.21515432804131518,
+   "brier": 0.2211305776616821,
    "games": 16
   },
   {
    "date": "2025-10-12",
-   "brier": 0.23182477986854425,
+   "brier": 0.23550590756388956,
    "games": 1
   },
   {
    "date": "2025-10-13",
-   "brier": 0.31210306333587057,
+   "brier": 0.2968309692793893,
    "games": 10
   },
   {
    "date": "2025-10-14",
-   "brier": 0.1770978350516713,
+   "brier": 0.1887329353020742,
    "games": 8
   },
   {
    "date": "2025-10-15",
-   "brier": 0.28458609309295574,
+   "brier": 0.2968300099248019,
    "games": 4
   },
   {
    "date": "2025-10-16",
-   "brier": 0.24411427486907913,
+   "brier": 0.2469797444472806,
    "games": 11
   },
   {
    "date": "2025-10-17",
-   "brier": 0.14933749365831817,
+   "brier": 0.1563079808123062,
    "games": 4
   },
   {
    "date": "2025-10-18",
-   "brier": 0.2432717642828822,
+   "brier": 0.248027142426708,
    "games": 13
   },
   {
    "date": "2025-10-19",
-   "brier": 0.27067703862664105,
+   "brier": 0.25804665468170884,
    "games": 4
   },
   {
    "date": "2025-10-20",
-   "brier": 0.17616525375178352,
+   "brier": 0.19219400325953268,
    "games": 5
   },
   {
    "date": "2025-10-21",
-   "brier": 0.2568312897570816,
+   "brier": 0.25490196821650135,
    "games": 10
   },
   {
    "date": "2025-10-22",
-   "brier": 0.22208122992242862,
+   "brier": 0.2484333140638065,
    "games": 3
   },
   {
    "date": "2025-10-23",
-   "brier": 0.327977622405412,
+   "brier": 0.3105724604395184,
    "games": 12
   },
   {
    "date": "2025-10-24",
-   "brier": 0.1678432895823914,
+   "brier": 0.1874372003224681,
    "games": 4
   },
   {
    "date": "2025-10-25",
-   "brier": 0.23501650450935505,
+   "brier": 0.24185513912320153,
    "games": 13
   },
   {
    "date": "2025-10-26",
-   "brier": 0.2675769369702822,
+   "brier": 0.28081862884159947,
    "games": 8
   },
   {
    "date": "2025-10-27",
-   "brier": 0.1400368138981587,
+   "brier": 0.14930291138311916,
    "games": 2
   },
   {
    "date": "2025-10-28",
-   "brier": 0.24910252208020897,
+   "brier": 0.2415686180841528,
    "games": 16
   },
   {
    "date": "2025-10-29",
-   "brier": 0.1788103421144132,
+   "brier": 0.2351976004348922,
    "games": 1
   },
   {
    "date": "2025-10-30",
-   "brier": 0.22612207017810598,
+   "brier": 0.22734367619227916,
    "games": 11
   },
   {
    "date": "2025-10-31",
-   "brier": 0.35339890380170863,
+   "brier": 0.3335082926283041,
    "games": 3
   },
   {
    "date": "2025-11-01",
-   "brier": 0.1973211877164766,
+   "brier": 0.20774274152140443,
    "games": 13
   },
   {
    "date": "2025-11-02",
-   "brier": 0.2763068108865602,
+   "brier": 0.2458783686287266,
    "games": 5
   },
   {
    "date": "2025-11-03",
-   "brier": 0.1950415238331185,
+   "brier": 0.2133175456327587,
    "games": 4
   },
   {
    "date": "2025-11-04",
-   "brier": 0.25654849000644914,
+   "brier": 0.25498749212192956,
    "games": 10
   },
   {
    "date": "2025-11-05",
-   "brier": 0.2710702614484771,
+   "brier": 0.25334834799781314,
    "games": 5
   },
   {
    "date": "2025-11-06",
-   "brier": 0.25201347898682364,
+   "brier": 0.2573616441949496,
    "games": 9
   },
   {
    "date": "2025-11-07",
-   "brier": 0.35331527927356443,
+   "brier": 0.32289271140366005,
    "games": 4
   },
   {
    "date": "2025-11-08",
-   "brier": 0.29388174325090977,
+   "brier": 0.29629059253915613,
    "games": 13
   },
   {
    "date": "2025-11-09",
-   "brier": 0.26494026272323895,
+   "brier": 0.2577794717925921,
    "games": 8
   },
   {
    "date": "2025-11-10",
-   "brier": 0.2198380544419121,
+   "brier": 0.21630517613390857,
    "games": 4
   },
   {
    "date": "2025-11-11",
-   "brier": 0.30562309710942914,
+   "brier": 0.2904899358757594,
    "games": 9
   },
   {
    "date": "2025-11-12",
-   "brier": 0.22803914864139047,
+   "brier": 0.21833244344403832,
    "games": 4
   },
   {
    "date": "2025-11-13",
-   "brier": 0.20894696647601255,
+   "brier": 0.20657621207681132,
    "games": 10
   },
   {
    "date": "2025-11-14",
-   "brier": 0.2610655479363748,
+   "brier": 0.2716696741436729,
    "games": 4
   },
   {
    "date": "2025-11-15",
-   "brier": 0.2922047274843399,
+   "brier": 0.2862699253328541,
    "games": 13
   },
   {
    "date": "2025-11-16",
-   "brier": 0.20149346711080063,
+   "brier": 0.20274304045121916,
    "games": 5
   },
   {
    "date": "2025-11-17",
-   "brier": 0.19618534763502296,
+   "brier": 0.1984541422573137,
    "games": 6
   },
   {
    "date": "2025-11-18",
-   "brier": 0.228334757630389,
+   "brier": 0.23302486604423983,
    "games": 8
   },
   {
    "date": "2025-11-19",
-   "brier": 0.2291028418672268,
+   "brier": 0.22907926910974946,
    "games": 4
   },
   {
    "date": "2025-11-20",
-   "brier": 0.2567162595726115,
+   "brier": 0.25317740932646043,
    "games": 12
   },
   {
    "date": "2025-11-21",
-   "brier": 0.27275477577292595,
+   "brier": 0.2656917251596489,
    "games": 4
   },
   {
    "date": "2025-11-22",
-   "brier": 0.261042139218623,
+   "brier": 0.2575139750745459,
    "games": 12
   },
   {
    "date": "2025-11-23",
-   "brier": 0.2441315032808288,
+   "brier": 0.26006547558867343,
    "games": 6
   },
   {
    "date": "2025-11-24",
-   "brier": 0.19300040954457173,
+   "brier": 0.20261082577317072,
    "games": 7
   },
   {
    "date": "2025-11-25",
-   "brier": 0.2763105130582907,
+   "brier": 0.27552038001562656,
    "games": 1
   },
   {
    "date": "2025-11-26",
-   "brier": 0.27144929427421877,
+   "brier": 0.2719263792033812,
    "games": 15
   },
   {
    "date": "2025-11-28",
-   "brier": 0.2798746410013802,
+   "brier": 0.28133781799832575,
    "games": 15
   },
   {
    "date": "2025-11-29",
-   "brier": 0.245837377652838,
+   "brier": 0.2433984989982844,
    "games": 11
   },
   {
    "date": "2025-11-30",
-   "brier": 0.19028602524213456,
+   "brier": 0.18829964734963722,
    "games": 4
   },
   {
    "date": "2025-12-01",
-   "brier": 0.27288434013416485,
+   "brier": 0.2754715317498169,
    "games": 5
   },
   {
    "date": "2025-12-02",
-   "brier": 0.22007436418485232,
+   "brier": 0.22139228804876465,
    "games": 10
   },
   {
    "date": "2025-12-03",
-   "brier": 0.24278394413327015,
+   "brier": 0.26250822265620954,
    "games": 5
   },
   {
    "date": "2025-12-04",
-   "brier": 0.3061726396243456,
+   "brier": 0.3045381468324028,
    "games": 10
   },
   {
    "date": "2025-12-05",
-   "brier": 0.17994075331462359,
+   "brier": 0.17893188866600235,
    "games": 5
   },
   {
    "date": "2025-12-06",
-   "brier": 0.24076572341240568,
+   "brier": 0.23410971699101635,
    "games": 12
   },
   {
    "date": "2025-12-07",
-   "brier": 0.22479569572837987,
+   "brier": 0.22253637838625345,
    "games": 8
   },
   {
    "date": "2025-12-08",
-   "brier": 0.2576037807441858,
+   "brier": 0.2560538301201648,
    "games": 5
   },
   {
    "date": "2025-12-09",
-   "brier": 0.26050249186176655,
+   "brier": 0.263690140893753,
    "games": 10
   },
   {
    "date": "2025-12-10",
-   "brier": 0.2456271386400689,
+   "brier": 0.2811856842337349,
    "games": 4
   },
   {
    "date": "2025-12-11",
-   "brier": 0.2678815641126887,
+   "brier": 0.2581536917715491,
    "games": 13
   },
   {
    "date": "2025-12-12",
-   "brier": 0.20723598892988926,
+   "brier": 0.20876280744402498,
    "games": 2
   },
   {
    "date": "2025-12-13",
-   "brier": 0.25105649597761015,
+   "brier": 0.2416952410145185,
    "games": 13
   },
   {
    "date": "2025-12-14",
-   "brier": 0.22148429178902931,
+   "brier": 0.2201592257988121,
    "games": 6
   },
   {
    "date": "2025-12-15",
-   "brier": 0.2639822314579344,
+   "brier": 0.26352324651347275,
    "games": 5
   },
   {
    "date": "2025-12-16",
-   "brier": 0.22368965858349124,
+   "brier": 0.21751816937137888,
    "games": 10
   },
   {
    "date": "2025-12-17",
-   "brier": 0.23613574009273292,
+   "brier": 0.233588389583019,
    "games": 5
   },
   {
    "date": "2025-12-18",
-   "brier": 0.23379988237119678,
+   "brier": 0.22994113363718607,
    "games": 10
   },
   {
    "date": "2025-12-19",
-   "brier": 0.23487188828988245,
+   "brier": 0.24226883598615562,
    "games": 5
   },
   {
    "date": "2025-12-20",
-   "brier": 0.2300177825497032,
+   "brier": 0.22954487323310147,
    "games": 13
   },
   {
    "date": "2025-12-21",
-   "brier": 0.2291197145307973,
+   "brier": 0.23197048443326754,
    "games": 9
   },
   {
    "date": "2025-12-22",
-   "brier": 0.26777604433973473,
+   "brier": 0.2542983733806808,
    "games": 4
   },
   {
    "date": "2025-12-23",
-   "brier": 0.26612018361481,
+   "brier": 0.27386585042662065,
    "games": 13
   },
   {
    "date": "2025-12-27",
-   "brier": 0.26136021834447654,
+   "brier": 0.2593013706475621,
    "games": 13
   },
   {
    "date": "2025-12-28",
-   "brier": 0.20537643572730918,
+   "brier": 0.2032305570793309,
    "games": 5
   },
   {
    "date": "2025-12-29",
-   "brier": 0.2541663251833397,
+   "brier": 0.25758136781250446,
    "games": 11
   },
   {
    "date": "2025-12-30",
-   "brier": 0.24527897428904724,
+   "brier": 0.23475289775089275,
    "games": 5
   },
   {
    "date": "2025-12-31",
-   "brier": 0.2662058988144355,
+   "brier": 0.2663072188412671,
    "games": 10
   },
   {
    "date": "2026-01-01",
-   "brier": 0.26872792244471455,
+   "brier": 0.26222797643551654,
    "games": 8
   },
   {
    "date": "2026-01-02",
-   "brier": 0.31335420752745524,
+   "brier": 0.32200820801621616,
    "games": 4
   },
   {
    "date": "2026-01-03",
-   "brier": 0.25435451461112385,
+   "brier": 0.2614441752037996,
    "games": 13
   },
   {
    "date": "2026-01-04",
-   "brier": 0.2649692027559804,
+   "brier": 0.2684583609659179,
    "games": 5
   },
   {
    "date": "2026-01-05",
-   "brier": 0.2578054603758002,
+   "brier": 0.25761963288199824,
    "games": 5
   },
   {
    "date": "2026-01-06",
-   "brier": 0.23384638276804637,
+   "brier": 0.22935005877128284,
    "games": 10
   },
   {
    "date": "2026-01-07",
-   "brier": 0.2686917177257349,
+   "brier": 0.2670117829414727,
    "games": 5
   },
   {
    "date": "2026-01-08",
-   "brier": 0.21738017497060888,
+   "brier": 0.20973351047535474,
    "games": 12
   },
   {
    "date": "2026-01-09",
-   "brier": 0.2093420830863387,
+   "brier": 0.21497938960993915,
    "games": 3
   },
   {
    "date": "2026-01-10",
-   "brier": 0.2458147088665624,
+   "brier": 0.24380732610797365,
    "games": 14
   },
   {
    "date": "2026-01-11",
-   "brier": 0.261470631742694,
+   "brier": 0.2840528921333444,
    "games": 5
   },
   {
    "date": "2026-01-12",
-   "brier": 0.27069592713991475,
+   "brier": 0.28157434832920836,
    "games": 9
   },
   {
    "date": "2026-01-13",
-   "brier": 0.22185524860774705,
+   "brier": 0.2121108074842847,
    "games": 10
   },
   {
    "date": "2026-01-14",
-   "brier": 0.2137637654258649,
+   "brier": 0.21202000146921657,
    "games": 4
   },
   {
    "date": "2026-01-15",
-   "brier": 0.2364519407775068,
+   "brier": 0.2446022496034947,
    "games": 10
   },
   {
    "date": "2026-01-16",
-   "brier": 0.29329119757554356,
+   "brier": 0.30684983833506563,
    "games": 5
   },
   {
    "date": "2026-01-17",
-   "brier": 0.2310107170234238,
+   "brier": 0.23592685422470722,
    "games": 13
   },
   {
    "date": "2026-01-18",
-   "brier": 0.21868423386733873,
+   "brier": 0.20216831270747895,
    "games": 3
   },
   {
    "date": "2026-01-19",
-   "brier": 0.2410179258187028,
+   "brier": 0.2321735748297403,
    "games": 10
   },
   {
    "date": "2026-01-20",
-   "brier": 0.23711140387440122,
+   "brier": 0.23272215243290956,
    "games": 8
   },
   {
    "date": "2026-01-21",
-   "brier": 0.25779796108518693,
+   "brier": 0.2595560709296303,
    "games": 6
   },
   {
    "date": "2026-01-22",
-   "brier": 0.30466932729609086,
+   "brier": 0.3075182304506079,
    "games": 8
   },
   {
    "date": "2026-01-23",
-   "brier": 0.23778941077107155,
+   "brier": 0.23125414207377565,
    "games": 8
   },
   {
    "date": "2026-01-24",
-   "brier": 0.24031639584804035,
+   "brier": 0.24030060386794544,
    "games": 9
   },
   {
    "date": "2026-01-25",
-   "brier": 0.23861395971475607,
+   "brier": 0.23835960810378878,
    "games": 6
   },
   {
    "date": "2026-01-26",
-   "brier": 0.20788379779935628,
+   "brier": 0.19789886926029404,
    "games": 4
   },
   {
    "date": "2026-01-27",
-   "brier": 0.26184233094821935,
+   "brier": 0.26294822196600165,
    "games": 10
   },
   {
    "date": "2026-01-28",
-   "brier": 0.22321710672494258,
+   "brier": 0.22481116225186137,
    "games": 3
   },
   {
    "date": "2026-01-29",
-   "brier": 0.20969510084361026,
+   "brier": 0.20259859320020235,
    "games": 15
   },
   {
    "date": "2026-01-30",
-   "brier": 0.18685897152638106,
+   "brier": 0.17674870360195244,
    "games": 1
   },
   {
    "date": "2026-01-31",
-   "brier": 0.27710549813287566,
+   "brier": 0.2806997603249029,
    "games": 14
   },
   {
    "date": "2026-02-01",
-   "brier": 0.14134406910176864,
+   "brier": 0.13008603077271708,
    "games": 3
   },
   {
    "date": "2026-02-02",
-   "brier": 0.2470859337145454,
+   "brier": 0.24836921868335432,
    "games": 10
   },
   {
    "date": "2026-02-03",
-   "brier": 0.22645209105869388,
+   "brier": 0.22537927717758266,
    "games": 7
   },
   {
    "date": "2026-02-04",
-   "brier": 0.2045307780156529,
+   "brier": 0.20102073204510584,
    "games": 10
   },
   {
    "date": "2026-02-05",
-   "brier": 0.20678468116776894,
+   "brier": 0.1989005673471082,
    "games": 7
   },
   {
    "date": "2026-02-25",
-   "brier": 0.21598736795815562,
+   "brier": 0.21547512875646727,
    "games": 8
   },
   {
    "date": "2026-02-26",
-   "brier": 0.23378048633978907,
+   "brier": 0.22993669389739727,
    "games": 12
   },
   {
    "date": "2026-02-27",
-   "brier": 0.22860447613623563,
+   "brier": 0.22227551046805663,
    "games": 4
   },
   {
    "date": "2026-02-28",
-   "brier": 0.2429387348233233,
+   "brier": 0.2391928231855297,
    "games": 13
   },
   {
    "date": "2026-03-01",
-   "brier": 0.30794631449449555,
+   "brier": 0.3142245862952898,
    "games": 6
   },
   {
    "date": "2026-03-02",
-   "brier": 0.2396862654691343,
+   "brier": 0.22929419708735424,
    "games": 6
   },
   {
    "date": "2026-03-03",
-   "brier": 0.2324187384649771,
+   "brier": 0.22680239313059394,
    "games": 11
   },
   {
    "date": "2026-03-04",
-   "brier": 0.20257469739335918,
+   "brier": 0.21940871870204798,
    "games": 5
   },
   {
    "date": "2026-03-05",
-   "brier": 0.20799546665225122,
+   "brier": 0.20862639824858747,
    "games": 8
   },
   {
    "date": "2026-03-06",
-   "brier": 0.2783544948364933,
+   "brier": 0.29363911003462695,
    "games": 7
   },
   {
    "date": "2026-03-07",
-   "brier": 0.23903907367507185,
+   "brier": 0.23925631670644734,
    "games": 11
   },
   {
    "date": "2026-03-08",
-   "brier": 0.227192256541461,
+   "brier": 0.21621519403530404,
    "games": 7
   },
   {
    "date": "2026-03-09",
-   "brier": 0.2654447961433799,
+   "brier": 0.27423799692005674,
    "games": 5
   },
   {
    "date": "2026-03-10",
-   "brier": 0.22661366644849631,
+   "brier": 0.22784055175431028,
    "games": 13
   },
   {
    "date": "2026-03-11",
-   "brier": 0.3404397936950029,
+   "brier": 0.3517736335038158,
    "games": 2
   },
   {
    "date": "2026-03-12",
-   "brier": 0.30928738034681835,
+   "brier": 0.31544614279903016,
    "games": 14
   },
   {
    "date": "2026-03-13",
-   "brier": 0.27616284676023767,
+   "brier": 0.3036806174616193,
    "games": 2
   },
   {
    "date": "2026-03-14",
-   "brier": 0.23016465353216842,
+   "brier": 0.23338650196441016,
    "games": 14
   },
   {
    "date": "2026-03-15",
-   "brier": 0.22438589703561582,
+   "brier": 0.22220526096968007,
    "games": 6
   },
   {
    "date": "2026-03-16",
-   "brier": 0.2767139005720351,
+   "brier": 0.2782242906529811,
    "games": 5
   },
   {
    "date": "2026-03-17",
-   "brier": 0.2190593049435106,
+   "brier": 0.22506453911575586,
    "games": 9
   },
   {
    "date": "2026-03-18",
-   "brier": 0.2508457804682532,
+   "brier": 0.249505185839771,
    "games": 6
   },
   {
    "date": "2026-03-19",
-   "brier": 0.2563880237041919,
+   "brier": 0.2638638883748023,
    "games": 11
   },
   {
    "date": "2026-03-20",
-   "brier": 0.20749346809233313,
+   "brier": 0.19260469157092916,
    "games": 5
   },
   {
    "date": "2026-03-21",
-   "brier": 0.23306608133372467,
+   "brier": 0.23405724737777459,
    "games": 11
   },
   {
    "date": "2026-03-22",
-   "brier": 0.23130097228756893,
+   "brier": 0.2284175296212671,
    "games": 9
   },
   {
    "date": "2026-03-23",
-   "brier": 0.12304287592349317,
+   "brier": 0.10222040038136211,
    "games": 1
   },
   {
    "date": "2026-03-24",
-   "brier": 0.24296734837446707,
+   "brier": 0.24577240525927943,
    "games": 15
   },
   {
    "date": "2026-03-25",
-   "brier": 0.3733194099760058,
+   "brier": 0.384612408368255,
    "games": 2
   },
   {
    "date": "2026-03-26",
-   "brier": 0.2614320456524912,
+   "brier": 0.25849714894341785,
    "games": 13
   },
   {
    "date": "2026-03-27",
-   "brier": 0.2409611091156273,
+   "brier": 0.23939688416963417,
    "games": 2
   },
   {
    "date": "2026-03-28",
-   "brier": 0.25236267641651733,
+   "brier": 0.253579437632015,
    "games": 15
   },
   {
    "date": "2026-03-29",
-   "brier": 0.26163662913567176,
+   "brier": 0.2503639153642403,
    "games": 6
   },
   {
    "date": "2026-03-30",
-   "brier": 0.23284384398685862,
+   "brier": 0.2350296823411883,
    "games": 5
   },
   {
    "date": "2026-03-31",
-   "brier": 0.24152006336117232,
+   "brier": 0.23861503617878532,
    "games": 10
   },
   {
    "date": "2026-04-01",
-   "brier": 0.31446826900337976,
+   "brier": 0.33684363803839507,
    "games": 3
   },
   {
    "date": "2026-04-02",
-   "brier": 0.18034322205316783,
+   "brier": 0.1766748999045241,
    "games": 14
   },
   {
    "date": "2026-04-03",
-   "brier": 0.31625092479807715,
+   "brier": 0.3342988190205727,
    "games": 2
   },
   {
    "date": "2026-04-04",
-   "brier": 0.259259539792152,
+   "brier": 0.2587177889860699,
    "games": 15
   },
   {
    "date": "2026-04-05",
-   "brier": 0.25501202231860953,
+   "brier": 0.24533591458286721,
    "games": 7
   },
   {
    "date": "2026-04-06",
-   "brier": 0.17815254266323247,
+   "brier": 0.16786968867221394,
    "games": 4
   },
   {
    "date": "2026-04-07",
-   "brier": 0.21608947550204485,
+   "brier": 0.21505272990034818,
    "games": 11
   },
   {
    "date": "2026-04-08",
-   "brier": 0.24498565534791125,
+   "brier": 0.24797772730885906,
    "games": 3
   },
   {
    "date": "2026-04-09",
-   "brier": 0.1885228365744654,
+   "brier": 0.18699043936415194,
    "games": 14
   },
   {
    "date": "2026-04-11",
-   "brier": 0.27437218842226135,
+   "brier": 0.2758873932368256,
    "games": 15
   },
   {
    "date": "2026-04-12",
-   "brier": 0.308790784681635,
+   "brier": 0.31841948787269864,
    "games": 6
   },
   {
    "date": "2026-04-13",
-   "brier": 0.24637051109931477,
+   "brier": 0.24322661640489746,
    "games": 10
   },
   {
    "date": "2026-04-14",
-   "brier": 0.26150782064029177,
+   "brier": 0.261485757869268,
    "games": 9
   },
   {
    "date": "2026-04-15",
-   "brier": 0.22800816222484444,
+   "brier": 0.22324163453191734,
    "games": 6
   },
   {
    "date": "2026-04-16",
-   "brier": 0.240381670804903,
+   "brier": 0.23701774326984093,
    "games": 6
   },
   {
    "date": "2026-04-18",
-   "brier": 0.2303463545326753,
+   "brier": 0.22841383270695448,
    "games": 3
   },
   {
    "date": "2026-04-19",
-   "brier": 0.19467809223321283,
+   "brier": 0.19225360275383624,
    "games": 4
   },
   {
    "date": "2026-04-20",
-   "brier": 0.22008938375531029,
+   "brier": 0.21395227670498687,
    "games": 4
   },
   {
    "date": "2026-04-21",
-   "brier": 0.2727172261469632,
+   "brier": 0.27073643621943694,
    "games": 4
   },
   {
    "date": "2026-04-22",
-   "brier": 0.25695539626064656,
+   "brier": 0.2663420285377372,
    "games": 3
   },
   {
    "date": "2026-04-23",
-   "brier": 0.2463271413804179,
+   "brier": 0.2493046992404553,
    "games": 3
   },
   {
    "date": "2026-04-24",
-   "brier": 0.21892679512435367,
+   "brier": 0.2139126126116024,
    "games": 3
   },
   {
    "date": "2026-04-25",
-   "brier": 0.2819690600501465,
+   "brier": 0.2846487462706103,
    "games": 3
   },
   {
    "date": "2026-04-26",
-   "brier": 0.22687608297641051,
+   "brier": 0.22465009955267484,
    "games": 4
   },
   {
    "date": "2026-04-27",
-   "brier": 0.2603224895528856,
+   "brier": 0.26245149752878105,
    "games": 2
   },
   {
    "date": "2026-04-28",
-   "brier": 0.31586523671545375,
+   "brier": 0.3228195346224421,
    "games": 3
   },
   {
    "date": "2026-04-29",
-   "brier": 0.21668904612354867,
+   "brier": 0.2166423590108771,
    "games": 3
   },
   {
    "date": "2026-04-30",
-   "brier": 0.1746930047165407,
+   "brier": 0.17120783752219074,
    "games": 2
   },
   {
    "date": "2026-05-01",
-   "brier": 0.24599164669552545,
+   "brier": 0.24280905333661287,
    "games": 3
   },
   {
    "date": "2026-05-02",
-   "brier": 0.12398501378582152,
+   "brier": 0.12020792360292387,
    "games": 1
   },
   {
    "date": "2026-05-03",
-   "brier": 0.23427970069008497,
+   "brier": 0.2407228315365364,
    "games": 2
   },
   {
    "date": "2026-05-04",
-   "brier": 0.16698221238415906,
+   "brier": 0.15491390972489258,
    "games": 2
   },
   {
    "date": "2026-05-05",
-   "brier": 0.13540185173030883,
+   "brier": 0.12978547913049038,
    "games": 1
   },
   {
    "date": "2026-05-06",
-   "brier": 0.23607905295991494,
+   "brier": 0.23594378084775688,
    "games": 2
   },
   {
    "date": "2026-05-07",
-   "brier": 0.22011103467249554,
+   "brier": 0.20297066271809203,
    "games": 1
   },
   {
    "date": "2026-05-08",
-   "brier": 0.3611091198297529,
+   "brier": 0.37225516988014984,
    "games": 2
   },
   {
    "date": "2026-05-09",
-   "brier": 0.24053944267771132,
+   "brier": 0.23497445814863493,
    "games": 2
   },
   {
    "date": "2026-05-10",
-   "brier": 0.19009866610661635,
+   "brier": 0.18054782855081533,
    "games": 2
   },
   {
    "date": "2026-05-11",
-   "brier": 0.2351037983608135,
+   "brier": 0.22223949063586096,
    "games": 1
   },
   {
    "date": "2026-05-12",
-   "brier": 0.29278503181581556,
+   "brier": 0.287682291268633,
    "games": 2
   },
   {
    "date": "2026-05-13",
-   "brier": 0.13361071888468715,
+   "brier": 0.13144328867564387,
    "games": 1
   },
   {
    "date": "2026-05-14",
-   "brier": 0.3155449325169991,
+   "brier": 0.33370644795851145,
    "games": 2
   },
   {
    "date": "2026-05-16",
-   "brier": 0.34207655506690493,
+   "brier": 0.33497469002622315,
    "games": 1
   },
   {
    "date": "2026-05-18",
-   "brier": 0.28922930914638817,
+   "brier": 0.2856636747608245,
    "games": 1
   },
   {
    "date": "2026-05-20",
-   "brier": 0.4226101797541314,
+   "brier": 0.410400027422571,
    "games": 1
   },
   {
    "date": "2026-05-21",
-   "brier": 0.4213227607414092,
+   "brier": 0.44726348278137545,
    "games": 1
   },
   {
    "date": "2026-05-22",
-   "brier": 0.39072272823248394,
+   "brier": 0.40325091627253,
    "games": 1
   },
   {
    "date": "2026-05-23",
-   "brier": 0.15470064502555622,
+   "brier": 0.13363885863629787,
    "games": 1
   },
   {
    "date": "2026-05-24",
-   "brier": 0.2681187948403908,
+   "brier": 0.29388102802954175,
    "games": 1
   },
   {
    "date": "2026-05-25",
-   "brier": 0.22409215152984066,
+   "brier": 0.1995339488245902,
    "games": 1
   },
   {
    "date": "2026-05-26",
-   "brier": 0.27184883292295053,
+   "brier": 0.3079124490382723,
    "games": 1
   },
   {
    "date": "2026-05-27",
-   "brier": 0.20645120204119366,
+   "brier": 0.16401721970322525,
    "games": 1
   },
   {
    "date": "2026-05-29",
-   "brier": 0.11249763402056019,
+   "brier": 0.09181624592137079,
    "games": 1
   },
   {
    "date": "2026-06-02",
-   "brier": 0.3872914169790759,
+   "brier": 0.3986180995498122,
    "games": 1
   },
   {
    "date": "2026-06-04",
-   "brier": 0.14641620074510606,
+   "brier": 0.13813481457929935,
    "games": 1
   },
   {
    "date": "2026-06-06",
-   "brier": 0.293636967743952,
+   "brier": 0.3017497531350778,
    "games": 1
   },
   {
    "date": "2026-06-09",
-   "brier": 0.22197058625205665,
+   "brier": 0.22129852773639744,
    "games": 1
   },
   {
    "date": "2026-06-11",
-   "brier": 0.17141068543107527,
+   "brier": 0.17373382029926737,
    "games": 1
   },
   {
    "date": "2026-06-14",
-   "brier": 0.22338481955002337,
+   "brier": 0.23522722986952901,
    "games": 1
+  },
+  {
+   "date": "2026-09-29",
+   "brier": 0.27493979512360467,
+   "games": 5
+  },
+  {
+   "date": "2026-09-30",
+   "brier": 0.1961341716354638,
+   "games": 3
+  },
+  {
+   "date": "2026-10-01",
+   "brier": 0.2512485139762405,
+   "games": 8
+  },
+  {
+   "date": "2026-10-02",
+   "brier": 0.29646617267753844,
+   "games": 5
+  },
+  {
+   "date": "2026-10-03",
+   "brier": 0.207256749056472,
+   "games": 13
+  },
+  {
+   "date": "2026-10-04",
+   "brier": 0.19657913404999552,
+   "games": 5
+  },
+  {
+   "date": "2026-10-05",
+   "brier": 0.2506424669779619,
+   "games": 4
+  },
+  {
+   "date": "2026-10-06",
+   "brier": 0.22589406961216424,
+   "games": 9
+  },
+  {
+   "date": "2026-10-07",
+   "brier": 0.2933007550039423,
+   "games": 3
+  },
+  {
+   "date": "2026-10-08",
+   "brier": 0.19902454323913316,
+   "games": 10
+  },
+  {
+   "date": "2026-10-09",
+   "brier": 0.23258252207003005,
+   "games": 4
+  },
+  {
+   "date": "2026-10-10",
+   "brier": 0.2172539466620484,
+   "games": 14
   }
  ],
- "brier_baseline": 0.45769230769230773,
+ "brier_baseline": 0.45732389116660455,
  "brier_baseline_label": "Constant home-edge",
  "rolling_brier_meta": {
   "window_days": 30,
   "min_games_per_day": 1,
   "excluded_sparse_days": 0,
   "calibrator_is_identity": false,
-  "map_scope_note": "Points use the deployed Platt map (fit on all OOF games)."
+  "map_scope_note": "Points use the prequential per-fold calibration layer (fit on prior OOF folds only); the pooled all-OOF Platt map is the serving layer and is not in this series."
  },
  "metrics": {
-  "auc": 0.5951,
-  "brier": 0.2415,
-  "logloss": 0.6758,
-  "ece": 0.0104,
-  "ece_calibrated": 0.0147,
-  "auc_calibrated": 0.5918,
-  "brier_calibrated": 0.2422,
-  "logloss_calibrated": 0.6773,
-  "calibrator_gated_out": false
+  "auc": 0.596,
+  "brier": 0.241,
+  "logloss": 0.6747,
+  "ece": 0.0091,
+  "ece_calibrated": 0.0091,
+  "auc_calibrated": 0.596,
+  "brier_calibrated": 0.241,
+  "logloss_calibrated": 0.6747,
+  "calibrator_gated_out": true
  },
  "version_history": [
   {
@@ -5985,18 +6045,275 @@
     "method": "favored_platt_floor",
     "floor": 0.5
    }
+  },
+  {
+   "version": "v2026.10.01",
+   "date": "2026-10-01",
+   "weights": {
+    "xgboost": 0.3491,
+    "lightgbm": 0.4037,
+    "elasticnet": 0.2472
+   },
+   "auc": 0.5948577530345247,
+   "brier": 0.2415,
+   "logloss": 0.6758327325629926,
+   "ece": 0.01,
+   "brier_calibrated": 0.2415,
+   "logloss_calibrated": 0.6758,
+   "ece_calibrated": 0.009980992837143031,
+   "calibration": {
+    "a": 1.01544,
+    "b": -0.008034,
+    "n": 2604,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.02",
+   "date": "2026-10-02",
+   "weights": {
+    "xgboost": 0.3579,
+    "lightgbm": 0.3887,
+    "elasticnet": 0.2534
+   },
+   "auc": 0.5950233843474448,
+   "brier": 0.2415,
+   "logloss": 0.6757931113209126,
+   "ece": 0.01,
+   "brier_calibrated": 0.2415,
+   "logloss_calibrated": 0.6758,
+   "ece_calibrated": 0.009978628804464425,
+   "calibration": {
+    "a": 1.012702,
+    "b": -0.005914,
+    "n": 2608,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.03",
+   "date": "2026-10-03",
+   "weights": {
+    "xgboost": 0.3223,
+    "lightgbm": 0.2926,
+    "elasticnet": 0.3851
+   },
+   "auc": 0.5969012118293062,
+   "brier": 0.2411,
+   "logloss": 0.6750715636685651,
+   "ece": 0.0099,
+   "brier_calibrated": 0.2411,
+   "logloss_calibrated": 0.6751,
+   "ece_calibrated": 0.009897453683795642,
+   "calibration": {
+    "a": 0.968306,
+    "b": 0.017848,
+    "n": 2418,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.04",
+   "date": "2026-10-04",
+   "weights": {
+    "xgboost": 0.3461,
+    "lightgbm": 0.2245,
+    "elasticnet": 0.4294
+   },
+   "auc": 0.5954941751299029,
+   "brier": 0.2413,
+   "logloss": 0.6754883024393171,
+   "ece": 0.0138,
+   "brier_calibrated": 0.2413,
+   "logloss_calibrated": 0.6755,
+   "ece_calibrated": 0.013815186765369095,
+   "calibration": {
+    "a": 1.012622,
+    "b": -0.011217,
+    "n": 2418,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.05",
+   "date": "2026-10-05",
+   "weights": {
+    "xgboost": 0.3461,
+    "lightgbm": 0.2245,
+    "elasticnet": 0.4294
+   },
+   "auc": 0.5954941751299029,
+   "brier": 0.2413,
+   "logloss": 0.6754883024393171,
+   "ece": 0.0138,
+   "brier_calibrated": 0.2413,
+   "logloss_calibrated": 0.6755,
+   "ece_calibrated": 0.013815186765369095,
+   "calibration": {
+    "a": 1.012622,
+    "b": -0.011217,
+    "n": 2418,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.06",
+   "date": "2026-10-06",
+   "weights": {
+    "xgboost": 0.3461,
+    "lightgbm": 0.2245,
+    "elasticnet": 0.4294
+   },
+   "auc": 0.5989,
+   "brier": 0.2408,
+   "logloss": 0.6745,
+   "ece": 0.0181,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6748,
+   "ece_calibrated": 0.0167,
+   "calibration": {
+    "a": 1.154382,
+    "b": -0.039564,
+    "n": 2418,
+    "method": "favored_platt_floor",
+    "floor": 0.5
+   }
+  },
+  {
+   "version": "v2026.10.07",
+   "date": "2026-10-07",
+   "weights": {
+    "xgboost": 0.3292,
+    "lightgbm": 0.228,
+    "elasticnet": 0.4428
+   },
+   "auc": 0.596,
+   "brier": 0.241,
+   "logloss": 0.6747,
+   "ece": 0.0091,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6747,
+   "ece_calibrated": 0.0091
+  },
+  {
+   "version": "v2026.10.08",
+   "date": "2026-10-08",
+   "weights": {
+    "xgboost": 0.3292,
+    "lightgbm": 0.228,
+    "elasticnet": 0.4428
+   },
+   "auc": 0.596,
+   "brier": 0.241,
+   "logloss": 0.6747,
+   "ece": 0.0091,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6747,
+   "ece_calibrated": 0.0091
+  },
+  {
+   "version": "v2026.10.09",
+   "date": "2026-10-09",
+   "weights": {
+    "xgboost": 0.3292,
+    "lightgbm": 0.228,
+    "elasticnet": 0.4428
+   },
+   "auc": 0.596,
+   "brier": 0.241,
+   "logloss": 0.6747,
+   "ece": 0.0091,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6747,
+   "ece_calibrated": 0.0091
+  },
+  {
+   "version": "v2026.10.10",
+   "date": "2026-10-10",
+   "weights": {
+    "xgboost": 0.3292,
+    "lightgbm": 0.228,
+    "elasticnet": 0.4428
+   },
+   "auc": 0.596,
+   "brier": 0.241,
+   "logloss": 0.6747,
+   "ece": 0.0091,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6747,
+   "ece_calibrated": 0.0091
+  },
+  {
+   "version": "v2026.10.11",
+   "date": "2026-10-11",
+   "weights": {
+    "xgboost": 0.3292,
+    "lightgbm": 0.228,
+    "elasticnet": 0.4428
+   },
+   "auc": 0.596,
+   "brier": 0.241,
+   "logloss": 0.6747,
+   "ece": 0.0091,
+   "brier_calibrated": 0.241,
+   "logloss_calibrated": 0.6747,
+   "ece_calibrated": 0.0091
   }
  ],
  "fold_geometry": {
-  "n_folds": 58,
+  "n_folds": 60,
   "first_val_start": "2024-11-05",
-  "last_val_end": "2026-06-14",
+  "last_val_end": "2026-10-10",
   "min_train": 192,
-  "max_train": 2786,
-  "total_val_games": 2600
+  "max_train": 2844,
+  "total_val_games": 2683,
+  "n_candidates": 60,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 14,
+  "provisional_games": 207,
+  "postseason_windows": 14,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 2465,
+   "auc": 0.5959569634053661,
+   "logloss": 0.6747233520061257,
+   "brier": 0.24096250560794427,
+   "ece": 0.009133974311502226,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 168,
+   "auc": 0.5769944341372912,
+   "logloss": 0.6812594299417544,
+   "brier": 0.24402182851632437,
+   "ece": 0.04084001551005564,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 207,
+   "auc": 0.5781719219219219,
+   "logloss": 0.6814353958700728,
+   "brier": 0.24417563484317328,
+   "ece": 0.053213216645328604,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 2683,
+   "auc": 0.5956153667033863,
+   "logloss": 0.674980653533396,
+   "brier": 0.24108348779428834,
+   "ece": 0.010135120752642477,
+   "sufficient": true
+  }
  },
  "config": {
-  "feature_set_version": "nhl-prod-v1.1-player-game-ratings",
+  "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
   "warmup_days": 30,
   "first_season": 2024,
   "oof_first_season": 2024,
@@ -6105,6 +6422,77 @@
    ]
   },
   "random_seed": 42,
-  "market_independence": true
+  "market_independence": true,
+  "moneyline_evaluation": {
+   "headline_view": "causal_rolling_blend",
+   "calibration_view": "gated_prequential_causal_blend",
+   "training_population": "grades_pooled",
+   "retrospective_column": "p_ensemble_retrospective",
+   "retrospective_is_oof": false,
+   "final_xgb_rounds": 160,
+   "xgb_best_rounds": [
+    388,
+    247,
+    182,
+    430,
+    255,
+    145,
+    104,
+    102,
+    202,
+    166,
+    117,
+    3,
+    135,
+    184,
+    163,
+    439,
+    244,
+    257,
+    175,
+    1,
+    34,
+    12,
+    197,
+    11,
+    448,
+    2,
+    5,
+    260,
+    221,
+    50,
+    299,
+    20,
+    46,
+    104,
+    10,
+    109,
+    283,
+    315,
+    46,
+    11,
+    77,
+    338,
+    157,
+    275,
+    452,
+    127,
+    7,
+    406,
+    260,
+    103,
+    169,
+    152,
+    31,
+    230,
+    99,
+    9,
+    195,
+    142,
+    217,
+    493
+   ],
+   "xgb_round_policy": "median_prior_probe_rounds"
+  }
  }
 }
