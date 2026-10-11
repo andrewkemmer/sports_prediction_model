@@ -32,6 +32,31 @@ from training import (  # noqa: E402
 CADENCE = 7
 
 
+def test_same_day_results_cannot_enter_elo_or_records_at_an_earlier_prediction():
+    from data_ingestion import compute_elo_entries, compute_season_records
+    games = pd.DataFrame({
+        "game_date": pd.to_datetime(["2025-04-01", "2025-04-02", "2025-04-02",
+                                     "2025-04-03"]),
+        "home_team": ["NYY"] * 4, "away_team": ["BOS"] * 4,
+        # Export order is not start-time order; neither game on April 2 may
+        # read the other's outcome. No trustworthy final timestamp exists.
+        "start_time_utc": ["2025-04-01T18:00Z", "2025-04-02T23:00Z",
+                           "2025-04-02T18:00Z", "2025-04-03T18:00Z"],
+        "home_win": [1., 1., 0., 1.],
+        "home_score": [4, 8, 1, 5], "away_score": [2, 1, 6, 2],
+    }, index=[8, 3, 9, 2])
+    for build in (compute_elo_entries, compute_season_records):
+        baseline = build(games)
+        poisoned = games.copy()
+        poisoned.loc[3, ["home_win", "home_score", "away_score"]] = [0., 0, 99]
+        changed = build(poisoned)
+        assert baseline.index.equals(games.index)
+        pd.testing.assert_frame_equal(baseline.loc[[3]], baseline.loc[[9]].set_axis([3]))
+        pd.testing.assert_frame_equal(baseline.loc[[9]], changed.loc[[9]])
+        # The following day's state legitimately learns the April 2 results.
+        assert not baseline.loc[[2]].equals(changed.loc[[2]])
+
+
 def _frame(n_days: int = 60, games_per_day: int = 4, post_from: int = 51
            ) -> pd.DataFrame:
     """Deterministic decided frame: daily games, postseason from ``post_from``.
@@ -237,6 +262,10 @@ def test_cached_bundle_cannot_score_corrected_schema_without_refit():
     try:
         with pytest.raises(ValueError, match="older feature schema"):
             training.apply_bundle_feature_cols({"feature_cols": training.MONEYLINE_FEATURE_COLS})
+        with pytest.raises(ValueError, match="older feature schema"):
+            training.apply_bundle_feature_cols({
+                "feature_cols": training.MONEYLINE_FEATURE_COLS,
+                "feature_schema_version": "mlb-v2-observed-statcast-causal-blend"})
         training.apply_bundle_feature_cols({
             "feature_cols": training.MONEYLINE_FEATURE_COLS,
             "feature_schema_version": config.FEATURE_SCHEMA_VERSION})

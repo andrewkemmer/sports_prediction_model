@@ -1663,7 +1663,12 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # inviting that false alarm.
     brier_head = monitoring.brier_headline(brier)
     latest_brier = brier_head["summary"] if brier else "n/a"
-    baseline_brier = (float(1 - ml_oof.home_win.mean())
+    # A probability-score baseline, not the error rate of an always-home
+    # hard pick. Fixed configured Elo home advantage is available before
+    # every game; no evaluation outcomes are used to fit the probability.
+    baseline_brier = (float(np.mean((ml_oof.home_win.to_numpy(float)
+                      - 1.0 / (1.0 + 10.0 ** (-config.ELO_HOME_ADV
+                                               / config.ELO_SCALE))) ** 2))
                       if ml_oof is not None and len(ml_oof) else None)
     monitoring.write_monitor_json(
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,

@@ -181,8 +181,10 @@ CALIBRATION_MODE = os.getenv("CALIBRATION_MODE", "platt").strip().lower()
 # Reproducibility
 # ---------------------------------------------------------------------------
 RANDOM_SEED = 42
-# Same 109 numeric names, corrected source meanings; rebuild + refit together.
-FEATURE_SCHEMA_VERSION = "mlb-v2-observed-statcast-causal-blend"
+# Same numeric names; Elo/records now exclude same-date outcomes. Rebuild
+# features, chronological OOF and final refits together; old bundles cannot
+# silently consume the corrected temporal definition.
+FEATURE_SCHEMA_VERSION = "mlb-v3-prior-date-elo-records"
 ELO_SEED = 1500  # Starting Elo for every team
 
 # ---------------------------------------------------------------------------

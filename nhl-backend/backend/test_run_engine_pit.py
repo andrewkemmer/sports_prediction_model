@@ -2621,6 +2621,12 @@ def test_slate_features_use_the_rollup_from_prior_decided_games():
     games = _synth_games(n_days=20, games_per_day=2)
     bs = _synth_boxscores(games)
     pending = games.head(4).copy()
+    # These must be FUTURE games with no matching boxscore. The old fixture
+    # reused October 1/2 IDs and boxscores while its only settled history was
+    # October 15-20: it passed by reading the pending games' own postgame
+    # stats, not by demonstrating the strictly-prior contract in its name.
+    pending["gameday"] = pd.to_datetime(pending["gameday"]) + pd.Timedelta(days=30)
+    pending["game_id"] = "future_" + pending["game_id"].astype(str)
     pending["home_score"] = np.nan
     pending["away_score"] = np.nan
     sched = pd.concat([games.tail(12), pending], ignore_index=True)
@@ -2629,6 +2635,12 @@ def test_slate_features_use_the_rollup_from_prior_decided_games():
     for col in BOXSCORE_SERVED:
         v = pd.to_numeric(slate[col], errors="coerce")
         assert v.notna().any(), f"{col} empty on the slate"
+    # With only FUTURE settled games, no boxscore statistic is available.
+    earlier = pending.copy()
+    earlier["gameday"] -= pd.Timedelta(days=30)
+    early_slate = feat_mod.build_slate_features(
+        pd.concat([games.tail(12), earlier], ignore_index=True), bs)
+    assert early_slate[list(BOXSCORE_SERVED)].isna().all().all()
 
 
 def test_pp_opportunities_come_from_official_team_counts_not_goalie_shots():

@@ -494,3 +494,75 @@ def test_second_pending_game_never_reads_phantom_half_win():
     r2 = slate2.loc[slate2.game_id == "p2"].iloc[0]
     assert r2.win_pct_home == 1.0      # COL won both decided games
     assert r2.win_pct_away == 0.0      # ANA: [loss, pending] -> 0.0, not .25
+
+
+@pytest.mark.parametrize("kind", ["rolling", "ewm", "pooled"])
+def test_unplayed_fixtures_never_consume_statistical_history(kind):
+    # Two targets must see the same last three SETTLED games, even with an
+    # unplayed fixture between results and another pending target in between.
+    frame = pd.DataFrame({
+        "team": ["ANA"] * 8,
+        "for": [1., 5., 2., 6., np.nan, 8., np.nan, np.nan],
+        "against": [2., 2., 2., 2., np.nan, 2., np.nan, np.nan],
+        "value": [1., 5., 2., 6., np.nan, 8., np.nan, np.nan],
+        "attempts": [2., 8., 4., 9., np.nan, 12., np.nan, np.nan],
+    })
+    def calculate(f):
+        if kind == "rolling":
+            return feat._trailing_per_team(f, "value", 3)
+        if kind == "ewm":
+            return feat._trailing_ewm(f, "value", 2)
+        return feat._trailing_pooled_ratio(f, "value", "attempts", 3)
+    clean = frame.drop(index=[4, 6]).reset_index(drop=True)
+    expected = calculate(clean)[-1]
+    actual = calculate(frame)
+    np.testing.assert_allclose(actual[-2:], expected, rtol=0, atol=1e-14)
+    # Even a malformed pending boxscore carrying a value must not advance it.
+    poisoned = frame.copy()
+    poisoned.loc[[4, 6, 7], ["value", "attempts"]] = 10000.
+    np.testing.assert_allclose(calculate(poisoned), actual, equal_nan=True,
+                               rtol=0, atol=1e-14)
+
+
+@pytest.mark.parametrize("kind", ["rolling", "ewm", "pooled"])
+def test_settled_trailing_arithmetic_is_unchanged_and_current_target_is_excluded(kind):
+    frame = pd.DataFrame({
+        "team": ["ANA"] * 6 + ["BUF"] * 6,
+        "for": np.arange(12, dtype=float) + 1,
+        "against": np.ones(12),
+        "value": [1., np.nan, 2., 6., 8., 3.] * 2,
+        "attempts": [2., np.nan, 4., 9., 12., 5.] * 2,
+    })
+    def old_roll(col, operation):
+        grouped = frame.groupby("team", sort=False)[col]
+        post = (grouped.ewm(halflife=2, min_periods=1).mean()
+                if operation == "ewm" else
+                getattr(grouped.rolling(3, min_periods=1), operation)())
+        return post.groupby(level=0).shift(1).reset_index(level=0, drop=True).to_numpy()
+    if kind == "rolling":
+        actual = feat._trailing_per_team(frame, "value", 3)
+        expected = old_roll("value", "mean")
+    elif kind == "ewm":
+        actual = feat._trailing_ewm(frame, "value", 2)
+        expected = old_roll("value", "ewm")
+    else:
+        actual = feat._trailing_pooled_ratio(frame, "value", "attempts", 3)
+        expected = old_roll("value", "sum") / old_roll("attempts", "sum")
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_slate_statistics_are_invariant_to_unplayed_intermediate_fixture():
+    history = pd.DataFrame([
+        game(str(i), f"2024-10-{i + 1:02d}", score=float(i + 2))
+        for i in range(6)])
+    target = pd.DataFrame([game("target", "2024-10-10", score=np.nan)])
+    extra = pd.DataFrame([game("unplayed", "2024-10-08", score=np.nan)])
+    kwargs = {"player_ratings": pd.DataFrame(), "stints": pd.DataFrame()}
+    clean = feat.build_slate_features(pd.concat([history, target]), **kwargs)
+    with_extra = feat.build_slate_features(pd.concat([history, extra, target]), **kwargs)
+    columns = ["win_pct_home", "win_pct_away", "ewm_net_goals_home",
+               "ewm_net_goals_away", "ewm_goal_share_home", "ga_per_game_home"]
+    np.testing.assert_array_equal(
+        clean.loc[clean.game_id == "target", columns].to_numpy(),
+        with_extra.loc[with_extra.game_id == "target", columns].to_numpy())
+    # Rest is schedule-derived and intentionally not part of this invariant.

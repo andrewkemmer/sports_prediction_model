@@ -217,7 +217,8 @@ def compute_elo_entries(games: pd.DataFrame) -> pd.DataFrame:
 
     Returns a DataFrame aligned with the input index with columns
     ``home_elo`` and ``away_elo`` — the rating each team carried INTO that
-    game (strictly prior to first pitch; no future information).  Teams
+    game (strictly prior calendar dates; same-day results are excluded
+    because their final-time availability is not recorded). Teams
     with no prior history enter at 1500.0, and Elo is regressed toward the
     mean across offseasons.
     """
@@ -225,6 +226,8 @@ def compute_elo_entries(games: pd.DataFrame) -> pd.DataFrame:
     home_elo_entry = pd.Series(np.nan, index=games.index, dtype=float)
     away_elo_entry = pd.Series(np.nan, index=games.index, dtype=float)
     prev_year = None
+    day_elos: dict[str, float] = {}
+    previous_day = None
 
     for idx, row in games.iterrows():
         home, away = row["home_team"], row["away_team"]
@@ -233,10 +236,17 @@ def compute_elo_entries(games: pd.DataFrame) -> pd.DataFrame:
         if prev_year is not None and cur_year is not None and cur_year != prev_year:
             elos = {t: _revert_elo(e) for t, e in elos.items()}
         prev_year = cur_year or prev_year
+        day = pd.Timestamp(row["game_date"]).normalize()
+        if previous_day is None or day != previous_day:
+            # Export tie order is not event availability. Without verified
+            # final timestamps, same-date games share entering-day state.
+            day_elos = dict(elos)
+            previous_day = day
+        home_elo_entry.at[idx] = day_elos.get(home, 1500.0)
+        away_elo_entry.at[idx] = day_elos.get(away, 1500.0)
+        # Settled results still update the state used by FOLLOWING dates.
         h_elo = elos.get(home, 1500.0)
         a_elo = elos.get(away, 1500.0)
-        home_elo_entry.at[idx] = h_elo
-        away_elo_entry.at[idx] = a_elo
 
         # No result yet (future game) — skip update
         if pd.isna(row.get("home_win")):
@@ -255,12 +265,15 @@ def compute_season_records(games: pd.DataFrame) -> pd.DataFrame:
     """Point-in-time cumulative season W/L, win pct, and run diff per team.
 
     For each game, returns the record each team carried INTO the game
-    (strictly prior to first pitch).  Records reset across offseasons; a
+    (strictly prior calendar dates; same-day outcomes are not admitted).
+    Records reset across offseasons; a
     season opener with no games played carries win_pct = NaN (undefined
     rate — never 0).  Aligned with the input index.
     """
     team_records: dict[str, dict[str, int]] = {}
     prev_year = None
+    day_records: dict[str, dict[str, int]] = {}
+    previous_day = None
     out: dict[str, list] = {k: [] for k in (
         "home_wins", "home_losses", "away_wins", "away_losses",
         "home_win_pct", "away_win_pct", "home_run_diff", "away_run_diff",
@@ -276,18 +289,25 @@ def compute_season_records(games: pd.DataFrame) -> pd.DataFrame:
         hw = team_records.setdefault(home, {"w": 0, "l": 0, "rs": 0, "ra": 0})
         aw = team_records.setdefault(away, {"w": 0, "l": 0, "rs": 0, "ra": 0})
 
-        # Before this game
-        total_h = hw["w"] + hw["l"]
-        total_a = aw["w"] + aw["l"]
-        out["home_wins"].append(hw["w"])
-        out["home_losses"].append(hw["l"])
-        out["away_wins"].append(aw["w"])
-        out["away_losses"].append(aw["l"])
+        day = pd.Timestamp(row["game_date"]).normalize()
+        if previous_day is None or day != previous_day:
+            day_records = {team: dict(record) for team, record in team_records.items()}
+            previous_day = day
+        # No same-date outcome is admitted without verified final-time
+        # evidence, matching the feature engine's prior-date convention.
+        entering_h = day_records.get(home, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+        entering_a = day_records.get(away, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+        total_h = entering_h["w"] + entering_h["l"]
+        total_a = entering_a["w"] + entering_a["l"]
+        out["home_wins"].append(entering_h["w"])
+        out["home_losses"].append(entering_h["l"])
+        out["away_wins"].append(entering_a["w"])
+        out["away_losses"].append(entering_a["l"])
         # Season opener (no games yet): rate is undefined → NULL, never 0
-        out["home_win_pct"].append(round(hw["w"] / total_h, 3) if total_h else np.nan)
-        out["away_win_pct"].append(round(aw["w"] / total_a, 3) if total_a else np.nan)
-        out["home_run_diff"].append(hw["rs"] - hw["ra"])
-        out["away_run_diff"].append(aw["rs"] - aw["ra"])
+        out["home_win_pct"].append(round(entering_h["w"] / total_h, 3) if total_h else np.nan)
+        out["away_win_pct"].append(round(entering_a["w"] / total_a, 3) if total_a else np.nan)
+        out["home_run_diff"].append(entering_h["rs"] - entering_h["ra"])
+        out["away_run_diff"].append(entering_a["rs"] - entering_a["ra"])
 
         # Update after this game
         if pd.notna(row.get("home_win")):

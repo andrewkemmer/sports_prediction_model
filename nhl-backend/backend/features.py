@@ -175,17 +175,27 @@ def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
 # Trailing primitives — per-team, strictly-prior via shift(1)
 # ---------------------------------------------------------------------------
 def _trailing_per_team(srt: pd.DataFrame, value_col: str, window: int) -> np.ndarray:
-    roll = srt.groupby("team", sort=False)[value_col].rolling(
-        window, min_periods=1).mean()
-    roll = roll.groupby(level=0).shift(1)
-    return roll.reset_index(level=0, drop=True).to_numpy()
+    # Unplayed schedule rows are query points, not statistical observations:
+    # they must neither evict settled games nor advance the EWM clock.
+    settled = srt["for"].notna() & srt["against"].notna()
+    post = (srt.loc[settled].groupby("team", sort=False)[value_col]
+            .rolling(window, min_periods=1).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    last_settled = (pd.Series(srt.index, index=srt.index).where(settled)
+                    .groupby(srt.team, sort=False).ffill())
+    state = pd.Series(post.reindex(last_settled).to_numpy(), index=srt.index)
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy()
 
 
 def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndarray:
-    roll = srt.groupby("team", sort=False)[value_col].ewm(
-        halflife=halflife, min_periods=1).mean()
-    roll = roll.groupby(level=0).shift(1)
-    return roll.reset_index(level=0, drop=True).to_numpy()
+    settled = srt["for"].notna() & srt["against"].notna()
+    post = (srt.loc[settled].groupby("team", sort=False)[value_col]
+            .ewm(halflife=halflife, min_periods=1).mean()
+            .reset_index(level=0, drop=True).reindex(srt.index))
+    last_settled = (pd.Series(srt.index, index=srt.index).where(settled)
+                    .groupby(srt.team, sort=False).ffill())
+    state = pd.Series(post.reindex(last_settled).to_numpy(), index=srt.index)
+    return state.groupby(srt.team, sort=False).shift(1).to_numpy()
 
 
 def _trailing_pooled_ratio(srt: pd.DataFrame, num_col: str, den_col: str,
@@ -203,10 +213,14 @@ def _trailing_pooled_ratio(srt: pd.DataFrame, num_col: str, den_col: str,
     genuinely no conversion rate to report, and that is honest.
     """
     def _rolled(col: str) -> pd.Series:
-        return (srt.groupby("team", sort=False)[col]
+        settled = srt["for"].notna() & srt["against"].notna()
+        post = (srt.loc[settled].groupby("team", sort=False)[col]
                 .rolling(window, min_periods=1).sum()
-                .groupby(level=0).shift(1)
-                .reset_index(level=0, drop=True))
+                .reset_index(level=0, drop=True).reindex(srt.index))
+        last_settled = (pd.Series(srt.index, index=srt.index).where(settled)
+                        .groupby(srt.team, sort=False).ffill())
+        state = pd.Series(post.reindex(last_settled).to_numpy(), index=srt.index)
+        return state.groupby(srt.team, sort=False).shift(1)
     # A partial observation must contribute neither count: retaining only
     # its denominator biases the pooled rate as if unknown wins were zero.
     srt = srt.copy()

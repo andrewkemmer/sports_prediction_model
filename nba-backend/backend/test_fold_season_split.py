@@ -255,5 +255,33 @@ class TestGradingSplit:
             oof.grades_pooled.astype(bool).sum())
 
 
+@pytest.mark.parametrize("labels", [[0., 1., 1., 0.], [1., 1., 1.], [0., 0.]])
+def test_monitor_constant_home_edge_is_a_probability_brier_score(labels, tmp_path):
+    # Exercise the actual master's expression without executing a daily run
+    # (which fetches data and persists trained models). Then round-trip the
+    # monitor writer used by the frontend, not merely an independent formula.
+    import ast
+    from pathlib import Path
+    import monitoring
+    source = Path(__file__).with_name("master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assignment = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "baseline_brier"
+                              for t in n.targets))
+    oof = pd.DataFrame({"home_win": labels})
+    value = eval(compile(ast.Expression(assignment.value), "master_baseline", "eval"),
+                 {"np": np, "config": config, "ml_oof": oof})
+    probability = 1.0 / (1.0 + 10.0 ** (-config.ELO_HOME_ADV / config.ELO_SCALE))
+    expected = float(np.mean((np.asarray(labels) - probability) ** 2))
+    assert value == pytest.approx(expected)
+    record = monitoring.write_monitor_json(
+        tmp_path / "monitor.json", "20261010", [], [], [], [], value)
+    assert record["baseline_brier"] == pytest.approx(expected)
+    assert record["brier_baseline"] == pytest.approx(expected)
+    assert record["brier_baseline_label"] == "Constant home-edge"
+    assert eval(compile(ast.Expression(assignment.value), "master_baseline", "eval"),
+                {"np": np, "config": config, "ml_oof": pd.DataFrame()}) is None
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
