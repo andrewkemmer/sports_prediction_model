@@ -1113,6 +1113,12 @@ def compute_rolling_brier(
 
     Returns an artifact dict (also written to rolling_brier_<date>.json);
     ``series`` is [] when no data supports it (with a loud warning logged).
+    The artifact also records coverage: ``n_games_in_series`` /
+    ``excluded_sparse_games`` (what the sparse-day floor dropped) and
+    ``frame_newest_game_date`` vs ``last_series_date`` /
+    ``tail_games_after_last_point`` (how far the series actually reaches).
+    When decided games exist past the last point, the run log WARNs that
+    the series is STALE instead of implying currency (2026-10-11 review).
     """
     from calibration import moneyline_apply  # same adapter training.py deploys
 
@@ -1133,8 +1139,21 @@ def compute_rolling_brier(
         ),
         "calibrator_is_identity": None,
         "n_points": 0,
+        # Coverage disclosure (2026-10-11 run-log review, Finding 1): the
+        # INFO line below used to print n_games_total as the series' game
+        # count and said nothing about where the series actually ENDS, so a
+        # reader could not reconcile the line against the artifact — nor see
+        # that decided games past the last point entered no point at all
+        # (postseason slates run 1-4 games/day, every one under the
+        # min_games_per_day floor, so October fell out of the series while
+        # the log still read as current through the run date).
         "n_games_total": 0,
+        "n_games_in_series": 0,
         "excluded_sparse_days": 0,
+        "excluded_sparse_games": 0,
+        "frame_newest_game_date": None,
+        "last_series_date": None,
+        "tail_games_after_last_point": 0,
         "history_mean_brier": None,
         "series": [],
     }
@@ -1180,6 +1199,12 @@ def compute_rolling_brier(
     df_q = df[df["date"].isin(qualifying.index)]
     result["n_games_total"] = int(len(df))
     result["n_games_in_series"] = int(len(df_q))
+    # Games (not days) dropped by the sparse-day floor, so the INFO line can
+    # reconcile with the artifact instead of quoting the gross total.
+    result["excluded_sparse_games"] = int(
+        result["n_games_total"] - result["n_games_in_series"]
+    )
+    result["frame_newest_game_date"] = df["date"].max().strftime("%Y-%m-%d")
     result["history_mean_brier"] = round(float(df["brier"].mean()), 6)
 
     span = pd.Timedelta(days=window_days - 1)
@@ -1198,13 +1223,38 @@ def compute_rolling_brier(
     result["series"] = series
 
     if series:
+        # 2026-10-11 run-log review (Finding 1): publish the in-series count
+        # instead of the gross total, and WARN on a stale tail — decided
+        # games newer than the last point that the min-games floor excluded.
+        # The delivered run read "511 points … 7031 games" through
+        # 2026-09-27 while only 6888 games entered the series and the
+        # frame's newest decided game was 2026-10-08: the line looked
+        # current while covering neither the count nor the window implied.
+        newest = df["date"].max()
+        last_point = pd.Timestamp(series[-1]["date"])
+        tail = df[df["date"] > last_point]
+        result["last_series_date"] = series[-1]["date"]
+        result["tail_games_after_last_point"] = int(len(tail))
         logger.info(
-            "Rolling Brier: %d points (%s → %s), %d games, %d sparse days "
-            "excluded (<%d games/day), mean %.4f",
+            "Rolling Brier: %d points (%s → %s), %d of %d games in-series "
+            "(%d excluded on %d sparse days, <%d games/day), all-game mean "
+            "%.4f",
             len(series), series[0]["date"], series[-1]["date"],
-            result["n_games_total"], result["excluded_sparse_days"],
+            result["n_games_in_series"], result["n_games_total"],
+            result["excluded_sparse_games"], result["excluded_sparse_days"],
             min_games_per_day, result["history_mean_brier"],
         )
+        if len(tail):
+            logger.warning(
+                "Rolling Brier: series is STALE — last point %s is %d day(s) "
+                "behind the newest decided game %s; %d later game(s) on %d "
+                "day(s) stay under the %d-game floor and enter NO series "
+                "point, so the trailing monitor does not describe the "
+                "current window",
+                series[-1]["date"], int((newest - last_point).days),
+                newest.strftime("%Y-%m-%d"), len(tail),
+                int(tail["date"].nunique()), min_games_per_day,
+            )
     else:
         logger.warning(
             "Rolling Brier: %d decided-game days but none reached the "

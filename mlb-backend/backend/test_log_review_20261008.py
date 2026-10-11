@@ -90,9 +90,29 @@ without judging a single feature, because the trailing 7-day current
 window drops under the 30-row judge floor once the regular season ends.
 T15 requires the summary to publish evaluated/INSUFFICIENT counts and to
 say UNMEASURED at WARNING when nothing was judged; T16 requires the
-coverage summary's counts to reconcile with the CSV it describes (the
-shipped line claimed "all 218 ... OK (4 STRUCTURAL)" against 214 OK + 4
-STRUCTURAL).
+coverage summary's counts to reconcile with the CSV it describes (the    shipped line claimed "all 218 ... OK (4 STRUCTURAL)" against 214 OK + 4
+    STRUCTURAL).
+
+PLUS (2026-10-11, third-delivery pass over the 05:43 run log) the T17
+rolling-Brier coverage disclosure: the line read ``Rolling Brier: 511
+points (2024-04-25 → 2026-09-27), 7031 games, 71 sparse days excluded``
+where 7031 is the artifact's ``n_games_total`` while only 6888 games
+entered any series point — and nothing said the frame's newest decided
+game was 2026-10-08, 11 days past the last point. Postseason slates run
+1-4 games/day, every one under the 5-game floor, so the whole October
+tail fell out of the series while the log still read as current through
+the run date (the artifact carried ``n_games_in_series`` all along; the
+line just never printed it) — the same escaped-defect class as T15/T16:
+a monitor line reading healthy while covering less than it implies.
+T17 requires the line to publish in-series coverage ("N of M
+games … excluded on D sparse days") and a WARNING — ``series is
+STALE`` — whenever decided games exist past the last point, naming the
+gap; the artifact now also carries ``frame_newest_game_date``,
+``last_series_date`` and ``tail_games_after_last_point`` so the JSON
+reconciles with the line. Thresholds untouched: ``min_games_per_day=5``
+and ``window_days=30`` remain owner decisions (same boundary as T15:
+judge-floor policy is the owner's, disclosure of what was NOT judged is
+ours).
 """
 from __future__ import annotations
 
@@ -1288,3 +1308,108 @@ def test_coverage_summary_counts_reconcile_with_the_artifact(
     out = pd.read_csv(tmp_path / "_t16_cov.csv")
     assert int((out["status"] == "OK").sum()) == n_ok
     assert int((out["status"] == "STRUCTURAL").sum()) == n_struct
+
+
+# ── T17 (2026-10-11, third delivery): the rolling-Brier line must publish
+# in-series coverage and must say when the series is stale ────────────────
+
+def _brier_history(tail_per_day: int = 2) -> pd.DataFrame:
+    """Synthetic predictions_history with the postseason shape: a sparse
+    head day, a dense qualifying block, then a tail whose days fall under
+    the 5-game floor (``tail_per_day`` games/day)."""
+    rows = []
+    day = pd.Timestamp("2026-06-01")
+    for _ in range(1):                       # sparse head: 2 games, <5/day
+        for i in range(2):
+            rows.append((day, i % 2, 0.55 if i % 2 == 0 else 0.45))
+        day += pd.Timedelta(days=1)
+    for _ in range(10):                      # qualifying block: 6 games/day
+        for i in range(6):
+            rows.append((day, i % 2, 0.55 if i % 2 == 0 else 0.45))
+        day += pd.Timedelta(days=1)
+    for _ in range(3):                       # tail: 3 days after the block
+        for i in range(tail_per_day):
+            rows.append((day, i % 2, 0.55 if i % 2 == 0 else 0.45))
+        day += pd.Timedelta(days=1)
+    return pd.DataFrame(
+        rows, columns=["game_date", "home_win", "home_win_prob_model"])
+
+def _rb_levels(caplog):
+    info = [r.getMessage() for r in caplog.records
+            if r.levelno == logging.INFO
+            and r.getMessage().startswith("Rolling Brier:")]
+    stale = [r.getMessage() for r in caplog.records
+             if r.levelno >= logging.WARNING
+             and "series is STALE" in r.getMessage()]
+    return info, stale
+
+def test_rolling_brier_line_publishes_in_series_coverage_and_stale_tail(
+        tmp_path, monkeypatch, caplog):
+    """The 2026-10-11 05:43 delivered line read "511 points (… →
+    2026-09-27), 7031 games, 71 sparse days excluded" while only 6888
+    games entered the series and the frame's newest decided game was
+    2026-10-08 — every October day sits under the 5-game floor, so the
+    trailing monitor stopped 11 days early and the log still read as
+    current. Coverage must be printed in-series, and a tail of decided
+    games past the last point must be a WARNING, not silence."""
+    import json
+
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        out = explainability.compute_rolling_brier(
+            _brier_history(), "20990130", calibrator=None)
+
+    # 2 head + 60 qualifying + 6 tail games; tail days all sparse.
+    assert out["n_games_total"] == 68
+    assert out["n_games_in_series"] == 60
+    assert out["excluded_sparse_games"] == 8
+    assert out["excluded_sparse_days"] == 4
+    assert out["frame_newest_game_date"] == "2026-06-14"
+    assert out["last_series_date"] == "2026-06-11"
+    assert out["tail_games_after_last_point"] == 6
+    assert out["n_points"] == 10
+
+    info, stale = _rb_levels(caplog)
+    assert len(info) == 1, info
+    line = info[0]
+    assert "60 of 68 games in-series" in line, line
+    assert "8 excluded on 4 sparse days" in line, line
+    assert "all-game mean" in line, line
+    assert ", 68 games," not in line, (
+        "the gross n_games_total phrasing must not come back", line)
+
+    assert stale, (
+        "decided games past the last point must WARN as STALE — a series "
+        "that stopped early cannot read as current")
+    warn = stale[0]
+    assert "2026-06-11" in warn and "2026-06-14" in warn, warn
+    assert "3 day(s)" in warn and "6 later game(s)" in warn, warn
+
+    art = json.loads((tmp_path / "rolling_brier_20990130.json").read_text())
+    assert art["n_games_in_series"] == 60 and art["excluded_sparse_games"] == 8
+    assert art["frame_newest_game_date"] == "2026-06-14"
+    assert art["last_series_date"] == "2026-06-11"
+    assert art["tail_games_after_last_point"] == 6
+
+def test_rolling_brier_stays_quiet_when_the_series_reaches_the_newest_game(
+        tmp_path, monkeypatch, caplog):
+    """Same code path with a dense final slate: the series' last point IS
+    the frame's newest decided game, so coverage is still disclosed but no
+    false STALE alarm fires."""
+    import explainability
+    monkeypatch.setattr(explainability, "DATA_DELIVERY_DIR", tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="explainability"):
+        out = explainability.compute_rolling_brier(
+            _brier_history(tail_per_day=6), "20990131", calibrator=None)
+
+    assert out["tail_games_after_last_point"] == 0
+    assert out["last_series_date"] == out["frame_newest_game_date"] == "2026-06-14"
+    assert out["n_games_in_series"] == 78 and out["n_games_total"] == 80
+
+    info, stale = _rb_levels(caplog)
+    assert len(info) == 1, info
+    assert "78 of 80 games in-series" in info[0], info[0]
+    assert not stale, stale
