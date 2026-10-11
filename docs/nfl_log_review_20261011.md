@@ -13,6 +13,99 @@ rate-limit lines (the finding, remediated) + 4 classified below.**
 > 21 logged 429 retries and kept tripping the quota. See
 > "Second delivery" below for that review and the second-pass remediation
 > (429s no longer ladder at all; the sweep is paced at 2.0s/batch).
+>
+> **Third delivery, same day — reviewed and remediated again.** The evening
+> run (18:10:27 → 19:14, `d54ff441`) was the first with both earlier passes
+> in effect; the breaker held (9 dead batches, no abort, 2022/2022) but the
+> shared-IP window flapped shut for ~37 minutes and cooldown waiting
+> stretched a ~26-minute sweep to **51m28s**. See "Third delivery" below
+> for the third pass: defer-and-requeue — the archive sweep never sleeps
+> on a 429 again.
+
+## Third delivery (evening 18:10 run) — re-review and third-pass remediation
+
+Scope: the delivered `nfl_pipeline_run_log.txt`, run **2026-10-11
+18:10:27 → 19:14 (3,815s)**, `NFL_FULL_REPULL=1`, delivered by `d54ff441`
+— the first production run with both earlier passes in effect.
+
+**Verdict: 0 ERROR / 0 Traceback; final coverage 2022/2022 (100%,
+same-run). The breaker worked exactly as designed — and that is the
+finding.**
+
+### What the second remediation achieved (kept)
+
+- No storm: **2** logged quick retries (vs 21 / 156 before), **9** dead
+  batches (vs 25), one in-call cooldown + 9 entry cooldowns, streak peaked
+  at 10 — under the 12-line. No abort, no errors, and the same-run top-up
+  recovered the 48 gap games in **12 seconds** → `2022/2022`.
+
+### What remained (the finding)
+
+- Open-Meteo's shared-IP window **flapped shut for ~37 minutes anyway**
+  (first 429 at 18:25:17, ~9 closures interleaved with healthy
+  stretches). Every dead batch still bought an escalating cooldown —
+  60 → 120 → 240s, **~30 minutes of pure sleeping** inside the sweep —
+  so a ~26-minute sweep stretched to **51m28s** (18:10:27 → 19:01:55).
+- Cooldown waiting itself was the remaining wall-clock risk: only the
+  12-line stood between a longer block and a stalling run, and a batch
+  arriving mid-flap still paid an entry wait plus a probe (the first
+  batch of each flap additionally spent its two quick retries).
+- No timeouts occurred (the 20s × 3 bound was not exercised).
+
+### Third-pass remediation — defer-and-requeue (`weather.py`, MLB structure)
+
+- **The archive sweep never sleeps on a 429.** `defer_on_429=True`
+  (sweep-only mode in `_get_with_retry`) returns the batch immediately —
+  the two quick retries survive only for the streak-0 marginal case — and
+  `_fetch_batch_range` returns `None` so the sweep **defers** the batch
+  into a requeue list. Every subsequent paced batch is itself the probe:
+  a reopened window is detected within one batch interval (~4s) instead
+  of after a 60–240s cooldown, and the sweep completes at its steady pace
+  however long the window stays shut. Deferrals are logged once per phase
+  (`N of M … were deferred`), never per batch.
+- **One paced re-attempt per deferred batch** after the sweep
+  (`_requeue_deferred_batches`), still in defer mode and bounded by
+  `_RATE_LIMIT_ABORT_STREAK = 12` consecutive dead batches — under the new
+  cost structure that is ~1 minute of probing into a window that is not
+  coming back, not ~44 minutes of cooldowns. Recovered series merge
+  in-run; the stop warning names both recovery paths.
+- **The same-run top-up resets the streak first**, so the run's final
+  recovery re-probes a window that may have reopened (the 18:10 run
+  recovered all 48 gaps in 12s at the tail of a flap — now guaranteed a
+  fresh breaker instead of inheriting a possibly-tripped one).
+- **The sweep abort is gone** — superseded, not dropped: under defer mode
+  a dead batch costs one paced request, so steady probing replaces both
+  the abort and the cooldown as the reopen-detection mechanism. That is
+  MLB's keep-sweeping structure, now safe at NFL's volume (MLB never
+  needed it: 0 retries in its last 8 runs).
+- Unchanged: the cooldown-probe path for every non-sweep caller
+  (recent/forecast phases — at most one cooldown wait per call), the
+  budget, the timeout cascade, the 2.0s pace, and all MLB parity.
+
+### Expected shape on the next limited run
+
+Zero `cooling down` lines during the archive sweep; at most one deferral
+summary + one requeue line per phase. A full repull's weather phase is
+~19–26 minutes **regardless of quota flaps**, deferred batches refill
+in-run whenever the window reopens before the end, and anything still
+missing after the top-up is refetched by the next run's cache-miss pass
+(features stay NaN until then — never substituted).
+
+### Verification (third pass)
+
+- `python -m pytest -q` in `nfl-backend/backend` → **46 passed, exit 0**
+  (43 + 4 new pins − 1 superseded).
+- New pins in `test_log_review_20261011.py`: defer mode never sleeps and
+  costs exactly one request per closed-window batch (the streak-0
+  marginal case keeps its quick retries; a 200 still closes the window);
+  the sweep completes every window while closed (defer → one re-attempt
+  each; the only sleeps are pace pauses); a reopened window is detected by
+  the next paced batch and the requeue refills deferred windows in-run;
+  the requeue stops at the abort line with both recovery paths named
+  while the sweep still completes all windows.
+- The old "streak at the abort line → sweep sends zero requests" pin was
+  replaced — that contract is superseded by defer-and-requeue, documented
+  in the test module's docstring.
 
 ## Second delivery (15:50 run) — re-review and second-pass remediation
 

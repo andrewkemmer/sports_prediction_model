@@ -21,6 +21,17 @@ minutes that stayed shut for ~60s, and one batch consumed all six retries
 limits are per IP (600/min, 5000/hr, 10000/day) and Kaggle's egress IP is
 shared, so the sweep also had to slow down.
 
+Third evidence set (same file, evening 18:10 run — the first WITH both
+remediations): the breaker behaved exactly as designed — 2 quick retries
+on the first 429, one cooldown + one probe per dead batch, 9 dead
+batches, streak peaked at 10 (under the 12 line), the top-up recovered
+the 48 gap games in 12s, final coverage 2022/2022 — yet the shared-IP
+window flapped shut for ~37 minutes and the escalating cooldowns (60 →
+240s, ~30 minutes of pure sleep) stretched a ~26-minute sweep to
+**51m28s**.  Cooldown waiting itself was the remaining wall-clock risk:
+every closed-window batch still bought a 60–240s wait, and only the
+abort line stood between a longer block and a stalling run.
+
 Remediation (``nfl-backend/backend/weather.py``, structure mirrors
 ``mlb-backend/backend/weather.py``'s documented-constants + retry + batch +
 top-up layout):
@@ -28,15 +39,26 @@ top-up layout):
 * 429 is a quota event: up to _429_QUICK_RETRIES (2) short retries ride
   out a MARGINAL window (observed recoveries at ~3-9s); a still-closed
   window OPENS the streak and buys one cooldown (60s, doubling per
-  consecutive dead batch, 4-minute cap) + one probe — never a ladder;
+  consecutive dead batch, 4-minute cap) + one probe — never a ladder.
+  This remains the path for non-sweep callers (the recent/forecast
+  phases and anything outside the archive sweep);
+* third pass (defer-and-requeue): the ARCHIVE SWEEP never sleeps on a
+  429 — _get_with_retry(defer_on_429=True) returns immediately (the two
+  quick retries survive only for the streak-0 marginal case) and
+  _fetch_batch_range returns None so the sweep DEFERS the batch; every
+  subsequent paced batch is itself the probe, so a reopened window is
+  detected within one batch interval (~4s) instead of after a 60–240s
+  cooldown, and the sweep completes at its steady pace however long the
+  window stays shut;
+* one paced re-attempt per deferred batch follows the sweep
+  (_requeue_deferred_batches), bounded by _RATE_LIMIT_ABORT_STREAK (12)
+  consecutive dead batches; the same-run top-up resets the streak first
+  so the run's final recovery re-probes a possibly-reopened window, and
+  the next run's cache-miss pass remains the last resort (features NaN,
+  never substituted);
 * any definitive (non-retriable) response CLOSES the window (streak reset);
 * a per-process 429 budget (40) bounds rate-limited attempts outright —
   past it a rate-limited request fails after one attempt, logged once;
-* _RATE_LIMIT_ABORT_STREAK (12) consecutive dead batches abort the
-  remaining archive sweep with a count of what was skipped; the same-run
-  top-up and the next run's cache-miss pass remain the recovery paths
-  (features NaN, never substituted) — the line sits just above the worst
-  block ever observed (29 minutes) so that size still recovers;
 * timeouts: 20s per attempt, and three consecutive hangs end the request
   (≈63s) instead of seven 45s hangs (≈6.5 min per dead batch);
 * _BATCH_PAUSE_SEC = 2.0: the sweep paces to ~23 requests/min, halving
@@ -49,7 +71,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -212,48 +234,193 @@ def test_timeout_cascade_ends_after_three_hangs(monkeypatch, sleeps, caplog):
     assert all(t == weather._REQUEST_TIMEOUT_SEC for t in calls), calls
 
 
-def test_dead_batch_streak_aborts_the_archive_sweep(monkeypatch, sleeps, caplog):
-    """12 consecutive dead batches stop the remaining archive sweep loudly
-    instead of re-arming ladders for hundreds of windows; the recovery path
-    (same-run top-up + next run's cache-miss pass) is named in the warning."""
-    seen: list[str] = []
+def _target(game_id: str, kickoff: str) -> dict:
+    return {
+        "game_id": game_id,
+        "stadium": "Test Stadium",
+        "lat": 39.0,
+        "lon": -95.0,
+        "kickoff_utc": pd.Timestamp(kickoff),
+    }
 
-    def fake_batch_range(locations, start_date, end_date, *, source, **kw):
-        seen.append(source)
+
+# Kickoffs 30 days apart -> two 14-day archive windows (the days between
+# hold no game, so exactly these two windows are planned, as in production).
+_TWO_WINDOW_TARGETS = [
+    _target("20260812_A@HOME", "2026-08-12T17:00:00Z"),
+    _target("20260911_B@HOME", "2026-09-11T17:00:00Z"),
+]
+
+
+def test_defer_mode_never_cools_down_and_costs_one_request_per_batch(
+        monkeypatch, sleeps, caplog):
+    """The sweep's mode, pinned at the client level (third review): a 429
+    in defer mode returns immediately — no entry cooldown, no
+    cooldown/probe stage — so no rate-limited request in that mode can ever
+    sleep.  The streak-0 marginal case still gets its two quick retries; a
+    streak-open batch costs exactly ONE request; a definitive answer closes
+    the window."""
+    calls = _patch_get(monkeypatch, lambda n: _Resp(429))
+
+    with caplog.at_level(logging.WARNING):
+        resp = weather._get_with_retry("https://example.invalid", {},
+                                       defer_on_429=True)
+    assert resp.status_code == 429
+    assert len(calls) == 1 + weather._429_QUICK_RETRIES, (
+        f"streak-0 marginal case keeps its quick retries: {calls}")
+    assert len(sleeps) == 2, sleeps  # the two quick retries, nothing else
+    assert weather._rate_limit_streak() == 1
+    assert not any("cooling down" in m for m in caplog.messages)
+
+    per_call = []
+    for _ in range(2):
+        before = len(calls)
+        sleeps.clear()
+        weather._get_with_retry("https://example.invalid", {},
+                                defer_on_429=True)
+        per_call.append(len(calls) - before)
+        assert sleeps == [], (
+            f"a streak-open defer-mode batch must never sleep: {sleeps}")
+    assert per_call == [1, 1], (
+        f"a closed-window defer-mode batch costs one request each: {per_call}")
+    assert weather._rate_limit_streak() == 3
+    # Only the marginal case spent the per-run 429 budget.
+    assert weather._rate_limit["retries"] == weather._429_QUICK_RETRIES
+
+    reopened = _patch_get(monkeypatch, lambda n: _Resp(200))
+    resp = weather._get_with_retry("https://example.invalid", {},
+                                   defer_on_429=True)
+    assert resp.status_code == 200 and len(reopened) == 1
+    assert weather._rate_limit_streak() == 0, "a 200 closes the window"
+
+
+def test_sweep_defers_429_batches_and_still_completes(
+        monkeypatch, sleeps, caplog):
+    """Third-review contract: a closed window must neither stretch nor
+    truncate the archive sweep.  Every window is attempted at the sweep's
+    pace; 429 batches come back ``None`` and are DEFERRED for one re-attempt
+    — never dying into cooldown sleeps — and the requeue gets exactly one
+    paced request per deferred batch."""
+    state = {"closed": False, "archive": 0}
+
+    def fake_batch_range(locations, start_date, end_date, *, source,
+                         defer_on_429=False, **kw):
+        if source != weather.OPEN_METEO_ARCHIVE:
+            return {}
+        state["archive"] += 1
+        if state["closed"] and defer_on_429:
+            weather._rate_limit["streak"] += 1  # a real 429 opens it
+            return None
+        weather._rate_limit["streak"] = 0
         return {}
 
     monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
     now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
-    targets = [{
-        "game_id": "20260911_TEST@HOME",
-        "stadium": "Test Stadium",
-        "lat": 39.0,
-        "lon": -95.0,
-        "kickoff_utc": pd.Timestamp("2026-09-11T17:00:00Z"),
-    }]
 
-    # Control: an open window runs the archive sweep normally.
-    with caplog.at_level(logging.WARNING):
-        weather._fetch_batched_weather(targets, now)
-    assert weather.OPEN_METEO_ARCHIVE in seen, "control sweep must run"
-    archive_calls = seen.count(weather.OPEN_METEO_ARCHIVE)
-    assert archive_calls >= 1
+    # Control: an open window sweeps both windows normally, deferring nothing.
+    with caplog.at_level(logging.INFO):
+        weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
+    assert state["archive"] == 2, state
+    assert not any("deferred" in m for m in caplog.messages)
 
-    # Tripped: the sweep stops before its first request and says so.
+    # Closed: the sweep STILL completes both windows (one request each) and
+    # the requeue re-attempts each exactly once — four requests total, and
+    # the only sleeps are the pace pauses, never a cooldown.
+    state.update(closed=True, archive=0)
     weather._reset_rate_limiter()
-    weather._rate_limit["streak"] = weather._RATE_LIMIT_ABORT_STREAK
-    seen.clear()
     caplog.clear()
-    with caplog.at_level(logging.WARNING):
+    sleeps.clear()
+    with caplog.at_level(logging.INFO):
+        weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
+
+    assert state["archive"] == 4, (
+        "closed window: sweep completes both windows + one re-attempt each")
+    assert weather._rate_limit_streak() == 4, (
+        "each deferred request opens one more streak unit")
+    assert sleeps == [weather._BATCH_PAUSE_SEC,
+                      weather._BATCH_PAUSE_SEC], (
+        f"defer mode must never sleep a cooldown: {sleeps}")
+    deferred = [m for m in caplog.messages if "were deferred" in m]
+    assert len(deferred) == 1 and "2 of 2" in deferred[0], caplog.messages
+    requeue = [m for m in caplog.messages if "requeue" in m]
+    assert len(requeue) == 1 and "0 of 2" in requeue[0], caplog.messages
+
+
+def test_requeue_recovers_deferred_batches_when_the_window_reopens(
+        monkeypatch, caplog):
+    """The deferral's payoff: a window that reopens mid-sweep is noticed by
+    the next paced batch (no cooldown required), and the requeue refills
+    every deferred window in-run — the same-run top-up never sees them."""
+    state = {"deferred": 0, "archive": 0}
+
+    def fake_batch_range(locations, start_date, end_date, *, source,
+                         defer_on_429=False, **kw):
+        if source != weather.OPEN_METEO_ARCHIVE:
+            return {}
+        state["archive"] += 1
+        if state["deferred"] < 1:
+            state["deferred"] += 1
+            weather._rate_limit["streak"] += 1
+            return None
+        weather._rate_limit["streak"] = 0
+        return {(str(locations[0][0]), end_date): {"time": []}}
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level(logging.INFO):
+        by_key = weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
+
+    # Sweep: window 1 deferred, window 2 answered (streak reset).  Requeue:
+    # window 1 recovered.  Three archive requests, no extra sleeps.
+    assert state["archive"] == 3, state
+    assert weather._rate_limit_streak() == 0, "the reopened window closes it"
+    assert {day for (_stadium, day) in by_key} == {date(2026, 8, 24),
+                                                  date(2026, 9, 11)}, by_key
+    requeue = [m for m in caplog.messages if "requeue" in m]
+    assert len(requeue) == 1 and "1 of 1" in requeue[0], caplog.messages
+
+
+def test_requeue_stops_at_the_abort_line_and_names_the_recovery_paths(
+        monkeypatch, caplog):
+    """Past _RATE_LIMIT_ABORT_STREAK consecutive dead batches the requeue
+    stops probing — a dead batch costs one paced request now, so the line
+    bounds the requeue at about a minute of waste — and the warning names
+    both recovery paths.  The SWEEP itself is never aborted: it completes
+    all 13 windows despite the streak."""
+    state = {"archive": 0}
+
+    def fake_batch_range(locations, start_date, end_date, *, source,
+                         defer_on_429=False, **kw):
+        if source != weather.OPEN_METEO_ARCHIVE:
+            return {}
+        state["archive"] += 1
+        weather._rate_limit["streak"] += 1
+        return None
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
+    # A game every 15 days -> exactly one per 14-day window, 13 windows.
+    targets = [
+        _target(
+            f"2026{i:02d}01_TEST@HOME",
+            (datetime(2026, 1, 1, tzinfo=timezone.utc)
+             + timedelta(days=15 * i)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        for i in range(13)
+    ]
+
+    with caplog.at_level(logging.INFO):
         weather._fetch_batched_weather(targets, now)
 
-    assert weather.OPEN_METEO_ARCHIVE not in seen, (
-        "an aborted sweep must send no archive requests")
-    aborted = [m for m in caplog.messages if "archive sweep aborted" in m]
-    assert len(aborted) == 1, caplog.messages
-    assert "not attempted" in aborted[0]
-    assert "top-up" in aborted[0] and "cache-miss" in aborted[0], (
+    assert state["archive"] == 13, (
+        f"the sweep completes every window despite the streak: {state}")
+    warnings = [m for m in caplog.messages if "requeue" in m
+                and "not re-attempted" in m]
+    assert len(warnings) == 1, caplog.messages
+    assert "13 deferred" in warnings[0], warnings[0]
+    assert "top-up" in warnings[0] and "cache-miss" in warnings[0], (
         "the warning must name the recovery paths")
+    assert weather._rate_limit_streak() >= weather._RATE_LIMIT_ABORT_STREAK
 
 
 def test_rate_limited_out_boundary():
@@ -275,7 +442,9 @@ def test_dead_batches_cost_one_request_each_after_the_first(
     4 + 4 requests — two quick retries + cooldown + probe on the first,
     then one entry probe each — with at most one cooldown sleep per call,
     every wait capped at the 4-minute ceiling, and the streak climbing
-    toward the sweep abort the whole way.
+    the whole way.  This is the DEFAULT path (recent/forecast phases,
+    top-up, any non-sweep caller); the archive sweep uses defer mode
+    instead — see test_defer_mode_never_cools_down_and_costs_one_request.
     """
     calls = _patch_get(monkeypatch, lambda n: _Resp(429))
 
