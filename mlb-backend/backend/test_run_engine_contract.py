@@ -502,6 +502,9 @@ def test_xgboost_params_pin_depth2_and_causal_priors():
     assert config.XGBOOST_PARAMS["learning_rate"] == 0.055
     assert config.XGBOOST_PARAMS["min_child_weight"] == 12
     assert config.XGBOOST_PARAMS["colsample_bytree"] == 0.6382
+    # 2026-10-11 L2-parity grid: both tree members pinned to lambda 5.
+    assert config.XGBOOST_PARAMS["reg_lambda"] == 5.0
+    assert config.LIGHTGBM_PARAMS["reg_lambda"] == 5.0
     assert config.XGBOOST_FOLD0_ROUNDS == 150
     assert config.XGBOOST_REFIT_ROUNDS == 150
     assert config.XGBOOST_FOLD_ROUNDS == 2000

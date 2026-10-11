@@ -371,6 +371,16 @@ XGBOOST_PARAMS = {
     "subsample": 0.5406,
     "colsample_bytree": 0.6382,
     "learning_rate": 0.055,
+    # L2 PARITY (2026-10-11 regularizer grid, 37-fold replay): explicit
+    # reg_lambda 5.0 (xgboost's constructor default is 1.0 — the member
+    # had never been pinned to an L2 value). The alpha x lambda grid
+    # {0,1,2} x {5,10} measured lambda 5 best for THIS member (AUC
+    # 0.5825 -> 0.5833, log-loss 0.6815 -> 0.6809); lambda 10 degraded
+    # it (0.6798 -> 0.6818) and every alpha > 0 was worse — so XGB takes
+    # lambda 5 with alpha 0, LGBM keeps its shipped alpha 0.385 at the
+    # same lambda 5 (roster parity). Provisional per the same-walk
+    # selection caveat above.
+    "reg_lambda": 5.0,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
@@ -646,7 +656,22 @@ LIGHTGBM_PARAMS = {
     "feature_fraction": 0.5273799895070881,
     "learning_rate": 0.01131605401240319,
     "reg_alpha": 0.3851388837658578,
-    "reg_lambda": 0.0026749993754089075,
+    # L2 PARITY (2026-10-11 regularizer grid, 37-fold replay; alpha x
+    # lambda in {0,1,2} x {5,10} on both tree members): reg_lambda
+    # 0.0027 -> 5.0 brings the LGBM member to the same L2 operating point
+    # as XGBoost (structural parity across the tree roster). Measured
+    # LGBM member OOF: AUC 0.5806 -> 0.5824, log-loss 0.6805 -> 0.6800,
+    # ECE 0.0138 -> 0.0069, train-OOF gap 0.093 -> 0.085 (alpha kept at
+    # its shipped 0.385; alpha >= 1 measured WORSE at lambda 5 — 0.6804
+    # (a1) / 0.6812 (a2) — so L1 stays put). lambda 10 with alpha 0 tied
+    # this arm inside noise (0.6799) but the parity pair (both members
+    # lambda 5) blends IDENTICALLY well (0.5848/0.6791 vs the grid-best
+    # pair's 0.5847/0.6791), so parity costs nothing and is adopted for
+    # roster coherence. Same-walk selection caveat: provisional until
+    # confirmed on fresh production folds (docs/mlb_overfit_remediation_
+    # 20261010 CV-mechanics finding). Grid: analysis/remediation_arms3
+    # (workspace) mirrored in docs once committed.
+    "reg_lambda": 5.0,
     "max_bin": 173,
     "extra_trees": True,
     "random_state": RANDOM_SEED,
