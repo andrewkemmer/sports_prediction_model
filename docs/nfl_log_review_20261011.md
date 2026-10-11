@@ -21,6 +21,51 @@ rate-limit lines (the finding, remediated) + 4 classified below.**
 > stretched a ~26-minute sweep to **51m28s**. See "Third delivery" below
 > for the third pass: defer-and-requeue — the archive sweep never sleeps
 > on a 429 again.
+>
+> **Fourth delivery, same day — third pass verified in production.** The
+> 20:45 run (`c18a6e37`, first with defer-and-requeue deployed) shows
+> **zero** rate-limit activity — no 429, no cooldown, no deferral lines —
+> 444/444 batches at the healthy 3.59s/it pace, coverage 2022/2022, and
+> the fastest repull since the breaker landed (2,086s vs 3,815s). See
+> "Fourth delivery" below.
+
+## Fourth delivery (20:45 run) — third-pass verification
+
+Scope: the delivered `nfl_pipeline_run_log.txt` — 370 lines, run
+**2026-10-11 20:45:01 → 21:19:47 (2,086s)**, `NFL_FULL_REPULL=1`, delivered
+by `c18a6e37` — the first production run with defer-and-requeue in effect
+(third-pass code pushed 20:05 UTC; the run started 20:45 UTC against
+`main`).
+
+**Verdict: 0 ERROR / 0 Traceback; ZERO rate-limit activity.** A grep
+across the full log for `429`, `deferred`, `requeue`, `cooling down` and
+`dead batch` matches **nothing** — no quick retries, no cooldowns, no
+deferrals, no requeue, no batch failures.
+
+- Archive sweep: **444/444 batches in 26:32 @ 3.59s/it** — the healthy
+  pace (2.0s pause + request time), window open the entire way.
+- Recent phase: 6 seconds (21:11:36 → 21:11:42); final coverage
+  **2022/2022**; `DONE — 238 artifacts in 2086s` — the fastest full
+  repull since the breaker landed (vs 3,815s at 18:10 and 3,170s for
+  the 05:20 storm run).
+- The remaining 4 WARNING classes are previously classified, not new:
+  2017-era OOF-thin windows (designed provisional handling), the OL-
+  injury drift ALERTs (`inj_ol_out_home` psi_adj now 0.462, up from
+  0.338 — a real model-owner signal, monitoring working), and
+  `rest_days_*` LOW_COVERAGE at 74.4%.
+
+### What this does and does not prove
+
+The shared-IP quota never closed during this run, so defer-and-requeue
+had nothing to defer — logged nothing, correctly. That verifies the
+deployed code's CLEAN-path behavior end to end (identical pace, no
+degradation, no spurious machinery output); the closed-window path stays
+verified by the four contract tests in `test_log_review_20261011.py`
+(defer never sleeps; sweep completes while closed; reopen detected and
+requeued in-run; requeue stops at the abort line). Two consecutive runs
+now show no storm (18:10: flap handled at 9 dead batches; 20:45: none at
+all); if a flap returns, each deferred batch now costs ~one batch
+interval instead of a 60–240s cooldown.
 
 ## Third delivery (evening 18:10 run) — re-review and third-pass remediation
 
