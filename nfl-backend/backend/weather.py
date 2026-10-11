@@ -90,6 +90,47 @@ _RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
 _RETRY_ATTEMPTS = 7
 _RETRY_BASE_SEC = 2.0
 _RETRY_JITTER_SEC = 0.5
+# --- Rate-limit breaker (2026-10-11 run-log review) -----------------------
+# The per-request ladder above is right for an ISOLATED blip, but a closed
+# quota window answers every FOLLOWING batch with 429 as well, and each batch
+# re-armed the full ladder on its own: the reviewed run spent 156 retry
+# requests across 25 back-to-back dead batches (05:30:35 -> 05:39:42), and
+# the storms grow run over run (13 -> 72 -> 119 -> 156 retries over
+# 10-07 -> 10-11).  Requests cannot land while the window is shut;
+# hammering only extends the penalty, and 7 attempts x a 45s timeout per
+# batch is how a rate-limited sweep becomes a wall-clock timeout risk.
+# The breaker trades hammering for waiting and bounds total attempts:
+#   * a batch dead to a retriable status OPENS the window: the next request
+#     cools down for one quota minute (60s), doubling per consecutive dead
+#     batch to a 4-minute cap, then probes ONCE -- never a ladder;
+#   * any definitive (non-retriable) response CLOSES the window (streak 0);
+#   * _429_RETRY_BUDGET caps rate-limited retries for the whole process;
+#     past it, a rate-limited request fails after a single attempt;
+#   * _RATE_LIMIT_ABORT_STREAK consecutive dead batches abort the archive
+#     sweep with a loud count of what was skipped -- the same-run top-up
+#     and the next run's cache-miss pass refetch exactly the games that
+#     stay missing (features stay NaN, never substituted).  The line sits
+#     just above the WORST block ever observed (29 minutes, 2026-10-11:
+#     05:30:35 -> 05:59:43, one dead ladder per minute) so a block of that
+#     size still recovers inside the same sweep -- cooling down instead of
+#     hammering -- while a longer one stops costing the run its time budget.
+_RATE_LIMIT_COOLDOWN_SEC = 60.0
+_RATE_LIMIT_COOLDOWN_MAX_SEC = 240.0
+_RATE_LIMIT_PROBE_ATTEMPTS = 1
+# 12 dead batches ~= 63s (first ladder) + 60 + 120 + 10 x 240 ~= 44 min of
+# quiet probing: above the 29-minute observed block, and past that point
+# every extra batch is minutes of waiting for a window that is not coming.
+_RATE_LIMIT_ABORT_STREAK = 12
+_429_RETRY_BUDGET = 40
+# One stalled connection is retried; a stalled ENDPOINT is not.  Three
+# consecutive timeouts end the request (3 x 20s + backoff ~= 63s) instead
+# of the old 7 x 45s = 5+ minutes per dead batch, cascading across a sweep.
+# 20s is still 4-10x Open-Meteo's normal answer time for a ~400KB batch.
+_REQUEST_TIMEOUT_SEC = 20
+_TIMEOUT_RETRY_LIMIT = 3
+# Process-local breaker state (the pipeline is single-threaded).
+# _reset_rate_limiter() restores it for tests and fresh sweeps.
+_rate_limit: dict = {"streak": 0, "retries": 0, "budget_logged": False}
 _SNOWFALL_UNIT_TO_INCH = {
     "inch": 1.0,
     "in": 1.0,
@@ -256,35 +297,119 @@ def _targets(games: pd.DataFrame) -> list[dict]:
     return [row for row in rows if row["game_id"] not in duplicate_ids]
 
 
+def _reset_rate_limiter() -> None:
+    """Restore breaker state (tests, or a caller starting a fresh sweep)."""
+    _rate_limit.update(streak=0, retries=0, budget_logged=False)
+
+
+def _rate_limit_streak() -> int:
+    """Consecutive requests that died without a definitive answer."""
+    return int(_rate_limit["streak"])
+
+
+def _cooldown_wait(streak: int) -> float:
+    """Seconds to quiet down before the next request: one quota window,
+    doubling per consecutive dead batch, capped at four minutes."""
+    return float(min(_RATE_LIMIT_COOLDOWN_SEC * (2 ** (streak - 1)),
+                     _RATE_LIMIT_COOLDOWN_MAX_SEC))
+
+
+def _rate_limited_out() -> bool:
+    """True once consecutive dead batches reach the sweep-abort line."""
+    return _rate_limit_streak() >= _RATE_LIMIT_ABORT_STREAK
+
+
 def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
-                    timeout: int = 45):
-    """GET with bounded exponential backoff for transient Open-Meteo errors."""
+                    timeout: int = _REQUEST_TIMEOUT_SEC):
+    """GET with bounded exponential backoff for transient Open-Meteo errors.
+
+    Retries ``_RETRIABLE_STATUSES`` (429/502/503/504) with ``2**attempt`` +
+    jitter, or the server's ``Retry-After`` when it sends one (whichever is
+    longer); every other status returns immediately (fail fast).  Network
+    exceptions use the same ladder and re-raise when it is spent.
+
+    Rate-limit breaker (2026-10-11 run-log review): once a request has died
+    to a retriable status, the next call cools down for the quota window and
+    probes ONCE, consecutive dead batches accumulate toward the sweep abort,
+    and the per-run 429 budget bounds total rate-limited retries.  Any
+    definitive (non-retriable) response proves the endpoint answers again
+    and resets the streak.
+    """
+    streak = _rate_limit_streak()
+    if streak > 0:
+        wait = _cooldown_wait(streak)
+        logger.warning(
+            "Open-Meteo rate limited: cooling down %.0fs before the next "
+            "request (consecutive dead batches: %d)", wait, streak)
+        time.sleep(wait)
+        attempts = min(attempts, _RATE_LIMIT_PROBE_ATTEMPTS)
     last_exc: Exception | None = None
     response = None
-    for attempt in range(attempts):
+    timeouts = 0
+    for attempt in range(max(attempts, 1)):
         try:
             response = requests.get(url, params=params, timeout=timeout)
-            if (response.status_code in _RETRIABLE_STATUSES
-                    and attempt < attempts - 1):
-                wait = _RETRY_BASE_SEC ** attempt + random.uniform(
-                    0, _RETRY_JITTER_SEC)
-                try:
-                    wait = max(wait, float(response.headers.get("Retry-After", "")))
-                except (AttributeError, TypeError, ValueError):
-                    pass
-                logger.warning(
-                    "Open-Meteo %s; retrying in %.1fs (%d/%d)",
-                    response.status_code, wait, attempt + 1, attempts - 1,
-                )
-                time.sleep(wait)
-                continue
-            return response
         except requests.RequestException as exc:
             last_exc = exc
+            timeouts = timeouts + 1 if isinstance(
+                exc, (requests.Timeout, requests.ConnectionError)) else 0
+            if timeouts >= _TIMEOUT_RETRY_LIMIT:
+                # A stalled endpoint is not fixed by four more hangs: end
+                # the request and let the dead-batch streak account for it.
+                _rate_limit["streak"] = _rate_limit_streak() + 1
+                raise
             if attempt < attempts - 1:
                 time.sleep(_RETRY_BASE_SEC ** attempt + random.uniform(
                     0, _RETRY_JITTER_SEC))
+            continue
+        if response.status_code in _RETRIABLE_STATUSES:
+            if response.status_code == 429:
+                may_retry = attempt < attempts - 1
+                if may_retry and _rate_limit["retries"] >= _429_RETRY_BUDGET:
+                    if not _rate_limit["budget_logged"]:
+                        _rate_limit["budget_logged"] = True
+                        logger.warning(
+                            "Open-Meteo 429 retry budget exhausted (%d per "
+                            "run) — rate-limited requests now fail after "
+                            "one attempt; the same-run top-up and the next "
+                            "run's cache-miss pass recover the gaps",
+                            _429_RETRY_BUDGET)
+                    may_retry = False
+                if may_retry:
+                    _rate_limit["retries"] += 1
+                    wait = _RETRY_BASE_SEC ** attempt + random.uniform(
+                        0, _RETRY_JITTER_SEC)
+                    try:
+                        wait = max(wait, float(
+                            response.headers.get("Retry-After", "")))
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+                    logger.warning(
+                        "Open-Meteo %s; retrying in %.1fs (%d/%d)",
+                        response.status_code, wait, attempt + 1, attempts - 1)
+                    time.sleep(wait)
+                    continue
+                # Terminal 429: the window is shut -- open the streak so the
+                # next request cools down instead of re-laddering.
+                _rate_limit["streak"] = _rate_limit_streak() + 1
+                return response
+            if attempt < attempts - 1:
+                # 502/503/504: gateway trouble -- same ladder, but still a
+                # dead answer, so the terminal one counts toward the streak.
+                wait = _RETRY_BASE_SEC ** attempt + random.uniform(
+                    0, _RETRY_JITTER_SEC)
+                logger.warning(
+                    "Open-Meteo %s; retrying in %.1fs (%d/%d)",
+                    response.status_code, wait, attempt + 1, attempts - 1)
+                time.sleep(wait)
+                continue
+            _rate_limit["streak"] = _rate_limit_streak() + 1
+            return response
+        # 2xx (or a fail-fast 4xx): the endpoint gave a definitive answer.
+        _rate_limit["streak"] = 0
+        return response
     if last_exc is not None:
+        _rate_limit["streak"] = _rate_limit_streak() + 1
         raise last_exc
     return response
 
@@ -390,7 +515,8 @@ def _fetch_batch_range(
         })
         url = ARCHIVE_URL
     try:
-        response = _get_with_retry(url, params=params, timeout=45)
+        response = _get_with_retry(url, params=params,
+                                   timeout=_REQUEST_TIMEOUT_SEC)
         response.raise_for_status()
         payload = response.json()
         # Record the actual response time, not the start of a potentially long
@@ -454,18 +580,40 @@ def _fetch_batched_weather(
         # one, so the throttling is identical: 384 batches would otherwise
         # print 384 lines and bury the rest of the run's log.
         bar = StageProgress(total_batches, "PIT weather archive batches")
+        attempted = 0
+        aborted = False
         for chunk_start, chunk_end in windows:
             for i in range(0, len(locations), _BATCH_SIZE):
+                if _rate_limited_out():
+                    # Breaker tripped: every further request into a
+                    # known-closed window only extends the penalty.  Stop
+                    # the sweep and say exactly how much was skipped --
+                    # the same-run top-up (this function's second pass)
+                    # and the next run's cache-miss pass refetch only the
+                    # games that stay missing.
+                    aborted = True
+                    break
                 by_key.update(_fetch_batch_range(
                     locations[i:i + _BATCH_SIZE], chunk_start, chunk_end,
                     source=OPEN_METEO_ARCHIVE,
                 ))
+                attempted += 1
                 bar.advance()
                 if i + _BATCH_SIZE < len(locations):
                     time.sleep(_BATCH_PAUSE_SEC)
+            if aborted:
+                break
             if chunk_end < archive_end:
                 time.sleep(_BATCH_PAUSE_SEC)
         bar.close()
+        if aborted:
+            logger.warning(
+                "Open-Meteo rate limit: archive sweep aborted after %d "
+                "consecutive dead batches — %d of %d request batches not "
+                "attempted; missing games recover via the same-run top-up "
+                "and the next run's cache-miss pass",
+                _rate_limit_streak(), total_batches - attempted,
+                total_batches)
 
     # ERA5/archive publication lags. The forecast endpoint's observed past
     # window exposes the same hourly records immediately, with the identical
