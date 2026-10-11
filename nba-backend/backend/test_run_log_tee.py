@@ -305,11 +305,16 @@ def test_torn_plain_line_waits_for_its_terminator(tmp_path):
     """Content without \r reassembles byte-for-byte across write calls —
     multi-arg prints never split across lines."""
     console = io.StringIO()
-    tee = run_log_tee._Tee(console, open(tmp_path / "t.txt", "w"))
+    # utf-8, like install_run_log_tee's own open(): on a cp1252 Windows
+    # box the default-locale file raises UnicodeEncodeError on "✅" and
+    # write()'s disk-failure guard swallows it — the line would vanish
+    # silently and this pin would assert against an empty file.
+    tee = run_log_tee._Tee(console,
+                           open(tmp_path / "t.txt", "w", encoding="utf-8"))
     tee.write("  ✅ 3461 games, ")
     tee.write("71 features, 56 folds\n")
     tee.close()
-    assert (tmp_path / "t.txt").read_text() == (
+    assert (tmp_path / "t.txt").read_text(encoding="utf-8") == (
         "  ✅ 3461 games, 71 features, 56 folds\n")
 
 

@@ -105,7 +105,8 @@ def _psi(current, baseline, bins: int = 10) -> float:
 
 def drift_windows(decided: pd.DataFrame, days: int = 7,
                   min_baseline: int = 250, min_current: int = 30,
-                  max_days: int = 45) -> tuple[pd.DataFrame, pd.DataFrame]:
+                  max_days: int = 45,
+                  as_of: Any | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The two windows drift is measured on: a recent tail and its prior.
 
     Mirrors MLB's slice: ``current`` is the last ``days`` days of decided
@@ -157,7 +158,48 @@ def drift_windows(decided: pd.DataFrame, days: int = 7,
         if len(prior) else prior
     baseline = _composition_matched_baseline(baseline, prior, current,
                                              min_baseline)
+    _log_stale_window(gd, current, as_of)
     return baseline, current
+
+
+#: Beyond this age the "current" drift window is FROZEN, not current: no
+#: decided game has landed for two weeks, so every status describes the
+#: previous season's tail — not the slate being served.  The in-season
+#: calendar never reaches it (the All-Star break is ~1 week; the longest
+#: gap between decided NBA games is days), so the line fires only when the
+#: off-season — or an ingest outage — has stopped the clock.  2026-10-11
+#: run-log review: the delivered log printed the same 10 playoff-tail
+#: ALERTs it had printed for weeks with nothing saying the window's newest
+#: row was 2026-06-13; a reader reasonably took "10 alerts" as a statement
+#: about the October slate it did not measure.
+DRIFT_STALE_DAYS = 14
+
+
+def _log_stale_window(gd: pd.Series, current: pd.DataFrame,
+                      as_of: Any | None) -> None:
+    """Disclose a drift window whose newest decided game is old.
+
+    Disclosure only — statuses, windows and thresholds are untouched.  The
+    warning states the window's end, its age, and the one fact a reader
+    needs: recurring alerts on a stale window repeat the same frozen
+    comparison and are not new signal (off-season roster and trade movement
+    is UNMEASURED until play resumes).
+    """
+    if not gd.notna().any() or not len(current):
+        return
+    newest = gd.max()
+    as_of_ts = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now()
+    age = (as_of_ts.normalize() - newest.normalize()).days
+    if age <= DRIFT_STALE_DAYS:
+        return
+    logger.warning(
+        "drift window: newest decided game is %s — %d day(s) before this "
+        "run (staleness floor %d); statuses measure that frozen %d-row "
+        "tail against its baseline, NOT the slate being served. Off-season "
+        "roster and trade movement is UNMEASURED until play resumes, and "
+        "recurring alerts repeat the same frozen comparison — they are not "
+        "new signal",
+        newest.date(), age, DRIFT_STALE_DAYS, len(current))
 
 
 #: The covariate whose composition shift between windows is KNOWN seasonal
