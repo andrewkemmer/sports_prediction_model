@@ -1,320 +1,162 @@
   📝 Run log tee: /kaggle/working/sports_prediction_model/nfl-backend/data_delivery/nfl_pipeline_run_log.txt (one rolling master file, overwritten every run)
-2026-10-11 05:20:05,679 INFO nflverse date window: 2016-01-01..2026-10-11 (seasons 2016..2026)
-2026-10-11 05:20:05,679 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
-2026-10-11 05:20:05,702 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
+2026-10-11 15:49:49,382 INFO nflverse date window: 2016-01-01..2026-10-11 (seasons 2016..2026)
+2026-10-11 15:49:49,382 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
+2026-10-11 15:49:49,407 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 2 — nflverse ingestion
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 05:20:08,044 INFO schedule rows (date window): 2839
-2026-10-11 05:20:08,387 INFO PIT weather archive: 111 window(s) x 4 batch(es) of 15 stadiums = 444 request batches
-2026-10-11 05:30:35,540 WARNING Open-Meteo 429; retrying in 1.1s (1/6)
-2026-10-11 05:30:37,096 WARNING Open-Meteo 429; retrying in 2.3s (2/6)
-2026-10-11 05:30:39,831 WARNING Open-Meteo 429; retrying in 4.3s (3/6)
-2026-10-11 05:30:44,528 WARNING Open-Meteo 429; retrying in 8.5s (4/6)
-2026-10-11 05:30:53,435 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:31:10,165 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:31:42,661 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:31:44,103 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:31:45,869 WARNING Open-Meteo 429; retrying in 2.5s (2/6)
-2026-10-11 05:31:48,769 WARNING Open-Meteo 429; retrying in 4.0s (3/6)
-2026-10-11 05:31:53,251 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
-2026-10-11 05:32:01,936 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
-2026-10-11 05:32:18,543 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:32:51,113 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:32:52,537 WARNING Open-Meteo 429; retrying in 1.1s (1/6)
-2026-10-11 05:32:54,065 WARNING Open-Meteo 429; retrying in 2.3s (2/6)
-2026-10-11 05:32:56,769 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
-2026-10-11 05:33:01,315 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:33:10,135 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:33:26,701 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:33:59,391 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:34:00,816 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:34:02,653 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:34:05,321 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:34:09,926 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:34:18,757 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
-2026-10-11 05:34:35,369 WARNING Open-Meteo 429; retrying in 32.2s (6/6)
-2026-10-11 05:35:07,977 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:35:09,401 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:35:11,171 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:35:14,032 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
-2026-10-11 05:35:18,572 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:35:27,351 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:35:43,919 WARNING Open-Meteo 429; retrying in 32.4s (6/6)
-2026-10-11 05:36:16,791 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:36:18,229 WARNING Open-Meteo 429; retrying in 1.1s (1/6)
-2026-10-11 05:36:19,730 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:36:22,373 WARNING Open-Meteo 429; retrying in 4.3s (3/6)
-2026-10-11 05:36:27,140 WARNING Open-Meteo 429; retrying in 8.5s (4/6)
-2026-10-11 05:36:36,018 WARNING Open-Meteo 429; retrying in 16.4s (5/6)
-2026-10-11 05:36:52,798 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:37:25,332 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:37:26,772 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:37:28,474 WARNING Open-Meteo 429; retrying in 2.5s (2/6)
-2026-10-11 05:37:31,405 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:37:36,308 WARNING Open-Meteo 429; retrying in 8.2s (4/6)
-2026-10-11 05:37:44,967 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
-2026-10-11 05:38:01,594 WARNING Open-Meteo 429; retrying in 32.2s (6/6)
-2026-10-11 05:38:34,225 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:38:35,650 WARNING Open-Meteo 429; retrying in 1.5s (1/6)
-2026-10-11 05:38:37,567 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:38:40,436 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:38:45,078 WARNING Open-Meteo 429; retrying in 8.1s (4/6)
-2026-10-11 05:38:53,588 WARNING Open-Meteo 429; retrying in 16.0s (5/6)
-2026-10-11 05:39:10,030 WARNING Open-Meteo 429; retrying in 32.2s (6/6)
-2026-10-11 05:39:42,694 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:39:44,119 WARNING Open-Meteo 429; retrying in 1.2s (1/6)
-2026-10-11 05:39:45,722 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:39:48,403 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
-2026-10-11 05:39:52,878 WARNING Open-Meteo 429; retrying in 8.1s (4/6)
-2026-10-11 05:40:01,399 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:40:17,875 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:40:50,596 WARNING Open-Meteo batch failed (2025-11-06..2025-11-19, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-06&end_date=2025-11-19 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:40:52,019 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:40:53,707 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
-2026-10-11 05:40:56,249 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:41:01,154 WARNING Open-Meteo 429; retrying in 8.1s (4/6)
-2026-10-11 05:41:09,718 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:41:26,285 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:41:59,035 WARNING Open-Meteo batch failed (2025-11-06..2025-11-19, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-06&end_date=2025-11-19 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:42:00,477 WARNING Open-Meteo 429; retrying in 1.2s (1/6)
-2026-10-11 05:42:02,097 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
-2026-10-11 05:42:04,628 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
-2026-10-11 05:42:09,178 WARNING Open-Meteo 429; retrying in 8.0s (4/6)
-2026-10-11 05:42:17,613 WARNING Open-Meteo 429; retrying in 16.4s (5/6)
-2026-10-11 05:42:34,400 WARNING Open-Meteo 429; retrying in 32.4s (6/6)
-2026-10-11 05:43:07,182 WARNING Open-Meteo batch failed (2025-11-06..2025-11-19, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-06&end_date=2025-11-19 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:43:08,606 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:43:10,463 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:43:13,127 WARNING Open-Meteo 429; retrying in 4.3s (3/6)
-2026-10-11 05:43:17,803 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:43:26,594 WARNING Open-Meteo 429; retrying in 16.4s (5/6)
-2026-10-11 05:43:43,391 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:44:16,171 WARNING Open-Meteo batch failed (2025-11-06..2025-11-19, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-06&end_date=2025-11-19 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:44:17,594 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:44:19,348 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:44:22,030 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:44:26,645 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:44:35,495 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:44:52,191 WARNING Open-Meteo 429; retrying in 32.0s (6/6)
-2026-10-11 05:45:24,619 WARNING Open-Meteo batch failed (2025-11-20..2025-12-03, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-20&end_date=2025-12-03 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:45:26,044 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:45:27,850 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
-2026-10-11 05:45:30,354 WARNING Open-Meteo 429; retrying in 4.3s (3/6)
-2026-10-11 05:45:35,068 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
-2026-10-11 05:45:43,809 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
-2026-10-11 05:46:00,398 WARNING Open-Meteo 429; retrying in 32.0s (6/6)
-2026-10-11 05:46:32,822 WARNING Open-Meteo batch failed (2025-11-20..2025-12-03, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-20&end_date=2025-12-03 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:46:34,247 WARNING Open-Meteo 429; retrying in 1.1s (1/6)
-2026-10-11 05:46:35,724 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:46:38,516 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:46:43,431 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
-2026-10-11 05:46:52,150 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:47:08,835 WARNING Open-Meteo 429; retrying in 32.2s (6/6)
-2026-10-11 05:47:41,470 WARNING Open-Meteo batch failed (2025-11-20..2025-12-03, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-20&end_date=2025-12-03 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:47:42,894 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:47:44,728 WARNING Open-Meteo 429; retrying in 2.5s (2/6)
-2026-10-11 05:47:47,639 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
-2026-10-11 05:47:52,131 WARNING Open-Meteo 429; retrying in 8.2s (4/6)
-2026-10-11 05:48:00,732 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
-2026-10-11 05:48:17,319 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:48:50,038 WARNING Open-Meteo batch failed (2025-11-20..2025-12-03, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-20&end_date=2025-12-03 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:48:51,463 WARNING Open-Meteo 429; retrying in 1.0s (1/6)
-2026-10-11 05:48:52,963 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:48:55,555 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:49:00,209 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:49:09,045 WARNING Open-Meteo 429; retrying in 16.5s (5/6)
-2026-10-11 05:49:25,945 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:49:58,438 WARNING Open-Meteo batch failed (2025-12-04..2025-12-17, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-04&end_date=2025-12-17 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:49:59,863 WARNING Open-Meteo 429; retrying in 1.2s (1/6)
-2026-10-11 05:50:01,460 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:50:04,106 WARNING Open-Meteo 429; retrying in 4.4s (3/6)
-2026-10-11 05:50:08,978 WARNING Open-Meteo 429; retrying in 8.2s (4/6)
-2026-10-11 05:50:17,622 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:50:34,155 WARNING Open-Meteo 429; retrying in 32.4s (6/6)
-2026-10-11 05:51:07,009 WARNING Open-Meteo batch failed (2025-12-04..2025-12-17, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-04&end_date=2025-12-17 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:51:08,435 WARNING Open-Meteo 429; retrying in 1.1s (1/6)
-2026-10-11 05:51:10,001 WARNING Open-Meteo 429; retrying in 2.5s (2/6)
-2026-10-11 05:51:12,935 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:51:17,547 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:51:26,360 WARNING Open-Meteo 429; retrying in 16.4s (5/6)
-2026-10-11 05:51:43,141 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:52:15,668 WARNING Open-Meteo batch failed (2025-12-04..2025-12-17, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-04&end_date=2025-12-17 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:52:17,093 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:52:18,894 WARNING Open-Meteo 429; retrying in 2.3s (2/6)
-2026-10-11 05:52:21,641 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:52:26,540 WARNING Open-Meteo 429; retrying in 8.4s (4/6)
-2026-10-11 05:52:35,362 WARNING Open-Meteo 429; retrying in 16.5s (5/6)
-2026-10-11 05:52:52,280 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:53:24,778 WARNING Open-Meteo batch failed (2025-12-04..2025-12-17, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-04&end_date=2025-12-17 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:53:26,231 WARNING Open-Meteo 429; retrying in 1.5s (1/6)
-2026-10-11 05:53:28,129 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:53:30,984 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:53:35,629 WARNING Open-Meteo 429; retrying in 8.1s (4/6)
-2026-10-11 05:53:44,200 WARNING Open-Meteo 429; retrying in 16.0s (5/6)
-2026-10-11 05:54:00,637 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:54:33,163 WARNING Open-Meteo batch failed (2025-12-18..2025-12-31, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-18&end_date=2025-12-31 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:54:34,603 WARNING Open-Meteo 429; retrying in 1.0s (1/6)
-2026-10-11 05:54:36,054 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:54:38,883 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:54:43,459 WARNING Open-Meteo 429; retrying in 8.0s (4/6)
-2026-10-11 05:54:51,910 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:55:08,680 WARNING Open-Meteo 429; retrying in 32.1s (6/6)
-2026-10-11 05:55:41,185 WARNING Open-Meteo batch failed (2025-12-18..2025-12-31, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-18&end_date=2025-12-31 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 05:55:42,612 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:55:44,327 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
-2026-10-11 05:55:46,931 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:55:51,831 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
-2026-10-11 05:56:00,557 WARNING Open-Meteo 429; retrying in 16.1s (5/6)
-2026-10-11 05:56:17,172 WARNING Open-Meteo 429; retrying in 32.5s (6/6)
-2026-10-11 05:56:50,086 WARNING Open-Meteo batch failed (2025-12-18..2025-12-31, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-18&end_date=2025-12-31 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 05:56:51,511 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:56:53,333 WARNING Open-Meteo 429; retrying in 2.5s (2/6)
-2026-10-11 05:56:56,215 WARNING Open-Meteo 429; retrying in 4.0s (3/6)
-2026-10-11 05:57:00,678 WARNING Open-Meteo 429; retrying in 8.0s (4/6)
-2026-10-11 05:57:09,137 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:57:25,868 WARNING Open-Meteo 429; retrying in 32.5s (6/6)
-2026-10-11 05:57:58,761 WARNING Open-Meteo batch failed (2025-12-18..2025-12-31, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-12-18&end_date=2025-12-31 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 05:58:00,185 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
-2026-10-11 05:58:01,883 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:58:04,693 WARNING Open-Meteo 429; retrying in 4.5s (3/6)
-2026-10-11 05:58:09,601 WARNING Open-Meteo 429; retrying in 8.0s (4/6)
-2026-10-11 05:58:18,074 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:58:34,794 WARNING Open-Meteo 429; retrying in 32.3s (6/6)
-2026-10-11 05:59:07,557 WARNING Open-Meteo batch failed (2026-01-01..2026-01-14, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2026-01-01&end_date=2026-01-14 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 05:59:08,981 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
-2026-10-11 05:59:10,817 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
-2026-10-11 05:59:13,647 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
-2026-10-11 05:59:18,267 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
-2026-10-11 05:59:27,034 WARNING Open-Meteo 429; retrying in 16.3s (5/6)
-2026-10-11 05:59:43,767 WARNING Open-Meteo 429; retrying in 32.0s (6/6)
-PIT weather archive batches: 100%|##########| 444/444 [40:39<00:00,  5.49s/it]
-2026-10-11 06:00:47,750 INFO PIT weather recent: fetching 2026-07-12..2026-10-11 observed (forecast endpoint) for 50 stadiums
-2026-10-11 06:01:50,219 INFO PIT weather top-up: 126 game(s) still missing after the first pass — refetching the gaps only
-2026-10-11 06:01:50,219 INFO PIT weather archive: 7 window(s) x 2 batch(es) of 15 stadiums = 14 request batches
-PIT weather archive batches: 100%|##########| 14/14 [00:20<00:00,  1.48s/it]
-2026-10-11 06:02:12,356 INFO PIT weather: 2022/2022 eligible games available from strict pre-kickoff hourly records
-2026-10-11 06:02:12,405 INFO PIT weather rows: 2022
-2026-10-11 06:02:12,406 INFO ingestion window 2016-01-01 .. 2026-10-11 in 66 x 60-day chunks (MLB parity)
-2026-10-11 06:02:12,407 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
-2026-10-11 06:02:12,407 INFO loading pbp season 2016
-2026-10-11 06:02:13,453 INFO loading pbp season 2017
-2026-10-11 06:02:14,359 INFO loading pbp season 2018
-2026-10-11 06:02:15,277 INFO loading pbp season 2019
-2026-10-11 06:02:16,029 INFO loading pbp season 2020
-2026-10-11 06:02:16,781 INFO loading pbp season 2021
-2026-10-11 06:02:17,561 INFO loading pbp season 2022
-2026-10-11 06:02:18,365 INFO loading pbp season 2023
-2026-10-11 06:02:19,204 INFO loading pbp season 2024
-2026-10-11 06:02:19,944 INFO loading pbp season 2025
-2026-10-11 06:02:20,843 INFO loading pbp season 2026
-2026-10-11 06:02:21,295 INFO pbp rows: 495581
-2026-10-11 06:02:21,296 INFO loading player stats season 2015
-2026-10-11 06:02:21,474 INFO loading player stats season 2016
-2026-10-11 06:02:21,638 INFO loading player stats season 2017
-2026-10-11 06:02:21,817 INFO loading player stats season 2018
-2026-10-11 06:02:21,973 INFO loading player stats season 2019
-2026-10-11 06:02:22,116 INFO loading player stats season 2020
-2026-10-11 06:02:22,279 INFO loading player stats season 2021
-2026-10-11 06:02:22,473 INFO loading player stats season 2022
-2026-10-11 06:02:22,671 INFO loading player stats season 2023
-2026-10-11 06:02:22,832 INFO loading player stats season 2024
-2026-10-11 06:02:23,006 INFO loading player stats season 2025
-2026-10-11 06:02:23,167 INFO loading player stats season 2026
-2026-10-11 06:02:23,232 INFO ngs published from 2016 — skipping [2015] (documented window)
-2026-10-11 06:02:23,233 INFO loading ngs passing season 2016
-2026-10-11 06:02:23,341 INFO loading ngs rushing season 2016
-2026-10-11 06:02:23,453 INFO loading ngs receiving season 2016
-2026-10-11 06:02:23,589 INFO loading ngs passing season 2017
-2026-10-11 06:02:23,596 INFO loading ngs rushing season 2017
-2026-10-11 06:02:23,603 INFO loading ngs receiving season 2017
-2026-10-11 06:02:23,612 INFO loading ngs passing season 2018
-2026-10-11 06:02:23,619 INFO loading ngs rushing season 2018
-2026-10-11 06:02:23,626 INFO loading ngs receiving season 2018
-2026-10-11 06:02:23,635 INFO loading ngs passing season 2019
-2026-10-11 06:02:23,641 INFO loading ngs rushing season 2019
-2026-10-11 06:02:23,649 INFO loading ngs receiving season 2019
-2026-10-11 06:02:23,658 INFO loading ngs passing season 2020
-2026-10-11 06:02:23,665 INFO loading ngs rushing season 2020
-2026-10-11 06:02:23,673 INFO loading ngs receiving season 2020
-2026-10-11 06:02:23,681 INFO loading ngs passing season 2021
-2026-10-11 06:02:23,689 INFO loading ngs rushing season 2021
-2026-10-11 06:02:23,696 INFO loading ngs receiving season 2021
-2026-10-11 06:02:23,705 INFO loading ngs passing season 2022
-2026-10-11 06:02:23,713 INFO loading ngs rushing season 2022
-2026-10-11 06:02:23,720 INFO loading ngs receiving season 2022
-2026-10-11 06:02:23,729 INFO loading ngs passing season 2023
-2026-10-11 06:02:23,736 INFO loading ngs rushing season 2023
-2026-10-11 06:02:23,743 INFO loading ngs receiving season 2023
-2026-10-11 06:02:23,752 INFO loading ngs passing season 2024
-2026-10-11 06:02:23,758 INFO loading ngs rushing season 2024
-2026-10-11 06:02:23,765 INFO loading ngs receiving season 2024
-2026-10-11 06:02:23,773 INFO loading ngs passing season 2025
-2026-10-11 06:02:23,780 INFO loading ngs rushing season 2025
-2026-10-11 06:02:23,787 INFO loading ngs receiving season 2025
-2026-10-11 06:02:23,796 INFO loading ngs passing season 2026
-2026-10-11 06:02:23,802 INFO loading ngs rushing season 2026
-2026-10-11 06:02:23,807 INFO loading ngs receiving season 2026
-2026-10-11 06:02:23,822 INFO loading snap counts season 2013
-2026-10-11 06:02:23,996 INFO loading snap counts season 2014
-2026-10-11 06:02:24,175 INFO loading snap counts season 2015
-2026-10-11 06:02:24,333 INFO loading snap counts season 2016
-2026-10-11 06:02:24,484 INFO loading snap counts season 2017
-2026-10-11 06:02:24,632 INFO loading snap counts season 2018
-2026-10-11 06:02:24,810 INFO loading snap counts season 2019
-2026-10-11 06:02:24,971 INFO loading snap counts season 2020
-2026-10-11 06:02:25,129 INFO loading snap counts season 2021
-2026-10-11 06:02:25,299 INFO loading snap counts season 2022
-2026-10-11 06:02:25,455 INFO loading snap counts season 2023
-2026-10-11 06:02:25,602 INFO loading snap counts season 2024
-2026-10-11 06:02:25,753 INFO loading snap counts season 2025
-2026-10-11 06:02:25,925 INFO loading snap counts season 2026
-2026-10-11 06:02:26,057 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
-2026-10-11 06:02:26,058 INFO loading ftn charting season 2022
-2026-10-11 06:02:26,242 INFO loading ftn charting season 2023
-2026-10-11 06:02:26,377 INFO loading ftn charting season 2024
-2026-10-11 06:02:26,515 INFO loading ftn charting season 2025
-2026-10-11 06:02:26,684 INFO loading ftn charting season 2026
-2026-10-11 06:02:28,830 INFO loading weekly injury report season 2016
-2026-10-11 06:02:28,846 INFO loading weekly injury report season 2017
-2026-10-11 06:02:28,862 INFO loading weekly injury report season 2018
-2026-10-11 06:02:28,878 INFO loading weekly injury report season 2019
-2026-10-11 06:02:28,893 INFO loading weekly injury report season 2020
-2026-10-11 06:02:28,909 INFO loading weekly injury report season 2021
-2026-10-11 06:02:28,926 INFO loading weekly injury report season 2022
-2026-10-11 06:02:28,941 INFO loading weekly injury report season 2023
-2026-10-11 06:02:28,957 INFO loading weekly injury report season 2024
-2026-10-11 06:02:28,974 INFO loading weekly injury report season 2025
-2026-10-11 06:02:28,990 INFO loading weekly injury report season 2026
-2026-10-11 06:02:29,164 INFO loading weekly roster snapshot season 2016
-2026-10-11 06:02:29,383 INFO loading weekly roster snapshot season 2017
-2026-10-11 06:02:29,641 INFO loading weekly roster snapshot season 2018
-2026-10-11 06:02:29,898 INFO loading weekly roster snapshot season 2019
-2026-10-11 06:02:30,139 INFO loading weekly roster snapshot season 2020
-2026-10-11 06:02:30,354 INFO loading weekly roster snapshot season 2021
-2026-10-11 06:02:30,586 INFO loading weekly roster snapshot season 2022
-2026-10-11 06:02:30,821 INFO loading weekly roster snapshot season 2023
-2026-10-11 06:02:31,062 INFO loading weekly roster snapshot season 2024
-2026-10-11 06:02:31,313 INFO loading weekly roster snapshot season 2025
-2026-10-11 06:02:31,528 INFO loading weekly roster snapshot season 2026
-nflverse population (season/source units): 100%|##########| 108/108 [00:20<00:00,  5.26it/s]
-2026-10-11 06:02:32,950 INFO PIT injury designation rows: 49445
-2026-10-11 06:02:32,950 INFO weekly injury report rows: 56965 | player crosswalk rows: 22679
-2026-10-11 06:02:32,950 INFO weekly roster rows: 479331 | roster-unavailable rows: 131017
-2026-10-11 06:02:32,950 INFO player stats rows: 204385 | ngs rows: 25116
-2026-10-11 06:02:32,950 INFO snap count rows: 330676 | ftn charting rows: 196211
-2026-10-11 06:02:32,954 INFO decided games: warmup 267, core (OOF population) 2559
+2026-10-11 15:49:51,330 INFO schedule rows (date window): 2839
+2026-10-11 15:49:51,669 INFO PIT weather archive: 111 window(s) x 4 batch(es) of 15 stadiums = 444 request batches
+2026-10-11 15:50:56,695 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
+2026-10-11 15:50:58,082 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
+2026-10-11 15:51:00,200 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
+2026-10-11 15:51:59,798 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
+2026-10-11 15:52:55,585 WARNING Open-Meteo 429; retrying in 1.4s (1/6)
+2026-10-11 15:52:57,015 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
+2026-10-11 15:52:59,177 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
+2026-10-11 15:53:57,948 WARNING Open-Meteo 429; retrying in 1.3s (1/6)
+2026-10-11 15:53:59,351 WARNING Open-Meteo 429; retrying in 2.2s (2/6)
+2026-10-11 15:54:56,124 WARNING Open-Meteo 429; retrying in 1.2s (1/6)
+2026-10-11 15:54:57,383 WARNING Open-Meteo 429; retrying in 2.4s (2/6)
+2026-10-11 15:54:59,844 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
+2026-10-11 15:57:56,921 WARNING Open-Meteo 429; retrying in 1.2s (1/6)
+2026-10-11 15:57:58,217 WARNING Open-Meteo 429; retrying in 2.0s (2/6)
+2026-10-11 15:58:00,293 WARNING Open-Meteo 429; retrying in 4.2s (3/6)
+2026-10-11 15:58:26,035 WARNING Open-Meteo 429; retrying in 1.0s (1/6)
+2026-10-11 15:58:27,102 WARNING Open-Meteo 429; retrying in 2.1s (2/6)
+2026-10-11 15:58:29,248 WARNING Open-Meteo 429; retrying in 4.1s (3/6)
+2026-10-11 15:58:33,387 WARNING Open-Meteo 429; retrying in 8.3s (4/6)
+2026-10-11 15:58:41,789 WARNING Open-Meteo 429; retrying in 16.2s (5/6)
+2026-10-11 15:58:58,064 WARNING Open-Meteo 429; retrying in 32.2s (6/6)
+2026-10-11 15:59:30,329 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
+2026-10-11 15:59:31,330 WARNING Open-Meteo rate limited: cooling down 60s before the next request (consecutive dead batches: 1)
+PIT weather archive batches: 100%|##########| 444/444 [11:29<00:00,  1.55s/it]
+2026-10-11 16:01:21,658 INFO PIT weather recent: fetching 2026-07-12..2026-10-11 observed (forecast endpoint) for 50 stadiums
+2026-10-11 16:03:52,368 INFO PIT weather top-up: 9 game(s) still missing after the first pass — refetching the gaps only
+2026-10-11 16:03:52,368 INFO PIT weather archive: 1 window(s) x 1 batch(es) of 15 stadiums = 1 request batches
+PIT weather archive batches: 100%|##########| 1/1 [00:00<00:00, 10.65it/s]
+2026-10-11 16:03:53,697 INFO PIT weather: 2022/2022 eligible games available from strict pre-kickoff hourly records
+2026-10-11 16:03:53,731 INFO PIT weather rows: 2022
+2026-10-11 16:03:53,733 INFO ingestion window 2016-01-01 .. 2026-10-11 in 66 x 60-day chunks (MLB parity)
+2026-10-11 16:03:53,733 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
+2026-10-11 16:03:53,734 INFO loading pbp season 2016
+2026-10-11 16:03:55,126 INFO loading pbp season 2017
+2026-10-11 16:03:56,295 INFO loading pbp season 2018
+2026-10-11 16:03:57,810 INFO loading pbp season 2019
+2026-10-11 16:03:59,153 INFO loading pbp season 2020
+2026-10-11 16:04:00,178 INFO loading pbp season 2021
+2026-10-11 16:04:01,490 INFO loading pbp season 2022
+2026-10-11 16:04:03,147 INFO loading pbp season 2023
+2026-10-11 16:04:04,275 INFO loading pbp season 2024
+2026-10-11 16:04:05,326 INFO loading pbp season 2025
+2026-10-11 16:04:06,390 INFO loading pbp season 2026
+2026-10-11 16:04:06,928 INFO pbp rows: 495581
+2026-10-11 16:04:06,929 INFO loading player stats season 2015
+2026-10-11 16:04:07,245 INFO loading player stats season 2016
+2026-10-11 16:04:07,578 INFO loading player stats season 2017
+2026-10-11 16:04:07,892 INFO loading player stats season 2018
+2026-10-11 16:04:08,209 INFO loading player stats season 2019
+2026-10-11 16:04:08,502 INFO loading player stats season 2020
+2026-10-11 16:04:08,852 INFO loading player stats season 2021
+2026-10-11 16:04:09,176 INFO loading player stats season 2022
+2026-10-11 16:04:09,485 INFO loading player stats season 2023
+2026-10-11 16:04:09,824 INFO loading player stats season 2024
+2026-10-11 16:04:10,155 INFO loading player stats season 2025
+2026-10-11 16:04:10,662 INFO loading player stats season 2026
+2026-10-11 16:04:10,871 INFO ngs published from 2016 — skipping [2015] (documented window)
+2026-10-11 16:04:10,872 INFO loading ngs passing season 2016
+2026-10-11 16:04:11,142 INFO loading ngs rushing season 2016
+2026-10-11 16:04:11,411 INFO loading ngs receiving season 2016
+2026-10-11 16:04:11,696 INFO loading ngs passing season 2017
+2026-10-11 16:04:11,704 INFO loading ngs rushing season 2017
+2026-10-11 16:04:11,711 INFO loading ngs receiving season 2017
+2026-10-11 16:04:11,720 INFO loading ngs passing season 2018
+2026-10-11 16:04:11,727 INFO loading ngs rushing season 2018
+2026-10-11 16:04:11,733 INFO loading ngs receiving season 2018
+2026-10-11 16:04:11,741 INFO loading ngs passing season 2019
+2026-10-11 16:04:11,747 INFO loading ngs rushing season 2019
+2026-10-11 16:04:11,754 INFO loading ngs receiving season 2019
+2026-10-11 16:04:11,763 INFO loading ngs passing season 2020
+2026-10-11 16:04:11,769 INFO loading ngs rushing season 2020
+2026-10-11 16:04:11,776 INFO loading ngs receiving season 2020
+2026-10-11 16:04:11,784 INFO loading ngs passing season 2021
+2026-10-11 16:04:11,791 INFO loading ngs rushing season 2021
+2026-10-11 16:04:11,798 INFO loading ngs receiving season 2021
+2026-10-11 16:04:11,807 INFO loading ngs passing season 2022
+2026-10-11 16:04:11,814 INFO loading ngs rushing season 2022
+2026-10-11 16:04:11,821 INFO loading ngs receiving season 2022
+2026-10-11 16:04:11,829 INFO loading ngs passing season 2023
+2026-10-11 16:04:11,837 INFO loading ngs rushing season 2023
+2026-10-11 16:04:11,843 INFO loading ngs receiving season 2023
+2026-10-11 16:04:11,852 INFO loading ngs passing season 2024
+2026-10-11 16:04:11,859 INFO loading ngs rushing season 2024
+2026-10-11 16:04:11,866 INFO loading ngs receiving season 2024
+2026-10-11 16:04:11,875 INFO loading ngs passing season 2025
+2026-10-11 16:04:11,882 INFO loading ngs rushing season 2025
+2026-10-11 16:04:11,889 INFO loading ngs receiving season 2025
+2026-10-11 16:04:11,897 INFO loading ngs passing season 2026
+2026-10-11 16:04:11,903 INFO loading ngs rushing season 2026
+2026-10-11 16:04:11,909 INFO loading ngs receiving season 2026
+2026-10-11 16:04:11,925 INFO loading snap counts season 2013
+2026-10-11 16:04:12,222 INFO loading snap counts season 2014
+2026-10-11 16:04:12,528 INFO loading snap counts season 2015
+2026-10-11 16:04:12,993 INFO loading snap counts season 2016
+2026-10-11 16:04:13,320 INFO loading snap counts season 2017
+2026-10-11 16:04:13,617 INFO loading snap counts season 2018
+2026-10-11 16:04:13,896 INFO loading snap counts season 2019
+2026-10-11 16:04:14,187 INFO loading snap counts season 2020
+2026-10-11 16:04:14,476 INFO loading snap counts season 2021
+2026-10-11 16:04:14,779 INFO loading snap counts season 2022
+2026-10-11 16:04:15,093 INFO loading snap counts season 2023
+2026-10-11 16:04:15,394 INFO loading snap counts season 2024
+2026-10-11 16:04:15,713 INFO loading snap counts season 2025
+2026-10-11 16:04:16,023 INFO loading snap counts season 2026
+2026-10-11 16:04:16,342 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
+2026-10-11 16:04:16,342 INFO loading ftn charting season 2022
+2026-10-11 16:04:16,646 INFO loading ftn charting season 2023
+2026-10-11 16:04:16,944 INFO loading ftn charting season 2024
+2026-10-11 16:04:17,240 INFO loading ftn charting season 2025
+2026-10-11 16:04:17,546 INFO loading ftn charting season 2026
+2026-10-11 16:04:21,756 INFO loading weekly injury report season 2016
+2026-10-11 16:04:21,773 INFO loading weekly injury report season 2017
+2026-10-11 16:04:21,789 INFO loading weekly injury report season 2018
+2026-10-11 16:04:21,806 INFO loading weekly injury report season 2019
+2026-10-11 16:04:21,823 INFO loading weekly injury report season 2020
+2026-10-11 16:04:21,839 INFO loading weekly injury report season 2021
+2026-10-11 16:04:21,855 INFO loading weekly injury report season 2022
+2026-10-11 16:04:21,870 INFO loading weekly injury report season 2023
+2026-10-11 16:04:21,885 INFO loading weekly injury report season 2024
+2026-10-11 16:04:21,903 INFO loading weekly injury report season 2025
+2026-10-11 16:04:21,920 INFO loading weekly injury report season 2026
+2026-10-11 16:04:22,392 INFO loading weekly roster snapshot season 2016
+2026-10-11 16:04:22,761 INFO loading weekly roster snapshot season 2017
+2026-10-11 16:04:23,338 INFO loading weekly roster snapshot season 2018
+2026-10-11 16:04:23,772 INFO loading weekly roster snapshot season 2019
+2026-10-11 16:04:24,189 INFO loading weekly roster snapshot season 2020
+2026-10-11 16:04:24,592 INFO loading weekly roster snapshot season 2021
+2026-10-11 16:04:24,996 INFO loading weekly roster snapshot season 2022
+2026-10-11 16:04:25,437 INFO loading weekly roster snapshot season 2023
+2026-10-11 16:04:25,848 INFO loading weekly roster snapshot season 2024
+2026-10-11 16:04:26,268 INFO loading weekly roster snapshot season 2025
+2026-10-11 16:04:26,672 INFO loading weekly roster snapshot season 2026
+nflverse population (season/source units): 100%|##########| 108/108 [00:34<00:00,  3.12it/s]
+2026-10-11 16:04:28,381 INFO PIT injury designation rows: 49445
+2026-10-11 16:04:28,381 INFO weekly injury report rows: 56969 | player crosswalk rows: 22688
+2026-10-11 16:04:28,381 INFO weekly roster rows: 479331 | roster-unavailable rows: 131030
+2026-10-11 16:04:28,381 INFO player stats rows: 204385 | ngs rows: 25116
+2026-10-11 16:04:28,381 INFO snap count rows: 330676 | ftn charting rows: 196211
+2026-10-11 16:04:28,385 INFO decided games: warmup 267, core (OOF population) 2559
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 3 — point-in-time feature engine
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:02:40,548 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-10-11 06:02:40,784 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-10-11 06:02:59,414 INFO feature frame: 2826 decided games, 267 columns
-2026-10-11 06:02:59,457 INFO feature coverage:
+2026-10-11 16:04:36,724 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-10-11 16:04:36,962 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-10-11 16:04:56,416 INFO feature frame: 2826 decided games, 267 columns
+2026-10-11 16:04:56,473 INFO feature coverage:
                    feature  n_games  coverage_pct        mean        std
                   elo_diff     2826        100.00    0.548804 101.612820
               win_pct_diff     2826         99.43    0.000362   0.283845
@@ -386,14 +228,14 @@ pbp_air_yards_att_ewm_away     2826         99.43    7.980180   1.112859
           def_key_out_away     2826        100.00    0.859165   0.347913
           def_key_out_diff     2826        100.00   -0.006369   0.485501
                    is_home     2826        100.00    1.000000   0.000000
-2026-10-11 06:02:59,473 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
+2026-10-11 16:04:56,494 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 4 — walk-forward fold generation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:02:59,765 WARNING OOF validation population is thin on 93 of 200 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +88 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
-2026-10-11 06:02:59,773 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
+2026-10-11 16:04:56,793 WARNING OOF validation population is thin on 93 of 200 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +88 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
+2026-10-11 16:04:56,800 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
   eligible settled games : 2826
   game date range        : 2016-09-08 .. 2026-10-08
   warmup seasons         : [2016] (training-only)
@@ -420,88 +262,88 @@ pbp_air_yards_att_ewm_away     2826         99.43    7.980180   1.112859
     fold 197  train_end=2026-09-21  val=[2026-09-24 .. 2026-09-30]  n_train= 2793  n_val=16
     fold 198  train_end=2026-09-28  val=[2026-10-01 .. 2026-10-07]  n_train= 2809  n_val=16
     fold 199  train_end=2026-10-05  val=[2026-10-08 .. 2026-10-14]  n_train= 2825  n_val=1
-2026-10-11 06:02:59,871 INFO folds: {"n_folds": 200, "first_val_start": "2017-09-07", "last_val_end": "2026-10-14", "min_train": 267, "max_train": 2825, "total_val_games": 2559, "n_candidates": 200, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 93, "provisional_games": 870, "postseason_windows": 36, "min_val_fold_games": 15}
+2026-10-11 16:04:56,892 INFO folds: {"n_folds": 200, "first_val_start": "2017-09-07", "last_val_end": "2026-10-14", "min_train": 267, "max_train": 2825, "total_val_games": 2559, "n_candidates": 200, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 93, "provisional_games": 870, "postseason_windows": 36, "min_val_fold_games": 15}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 5 — moneyline walk-forward OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:03:35,164 INFO moneyline OOF fold 25/200
-2026-10-11 06:04:03,986 INFO moneyline OOF fold 50/200
-2026-10-11 06:04:37,185 INFO moneyline OOF fold 75/200
-2026-10-11 06:05:14,096 INFO moneyline OOF fold 100/200
-2026-10-11 06:05:52,096 INFO moneyline OOF fold 125/200
-2026-10-11 06:06:33,495 INFO moneyline OOF fold 150/200
-2026-10-11 06:07:14,963 INFO moneyline OOF fold 175/200
-2026-10-11 06:07:57,649 INFO moneyline OOF fold 200/200
-2026-10-11 06:07:57,672 INFO Published blend: 2559 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '42.6%', 'lightgbm': '19.2%', 'xgboost': '38.2%'} replay only in p_ensemble_retrospective (not OOF)
-2026-10-11 06:07:57,673 INFO moneyline OOF: 2559 scored row(s), 1689 grading / 111 postseason / 870 provisional
-moneyline OOF folds: 100%|##########| 200/200 [04:57<00:00,  1.49s/it]
-2026-10-11 06:07:57,682 INFO moneyline OOF rows: 2559; adaptive weights: {"elasticnet": 0.426, "lightgbm": 0.192, "xgboost": 0.382}
+2026-10-11 16:05:33,767 INFO moneyline OOF fold 25/200
+2026-10-11 16:06:08,556 INFO moneyline OOF fold 50/200
+2026-10-11 16:06:48,653 INFO moneyline OOF fold 75/200
+2026-10-11 16:07:31,030 INFO moneyline OOF fold 100/200
+2026-10-11 16:08:17,605 INFO moneyline OOF fold 125/200
+2026-10-11 16:09:05,973 INFO moneyline OOF fold 150/200
+2026-10-11 16:09:55,838 INFO moneyline OOF fold 175/200
+2026-10-11 16:10:48,660 INFO moneyline OOF fold 200/200
+2026-10-11 16:10:48,685 INFO Published blend: 2559 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '42.6%', 'lightgbm': '19.2%', 'xgboost': '38.2%'} replay only in p_ensemble_retrospective (not OOF)
+2026-10-11 16:10:48,687 INFO moneyline OOF: 2559 scored row(s), 1689 grading / 111 postseason / 870 provisional
+moneyline OOF folds: 100%|##########| 200/200 [05:51<00:00,  1.76s/it]
+2026-10-11 16:10:48,696 INFO moneyline OOF rows: 2559; adaptive weights: {"elasticnet": 0.426, "lightgbm": 0.192, "xgboost": 0.382}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 6-7 — margin/total distribution OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-distribution OOF folds: 100%|##########| 200/200 [01:02<00:00,  3.19it/s]
-2026-10-11 06:09:00,306 INFO calibrated NB dispersion: alpha_home 0.117803, alpha_away 0.137181
+distribution OOF folds: 100%|##########| 200/200 [01:19<00:00,  2.51it/s]
+2026-10-11 16:12:08,529 INFO calibrated NB dispersion: alpha_home 0.117803, alpha_away 0.137181
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 8 — calibration
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:09:00,844 INFO prequential per-fold calibration: 0 fitted, 200 identity
-2026-10-11 06:09:00,871 INFO oof blocks: {"oof_regular": {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6356107660455486, "logloss": 0.6338657250918408, "brier": 0.22102969004367018, "ece": 0.0416681407785704, "sufficient": true}, "oof_provisional": {"n": 870, "auc": 0.6829273486074439, "logloss": 0.6386650432676292, "brier": 0.22391354512555978, "ece": 0.030091995947182492, "sufficient": true}, "oof_all": {"n": 2559, "auc": 0.6938735542992277, "logloss": 0.631955055203228, "brier": 0.22087725012544532, "ece": 0.025110563366061944, "sufficient": true}}
-2026-10-11 06:09:00,876 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
+2026-10-11 16:12:09,047 INFO prequential per-fold calibration: 0 fitted, 200 identity
+2026-10-11 16:12:09,074 INFO oof blocks: {"oof_regular": {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6356107660455486, "logloss": 0.6338657250918408, "brier": 0.22102969004367018, "ece": 0.0416681407785704, "sufficient": true}, "oof_provisional": {"n": 870, "auc": 0.6829273486074439, "logloss": 0.6386650432676292, "brier": 0.22391354512555978, "ece": 0.030091995947182492, "sufficient": true}, "oof_all": {"n": 2559, "auc": 0.6938735542992277, "logloss": 0.631955055203228, "brier": 0.22087725012544532, "ece": 0.025110563366061944, "sufficient": true}}
+2026-10-11 16:12:09,081 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 9 — evaluation / diagnostics
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:09:00,888 INFO moneyline OOF raw:    {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284} (causal rolling blend)
-2026-10-11 06:09:00,894 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1689, "auc": 0.7008421284889492, "logloss": 0.6273500207449958, "brier": 0.2187711482492624, "ece": 0.03375075692448978}
-2026-10-11 06:09:00,894 INFO moneyline OOF calib:  {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
-2026-10-11 06:09:00,894 INFO serving calibrator: identity (raw blend)
-2026-10-11 06:09:00,910 INFO   member xgboost       w=0.382 auc=0.6963 logloss=0.6300 brier=0.2198
-2026-10-11 06:09:00,911 INFO   member lightgbm      w=0.192 auc=0.6940 logloss=0.6314 brier=0.2205
-2026-10-11 06:09:00,911 INFO   member elasticnet    w=0.426 auc=0.6980 logloss=0.6297 brier=0.2199
-2026-10-11 06:09:08,039 INFO run-line OOF:  {"n": 2471, "n_pushes": 88, "logscore": 0.692680944454357, "brier": 0.24976692169162282, "ece_cover": 0.010362606232294616}
-2026-10-11 06:09:08,039 INFO totals OOF:    {"n": 2476, "n_pushes": 83, "logscore": 0.6928317907181035, "brier": 0.24984231169224555, "ece_cover": 0.024064822294022636}
+2026-10-11 16:12:09,093 INFO moneyline OOF raw:    {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284} (causal rolling blend)
+2026-10-11 16:12:09,099 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1689, "auc": 0.7008421284889492, "logloss": 0.6273500207449958, "brier": 0.2187711482492624, "ece": 0.03375075692448978}
+2026-10-11 16:12:09,099 INFO moneyline OOF calib:  {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
+2026-10-11 16:12:09,099 INFO serving calibrator: identity (raw blend)
+2026-10-11 16:12:09,117 INFO   member xgboost       w=0.382 auc=0.6963 logloss=0.6300 brier=0.2198
+2026-10-11 16:12:09,117 INFO   member lightgbm      w=0.192 auc=0.6940 logloss=0.6314 brier=0.2205
+2026-10-11 16:12:09,117 INFO   member elasticnet    w=0.426 auc=0.6980 logloss=0.6297 brier=0.2199
+2026-10-11 16:12:17,217 INFO run-line OOF:  {"n": 2471, "n_pushes": 88, "logscore": 0.692680944454357, "brier": 0.24976692169162282, "ece_cover": 0.010362606232294616}
+2026-10-11 16:12:17,217 INFO totals OOF:    {"n": 2476, "n_pushes": 83, "logscore": 0.6928317907181035, "brier": 0.24984231169224555, "ece_cover": 0.024064822294022636}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 10 — final full-history refit
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.13s/it]
-2026-10-11 06:09:11,433 INFO final refit: 3 members + run-line regressors on 2826 games
+final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.36s/it]
+2026-10-11 16:12:21,144 INFO final refit: 3 members + run-line regressors on 2826 games
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 11 — current-slate serving
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:09:19,294 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-10-11 06:09:19,527 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-10-11 06:09:39,857 INFO slate games: 13
-2026-10-11 06:09:39,857 INFO markets: Monte-Carlo distribution over 2559 OOF game(s), MC_DRAWS=10000
-2026-10-11 06:09:54,944 INFO markets: OOF market rows built in 15.1s
-2026-10-11 06:09:54,944 INFO markets: prior-fold market calibration start (2559 OOF row(s))
-2026-10-11 06:12:41,613 INFO markets: prior-fold market calibration applied in 166.7s (2559 OOF row(s))
-2026-10-11 06:12:41,613 INFO RFE: not run (NFL_RFE_FORCE not set)
+2026-10-11 16:12:29,797 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-10-11 16:12:30,058 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-10-11 16:12:49,479 INFO slate games: 13
+2026-10-11 16:12:49,480 INFO markets: Monte-Carlo distribution over 2559 OOF game(s), MC_DRAWS=10000
+2026-10-11 16:13:07,652 INFO markets: OOF market rows built in 18.2s
+2026-10-11 16:13:07,652 INFO markets: prior-fold market calibration start (2559 OOF row(s))
+2026-10-11 16:15:54,856 INFO markets: prior-fold market calibration applied in 167.2s (2559 OOF row(s))
+2026-10-11 16:15:54,856 INFO RFE: not run (NFL_RFE_FORCE not set)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 12 — artifact persistence
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:12:41,957 INFO cards history store: 2559 rows (0 added this run) -> nfl_production_cards_history.csv
-2026-10-11 06:12:42,036 INFO dated board snapshots: 1 date(s) -> nfl_board_20261011.csv
-2026-10-11 06:12:53,163 INFO NFL SHAP attributions written for 13 games
-2026-10-11 06:12:53,165 INFO SHAP attribution cards: 13 written this run (224 on disk, all retained)
+2026-10-11 16:15:55,378 INFO cards history store: 2559 rows (0 added this run) -> nfl_production_cards_history.csv
+2026-10-11 16:15:55,425 INFO dated board snapshots: 1 date(s) -> nfl_board_20261011.csv
+2026-10-11 16:16:05,870 INFO NFL SHAP attributions written for 13 games
+2026-10-11 16:16:05,872 INFO SHAP attribution cards: 13 written this run (224 on disk, all retained)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 13 — monitoring
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:12:53,848 INFO Feature drift [moneyline]: 70 features, 0 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
+2026-10-11 16:16:06,653 INFO Feature drift [moneyline]: 70 features, 0 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
   return hit["is_first"].fillna(False).to_numpy() & valid
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
@@ -550,7 +392,7 @@ final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.13s/it]
   return hit["is_first"].fillna(False).to_numpy() & valid
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
   return hit["is_first"].fillna(False).to_numpy() & valid
-2026-10-11 06:12:54,957 INFO Feature drift [run-engine]: 70 features, 0 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
+2026-10-11 16:16:07,824 INFO Feature drift [run-engine]: 70 features, 0 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
   return hit["is_first"].fillna(False).to_numpy() & valid
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
@@ -599,58 +441,47 @@ final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.13s/it]
   return hit["is_first"].fillna(False).to_numpy() & valid
 /kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
   return hit["is_first"].fillna(False).to_numpy() & valid
-2026-10-11 06:12:55,836 INFO Rolling Brier: 554 points (2017-09-07 -> 2026-10-08), 2559 games, 0 sparse days excluded (<1 games/day), mean 0.2209
-2026-10-11 06:12:55,874 INFO monitoring: 70 features scored, 2 drift (ALERT/WARN), 0 insufficient-window, 2 drift structural, 0 coverage (STARVED/LOW), 14 coverage structural (documented policy)
-2026-10-11 06:12:55,875 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.338 (raw 0.408, null 0.069 med 0.053)
-2026-10-11 06:12:55,875 WARNING   drift   inj_ol_out_away                    ALERT        psi_adj=0.287 (raw 0.355, null 0.067 med 0.054)
-2026-10-11 06:12:55,875 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
-2026-10-11 06:12:55,875 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
-2026-10-11 06:12:55,875 WARNING   full tables: run_engine_feature_drift_20261011.csv, run_engine_feature_coverage_20261011.csv
+2026-10-11 16:16:08,922 INFO Rolling Brier: 554 points (2017-09-07 -> 2026-10-08), 2559 games, 0 sparse days excluded (<1 games/day), mean 0.2209
+2026-10-11 16:16:08,962 INFO monitoring: 70 features scored, 2 drift (ALERT/WARN), 0 insufficient-window, 2 drift structural, 0 coverage (STARVED/LOW), 14 coverage structural (documented policy)
+2026-10-11 16:16:08,963 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.338 (raw 0.408, null 0.069 med 0.053)
+2026-10-11 16:16:08,963 WARNING   drift   inj_ol_out_away                    ALERT        psi_adj=0.287 (raw 0.355, null 0.067 med 0.054)
+2026-10-11 16:16:08,963 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
+2026-10-11 16:16:08,963 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
+2026-10-11 16:16:08,963 WARNING   full tables: run_engine_feature_drift_20261011.csv, run_engine_feature_coverage_20261011.csv
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 14 — schema validation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 06:12:56,067 INFO gate ml_probability_bounds        PASS
-2026-10-11 06:12:56,067 INFO gate oof_population               PASS
-2026-10-11 06:12:56,068 INFO gate spread_grid_coherent         PASS
-2026-10-11 06:12:56,068 INFO gate totals_grid_coherent         PASS
-2026-10-11 06:12:56,068 INFO gate markets_has_slate            PASS
-2026-10-11 06:12:56,068 INFO gate slate_contract_fields        PASS
-2026-10-11 06:12:56,068 INFO gate fold_geometry                PASS
-2026-10-11 06:12:56,068 INFO gate season_openers_ingested      PASS
-2026-10-11 06:12:56,068 INFO artifacts written: 238
-2026-10-11 06:12:56,068 INFO   -> nfl_moneyline_v1_20261011.json
-2026-10-11 06:12:56,068 INFO   -> nfl_qb_matchup_20261011.json
-2026-10-11 06:12:56,069 INFO   -> nfl_calibration_20261011.json
-2026-10-11 06:12:56,069 INFO   -> nfl_predictions_history_20261011.csv
-2026-10-11 06:12:56,069 INFO   -> nfl_production_cards_history.csv
-2026-10-11 06:12:56,069 INFO   -> nfl_board_20261011.csv
-2026-10-11 06:12:56,069 INFO   -> nfl_power_rankings_20261011.csv
-2026-10-11 06:12:56,069 INFO   -> nfl_run_engine_markets_20261011.csv
-2026-10-11 06:12:56,069 INFO   -> nfl_run_engine_monitor_20261011.json
-2026-10-11 06:12:56,069 INFO   -> nfl_feature_v1_20261011.json
-2026-10-11 06:12:56,070 INFO   -> nfl_ensemble_latest.joblib
-2026-10-11 06:12:56,070 INFO   -> run_engine_feature_drift_20261011.csv
-2026-10-11 06:12:56,070 INFO   -> run_engine_feature_coverage_20261011.csv
-2026-10-11 06:12:56,070 INFO   -> nfl_model_monitor_20261011.json
-2026-10-11 06:12:56,070 INFO   -> nfl_shap_game_*.csv (224 per-game cards, e.g. nfl_shap_game_2026_04_ARI_NYG.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
-2026-10-11 06:12:56,116 INFO retention: kept 217 protected file(s)
-2026-10-11 06:12:56,117 INFO retention: kept 143 artifact(s) within the window (anchor 20261011 -10d)
-2026-10-11 06:12:56,117 INFO retention: pruned stale artifact nfl_calibration_20260930.json
-2026-10-11 06:12:56,117 INFO retention: pruned stale artifact nfl_feature_v1_20260930.json
-2026-10-11 06:12:56,117 INFO retention: pruned stale artifact nfl_model_monitor_20260930.json
-2026-10-11 06:12:56,118 INFO retention: pruned stale artifact nfl_moneyline_v1_20260930.json
-2026-10-11 06:12:56,118 INFO retention: pruned stale artifact nfl_power_rankings_20260930.csv
-2026-10-11 06:12:56,118 INFO retention: pruned stale artifact nfl_predictions_history_20260930.csv
-2026-10-11 06:12:56,118 INFO retention: pruned stale artifact nfl_qb_matchup_20260930.json
-2026-10-11 06:12:56,119 INFO retention: pruned stale artifact nfl_run_engine_markets_20260930.csv
-2026-10-11 06:12:56,119 INFO retention: pruned stale artifact nfl_run_engine_markets_20260930.meta.json
-2026-10-11 06:12:56,119 INFO retention: pruned stale artifact run_engine_feature_coverage_20260930.csv
-2026-10-11 06:12:56,119 INFO retention: pruned stale artifact run_engine_feature_drift_20260930.csv
-2026-10-11 06:12:56,119 INFO retention: removed 11 stale file(s)
+2026-10-11 16:16:09,162 INFO gate ml_probability_bounds        PASS
+2026-10-11 16:16:09,162 INFO gate oof_population               PASS
+2026-10-11 16:16:09,162 INFO gate spread_grid_coherent         PASS
+2026-10-11 16:16:09,162 INFO gate totals_grid_coherent         PASS
+2026-10-11 16:16:09,163 INFO gate markets_has_slate            PASS
+2026-10-11 16:16:09,163 INFO gate slate_contract_fields        PASS
+2026-10-11 16:16:09,163 INFO gate fold_geometry                PASS
+2026-10-11 16:16:09,163 INFO gate season_openers_ingested      PASS
+2026-10-11 16:16:09,163 INFO artifacts written: 238
+2026-10-11 16:16:09,163 INFO   -> nfl_moneyline_v1_20261011.json
+2026-10-11 16:16:09,163 INFO   -> nfl_qb_matchup_20261011.json
+2026-10-11 16:16:09,163 INFO   -> nfl_calibration_20261011.json
+2026-10-11 16:16:09,163 INFO   -> nfl_predictions_history_20261011.csv
+2026-10-11 16:16:09,163 INFO   -> nfl_production_cards_history.csv
+2026-10-11 16:16:09,164 INFO   -> nfl_board_20261011.csv
+2026-10-11 16:16:09,164 INFO   -> nfl_power_rankings_20261011.csv
+2026-10-11 16:16:09,164 INFO   -> nfl_run_engine_markets_20261011.csv
+2026-10-11 16:16:09,164 INFO   -> nfl_run_engine_monitor_20261011.json
+2026-10-11 16:16:09,164 INFO   -> nfl_feature_v1_20261011.json
+2026-10-11 16:16:09,164 INFO   -> nfl_ensemble_latest.joblib
+2026-10-11 16:16:09,164 INFO   -> run_engine_feature_drift_20261011.csv
+2026-10-11 16:16:09,164 INFO   -> run_engine_feature_coverage_20261011.csv
+2026-10-11 16:16:09,164 INFO   -> nfl_model_monitor_20261011.json
+2026-10-11 16:16:09,164 INFO   -> nfl_shap_game_*.csv (224 per-game cards, e.g. nfl_shap_game_2026_04_ARI_NYG.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
+2026-10-11 16:16:09,217 INFO retention: kept 217 protected file(s)
+2026-10-11 16:16:09,218 INFO retention: kept 143 artifact(s) within the window (anchor 20261011 -10d)
+2026-10-11 16:16:09,218 INFO retention: no stale files
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE — 238 artifacts in 3170s
+  DONE — 238 artifacts in 1580s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
