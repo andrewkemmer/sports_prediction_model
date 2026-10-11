@@ -73,7 +73,8 @@ CACHE_COLUMNS = [
 REQUIRED_CACHE_COLUMNS = frozenset(CACHE_COLUMNS)
 
 # Open-Meteo archive window: 14 days, matching MLB's _WEATHER_BATCH_DAYS
-# exactly (also 15 locations per batch and a 1.0s pause). 60 is MLB's
+# exactly (also 15 locations per batch; the PAUSE is deliberately slower
+# than MLB's 1.0s -- see _BATCH_PAUSE_SEC below).  60 is MLB's
 # SCHEDULE_CHUNK_DAYS -- the StatsAPI pull, not the weather pull -- and is
 # carried in ingestion.POPULATE_CHUNK_DAYS as the reporting interval. The two
 # constants answer different questions and are deliberately not the same
@@ -82,11 +83,22 @@ REQUIRED_CACHE_COLUMNS = frozenset(CACHE_COLUMNS)
 # proven one and wins on request size and rate-limit headroom, so it stays.
 _BATCH_DAYS = 14
 _BATCH_SIZE = 15
-_BATCH_PAUSE_SEC = 1.0
+# Sustained sweep pace.  The 2026-10-11 15:50 run measured the trip rate:
+# 444 batches in 689s (~39 requests/min with the old 1.0s pause) interleaved
+# 429 bursts roughly once a minute with clean stretches, even though
+# Open-Meteo's documented free-tier limits (600/min, 5000/hr, 10000/day) are
+# enforced PER IP -- and Kaggle's egress IP is shared with every other
+# tenant hitting the same endpoint, so the effective budget under burst is
+# far below the documented one.  2.0s between batches halves our contribution
+# (~23 req/min; 444 batches ~= 19 min, still well under the ~30-minute storm
+# cost this breaker replaced) and buys headroom on that shared IP.
+_BATCH_PAUSE_SEC = 2.0
 _RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
-# Open-Meteo enforces a PER-MINUTE quota.  Seven total attempts produce
-# 1/2/4/8/16/32-second waits (plus jitter), allowing a rate-limited batch to
-# survive a full quota reset instead of being lost after five quick retries.
+# Gateway errors (502/503/504) and network blips answer quick retries: the
+# MLB-parity ladder of 2**attempt + jitter across 7 attempts stays right for
+# those.  429 is NOT that kind of error -- see _get_with_retry: a 429 is a
+# quota minute closing, and only the two quick retries below are spent on
+# the marginal case before the cooldown/probe takes over.
 _RETRY_ATTEMPTS = 7
 _RETRY_BASE_SEC = 2.0
 _RETRY_JITTER_SEC = 0.5
@@ -117,6 +129,14 @@ _RETRY_JITTER_SEC = 0.5
 _RATE_LIMIT_COOLDOWN_SEC = 60.0
 _RATE_LIMIT_COOLDOWN_MAX_SEC = 240.0
 _RATE_LIMIT_PROBE_ATTEMPTS = 1
+# A 429 can be a MARGINAL moment (the quota nearly full, reopens in seconds)
+# or a closed minute.  The 15:50 run measured both: batches that recovered
+# after 2 retries waited ~3-9s in total, while quick retries fired into a
+# truly closed minute re-429'd every time -- 21 logged retries across 7
+# groups, one batch burning all 6 retries (~65s) and dying anyway.  Two quick retries
+# cover the marginal case at MLB's ladder shape; past them the window is
+# treated as shut: cool down, probe once.
+_429_QUICK_RETRIES = 2
 # 12 dead batches ~= 63s (first ladder) + 60 + 120 + 10 x 240 ~= 44 min of
 # quiet probing: above the 29-minute observed block, and past that point
 # every extra batch is minutes of waiting for a window that is not coming.
@@ -321,32 +341,53 @@ def _rate_limited_out() -> bool:
 
 def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
                     timeout: int = _REQUEST_TIMEOUT_SEC):
-    """GET with bounded exponential backoff for transient Open-Meteo errors.
+    """GET with bounded retries for transient Open-Meteo errors.
 
-    Retries ``_RETRIABLE_STATUSES`` (429/502/503/504) with ``2**attempt`` +
-    jitter, or the server's ``Retry-After`` when it sends one (whichever is
-    longer); every other status returns immediately (fail fast).  Network
-    exceptions use the same ladder and re-raise when it is spent.
+    Gateway errors (502/503/504) and network exceptions keep the MLB-parity
+    ladder: ``2**attempt`` + jitter across ``attempts`` rounds, or the
+    server's ``Retry-After`` when it sends one (whichever is longer); every
+    other status returns immediately (fail fast).  A retriable answer that
+    spends the ladder still counts as a dead batch for the streak below.
 
-    Rate-limit breaker (2026-10-11 run-log review): once a request has died
-    to a retriable status, the next call cools down for the quota window and
-    probes ONCE, consecutive dead batches accumulate toward the sweep abort,
-    and the per-run 429 budget bounds total rate-limited retries.  Any
-    definitive (non-retriable) response proves the endpoint answers again
-    and resets the streak.
+    429 is a quota event, not a blip (2026-10-11 second run-log review; the
+    15:50 run burned 21 logged 429 retries on 1/2/4s ladder waits that can only land
+    inside the same closed quota minute, and one batch burned all six
+    retries (~65s) and died anyway):
+
+      * up to ``_429_QUICK_RETRIES`` short retries ride out a MARGINAL
+        window (the observed recoveries answered within ~3-9s);
+      * a still-closed window OPENS the rate-limit streak and buys ONE
+        cooldown (one quota minute, doubling per consecutive dead batch,
+        capped at four) + one probe.  A probe that 429s is terminal for
+        this call; any definitive answer resets the streak to 0.
+
+    One call therefore costs at most ``_429_QUICK_RETRIES + 2`` requests
+    and one cooldown; batches that arrive while the window is already shut
+    (streak > 0) cool down at entry and probe exactly once.  The per-run
+    ``_429_RETRY_BUDGET`` bounds rate-limited attempts outright, and
+    ``_RATE_LIMIT_ABORT_STREAK`` consecutive dead batches still abort the
+    archive sweep -- the recovery paths (same-run top-up, next run's
+    cache-miss pass) are named where they fire.
     """
-    streak = _rate_limit_streak()
-    if streak > 0:
-        wait = _cooldown_wait(streak)
+    probe_only = _rate_limit_streak() > 0
+    if probe_only:
+        wait = _cooldown_wait(_rate_limit_streak())
         logger.warning(
             "Open-Meteo rate limited: cooling down %.0fs before the next "
-            "request (consecutive dead batches: %d)", wait, streak)
+            "request (consecutive dead batches: %d)", wait,
+            _rate_limit_streak())
         time.sleep(wait)
         attempts = min(attempts, _RATE_LIMIT_PROBE_ATTEMPTS)
     last_exc: Exception | None = None
     response = None
     timeouts = 0
-    for attempt in range(max(attempts, 1)):
+    quick_429 = 0
+    # The cooldown+probe below fires at most ONCE per call: an entry probe
+    # (streak already open) or a ladder-exhausted 429 that just opened it.
+    probed = probe_only
+    attempt = -1
+    while True:
+        attempt += 1
         try:
             response = requests.get(url, params=params, timeout=timeout)
         except requests.RequestException as exc:
@@ -361,23 +402,19 @@ def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
             if attempt < attempts - 1:
                 time.sleep(_RETRY_BASE_SEC ** attempt + random.uniform(
                     0, _RETRY_JITTER_SEC))
-            continue
+                continue
+            _rate_limit["streak"] = _rate_limit_streak() + 1
+            raise last_exc
         if response.status_code in _RETRIABLE_STATUSES:
             if response.status_code == 429:
-                may_retry = attempt < attempts - 1
-                if may_retry and _rate_limit["retries"] >= _429_RETRY_BUDGET:
-                    if not _rate_limit["budget_logged"]:
-                        _rate_limit["budget_logged"] = True
-                        logger.warning(
-                            "Open-Meteo 429 retry budget exhausted (%d per "
-                            "run) — rate-limited requests now fail after "
-                            "one attempt; the same-run top-up and the next "
-                            "run's cache-miss pass recover the gaps",
-                            _429_RETRY_BUDGET)
-                    may_retry = False
-                if may_retry:
+                budget_spent = _rate_limit["retries"] >= _429_RETRY_BUDGET
+                may_quick = (not probe_only
+                             and quick_429 < _429_QUICK_RETRIES
+                             and not budget_spent)
+                if may_quick:
+                    quick_429 += 1
                     _rate_limit["retries"] += 1
-                    wait = _RETRY_BASE_SEC ** attempt + random.uniform(
+                    wait = _RETRY_BASE_SEC ** (quick_429 - 1) + random.uniform(
                         0, _RETRY_JITTER_SEC)
                     try:
                         wait = max(wait, float(
@@ -386,13 +423,46 @@ def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
                         pass
                     logger.warning(
                         "Open-Meteo %s; retrying in %.1fs (%d/%d)",
-                        response.status_code, wait, attempt + 1, attempts - 1)
+                        response.status_code, wait, quick_429,
+                        _429_QUICK_RETRIES)
                     time.sleep(wait)
                     continue
-                # Terminal 429: the window is shut -- open the streak so the
-                # next request cools down instead of re-laddering.
+                if budget_spent:
+                    if not _rate_limit["budget_logged"]:
+                        _rate_limit["budget_logged"] = True
+                        logger.warning(
+                            "Open-Meteo 429 retry budget exhausted (%d per "
+                            "run) — rate-limited requests now fail after "
+                            "one attempt; the same-run top-up and the next "
+                            "run's cache-miss pass recover the gaps",
+                            _429_RETRY_BUDGET)
+                    _rate_limit["streak"] = _rate_limit_streak() + 1
+                    return response
+                if probed:
+                    # This call already waited out a quota minute; a second
+                    # 429 proves the window is still shut.  Terminal: open
+                    # the streak and let the NEXT batch decide whether to
+                    # keep probing or trip the sweep abort.
+                    _rate_limit["streak"] = _rate_limit_streak() + 1
+                    return response
+                # Window confirmed shut: open the streak, cool down one
+                # quota minute, and let the next loop round be the single
+                # probe.  Retry-After stays authoritative when sent.
+                probed = True
+                _rate_limit["retries"] += 1
                 _rate_limit["streak"] = _rate_limit_streak() + 1
-                return response
+                wait = _cooldown_wait(_rate_limit["streak"])
+                try:
+                    wait = max(wait, float(
+                        response.headers.get("Retry-After", "")))
+                except (AttributeError, TypeError, ValueError):
+                    pass
+                logger.warning(
+                    "Open-Meteo 429: quota window closed — cooling down "
+                    "%.0fs, then one probe (dead batches: %d)", wait,
+                    _rate_limit["streak"])
+                time.sleep(wait)
+                continue
             if attempt < attempts - 1:
                 # 502/503/504: gateway trouble -- same ladder, but still a
                 # dead answer, so the terminal one counts toward the streak.
@@ -408,10 +478,6 @@ def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
         # 2xx (or a fail-fast 4xx): the endpoint gave a definitive answer.
         _rate_limit["streak"] = 0
         return response
-    if last_exc is not None:
-        _rate_limit["streak"] = _rate_limit_streak() + 1
-        raise last_exc
-    return response
 
 
 def _utc_timestamp(value: object) -> pd.Timestamp | None:

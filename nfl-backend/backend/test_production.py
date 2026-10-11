@@ -512,11 +512,18 @@ with mock.patch.object(weather_mod.requests, "get", side_effect=_always_429) as 
      mock.patch.object(weather_mod.time, "sleep", side_effect=_retry_sleeps.append), \
      mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
     _retry_result = weather_mod._get_with_retry("https://weather.test", {})
-check("Open-Meteo 429 retry ladder waits through a quota reset",
-      _retry_get.call_count == weather_mod._RETRY_ATTEMPTS == 7
-      and _retry_sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
-      and _retry_result.status_code == 429,
+# 2026-10-11 second review: a 429 is a quota minute closing, not a blip.
+# Two quick retries ride out the marginal case; a still-closed window
+# cools down ONE quota minute and probes ONCE (4 calls, not a 7-attempt
+# ladder that can only re-429 inside the same closed minute — the 15:50
+# run burned 21 logged retries that way).
+check("Open-Meteo 429 costs two quick retries, one cooldown, one probe",
+      _retry_get.call_count == 4
+      and _retry_sleeps == [1.0, 2.0, weather_mod._RATE_LIMIT_COOLDOWN_SEC]
+      and _retry_result.status_code == 429
+      and weather_mod._rate_limit_streak() == 2,
       f"calls={_retry_get.call_count}, sleeps={_retry_sleeps}")
+weather_mod._reset_rate_limiter()  # hermetic: no streak leaks into later checks
 
 # The weather archive loop is the LONGEST phase in a run (minutes over a
 # decade of history, longer when Open-Meteo answers 429) and used to log
@@ -2474,10 +2481,14 @@ check("NGS/FTN unit counts exclude out-of-window seasons (no doomed units)",
       and ingest_mod.ngs_seasons([2014, 2015, 2016, 2026]) == [2016, 2026]
       and ingest_mod.ftn_charting_seasons([2016, 2021, 2022, 2026])
       == [2022, 2026])
-check("the Open-Meteo archive window is 14 days, matching MLB exactly",
+check("the Open-Meteo archive window is 14 days (MLB-matched), paced slower",
       weather_mod._BATCH_DAYS == 14
       and weather_mod._BATCH_SIZE == 15
-      and weather_mod._BATCH_PAUSE_SEC == 1.0)
+      # NFL's sweep (~444 batches on a full repull) is ~4x MLB's and kept
+      # tripping the shared-IP quota at MLB's 1.0s pause (~39 req/min on
+      # 2026-10-11); 2.0s halves our contribution (~23 req/min).  Pinning
+      # the floor so a silent re-slowdown back to 1.0s is a reviewed edit.
+      and weather_mod._BATCH_PAUSE_SEC >= 2.0)
 check("weather and reporting chunk intervals are deliberately different",
       weather_mod._BATCH_DAYS == 14 and ingest_mod.POPULATE_CHUNK_DAYS == 60)
 def _imports_tqdm(mod) -> bool:

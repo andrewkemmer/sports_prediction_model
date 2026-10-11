@@ -7,6 +7,89 @@ by `76ea3e43` ("Update NFL production artifacts").
 **Verdict: 0 ERROR / 0 Traceback; 185 WARNING lines = 181 Open-Meteo
 rate-limit lines (the finding, remediated) + 4 classified below.**
 
+> **Second delivery, same day — reviewed and remediated again.** A later
+> run (15:49:51 → 16:16, delivered by `518caae8`/`fff9afc3`) was the first
+> with the breaker below in effect; it bounded the storm but still burned
+> 21 logged 429 retries and kept tripping the quota. See
+> "Second delivery" below for that review and the second-pass remediation
+> (429s no longer ladder at all; the sweep is paced at 2.0s/batch).
+
+## Second delivery (15:50 run) — re-review and second-pass remediation
+
+Scope: the delivered `nfl_pipeline_run_log.txt` — 489 lines, run **2026-10-11
+15:49:51 → 16:16 (sweep phase 11:29 of ~26 min)**, `NFL_FULL_REPULL=1`,
+delivered by `518caae8` ("Update NFL production artifacts") + `fff9afc3` —
+the first production run with the 05:20-run breaker in effect.
+
+**Verdict: 0 ERROR / 0 Traceback; 27 WARNINGs = 21 Open-Meteo 429 retries
+(the finding, remediated again) + 1 batch-failed + 1 cooldown disclosure
+(the breaker working) + 1 OOF-thin + 2 drift ALERT (same real signal as
+05:20) + 1 table pointer.**
+
+### What the first remediation achieved (kept)
+
+- The 29-minute storm shape did not recur: **444/444 batches completed in
+  11:29** (vs 40:39 with the storm), exactly **one dead batch**, one 60s
+  cooldown disclosure, zero errors, full sweep — no abort.
+- Timeout exposure, budget and abort from the first pass are untouched and
+  remain the backstops.
+
+### What remained (the finding)
+
+- The per-request ladder still fired on 429s: **21 logged retries across 7
+  groups** (waits 1.0–4.2s), all landing inside quota minutes that stayed
+  shut for ~60s; one batch burned **all six retries (~65s) and died anyway**
+  (15:58:26 → 15:59:30), then the cooldown fired. Quick retries inside a
+  closed minute are pure waste — the only thing that ever worked was waiting.
+- The sweep itself ran at **~39 requests/min** (444 batches in 689s with the
+  1.0s pause) and the quota closed intermittently from minute ~8. Open-Meteo's
+  limits (600/min, 5000/hr, 10000/day) are enforced **per IP** and Kaggle's
+  egress IP is shared with other tenants, so the effective burst budget is
+  far below the documented one — and our own pace was the only knob we own.
+- No timeouts occurred in this run (the 20s × 3 bound from the first pass
+  was not exercised).
+
+### Second-pass remediation
+
+- **429 is a quota event, handled in two stages** (`_get_with_retry`):
+  up to `_429_QUICK_RETRIES = 2` short retries ride out a *marginal*
+  window (the observed recoveries answered within ~3–9s); a still-closed
+  window OPENS the streak and buys **one cooldown (60s, doubling, 4-min
+  cap) + one probe** — never a ladder. A call now costs at most **4 requests
+  and one cooldown**; batches arriving during a closed window cost **one
+  request + the entry cooldown**. Budget, abort, streak-reset-on-definitive
+  and the timeout cascade are unchanged.
+- **`_BATCH_PAUSE_SEC` 1.0 → 2.0**: the sweep paces to ~23 requests/min
+  (halving our contribution to the shared-IP budget); a full repull's 444
+  batches take ~19 min — still far below the ~30-min storm cost.
+- 502/503/504/network keep the full MLB-parity 7-attempt ladder: gateway
+  blips answer quick retries and are not quota events.
+
+### Expected shape on the next limited run
+
+A closed quota minute now costs one `retrying` line + one `cooling down …`
+line + one probe per batch, instead of 3–6 ladder lines per batch; the
+sweep runs ~19 min at a steady ~23 req/min. If the window stays shut past
+12 dead batches (~44 min), the sweep aborts loudly with the same recovery
+disclosure as before.
+
+### Verification (second pass)
+
+- `python -m pytest -q` → **43 passed, exit 0** (41 + 2 new pins).
+- `python test_production.py` → **511 passed, 0 failed, exit 0**. Two pins
+  were updated to the new contract, each with the evidence in-line: the
+  429-shape check (now `4 calls, sleeps [1.0, 2.0, 60.0], streak 2` + a
+  hermetic limiter reset) and the pace check (`_BATCH_PAUSE_SEC >= 2.0`
+  floor; window/size stay MLB-matched).
+- New pins in `test_log_review_20261011.py`: dead batches after the first
+  cost exactly one request each (5 dead calls → `[4, 1, 1, 1, 1]` requests,
+  one cooldown per call, capped waits, streak climbing toward the abort),
+  and the sweep pace floor.
+- Note for testers: `test_production.py` executes its checks at import and
+  `sys.exit(1)`s on failure, so a failing run crashes pytest collection
+  with an INTERNALERROR — run it standalone (`python test_production.py`),
+  which is how the two contract updates above were surfaced and verified.
+
 ## Log line review
 
 | Lines | Message (abridged) | Verdict | Disposition |
@@ -144,10 +227,12 @@ price of waiting instead of hammering), and the sweep still finishes — the
 
 ## Deliberately not changed
 
-- The 7-attempt `2**n` ladder itself (MLB-documented design; correct for
-  isolated blips — the breaker now bounds what happens *after* one).
-- `_BATCH_PAUSE_SEC = 1.0`, `_BATCH_DAYS = 14`, `_BATCH_SIZE = 15`,
-  gameless-window skip — MLB parity, already paced.
+- The 7-attempt `2**n` ladder for 502/503/504 and network errors
+  (MLB-documented design; correct for gateway blips). *(Superseded for
+  429s by the second pass below — they no longer ladder at all.)*
+- `_BATCH_DAYS = 14`, `_BATCH_SIZE = 15`, gameless-window skip — MLB
+  parity, already paced. *(`_BATCH_PAUSE_SEC` was 1.0s here; superseded
+  by the second pass below.)*
 - Top-up pass, coverage warnings, NaN-never-substituted and cache-miss
   self-heal doctrine — untouched; they are the recovery path the abort
   names.
@@ -167,9 +252,8 @@ price of waiting instead of hammering), and the sweep still finishes — the
   until then — never substituted).
 - The breaker is process-local: every fresh run starts with a clean streak
   and a fresh 40-retry budget (bounded per run, as specified).
-- The sweep's healthy pace (~40 requests/min) is what likely trips the
-  per-minute quota on full repulls; the breaker now makes tripping cheap,
-  but the pause stays at MLB parity. If storms become routine, raising
-  `_BATCH_PAUSE_SEC` is the one pacing knob left — owner decision.
+- The sweep's healthy pace (~40 requests/min) is what trips the per-minute
+  quota on full repulls; the breaker makes tripping cheap. *(Superseded by
+  the second pass below: the pace itself was slowed to ~23 req/min.)*
 - NBA/NHL do not use Open-Meteo; MLB keeps its own (currently storm-free)
   client — no cross-sport exposure from this change.

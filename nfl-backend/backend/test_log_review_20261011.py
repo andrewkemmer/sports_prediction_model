@@ -12,24 +12,35 @@ a window that could not answer with anything else. Each attempt also carried
 a 45s timeout, so a batch that STALLED instead of 429-ing cost up to 7×45s +
 63s ≈ 6.5 minutes — the "times out after multiple attempts" class.
 
+Second evidence set (same file, 15:50 run — the first with the breaker):
+the breaker bounded the sweep (444/444 batches in 11:29, one dead batch,
+one 60s cooldown, zero errors) but the LADDER still burned **21 logged
+429 retries** across 7 groups: quick 1/2/4s retries fired into quota
+minutes that stayed shut for ~60s, and one batch consumed all six retries
+(~65s) and died anyway. Open-Meteo's
+limits are per IP (600/min, 5000/hr, 10000/day) and Kaggle's egress IP is
+shared, so the sweep also had to slow down.
+
 Remediation (``nfl-backend/backend/weather.py``, structure mirrors
 ``mlb-backend/backend/weather.py``'s documented-constants + retry + batch +
-top-up layout, which never storms because its per-run request volume is
-tiny):
+top-up layout):
 
-* a batch dead to a retriable status OPENS the window — the next request
-  cools down 60s (one quota minute), doubling per consecutive dead batch to
-  a 4-minute cap, then probes ONCE instead of laddering;
+* 429 is a quota event: up to _429_QUICK_RETRIES (2) short retries ride
+  out a MARGINAL window (observed recoveries at ~3-9s); a still-closed
+  window OPENS the streak and buys one cooldown (60s, doubling per
+  consecutive dead batch, 4-minute cap) + one probe — never a ladder;
 * any definitive (non-retriable) response CLOSES the window (streak reset);
-* a per-process 429 budget (40) bounds rate-limited retries outright — past
-  it a rate-limited request fails after one attempt, logged once;
+* a per-process 429 budget (40) bounds rate-limited attempts outright —
+  past it a rate-limited request fails after one attempt, logged once;
 * _RATE_LIMIT_ABORT_STREAK (12) consecutive dead batches abort the
   remaining archive sweep with a count of what was skipped; the same-run
   top-up and the next run's cache-miss pass remain the recovery paths
-  (features NaN, never substituted) -- the line sits just above the worst
-  block ever observed (29 minutes, this run) so that size still recovers
+  (features NaN, never substituted) — the line sits just above the worst
+  block ever observed (29 minutes) so that size still recovers;
 * timeouts: 20s per attempt, and three consecutive hangs end the request
-  (≈63s) instead of seven 45s hangs (≈6.5 min per dead batch).
+  (≈63s) instead of seven 45s hangs (≈6.5 min per dead batch);
+* _BATCH_PAUSE_SEC = 2.0: the sweep paces to ~23 requests/min, halving
+  the ~39/min rate at which the shared-IP quota kept closing.
 
 Thresholds are pinned here so a future tuning change is a deliberate,
 reviewed edit rather than a silent drift back toward storming.
@@ -94,8 +105,8 @@ def _budget_messages(caplog):
 
 def test_isolated_blip_still_uses_the_mlb_parity_ladder(
         monkeypatch, sleeps, caplog):
-    """An isolated 429 keeps the documented 7-attempt ladder (2**n + jitter,
-    Retry-After authoritative) and never opens the breaker."""
+    """A marginal 429 blip rides out with the two quick retries
+    (Retry-After authoritative) and never opens the breaker."""
     seq = [_Resp(429, {"Retry-After": "7"}), _Resp(429), _Resp(200)]
     calls = _patch_get(monkeypatch, lambda n: seq[n - 1])
 
@@ -109,37 +120,44 @@ def test_isolated_blip_still_uses_the_mlb_parity_ladder(
     assert 2.0 <= sleeps[1] <= 2.5, sleeps
     assert weather._rate_limit_streak() == 0, "a recovered blip opens nothing"
     assert all(t == weather._REQUEST_TIMEOUT_SEC for t in calls), calls
-    # 6 retries max were available; only 2 were consumed.
+    # Two quick retries were available; both were consumed and recovered
+    # the batch without ever entering the cooldown/probe stage.
     assert weather._rate_limit["retries"] == 2
+    assert not any("cooling down" in m for m in caplog.messages)
 
 
 def test_closed_window_cools_down_then_probes_once(
         monkeypatch, sleeps, caplog):
     """The storm shape from the delivered log: every request answers 429.
 
-    First call burns the isolated-blip ladder ONCE; afterwards each call
-    cools down for the quota window (60s → 120s → … capped at 240s) and
-    makes exactly ONE request — and a definitive answer resets the streak.
+    The first call spends its two quick retries (a marginal window might
+    reopen), then OPENS the streak, cools down one quota minute and probes
+    once — 4 requests total, not a 7-attempt ladder. Afterwards every
+    call cools down (60s → 120s → … capped at 240s) and makes exactly
+    ONE request — and a definitive answer resets the streak.
     """
     calls = _patch_get(monkeypatch, lambda n: _Resp(429))
 
     with caplog.at_level(logging.WARNING):
-        weather._get_with_retry("https://example.invalid", {})
-    assert len(calls) == weather._RETRY_ATTEMPTS, calls
-    assert len(sleeps) == weather._RETRY_ATTEMPTS - 1, sleeps
-    assert weather._rate_limit_streak() == 1
+        resp = weather._get_with_retry("https://example.invalid", {})
+    assert resp.status_code == 429, "a terminal probe returns the 429"
+    assert len(calls) == 2 + 1 + weather._RATE_LIMIT_PROBE_ATTEMPTS, calls
+    assert len(sleeps) == 3, sleeps
+    assert sleeps[2] == weather._RATE_LIMIT_COOLDOWN_SEC, sleeps
+    assert weather._rate_limit_streak() == 2
 
     sleeps.clear()
     weather._get_with_retry("https://example.invalid", {})
-    assert sleeps[0] == weather._RATE_LIMIT_COOLDOWN_SEC, sleeps
-    assert len(sleeps) == 1, f"a closed window probes once, not a ladder: {sleeps}"
-    assert len(calls) == weather._RETRY_ATTEMPTS + 1, calls
-    assert weather._rate_limit_streak() == 2
+    assert sleeps == [weather._cooldown_wait(2)], (
+        f"an entry probe cools down for the quota minute: {sleeps}")
+    assert len(calls) == 5, f"one entry probe, never a ladder: {calls}"
+    assert weather._rate_limit_streak() == 3
 
     sleeps.clear()
     reopened = _patch_get(monkeypatch, lambda n: _Resp(200))
     weather._get_with_retry("https://example.invalid", {})
-    assert sleeps == [120.0], f"cooldown doubles per dead batch: {sleeps}"
+    assert sleeps == [weather._cooldown_wait(3)], (
+        f"cooldown doubles per dead batch: {sleeps}")
     assert len(reopened) == 1, reopened
     assert weather._rate_limit_streak() == 0, "a 200 closes the window"
 
@@ -154,7 +172,7 @@ def test_closed_window_cools_down_then_probes_once(
     assert weather._cooldown_wait(5) == weather._RATE_LIMIT_COOLDOWN_MAX_SEC
 
     cooldowns = [m for m in caplog.messages if "cooling down" in m]
-    assert len(cooldowns) == 2, cooldowns
+    assert len(cooldowns) == 3, cooldowns
 
 
 def test_429_budget_fails_fast_and_logs_once(monkeypatch, sleeps, caplog):
@@ -246,3 +264,58 @@ def test_rate_limited_out_boundary():
     assert not weather._rate_limited_out()
     weather._rate_limit["streak"] = weather._RATE_LIMIT_ABORT_STREAK
     assert weather._rate_limited_out()
+
+
+def test_dead_batches_cost_one_request_each_after_the_first(
+        monkeypatch, sleeps, caplog):
+    """The 15:50-run contract, pinned: a dead quota minute costs ONE
+    request per batch, never a re-armed ladder.
+
+    Five back-to-back all-429 calls (the storm shape) must cost exactly
+    4 + 4 requests — two quick retries + cooldown + probe on the first,
+    then one entry probe each — with at most one cooldown sleep per call,
+    every wait capped at the 4-minute ceiling, and the streak climbing
+    toward the sweep abort the whole way.
+    """
+    calls = _patch_get(monkeypatch, lambda n: _Resp(429))
+
+    with caplog.at_level(logging.WARNING):
+        weather._get_with_retry("https://example.invalid", {})          # 1
+    assert len(calls) == 4, f"first dead batch: 2 quick + cooldown + probe: {calls}"
+    per_call = [len(calls)]
+    for _ in range(4):
+        before = len(calls)
+        sleeps.clear()
+        weather._get_with_retry("https://example.invalid", {})
+        per_call.append(len(calls) - before)
+        assert len(sleeps) == 1, (
+            "a closed window costs one cooldown wait, not a ladder: "
+            f"{sleeps}")
+        assert sleeps[0] <= weather._RATE_LIMIT_COOLDOWN_MAX_SEC, sleeps
+
+    assert per_call == [4, 1, 1, 1, 1], (
+        f"dead batches after the first must cost one request each: {per_call}")
+    assert weather._rate_limit_streak() == 6, (
+        "every dead batch opens one more streak unit toward the abort")
+    # Budget accounting: only the FIRST batch spent budget (2 quick retries
+    # + 1 cooldown-probe = 3 of _429_RETRY_BUDGET).  Entry probes are
+    # already minimal — one request, no retries — and are bounded by the
+    # abort streak instead, exactly as in the first remediation.
+    assert weather._rate_limit["retries"] == 3, weather._rate_limit
+    assert weather._rate_limit["retries"] < weather._429_RETRY_BUDGET
+
+
+def test_sweep_pace_paces_below_the_observed_trip_rate():
+    """The batch pause keeps the sweep under the rate that trips the shared
+    IP's quota.
+
+    The 15:50 run measured ~39 requests/min (444 batches in 689s with the
+    old 1.0s pause) and the quota closed intermittently from minute ~8.
+    Open-Meteo enforces its limits per IP and Kaggle's egress IP is shared,
+    so the pace is pinned at ≥ 2.0s (~23 requests/min, ~19 min for a full
+    repull) — halving our contribution while staying far below the ~30-min
+    storm cost this breaker replaced.
+    """
+    assert weather._BATCH_PAUSE_SEC >= 2.0, (
+        "sweep pacing below 2.0s re-opens the shared-IP 429 bursts "
+        "observed on 2026-10-11 — tune deliberately, with a new review")
