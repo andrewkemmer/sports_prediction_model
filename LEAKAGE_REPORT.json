@@ -61,7 +61,7 @@
     },
     "instruction": "No new source/program files committed; temporary diagnostic code and data stay gitignored under scratch.",
     "artifact_publication": "Reports and existing source/test repairs only; no production predictions/models rewritten",
-    "commit_and_push": "Task-only commit and push requested on existing main branch; final response carries verified hash and push receipt. This report is generated before its containing commit."
+    "commit_and_push": "Committed and pushed to origin/main without force: 67b69700 (defect repairs + LEAKAGE_REPORT artifacts), 7028e7ae (report validation checksums), f311baf0 (pipeline run-log review). This report was generated before its containing commit; the follow-up refresh records the verified chain at handoff."
   },
   "sports": {
     "mlb": {
@@ -115294,13 +115294,22 @@
       "mlb_progress.json": "dd45ba71248431a2a054dfc3f5549748b3039ae7cf803644513a8ae9b9aaa7e0",
       "nba_diagnostics.json": "ee42588ab727a2da743cff0a2e41f6ddc39b80af1ce44507c72bc45a6a3f49f1",
       "nba_frame_meta.json": "f28342860020070690b4caf76cee313414855b987694f6641139024c86842976",
+      "nba_parity_challenger.json": "a86ec20f7299a0a692fb592639e54d7c3517ac6aaaecd86296a9b00084c7a504",
       "nba_progress.json": "aaa9363e836d74f727a55f8de969fcebfa7a6fc69ac98ce066594a7051c9b079",
       "nba_weekly.json": "faea7b2c9a8ae66c8a1bb15aa0a9c55e5f0fb945302d05f4e97c28c0e61d55cb",
+      "nfl_lambda_challenger.json": "8c40c100b96a40584541016b0fb081f78f62f3f32bb9e7d09c4fbfbe58abdd27",
+      "nhl_lambda_challenger.json": "52e52cd1e6c2410d3467cb30e72675840578058644821cb8dfaf4f5442c74165",
       "nhl_paired.json": "4324bbcd7a6517a7ac11e539b842d7740f9958b673c8952765da44b51e7209e3",
       "report_preview.json": "d370670be61c19350cfefc06a84ab9ee501a83f761b85dfe9e507b04e994c2ab",
-      "report_validation.json": "8a4c222f33eaab2889dc27abeb282e2c5ce31b866d26b13f61e8114105e07d9d",
+      "report_validation.json": "18b467ade1a6625f0d9ee2865d50d99fd41103480d990760a7a6072f1cbaba93",
       "script_checks.json": "2795fe33a332cbde22d33f2899d7994d3284edbb9266dc230af9bdff2299a388",
-      "verified_final_tests.json": "ce3433645e32c5bde02b4eb691ba58d554ce12263332dca52f4334195a164eb5"
+      "verified_final_tests.json": "ce3433645e32c5bde02b4eb691ba58d554ce12263332dca52f4334195a164eb5",
+      "zscore_history_mlb.json": "b6d032fa38b846e1701bffe22605ff15a6d60dde298a4e1c05934b85dd162d95",
+      "zscore_history_nba.json": "a63cc072b2e77bfb33f21aa92b0e1db114518d6c7f871fd201d21fe05e342cd2",
+      "zscore_history_nfl.json": "5006a624170cf3bfe924afe67fb9ac4721ab7a3396801bf09a0d31934cd2838e",
+      "zscore_history_nhl.json": "b10097a14dac89ac2b065ea41c72041b575b8e97a4f1148c17da1febd33cc8c3",
+      "zscore_production_mlb.json": "2dbc009e38204e4e35775a39c9c8f30322f877e842794cb26d6977925b3dd744",
+      "zscore_production_nba.json": "b8b1770cee7f0f6ade06ef079e4a35f655d333e8d608a0c2ce0128b86faede93"
     },
     "commands": [
       "python scratch/leakage_audit/baseline_diagnostics.py",
