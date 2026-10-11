@@ -541,8 +541,24 @@ XGBOOST_EARLY_STOP = 20
 # so every shipped model trained at exactly the static 50). The earlier
 # comment's "cold-start paths only" framing is superseded; the probe
 # early-stopped fit stays measurement-only.
-XGBOOST_FOLD0_ROUNDS = 50
-XGBOOST_REFIT_ROUNDS = 50
+# BUDGET REVIEW (2026-10-10 overfit remediation, 37-fold walk-forward
+# replay on the 7,402-game delivered frame): the XGB member was
+# BUDGET-STARVED at the 50-round static — capacity, not calibration, was
+# its binding constraint. Same-capacity arms with the floor raised
+# 50 -> 150 (base params otherwise unchanged) measured member OOF AUC
+# 0.5731 -> 0.5825 and log-loss 0.6827 -> 0.6815 on the identical fold
+# geometry (equal-weight blend 0.5826/0.6800 -> 0.5838/0.6796 with the
+# incumbent LGBM member). Lower-budget arms (floor 150 at softened
+# capacity: 0.5809/0.6804; lr 0.03/250 fixed: 0.5797/0.6812) were
+# dominated on AUC; the single-knob floor change was adopted. The
+# honesty contract is untouched: shipped rounds are still the causal
+# transfer of PRIOR folds' probe measurements FLOORED at these statics
+# (all 83 production probe transfers measured <= 36, so the floor binds
+# on every fold — now at 150, an explicit measured operating point,
+# not the accidental one). Full arm table:
+# docs/mlb_overfit_remediation_20261010/arms.json.
+XGBOOST_FOLD0_ROUNDS = 150
+XGBOOST_REFIT_ROUNDS = 150
 # Optuna-tuned on 4,159-games/44-fold walk-forward (tune_lightgbm_optuna.py,
 # 50 trials, pooled OOF logloss 0.68066 vs 0.78465 for the old depth-5/300-r
 # config; sealed holdout 2026-08-03→08-23 confirmed: 0.68150/AUC 0.5573 vs
@@ -604,9 +620,26 @@ XGBOOST_REFIT_ROUNDS = 50
 # (L6, L7 confirmed; L8 adopted; L9 confirmed).
 LIGHTGBM_PARAMS = {
     "n_estimators": 364,
-    "max_depth": 7,
-    "num_leaves": 40,
-    "min_child_samples": 64,
+    # OVERFIT-GAP REMEDIATION P0-1 (2026-10-10, 37-fold replay): the
+    # depth-7/40-leaf incumbent memorized its train folds (resubstitution
+    # AUC 0.7014 vs pooled OOF 0.5818, delta 0.120 — the largest of the
+    # roster; ElasticNet's is 0.022). Capacity reduction to d4/15-leaf
+    # with min_child_samples 64 -> 100 cut the gap to 0.093 and improved
+    # OOF ECE 0.0167 -> 0.0138 at OOF log-loss 0.6801 -> 0.6805 (within
+    # replay noise; the member earns its weight by log-loss, so the
+    # rolling weighting prices this honestly). A deeper cut (d3/7-leaf)
+    # measured gap 0.079 / ECE 0.0067 but AUC 0.5801; a REGULARIZED-
+    # LONGER arm (d5/31, reg_lambda 1.0, lr 0.03, 500r) measured the best
+    # single-member AUC 0.5843 at worse log-loss 0.6817 and gap 0.153 —
+    # traded, not adopted. A LGBM causal round-budget mechanism (P0-3,
+    # XGB-parity probe/transfer) was measured and REJECTED: floor 150
+    # underfits on every metric (OOF 0.5774/0.6821) and floor 364 is a
+    # byte-identical no-op (probe medians never reach it) — this member
+    # ships its fixed 364-tree budget by design. Arm table:
+    # docs/mlb_overfit_remediation_20261010/arms.json.
+    "max_depth": 4,
+    "num_leaves": 15,
+    "min_child_samples": 100,
     "min_gain_to_split": 0.4182845581383924,
     "bagging_fraction": 0.38979006549031003,
     "bagging_freq": 4,

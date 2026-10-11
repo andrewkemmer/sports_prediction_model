@@ -488,7 +488,9 @@ def test_xgboost_params_pin_depth2_and_causal_priors():
     3 seeds; full-walk 3-seed refit 0.68662/0.5562 vs 0.68755/0.5528)
     while the walk regime's causal rounds stay the honest-mechanics
     transfer FLOORED at the static budget (probe-median ~19-30 rounds,
-    every shipped model >= the pinned 50 since 2026-10-05).
+    every shipped model >= the pinned floor since 2026-10-05; the floor
+    itself moved 50 -> 150 in the 2026-10-10 budget review — see the
+    XGBOOST_REFIT_ROUNDS provenance in config).
     A silent retune that flips max_depth, the shrinkage axes, or the round
     priors must fail here and re-run BOTH operating-point experiments plus
     the sealed window documented in config.XGBOOST_PARAMS provenance —
@@ -500,8 +502,8 @@ def test_xgboost_params_pin_depth2_and_causal_priors():
     assert config.XGBOOST_PARAMS["learning_rate"] == 0.055
     assert config.XGBOOST_PARAMS["min_child_weight"] == 12
     assert config.XGBOOST_PARAMS["colsample_bytree"] == 0.6382
-    assert config.XGBOOST_FOLD0_ROUNDS == 50
-    assert config.XGBOOST_REFIT_ROUNDS == 50
+    assert config.XGBOOST_FOLD0_ROUNDS == 150
+    assert config.XGBOOST_REFIT_ROUNDS == 150
     assert config.XGBOOST_FOLD_ROUNDS == 2000
     assert config.XGBOOST_EARLY_STOP == 20
 
@@ -567,7 +569,7 @@ def test_causal_xgb_rounds_prior_median_rule():
     own val-window early-stop result."""
     from training import _causal_xgb_rounds
     # no measurements -> fold-0 static prior
-    assert _causal_xgb_rounds([]) == 50
+    assert _causal_xgb_rounds([]) == 150
     # odd count -> middle element
     assert _causal_xgb_rounds([30, 50, 90]) == 50
     # even count -> midpoint of the two central elements
@@ -575,7 +577,7 @@ def test_causal_xgb_rounds_prior_median_rule():
     # degenerate entries (0/None-ish) are ignored, not allowed to skew
     assert _causal_xgb_rounds([0, 40, 60]) == 50
     # all-degenerate falls back to the refit prior
-    assert _causal_xgb_rounds([0]) == 50
+    assert _causal_xgb_rounds([0]) == 150
     # the measurement list must exist and be clearable (walk-start reset)
     import training
     assert hasattr(training, "_LAST_XGB_BEST_ROUNDS")
@@ -588,7 +590,7 @@ def test_causal_xgb_rounds_fold_semantics():
     from training import _causal_xgb_rounds
     meas = [44, 46, 52, 58]
     # fold 0 ships the prior, fold 1 sees [44], fold 3 sees [44,46,52]...
-    assert _causal_xgb_rounds(meas[:0]) == 50
+    assert _causal_xgb_rounds(meas[:0]) == 150
     assert _causal_xgb_rounds(meas[:1]) == 44
     assert _causal_xgb_rounds(meas[:2]) == 45
     assert _causal_xgb_rounds(meas[:3]) == 46
@@ -620,13 +622,13 @@ def test_shipped_xgb_rounds_floor_at_static_budget():
     import config
     from training import _shipped_xgb_rounds
     # no / tiny measurements -> static budget
-    assert _shipped_xgb_rounds([], config.XGBOOST_FOLD0_ROUNDS) == 50
-    assert _shipped_xgb_rounds([4, 8, 13], config.XGBOOST_FOLD0_ROUNDS) == 50
+    assert _shipped_xgb_rounds([], config.XGBOOST_FOLD0_ROUNDS) == 150
+    assert _shipped_xgb_rounds([4, 8, 13], config.XGBOOST_FOLD0_ROUNDS) == 150
     # the floor is not a cap: a transfer above budget ships as measured
-    assert _shipped_xgb_rounds([90, 120], config.XGBOOST_FOLD0_ROUNDS) == 105
-    assert _shipped_xgb_rounds([70], config.XGBOOST_REFIT_ROUNDS) == 70
+    assert _shipped_xgb_rounds([200, 260], config.XGBOOST_FOLD0_ROUNDS) == 230
+    assert _shipped_xgb_rounds([200], config.XGBOOST_REFIT_ROUNDS) == 200
     # degenerate measurements fall back to the static prior (floored anyway)
-    assert _shipped_xgb_rounds([0], config.XGBOOST_REFIT_ROUNDS) == 50
+    assert _shipped_xgb_rounds([0], config.XGBOOST_REFIT_ROUNDS) == 150
 
 
 def test_every_production_fold_ships_at_the_static_budget():
@@ -634,9 +636,12 @@ def test_every_production_fold_ships_at_the_static_budget():
     incumbent unfloored rule shipped early folds at 4/6/9/11/13/23 rounds
     (fold 0's noisy probe best became fold 1's whole prior) and the refit
     at the 30-round all-median. Under the floor every fold AND the
-    deployed refit train at exactly the static 50 — the exact operating
-    point the remediation walk measured (member AUC 0.5569 -> 0.5638,
-    13.65% earned weight)."""
+    deployed refit train at exactly the static budget — the exact
+    operating point the remediation walk measured (member AUC 0.5569 ->
+    0.5638, 13.65% earned weight). Since 2026-10-10 that budget is 150
+    (budget-starvation review: member OOF AUC 0.5731 -> 0.5825 at the
+    raised floor; all 83 real probe transfers still land <= 36, so the
+    floor binds on every fold)."""
     import config
     from training import _causal_xgb_rounds, _shipped_xgb_rounds
     bests = _PROD_XGB_PROBE_BESTS_20261005
@@ -646,11 +651,11 @@ def test_every_production_fold_ships_at_the_static_budget():
         [4, 6, 9, 11, 13, 23]
     # every fold (fold 0 uses no priors) floors to the static budget
     assert all(
-        _shipped_xgb_rounds(bests[:k], config.XGBOOST_FOLD0_ROUNDS) == 50
+        _shipped_xgb_rounds(bests[:k], config.XGBOOST_FOLD0_ROUNDS) == 150
         for k in range(len(bests) + 1))
-    # the deployed refit: all-measurement transfer is 30 -> floors to 50
+    # the deployed refit: all-measurement transfer is 30 -> floors to 150
     assert _causal_xgb_rounds(bests) == 30
-    assert _shipped_xgb_rounds(bests, config.XGBOOST_REFIT_ROUNDS) == 50
+    assert _shipped_xgb_rounds(bests, config.XGBOOST_REFIT_ROUNDS) == 150
 
 
 def test_fold_path_ships_xgb_at_floored_rounds_end_to_end():
