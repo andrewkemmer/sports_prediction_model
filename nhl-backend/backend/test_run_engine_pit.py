@@ -5156,6 +5156,81 @@ def test_feature_drift_logs_view_labeled_summary_lines():
     assert any(m.startswith("Feature drift [run-engine]:") for m in msgs), msgs
 
 
+def _capture_drift_records(run) -> list:
+    """Run ``run()`` with monitoring's logger swapped for a sink; return
+    the emitted records (the file's established drift-summary pattern)."""
+    records: list = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    fake = logging.getLogger("pit_drift_review_probe")
+    fake.handlers[:] = []
+    fake.addHandler(_Sink())
+    fake.setLevel(logging.INFO)
+    fake.propagate = False
+    saved = mon.logger
+    mon.logger = fake
+    try:
+        run()
+    finally:
+        mon.logger = saved
+    return records
+
+
+def test_drift_summary_publishes_evaluated_and_insufficient_counts():
+    """2026-10-11 log review (MLB T15 parity): the delivered summary read
+    ``68 features, 0 warnings, 0 alerts, 8 seasonal`` while the drift CSV
+    beside it held 3 INSUFFICIENT rows (is_playoffs, back_to_back_away,
+    is_home) — 0+0+8 against 68 left a reader assuming the missing 60 were
+    OK. The counts must reconcile with the CSV, and a mixed window must
+    NOT page: INSUFFICIENT is a window-size statement, not a defect.
+    """
+    rng = np.random.default_rng(7)
+    cols = ["rest_days_home", "win_pct_home"]
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    recent = pd.DataFrame(rng.normal(0.0, 1.0, (40, len(cols))), columns=cols)
+    recent["win_pct_home"] = np.nan   # no current-window data → INSUFFICIENT
+
+    records = _capture_drift_records(
+        lambda: mon.feature_drift(full, recent, feature_cols=cols))
+    msgs = [r.getMessage() for r in records]
+    # Level-aware: the UNMEASURED WARNING shares the line's prefix.
+    summary = [r.getMessage() for r in records
+               if r.levelno == logging.INFO
+               and r.getMessage().startswith("Feature drift [moneyline]:")]
+    assert len(summary) == 1, msgs
+    assert "2 features, 1 evaluated, 1 INSUFFICIENT" in summary[0], summary[0]
+    assert not [m for m in msgs if "UNMEASURED" in m], (
+        "a judged window must not page — INSUFFICIENT alone never warns")
+
+
+def test_drift_summary_pages_when_nothing_was_judged():
+    """The inert-monitor case (MLB's 20261004→20261010 class): when the
+    current window falls under the 30-row judge floor EVERY row is
+    INSUFFICIENT and the summary must say drift is UNMEASURED at WARNING —
+    an inert monitor must never read as a healthy one."""
+    rng = np.random.default_rng(9)
+    cols = ["rest_days_home", "win_pct_home"]
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    recent = full.head(10)   # 10 < the 30-row floor → all INSUFFICIENT
+
+    records = _capture_drift_records(
+        lambda: mon.feature_drift(full, recent, feature_cols=cols))
+    msgs = [r.getMessage() for r in records]
+    summary = [r.getMessage() for r in records
+               if r.levelno == logging.INFO
+               and r.getMessage().startswith("Feature drift [moneyline]:")]
+    assert len(summary) == 1, msgs
+    assert "2 features, 0 evaluated, 2 INSUFFICIENT" in summary[0], summary[0]
+    paged = [r.getMessage() for r in records
+             if r.levelno >= logging.WARNING
+             and "UNMEASURED, not clean" in r.getMessage()]
+    assert len(paged) == 1 and paged[0].startswith("Feature drift [moneyline]:"), (
+        msgs)
+
+
 def test_drift_calls_receive_the_full_pool_as_season_seam_phase_source():
     """Both master's drift surfaces must be handed the FULL decided pool
     as ``phase_frame`` — the trailing baseline holds no prior-season

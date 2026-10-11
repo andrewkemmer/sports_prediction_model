@@ -412,16 +412,37 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         # compute_feature_drift): without an emitter the run log never
         # says drift happened — the 2026-10-08 review read an all-PASS
         # log while the drift CSV beside it carried six alerts.
+        #
+        # 2026-10-11 log review (MLB T15 parity): the line advertised
+        # "68 features, 0 warnings, 0 alerts, 8 seasonal" while the
+        # drift CSV beside it held 3 INSUFFICIENT rows (is_playoffs,
+        # back_to_back_away, is_home) — the status enum left them
+        # invisible, so a reader reconciling 0+0+8 against 68 silently
+        # assumed the other 60 were OK. Publish evaluated/INSUFFICIENT
+        # counts so the line always sums to the CSV, and say so at
+        # WARNING when NOTHING was judged: an inert monitor must never
+        # read as a healthy one. INSUFFICIENT itself still never pages
+        # (a window-size statement, not a defect) — only the
+        # all-unevaluated case does.
+        n_insufficient = sum(r["status"] == "INSUFFICIENT" for r in rows)
+        n_evaluated = len(rows) - n_insufficient
         logger.info(
-            "Feature drift [%s]: %d features, %d warnings, %d alerts, %d "
-            "seasonal (statuses on noise-adjusted PSI; "
-            "mean noise floor %.3f)",
-            view, len(rows),
+            "Feature drift [%s]: %d features, %d evaluated, %d INSUFFICIENT, "
+            "%d warnings, %d alerts, %d seasonal (statuses on noise-adjusted "
+            "PSI; mean noise floor %.3f)",
+            view, len(rows), n_evaluated, n_insufficient,
             sum(r["status"] == "WARN" for r in rows),
             sum(r["status"] == "ALERT" for r in rows),
             sum(r["status"] == "OK-SEASONAL" for r in rows),
             float(np.mean([r["noise_floor"] for r in rows])),
         )
+        if n_evaluated == 0:
+            logger.warning(
+                "Feature drift [%s]: 0 of %d features evaluable this run "
+                "(every row INSUFFICIENT — current/baseline windows under the "
+                "PSI sample floor) — drift is UNMEASURED, not clean",
+                view, len(rows),
+            )
     return rows
 
 
