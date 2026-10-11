@@ -61,7 +61,7 @@
     },
     "instruction": "No new source/program files committed; temporary diagnostic code and data stay gitignored under scratch.",
     "artifact_publication": "Reports and existing source/test repairs only; no production predictions/models rewritten",
-    "commit_and_push": "Pending final validation and explicit task-only commit; final response carries actual commit hash"
+    "commit_and_push": "Task-only commit and push requested on existing main branch; final response carries verified hash and push receipt. This report is generated before its containing commit."
   },
   "sports": {
     "mlb": {
@@ -49855,6 +49855,7 @@
         }
       ],
       "unavailable_diagnostics": {
+        "weekly_blend_in_training": "Weekly production ensemble in-training predictions are not retained by these interfaces. Component in-training and five-split ensemble training diagnostics are included where available; no weekly blend gap is fabricated.",
         "fav_brier": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "favorite_brier_gap": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "fav_ece": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites."
@@ -77266,6 +77267,8 @@
         "first_latest_oof_psi": "Complete schedule/feature/PBP/injury frame and per-member OOF store from the actual run are unavailable in this checkout; no .nfl_cache source archive. Published per-member pooled metrics are available, but fold-fitted univariate AUC, permutation stability, required three-population PSI/KS and random CV cannot be computed without rebuilding sources. Do not label code review as numerical verification.",
         "first_latest_oof_ks": "Complete schedule/feature/PBP/injury frame and per-member OOF store from the actual run are unavailable in this checkout; no .nfl_cache source archive. Published per-member pooled metrics are available, but fold-fitted univariate AUC, permutation stability, required three-population PSI/KS and random CV cannot be computed without rebuilding sources. Do not label code review as numerical verification.",
         "training_metrics": "Complete schedule/feature/PBP/injury frame and per-member OOF store from the actual run are unavailable in this checkout; no .nfl_cache source archive. Published per-member pooled metrics are available, but fold-fitted univariate AUC, permutation stability, required three-population PSI/KS and random CV cannot be computed without rebuilding sources. Do not label code review as numerical verification.",
+        "weekly_blend_in_training": "Weekly production ensemble in-training predictions are not retained by these interfaces. Component in-training and five-split ensemble training diagnostics are included where available; no weekly blend gap is fabricated.",
+        "component_per_fold_metrics": "Delivered histories retain blend probabilities only. Published member pooled metrics are included, but member per-fold scores cannot be reconstructed without source training snapshots or per-member OOF predictions.",
         "fav_brier": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "favorite_brier_gap": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "fav_ece": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
@@ -89038,6 +89041,8 @@
         "first_latest_oof_psi": "Complete official boxscore/player-rating training frame and per-member OOF store from the actual run are unavailable. A newly fetched roster/injury cache is not a historical training frame. Five-split historical replay, random CV, training metrics, univariate diagnostics and required first/latest/OOF drift remain blocked.",
         "first_latest_oof_ks": "Complete official boxscore/player-rating training frame and per-member OOF store from the actual run are unavailable. A newly fetched roster/injury cache is not a historical training frame. Five-split historical replay, random CV, training metrics, univariate diagnostics and required first/latest/OOF drift remain blocked.",
         "training_metrics": "Complete official boxscore/player-rating training frame and per-member OOF store from the actual run are unavailable. A newly fetched roster/injury cache is not a historical training frame. Five-split historical replay, random CV, training metrics, univariate diagnostics and required first/latest/OOF drift remain blocked.",
+        "weekly_blend_in_training": "Weekly production ensemble in-training predictions are not retained by these interfaces. Component in-training and five-split ensemble training diagnostics are included where available; no weekly blend gap is fabricated.",
+        "component_per_fold_metrics": "Delivered histories retain blend probabilities only. Published member pooled metrics are included, but member per-fold scores cannot be reconstructed without source training snapshots or per-member OOF predictions.",
         "fav_brier": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "favorite_brier_gap": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "fav_ece": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
@@ -114324,6 +114329,7 @@
         }
       ],
       "unavailable_diagnostics": {
+        "weekly_blend_in_training": "Weekly production ensemble in-training predictions are not retained by these interfaces. Component in-training and five-split ensemble training diagnostics are included where available; no weekly blend gap is fabricated.",
         "fav_brier": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "favorite_brier_gap": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites.",
         "fav_ece": "No bookmaker odds with observation timestamp before prediction cutoff; model fair prices are not market favorites."
@@ -114961,6 +114967,10 @@
       {
         "check": "NBA constant-home-edge monitor writer",
         "result": "Regression tests passed within NBA 527-test suite; fixed probability baseline score round-trip"
+      },
+      {
+        "check": "Report artifact validation",
+        "result": "Strict JSON; complete four-sport schema; HTML embedded JSON exactly equals standalone JSON. Browser navigation across all sports, feature filter/sort, reliability rendering and console checked."
       }
     ],
     "tests_failed": [
@@ -115288,6 +115298,7 @@
       "nba_weekly.json": "faea7b2c9a8ae66c8a1bb15aa0a9c55e5f0fb945302d05f4e97c28c0e61d55cb",
       "nhl_paired.json": "4324bbcd7a6517a7ac11e539b842d7740f9958b673c8952765da44b51e7209e3",
       "report_preview.json": "d370670be61c19350cfefc06a84ab9ee501a83f761b85dfe9e507b04e994c2ab",
+      "report_validation.json": "8a4c222f33eaab2889dc27abeb282e2c5ce31b866d26b13f61e8114105e07d9d",
       "script_checks.json": "2795fe33a332cbde22d33f2899d7994d3284edbb9266dc230af9bdff2299a388",
       "verified_final_tests.json": "ce3433645e32c5bde02b4eb691ba58d554ce12263332dca52f4334195a164eb5"
     },
