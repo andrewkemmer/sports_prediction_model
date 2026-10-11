@@ -1,253 +1,230 @@
   📝 Run log tee: /kaggle/working/sports_prediction_model/nfl-backend/data_delivery/nfl_pipeline_run_log.txt (one rolling master file, overwritten every run)
-2026-10-11 18:10:24,858 INFO nflverse date window: 2016-01-01..2026-10-11 (seasons 2016..2026)
-2026-10-11 18:10:24,858 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
-2026-10-11 18:10:24,895 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
+2026-10-11 20:45:01,581 INFO nflverse date window: 2016-01-01..2026-10-11 (seasons 2016..2026)
+2026-10-11 20:45:01,581 INFO NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild
+2026-10-11 20:45:01,597 INFO library stack: {"scipy": "1.16.3", "sklearn": "1.6.1", "xgboost": "3.2.0", "lightgbm": "4.6.0", "pandas": "2.3.3", "numpy": "2.0.2"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 2 — nflverse ingestion
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 18:10:27,347 INFO schedule rows (date window): 2839
-2026-10-11 18:10:27,715 INFO PIT weather archive: 111 window(s) x 4 batch(es) of 15 stadiums = 444 request batches
-2026-10-11 18:25:17,032 WARNING Open-Meteo 429; retrying in 1.3s (1/2)
-2026-10-11 18:25:18,416 WARNING Open-Meteo 429; retrying in 2.3s (2/2)
-2026-10-11 18:25:20,772 WARNING Open-Meteo 429: quota window closed — cooling down 60s, then one probe (dead batches: 1)
-2026-10-11 18:26:20,843 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 18:26:22,844 WARNING Open-Meteo rate limited: cooling down 120s before the next request (consecutive dead batches: 2)
-2026-10-11 18:28:22,915 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 18:28:24,916 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 3)
-2026-10-11 18:32:24,993 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 18:32:26,995 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 4)
-2026-10-11 18:36:27,065 WARNING Open-Meteo batch failed (2025-10-09..2025-10-22, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-09&end_date=2025-10-22 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 18:36:29,066 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 5)
-2026-10-11 18:40:29,138 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 18:40:31,140 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 6)
-2026-10-11 18:44:31,212 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=40.446667%2C34.014167%2C37.751667%2C32.767778%2C41.8623%2C39.095%2C44.501389%2C25.958056%2C27.975833%2C51.5556%2C51.456889%2C19.303%2C29.684858%2C33.864%2C33.755556&longitude=-80.015833%2C-118.287778%2C-122.200556%2C-117.146389%2C-87.6167%2C-84.516%2C-88.062222%2C-80.238889%2C-82.503333%2C-0.2794%2C-0.239722%2C-99.1505%2C-95.410802%2C-118.261%2C-84.4&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Heinz Field,Los Angeles Memorial Coliseum,Oakland-Alameda County Coliseum,Qualcomm Stadium,Soldier Field,Paul Brown Stadium,Lambeau Field,Hard Rock Stadium,Raymond James Stadium,Wembley Stadium,Twickenham Stadium,Azteca Stadium,NRG Stadium,StubHub Center,Mercedes-Benz Stadium]
-2026-10-11 18:44:33,213 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 7)
-2026-10-11 18:48:33,291 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=33.528%2C30.323889%2C37.751667%2C39.743889%2C51.6044%2C47.5952%2C39.048889%2C32.747778%2C33.528%2C39.095%2C40.446667%2C48.218775%2C50.068056%2C-23.545333%2C30.323889&longitude=-112.263%2C-81.6375%2C-122.200556%2C-105.02%2C-0.0664%2C-122.3316%2C-94.483889%2C-97.092778%2C-112.263%2C-84.516%2C-80.015833%2C11.624753%2C8.645806%2C-46.474305%2C-81.6375&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [University of Phoenix Stadium,TIAA Bank Stadium,Ring Central Coliseum,Empower Field at Mile High,Tottenham Stadium,Lumen Field,GEHA Field at Arrowhead Stadium,AT&T Stadium,State Farm Stadium,Paycor Stadium,Acrisure Stadium,Allianz Arena,Deutsche Bank Park,Arena Corinthians,EverBank Stadium]
-2026-10-11 18:48:35,293 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 8)
-2026-10-11 18:52:35,358 WARNING Open-Meteo batch failed (2025-10-23..2025-11-05, 5 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=42.773029%2C41.506111%2C38.907778%2C-22.912222%2C51.6044&longitude=-78.792192%2C-81.699444%2C-76.864444%2C-43.160278%2C-0.0664&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-10-23&end_date=2025-11-05 [Highmark Stadium,Huntington Bank Field,Northwest Stadium,Maracana Stadium,Tottenham Hotspur Stadium]
-2026-10-11 18:52:37,360 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 9)
-2026-10-11 18:56:37,434 WARNING Open-Meteo batch failed (2025-11-06..2025-11-19, 15 locations, source=open_meteo_archive): 429 Client Error: Too Many Requests for url: https://archive-api.open-meteo.com/v1/archive?latitude=39.743889%2C39.278056%2C30.323889%2C39.048889%2C40.813528%2C39.900833%2C36.166524%2C47.5952%2C39.760056%2C38.907778%2C37.403%2C42.773029%2C35.225833%2C41.506111%2C42.091&longitude=-105.02%2C-76.622778%2C-81.6375%2C-94.483889%2C-74.074361%2C-75.1675%2C-86.771315%2C-122.3316%2C-86.163806%2C-76.864444%2C-121.97%2C-78.792192%2C-80.852778%2C-81.699444%2C-71.264&hourly=temperature_2m%2Cwind_speed_10m%2Cprecipitation%2Csnowfall&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT&start_date=2025-11-06&end_date=2025-11-19 [Sports Authority Field at Mile High,M&T Bank Stadium,EverBank Field,Arrowhead Stadium,MetLife Stadium,Lincoln Financial Field,Nissan Stadium,CenturyLink Field,Lucas Oil Stadium,FedExField,Levi's Stadium,New Era Field,Bank of America Stadium,FirstEnergy Stadium,Gillette Stadium]
-2026-10-11 18:56:39,436 WARNING Open-Meteo rate limited: cooling down 240s before the next request (consecutive dead batches: 10)
-PIT weather archive batches: 100%|##########| 444/444 [51:28<00:00,  6.95s/it]
-2026-10-11 19:01:55,726 INFO PIT weather recent: fetching 2026-07-12..2026-10-11 observed (forecast endpoint) for 50 stadiums
-2026-10-11 19:01:59,401 INFO PIT weather top-up: 48 game(s) still missing after the first pass — refetching the gaps only
-2026-10-11 19:01:59,402 INFO PIT weather archive: 3 window(s) x 2 batch(es) of 15 stadiums = 6 request batches
-PIT weather archive batches: 100%|##########| 6/6 [00:10<00:00,  1.79s/it]
-2026-10-11 19:02:11,644 INFO PIT weather: 2022/2022 eligible games available from strict pre-kickoff hourly records
-2026-10-11 19:02:11,684 INFO PIT weather rows: 2022
-2026-10-11 19:02:11,686 INFO ingestion window 2016-01-01 .. 2026-10-11 in 66 x 60-day chunks (MLB parity)
-2026-10-11 19:02:11,687 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
-2026-10-11 19:02:11,687 INFO loading pbp season 2016
-2026-10-11 19:02:13,092 INFO loading pbp season 2017
-2026-10-11 19:02:14,238 INFO loading pbp season 2018
-2026-10-11 19:02:15,442 INFO loading pbp season 2019
-2026-10-11 19:02:16,493 INFO loading pbp season 2020
-2026-10-11 19:02:17,531 INFO loading pbp season 2021
-2026-10-11 19:02:18,646 INFO loading pbp season 2022
-2026-10-11 19:02:20,078 INFO loading pbp season 2023
-2026-10-11 19:02:21,159 INFO loading pbp season 2024
-2026-10-11 19:02:22,227 INFO loading pbp season 2025
-2026-10-11 19:02:23,286 INFO loading pbp season 2026
-2026-10-11 19:02:23,904 INFO pbp rows: 495581
-2026-10-11 19:02:23,905 INFO loading player stats season 2015
-2026-10-11 19:02:24,243 INFO loading player stats season 2016
-2026-10-11 19:02:24,544 INFO loading player stats season 2017
-2026-10-11 19:02:24,879 INFO loading player stats season 2018
-2026-10-11 19:02:25,180 INFO loading player stats season 2019
-2026-10-11 19:02:25,500 INFO loading player stats season 2020
-2026-10-11 19:02:25,808 INFO loading player stats season 2021
-2026-10-11 19:02:26,128 INFO loading player stats season 2022
-2026-10-11 19:02:26,446 INFO loading player stats season 2023
-2026-10-11 19:02:26,766 INFO loading player stats season 2024
-2026-10-11 19:02:26,993 INFO loading player stats season 2025
-2026-10-11 19:02:27,194 INFO loading player stats season 2026
-2026-10-11 19:02:27,352 INFO ngs published from 2016 — skipping [2015] (documented window)
-2026-10-11 19:02:27,353 INFO loading ngs passing season 2016
-2026-10-11 19:02:27,650 INFO loading ngs rushing season 2016
-2026-10-11 19:02:27,909 INFO loading ngs receiving season 2016
-2026-10-11 19:02:28,183 INFO loading ngs passing season 2017
-2026-10-11 19:02:28,191 INFO loading ngs rushing season 2017
-2026-10-11 19:02:28,199 INFO loading ngs receiving season 2017
-2026-10-11 19:02:28,211 INFO loading ngs passing season 2018
-2026-10-11 19:02:28,220 INFO loading ngs rushing season 2018
-2026-10-11 19:02:28,229 INFO loading ngs receiving season 2018
-2026-10-11 19:02:28,240 INFO loading ngs passing season 2019
-2026-10-11 19:02:28,247 INFO loading ngs rushing season 2019
-2026-10-11 19:02:28,255 INFO loading ngs receiving season 2019
-2026-10-11 19:02:28,264 INFO loading ngs passing season 2020
-2026-10-11 19:02:28,272 INFO loading ngs rushing season 2020
-2026-10-11 19:02:28,279 INFO loading ngs receiving season 2020
-2026-10-11 19:02:28,289 INFO loading ngs passing season 2021
-2026-10-11 19:02:28,297 INFO loading ngs rushing season 2021
-2026-10-11 19:02:28,304 INFO loading ngs receiving season 2021
-2026-10-11 19:02:28,314 INFO loading ngs passing season 2022
-2026-10-11 19:02:28,321 INFO loading ngs rushing season 2022
-2026-10-11 19:02:28,329 INFO loading ngs receiving season 2022
-2026-10-11 19:02:28,338 INFO loading ngs passing season 2023
-2026-10-11 19:02:28,346 INFO loading ngs rushing season 2023
-2026-10-11 19:02:28,354 INFO loading ngs receiving season 2023
-2026-10-11 19:02:28,364 INFO loading ngs passing season 2024
-2026-10-11 19:02:28,372 INFO loading ngs rushing season 2024
-2026-10-11 19:02:28,380 INFO loading ngs receiving season 2024
-2026-10-11 19:02:28,390 INFO loading ngs passing season 2025
-2026-10-11 19:02:28,398 INFO loading ngs rushing season 2025
-2026-10-11 19:02:28,406 INFO loading ngs receiving season 2025
-2026-10-11 19:02:28,415 INFO loading ngs passing season 2026
-2026-10-11 19:02:28,423 INFO loading ngs rushing season 2026
-2026-10-11 19:02:28,429 INFO loading ngs receiving season 2026
-2026-10-11 19:02:28,447 INFO loading snap counts season 2013
-2026-10-11 19:02:28,766 INFO loading snap counts season 2014
-2026-10-11 19:02:29,091 INFO loading snap counts season 2015
-2026-10-11 19:02:29,394 INFO loading snap counts season 2016
-2026-10-11 19:02:29,717 INFO loading snap counts season 2017
-2026-10-11 19:02:30,024 INFO loading snap counts season 2018
-2026-10-11 19:02:30,306 INFO loading snap counts season 2019
-2026-10-11 19:02:30,593 INFO loading snap counts season 2020
-2026-10-11 19:02:30,901 INFO loading snap counts season 2021
-2026-10-11 19:02:31,199 INFO loading snap counts season 2022
-2026-10-11 19:02:31,482 INFO loading snap counts season 2023
-2026-10-11 19:02:31,779 INFO loading snap counts season 2024
-2026-10-11 19:02:32,088 INFO loading snap counts season 2025
-2026-10-11 19:02:32,387 INFO loading snap counts season 2026
-2026-10-11 19:02:32,523 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
-2026-10-11 19:02:32,524 INFO loading ftn charting season 2022
-2026-10-11 19:02:32,823 INFO loading ftn charting season 2023
-2026-10-11 19:02:33,119 INFO loading ftn charting season 2024
-2026-10-11 19:02:33,402 INFO loading ftn charting season 2025
-2026-10-11 19:02:33,705 INFO loading ftn charting season 2026
-2026-10-11 19:02:37,724 INFO loading weekly injury report season 2016
-2026-10-11 19:02:37,742 INFO loading weekly injury report season 2017
-2026-10-11 19:02:37,758 INFO loading weekly injury report season 2018
-2026-10-11 19:02:37,774 INFO loading weekly injury report season 2019
-2026-10-11 19:02:37,791 INFO loading weekly injury report season 2020
-2026-10-11 19:02:37,808 INFO loading weekly injury report season 2021
-2026-10-11 19:02:37,826 INFO loading weekly injury report season 2022
-2026-10-11 19:02:37,843 INFO loading weekly injury report season 2023
-2026-10-11 19:02:37,858 INFO loading weekly injury report season 2024
-2026-10-11 19:02:37,877 INFO loading weekly injury report season 2025
-2026-10-11 19:02:37,893 INFO loading weekly injury report season 2026
-2026-10-11 19:02:38,142 INFO loading weekly roster snapshot season 2016
-2026-10-11 19:02:38,497 INFO loading weekly roster snapshot season 2017
-2026-10-11 19:02:38,907 INFO loading weekly roster snapshot season 2018
-2026-10-11 19:02:39,327 INFO loading weekly roster snapshot season 2019
-2026-10-11 19:02:39,737 INFO loading weekly roster snapshot season 2020
-2026-10-11 19:02:40,114 INFO loading weekly roster snapshot season 2021
-2026-10-11 19:02:40,506 INFO loading weekly roster snapshot season 2022
-2026-10-11 19:02:40,944 INFO loading weekly roster snapshot season 2023
-2026-10-11 19:02:41,367 INFO loading weekly roster snapshot season 2024
-2026-10-11 19:02:41,757 INFO loading weekly roster snapshot season 2025
-2026-10-11 19:02:42,157 INFO loading weekly roster snapshot season 2026
-nflverse population (season/source units): 100%|##########| 108/108 [00:32<00:00,  3.35it/s]
-2026-10-11 19:02:43,884 INFO PIT injury designation rows: 49445
-2026-10-11 19:02:43,885 INFO weekly injury report rows: 56969 | player crosswalk rows: 22688
-2026-10-11 19:02:43,885 INFO weekly roster rows: 479331 | roster-unavailable rows: 131030
-2026-10-11 19:02:43,885 INFO player stats rows: 204385 | ngs rows: 25116
-2026-10-11 19:02:43,885 INFO snap count rows: 330676 | ftn charting rows: 196211
-2026-10-11 19:02:43,889 INFO decided games: warmup 267, core (OOF population) 2560
+2026-10-11 20:45:03,084 INFO schedule rows (date window): 2839
+2026-10-11 20:45:03,327 INFO PIT weather archive: 111 window(s) x 4 batch(es) of 15 stadiums = 444 request batches
+PIT weather archive batches: 100%|##########| 444/444 [26:32<00:00,  3.59s/it]
+2026-10-11 21:11:36,145 INFO PIT weather recent: fetching 2026-07-12..2026-10-11 observed (forecast endpoint) for 50 stadiums
+2026-10-11 21:11:42,769 INFO PIT weather: 2022/2022 eligible games available from strict pre-kickoff hourly records
+2026-10-11 21:11:43,105 INFO PIT weather rows: 2022
+2026-10-11 21:11:43,106 INFO ingestion window 2016-01-01 .. 2026-10-11 in 66 x 60-day chunks (MLB parity)
+2026-10-11 21:11:43,106 INFO nflverse population: 108 season/source units {"ftn_charting": 5, "injuries": 11, "injuries_weekly": 11, "nextgen": 33, "pbp": 11, "player_stats": 12, "snap_counts": 14, "weekly_rosters": 11}
+2026-10-11 21:11:43,106 INFO loading pbp season 2016
+2026-10-11 21:11:44,304 INFO loading pbp season 2017
+2026-10-11 21:11:46,076 INFO loading pbp season 2018
+2026-10-11 21:11:47,165 INFO loading pbp season 2019
+2026-10-11 21:11:48,337 INFO loading pbp season 2020
+2026-10-11 21:11:49,410 INFO loading pbp season 2021
+2026-10-11 21:11:50,525 INFO loading pbp season 2022
+2026-10-11 21:11:51,637 INFO loading pbp season 2023
+2026-10-11 21:11:52,780 INFO loading pbp season 2024
+2026-10-11 21:11:54,457 INFO loading pbp season 2025
+2026-10-11 21:11:55,637 INFO loading pbp season 2026
+2026-10-11 21:11:56,129 INFO pbp rows: 497175
+2026-10-11 21:11:56,129 INFO loading player stats season 2015
+2026-10-11 21:11:56,673 INFO loading player stats season 2016
+2026-10-11 21:11:57,592 INFO loading player stats season 2017
+2026-10-11 21:11:58,499 INFO loading player stats season 2018
+2026-10-11 21:11:59,012 INFO loading player stats season 2019
+2026-10-11 21:11:59,546 INFO loading player stats season 2020
+2026-10-11 21:12:00,044 INFO loading player stats season 2021
+2026-10-11 21:12:00,543 INFO loading player stats season 2022
+2026-10-11 21:12:01,438 INFO loading player stats season 2023
+2026-10-11 21:12:01,956 INFO loading player stats season 2024
+2026-10-11 21:12:02,472 INFO loading player stats season 2025
+2026-10-11 21:12:02,961 INFO loading player stats season 2026
+2026-10-11 21:12:03,450 INFO ngs published from 2016 — skipping [2015] (documented window)
+2026-10-11 21:12:03,451 INFO loading ngs passing season 2016
+2026-10-11 21:12:03,932 INFO loading ngs rushing season 2016
+2026-10-11 21:12:04,427 INFO loading ngs receiving season 2016
+2026-10-11 21:12:04,912 INFO loading ngs passing season 2017
+2026-10-11 21:12:04,917 INFO loading ngs rushing season 2017
+2026-10-11 21:12:04,922 INFO loading ngs receiving season 2017
+2026-10-11 21:12:04,929 INFO loading ngs passing season 2018
+2026-10-11 21:12:04,934 INFO loading ngs rushing season 2018
+2026-10-11 21:12:04,939 INFO loading ngs receiving season 2018
+2026-10-11 21:12:04,947 INFO loading ngs passing season 2019
+2026-10-11 21:12:04,952 INFO loading ngs rushing season 2019
+2026-10-11 21:12:04,957 INFO loading ngs receiving season 2019
+2026-10-11 21:12:04,964 INFO loading ngs passing season 2020
+2026-10-11 21:12:04,969 INFO loading ngs rushing season 2020
+2026-10-11 21:12:04,974 INFO loading ngs receiving season 2020
+2026-10-11 21:12:04,981 INFO loading ngs passing season 2021
+2026-10-11 21:12:04,987 INFO loading ngs rushing season 2021
+2026-10-11 21:12:04,992 INFO loading ngs receiving season 2021
+2026-10-11 21:12:04,999 INFO loading ngs passing season 2022
+2026-10-11 21:12:05,004 INFO loading ngs rushing season 2022
+2026-10-11 21:12:05,008 INFO loading ngs receiving season 2022
+2026-10-11 21:12:05,013 INFO loading ngs passing season 2023
+2026-10-11 21:12:05,019 INFO loading ngs rushing season 2023
+2026-10-11 21:12:05,025 INFO loading ngs receiving season 2023
+2026-10-11 21:12:05,033 INFO loading ngs passing season 2024
+2026-10-11 21:12:05,038 INFO loading ngs rushing season 2024
+2026-10-11 21:12:05,044 INFO loading ngs receiving season 2024
+2026-10-11 21:12:05,051 INFO loading ngs passing season 2025
+2026-10-11 21:12:05,057 INFO loading ngs rushing season 2025
+2026-10-11 21:12:05,061 INFO loading ngs receiving season 2025
+2026-10-11 21:12:05,068 INFO loading ngs passing season 2026
+2026-10-11 21:12:05,073 INFO loading ngs rushing season 2026
+2026-10-11 21:12:05,077 INFO loading ngs receiving season 2026
+2026-10-11 21:12:05,087 INFO loading snap counts season 2013
+2026-10-11 21:12:05,583 INFO loading snap counts season 2014
+2026-10-11 21:12:06,078 INFO loading snap counts season 2015
+2026-10-11 21:12:06,622 INFO loading snap counts season 2016
+2026-10-11 21:12:07,517 INFO loading snap counts season 2017
+2026-10-11 21:12:08,012 INFO loading snap counts season 2018
+2026-10-11 21:12:08,508 INFO loading snap counts season 2019
+2026-10-11 21:12:09,017 INFO loading snap counts season 2020
+2026-10-11 21:12:09,511 INFO loading snap counts season 2021
+2026-10-11 21:12:10,018 INFO loading snap counts season 2022
+2026-10-11 21:12:10,527 INFO loading snap counts season 2023
+2026-10-11 21:12:11,024 INFO loading snap counts season 2024
+2026-10-11 21:12:11,930 INFO loading snap counts season 2025
+2026-10-11 21:12:12,424 INFO loading snap counts season 2026
+2026-10-11 21:12:12,709 INFO ftn charting published from 2022 — skipping [2016, 2017, 2018, 2019, 2020, 2021] (documented window)
+2026-10-11 21:12:12,709 INFO loading ftn charting season 2022
+2026-10-11 21:12:13,231 INFO loading ftn charting season 2023
+2026-10-11 21:12:14,151 INFO loading ftn charting season 2024
+2026-10-11 21:12:14,677 INFO loading ftn charting season 2025
+2026-10-11 21:12:15,199 INFO loading ftn charting season 2026
+2026-10-11 21:12:21,837 INFO loading weekly injury report season 2016
+2026-10-11 21:12:21,848 INFO loading weekly injury report season 2017
+2026-10-11 21:12:21,860 INFO loading weekly injury report season 2018
+2026-10-11 21:12:21,872 INFO loading weekly injury report season 2019
+2026-10-11 21:12:21,884 INFO loading weekly injury report season 2020
+2026-10-11 21:12:21,894 INFO loading weekly injury report season 2021
+2026-10-11 21:12:21,904 INFO loading weekly injury report season 2022
+2026-10-11 21:12:21,915 INFO loading weekly injury report season 2023
+2026-10-11 21:12:21,927 INFO loading weekly injury report season 2024
+2026-10-11 21:12:21,938 INFO loading weekly injury report season 2025
+2026-10-11 21:12:21,948 INFO loading weekly injury report season 2026
+2026-10-11 21:12:22,505 INFO loading weekly roster snapshot season 2016
+2026-10-11 21:12:23,062 INFO loading weekly roster snapshot season 2017
+2026-10-11 21:12:23,615 INFO loading weekly roster snapshot season 2018
+2026-10-11 21:12:24,171 INFO loading weekly roster snapshot season 2019
+2026-10-11 21:12:24,753 INFO loading weekly roster snapshot season 2020
+2026-10-11 21:12:25,714 INFO loading weekly roster snapshot season 2021
+2026-10-11 21:12:26,251 INFO loading weekly roster snapshot season 2022
+2026-10-11 21:12:26,810 INFO loading weekly roster snapshot season 2023
+2026-10-11 21:12:27,381 INFO loading weekly roster snapshot season 2024
+2026-10-11 21:12:27,970 INFO loading weekly roster snapshot season 2025
+2026-10-11 21:12:28,521 INFO loading weekly roster snapshot season 2026
+nflverse population (season/source units): 100%|##########| 108/108 [00:46<00:00,  2.32it/s]
+2026-10-11 21:12:29,685 INFO PIT injury designation rows: 49445
+2026-10-11 21:12:29,685 INFO weekly injury report rows: 56969 | player crosswalk rows: 22688
+2026-10-11 21:12:29,685 INFO weekly roster rows: 479331 | roster-unavailable rows: 131030
+2026-10-11 21:12:29,685 INFO player stats rows: 205014 | ngs rows: 25116
+2026-10-11 21:12:29,685 INFO snap count rows: 330676 | ftn charting rows: 196211
+2026-10-11 21:12:29,688 INFO decided games: warmup 267, core (OOF population) 2567
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 3 — point-in-time feature engine
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:02:52,127 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-10-11 19:02:52,376 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-10-11 19:03:12,828 INFO feature frame: 2827 decided games, 267 columns
-2026-10-11 19:03:12,874 INFO feature coverage:
+2026-10-11 21:12:34,818 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-10-11 21:12:34,968 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-10-11 21:12:47,257 INFO feature frame: 2834 decided games, 267 columns
+2026-10-11 21:12:47,288 INFO feature coverage:
                    feature  n_games  coverage_pct        mean        std
-                  elo_diff     2827        100.00    0.554446 101.595283
-              win_pct_diff     2827         99.43    0.000510   0.283904
-            rest_days_diff     2827         93.74    0.039623   2.554269
-              is_dome_home     2827        100.00    0.287584   0.452716
-          ewm_net_pts_diff     2827         99.43   -0.298898  10.107806
-              ewm_ypp_diff     2827         99.43   -0.006800   0.688745
-       pace_plays_min_diff     2827         99.43   -0.001877   0.122534
-           rest_short_diff     2827        100.00    0.013442   0.360609
-           rest_short_home     2827        100.00    0.155996   0.362916
-           rest_short_away     2827        100.00    0.142554   0.349679
-                  div_game     2827        100.00    0.351609   0.477557
-         travel_miles_diff     2827         98.69 -937.240266 682.470722
-             altitude_home     2827        100.00  596.887726 965.676207
-                prime_time     2827        100.00    0.220375   0.414573
-              is_turf_home     2827         98.41    0.428469   0.494946
-                    temp_f     2827         71.24   57.783813  17.338083
-                  wind_mph     2827         71.24    7.925869   4.446232
-                 is_precip     2827         71.24    0.011420   0.106279
-                   is_snow     2827         71.24    0.006951   0.083105
-pbp_air_yards_att_ewm_diff     2827         99.43   -0.006613   1.558834
-pbp_air_yards_att_ewm_home     2827         99.43    7.973543   1.120440
-pbp_air_yards_att_ewm_away     2827         99.43    7.980156   1.112662
- pbp_def_epa_play_ewm_diff     2827         99.43   -0.000048   0.107473
- pbp_def_epa_play_ewm_home     2827         99.43   -0.009340   0.075751
- pbp_def_epa_play_ewm_away     2827         99.43   -0.009292   0.078998
-         travel_miles_home     2827         98.80   74.631439 563.089527
-         travel_miles_away     2827         99.22 1013.238826 775.388609
-                  elo_home     2827        100.00 1504.364301  76.177053
-                  elo_away     2827        100.00 1503.809855  73.794571
-              win_pct_home     2827         99.43    0.501051   0.208287
-              win_pct_away     2827         99.43    0.500541   0.205803
-          ewm_net_pts_home     2827         99.43   -0.139730   7.518899
-          ewm_net_pts_away     2827         99.43    0.159168   7.380529
-              ewm_ypp_home     2827         99.43    4.204265   0.502602
-              ewm_ypp_away     2827         99.43    4.211066   0.496295
-            rest_days_home     2827         93.77    7.505092   2.179552
-            rest_days_away     2827         93.77    7.465862   2.073340
-       pace_plays_min_home     2827         99.43    1.355304   0.089061
-       pace_plays_min_away     2827         99.43    1.357182   0.088405
-               epa_qb_home     2827         98.05    1.214415   4.728031
-               epa_qb_away     2827         97.98    1.135483   4.695292
-               epa_qb_diff     2827         96.67    0.073552   6.500865
-               epa_wr_home     2827         99.43    4.570844   3.204406
-               epa_wr_away     2827         99.40    4.531649   3.219418
-               epa_wr_diff     2827         99.40    0.040055   4.364376
-               epa_te_home     2827         98.69    1.586004   1.628883
-               epa_te_away     2827         98.59    1.561501   1.616327
-               epa_te_diff     2827         97.84    0.023650   2.293146
-               epa_rb_home     2827         99.43   -1.394902   2.281563
-               epa_rb_away     2827         99.40   -1.449442   2.252360
-               epa_rb_diff     2827         99.40    0.054535   3.234881
-           inj_ol_out_home     2827        100.00    2.312699   1.555027
-           inj_ol_out_away     2827        100.00    2.327909   1.533655
-           inj_ol_out_diff     2827        100.00   -0.015210   2.018522
-  ol_snaps_lost_share_home     2827        100.00    1.470476   1.128126
-  ol_snaps_lost_share_away     2827        100.00    1.489831   1.115311
-  ol_snaps_lost_share_diff     2827        100.00   -0.019355   1.497710
-           ol_key_out_home     2827        100.00    0.720198   0.448981
-           ol_key_out_away     2827        100.00    0.737531   0.440054
-           ol_key_out_diff     2827        100.00   -0.017333   0.617093
-          inj_def_out_home     2827        100.00    7.146445   3.284751
-          inj_def_out_away     2827        100.00    7.192784   3.333861
-          inj_def_out_diff     2827        100.00   -0.046339   4.102928
- def_snaps_lost_share_home     2827        100.00    3.081238   1.610750
- def_snaps_lost_share_away     2827        100.00    3.114397   1.614714
- def_snaps_lost_share_diff     2827        100.00   -0.033159   2.115937
-          def_key_out_home     2827        100.00    0.852848   0.354321
-          def_key_out_away     2827        100.00    0.859215   0.347861
-          def_key_out_diff     2827        100.00   -0.006367   0.485416
-                   is_home     2827        100.00    1.000000   0.000000
-2026-10-11 19:03:12,892 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
+                  elo_diff     2834        100.00    0.432060 101.626404
+              win_pct_diff     2834         99.44    0.000302   0.283894
+            rest_days_diff     2834         93.75    0.039142   2.552309
+              is_dome_home     2834        100.00    0.287227   0.452548
+          ewm_net_pts_diff     2834         99.44   -0.320839  10.107367
+              ewm_ypp_diff     2834         99.44   -0.007062   0.688348
+       pace_plays_min_diff     2834         99.44   -0.002035   0.122677
+           rest_short_diff     2834        100.00    0.013761   0.360640
+           rest_short_home     2834        100.00    0.155963   0.362885
+           rest_short_away     2834        100.00    0.142202   0.349319
+                  div_game     2834        100.00    0.351447   0.477506
+         travel_miles_diff     2834         98.69 -937.018751 682.494236
+             altitude_home     2834        100.00  596.227452 964.665168
+                prime_time     2834        100.00    0.219831   0.414205
+              is_turf_home     2834         98.41    0.428469   0.494946
+                    temp_f     2834         71.28   57.808960  17.329034
+                  wind_mph     2834         71.28    7.925891   4.440462
+                 is_precip     2834         71.28    0.011386   0.106123
+                   is_snow     2834         71.28    0.006931   0.082982
+pbp_air_yards_att_ewm_diff     2834         99.44   -0.004879   1.560553
+pbp_air_yards_att_ewm_home     2834         99.44    7.974190   1.120641
+pbp_air_yards_att_ewm_away     2834         99.44    7.979069   1.113367
+ pbp_def_epa_play_ewm_diff     2834         99.44    0.000168   0.107511
+ pbp_def_epa_play_ewm_home     2834         99.44   -0.009173   0.075744
+ pbp_def_epa_play_ewm_away     2834         99.44   -0.009341   0.078998
+         travel_miles_home     2834         98.80   74.444860 562.397327
+         travel_miles_away     2834         99.22 1012.829307 775.222457
+                  elo_home     2834        100.00 1504.235837  76.225063
+                  elo_away     2834        100.00 1503.803777  73.743373
+              win_pct_home     2834         99.44    0.500812   0.208254
+              win_pct_away     2834         99.44    0.500510   0.205697
+          ewm_net_pts_home     2834         99.44   -0.156111   7.518265
+          ewm_net_pts_away     2834         99.44    0.164728   7.374910
+              ewm_ypp_home     2834         99.44    4.203400   0.502391
+              ewm_ypp_away     2834         99.44    4.210462   0.496256
+            rest_days_home     2834         93.79    7.504515   2.177523
+            rest_days_away     2834         93.79    7.465764   2.071309
+       pace_plays_min_home     2834         99.44    1.355216   0.089192
+       pace_plays_min_away     2834         99.44    1.357251   0.088391
+               epa_qb_home     2834         98.06    1.210122   4.726034
+               epa_qb_away     2834         97.99    1.133642   4.692744
+               epa_qb_diff     2834         96.68    0.071076   6.497243
+               epa_wr_home     2834         99.44    4.568918   3.203334
+               epa_wr_away     2834         99.40    4.531340   3.217929
+               epa_wr_diff     2834         99.40    0.038434   4.364319
+               epa_te_home     2834         98.69    1.586075   1.628009
+               epa_te_away     2834         98.59    1.563327   1.616834
+               epa_te_diff     2834         97.85    0.021884   2.292910
+               epa_rb_home     2834         99.44   -1.398532   2.280373
+               epa_rb_away     2834         99.40   -1.451496   2.252509
+               epa_rb_diff     2834         99.40    0.052958   3.232959
+           inj_ol_out_home     2834        100.00    2.309809   1.554741
+           inj_ol_out_away     2834        100.00    2.323924   1.534247
+           inj_ol_out_diff     2834        100.00   -0.014114   2.016648
+  ol_snaps_lost_share_home     2834        100.00    1.468613   1.127960
+  ol_snaps_lost_share_away     2834        100.00    1.487304   1.115487
+  ol_snaps_lost_share_diff     2834        100.00   -0.018691   1.496303
+           ol_key_out_home     2834        100.00    0.719478   0.449334
+           ol_key_out_away     2834        100.00    0.736768   0.440465
+           ol_key_out_diff     2834        100.00   -0.017290   0.616903
+          inj_def_out_home     2834        100.00    7.143966   3.281330
+          inj_def_out_away     2834        100.00    7.188426   3.333948
+          inj_def_out_diff     2834        100.00   -0.044460   4.100158
+ def_snaps_lost_share_home     2834        100.00    3.080909   1.609014
+ def_snaps_lost_share_away     2834        100.00    3.112335   1.614908
+ def_snaps_lost_share_diff     2834        100.00   -0.031426   2.115044
+          def_key_out_home     2834        100.00    0.852858   0.354310
+          def_key_out_away     2834        100.00    0.858857   0.348231
+          def_key_out_diff     2834        100.00   -0.005999   0.485911
+                   is_home     2834        100.00    1.000000   0.000000
+2026-10-11 21:12:47,299 INFO feature subset: {'applied': False, 'n_cols': 70, 'reason': 'no adopted state'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 4 — walk-forward fold generation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:03:13,217 WARNING OOF validation population is thin on 93 of 200 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +88 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
-2026-10-11 19:03:13,226 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
-  eligible settled games : 2827
+2026-10-11 21:12:47,516 WARNING OOF validation population is thin on 93 of 200 window(s) (< MIN_VAL_FOLD_GAMES=15 games): [2017-10-05..2017-10-11 n=14 regular], [2017-10-12..2017-10-18 n=14 regular], [2017-10-26..2017-11-01 n=13 regular], [2017-11-02..2017-11-08 n=13 regular], [2017-11-09..2017-11-15 n=14 regular], +88 more (per-window detail: nfl_fold_table.csv) - retained and scored, but PROVISIONAL: excluded from pooled metrics, blend weights and calibration (playoff weeks, bye weeks and week-straddling blocks are the usual cause)
+2026-10-11 21:12:47,522 INFO OOF season-type split: 36 window(s) carry postseason games (111 rows); their playoff rows are reported as oof_postseason and never grade the blend
+  eligible settled games : 2834
   game date range        : 2016-09-08 .. 2026-10-11
   warmup seasons         : [2016] (training-only)
   first OOF validation   : 2017-09-07 (fold 0, n_val=15)
-  last OOF validation    : 2026-10-14 (fold 199, n_val=2)
+  last OOF validation    : 2026-10-14 (fold 199, n_val=9)
   validation windows     : 200 (7-calendar-day, non-overlapping, expanding training)
   training observations  : 267 (first) .. 2825 (last)
-  validation observations: 2560
-  n_validation min/max/mean/median: 1 / 18 / 12.8 / 15.0 (windows are 7 CALENDAR days — game counts vary per window)
+  validation observations: 2567
+  n_validation min/max/mean/median: 1 / 18 / 12.835 / 15.0 (windows are 7 CALENDAR days — game counts vary per window)
   complete n_validation distribution:
       1 games: 10 folds
-      2 games: 10 folds
+      2 games: 9 folds
       4 games: 12 folds
       6 games: 6 folds
+      9 games: 1 folds
      13 games: 13 folds
      14 games: 42 folds
      15 games: 25 folds
@@ -259,227 +236,135 @@ pbp_air_yards_att_ewm_away     2827         99.43    7.980156   1.112662
     fold   2  train_end=2017-09-18  val=[2017-09-21 .. 2017-09-27]  n_train=  298  n_val=16
     fold 197  train_end=2026-09-21  val=[2026-09-24 .. 2026-09-30]  n_train= 2793  n_val=16
     fold 198  train_end=2026-09-28  val=[2026-10-01 .. 2026-10-07]  n_train= 2809  n_val=16
-    fold 199  train_end=2026-10-05  val=[2026-10-08 .. 2026-10-14]  n_train= 2825  n_val=2
-2026-10-11 19:03:13,337 INFO folds: {"n_folds": 200, "first_val_start": "2017-09-07", "last_val_end": "2026-10-14", "min_train": 267, "max_train": 2825, "total_val_games": 2560, "n_candidates": 200, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 93, "provisional_games": 871, "postseason_windows": 36, "min_val_fold_games": 15}
+    fold 199  train_end=2026-10-05  val=[2026-10-08 .. 2026-10-14]  n_train= 2825  n_val=9
+2026-10-11 21:12:47,587 INFO folds: {"n_folds": 200, "first_val_start": "2017-09-07", "last_val_end": "2026-10-14", "min_train": 267, "max_train": 2825, "total_val_games": 2567, "n_candidates": 200, "dropped_windows": 0, "dropped_games": 0, "provisional_windows": 93, "provisional_games": 878, "postseason_windows": 36, "min_val_fold_games": 15}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 5 — moneyline walk-forward OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:03:43,700 INFO moneyline OOF fold 25/200
-2026-10-11 19:04:15,935 INFO moneyline OOF fold 50/200
-2026-10-11 19:04:50,810 INFO moneyline OOF fold 75/200
-2026-10-11 19:05:30,293 INFO moneyline OOF fold 100/200
-2026-10-11 19:06:13,414 INFO moneyline OOF fold 125/200
-2026-10-11 19:06:59,449 INFO moneyline OOF fold 150/200
-2026-10-11 19:07:45,297 INFO moneyline OOF fold 175/200
-2026-10-11 19:08:32,828 INFO moneyline OOF fold 200/200
-2026-10-11 19:08:32,853 INFO Published blend: 2560 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '42.6%', 'lightgbm': '19.2%', 'xgboost': '38.2%'} replay only in p_ensemble_retrospective (not OOF)
-2026-10-11 19:08:32,854 INFO moneyline OOF: 2560 scored row(s), 1689 grading / 111 postseason / 871 provisional
-moneyline OOF folds: 100%|##########| 200/200 [05:19<00:00,  1.60s/it]
-2026-10-11 19:08:32,863 INFO moneyline OOF rows: 2560; adaptive weights: {"elasticnet": 0.426, "lightgbm": 0.192, "xgboost": 0.382}
+2026-10-11 21:13:07,798 INFO moneyline OOF fold 25/200
+2026-10-11 21:13:29,054 INFO moneyline OOF fold 50/200
+2026-10-11 21:13:53,137 INFO moneyline OOF fold 75/200
+2026-10-11 21:14:19,218 INFO moneyline OOF fold 100/200
+2026-10-11 21:14:46,807 INFO moneyline OOF fold 125/200
+2026-10-11 21:15:16,182 INFO moneyline OOF fold 150/200
+2026-10-11 21:15:47,261 INFO moneyline OOF fold 175/200
+2026-10-11 21:16:19,030 INFO moneyline OOF fold 200/200
+2026-10-11 21:16:19,047 INFO Published blend: 2567 OOF rows retain strictly-prior fold weights — headline metrics grade the causal rolling blend; final serving weights {'elasticnet': '42.6%', 'lightgbm': '19.2%', 'xgboost': '38.2%'} replay only in p_ensemble_retrospective (not OOF)
+2026-10-11 21:16:19,048 INFO moneyline OOF: 2567 scored row(s), 1689 grading / 111 postseason / 878 provisional
+moneyline OOF folds: 100%|##########| 200/200 [03:31<00:00,  1.06s/it]
+2026-10-11 21:16:19,055 INFO moneyline OOF rows: 2567; adaptive weights: {"elasticnet": 0.426, "lightgbm": 0.192, "xgboost": 0.382}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 6-7 — margin/total distribution OOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-distribution OOF folds: 100%|##########| 200/200 [01:08<00:00,  2.93it/s]
-2026-10-11 19:09:41,170 INFO calibrated NB dispersion: alpha_home 0.117777, alpha_away 0.137131
+distribution OOF folds: 100%|##########| 200/200 [00:50<00:00,  3.99it/s]
+2026-10-11 21:17:09,215 INFO calibrated NB dispersion: alpha_home 0.118213, alpha_away 0.137001
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 8 — calibration
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:09:41,715 INFO prequential per-fold calibration: 0 fitted, 200 identity
-2026-10-11 19:09:41,741 INFO oof blocks: {"oof_regular": {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6356107660455486, "logloss": 0.6338657250918408, "brier": 0.22102969004367018, "ece": 0.0416681407785704, "sufficient": true}, "oof_provisional": {"n": 871, "auc": 0.6834595812041178, "logloss": 0.638284336475525, "brier": 0.2237367300443316, "ece": 0.030361006826218746, "sufficient": true}, "oof_all": {"n": 2560, "auc": 0.6940497641764886, "logloss": 0.6318281467548459, "brier": 0.2208182776095275, "ece": 0.02520403598646108, "sufficient": true}}
-2026-10-11 19:09:41,745 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
+2026-10-11 21:17:09,538 INFO prequential per-fold calibration: 0 fitted, 200 identity
+2026-10-11 21:17:09,555 INFO oof blocks: {"oof_regular": {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284, "sufficient": true}, "oof_postseason": {"n": 111, "auc": 0.6356107660455486, "logloss": 0.6338657250918408, "brier": 0.22102969004367018, "ece": 0.0416681407785704, "sufficient": true}, "oof_provisional": {"n": 878, "auc": 0.6833440507745312, "logloss": 0.6382258631440164, "brier": 0.22370156307385644, "ece": 0.029701037798165825, "sufficient": true}, "oof_all": {"n": 2567, "auc": 0.6939656016648305, "logloss": 0.6318257524202062, "brier": 0.2208142077096313, "ece": 0.024813387724101948, "sufficient": true}}
+2026-10-11 21:17:09,558 INFO final serving calibrator: identity (raw blend is served); nested gate: gated_no_gain
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 9 — evaluation / diagnostics
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:09:41,757 INFO moneyline OOF raw:    {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284} (causal rolling blend)
-2026-10-11 19:09:41,763 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1689, "auc": 0.7008421284889492, "logloss": 0.6273500207449958, "brier": 0.2187711482492624, "ece": 0.03375075692448978}
-2026-10-11 19:09:41,763 INFO moneyline OOF calib:  {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
-2026-10-11 19:09:41,764 INFO serving calibrator: identity (raw blend)
-2026-10-11 19:09:41,780 INFO   member xgboost       w=0.382 auc=0.6963 logloss=0.6300 brier=0.2198
-2026-10-11 19:09:41,781 INFO   member lightgbm      w=0.192 auc=0.6940 logloss=0.6314 brier=0.2205
-2026-10-11 19:09:41,781 INFO   member elasticnet    w=0.426 auc=0.6980 logloss=0.6297 brier=0.2199
-2026-10-11 19:09:49,326 INFO run-line OOF:  {"n": 2464, "n_pushes": 96, "logscore": 0.6935267763592994, "brier": 0.2501897510146104, "ece_cover": 0.018470779220779176}
-2026-10-11 19:09:49,326 INFO totals OOF:    {"n": 2479, "n_pushes": 81, "logscore": 0.6933138682923143, "brier": 0.25008330798709155, "ece_cover": 0.02399596611536909}
+2026-10-11 21:17:09,566 INFO moneyline OOF raw:    {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284} (causal rolling blend)
+2026-10-11 21:17:09,570 INFO moneyline retrospective final-weight replay (NOT OOF / not selection evidence): {"n": 1689, "auc": 0.7008421284889492, "logloss": 0.6273500207449958, "brier": 0.2187711482492624, "ece": 0.03375075692448978}
+2026-10-11 21:17:09,570 INFO moneyline OOF calib:  {"n": 1689, "auc": 0.6994305661242005, "logloss": 0.6284987558450107, "brier": 0.21931326158186948, "ece": 0.028950424492268284}   [PREQUENTIAL per-fold maps, pooled: pooled auc is NOT comparable to raw]
+2026-10-11 21:17:09,570 INFO serving calibrator: identity (raw blend)
+2026-10-11 21:17:09,580 INFO   member xgboost       w=0.382 auc=0.6963 logloss=0.6300 brier=0.2198
+2026-10-11 21:17:09,581 INFO   member lightgbm      w=0.192 auc=0.6940 logloss=0.6314 brier=0.2205
+2026-10-11 21:17:09,581 INFO   member elasticnet    w=0.426 auc=0.6980 logloss=0.6297 brier=0.2199
+2026-10-11 21:17:14,748 INFO run-line OOF:  {"n": 2478, "n_pushes": 89, "logscore": 0.6935241475839959, "brier": 0.25018842191283297, "ece_cover": 0.013905972558514938}
+2026-10-11 21:17:14,748 INFO totals OOF:    {"n": 2478, "n_pushes": 89, "logscore": 0.6927683239232747, "brier": 0.24981058353510896, "ece_cover": 0.02238377723970949}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 10 — final full-history refit
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-final full-history refit: 100%|##########| 2/2 [00:02<00:00,  1.24s/it]
-2026-10-11 19:09:53,036 INFO final refit: 3 members + run-line regressors on 2827 games
+final full-history refit: 100%|##########| 2/2 [00:01<00:00,  1.18it/s]
+2026-10-11 21:17:17,247 INFO final refit: 3 members + run-line regressors on 2834 games
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 11 — current-slate serving
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:10:01,430 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
-2026-10-11 19:10:01,715 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
-2026-10-11 19:10:21,470 INFO slate games: 13
-2026-10-11 19:10:21,470 INFO markets: Monte-Carlo distribution over 2560 OOF game(s), MC_DRAWS=10000
-2026-10-11 19:10:37,690 INFO markets: OOF market rows built in 16.2s
-2026-10-11 19:10:37,690 INFO markets: prior-fold market calibration start (2560 OOF row(s))
-2026-10-11 19:13:44,712 INFO markets: prior-fold market calibration applied in 187.0s (2560 OOF row(s))
-2026-10-11 19:13:44,712 INFO RFE: not run (NFL_RFE_FORCE not set)
+2026-10-11 21:17:22,519 INFO NGS Super Bowl week reconciled: 20 row(s) moved to the schedule's week number
+2026-10-11 21:17:22,689 INFO ftn attribution: 196211 of 196211 charted play(s) bound to possession identity (0 without a PBP key in this window)
+2026-10-11 21:17:36,187 INFO slate games: 13
+2026-10-11 21:17:36,188 INFO markets: Monte-Carlo distribution over 2567 OOF game(s), MC_DRAWS=10000
+2026-10-11 21:17:47,603 INFO markets: OOF market rows built in 11.4s
+2026-10-11 21:17:47,603 INFO markets: prior-fold market calibration start (2567 OOF row(s))
+2026-10-11 21:19:38,098 INFO markets: prior-fold market calibration applied in 110.5s (2567 OOF row(s))
+2026-10-11 21:19:38,098 INFO RFE: not run (NFL_RFE_FORCE not set)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 12 — artifact persistence
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:13:45,310 INFO cards history store: 2560 rows (1 added this run) -> nfl_production_cards_history.csv
-2026-10-11 19:13:45,366 INFO dated board snapshots: 1 date(s) -> nfl_board_20261011.csv
-2026-10-11 19:13:56,381 INFO NFL SHAP attributions written for 13 games
-2026-10-11 19:13:56,383 INFO SHAP attribution cards: 13 written this run (224 on disk, all retained)
+2026-10-11 21:19:38,753 INFO cards history store: 2567 rows (7 added this run) -> nfl_production_cards_history.csv
+2026-10-11 21:19:38,786 INFO dated board snapshots: 1 date(s) -> nfl_board_20261011.csv
+2026-10-11 21:19:46,261 INFO NFL SHAP attributions written for 13 games
+2026-10-11 21:19:46,263 INFO SHAP attribution cards: 13 written this run (224 on disk, all retained)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 13 — monitoring
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:13:57,163 INFO Feature drift [moneyline]: 70 features, 1 warnings, 1 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-2026-10-11 19:13:58,395 INFO Feature drift [run-engine]: 70 features, 1 warnings, 1 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.139)
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-/kaggle/working/sports_prediction_model/nfl-backend/backend/monitoring.py:794: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
-  return hit["is_first"].fillna(False).to_numpy() & valid
-2026-10-11 19:13:59,366 INFO Rolling Brier: 555 points (2017-09-07 -> 2026-10-11), 2560 games, 0 sparse days excluded (<1 games/day), mean 0.2208
-2026-10-11 19:13:59,415 INFO monitoring: 70 features scored, 2 drift (ALERT/WARN), 0 insufficient-window, 2 drift structural, 0 coverage (STARVED/LOW), 14 coverage structural (documented policy)
-2026-10-11 19:13:59,415 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.338 (raw 0.408, null 0.069 med 0.053)
-2026-10-11 19:13:59,416 WARNING   drift   inj_ol_out_away                    WARN         psi_adj=0.212 (raw 0.280, null 0.067 med 0.054)
-2026-10-11 19:13:59,416 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
-2026-10-11 19:13:59,416 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
-2026-10-11 19:13:59,416 WARNING   full tables: run_engine_feature_drift_20261011.csv, run_engine_feature_coverage_20261011.csv
+2026-10-11 21:19:46,781 INFO Feature drift [moneyline]: 70 features, 1 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.137)
+2026-10-11 21:19:47,302 INFO Feature drift [run-engine]: 70 features, 1 warnings, 2 alerts, 0 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.137)
+2026-10-11 21:19:47,614 INFO Rolling Brier: 555 points (2017-09-07 -> 2026-10-11), 2567 games, 0 sparse days excluded (<1 games/day), mean 0.2208
+2026-10-11 21:19:47,639 INFO monitoring: 70 features scored, 3 drift (ALERT/WARN), 0 insufficient-window, 2 drift structural, 3 coverage (STARVED/LOW), 8 coverage structural (documented policy)
+2026-10-11 21:19:47,639 WARNING   drift   inj_ol_out_home                    ALERT        psi_adj=0.462 (raw 0.532, null 0.069 med 0.053)
+2026-10-11 21:19:47,639 WARNING   drift   inj_ol_out_away                    WARN         psi_adj=0.226 (raw 0.293, null 0.067 med 0.054)
+2026-10-11 21:19:47,640 WARNING   drift   ol_snaps_lost_share_home           ALERT        psi_adj=0.304 (raw 0.484, null 0.180 med 0.144)
+2026-10-11 21:19:47,640 INFO   drift   is_snow                            STRUCTURAL   constant 0 in both windows (cannot drift)
+2026-10-11 21:19:47,640 INFO   drift   is_home                            STRUCTURAL   constant 1 in both windows (cannot drift)
+2026-10-11 21:19:47,640 WARNING   coverage rest_days_diff                   LOW_COVERAGE  74.4%
+2026-10-11 21:19:47,640 WARNING   coverage rest_days_home                   LOW_COVERAGE  74.4%
+2026-10-11 21:19:47,640 WARNING   coverage rest_days_away                   LOW_COVERAGE  74.4%
+2026-10-11 21:19:47,640 WARNING   full tables: run_engine_feature_drift_20261011.csv, run_engine_feature_coverage_20261011.csv
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 14 — schema validation
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-11 19:13:59,618 INFO gate ml_probability_bounds        PASS
-2026-10-11 19:13:59,618 INFO gate oof_population               PASS
-2026-10-11 19:13:59,619 INFO gate spread_grid_coherent         PASS
-2026-10-11 19:13:59,619 INFO gate totals_grid_coherent         PASS
-2026-10-11 19:13:59,619 INFO gate markets_has_slate            PASS
-2026-10-11 19:13:59,619 INFO gate slate_contract_fields        PASS
-2026-10-11 19:13:59,619 INFO gate fold_geometry                PASS
-2026-10-11 19:13:59,619 INFO gate season_openers_ingested      PASS
-2026-10-11 19:13:59,619 INFO artifacts written: 238
-2026-10-11 19:13:59,620 INFO   -> nfl_moneyline_v1_20261011.json
-2026-10-11 19:13:59,620 INFO   -> nfl_qb_matchup_20261011.json
-2026-10-11 19:13:59,620 INFO   -> nfl_calibration_20261011.json
-2026-10-11 19:13:59,620 INFO   -> nfl_predictions_history_20261011.csv
-2026-10-11 19:13:59,620 INFO   -> nfl_production_cards_history.csv
-2026-10-11 19:13:59,620 INFO   -> nfl_board_20261011.csv
-2026-10-11 19:13:59,620 INFO   -> nfl_power_rankings_20261011.csv
-2026-10-11 19:13:59,620 INFO   -> nfl_run_engine_markets_20261011.csv
-2026-10-11 19:13:59,620 INFO   -> nfl_run_engine_monitor_20261011.json
-2026-10-11 19:13:59,620 INFO   -> nfl_feature_v1_20261011.json
-2026-10-11 19:13:59,620 INFO   -> nfl_ensemble_latest.joblib
-2026-10-11 19:13:59,621 INFO   -> run_engine_feature_drift_20261011.csv
-2026-10-11 19:13:59,621 INFO   -> run_engine_feature_coverage_20261011.csv
-2026-10-11 19:13:59,621 INFO   -> nfl_model_monitor_20261011.json
-2026-10-11 19:13:59,621 INFO   -> nfl_shap_game_*.csv (224 per-game cards, e.g. nfl_shap_game_2026_04_ARI_NYG.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
-2026-10-11 19:13:59,672 INFO retention: kept 217 protected file(s)
-2026-10-11 19:13:59,672 INFO retention: kept 143 artifact(s) within the window (anchor 20261011 -10d)
-2026-10-11 19:13:59,672 INFO retention: no stale files
+2026-10-11 21:19:47,826 INFO gate ml_probability_bounds        PASS
+2026-10-11 21:19:47,826 INFO gate oof_population               PASS
+2026-10-11 21:19:47,827 INFO gate spread_grid_coherent         PASS
+2026-10-11 21:19:47,827 INFO gate totals_grid_coherent         PASS
+2026-10-11 21:19:47,827 INFO gate markets_has_slate            PASS
+2026-10-11 21:19:47,827 INFO gate slate_contract_fields        PASS
+2026-10-11 21:19:47,827 INFO gate fold_geometry                PASS
+2026-10-11 21:19:47,827 INFO gate season_openers_ingested      PASS
+2026-10-11 21:19:47,827 INFO artifacts written: 238
+2026-10-11 21:19:47,827 INFO   -> nfl_moneyline_v1_20261011.json
+2026-10-11 21:19:47,827 INFO   -> nfl_qb_matchup_20261011.json
+2026-10-11 21:19:47,827 INFO   -> nfl_calibration_20261011.json
+2026-10-11 21:19:47,827 INFO   -> nfl_predictions_history_20261011.csv
+2026-10-11 21:19:47,827 INFO   -> nfl_production_cards_history.csv
+2026-10-11 21:19:47,827 INFO   -> nfl_board_20261011.csv
+2026-10-11 21:19:47,828 INFO   -> nfl_power_rankings_20261011.csv
+2026-10-11 21:19:47,828 INFO   -> nfl_run_engine_markets_20261011.csv
+2026-10-11 21:19:47,828 INFO   -> nfl_run_engine_monitor_20261011.json
+2026-10-11 21:19:47,828 INFO   -> nfl_feature_v1_20261011.json
+2026-10-11 21:19:47,828 INFO   -> nfl_ensemble_latest.joblib
+2026-10-11 21:19:47,828 INFO   -> run_engine_feature_drift_20261011.csv
+2026-10-11 21:19:47,828 INFO   -> run_engine_feature_coverage_20261011.csv
+2026-10-11 21:19:47,828 INFO   -> nfl_model_monitor_20261011.json
+2026-10-11 21:19:47,828 INFO   -> nfl_shap_game_*.csv (224 per-game cards, e.g. nfl_shap_game_2026_04_ARI_NYG.csv .. nfl_shap_game_2026_18_TEN_HOU.csv)
+2026-10-11 21:19:47,862 INFO retention: kept 217 protected file(s)
+2026-10-11 21:19:47,862 INFO retention: kept 143 artifact(s) within the window (anchor 20261011 -10d)
+2026-10-11 21:19:47,862 INFO retention: no stale files
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE — 238 artifacts in 3815s
+  DONE — 238 artifacts in 2086s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
