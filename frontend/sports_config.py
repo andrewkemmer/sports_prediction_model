@@ -148,6 +148,28 @@ SPORTS = {
 
 DEFAULT_SPORT = "mlb"
 
+
+# Browser-tab branding is a set_page_config contract: page_title must be a
+# string and page_icon a string/emoji, so the helper returns exactly the
+# kwargs set_page_config accepts.
+_PAGE_BRANDING_KEYS = ("page_title", "page_icon")
+
+
+def page_branding(sport_key=None) -> dict:
+    """Browser-tab branding (title + favicon) for the sport toggle.
+
+    The same registry entry the sidebar brand header renders (``title`` /
+    ``emoji``), so the tab reads "NFL Predictions" + football when the NFL
+    toggle is selected, and a new sport needs zero UI-code changes.
+    Unknown keys resolve through ``resolve_sport`` to the default sport —
+    the same fallback the sidebar header uses.
+    """
+    cfg = resolve_sport(sport_key)
+    return {
+        "page_title": cfg["title"],
+        "page_icon": cfg["emoji"],
+    }
+
 # Every dashboard the app can render, in the fixed sidebar-registration order
 # that MUST mirror Home.py's literal ``pages = [st.Page(...)]`` list (the
 # sidebar-order contract). url_path is the string Home.py passes to

@@ -1,4 +1,4 @@
-"""MLB Predictions — Streamlit entry point.
+"""{sport} Predictions — Streamlit entry point (sport-aware branding).
 
 Defines the five-page navigation used across the app (the single source of
 truth for the sidebar page order):
@@ -27,30 +27,57 @@ Run from the repository root::
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import sports_config
 import utils
 
-st.set_page_config(
-    page_title="MLB Predictions",
-    page_icon="⚾",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-utils.inject_css()
-
-# Set the sport default BEFORE the toggle/widget renders. A rerun that
-# navigates (e.g. clicking the brand above the dashboard list) can reach
-# this point with session_state["sport"] unset/None before the sport picker
-# materializes — setdefault guarantees it defaults to the first registry
-# key (MLB) silently instead of surfacing an "Unknown sport" warning on
-# every such click. Stale/unknown values are normalized to a valid key
-# here so the widget always renders against a real registry entry.
+# Set the sport default BEFORE the page config and the toggle/widget
+# render. A rerun that navigates (e.g. clicking the brand above the
+# dashboard list) can reach this point with session_state["sport"] unset/None
+# before the sport picker materializes — setdefault guarantees it defaults
+# to the first registry key (MLB) silently instead of surfacing an "Unknown
+# sport" warning on every such click. Stale/unknown values are normalized
+# to a valid key here so the widget always renders against a real registry
+# entry. Pure session_state reads/writes enqueue no delta, so this stays
+# safe above set_page_config (which must remain the first RENDERING command).
 st.session_state.setdefault("sport", sports_config.DEFAULT_SPORT)
 _sport_key = sports_config.normalize_sport_key(st.session_state["sport"])
 if _sport_key != st.session_state["sport"]:
     st.session_state["sport"] = _sport_key
+
+# Browser tab branding follows the sport toggle (2026-10-11 request): the
+# title and favicon come from the SAME registry entry the sidebar header
+# and pills use, so the tab reads "NFL Predictions" + football when the
+# NFL toggle is selected (was hardcoded "MLB Predictions" regardless).
+st.set_page_config(
+    **sports_config.page_branding(_sport_key),
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Streamlit appends " · Streamlit" to document.title client-side and
+# rewrites it on every rerun (no supported option to suppress it in
+# 1.61). The tab should read the bare brand ("NFL Predictions"), so a
+# same-origin component keeps stripping the suffix as Streamlit rewrites
+# it — zero visible UI (height=0), mounted once per session from Home.py,
+# which runs on every page and rerun.
+components.html(
+    """
+    <script>
+      const cutSuffix = () => {
+        const doc = window.parent.document;
+        const idx = doc.title.indexOf("\u00b7 Streamlit");
+        if (idx > 0) doc.title = doc.title.slice(0, idx).trimEnd();
+      };
+      cutSuffix();
+      setInterval(cutSuffix, 250);
+    </script>
+    """,
+    height=0,
+)
+
+utils.inject_css()
 
 # ---------------------------------------------------------------------------
 # Sidebar: branding + sport toggle + GitHub source configuration (shared)
