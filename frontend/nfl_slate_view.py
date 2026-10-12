@@ -284,6 +284,22 @@ def _fold2(side_a: float | None, side_b: float | None) -> tuple[float | None, fl
     return side_a / denom, side_b / denom
 
 
+def fair_home_spread(row) -> float | None:
+    """The HOME spread the card quotes for a row's own fair line.
+
+    The fair spread is the home COVER THRESHOLD, so the home spread is its
+    negation, snapped to the 0.5 ladder the card's selector prices. Never
+    ``round()``-ed to an integer: the artifact's fair lines are half-point
+    values (±4.5 …) since the 2026-10-12 pricing change, and rounding
+    silently re-quoted the model's own line at a different number. None
+    when the row carries no fair spread.
+    """
+    fair = _f(row, "fair_spread")
+    if fair is None:
+        return None
+    return -round(float(fair) * 2) / 2
+
+
 def runline_html(row, home_team: str, away_team: str,
                  home_spread: float | None = None,
                  half_stop: bool = False) -> str:
@@ -329,10 +345,9 @@ def runline_html(row, home_team: str, away_team: str,
         return (f'<span>RL: {fav_team} −0.5 {_pct(fav_raw)}'
                 f'{fav_note} · {dog_team} +0.5 {_pct(dog_raw)}{dog_note}</span>')
     if home_spread is None:
-        fair_spread = _f(row, "fair_spread")
-        if fair_spread is None:
+        home_spread = fair_home_spread(row)
+        if home_spread is None:
             return '<span>RL: n/a</span>'
-        home_spread = -float(round(fair_spread))
     # Home spread S corresponds to margin threshold L = -S.
     L = -float(home_spread)
     ph, pp, pa = price_spread_line(row, L)

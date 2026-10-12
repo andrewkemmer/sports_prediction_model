@@ -454,11 +454,30 @@ def _history_view(df: pd.DataFrame, start_d, end_d) -> pd.DataFrame:
     return view.sort_values("_d", ascending=False)
 
 
+def _fair_line(value) -> float | None:
+    """A row's own fair line snapped to the 0.5 ladder the card prices.
+
+    The artifact's fair lines are half-point values (5.5 / ±1.5 / ±0.5 …)
+    since the 2026-10-12 pricing change; ``int(round(...))`` used to drag
+    them onto whole numbers, which MOVED the quoted line and — at x.5 —
+    invented a push band the model never priced. None for a missing line
+    (the row is then dropped rather than fabricated)."""
+    if value is None or pd.isna(value):
+        return None
+    return round(float(value) * 2) / 2
+
+
 def _totals_row(r) -> dict | None:
     """One totals-history row (MLB schema fields) priced at the game's own
     fair total: LINE (O/U U) | MODEL PICK (Over/Under U (p%)) | WINNER |
     RESULT, whole-number pushes resolved 3-way (push rows render '—' and
-    are excluded from the W/(W+L) rate — the NHL integer convention)."""
+    are excluded from the W/(W+L) rate — the NHL integer convention).
+
+    The line is the artifact's OWN fair total (0.5 ladder, never rounded)
+    and the pick probability is the 2-WAY re-scaled P(over) — the exact
+    number the Today's Games card quotes in its O/U cell, so the two
+    surfaces read the same break-even (the raw three-way share understates
+    the picked side by the push band)."""
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
@@ -467,29 +486,45 @@ def _totals_row(r) -> dict | None:
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
-    U = int(round(sv._f(r, "fair_total") or 0))
-    po = sv.price_total(r, U)[0]
-    over = po is not None and po > 0.5
-    line_txt, pick_txt, correct = f"O/U {U}", "—", None
-    if po is not None:
-        pick_txt = f"{'Over' if over else 'Under'} {U} ({po:.0%})"
-    if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(po):
+    U = _fair_line(sv._f(r, "fair_total"))
+    if U is None:
+        return None
+    po, pu, _pp = sv.price_total(r, U)
+    if po is None or pu is None:
+        return None
+    po2, pu2 = sv._fold2(po, pu)
+    if po2 is None or pu2 is None:
+        return None
+    over = po2 > 0.5
+    pick_prob = po2 if over else pu2
+    line_txt = f"O/U {U:g}"
+    pick_txt = f"{'Over' if over else 'Under'} {U:g} ({pick_prob:.0%})"
+    correct = None
+    if pd.notna(h_s) and pd.notna(a_s):
         tot = int(h_s) + int(a_s)
-        if tot == U:
+        if float(U).is_integer() and tot == int(U):
             correct = "push"
         else:
             correct = over == (tot > U)
     return {"date": r["_d"].strftime("%b %d, %Y"), "away": away,
             "home": home, "score": score, "line": line_txt,
             "pick": pick_txt, "winner": winner, "correct": correct,
-            "pick_side": ("Over" if over else "Under")
-            if po is not None else None}
+            "pick_side": "Over" if over else "Under"}
 
 
 def _runline_row(r) -> dict | None:
     """One run-line-history row (MLB schema fields) at the game's own fair
     spread: LINE (RL home −L / away +L) | MODEL PICK (side ±L (p%)) |
-    WINNER | RESULT, whole-number pushes resolved 3-way."""
+    WINNER | RESULT, whole-number pushes resolved 3-way.
+
+    Orientation contract (NBA ``runline_history_frame`` parity): the fair
+    spread ``t`` is the home COVER THRESHOLD (home covers iff margin > t),
+    so the DISPLAYED home spread is ``-t`` and the away mirror is ``+t`` —
+    always opposite signs, whatever the pick. The pick cell carries the
+    PICKED side's own spread and its 2-way re-scaled cover, i.e. the same
+    break-even the Today's Games card prints for that side. A fair spread
+    of 0 quotes the ±0.5 stop (never a fake ±0.0 line); only whole-number
+    lines carry a push band."""
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
@@ -498,21 +533,47 @@ def _runline_row(r) -> dict | None:
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
-    L = int(round(sv._f(r, "fair_spread") or 0))
-    ph = sv.price_spread(r, L)[0]
-    fav_home = ph is not None and ph > 0.5
-    line_txt = (f"RL {home} {-L:+d} / {away} {L:+d}"
-                if L >= 0 else f"RL {home} {L:+d} / {away} {-L:+d}")
-    pick_txt, pick_side, correct = "—", None, None
-    if ph is not None:
-        pick_side = home if fav_home else away
-        pick_txt = f"{pick_side} {-L:+d} ({ph:.0%})"
-    if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(ph):
+    t = _fair_line(sv._f(r, "fair_spread"))
+    if t is None:
+        return None
+    fav_home: bool
+    pick_prob: float | None
+    if abs(t) < 0.25:
+        # Pick'em guard (the card's ±0.5 stop): a fair spread of 0 has no
+        # integer line to quote — the favorite is the derived-ML side and
+        # its raw -0.5 cover is exactly what the card's stop row prints.
+        fav_raw, dog_raw, _fml, _dml, stop_fav_home = sv.half_stop_pair(r)
+        if fav_raw is None or dog_raw is None or stop_fav_home is None:
+            return None
+        fav_home = bool(stop_fav_home)
+        home_line = -0.5 if fav_home else 0.5
+        pick_prob = fav_raw
+    else:
+        home_line = -t
+        ph, _pp, pa = sv.price_spread_line(r, t)
+        if ph is None or pa is None:
+            return None
+        ph2, pa2 = sv._fold2(ph, pa)
+        if ph2 is None or pa2 is None:
+            return None
+        fav_home = ph2 > 0.5
+        pick_prob = ph2 if fav_home else pa2
+    away_line = -home_line
+    pick_side = home if fav_home else away
+    pick_line = home_line if fav_home else away_line
+    line_txt = f"RL {home} {home_line:+g} / {away} {away_line:+g}"
+    pick_txt = f"{pick_side} {pick_line:+g} ({pick_prob:.0%})"
+    correct = None
+    if pd.notna(h_s) and pd.notna(a_s):
+        # Grade on the QUOTED line: home covers iff margin > -home_line.
+        # At the ±0.5 stop the threshold is a half number, so a regulation
+        # tie resolves for the dog — never a push.
+        threshold = -float(home_line)
         margin = int(h_s) - int(a_s)
-        if margin == L:
+        if float(threshold).is_integer() and margin == int(threshold):
             correct = "push"
         else:
-            correct = (margin > L) == fav_home
+            correct = (margin > threshold) == fav_home
     return {"date": r["_d"].strftime("%b %d, %Y"), "away": away,
             "home": home, "score": score, "line": line_txt,
             "pick": pick_txt, "winner": winner, "correct": correct,

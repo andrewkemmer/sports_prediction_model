@@ -177,7 +177,11 @@ def _nhl_run_engine_selectors(r, srow):
     if fair_total_value not in totals:
         totals.append(fair_total_value)
         totals.sort()
-    fair_home = -float(round(fair_spread))
+    # The model's OWN fair spread, on the 0.5 ladder the selector prices
+    # (nhl_slate_view.fair_home_spread): half-point fair lines are
+    # first-class since the 2026-10-12 pricing change, and round() would
+    # re-quote ±1.5 as ±2.0 — or ±0.5 as 0.0, a fake ±0.0 default.
+    fair_home = nhl_sv.fair_home_spread(srow)
     spread_options = [float(v) / 2.0 for v in range(1, 17)]  # ±0.5 … ±8.0
     fair_magnitude = float(abs(fair_home))
     if fair_magnitude >= 0.5 and fair_magnitude not in spread_options:

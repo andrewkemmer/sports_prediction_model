@@ -326,20 +326,44 @@ def _fold2(a: float | None, b: float | None) -> tuple[float | None, float | None
     return a / mass, b / mass
 
 
+def fair_home_spread(row) -> float | None:
+    """The HOME spread the card quotes for a row's own fair line.
+
+    The fair spread is the home COVER THRESHOLD, so the home spread is its
+    negation, snapped to the 0.5 ladder the card's selector prices. Never
+    ``round()``-ed to an integer: the artifact's fair lines are half-point
+    values (±1.5 …) since the 2026-10-12 pricing change, and rounding
+    silently re-quoted the model's own line at a different number — or at
+    exactly 0 for a ±0.5 fair line, a fake "±0.0" spread. None when the
+    row carries no fair spread.
+    """
+    fair = _f(row, "fair_spread")
+    if fair is None:
+        return None
+    return -round(float(fair) * 2) / 2
+
+
 def runline_html(row, home_team: str, away_team: str,
                  home_spread: float | None = None,
                  half_stop: bool = False) -> str:
     """The run-line span at the selected HOME spread (or the ±0.5 stop).
 
     Defaults to the fair home spread (the negative of ``fair_spread``, the
-    median margin threshold). Integer lines render the home/away covers from
+    median margin threshold — ``fair_home_spread``, never integer-rounded).
+    Integer lines render the home/away covers from
     the home-anchored grid with the SHARED push note; no (ML) parentheticals
     at integers. The ±0.5 stop renders per-side RAW cover as the main number
     AND the grey-italic (run-ML X%) derived parenthetical — the NHL-specific
-    raw vs derived pair (they diverge by the regulation-tie band). Never
-    renders offered lines, shrink columns or edges.
+    raw vs derived pair (they diverge by the regulation-tie band). A pick'em
+    line (fair spread 0) renders the ±0.5 stop, never "±0.0" (NFL's
+    documented pick'em guard). Never renders offered lines, shrink columns
+    or edges.
     """
-    if half_stop:
+    if home_spread is None:
+        home_spread = fair_home_spread(row)
+        if home_spread is None:
+            return '<span>RL: n/a</span>'
+    if half_stop or abs(float(home_spread)) < 0.25:
         fav_raw, dog_raw, fav_ml, dog_ml, fav_home = half_stop_pair(row)
         if fav_raw is None:
             return '<span>RL: n/a</span>'
@@ -351,11 +375,6 @@ def runline_html(row, home_team: str, away_team: str,
         dog_note = f' <span class="re-na">(run-ML {_pct(dog_ml, 0)})</span>'
         return (f'<span>RL: {fav_team} −0.5 {_pct(fav_raw)}'
                 f'{fav_note} · {dog_team} +0.5 {_pct(dog_raw)}{dog_note}</span>')
-    if home_spread is None:
-        fair_spread = _f(row, "fair_spread")
-        if fair_spread is None:
-            return '<span>RL: n/a</span>'
-        home_spread = -float(round(fair_spread))
     # Home spread S corresponds to margin threshold L = -S.
     L = -float(home_spread)
     ph, pp, pa = price_spread_line(row, L)

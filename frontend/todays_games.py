@@ -1008,7 +1008,11 @@ def _nfl_run_engine_selectors(r, srow):
     if fair_total_value not in totals:
         totals.append(fair_total_value)
         totals.sort()
-    fair_home = -float(round(fair_spread))
+    # The model's OWN fair spread, on the 0.5 ladder the selector prices
+    # (nfl_slate_view.fair_home_spread): half-point fair lines are
+    # first-class since the 2026-10-12 pricing change, and round() would
+    # silently re-quote ±4.5 as ±4.0 — a line the model never priced.
+    fair_home = nfl_sv.fair_home_spread(srow)
     spread_options = [float(v) / 2.0 for v in range(1, 29)]  # ±0.5 … ±14.0
     fair_magnitude = float(abs(fair_home))
     if fair_magnitude < 0.25:
