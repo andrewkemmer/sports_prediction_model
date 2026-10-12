@@ -566,10 +566,32 @@ XGBOOST_REG_PARAMS = {
     "subsample": 0.8, "colsample_bytree": 0.8, "random_state": RANDOM_SEED,
     "verbosity": 0,
 }
+# Run-engine score regressor (the poisson mu_home / mu_away trees).
+# 2026-10-12 walk-forward tune (scratch/nba_mean_tuning.py: 2400 OOF rows,
+# 56 production folds, judged at seeds 42 AND 44 against the old set).
+# Winner -- the moneyline classifier's own tuned geometry (shallow
+# extra-trees, heavy per-node regularization, strong feature subsampling)
+# plus deep averaging (800 x lr 0.01) and min_child_samples 50:
+#   * EVERY fixed-line proper score improves -- totals 210/220/230/240
+#     logloss 0.4485/0.6179/0.6634/0.5564 -> 0.4436/0.6146/0.6570/0.5510;
+#     spread -5.5/0.5/5.5 0.5748/0.6190/0.6157 -> 0.5656/0.6083/0.6079;
+#   * mean quality: mu_total RMSE 19.22 -> 19.07, mu_margin RMSE
+#     14.98 -> 14.67; lattice CRPS total 10.84 -> 10.76, margin
+#     8.38 -> 8.22;
+#   * derived moneyline AUC 0.7101 -> 0.7315 (0.7309 at seed 44).
+# The winner card's own AUC/logloss/Brier are structurally pinned at the
+# model's fair line (ln2 / 0.25 floor; +/-0.016 seed noise) and were used
+# only as a no-regression check. Higher-capacity/deeper variants raised
+# card AUC but worsened fixed-line scores (overfit) and were rejected.
 LIGHTGBM_REG_PARAMS = {
-    "n_estimators": 200, "max_depth": 4, "num_leaves": 12,
-    "min_child_samples": 30, "learning_rate": 0.05, "subsample": 0.8,
-    "subsample_freq": 1, "colsample_bytree": 0.8,
+    "n_estimators": 800, "max_depth": 3, "num_leaves": 85,
+    "min_child_samples": 50, "min_gain_to_split": 0.04159703099643286,
+    "bagging_fraction": 0.938750119313862, "bagging_freq": 2,
+    "feature_fraction": 0.44095560633943776,
+    "feature_fraction_bynode": 0.38853714661198313,
+    "learning_rate": 0.01, "extra_trees": True, "max_bin": 500,
+    "reg_lambda": 0.004103712059528059,
+    "reg_alpha": 0.0006433107716727887,
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 
