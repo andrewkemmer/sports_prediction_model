@@ -9,6 +9,15 @@ semantics that only hold because of two artifact facts:
   2. Fair lines are computed here by grid argmin (the artifact's own 50/50
      point); the stored ``fair_total`` / ``fair_spread`` columns are never
      trusted, because ``fair_spread`` measurably disagrees with the grid.
+  3. The totals argmin runs over the artifact's 0.5 ladder
+     (``nd.TOTAL_HALF_GRID``), mirroring MLB's half-step ``TOTAL_GRID``:
+     the history quotes book-postable lines (225.5, not just 225) and the
+     pick is the FAVORED side's, so ``pick_prob`` is never below 50%.
+  4. The run-line argmin rides the SAME 0.5 ladder
+     (``nd.SPREAD_HALF_GRID``, MLB's ``RUN_GRID_CUT`` shape): half spread
+     thresholds (±4.5) are first-class, pushes still only happen at whole
+     thresholds, and a threshold-0 argmin can no longer render a fake
+     ``−0`` line.
 """
 from __future__ import annotations
 
@@ -110,6 +119,234 @@ def test_fair_total_argmin_picks_the_50_50_point_ties_lower():
     # line 221 has |p - 0.5| = 0 -> the argmin for every row; row0's own
     # priced line (220) is never preferred over a better grid point.
     assert np.allclose(lines, [221.0, 221.0, 221.0])
+
+
+# --- The 0.5 ladder + a pick probability that is never below 50% -----------
+
+
+def _ladder_frame() -> pd.DataFrame:
+    """Two decided rows priced across the artifact's 0.5 totals ladder.
+
+    Row 0's closest 50/50 rung is a HALF line (225.5, no push mass).
+    Row 1's is an INTEGER line (226) where re-scaling the push band out
+    lifts the 2-way to just under 0.5 — the case where the old builder
+    printed a sub-50% Under pick (0.4949) instead of the Under side's own
+    50.51%. Unlisted ladder rungs ship no column, exactly like an artifact
+    that predates the half-step namespace.
+    """
+    specs = [
+        {224: (0.60, 0.38), 224.5: (0.60, 0.40),
+         225: (0.52, 0.46), 225.5: (0.52, 0.48),
+         226: (0.44, 0.54), 226.5: (0.44, 0.56)},
+        {224: (0.62, 0.36), 224.5: (0.62, 0.38),
+         225: (0.55, 0.43), 225.5: (0.55, 0.45),
+         226: (0.485, 0.495), 226.5: (0.42, 0.58),
+         227: (0.40, 0.58), 227.5: (0.40, 0.60)},
+    ]
+    rows = []
+    for i, spec in enumerate(specs):
+        r = {"game_id": f"90000000{i}", "gameday": "2026-02-10",
+             "kind": "oof", "decided": True,
+             "home_team": "BOS", "away_team": "NYK",
+             "home_score": 118, "away_score": 112,
+             "total": 230, "margin": 6,
+             "p_home_win_derived": 0.5,
+             "fair_total": 999.0, "fair_spread": 999.0}
+        for line, (po, pu) in spec.items():
+            lab = nd._label(float(line))
+            r[f"p_over_{lab}"] = po
+            r[f"p_under_{lab}"] = pu
+            r[f"p_push_total_{lab}"] = round(1.0 - po - pu, 6)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def test_fair_line_sits_on_the_half_step_ladder():
+    """The history must be able to quote X.5 totals, not only integers —
+    MLB's grid is a 0.5 ladder and so is the NBA artifact's."""
+    assert 225.5 in nd.TOTAL_HALF_GRID and 225 in nd.TOTAL_HALF_GRID
+    assert nd.TOTAL_HALF_GRID == sorted(nd.TOTAL_HALF_GRID)
+    frame = nd.totals_history_frame(_ladder_frame())
+    assert set(frame["line"]) == {225.5, 226.0}
+
+
+def test_pick_is_the_ladder_line_closest_to_fifty():
+    """Objective: the quoted over/under is the rung whose favored-side p is
+    > 50% and closest to 50% — never a rung with a better 50/50 point."""
+    decided = _ladder_frame()
+    frame = nd.totals_history_frame(decided)
+    assert len(frame) == len(decided)
+    for j, row in enumerate(frame.iloc):
+        best = np.inf
+        for rung in nd.TOTAL_HALF_GRID:
+            a, b = nd.grid_over_under_cols(rung)
+            if a not in decided.columns or b not in decided.columns:
+                continue
+            x, y = decided[a].iloc[j], decided[b].iloc[j]
+            if pd.isna(x) or pd.isna(y) or (float(x) + float(y)) <= 0:
+                continue
+            best = min(best, abs(float(x) / (float(x) + float(y)) - 0.5))
+        # favored-side p is exactly 0.5 + the smallest 50/50 gap on the
+        # ladder — the objective: closest to 50%, never below it.
+        assert row["pick_prob"] >= 0.5
+        assert abs((float(row["pick_prob"]) - 0.5) - best) < 1e-9
+
+
+def test_pick_probability_is_never_below_fifty():
+    """An Under pick must report P(under), not the raw P(over) < 0.5."""
+    frame = nd.totals_history_frame(_ladder_frame())
+    assert (frame["pick_prob"] >= 0.5).all()
+    under = frame[frame["pick"] == "Under"].iloc[0]
+    # rung 226 prices 2-way 0.494898 -> Under 50.51%, not "Under (49%)"
+    assert float(under["line"]) == 226.0
+    assert abs(float(under["pick_prob"]) - 0.505102) < 1e-6
+    over = frame[frame["pick"] == "Over"].iloc[0]
+    assert float(over["line"]) == 225.5
+    assert abs(float(over["pick_prob"]) - 0.52) < 1e-9
+
+
+def test_history_table_renders_half_step_lines_and_fifty_plus_odds():
+    """The rendered cells, not just the frame: O/U 225.5 and a pick cell
+    whose percentage reads >= 50% at one decimal (a whole percent would
+    round every NBA pick to exactly 50%)."""
+    from streamlit.testing.v1 import AppTest
+    import datetime as dt
+    frame = _ladder_frame()
+    # repr() of a NaN column would inject a bare `nan` name into the
+    # generated script — hand it None instead.
+    payload = {col: [None if isinstance(v, float) and pd.isna(v) else v
+                     for v in values]
+               for col, values in frame.to_dict("list").items()}
+    script = (
+        "import sys; sys.path.insert(0, r'%s')\n"
+        "import datetime as dt\n"
+        "import pandas as pd\n"
+        "import nba_markets_page as page\n"
+        "frame = pd.DataFrame(%r)\n"
+        "page._render_totals_history(frame, None, dt.date(2026, 2, 1), "
+        "dt.date(2026, 2, 28))\n" % (str(FRONTEND), payload)
+    )
+    app = AppTest.from_string(script)
+    app.run()
+    assert not app.exception, [str(e.value) for e in app.exception]
+    html = "\n".join(str(m.value) for m in app.markdown)
+    assert "O/U 225.5" in html and "O/U 226.0" in html
+    assert "Over 225.5 (52.0%)" in html
+    assert "Under 226.0 (50.5%)" in html
+    assert "(49" not in html, "a pick must never print a sub-50% probability"
+
+
+# --- The run line rides the same 0.5 ladder -------------------------------
+
+
+def _spread_ladder_frame() -> pd.DataFrame:
+    """Two decided rows priced across half AND integer spread thresholds.
+
+    Row 0's closest rung is a HALF threshold (4.5, no push mass): the old
+    integer-only search would have quoted ±5 with a 2-way 0.533. Row 1's is
+    an INTEGER threshold (2.0) whose 2-way is just above 0.5 after the push
+    band folds out, and whose margin equals it — the one case that still
+    pushes. Unlisted rungs ship no column, like an artifact without the
+    half-step spread namespace.
+    """
+    specs = [
+        {4.0: (0.56, 0.38), 4.5: (0.52, 0.48),
+         5.0: (0.48, 0.42), 5.5: (0.44, 0.56)},
+        {1.5: (0.51, 0.485), 2.0: (0.497, 0.487), 2.5: (0.49, 0.51)},
+    ]
+    rows = []
+    for i, (spec, (hs, a_s), home, away) in enumerate(
+            zip(specs, [(118, 111), (105, 103)], ["BOS", "MIA"],
+                ["NYK", "CHI"])):
+        r = {"game_id": f"80000000{i}", "gameday": "2026-02-10",
+             "kind": "oof", "decided": True,
+             "home_team": home, "away_team": away,
+             "home_score": hs, "away_score": a_s,
+             "total": hs + a_s, "margin": hs - a_s,
+             "p_home_win_derived": 0.55,
+             "fair_total": 999.0, "fair_spread": 999.0}
+        for thr, (ph, pa) in spec.items():
+            lab = nd._label(float(thr))
+            r[f"p_home_cover_{lab}"] = ph
+            r[f"p_away_cover_{lab}"] = pa
+            r[f"p_push_{lab}"] = round(1.0 - ph - pa, 6)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def test_run_line_argmin_quotes_half_step_thresholds():
+    """The run-line ladder is the mixed 0.5 shape: ±4.5 is quotable (the
+    integer-only search priced it at ±5) and the threshold-0 argmin can no
+    longer render a fake ``−0`` line."""
+    assert 4.5 in nd.SPREAD_HALF_GRID and 2.0 in nd.SPREAD_HALF_GRID
+    assert -20.5 in nd.SPREAD_HALF_GRID and 20.5 in nd.SPREAD_HALF_GRID
+    assert nd.SPREAD_HALF_GRID == sorted(nd.SPREAD_HALF_GRID)
+    rl = nd.runline_history_frame(_spread_ladder_frame())
+    by_home = {r["home"]: r for _, r in rl.iterrows()}
+    assert float(by_home["BOS"]["line"]) == -4.5
+    assert float(by_home["BOS"]["_away_line"]) == 4.5
+    assert float(by_home["MIA"]["line"]) == -2.0
+
+
+def test_run_line_pick_is_the_ladder_line_closest_to_fifty():
+    """Objective, re-scanned independently over the whole ladder: the
+    quoted threshold is the rung whose favored-side cover is > 50% and
+    closest to 50% — never a rung with a better 50/50 point."""
+    decided = _spread_ladder_frame()
+    rl = nd.runline_history_frame(decided)
+    assert len(rl) == len(decided)
+    for j, row in enumerate(rl.iloc):
+        best = np.inf
+        for rung in nd.SPREAD_HALF_GRID:
+            hcol = f"p_home_cover_{nd._label(rung)}"
+            acol = f"p_away_cover_{nd._label(rung)}"
+            if hcol not in decided.columns or acol not in decided.columns:
+                continue
+            h, a = decided[hcol].iloc[j], decided[acol].iloc[j]
+            if pd.isna(h) or pd.isna(a) or (float(h) + float(a)) <= 0:
+                continue
+            best = min(best, abs(float(h) / (float(h) + float(a)) - 0.5))
+        assert row["pick_prob"] >= 0.5
+        assert abs((float(row["pick_prob"]) - 0.5) - best) < 1e-9
+
+
+def test_run_line_pushes_only_at_whole_thresholds():
+    """Margin 2 vs the integer threshold 2 pushes; margin 7 vs the half
+    threshold 4.5 never can."""
+    rl = nd.runline_history_frame(_spread_ladder_frame())
+    pushed = rl[rl.winner == "Push"]
+    assert len(pushed) == 1
+    assert float(pushed.iloc[0]["line"]) == -2.0
+    assert pd.isna(pushed.iloc[0]["correct"])
+    assert nd.history_win_rate(rl)["n_pushes"] == 1
+
+
+def test_run_line_history_table_renders_half_step_lines():
+    """The rendered cells, not just the frame: ±4.5 in the line cell and a
+    one-decimal percentage ≥ 50% in the pick cell."""
+    from streamlit.testing.v1 import AppTest
+    import datetime as dt
+    frame = _spread_ladder_frame()
+    payload = {col: [None if isinstance(v, float) and pd.isna(v) else v
+                     for v in values]
+               for col, values in frame.to_dict("list").items()}
+    script = (
+        "import sys; sys.path.insert(0, r'%s')\n"
+        "import datetime as dt\n"
+        "import pandas as pd\n"
+        "import nba_markets_page as page\n"
+        "frame = pd.DataFrame(%r)\n"
+        "page._render_runline_history(frame, None, dt.date(2026, 2, 1), "
+        "dt.date(2026, 2, 28))\n" % (str(FRONTEND), payload)
+    )
+    app = AppTest.from_string(script)
+    app.run()
+    assert not app.exception, [str(e.value) for e in app.exception]
+    html = "\n".join(str(m.value) for m in app.markdown)
+    assert "RL BOS -4.5 / NYK +4.5" in html
+    assert "BOS -4.5 (52.0%)" in html
+    assert "MIA -2 (50.5%)" in html        # integer rungs keep the +g shape
+    assert "-0" not in html and "(49" not in html
 
 
 def test_displayed_spread_sides_always_carry_opposite_signs():

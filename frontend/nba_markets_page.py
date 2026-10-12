@@ -288,8 +288,18 @@ def _cal_note(monitor: dict | None) -> str:
 
 
 def _render_totals_history(decided, monitor, start_d, end_d) -> None:
-    """Game-totals history: DATE | MATCHUP | SCORE (A–H) | LINE (O/U X) |
-    MODEL PICK (Over/Under X (p%)) | WINNER | RESULT — MLB's anatomy."""
+    """Game-totals history: DATE | MATCHUP | SCORE (A–H) | LINE (O/U X.5) |
+    MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT — MLB's anatomy.
+
+    The LINE is the game's own fair line on the 0.5 ladder
+    (``nd.TOTAL_HALF_GRID``), and the pick is the favored side of the
+    2-way re-scaled P(over), so the reported probability is always at
+    least 50% and sits as close to 50% as the ladder allows. The
+    probability renders to one decimal because the NBA ladder cuts the
+    50/50 point at ~0.02/point — a whole percent would print every pick
+    as exactly 50% and hide the > 50% the pick rule guarantees (MLB's
+    coarser ladder resolves at whole percents).
+    """
     side = st.radio("Side filter", ["All", "Over", "Under"], index=0,
                     horizontal=True, key="nba_totals_history_side")
     view = nd.filter_history_by_side(
@@ -310,7 +320,9 @@ def _render_totals_history(decided, monitor, start_d, end_d) -> None:
     side_txt = " · all sides" if side == "All" else f" · {side} picks only"
     st.caption(
         f"{stats['n_games']:,} games{side_txt} · {rate_txt} · most recent "
-        f"first — scroll for older results{push_txt}{_cal_note(monitor)}"
+        f"first — scroll for older results{push_txt} · each game priced at "
+        f"its OWN fair line on the 0.5 ladder (argmin of |2-way P(over) − "
+        f"0.5|), pick = the side at p ≥ 50% closest to 50%{_cal_note(monitor)}"
     )
     rows = []
     for _, r in view.iterrows():
@@ -318,8 +330,8 @@ def _render_totals_history(decided, monitor, start_d, end_d) -> None:
             f"<tr><td>{_date_str(r['game_date'])}</td>"
             f"<td>{r['away']} @ {r['home']}</td>"
             f"<td>{_score_cell(r)}</td>"
-            f"<td>O/U {r['line']:.0f}</td>"
-            f"<td>{r['pick']} {r['line']:.0f} ({r['pick_prob']:.0%})</td>"
+            f"<td>O/U {r['line']:.1f}</td>"
+            f"<td>{r['pick']} {r['line']:.1f} ({r['pick_prob']:.1%})</td>"
             f"<td>{r['winner']}</td>{_result_cell(r['correct'])}</tr>"
         )
     _history_box(rows)
@@ -327,7 +339,17 @@ def _render_totals_history(decided, monitor, start_d, end_d) -> None:
 
 def _render_runline_history(decided, monitor, start_d, end_d) -> None:
     """Run-line history: LINE (RL home −L / away +L) | MODEL PICK (side ±L
-    (p%)) | WINNER | RESULT — MLB's anatomy, NBA's integer-push rules."""
+    (p%)) | WINNER | RESULT — MLB's anatomy, NBA's push rules.
+
+    The LINE is the game's own fair threshold on the 0.5 ladder
+    (``nd.SPREAD_HALF_GRID``), and the pick is the favored side of the
+    2-way re-scaled home-cover, so the reported probability is always at
+    least 50% and sits as close to 50% as the ladder allows — the exact
+    contract of the totals table above. The probability renders to one
+    decimal for the same reason: the ladder cuts the 50/50 point at ~0.02
+    per half point, where a whole percent would print every pick as
+    exactly 50% and hide the > 50% the pick rule guarantees.
+    """
     view = nd.filter_history_frame(
         nd.runline_history_frame(decided), start_d, end_d)
     view = view.sort_values("game_date", ascending=False)
@@ -345,17 +367,17 @@ def _render_runline_history(decided, monitor, start_d, end_d) -> None:
     st.caption(
         f"{stats['n_games']:,} games · {rate_txt} · most recent first — "
         f"scroll for older results{push_txt} · each game priced at its OWN "
-        f"fair line (grid argmin), probability 2-way re-normalized"
-        f"{_cal_note(monitor)}"
+        f"fair threshold on the 0.5 ladder (argmin of |2-way P(cover) − "
+        f"0.5|), pick = the side at p ≥ 50% closest to 50%{_cal_note(monitor)}"
     )
     rows = []
     for _, r in view.iterrows():
         # home_line = -T, away_line = +T — ALWAYS opposite signs, whatever
         # the pick. The first attempt rendered the home line on both sides
         # when the pick was home; the harness screenshot caught it.
-        line_txt = (f"RL {r['home']} {float(r['line']):+.0f} / "
-                    f"{r['away']} {float(r['_away_line']):+.0f}")
-        pick_txt = f"{r['pick']} {float(r['_pick_line']):+.0f} ({r['pick_prob']:.0%})"
+        line_txt = (f"RL {r['home']} {float(r['line']):+g} / "
+                    f"{r['away']} {float(r['_away_line']):+g}")
+        pick_txt = f"{r['pick']} {float(r['_pick_line']):+g} ({r['pick_prob']:.1%})"
         rows.append(
             f"<tr><td>{_date_str(r['game_date'])}</td>"
             f"<td>{r['away']} @ {r['home']}</td>"

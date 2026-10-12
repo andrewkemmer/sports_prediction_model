@@ -19,7 +19,11 @@ NBA-specific facts, each read off the artifact rather than assumed:
      not agree with the artifact's own 50/50 grid point (measured on the
      20260926 artifact), so fair lines are computed here by grid argmin —
      the same rule as MLB's ``fair_total_lines`` / ``fair_run_lines`` —
-     and the stored column is never trusted.
+     and the stored column is never trusted. The totals argmin runs over
+     the artifact's 0.5 ladder (``TOTAL_HALF_GRID``, every integer AND
+     x + 0.5), which is MLB's ``TOTAL_GRID`` shape and what keeps the
+     totals history quoting book-postable lines with a pick-side
+     probability of at least 50%.
   2. The totals grid ships the model's own pmf directly: ``p_push_total_k``
      = P(total == k), summing to ~0.9965 per game. The distribution tab's
      modeled series is the per-game mean of that pmf — the same observed-
@@ -46,6 +50,28 @@ from market_diagnostics import (fit_total_dispersion,
 
 # --- Grids and shared constants (MLB's shapes, NBA's ranges) ---------------
 TOTAL_GRID = list(range(180, 281))                      # integer totals grid
+# MLB prices its FAIR lines on a 0.5 ladder (6.5 … 12.5), which is why its
+# totals Prediction History quotes lines like 8.5 and never an unrounded
+# integer the book would not post. The artifact ships the same ladder for
+# the NBA: ``serving._grid_columns`` writes p_over_/p_under_/
+# p_push_total_ for every integer AND every x + 0.5 in 180..280 (the half
+# rows carry no push mass — P(total == X.5) = 0), so the fair-line search
+# can cut at 0.5 points. Artifacts predating the half columns simply do not
+# carry them: the search skips a line whose columns are missing and falls
+# back to the integer ladder — never fabricated.
+TOTAL_HALF_GRID = sorted({*[float(g) for g in TOTAL_GRID],
+                          *[g + 0.5 for g in TOTAL_GRID]})
+# Run-line fair thresholds ride the SAME 0.5 ladder (MLB's ``RUN_GRID_CUT``
+# is 0.5 … 4.0 by 0.5 for the same reason): the artifact ships
+# ``p_home_cover_`` / ``p_away_cover_`` at every integer AND every
+# x + 0.5 threshold in −20..20, so the run-line history can quote ±4.5 the
+# way a book posts it. The old integer-only search never quoted a half
+# spread (and, worse, quoted a fake ``−0`` line whenever threshold 0 won).
+# Artifacts predating the half columns do not carry them: the search skips
+# a rung whose columns are missing and falls back to the integers.
+SPREAD_HALF_GRID = sorted({*[float(g) for g in range(-20, 21)],
+                           *[g + 0.5 for g in range(-20, 21)],
+                           *[g - 0.5 for g in range(-20, 21)]})
 SPREAD_MAGS = [0.5] + [float(v) for v in range(1, 21)]  # favorite magnitudes
 SPREAD_THRESHOLDS = [-int(m) if False else m for m in range(-20, 21)]  # noqa
 DIAG_TABS = ["Distribution", "Relativized", "Pooled lines",
@@ -303,8 +329,11 @@ def over_prob_at_lines(df: pd.DataFrame, lines: np.ndarray) -> np.ndarray:
 
 
 def _two_way_home_cover(decided: pd.DataFrame, threshold: float):
-    """(2-way P(home covers margin > T), ok mask) at integer threshold T,
-    push folded out of both sides. Missing columns price as not-ok."""
+    """(2-way P(home covers margin > T), ok mask) at threshold T (integer
+    or half), push folded out of both sides — the half rungs carry no push
+    mass, so the re-scale is a no-op there. Missing columns price as
+    not-ok, which lets the ladder search skip rungs a legacy artifact does
+    not ship."""
     col = f"p_home_cover_{_label(threshold)}"
     away_col = f"p_away_cover_{_label(threshold)}"
     if col not in decided.columns or away_col not in decided.columns:
@@ -319,13 +348,21 @@ def _two_way_home_cover(decided: pd.DataFrame, threshold: float):
 
 
 def fair_total_lines(decided: pd.DataFrame) -> np.ndarray:
-    """Per-game FAIR total line — grid argmin of |2-way P(over) - 0.5| over
-    TOTAL_GRID, ties picking the LOWER line (strict `<` keeps the first
-    ascending match). NaN where a game cannot be priced — never fabricated."""
+    """Per-game FAIR total line — ladder argmin of |2-way P(over) - 0.5| over
+    TOTAL_HALF_GRID (the 0.5 ladder, MLB's ``TOTAL_GRID`` shape), ties
+    picking the LOWER line (strict `<` keeps the first ascending match).
+
+    Taking the argmin of |p - 0.5| is the same as taking the line whose
+    FAVORED-side probability is closest to 50% from above, so the pick this
+    line feeds is always "p > 50%, as close to 50% as the ladder allows,
+    never below it". At a half line the push band is absent (2-way denominator
+    is 1); at an integer line the 2-way re-scales the push band out, which is
+    exactly MLB's conditioning. NaN where a game cannot be priced — never
+    fabricated."""
     n = len(decided)
     best = np.full(n, np.nan)
     best_delta = np.full(n, np.inf)
-    for line in TOTAL_GRID:
+    for line in TOTAL_HALF_GRID:
         over_col, under_col = grid_over_under_cols(line)
         if over_col not in decided.columns or under_col not in decided.columns:
             continue
@@ -353,13 +390,22 @@ def _home_favorite(decided: pd.DataFrame) -> np.ndarray:
 
 def fair_spread_thresholds(decided: pd.DataFrame) -> np.ndarray:
     """Per-game FAIR spread THRESHOLD T (home covers iff margin > T) — the
-    grid argmin of |2-way P(home cover) - 0.5| over integer thresholds
-    -20..20, ties lower. The DISPLAYED home line is -T. NaN when unpricable."""
+    ladder argmin of |2-way P(home cover) - 0.5| over SPREAD_HALF_GRID
+    (every integer AND half threshold the artifact prices), ties picking the
+    LOWER rung (strict `<` keeps the first ascending match).
+
+    Taking the argmin of |p - 0.5| is the same as taking the rung whose
+    FAVORED side is closest to 50% from above — the exact rule of
+    ``fair_total_lines`` and MLB's ``fair_run_lines`` — so the pick this
+    feeds is always "p > 50%, as close to 50% as the ladder allows, never
+    below it". A half rung can never push (integer margins never equal X.5);
+    an integer rung keeps its push band for the 3-way grade. The DISPLAYED
+    home line is -T. NaN when unpricable."""
     n = len(decided)
     best = np.full(n, np.nan)
     best_delta = np.full(n, np.inf)
-    for t in range(-20, 21):
-        p2, ok = _two_way_home_cover(decided, float(t))
+    for t in SPREAD_HALF_GRID:
+        p2, ok = _two_way_home_cover(decided, t)
         delta = np.full(n, np.inf)
         delta[ok] = np.abs(p2[ok] - 0.5)
         take = ok & (delta < best_delta - 1e-12)
@@ -597,7 +643,10 @@ def game_total_calibration(decided: pd.DataFrame,
             if total[i] == ln:
                 push[i] = True
                 continue
-            event[i] = float(total[i] >= ln + 1.0)
+            # Strict ``>`` — correct on BOTH rungs of the 0.5 ladder. The old
+            # ``>= ln + 1`` silently graded every half line as an under
+            # (226 >= 226.5 is false for the winning total).
+            event[i] = float(total[i] > ln)
         edges, labels = OWN_LINE_EDGES, OWN_LINE_LABELS
     else:
         over_col, under_col = grid_over_under_cols(line)
@@ -613,7 +662,9 @@ def game_total_calibration(decided: pd.DataFrame,
         pred[valid] = po[valid] / denom[valid]
         priced = valid
         push = (total == line) & valid
-        event = ((total >= line + 1.0) & valid & ~push).astype(float)
+        # ``total > line`` (identical to the old ``>= line + 1`` on an
+        # integer line, and the only correct form on a half line).
+        event = ((total > line) & valid & ~push).astype(float)
         edges = [round(5.0 * b, 2) for b in range(n_bins + 1)]
         labels = [f"{int(edges[b])}-{int(edges[b + 1])}"
                   for b in range(n_bins)]
@@ -912,11 +963,19 @@ def _row_date(row) -> Any:
 
 
 def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
-    """Game-totals history priced at each game's OWN fair line (grid argmin).
+    """Game-totals history priced at each game's OWN fair line (ladder argmin
+    over TOTAL_HALF_GRID — MLB's structure, 2026-10-12).
 
-    LINE is the fair line; the pick is Over/Under on the 2-way rescaled
-    P(over) > 50%; a total exactly on the line is a PUSH (correct = NaN,
-    excluded from the win rate).
+    LINE is the fair line, on the 0.5 ladder (X.5 or X.0), so the pick is
+    quoted the way a book would post it — never an unrounded integer grid
+    step. ``pick`` is the FAVORED side of the 2-way re-scaled P(over):
+    Over when p >= 0.5, Under otherwise, and ``pick_prob`` is THAT side's
+    probability — so the displayed probability is always >= 50% (an Under
+    pick reports P(under), not P(over)), and among all ladder lines it is
+    the one closest to 50% without going below it. A total exactly on a
+    whole-number line is a PUSH (correct = NaN, excluded from the win rate);
+    a half line can never push. Rows that cannot be priced are dropped —
+    never fabricated.
     """
     cols = _HISTORY_COLUMNS
     if decided is None or not len(decided):
@@ -935,7 +994,7 @@ def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
         p = v / (v + u)
         if _num(r.get("home_score")) is None or _num(r.get("away_score")) is None:
             continue
-        over = p > 0.5
+        over = p >= 0.5                    # MLB's rule (ties go to Over)
         pick = "Over" if over else "Under"
         if total == line:
             winner, correct = "Push", np.nan
@@ -948,18 +1007,28 @@ def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
                      "home": str(r.get("home_team", "—") or "—"),
                      "home_score": _num(r.get("home_score")),
                      "away_score": _num(r.get("away_score")),
-                     "line": float(line), "pick": pick, "pick_prob": float(p),
+                     # FAVORED side's probability — >= 0.5 by construction,
+                     # so an Under pick never reports a sub-50% number (the
+                     # 2026-10-12 structural fix; MLB reports p on the
+                     # picked side too).
+                     "line": float(line), "pick": pick,
+                     "pick_prob": float(p if over else 1.0 - p),
                      "winner": winner, "correct": correct})
     return pd.DataFrame(rows, columns=cols)
 
 
 def runline_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
-    """Run-line history at each game's OWN fair threshold (grid argmin).
+    """Run-line history at each game's OWN fair threshold (ladder argmin
+    over SPREAD_HALF_GRID — MLB's structure, 2026-10-12).
 
-    The displayed home line is MINUS its cover threshold: home covers iff
-    margin > T, so home -5 means T = +5. Whole-number lines can push; the
-    displayed pick probability is 2-way re-normalized (push folded out of
-    both sides), and the PICK cell carries the pick's own spread number.
+    The LINE is the fair threshold on the 0.5 ladder (X.5 or X.0), so the
+    pair reads the way a book posts it (home -4.5 / away +4.5, never a
+    fabricated ``-0``). The displayed home line is MINUS its cover
+    threshold: home covers iff margin > T, so home -5 means T = +5. The
+    PICK cell carries the picked side's own spread and that side's 2-way
+    re-normalized cover (push folded out of both sides) — always >= 50%
+    and closest to 50% on the ladder. Whole-number thresholds can push
+    (margin == T -> Push, correct = NaN); a half threshold never pushes.
     """
     cols = _HISTORY_COLUMNS
     if decided is None or not len(decided):
