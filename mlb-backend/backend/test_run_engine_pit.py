@@ -131,8 +131,7 @@ def test_prequential_calibration_is_strictly_prior():
 # 3. Sealed holdout: α(λ) curves never see the holdout window
 # ---------------------------------------------------------------------------
 def test_alpha_curves_fit_on_pre_holdout_rows_only():
-    """derive_markets_v3 must hand select_alpha_curve exactly the
-    pre-holdout rows (dates < max − HOLDOUT_DAYS) — never the sealed tail."""
+    """Legacy NB diagnostics stay pre-holdout; CRPS production never calls them."""
     oof = _synth_oof(n_days=40)
     seen: dict = {}
     orig = re.select_alpha_curve
@@ -142,12 +141,22 @@ def test_alpha_curves_fit_on_pre_holdout_rows_only():
         return orig(y, lam, seed=seed)
 
     with _mock_patch.object(re, "select_alpha_curve", spy):
-        re.derive_markets_v3(oof.copy())
+        re._legacy_derive_markets_v3(oof.copy())
     dates = pd.to_datetime(oof["game_date"])
     cutoff = dates.max() - pd.Timedelta(days=re.HOLDOUT_DAYS)
     n_pre = int((dates < cutoff).to_numpy().sum())
     assert seen.get("n") == n_pre, (
         f"α fit saw {seen.get('n')} rows, pre-holdout pool is {n_pre}")
+    with _mock_patch.object(re, "select_alpha_curve",
+                           side_effect=AssertionError("global alpha must not price production")):
+        original = re.derive_markets_v3(oof.copy())
+        poisoned = oof.copy()
+        poisoned.loc[dates >= cutoff, "home_score"] += 20
+        changed = re.derive_markets_v3(poisoned)
+    prices = [c for c in original["markets"] if c.startswith("p_")]
+    np.testing.assert_allclose(original["markets"].loc[dates < cutoff, prices],
+                               changed["markets"].loc[dates < cutoff, prices], atol=0., rtol=0.)
+    assert original["summary"]["calibration"]["method"] == "causal_lattice_crps"
 
 
 # ---------------------------------------------------------------------------

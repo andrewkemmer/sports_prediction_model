@@ -369,7 +369,10 @@ MARKETS_BASE_COLS = [
     "y_over_offered", "y_under_offered", "y_push_total_offered",
     "y_cover_offered", "y_push_spread_offered",
     "y_home_win", "decided", "frame_view",
-    "pred_home", "pred_away",
+    "pred_home", "pred_away", "fold_id",
+    "distribution_fit_n", "distribution_fit_end",
+        "distribution_mean_total", "distribution_mean_margin",
+        "distribution_sd_total", "distribution_sd_margin",
 ]
 
 
@@ -395,6 +398,17 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         # NHL spread grid (-8..+8) overlaps the totals grid (4..12), so a
         # shared p_push_{U} column would collide with the margin push.
         cols += [f"p_over_{U}", f"p_under_{U}", f"p_push_total_{U}"]
+
+    # Additive half-point prices and separate totals push namespace. Existing
+    # integer columns remain available to older frontend readers.
+    for L in [x + .5 for x in config.SPREAD_GRID]:
+        label = str(L).replace('.', '_').replace('-', 'm')
+        cols += [f"p_home_cover_{label}", f"p_away_cover_{label}", f"p_push_{label}"]
+    for U in [x + .5 for x in config.TOTAL_GRID]:
+        label = str(U).replace('.', '_')
+        cols += [f"p_over_{label}", f"p_under_{label}", f"p_push_total_{label}"]
+    cols += [f"p_push_total_{U}" for U in config.TOTAL_GRID]
+    cols = list(dict.fromkeys(cols))
 
     out = pd.concat([oof_rows, slate_rows], ignore_index=True)
     # SAME-DATE PRESERVATION (the 2026-10-03 overwrite defect): a re-run's
@@ -456,6 +470,11 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
     out = out[cols]
     out.to_csv(path, index=False)
     meta = {
+        "distribution_method": "causal_lattice_crps",
+        "distribution_objective": "discrete_crps",
+        "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
+        "settlement": 'final_score_no_tie',
+
         "record": "nhl_run_engine_markets",
         "written_utc": _now_utc(),
         "config": config_meta,

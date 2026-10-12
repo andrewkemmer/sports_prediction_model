@@ -1802,3 +1802,116 @@ def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_
     assert published.set_index("player_id").loc["a", "team"] == "LAL"
     assert published.set_index("player_id").loc["a", "roster_source"] == "nba_playerindex"
     assert "cut" not in set(published.player_id)
+
+
+# CRPS whole-CDF production contract (2026-10-11). These tests exercise the
+# same public interfaces the pipelines call, including outcome poisoning.
+def _crps_test_frame():
+    import numpy as np
+    import pandas as pd
+    import distributions as dist
+    rng = np.random.default_rng(817)
+    n = 360
+    h = rng.uniform(100., 120., n) if dist.DISTRIBUTION_SPORT == "nba" else rng.uniform(2., 5., n)
+    a = rng.uniform(100., 120., n) if dist.DISTRIBUTION_SPORT == "nba" else rng.uniform(2., 5., n)
+    hs, aws = rng.poisson(h), rng.poisson(a)
+    if dist.DISTRIBUTION_SPORT != "nfl": hs = hs + (hs == aws)
+    frame = pd.DataFrame({"home_score": hs, "away_score": aws})
+    if dist.DISTRIBUTION_SPORT == "mlb":
+        frame["home_expected_runs"], frame["away_expected_runs"] = h, a
+        frame["game_date"] = pd.date_range("2025-01-01", periods=n)
+        frame["fold_idx"] = np.arange(n) // 60
+    else:
+        frame["mu_h"], frame["mu_a"] = h, a
+        frame["gameday"] = pd.date_range("2025-01-01", periods=n)
+        frame["fold_id"] = np.arange(n) // 60
+    return frame
+
+
+def test_crps_point_mass_matches_absolute_error_and_correct_cdf_orientation():
+    import distributions as dist
+    import numpy as np
+    support = np.arange(-3, 4)
+    cdf = (support[None, :] >= np.array([0., 1., -1.])[:, None]).astype(float)
+    np.testing.assert_allclose(dist.lattice_crps(cdf, support, [2., 1., -2.]), [2., 0., 1.])
+    # Reversing I(y <= k) would incorrectly score a perfect point mass.
+    np.testing.assert_allclose(dist.lattice_crps(cdf, support, [0., 1., -1.]), 0.)
+
+
+def test_crps_full_pipeline_future_poisoning_and_row_order_invariance():
+    import distributions as dist
+    import numpy as np
+    frame = _crps_test_frame()
+    priced, bundle = dist.causal_distribution_frame(frame)
+    poisoned = frame.copy()
+    poisoned.loc[poisoned.index >= 300, "home_score"] += 20
+    changed, _ = dist.causal_distribution_frame(poisoned)
+    cols = [c for c in priced if c.startswith("p_")]
+    np.testing.assert_allclose(priced.loc[:299, cols], changed.loc[:299, cols], atol=0., rtol=0.)
+    shuffled = frame.sample(frac=1., random_state=81)
+    reordered, _ = dist.causal_distribution_frame(shuffled)
+    np.testing.assert_allclose(priced[cols], reordered.reindex(frame.index)[cols], atol=1e-10)
+    assert bundle["method"] == "causal_lattice_crps"
+    assert bundle["scope"] == "whole_cdf"
+    assert bundle["origins"][0]["n_prior"] == 0
+    assert all(o["n_prior"] < len(frame) for o in bundle["origins"])
+
+
+def test_crps_cdf_pushes_moneyline_fair_half_and_slate_agree():
+    import distributions as dist
+    import numpy as np
+    frame = _crps_test_frame()
+    priced, bundle = dist.causal_distribution_frame(frame)
+    np.testing.assert_allclose(priced.p_home_win_derived + priced.p_away_win_derived + priced.p_tie, 1., atol=1e-12)
+    if dist.DISTRIBUTION_SPORT != "nfl": np.testing.assert_allclose(priced.p_tie, 0.)
+    assert np.all(np.mod(priced.fair_total, 1.) == .5)
+    assert np.all(np.mod(priced.fair_spread, 1.) == .5)
+    last = bundle["origins"][-1]
+    forecast = dist._distribution_price(frame.iloc[300:].drop(columns=["home_score", "away_score"]), last["maps"])
+    cols = [c for c in forecast if c.startswith("p_")]
+    np.testing.assert_allclose(priced.iloc[300:][cols], forecast[cols], atol=1e-12)
+    for kind, (support, cdf) in dist._distribution_cdfs(frame, bundle["maps"]).items():
+        assert np.all(np.diff(cdf, axis=1) >= -1e-12)
+        assert np.all((cdf >= 0.) & (cdf <= 1.))
+        assert np.all(cdf[:, -1] >= 1 - 1e-8)
+    if dist.DISTRIBUTION_SPORT != "mlb":
+        # Fair aliases must refer to their recalibrated CDF, not stale integers.
+        for row in priced.itertuples():
+            assert abs(getattr(row, dist._grid_key("p_over", row.fair_total)) - row.p_over_fair) < 1e-12
+            assert abs(getattr(row, dist._grid_key("p_home_cover", row.fair_spread)) - row.p_cover_fair) < 1e-12
+        z = dist._grid_key("p_home_cover", 0)
+        np.testing.assert_allclose(priced[z], priced.p_home_win_derived, atol=1e-12)
+
+
+def test_crps_refuses_overlapping_origins_missing_dates_and_invalid_scores():
+    import distributions as dist
+    import pytest
+    frame = _crps_test_frame()
+    date = "game_date" if dist.DISTRIBUTION_SPORT == "mlb" else "gameday"
+    bad = frame.copy(); bad.loc[60, date] = bad.loc[10, date]
+    with pytest.raises(ValueError, match="overlap"):
+        dist.causal_distribution_frame(bad)
+    bad = frame.copy(); bad.loc[0, date] = None
+    with pytest.raises(ValueError, match="dates"):
+        dist.causal_distribution_frame(bad)
+    bad = frame.copy()
+    key = "home_expected_runs" if dist.DISTRIBUTION_SPORT == "mlb" else "mu_h"
+    bad.loc[0, key] = float("nan")
+    with pytest.raises(ValueError, match="non-finite"):
+        dist.causal_distribution_frame(bad)
+
+
+def test_gaussian_crps_analytic_gradient_and_hessian():
+    import distributions as dist
+    import numpy as np
+    y = np.array([-1., 0., 12.])
+    prediction = np.array([0., 0., 10.])
+    objective = dist.GaussianCRPSObjective(4.)
+    gradient, hessian = objective(y, prediction)
+    eps = 1e-4
+    numerical = (dist.gaussian_crps(y, prediction + eps, 4.)
+                 - dist.gaussian_crps(y, prediction - eps, 4.)) / (2 * eps)
+    np.testing.assert_allclose(gradient, numerical, atol=1e-8)
+    numerical_h = (objective(y, prediction + eps)[0]
+                   - objective(y, prediction - eps)[0]) / (2 * eps)
+    np.testing.assert_allclose(hessian, numerical_h, atol=1e-8)

@@ -145,48 +145,9 @@ def calibration_buckets_pair(p_raw: np.ndarray, p_calibrated: np.ndarray,
 # ---------------------------------------------------------------------------
 # Distributional metrics (run line + totals)
 # ---------------------------------------------------------------------------
-def nb_distribution_metrics(oof: pd.DataFrame, params: dict,
-                             n_draws: int = 2000) -> dict:
-    """Raw NB/Monte-Carlo OOF metrics at each game's model fair line."""
+def nb_distribution_metrics(oof, params, n_draws=2000):
+    """Causal full-support CRPS; final serving params never grade old games."""
     if oof is None or not len(oof):
         return {"run_line": {"n": 0}, "totals": {"n": 0}}
-    sim = dist_mod.simulate_distributions(
-        oof["mu_h"].to_numpy(float), oof["mu_a"].to_numpy(float),
-        float(params.get("alpha_home", 0.0)),
-        float(params.get("alpha_away", 0.0)), n_draws=n_draws)
-    margin = oof["margin"].to_numpy(float)
-    total = oof["total"].to_numpy(float)
-    p_cover = sim["p_cover_fair"].to_numpy(float)
-    p_over = sim["p_over_fair"].to_numpy(float)
-    fair_s = sim["fair_spread"].to_numpy(float)
-    fair_t = sim["fair_total"].to_numpy(float)
-    # A push has no binary outcome, so it leaves the scored population. It
-    # must leave the PUSH COUNT by the same filter: counting `(margin ==
-    # fair_s)` over the whole frame also counted rows the metric had dropped
-    # for a non-finite price, and `n + n_pushes` then overshot the OOF
-    # population in the summary JSON. Partition on finiteness first, then
-    # split each side into scored / push.
-    fin_m = np.isfinite(p_cover)
-    fin_t = np.isfinite(p_over)
-    ok_m = fin_m & (margin != fair_s)
-    ok_t = fin_t & (total != fair_t)
-    n_push_m = int(np.sum(fin_m & (margin == fair_s)))
-    n_push_t = int(np.sum(fin_t & (total == fair_t)))
-
-    def _metrics(p, y):
-        if not len(p):
-            return {"n": 0, "n_pushes": 0, "logscore": np.nan,
-                    "brier": np.nan, "ece_cover": np.nan}
-        y = np.asarray(y, float)
-        p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
-        return {"n": int(len(y)), "n_pushes": 0,
-                "logscore": float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))),
-                "brier": float(np.mean((p - y) ** 2)),
-                "ece_cover": ece(p, y)}
-
-    return {
-        "run_line": dict(_metrics(p_cover[ok_m], (margin[ok_m] > fair_s[ok_m]).astype(float)),
-                          n_pushes=n_push_m),
-        "totals": dict(_metrics(p_over[ok_t], (total[ok_t] > fair_t[ok_t]).astype(float)),
-                        n_pushes=n_push_t),
-    }
+    frame, bundle = dist_mod.causal_distribution_frame(oof)
+    return dist_mod.distribution_score_report(frame, bundle)

@@ -140,3 +140,349 @@ leagues).
 - If the same 10 alerts persist INTO the new season with a fresh window,
   that is real signal about the 2026-27 population and belongs to the
   model owner, not this review.
+
+
+---
+
+# Four-sport distribution-model deep dive and CRPS remediation — 2026-10-11
+
+## Verdict and acceptance boundaries
+
+**The prior distributions were not professional-grade CDFs. This change repairs
+causal distribution mechanics and coherent pricing, implements CRPS-driven
+conditional calibration, and exposes the remaining accuracy deficit. It does
+NOT certify positive ROI, high offered-line AUC, or universal CRPS improvement.**
+
+Constraints honored: only existing production/test/report files changed; no new
+program committed, no new SDK/dependency, no binary moneyline feature adoption,
+no automatic production pipeline/delivery push. Historical first-publication
+stores and existing delivery artifacts were not rewritten. A full daily rerun
+is required to publish new-model artifacts; source push is not model deployment.
+
+Acceptance interfaces are the existing `ScoreRegressor`, `walk_forward_oof`,
+`apply_distribution`, `calibrate_market_frame`, `apply_market_calibration`,
+`nb_distribution_metrics`, and MLB `derive_markets_v3`/`predict_slate_runs`/
+`persist_markets`. Existing integer grid names stay available; half grids,
+origin provenance, full-support CRPS and reliability metrics are additive.
+A new function INSIDE each existing distribution module,
+`distribution_probability(frame, bundle, kind, line)`, prices any margin/total
+threshold directly from the same CDF. Home handicap -3.5 means margin threshold
++3.5. Integer prices return strict win / push / loss, not push-inclusive wins.
+
+## Measured defects in delivered 2026-10-11 artifacts
+
+| Sport | OOF rows | Totals games with CDF crossings | Spread games with crossings | Largest totals / spread upward jump |
+|---|---:|---:|---:|---:|
+| NBA | 2,400 | 2,242 | 2,341 | .44464 / .23836 |
+| NFL | 2,567 | 565 | 2,536 | .25169 / .30765 |
+| NHL | 2,683 | 127 | 2,630 | .04704 / .42062 |
+
+Increasing a line MUST NOT increase its strict exceedance probability. These
+are not harmless rounding differences. NHL derived home + away + tie also
+missed one by up to .02612. NBA/NFL derived-ML calibration fitted all OOF labels
+then rewrote the same OOF probabilities, unlike the line calibrators. NHL's
+favored-space correction was prequential but could disconnect ML from the
+spread CDF and produce negative/incoherent residuals.
+
+Other defects and limitations:
+
+* Poisson deviance training was not CRPS optimization; independent side draws
+  impose Cov(home, away)=0, so total and spread variances cannot adapt separately.
+* Global pre-holdout dispersion reused on ALL OOF rows sees future outcomes
+  relative to older rows. A 21-day sealed tail does not make pooled OOF causal.
+* Alpha-form selection used random A/B halves and reverse-half fits. It now
+  uses forward prefix-to-next-block selection for retained LEGACY diagnostics.
+* NBA's legacy NB validation used `kmax=80` against scores around 110 and
+  `tail_k=10`; this cannot validate basketball tails. That diagnostic is not
+  used for new production prices. Legacy pooled alpha includes predictable
+  between-game mean variation; the new count baseline uses OOF residuals.
+* Old fair lines were integers, sometimes a grid boundary, and calibration did
+  not reliably refresh the fair line / fair probability / outcome aliases.
+* Old evaluators mostly reported binary metrics, not full-distribution CRPS;
+  pushes were sometimes coded as losses or removed without conditioning prices.
+* NHL accepted obsolete sigma arguments while ignoring them. They remain
+  compatibility-only on old diagnostic APIs, not claimed as active parameters.
+
+## Production architecture and causality
+
+1. Preserve the existing resolved, market-free moneyline TREE feature contract
+   and existing score-mean regressors. Genuine NaNs retain native tree routing.
+   Supplied train/validation folds must be separated by normalized game dates;
+   violations raise. NBA no longer silently substitutes ridge after a fit error.
+2. Use outcome-independent fixed integration supports: NBA 0..600 totals,
+   +/-600 margin; NFL 0..250 / +/-250; NHL 0..100 / +/-100; MLB 0..160 / +/-160.
+   Check represented tail mass and refuse an insufficient support. Targets
+   outside support receive boundary tail error; observations aren't clipped.
+3. NBA: discretized, nonnegative-normal total and margin BASE CDFs. Each is
+   independently corrected, removing the forced equal-variance relationship.
+   Count sports: exact Poisson/NB score-PMF convolutions; residual dispersion
+   estimated on PRIOR OOF only, floor at Poisson, bounded .5. NFL lumpy/key-score
+   structure is still a limitation; no claim this count base is uniquely optimal.
+4. Optimize a six-parameter monotone CDF map separately for totals and margin:
+   `F*(k)=sigmoid(exp(X beta_scale)*logit(F(k))+X beta_location)`, with endpoint
+   preservation. X contains intercept, expected-total level, absolute expected
+   margin. Width and location vary by pre-game scoring/favorite scenario.
+   Ridge .01 and fixed bounds are predeclared, not tuned on reported test rows.
+   This is a compact conditional CDF calibrator, NOT a full feature-conditioned
+   variance learner. It can correct distribution mean as well as scale.
+5. Fit by unit-lattice CRPS, `sum_k (F(k)-1[y<=k])^2`, with analytic gradients.
+   One increasing map for the ENTIRE CDF guarantees no crossings/nonnegative
+   pushes. All over/under/cover/ML prices are CDF differences. NBA/NHL/MLB
+   final-score ties are resolved symmetrically to +/-1 before scoring; NFL
+   keeps ties and reports non-tie-conditional ML binary metrics separately.
+   NHL shootout-final-score convention should be validated against any future
+   bookmaker's settlement rule; regulation-only markets are NOT interchangeable.
+6. Forecast origins are chronological, indivisible blocks, ordered by actual
+   dates (NOT numeric fold labels or arrival order). Reject missing dates,
+   overlapping origins, non-finite/nonpositive means, duplicate indices,
+   unsettled/fractional/negative final scores. The first 200 prior forecasts
+   use identity calibration. No fitted global alpha/CDF map is replayed on OOF.
+7. Admit calibration at each origin only if its paired CRPS on PREVIOUSLY
+   issued origin forecasts beats identity in mean, with >=200 prior outcomes.
+   This selection is itself prequential; the current origin never grades its
+   own correction. This is an adaptive admission rule, NOT a statistical
+   significance guarantee or a general promise of future improvement.
+8. Final serving map may use all settled past OOF evidence and admission
+   results. It is never applied back to old OOF rows. Artifact metadata names
+   the method/objective; fold ids and fit-end/count are retained for exact
+   future replay. Calibrated mean/SD are separate from raw score-mean aliases.
+9. Half-point nearest-50% fair lines are computed from the actual CDF, even
+   outside displayed grids. Half stops have zero push. All outcome aliases
+   are refreshed after correction. Any offered line can use the exact API.
+10. Retain legacy MC/Platt APIs for compatibility diagnostics only; undated
+    fixtures are not labeled PIT. Legacy alpha and Pearson monitor entries
+    describe legacy SCORE diagnostics, not the new CRPS predictive CDF.
+
+The four backends run independently in Kaggle. The compact layer is mirrored
+in their existing modules instead of adding a shared runtime program. Tests pin
+common properties and sport-specific settlement/supports. This duplication is
+a maintenance trade-off imposed by the no-new-program guardrail.
+
+## NBA architecture experiment — rejection, not optimistic adoption
+
+A direct total/margin LightGBM location challenger trained by analytic Gaussian
+CRPS, with train-only initial mean/scale and correct gradient/Hessian, was run
+on all 56 existing shared folds / 2,400 OOF games. It produced total CRPS
+10.97378, margin CRPS 8.61267 and derived-ML AUC .69091 / logloss .63281 /
+Brier .22127. The existing score means with whole-CDF correction were better
+(total 10.84870 / margin 8.37864 before nested admission; derived ML AUC .71155 /
+logloss .61770). **Direct CRPS tree location training is REJECTED as default**;
+its optional existing-module implementation remains available for controlled
+research. Objective finite-difference tests pass. No retrain-on-validation early
+stopping or metric cherry-picking was used to rescue the challenger.
+
+The existing scratch NBA margin-feature ablation also showed no binary lift:
+A baseline LL .6112 / AUC .7194; B (margin + home/away mean) LL .6118 / AUC .7181;
+C (also total) LL .6113 / AUC .7189. Therefore binary feature adoption remains
+unchanged. A new causal bridge ablation is necessary after any admitted
+mean-model improvement; a distribution cleanup alone is not proof of blend lift.
+
+## Empirical protocol and limits
+
+Latest delivered OOF means/outcomes were replayed at chronological blocks of
+seven observed game dates, matching the intended family cadence. Old market
+CSVs and MLB OOF CSV omitted fold IDs, so these are **reconstructed calibration
+origins**, not a certified byte-identical training replay. New artifacts persist
+origin IDs. NBA direct-location challenger alone used the actual shared folds
+and the cached 2,629-row feature frame (71 numeric features + categoricals).
+The cached frame is an earlier production feature snapshot; current feature
+contract/timestamp provenance still requires the next full pipeline replay.
+
+These are retrospective software/conditional-distribution evaluations, not a
+prospectively untouched final acceptance season. Architecture choices were
+informed by these results; an independent chronological acceptance season is
+still required. Confidence intervals resample the same paired forecast-origin
+blocks 2,000 times (seed 451), preserving within-block games. They do not cover
+all model-selection or source-revision uncertainty. CRPS units differ by sport.
+
+### Final gated model vs SAME raw base CDF (calibration-only attribution)
+
+| Sport | N / origin blocks | Total CRPS base -> gated (95% delta CI) | Margin CRPS base -> gated (95% delta CI) |
+|---|---|---|---|
+| NBA | 2400 / 56 | 10.96251 -> 10.86332 (-0.14012, -0.05594) | 8.37449 -> 8.37623 (+0.00000, +0.00568) |
+| NFL | 2567 / 80 | 7.69656 -> 7.69900 (-0.00118, +0.00667) | 7.44919 -> 7.43868 (-0.02331, +0.00340) |
+| NHL | 2683 / 60 | 1.29150 -> 1.29013 (-0.00368, +0.00110) | 1.44397 -> 1.44346 (-0.00309, +0.00228) |
+| MLB | 7032 / 84 | 2.46561 -> 2.46599 (-0.00113, +0.00192) | 2.46907 -> 2.46972 (+0.00000, +0.00164) |
+
+Interpretation: NBA totals calibration has a measurable paired improvement;
+NBA margin correction is essentially neutral/slightly harmful and the FINAL
+serving gate rejects it. NFL total/MLB total+margin FINAL corrections are also
+rejected. NFL margin and NHL corrections have mixed/weak evidence (CIs include
+zero), not demonstrated generalizable superiority. Adaptively admitted early
+corrections can still hurt later realized CRPS; admission does not erase losses.
+
+Comparing a different family baseline (prior-residual NB independent-score CDF)
+produced NBA total 10.86466 / margin 8.43404 vs new 10.86332 / 8.37623. That
+comparison reflects BOTH the marginal family and correction changes; do not
+attribute the entire difference to calibration or claim a large totals gain.
+NFL/MLB new whole-CDF forecasts did not beat that prior-NB baseline universally.
+
+### Binary diagnostics at nearest half-line to each game's 50% probability
+
+| Sport | Total AUC / LL / Brier; actual over rate | Spread AUC / LL / Brier; actual cover rate | Derived ML AUC / LL / Brier |
+|---|---|---|---|
+| NBA | 0.5033 / 0.69316 / 0.25001; 0.5029 | 0.5071 / 0.69308 / 0.24996; 0.5029 | 0.7119 / 0.61717 / 0.21438 |
+| NFL | 0.5120 / 0.69287 / 0.24986; 0.5060 | 0.4825 / 0.69391 / 0.25038; 0.5029 | 0.6986 / 0.63060 / 0.21999 |
+| NHL | 0.5396 / 0.69131 / 0.24908; 0.5114 | 0.5798 / 0.68351 / 0.24522; 0.4957 | 0.5888 / 0.67731 / 0.24220 |
+| MLB | 0.5181 / 0.69293 / 0.24989; 0.5011 | 0.5486 / 0.68943 / 0.24814; 0.5219 | 0.5710 / 0.68444 / 0.24568 |
+
+AUC at a MODEL-SELECTED 50% threshold is not a meaningful high-AUC objective:
+probabilities are intentionally nearly constant and the per-game event changes
+with the model. Even a correctly specified forecast often has AUC near .5 here,
+LL near log(2), Brier near .25. Correct calibration is predicted .5 vs actual .5,
+plus uncertainty and conditional strata—not a fabricated ranking win. AUC
+must ALSO be reported at common fixed thresholds and actual offered lines on
+the SAME settled games. CRPS scores the whole CDF; proper threshold logloss/
+Brier diagnose local misspecification. High fixed-line AUC alone does not prove
+an edge against a sportsbook whose line already embeds the signal.
+
+### Retrospective archived bookmaker totals-line diagnostic (NOT PIT ROI)
+
+| Sport | Matched / nonpush | AUC | Conditional logloss | Brier | Mean predicted / actual over |
+|---|---|---:|---:|---:|---|
+| NBA | 1510 / 1510 | 0.5027 | 0.73645 | 0.26876 | 0.5126 / 0.4980 |
+| NFL | 2563 / 2546 | 0.5116 | 0.71570 | 0.25979 | 0.4872 / 0.4874 |
+| NHL | 2613 / 2613 | 0.5095 | 0.70404 | 0.25529 | 0.4880 / 0.4971 |
+| MLB | 6548 / 6434 | 0.5092 | 0.70304 | 0.25469 | 0.4905 / 0.4949 |
+
+Books are deduplicated by family (state variants count once), live/opening/model
+feeds excluded, median total line used, pushed outcomes removed and probability
+conditioned on no push. **Every sport is worse than the .69315 LL / .25 Brier
+50/50 baseline in this diagnostic. No standalone totals betting edge is proven.**
+A lack of ranking power at offered lines is materially more important than
+apparently good fixed-threshold AUC. Do not use this diagnostic as a betting
+backtest: archives were fetched after settlement, provider update timestamps
+are null, spread quotes are absent, total over/under prices are absent, and
+median lines across books are not necessarily executable quotes.
+
+For genuine ROI, archive as-issued forecasts and exact bookmaker line+decimal
+prices+quote timestamp BEFORE start; match settlement conventions; freeze edge,
+bet selection and stake policies on past data; hold out a future season; report
+win/push/loss counts, net profit/stake ROI, drawdown, CLV, coverage, paired
+blocked uncertainty and bookmaker/line/regime strata. With decimal price d,
+unit EV is p(win)*(d-1)-p(loss); push contributes zero. Two-sided de-vig and
+no-push conditional probabilities must use compatible conventions. No invented
+-110 price, post-result line or future-selected best edge is admissible.
+
+## Feature PIT audit and unresolved provenance
+
+The score model uses the production feature resolver, never outcomes, market
+lines, closing probabilities or postgame facts as raw predictors. NBA ladders
+use shifted trailing/EWM states, prior-settlement rest dates, and Elo updated
+after the current prediction; team categories use the fixed UNK vocabulary.
+Existing tests cover future outcome mutation and injury/lineup as-of binding.
+OOF score training now explicitly rejects same-day/future train rows even for
+caller-supplied folds. No OOF validation labels determine early stopping for
+these score models; MLB production uses its existing fixed-round policy.
+
+**Not fully certified here:** original source publication timestamps vs later
+API revisions, historical injury/player-rating archives for every feature,
+and globally adopted feature-subset selection dates. A feature can be shifted
+correctly but still be reconstructed from revised statistics or a subset chosen
+using a future season. A full bitemporal input ledger and feature-selection
+freeze/replay are required for a complete strictly-PIT certification. A date
+split is not proof that every label had settled before an intraday forecast;
+the current workflow conservatively uses prior game DATES, not same-day results.
+
+## Sport-specific remaining remediations / promotion gates
+
+* **NBA:** admit only improvements that beat causal raw-NB AND outcome-free
+  normal baselines in both full CRPS and offered-line LL/Brier; do not promote
+  the rejected direct-location architecture. Investigate pregame pace, lineup
+  continuity, rest and officiating information for total location; separately
+  model uncertainty by pace/lineup/mismatch regime. Match historic lineup/injury
+  publication times rather than actual starters. Negative market-line results
+  mean the current totals model is research-only for ROI, even though its CDF
+  is now valid. At the most recent 21-day tail there are only 11 NBA games—use
+  broader seasons/multiple origins rather than claim decisive tail acceptance.
+* **NFL:** the negative-binomial integer base is not a key-number/scoring-drive
+  model. Candidate drive/possession or empirical residual mixtures must capture
+  3/7-point mass, overtime ties and weather/tempo variance, gated chronologically
+  against count baselines. Final total correction was rejected; offered-line
+  discrimination remains weak. No ROI approval.
+* **NHL:** explicitly separate final incl. OT/shootout from regulation markets;
+  goalie confirmation/empty-net dynamics can change tails. Current small CRPS
+  improvements do not clear block-bootstrap uncertainty. The symmetric tie
+  resolution is a coherent approximation, not an independently proven overtime
+  winner model. No automatic transfer of NBA parameters/thresholds.
+* **MLB:** the count base earns much larger residual dispersion than NHL; retain
+  that distinction. Both final CDF corrections are rejected. Require a new
+  paired chronological count-family/score-mean gate before substantive model
+  promotion; investigate starter/bullpen run variance and correlation separately.
+  Do not equate the old home-weighted tie-resolution constant or margin-feature
+  ablation with certified moneyline/ROI improvement.
+* **All:** retain every regime in reporting; publish season/provisional/playoff
+  strata, threshold reliability, calibrated mean/SD and origin metadata. A joint
+  score-pair law is NOT reconstructed by separately corrected marginal total/
+  margin CDFs; correlated parlays/joint bets are out of scope. Fair median is
+  not mean; separate aliases now make the distinction visible.
+
+## Verification and operational notes
+
+Python 3.14.3, NumPy 2.4.3, pandas 3.0.1, LightGBM 4.7.0. Verification uses
+public production interfaces plus actual CSV writers/readback, not just builds.
+All four real historical market artifacts produced zero checked CDF crossings,
+finite line prices and coherent three-way ML after the rebuild. Supports/tail
+checks, absolute-error point-mass CRPS, analytic Gaussian gradients/Hessians,
+future-outcome poisoning, shuffled-row invariance, overlapping-origin refusal,
+settled-input refusal, zero half-line pushes and exact slate application are
+covered in existing test files. Legacy contract assertions were updated to the
+new whole-CDF behavior rather than skipped or weakened; underlying guarantees
+are stronger. A small-sample alpha-bin neighbor index error uncovered by forward
+selection was repaired at its cause.
+
+Full backend verification/status is appended below after final checks. Existing
+sklearn/pandas/Altair deprecation warnings remain. No live API ingestion,
+external model deployment, or change to already-published forecast history was
+performed. The no-new-program condition is checked in the staged git diff.
+
+### Sources
+
+* Proper CRPS formulas and distribution scoring:
+  https://arxiv.org/html/1709.04743v2
+* Ordered discrete distributions / isotonic distributional regression:
+  https://arxiv.org/html/1909.03725v3
+* Forecast-evaluation pitfalls and rolling origins:
+  https://pmc.ncbi.nlm.nih.gov/articles/PMC9718476/
+* Calibration data independence / small-sample isotonic overfit:
+  https://scikit-learn.org/stable/modules/calibration.html
+
+
+### Final verification record
+
+- NBA full backend: **634 passed**; after the last metadata/reporting edit,
+  affected CRPS/structural suite **15 passed**, no failures; real LightGBM
+  score fit/predict and OOF+outcome-free slate+CSV+CRPS-metadata smoke passed.
+- NFL existing script-style production suite: **524 checks passed, 0 failed**;
+  affected feature-contract/CRPS suite **4 passed** after final source edits.
+- MLB distribution artifact/PIT suites: **60 passed** after the final CLI
+  entrypoint-order repair, including legacy pre-holdout checks, production
+  future-outcome poisoning, and execution of the real script entrypoint with
+  ingestion/writes intercepted; CRPS helpers are defined before main runs.
+- NHL affected distribution/grid/PIT subset: **53 passed**, including the sealed
+  monitor test; after final metadata edits **10 affected checks passed**.
+  Full 191-test grid/PIT suite was also rerun; its final result is recorded
+  below when complete. This subset is targeted selection, not skipped tests.
+- All four 260-row smoke deliveries passed public calibration, slate pricing
+  where applicable, CSV persistence/readback and CRPS metadata.
+- Historical real CSV checks: NBA 2,400 rows / 905 columns; NFL 2,567 / 505;
+  NHL 2,683 / 197; MLB 7,032 / 110. Finite grids, zero checked crossings,
+  coherent ML/push settlement; all artifact commands exited zero.
+- Final source syntax/compile checks passed; no static typechecker configuration
+  exists for these Python backends, so syntax/imports + real interfaces + tests
+  were used rather than labeling an absent typecheck as passed.
+
+Final review also moved MLB's script entrypoint below the CRPS helpers;
+import-based pipeline tests alone would not have detected that CLI ordering
+failure. A regression test executes the entrypoint and exercises its CRPS
+market construction without live ingestion or production artifact writes.
+CLI `--help` also passes with `PYTHONUTF8=1`; Windows' default cp1252 redirected
+stdout cannot encode the pre-existing Greek symbols in the module help text.
+
+Local rerunnable research/evidence is gitignored under `scratch/` (the baseline
+copy, CRPS ablation, paired block-bootstrap, archived-line diagnostic and
+artifact verification). Only this existing report and existing source/tests
+are committed. Historic delivery artifacts remain untouched by this task.
+
+- NHL full grid/PIT suite final result: **191 passed, 0 failed** (713.57s).
+  Affected checks were rerun after the final reporting changes as noted above.

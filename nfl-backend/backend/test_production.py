@@ -1126,25 +1126,16 @@ try:
     check("integer spread rows carry the away leg's own calibrated value",
           _a3 is not None and abs(_h3 + _p3 + _a3 - 1.0) < 1e-6,
           f"home={_h3:.4f} push={_p3:.4f} away={_a3}")
-    # The away leg responds to its OWN map: swap the away map for a shifted
-    # one and the away leg must move (all three legs renormalize, so the
-    # shifted leg moves MORE than the others -- the probe is that the away
-    # leg's delta dominates its own renormalization share).
-    _resid3 = 1.0 - _h3 - _p3
-    _cal3_t = {"method": "t", "scope": "line_specific", "totals": {},
-               "run_lines": {}, "derived_moneyline": None}
-    for k, v in _cal3["run_lines"].items():
-        _cal3_t["run_lines"][k] = dict(v)
-    _cal3_t["run_lines"][str(_l)]["away"] = {"a": 1.3, "b": 0.5}
-    _sl3_t = dist_mod.apply_market_calibration(_sl3, _cal3_t)
-    _h3_t = float(_sl3_t[dist_mod._grid_key("p_home_cover", _l)].iloc[0])
-    _a3_t = float(_sl3_t[dist_mod._grid_key("p_away_cover", _l)].iloc[0])
-    _p3_t = float(_sl3_t[dist_mod._grid_key("p_push", _l)].iloc[0])
-    check("the away leg is its own map, not the home map's residual",
-          _a3 is not None and abs(_a3_t - _a3) > abs(_h3_t - _h3)
-          and abs(_a3_t - _a3) > abs(_p3_t - _p3),
-          f"away moved {abs(_a3_t - _a3):.4f} vs home {abs(_h3_t - _h3):.4f} "
-          f"push {abs(_p3_t - _p3):.4f}")
+    # A single monotone CDF map, not independent per-leg Platt fits, now
+    # supplies all three legs. Check exact train/serve CDF semantics.
+    check("CRPS calibration uses the whole CDF rather than crossing per-line maps",
+          _cal3["method"] == "causal_lattice_crps" and _cal3["scope"] == "whole_cdf")
+    _raw_slate3 = pd.DataFrame({"mu_h": [24.0], "mu_a": [20.0]})
+    _price3 = dist_mod.distribution_probability(_raw_slate3, _cal3, "margin", _l)
+    check("away and push legs are exact differences of the same serving CDF",
+          abs(float(_price3["loss"][0]) - _a3) < 1e-12
+          and abs(float(_price3["push"][0]) - _p3) < 1e-12
+          and abs(float(_price3["win"][0]) - _h3) < 1e-12)
     # Slate application matches the OOF frame's application (same bundle).
     _oofrow3 = _mk3.iloc[[0]]
     _h_o, _p_o, _a_o = _away_leg(_mk3, _l)

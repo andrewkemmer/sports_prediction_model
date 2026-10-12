@@ -32,10 +32,8 @@ def calibration_buckets(p, y, n_bins=10):
     return rows
 
 def nb_distribution_metrics(oof, params, n_draws=2000):
-    if oof is None or not len(oof): return {"run_line": {"n": 0}, "totals": {"n": 0}}
-    sim = dist_mod.simulate_distributions(oof.mu_h.to_numpy(float), oof.mu_a.to_numpy(float), float(params.get("alpha_home", 0)), float(params.get("alpha_away", 0)), n_draws=n_draws)
-    margin, total = oof.margin.to_numpy(float), oof.total.to_numpy(float); fs, ft = sim.fair_spread.to_numpy(float), sim.fair_total.to_numpy(float)
-    def m(p, y):
-        ok = np.isfinite(p) & np.isfinite(y); p, y = p[ok], y[ok]
-        return {"n": int(len(y)), "brier": float(np.mean((p-y)**2)) if len(y) else np.nan, "logloss": float(-np.mean(y*np.log(np.clip(p,1e-7,1-1e-7))+(1-y)*np.log(np.clip(1-p,1e-7,1)))) if len(y) else np.nan, "ece": ece(p, y)}
-    return {"run_line": m(sim.p_cover_fair.to_numpy(float), (margin > fs).astype(float)), "totals": m(sim.p_over_fair.to_numpy(float), (total > ft).astype(float))}
+    """Causal full-support CRPS; final serving params never grade old games."""
+    if oof is None or not len(oof):
+        return {"run_line": {"n": 0}, "totals": {"n": 0}}
+    frame, bundle = dist_mod.causal_distribution_frame(oof)
+    return dist_mod.distribution_score_report(frame, bundle)

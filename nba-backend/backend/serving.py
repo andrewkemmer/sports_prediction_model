@@ -269,17 +269,17 @@ def _label(value: float | int) -> str:
 
 def _grid_columns() -> list[str]:
     spread = config.SPREAD_GRID
-    half = config.HALF_STOP_LINES
-    totals = config.TOTAL_GRID
+    half = sorted(set([*config.HALF_STOP_LINES, *[x + .5 for x in spread]]))
+    totals = sorted(set([*config.TOTAL_GRID, *[x + .5 for x in config.TOTAL_GRID]]))
     return ([f"p_home_cover_{_label(x)}" for x in spread]
             + [f"p_away_cover_{_label(x)}" for x in spread]
             + [f"p_push_{_label(x)}" for x in spread]
             + [f"p_home_cover_{_label(x)}" for x in half]
             + [f"p_away_cover_{_label(x)}" for x in half]
             + [f"p_push_{_label(x)}" for x in half]
-            + [f"p_over_{x}" for x in totals]
-            + [f"p_push_total_{x}" for x in totals]
-            + [f"p_under_{x}" for x in totals])
+            + [f"p_over_{_label(x)}" for x in totals]
+            + [f"p_push_total_{_label(x)}" for x in totals]
+            + [f"p_under_{_label(x)}" for x in totals])
 
 
 def markets_columns() -> list[str]:
@@ -294,7 +294,10 @@ def markets_columns() -> list[str]:
         "home_score", "away_score", "total", "margin", "p_over_fair",
         "p_cover_fair", "y_over_fair", "y_under_fair", "y_push_fair",
         "y_cover_fair", "y_push_spread_fair", "y_home_win", "decided",
-        "frame_view", "pred_home", "pred_away",
+        "frame_view", "pred_home", "pred_away", "fold_id",
+        "distribution_fit_n", "distribution_fit_end",
+        "distribution_mean_total", "distribution_mean_margin",
+        "distribution_sd_total", "distribution_sd_margin",
     ]
     return list(dict.fromkeys(base + _grid_columns()))
 
@@ -316,6 +319,11 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)
     meta = {
+        "distribution_method": "causal_lattice_crps",
+        "distribution_objective": "discrete_crps",
+        "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
+        "settlement": 'final_score_no_tie',
+
         "record": "nba_run_engine_markets", "written_utc": _now(),
         "config": config_meta or {}, "columns": len(out.columns), "n_rows": len(out),
         "n_oof": int((out.kind == "oof").sum()) if len(out) else 0,

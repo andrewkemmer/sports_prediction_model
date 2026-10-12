@@ -1,15 +1,16 @@
-"""NFL run-line and totals distribution engine.
+"""NFL PIT distribution engine: score features plus CRPS CDF calibration.
 
-The production structure mirrors MLB:
+Production uses the existing market-free moneyline tree feature contract.
+Score means are cross-fitted on strictly prior dates. Total and margin CDF
+location/width maps optimize discrete CRPS on prior OOF forecasts, and are
+admitted using prior-origin paired CRPS evidence. A single monotone CDF
+supplies every line, push, half-point fair line and derived moneyline.
+NBA uses high-count discretized normal marginals; NFL/NHL use exact count
+convolution with sport-fitted residual dispersion. Final NBA/NHL ties are
+resolved before scoring; NFL retains tie mass. No sportsbook is an input.
 
-* one LightGBM Poisson regressor for home score;
-* one LightGBM Poisson regressor for away score;
-* the active binary-moneyline feature contract is the sole source feature list;
-* genuine NaNs remain intact for native LightGBM missing-value routing;
-* NFL-specific negative-binomial dispersion is estimated from walk-forward OOF;
-* one Monte Carlo score-pair sample supplies every total/margin probability.
-
-The binary moneyline model is intentionally not imported or modified here.
+Legacy Poisson/NB simulation, alpha-curve and undated Platt helpers remain
+for compatibility diagnostics only: they do NOT price dated production.
 """
 from __future__ import annotations
 
@@ -244,14 +245,11 @@ def game_distribution(mu_h: float, mu_a: float,
 
 
 def apply_distribution(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
-    """Expand mu predictions into the complete NB/MC market grid."""
-    # Numeric positional arguments are retained for legacy unit callers; the
-    # production pipeline passes the NB parameter dictionary.
-    if not isinstance(params, dict):
-        params = {}
-    ah = float(params.get("alpha_home", 0.0))
-    aa = float(params.get("alpha_away", 0.0))
-    return simulate_distributions_into(df, ah, aa)
+    """Outcome-free analytic CDF; final CRPS maps are applied by calibration.
+
+    Legacy alpha/MC params describe diagnostics only, not these prices.
+    """
+    return _distribution_price(df, {})
 
 
 def simulate_distributions_into(df: pd.DataFrame, alpha_home: float,
@@ -272,6 +270,10 @@ def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
     fold_rows: list[dict] = []
     for fold in fold_list:
         train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
+        train_dates = pd.to_datetime(train[date_col], errors="raise").dt.normalize()
+        val_dates = pd.to_datetime(val[date_col], errors="raise").dt.normalize()
+        if train_dates.max() >= val_dates.min():
+            raise ValueError("distribution training must precede validation dates")
         try:
             reg = ScoreRegressor().fit(train)
             mu_h, mu_a = reg.predict(val)
@@ -362,7 +364,21 @@ def _prequential_line(raw: np.ndarray, y: np.ndarray,
     return out, _fit_platt(raw, y)
 
 
-def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def calibrate_market_frame(df):
+    """Dated production frames use causal whole-CDF CRPS calibration.
+
+    Undated legacy diagnostic fixtures are not claimed as PIT evaluation.
+    """
+    if "gameday" in df and len(df):
+        priced, bundle = causal_distribution_frame(df)
+        metrics = distribution_score_report(priced, bundle)
+        bundle["oof_metrics"] = metrics
+        priced.attrs["distribution_metrics"] = metrics
+        return priced, bundle
+    return _legacy_calibrate_market_frame(df)
+
+
+def _legacy_calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Calibrate every published NFL total/run-line grid independently.
 
     Whole-number lines calibrate over/push/under separately and normalize the
@@ -494,6 +510,13 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
     assignment into a slate frame fragmented it enough for pandas to print a
     PerformanceWarning per row of the serving slate.
     """
+    if bundle and bundle.get("method") == "causal_lattice_crps":
+        out = _distribution_price(df, bundle.get("maps", {}))
+        out["distribution_fit_n"] = bundle.get("fit_n", 0)
+        origins = bundle.get("origins") or []
+        out["distribution_fit_end"] = origins[-1]["end"] if origins else None
+        return out
+
     out = df.copy()
     grid_updates: dict[str, np.ndarray] = {}
     for line in config.TOTAL_GRID:
@@ -575,3 +598,472 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
         out["p_over_fair"] = [float(r[_grid_key("p_over", r["fair_total"])])
                               for _, r in out.iterrows()]
     return out
+
+
+# ---------------------------------------------------------------------------
+# Causal whole-distribution layer. Mirrored across sports deliberately: these
+# backends run independently in Kaggle; no new shared runtime is required.
+# ---------------------------------------------------------------------------
+DISTRIBUTION_SPORT = "nfl"
+CRPS_MIN_HISTORY = 200
+
+
+def _distribution_blocks(frame):
+    """Date-ordered, indivisible forecast origins; never trust fold label order."""
+    date_col = "game_date" if DISTRIBUTION_SPORT == "mlb" else "gameday"
+    fold_col = "fold_idx" if DISTRIBUTION_SPORT == "mlb" else "fold_id"
+    dates = pd.to_datetime(frame[date_col], errors="coerce", utc=True).dt.normalize()
+    if dates.isna().any():
+        raise ValueError("distribution evaluation requires finite forecast dates")
+    labels = frame[fold_col] if fold_col in frame else dates
+    if labels.isna().any():
+        raise ValueError("distribution evaluation requires finite origin labels")
+    blocks = []
+    for label in pd.unique(labels):
+        mask = (labels == label).to_numpy()
+        blocks.append((dates[mask].min(), dates[mask].max(), mask))
+    blocks.sort(key=lambda b: b[0])
+    for previous, current in zip(blocks, blocks[1:]):
+        if previous[1] >= current[0]:
+            raise ValueError("distribution forecast blocks overlap in calendar time")
+    return blocks
+
+
+def _distribution_inputs(frame):
+    hc, ac = (("home_expected_runs", "away_expected_runs")
+              if DISTRIBUTION_SPORT == "mlb" else ("mu_h", "mu_a"))
+    h, a = frame[hc].to_numpy(float), frame[ac].to_numpy(float)
+    if not (np.isfinite(h).all() and np.isfinite(a).all()):
+        raise ValueError("non-finite score predictions cannot be priced")
+    if np.any(h <= 0.) or np.any(a <= 0.):
+        raise ValueError("expected scores must be positive")
+    return h, a
+
+
+def _distribution_support(kind):
+    # Fixed, outcome-independent integration ranges. Saturation is checked,
+    # not hidden by clipping observations at the integration boundary.
+    high = {"nba": 600, "nfl": 250, "nhl": 100, "mlb": 160}[DISTRIBUTION_SPORT]
+    return np.arange(0, high + 1) if kind == "total" else np.arange(-high, high + 1)
+
+
+def _distribution_design(h, a):
+    reference = {"nba": 220., "nfl": 44., "nhl": 6., "mlb": 9.}[DISTRIBUTION_SPORT]
+    return np.column_stack([np.ones(len(h)),
+                            np.clip((h + a) / reference - 1., -1., 2.),
+                            np.clip(np.abs(h - a) / reference, 0., 1.)])
+
+
+def _distribution_raw_cdf(h, a, kind, alphas=None):
+    """Outcome-free sport baseline; discrete supports and exact CDFs, no MC."""
+    from scipy.special import ndtr
+    from scipy.stats import poisson, nbinom
+    from scipy.signal import fftconvolve
+    support = _distribution_support(kind)
+    if DISTRIBUTION_SPORT == "nba":
+        location = h + a if kind == "total" else h - a
+        # A baseline, not fitted dispersion. Conditional width is subsequently
+        # learned by CRPS on strictly earlier OOF predictions.
+        scale = np.sqrt(np.maximum(h + a, 1.))
+        cdf = ndtr((support[None, :] + .5 - location[:, None]) / scale[:, None])
+        if kind == "total":
+            lower = ndtr((-.5 - location) / scale)
+            cdf = (cdf - lower[:, None]) / (1. - lower[:, None])
+    else:
+        scores = np.arange(0, support[-1] + 1)
+        def side_pmf(mu, alpha):
+            mu = np.maximum(mu, 1e-6)[:, None]
+            if alpha <= 1e-6:
+                return poisson.pmf(scores[None, :], mu)
+            return nbinom.pmf(scores[None, :], 1. / alpha, 1. / (1. + alpha * mu))
+        ah, aa = alphas or (0., 0.)
+        hp, ap = side_pmf(h, ah), side_pmf(a, aa)
+        if np.any(hp.sum(axis=1) < 1 - 1e-9) or np.any(ap.sum(axis=1) < 1 - 1e-9):
+            raise ValueError("count distribution exceeds its integration support")
+        if kind == "total":
+            pmf = fftconvolve(hp, ap, axes=1)[:, :len(support)]
+        else:
+            pmf = fftconvolve(hp, ap[:, ::-1], axes=1)
+        cdf = np.cumsum(np.maximum(pmf, 0.), axis=1)
+    if np.any(cdf[:, -1] < 1 - 1e-8):
+        raise ValueError("distribution tail exceeds its integration support")
+    return support, np.clip(cdf, 0., 1.)
+
+
+def _distribution_transform(cdf, design, coefficients):
+    """One increasing map per game shared by ALL thresholds (valid CDF)."""
+    from scipy.special import expit, logit
+    coefficients = np.asarray(coefficients, float)
+    shift = design @ coefficients[:3]
+    slope = np.exp(design @ coefficients[3:])
+    out = expit(logit(np.clip(cdf, 1e-12, 1 - 1e-12)) * slope[:, None]
+                + shift[:, None])
+    out[cdf <= 0.] = 0.
+    out[cdf >= 1.] = 1.
+    return out
+
+
+def _distribution_no_tie(cdf, support):
+    """Final-score NBA/NHL/MLB have no draws; resolve 0 into +/-1 equally.
+
+    NFL retains its genuine tie outcome. This settlement adjustment is part
+    of the distribution BEFORE fitting/scoring, never a separate ML map.
+    """
+    if DISTRIBUTION_SPORT == "nfl" or support[0] >= 0:
+        return cdf
+    out = cdf.copy()
+    j = int(np.searchsorted(support, 0))
+    mass = np.maximum(out[:, j] - out[:, j - 1], 0.)
+    out[:, j - 1] += .5 * mass
+    out[:, j] -= .5 * mass
+    return out
+
+
+def lattice_crps(cdf, support, outcome):
+    """Exact unit-lattice CRPS, including left/right boundary tail error."""
+    y = np.asarray(outcome, float)
+    support = np.asarray(support, float)
+    cdf = np.asarray(cdf, float)
+    if cdf.shape != (len(y), len(support)) or not np.isfinite(y).all():
+        raise ValueError("CRPS requires aligned finite outcomes and CDFs")
+    if not np.isfinite(cdf).all() or np.any(np.diff(cdf, axis=1) < -1e-9):
+        raise ValueError("CRPS requires a finite nondecreasing CDF")
+    if np.any(cdf < 0.) or np.any(cdf > 1.):
+        raise ValueError("CDF probabilities must be in [0, 1]")
+    return (np.square(cdf - (y[:, None] <= support[None, :])).sum(axis=1)
+            + np.maximum(support[0] - y, 0.)
+            + np.maximum(y - support[-1] - 1., 0.))
+
+
+def _fit_distribution_map(h, a, outcome, kind, alphas=None):
+    """CRPS-optimal conditional location/scale recalibration on past OOF.
+
+    Bias and log-slope depend on expected total and absolute expected margin:
+    heteroscedasticity is learned independently for total and spread. A small
+    fixed ridge penalty limits extrapolation; no data-driven tuning on tests.
+    """
+    from scipy.optimize import minimize
+    from scipy.special import logit
+    y = np.asarray(outcome, float)
+    valid = np.isfinite(y) & np.isfinite(h) & np.isfinite(a)
+    h, a, y = h[valid], a[valid], y[valid]
+    if len(y) < CRPS_MIN_HISTORY:
+        return [0.] * 6
+    support, raw = _distribution_raw_cdf(h, a, kind, alphas)
+    design = _distribution_design(h, a)
+    logits = logit(np.clip(raw, 1e-12, 1 - 1e-12))
+    target = (y[:, None] <= support[None, :]).astype(float)
+    def loss_gradient(beta):
+        from scipy.special import expit
+        shift, slope = design @ beta[:3], np.exp(design @ beta[3:])
+        cdf = expit(logits * slope[:, None] + shift[:, None])
+        cdf[raw <= 0.] = 0.; cdf[raw >= 1.] = 1.
+        derivative = cdf * (1 - cdf)
+        if kind == "margin" and DISTRIBUTION_SPORT != "nfl":
+            j = int(np.searchsorted(support, 0))
+            # Both CDF thresholds share the average after tie resolution.
+            mid = .5 * (cdf[:, j - 1] + cdf[:, j])
+            cdf[:, j - 1] = mid; cdf[:, j] = mid
+        error = cdf - target
+        loss = np.square(error).sum(axis=1).mean()
+        if kind == "margin" and DISTRIBUTION_SPORT != "nfl":
+            mid_error = .5 * (error[:, j - 1] + error[:, j])
+            error[:, j - 1] = mid_error; error[:, j] = mid_error
+        g = 2. * error * derivative / len(y)
+        gradient = np.r_[design.T @ g.sum(axis=1),
+                         design.T @ (g * logits * slope[:, None]).sum(axis=1)]
+        penalty = .01 * np.dot(beta, beta)
+        return loss + penalty, gradient + .02 * beta
+    result = minimize(loss_gradient, np.zeros(6), jac=True, method="L-BFGS-B",
+                      bounds=[(-2., 2.)] * 3 + [(-1.5, 1.5)] * 3,
+                      options={"maxiter": 100, "ftol": 1e-8})
+    if not result.success or not np.isfinite(result.x).all():
+        raise RuntimeError(f"CRPS calibration failed: {result.message}")
+    return result.x.tolist()
+
+
+def _distribution_cdfs(frame, maps):
+    h, a = _distribution_inputs(frame)
+    design = _distribution_design(h, a)
+    out = {}
+    for kind in ("total", "margin"):
+        support, raw = _distribution_raw_cdf(h, a, kind, maps.get("alphas"))
+        cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 6))
+        if kind == "margin":
+            cdf = _distribution_no_tie(cdf, support)
+        out[kind] = (support, cdf)
+    return out
+
+
+def _distribution_price(frame, maps):
+    """All prices, pushes, fair HALF lines, and ML from the SAME two CDFs."""
+    cdfs = _distribution_cdfs(frame, maps)
+    h, a = _distribution_inputs(frame)
+    updates = {"mu_margin": h - a, "mu_total": h + a}
+    for kind, (support, cdf) in cdfs.items():
+        mass = np.diff(np.column_stack([np.zeros(len(frame)), cdf]), axis=1)
+        mean = mass @ support
+        updates[f"distribution_mean_{kind}"] = mean
+        updates[f"distribution_sd_{kind}"] = np.sqrt(np.maximum(mass @ (support ** 2) - mean ** 2, 0.))
+        def at(threshold):
+            index = int(np.floor(threshold) - support[0])
+            if index < 0: return np.zeros(len(frame))
+            if index >= len(support): return np.ones(len(frame))
+            return cdf[:, index]
+        if DISTRIBUTION_SPORT == "mlb":
+            lines = (TOTAL_LINE_GRID if kind == "total" else
+                     sorted(set([*RUN_LINE_GRID, *RUN_LINE_GRID_FULL,
+                                 *[-x for x in RUN_LINE_GRID_FULL], 0.])))
+        else:
+            original = config.TOTAL_GRID if kind == "total" else config.SPREAD_GRID
+            lines = sorted(set([*original, *[float(x) + .5 for x in original],
+                                *([] if kind == "total" else config.HALF_STOP_LINES)]))
+        half = support[:-1] + .5
+        j = np.argmin(np.abs(1. - cdf[:, :-1] - .5), axis=1)
+        lines = sorted(set([*lines, *half[j].tolist()]))
+        for line in lines:
+            upper, lower = at(line), at(np.ceil(line) - 1.)
+            over, push, under = 1. - upper, np.maximum(upper - lower, 0.), lower
+            if DISTRIBUTION_SPORT == "mlb":
+                if kind == "total":
+                    suffix = str(float(line)).replace('.', '_')
+                    updates[f"p_over_{suffix}"] = over
+                    updates[f"p_push_{suffix}"] = push
+                    updates[f"p_under_{suffix}"] = under
+                elif line >= .5:
+                    updates[rl_col(line, "home")] = over
+                    updates[rl_col(line, "push")] = push
+                    updates[rl_col(line, "away")] = under
+                    updates[rl_col(line, "away_favorite")] = at(-line - (1. if float(line).is_integer() else 0.))
+                    updates[rl_col(line, "away_push")] = at(-line) - at(np.ceil(-line) - 1.)
+                    updates[rl_col(line, "home_dog")] = 1. - at(-line)
+                    updates[f"p_home_cover_{str(float(line)).replace('.', '_')}"] = over
+            else:
+                prefix = "p_over" if kind == "total" else "p_home_cover"
+                pp = "p_push_total" if kind == "total" else "p_push"
+                updates[_grid_key(prefix, line)] = over
+                updates[_grid_key(pp, line)] = push
+                updates[_grid_key("p_under" if kind == "total" else "p_away_cover", line)] = under
+                if kind == "total" and DISTRIBUTION_SPORT == "nfl":
+                    updates[_grid_key("p_push", line)] = push
+        if kind == "margin":
+            updates["p_home_win_derived"] = 1. - at(0.)
+            updates["p_tie"] = at(0.) - at(-1.)
+            updates["p_away_win_derived"] = at(-1.)
+            updates["derived_ml"] = updates["p_home_win_derived"]
+        # Nearest half-line to the actual CDF median, not the old integer
+        # grid boundary. This remains defined even outside displayed grids.
+        half = support[:-1] + .5
+        j = np.argmin(np.abs(1. - cdf[:, :-1] - .5), axis=1)
+        updates["fair_total" if kind == "total" else "fair_spread"] = half[j]
+        updates["p_over_fair" if kind == "total" else "p_cover_fair"] = 1. - cdf[np.arange(len(frame)), j]
+    out = pd.concat([frame.drop(columns=list(updates), errors="ignore"),
+                     pd.DataFrame(updates, index=frame.index)], axis=1)
+    out.attrs["distribution_method"] = "causal_lattice_crps"
+    out.attrs["distribution_objective"] = "discrete_crps"
+    if "home_score" in out and "away_score" in out:
+        margin = out.home_score - out.away_score
+        total = out.home_score + out.away_score
+        for col, values in {"y_cover_fair": margin > out.fair_spread,
+                            "y_push_spread_fair": margin == out.fair_spread,
+                            "y_over_fair": total > out.fair_total,
+                            "y_under_fair": total < out.fair_total,
+                            "y_push_fair": total == out.fair_total}.items():
+            out[col] = np.where(margin.notna() & total.notna(), values.astype(float), np.nan)
+    return out
+
+
+def _distribution_fit_maps(h, a, outcomes):
+    alphas = None
+    if DISTRIBUTION_SPORT in ("nfl", "mlb", "nhl"):
+        hs = .5 * (outcomes["total"] + outcomes["margin"])
+        aws = .5 * (outcomes["total"] - outcomes["margin"])
+        def residual_alpha(y, mu):
+            if len(y) < CRPS_MIN_HISTORY: return 0.
+            return float(np.clip(np.sum((y - mu) ** 2 - mu) /
+                                 max(np.sum(mu ** 2), 1e-12), 0., .5))
+        alphas = [residual_alpha(hs, h), residual_alpha(aws, a)]
+    maps = {kind: _fit_distribution_map(h, a, y, kind, alphas)
+            for kind, y in outcomes.items()}
+    if alphas is not None:
+        maps["alphas"] = alphas
+    return maps
+
+
+def causal_distribution_frame(frame):
+    """Fit distribution mechanics at each origin on PRIOR OOF outcomes only.
+
+    Final serving maps may use all settled past OOF; NEVER apply those maps
+    back to OOF rows. An undated frame is refused rather than claimed PIT.
+    """
+    if frame is None or not len(frame):
+        return frame, {"method": "causal_lattice_crps", "maps": {}}
+    h, a = _distribution_inputs(frame)
+    outcomes = {"total": frame.home_score.to_numpy(float) + frame.away_score.to_numpy(float),
+                "margin": frame.home_score.to_numpy(float) - frame.away_score.to_numpy(float)}
+    if not all(np.isfinite(y).all() for y in outcomes.values()):
+        raise ValueError("distribution evaluation requires settled finite outcomes")
+    if not frame.index.is_unique:
+        raise ValueError("distribution evaluation requires unique row indices")
+    settled = frame[["home_score", "away_score"]].to_numpy(float)
+    if np.any(settled < 0.) or np.any(settled != np.floor(settled)):
+        raise ValueError("distribution outcomes must be nonnegative integer final scores")
+    blocks = _distribution_blocks(frame)
+    history = np.zeros(len(frame), dtype=bool)
+    parts, origins = [], []
+    evidence = {"total": [], "margin": []}
+    for start, end, mask in blocks:
+        candidate = _distribution_fit_maps(h[history], a[history],
+                                           {k: y[history] for k, y in outcomes.items()})
+        maps = dict(candidate)
+        admitted = {}
+        for kind in ("total", "margin"):
+            differences = np.concatenate(evidence[kind]) if evidence[kind] else np.array([])
+            # Paired losses are from previously issued, honest candidate and
+            # identity CDFs. No same-origin fit performance selects the map.
+            admitted[kind] = bool(len(differences) >= CRPS_MIN_HISTORY
+                                  and differences.mean() < 0.)
+            if not admitted[kind]: maps[kind] = [0.] * 6
+        current = frame.iloc[np.flatnonzero(mask)]
+        part = _distribution_price(current, maps)
+        baseline = dict(candidate, total=[0.] * 6, margin=[0.] * 6)
+        cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
+        for kind in ("total", "margin"):
+            support, cdf = cc[kind]
+            difference = (lattice_crps(cdf, support, outcomes[kind][mask])
+                          - lattice_crps(bc[kind][1], support, outcomes[kind][mask]))
+            evidence[kind].append(difference)
+        part["distribution_fit_n"] = int(history.sum())
+        part["distribution_fit_end"] = str(origins[-1]["end"]) if origins else None
+        parts.append(part)
+        origins.append({"start": str(start.date()), "end": str(end.date()),
+                        "n_prior": int(history.sum()), "n_scored": int(mask.sum()),
+                        "maps": maps, "candidate_maps": candidate,
+                        "calibration_admitted": admitted})
+        history |= mask
+    maps = _distribution_fit_maps(h, a, outcomes)
+    for kind in ("total", "margin"):
+        difference = np.concatenate(evidence[kind])
+        if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
+            maps[kind] = [0.] * 6
+    bundle = {"method": "causal_lattice_crps", "scope": "whole_cdf",
+              "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
+              "maps": maps, "origins": origins, "fit_n": len(frame),
+              "serving_fit_scope": "all_settled_prior_oof_only",
+              "admission": "negative_mean_paired_crps_on_prior_issued_origins"}
+    return pd.concat(parts).reindex(frame.index), bundle
+
+
+def distribution_score_report(frame, bundle):
+    """Rebuild each origin's SAME CDF for full-support CRPS and binary scores."""
+    from sklearn.metrics import roc_auc_score
+    values = {"total": [], "margin": []}
+    row_losses = {"total": np.empty(len(frame)), "margin": np.empty(len(frame))}
+    for (_, _, mask), origin in zip(_distribution_blocks(frame), bundle["origins"]):
+        part = frame.iloc[np.flatnonzero(mask)]
+        cdfs = _distribution_cdfs(part, origin["maps"])
+        for kind, (support, cdf) in cdfs.items():
+            y = (part.home_score + part.away_score if kind == "total"
+                 else part.home_score - part.away_score).to_numpy(float)
+            loss = lattice_crps(cdf, support, y)
+            values[kind].append(loss)
+            row_losses[kind][mask] = loss
+    result = {"method": "causal_lattice_crps", "roi_verified": False}
+    for kind, key, line_key, name in (("total", "p_over_fair", "fair_total", "totals"),
+                                      ("margin", "p_cover_fair", "fair_spread", "run_line")):
+        p = frame[key].to_numpy(float)
+        y = (frame.home_score + frame.away_score if kind == "total"
+             else frame.home_score - frame.away_score).to_numpy(float)
+        event = y > frame[line_key].to_numpy(float)
+        clipped = np.clip(p, 1e-7, 1 - 1e-7)
+        ll = float(-np.mean(event * np.log(clipped) + (~event) * np.log1p(-clipped)))
+        bins = np.minimum((p * 10).astype(int), 9)
+        reliability = []
+        error = 0.
+        for b in np.unique(bins):
+            m = bins == b
+            gap = float(p[m].mean() - event[m].mean())
+            error += float(m.mean()) * abs(gap)
+            reliability.append({"n": int(m.sum()), "predicted": float(p[m].mean()),
+                                "actual": float(event[m].mean()), "gap": gap})
+        result[name] = {"n": len(p), "n_pushes": 0,
+                        "crps": float(np.concatenate(values[kind]).mean()),
+                        "auc": float(roc_auc_score(event, p)) if len(np.unique(event)) == 2 else None,
+                        "logloss": ll, "logscore": ll,
+                        "brier": float(np.mean((p - event) ** 2)),
+                        "predicted_mean": float(p.mean()), "actual_win_rate": float(event.mean()),
+                        "ece_cover": error, "reliability": reliability,
+                        "calibration_in_the_large": float(p.mean() - event.mean()),
+                        "threshold_policy": "closest_half_point_to_model_50_percent"}
+    probability = frame.p_home_win_derived.to_numpy(float)
+    tie = frame.p_tie.to_numpy(float)
+    margin = (frame.home_score - frame.away_score).to_numpy(float)
+    eligible = margin != 0
+    conditional = np.clip(probability[eligible] / np.maximum(1. - tie[eligible], 1e-12), 1e-7, 1 - 1e-7)
+    target = margin[eligible] > 0
+    result["derived_moneyline"] = {
+        "n": int(eligible.sum()), "n_ties": int((~eligible).sum()),
+        "auc": float(roc_auc_score(target, conditional)) if len(np.unique(target)) == 2 else None,
+        "logloss": float(-np.mean(target * np.log(conditional) + (~target) * np.log1p(-conditional))),
+        "brier": float(np.mean((conditional - target) ** 2)),
+        "settlement": "conditional_non_tie" if DISTRIBUTION_SPORT == "nfl" else "final_score_no_tie"}
+    result["fixed_thresholds"] = {}
+    for kind, prefix, lines in (
+            ("total", "p_over", {"nba": [210., 220., 230., 240.],
+                                  "nfl": [38., 44., 50.], "nhl": [5., 6., 7.],
+                                  "mlb": [7.5, 8.5, 9.5]}[DISTRIBUTION_SPORT]),
+            ("margin", "p_home_cover", [-1.5, .5, 1.5] if DISTRIBUTION_SPORT in ("mlb", "nhl")
+                                       else [-5.5, .5, 5.5])):
+        outcome = (frame.home_score + frame.away_score if kind == "total"
+                   else frame.home_score - frame.away_score).to_numpy(float)
+        for line in lines:
+            key = (f"{prefix}_{str(float(line)).replace('.', '_')}" if DISTRIBUTION_SPORT == "mlb"
+                   else _grid_key(prefix, line))
+            if key not in frame: continue
+            p = np.clip(frame[key].to_numpy(float), 1e-7, 1 - 1e-7)
+            event = outcome > line
+            bins = np.minimum((p * 10).astype(int), 9)
+            reliability = []
+            for b in np.unique(bins):
+                m = bins == b
+                reliability.append({"n": int(m.sum()), "predicted": float(p[m].mean()),
+                                    "actual": float(event[m].mean())})
+            result["fixed_thresholds"][f"{kind}_{line}"] = {
+                "n": len(p), "auc": float(roc_auc_score(event, p)) if len(np.unique(event)) == 2 else None,
+                "logloss": float(-np.mean(event * np.log(p) + (~event) * np.log1p(-p))),
+                "brier": float(np.mean((p - event) ** 2)), "reliability": reliability,
+                "event": "strict_exceedance_including_push_as_nonwin"}
+    result["conditional_crps"] = {}
+    # All strata remain visible including small postseason groups; no exclusion
+    # based on how a regime happens to perform.
+    if "season" in frame:
+        for season in pd.unique(frame.season.dropna()):
+            mask = frame.season.eq(season).to_numpy()
+            result["conditional_crps"][f"season_{season}"] = {
+                "n": int(mask.sum()), **{k: float(v[mask].mean()) for k, v in row_losses.items()}}
+    for column in ("is_playoffs", "provisional"):
+        if column in frame:
+            for flag in (False, True):
+                mask = frame[column].fillna(False).astype(bool).eq(flag).to_numpy()
+                if mask.any():
+                    result["conditional_crps"][f"{column}_{flag}"] = {
+                        "n": int(mask.sum()), **{k: float(v[mask].mean()) for k, v in row_losses.items()}}
+    return result
+
+
+def distribution_probability(frame, bundle, kind, line):
+    """Exact win/push/loss at ANY integer/half line from serving CRPS CDF.
+
+    line is a margin threshold, not a signed sportsbook home handicap:
+    home handicap -3.5 maps to margin threshold +3.5.
+    """
+    if kind not in ("total", "margin") or not np.isfinite(line):
+        raise ValueError("expected total/margin and finite line")
+    support, cdf = _distribution_cdfs(frame, bundle.get("maps", {}))[kind]
+    def at(value):
+        index = int(np.floor(value) - support[0])
+        if index < 0: return np.zeros(len(frame))
+        if index >= len(support): return np.ones(len(frame))
+        return cdf[:, index]
+    upper, lower = at(line), at(np.ceil(line) - 1.)
+    return {"win": 1. - upper, "push": np.maximum(upper - lower, 0.), "loss": lower}

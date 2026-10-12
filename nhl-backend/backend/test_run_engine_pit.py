@@ -848,14 +848,12 @@ def test_calibrate_market_frame_produces_a_reusable_bundle():
     oof = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
     dist = dist_mod.apply_distribution(oof)
     calibrated, bundle = dist_mod.calibrate_market_frame(dist)
-    assert bundle["method"] == "prequential_platt"
-    assert bundle["scope"] == "line_specific"
-    # Every grid line's calibrator is recorded (None maps are allowed but
-    # the keys must exist).
-    for line in config.TOTAL_GRID:
-        assert str(line) in bundle["totals"]
-    for line in config.SPREAD_GRID:
-        assert str(line) in bundle["run_lines"]
+    assert bundle["method"] == "causal_lattice_crps"
+    assert bundle["scope"] == "whole_cdf"
+    assert set(bundle["maps"]) >= {"total", "margin"}
+    assert len(bundle["origins"]) == len(folds)
+    assert bundle["origins"][0]["n_prior"] == 0
+    assert all(o["n_prior"] < len(oof) for o in bundle["origins"])
     # Post-calibration coherence holds for EVERY totals line (totals pushes
     # ride their own p_push_total_{U} namespace, so the spread pass can no
     # longer clobber them).
@@ -1540,35 +1538,21 @@ def test_adaptive_weights_are_logloss_simplex_and_logit_optimal():
 # 5. Derived-vs-binary moneyline honesty
 # ---------------------------------------------------------------------------
 def test_derived_moneyline_never_rewrites_the_winner():
-    """calibrate_market_frame's derived block calibrates the favored side in
-    favored space and clamps at 0.5: the SIGN of the derived moneyline can
-    never flip relative to the raw MC margin probability."""
+    """Derived moneyline cannot disagree with its calibrated margin CDF.
+
+    A learned location correction MAY change the predicted favorite; forcing
+    the old favorite would distort the calibrated distribution.
+    """
     games = feat_mod.build_game_features(_synth_games(n_days=60))
     folds = folds_mod.make_folds(games, date_col="gameday")
     oof = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
     raw = dist_mod.apply_distribution(oof)
     calibrated, _ = dist_mod.calibrate_market_frame(raw)
-
-    raw_home = raw["p_home_win_derived"].to_numpy(float)
-    cal_home = calibrated["p_home_win_derived"].to_numpy(float)
-    same_side = (raw_home >= 0.5) == (cal_home >= 0.5)
-    # Rows whose RAW side sits exactly at the 0.5 knife edge (or exactly on
-    # a favorite's clamp boundary) are the only permitted movers; the
-    # favorite clamp can only push toward the favorite, never across.
-    flips = ~same_side
-    if flips.any():
-        # A "flip" must be a clamp from below to exactly 0.5 on the raw-Home
-        # underdog side... which is impossible by construction; assert the
-        # calibrated side only ever TIGHTENS toward the favorite.
-        tightened = (np.sign(cal_home - 0.5) == np.sign(raw_home - 0.5)) \
-            | (cal_home == 0.5)
-        assert tightened.all(), "calibration moved a derived moneyline across the knife edge"
-    # The away leg is derived as 1 − home − p_tie, with p_tie the column as
-    # it stood at derivation time (the raw MC tie mass; the calibrated
-    # spread push refreshes p_tie afterwards — the NFL/MLB-shared order).
-    np.testing.assert_allclose(
-        calibrated["p_away_win_derived"].to_numpy(float),
-        1.0 - cal_home - raw["p_tie"].to_numpy(float), atol=1e-9)
+    np.testing.assert_allclose(calibrated.p_home_win_derived,
+                               calibrated[dist_mod._grid_key("p_home_cover", 0)], atol=1e-12)
+    np.testing.assert_allclose(calibrated.p_away_win_derived,
+                               1. - calibrated.p_home_win_derived - calibrated.p_tie, atol=1e-12)
+    np.testing.assert_allclose(calibrated.p_tie, 0., atol=1e-12)
 
 
 def test_calibrate_market_frame_derived_moneyline_is_prequential():
@@ -1587,7 +1571,8 @@ def test_calibrate_market_frame_derived_moneyline_is_prequential():
     last_fold = int(poisoned["fold_id"].max())
     flip = (poisoned["fold_id"] == last_fold).to_numpy()
     margin = poisoned["margin"].to_numpy(float)
-    poisoned.loc[flip, "margin"] = np.where(margin[flip] > 0, -1.0, 1.0)
+    poisoned.loc[flip, "home_score"] += 20.
+    poisoned.loc[flip, "margin"] = poisoned.loc[flip, "home_score"] - poisoned.loc[flip, "away_score"]
 
     cal_a, bundle_a = dist_mod.calibrate_market_frame(raw)
     cal_b, _ = dist_mod.calibrate_market_frame(poisoned)
@@ -1600,7 +1585,8 @@ def test_calibrate_market_frame_derived_moneyline_is_prequential():
                  "outcomes — leakage"))
     # The pooled all-OOF map still rides the bundle as the serving-layer
     # record (the derived_ml card reads the prequential column, not this).
-    assert "derived_moneyline" in bundle_a
+    assert bundle_a["method"] == "causal_lattice_crps"
+    assert "margin" in bundle_a["maps"]
 
 
 def test_apply_distribution_is_row_aligned_and_additive():
@@ -1848,7 +1834,7 @@ def test_sealed_holdout_rows_are_stamped_and_scored_separately():
     oof = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
     dist = dist_mod.apply_distribution(oof)
     calibrated, bundle = dist_mod.calibrate_market_frame(dist)
-    assert bundle["method"] == "prequential_platt"
+    assert bundle["method"] == "causal_lattice_crps"
 
     # Stamp the sealed tail exactly as master_pipeline does.
     mdates = pd.to_datetime(calibrated["gameday"])
@@ -2366,16 +2352,25 @@ def test_feature_status_cannot_judge_is_insufficient_not_ok():
 
 
 def test_nb_distribution_metrics_flags_degenerate_inputs():
+    import pytest
     oof = pd.DataFrame({
         "home_score": [3.0, 2.0, 4.0], "away_score": [2.0, 3.0, 1.0],
         "margin": [1.0, -1.0, 3.0], "total": [5.0, 5.0, 5.0],
         "mu_h": [3.0, 3.0, 3.0], "mu_a": [2.0, 2.0, 2.0]})
     params = {"alpha_home": 0.0, "alpha_away": 0.0, "mc_draws": 500}
+    # Undated forecasts cannot be labeled PIT: fail closed rather than
+    # scoring globally fitted dispersion on an invented ordering.
+    with pytest.raises(KeyError):
+        nb_distribution_metrics(oof, params, n_draws=500)
+    oof["gameday"] = pd.date_range("2025-01-01", periods=3)
     out = nb_distribution_metrics(oof, params, n_draws=500)
-    assert isinstance(out, dict)
-    assert set(out) == {"run_line", "totals"}
-    for section in out.values():
-        assert "n" in section and "logscore" in section and "brier" in section
+    assert out["method"] == "causal_lattice_crps"
+    for name in ("run_line", "totals"):
+        section = out[name]
+        assert section["n"] == 3
+        assert np.isfinite(section["crps"])
+        assert {"logscore", "brier", "auc", "ece_cover"} <= set(section)
+
 
 
 # ---------------------------------------------------------------------------
@@ -4001,54 +3996,28 @@ def test_schema_gates_are_evaluated_before_monitoring_is_written():
 
 
 def test_push_counts_come_from_the_same_rows_as_the_scored_metric():
-    """`n_pushes` must partition the PRICED rows, not the whole frame.
+    """Fair thresholds are half-points: no push, no silent population drop.
 
-    A push has no binary outcome, so it leaves the scored population. Counting
-    ``(margin == fair_spread)`` over the unfiltered frame also counted rows
-    whose price was non-finite and which the metric had therefore dropped, so
-    ``n + n_pushes`` could overshoot the OOF population in the summary JSON.
+    Missing scores/predictions fail closed instead of pricing partial rows
+    and leaking NaNs into calibration as false binary labels.
     """
     import evaluation as eval_mod
-
+    import pytest
     oof = pd.DataFrame({
-        "margin": [0.0, 0.0, -1.0, 2.0],
-        "total": [5.0, 5.0, 6.0, 7.0],
-        "mu_h": [2.0, 2.0, 2.0, 2.0],
-        "mu_a": [2.0, 2.0, 2.0, 2.0]})
-
-    # Game 1 lands exactly on the fair line in BOTH markets AND cannot be
-    # priced. That is the only shape that separates the two populations: it is
-    # a push, so the unfiltered count calls it one, but it was dropped from
-    # the metric for being unpriceable, so the scored count does not.
-    def fake_sim(mu_h, mu_a, a_home, a_away, n_draws=0, **kw):
-        n = len(mu_h)
-        return {
-            "p_cover_fair": pd.Series([0.5, np.nan, 0.5, 0.5]),
-            "p_over_fair": pd.Series([0.5, np.nan, 0.5, 0.5]),
-            "fair_spread": pd.Series(np.zeros(n)),
-            "fair_total": pd.Series(np.full(n, 5.0)),
-        }
-
-    with _mock_patch.object(eval_mod.dist_mod, "simulate_distributions",
-                            fake_sim):
-        out = nb_distribution_metrics(
-            oof, {"alpha_home": 0.0, "alpha_away": 0.0}, n_draws=10)
-
-    run_line = out["run_line"]
-    assert run_line["n"] + run_line["n_pushes"] == 3, (
-        f"run_line n={run_line['n']} + n_pushes={run_line['n_pushes']} does "
-        "not partition the 3 priced rows; the unpriceable push is counted "
-        "twice")
-    assert run_line["n_pushes"] == 1, (
-        f"expected only the PRICED margin==0 game to be the push, got "
-        f"{run_line['n_pushes']}")
-    totals = out["totals"]
-    assert totals["n"] + totals["n_pushes"] == 3, (
-        f"totals n={totals['n']} + n_pushes={totals['n_pushes']} does not "
-        "partition the 3 priced rows; the unpriceable push is counted twice")
-    assert totals["n_pushes"] == 1, (
-        f"expected only the PRICED total==5 game to be the push, got "
-        f"{totals['n_pushes']}")
+        "gameday": pd.date_range("2025-01-01", periods=4),
+        "home_score": [3., 2., 2., 4.], "away_score": [2., 3., 4., 3.],
+        "mu_h": [2., 2., 2., 2.], "mu_a": [2., 2., 2., 2.]})
+    out = eval_mod.nb_distribution_metrics(oof, {})
+    for name in ("run_line", "totals"):
+        assert out[name]["n"] == len(oof)
+        assert out[name]["n_pushes"] == 0
+        assert np.isfinite(out[name]["crps"])
+    bad = oof.copy(); bad.loc[0, "mu_h"] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        eval_mod.nb_distribution_metrics(bad, {})
+    bad = oof.copy(); bad.loc[0, "home_score"] = np.nan
+    with pytest.raises(ValueError, match="settled"):
+        eval_mod.nb_distribution_metrics(bad, {})
 
 
 def test_run_line_contract_log_reports_the_fitted_matrix_width():
