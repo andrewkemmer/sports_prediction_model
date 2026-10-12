@@ -1034,6 +1034,17 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict | None) -> pd.DataFr
 # ---------------------------------------------------------------------------
 DISTRIBUTION_SPORT = "nba"
 CRPS_MIN_HISTORY = 200
+# NBA two-sided dispersion family (Step 1; judged in scratch A/B
+# scratch/nba_side_dispersion_ab.py before enabling): fit per-side variance
+# inflation and residual side correlation into the RAW family instead of one
+# shared Poisson-sum scale, so total and margin carry different variances.
+# Enabled 2026-10-12 after the pre-registered scratch A/B won: lattice CRPS
+# down for both kinds, total var-ratio by mu-decile 1.12 -> 1.04 (margin mean
+# 0.95 -> 1.01), far-tail gaps halved, every margin fixed line improved,
+# derived-ML logloss 0.6083 -> 0.6075; card metrics stayed pinned. Set False
+# to revert to legacy pricing; maps bundles without the NBA alphas key also
+# price legacy regardless of this flag.
+NBA_SIDE_DISPERSION = True
 
 
 def _distribution_blocks(frame):
@@ -1089,10 +1100,30 @@ def _distribution_raw_cdf(h, a, kind, alphas=None):
     from scipy.signal import fftconvolve
     support = _distribution_support(kind)
     if DISTRIBUTION_SPORT == "nba":
-        location = h + a if kind == "total" else h - a
-        # A baseline, not fitted dispersion. Conditional width is subsequently
-        # learned by CRPS on strictly earlier OOF predictions.
-        scale = np.sqrt(np.maximum(h + a, 1.))
+        # Two-sided Gaussian family (2026-10-12): per-side variances
+        # c_side * mu_side plus residual side correlation rho, so total and
+        # margin carry DIFFERENT variances (s2h + s2a +/- 2*rho*sqrt(s2h*s2a))
+        # instead of one shared Poisson-sum scale. Measured on 2024-26 OOF:
+        # c ~ 1.3 per side, rho ~ 0.25 -> total variance x1.25, margin x0.75
+        # versus the legacy shared scale (side residuals share pace shocks).
+        # alphas = [c_h, c_a, rho], moment-fitted on PRIOR folds only (see
+        # _distribution_fit_maps); absent (legacy bundles) falls back to the
+        # original shared scale -- exactly this family at c=1, rho=0.
+        if alphas is not None and len(alphas) >= 3:
+            c_h, c_a, rho = (float(alphas[0]), float(alphas[1]),
+                             float(alphas[2]))
+            s2h = np.maximum(c_h * h, 1e-9)
+            s2a = np.maximum(c_a * a, 1e-9)
+            cross = 2. * rho * np.sqrt(s2h * s2a)
+            location = h + a if kind == "total" else h - a
+            variance = s2h + s2a + (cross if kind == "total" else -cross)
+            scale = np.sqrt(np.maximum(variance, 1e-9))
+        else:
+            location = h + a if kind == "total" else h - a
+            # Legacy baseline: one Poisson-sum scale shared by total and
+            # margin. Conditional width is subsequently learned by CRPS on
+            # strictly earlier OOF predictions.
+            scale = np.sqrt(np.maximum(h + a, 1.))
         cdf = ndtr((support[None, :] + .5 - location[:, None]) / scale[:, None])
         if kind == "total":
             lower = ndtr((-.5 - location) / scale)
@@ -1309,6 +1340,24 @@ def _distribution_fit_maps(h, a, outcomes):
             return float(np.clip(np.sum((y - mu) ** 2 - mu) /
                                  max(np.sum(mu ** 2), 1e-12), 0., .5))
         alphas = [residual_alpha(hs, h), residual_alpha(aws, a)]
+    elif DISTRIBUTION_SPORT == "nba" and NBA_SIDE_DISPERSION:
+        # Two-sided family dispersion (Step 1): moment estimates on PRIOR
+        # folds only -- per-side variance inflation c = sum(e^2)/sum(mu) and
+        # residual side correlation rho = sum(eh*ea)/sqrt(sum eh^2 * sum ea^2).
+        # The causal lattice-CRPS warp keeps learning level-dependent width
+        # on top; the admission gate is unchanged and still gates the warp.
+        hs = .5 * (outcomes["total"] + outcomes["margin"])
+        aws = .5 * (outcomes["total"] - outcomes["margin"])
+        if len(hs) >= CRPS_MIN_HISTORY:
+            eh, ea = hs - h, aws - a
+            c_h = float(np.clip(np.sum(eh ** 2) / max(np.sum(h), 1e-12),
+                                .2, 5.))
+            c_a = float(np.clip(np.sum(ea ** 2) / max(np.sum(a), 1e-12),
+                                .2, 5.))
+            denom = float(np.sqrt(np.sum(eh ** 2) * np.sum(ea ** 2)))
+            rho = (float(np.clip(np.sum(eh * ea) / denom, -.5, .95))
+                   if denom > 1e-12 else 0.)
+            alphas = [c_h, c_a, rho]
     maps = {kind: _fit_distribution_map(h, a, y, kind, alphas)
             for kind, y in outcomes.items()}
     if alphas is not None:
