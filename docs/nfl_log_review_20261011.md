@@ -29,6 +29,38 @@ rate-limit lines (the finding, remediated) + 4 classified below.**
 > the fastest repull since the breaker landed (2,086s vs 3,815s). See
 > "Fourth delivery" below.
 
+## Remote re-verification — 2026-10-12 04:42 UTC: no fifth delivery; the remediation still holds
+
+Scope: a scheduled re-check of the **remote** tree (`origin/main`, tip `cacedfb8`) at
+2026-10-12 04:42 UTC. Two MLB-only commits (`4ab352a7`, `cacedfb8`) landed after the
+fourth-pass review; the **newest NFL run-log delivery is still `c18a6e37`** — the 20:45
+run reviewed below — confirmed three ways: `git ls-remote`, the GitHub commits API
+filtered on `nfl-backend/data_delivery/nfl_pipeline_run_log.txt`, and a raw-file fetch.
+Local `main` was fast-forwarded to `origin/main`, and the local run-log blob is identical
+to the remote one (only the `core.autocrlf` LF→CRLF checkout difference).
+
+**Verdict: still fully remediated — zero Open-Meteo rate-limit activity, no new finding,
+nothing to remediate.**
+
+- Re-grep of the delivered 370-line log: `429`, `cooling down`, `deferred`, `requeue`,
+  `dead batch`, `budget`, `retrying` → **0 matches each**; 0 `ERROR`, 0 `Traceback`.
+  8 WARNING lines = the 4 already-classified classes (1 OOF-thin; 3 drift —
+  `inj_ol_out_home` ALERT psi_adj 0.462, `ol_snaps_lost_share_home` ALERT 0.304,
+  `inj_ol_out_away` now WARN 0.226; 3 × `rest_days_*` LOW_COVERAGE 74.4%; 1 table
+  pointer) — no new warning class since the fourth pass.
+- Claims vs the remote tree: `2022/2022` coverage, `artifacts written: 238`,
+  `DONE — 238 artifacts in 2086s`, 8/8 gates PASS; remote carries the named
+  `*_20261011.*` deliverables including `models/nfl_ensemble_latest.joblib` and 224
+  `nfl_shap_game_*.csv` cards — every checked claim matches.
+- Code untouched in `weather.py`: `_BATCH_PAUSE_SEC = 2.0`, `_429_QUICK_RETRIES = 2`,
+  `_429_RETRY_BUDGET = 40`, `_RATE_LIMIT_ABORT_STREAK = 12`, `_REQUEST_TIMEOUT_SEC = 20`,
+  the sweep's `defer_on_429` mode and `_requeue_deferred_batches` all in place.
+- Verification re-run on this tree: `python -m pytest -q` → **50 passed**;
+  `python test_production.py` → **524 passed, 0 failed, exit 0**.
+- This pass changes no code — there was nothing left to fix. The next NFL delivery is
+  the thing to watch: if a quota flap recurs, expect at most one deferral summary and one
+  requeue line per phase, never a retry wall.
+
 ## Fourth delivery (20:45 run) — third-pass verification
 
 Scope: the delivered `nfl_pipeline_run_log.txt` — 370 lines, run
