@@ -86,15 +86,19 @@ def _render_distribution_tab(decided):
         return
     utils.show_chart(nd.chart_distribution(dist))
     c = dist["callouts"]
+    alpha = dist.get("alpha_total")
+    alpha_txt = f"α={alpha:.3f}" if alpha is not None else "raw grid PMF"
     st.caption(
-        f"Observed bars vs the model's own mean P(total=k) grid pmf over "
-        f"{dist['n_games']:,} decided games · P(total≤190): observed "
+        f"Observed bars vs modeled mean per-game NB⊗NB total PMF (MLB's "
+        f"analytic construction over the model's mu_h/mu_a; dispersion "
+        f"{alpha_txt} recovered from the model's own grid PMF, never from "
+        "outcomes — the pointwise-calibrated grid PMF is kept in the "
+        "artifact rather than plotted, which is why the line is smooth "
+        f"like MLB's) over {dist['n_games']:,} decided games · P(total≤190): observed "
         f"{c['P(total<=190)']['observed']:.3f} / modeled "
         f"{c['P(total<=190)']['modeled']:.3f} · P(total≥270): observed "
         f"{c['P(total>=270)']['observed']:.3f} / modeled "
-        f"{c['P(total>=270)']['modeled']:.3f}. The modeled series is read "
-        "from the artifact (the NBA monitor ships no per-game dispersion "
-        "parameters) — this is the totals law."
+        f"{c['P(total>=270)']['modeled']:.3f}. This is the totals law."
     )
 
 
@@ -379,7 +383,8 @@ def _ec_indicator(raw, cal) -> str:
 
 
 def _render_winner_cards(cards: dict) -> None:
-    """The three binary winner cards — MLB's exact 7-metric layout."""
+    """The three binary winner cards — MLB's exact layout (pick framing,
+    pooled + sealed-holdout rows), the markets.py twin."""
     items = [(k, label, rule) for k, label, rule in nd.WINNER_CARDS if k in cards]
     if not items:
         st.info("No winner-card data in this monitor artifact.")
@@ -387,6 +392,7 @@ def _render_winner_cards(cards: dict) -> None:
     cols = st.columns(len(items))
     for i, (key, label, rule) in enumerate(items):
         card = cards[key]
+        h = card.get("holdout") or {}
         badge = _ec_indicator(card.get("ece_raw"), card.get("ece_calibrated"))
         with cols[i]:
             st.markdown(f"**{label}** {badge}")
@@ -401,13 +407,32 @@ def _render_winner_cards(cards: dict) -> None:
             c2.metric("AUC", _fmt(card.get("auc"), 4))
             c1, c2 = st.columns(2)
             c1.metric("Pooled ECE-cal", _fmt(card.get("ece_calibrated")))
-            c2.metric("Pooled ECE-raw", _fmt(card.get("ece_raw")))
+            c2.metric("Holdout ECE-cal",
+                      _fmt(h.get("ece_calibrated")) if h else "—")
             c1, c2 = st.columns(2)
             c1.metric("Pooled Brier", _fmt(card.get("brier")))
             c2.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
-            st.caption(f"n = {card.get('n', '--'):,} OOF games · Win rate is "
-                       "W/(W+L): rows with no side lean (P = 50%) and "
-                       "whole-line pushes are excluded from both sides.")
+            c1, c2 = st.columns(2)
+            c1.metric("Holdout AUC", _fmt(h.get("auc"), 4) if h else "—")
+            n_pooled = card.get("n")
+            n_txt = f"{n_pooled:,}" if isinstance(n_pooled, int) else str(n_pooled or "—")
+            h_n = h.get("n")
+            h_txt = f"{h_n:,}" if isinstance(h_n, int) else str(h_n or 0)
+            st.caption(f"n = {n_txt} pooled"
+                       + (f" / {h_txt} holdout" if h else "")
+                       + " · Win rate is W/(W+L): rows with no side lean "
+                       "(P = 50%) and whole-line pushes are excluded from "
+                       "both sides; Actual and Predicted are the SAME "
+                       "pick-side population (MLB framing).")
+            ref = card.get("ml_reference")
+            if ref and key == "derived_ml":
+                rwr = ref.get("win_rate")
+                st.caption(
+                    "Moneyline ensemble reference (ml_win_prob): "
+                    f"{_fmt_pct(rwr) if rwr is not None else '—'} win rate "
+                    f"(n={ref.get('n', '—')}) — the run-line model's derived "
+                    "ML is a coherence report; the ensemble stays as the "
+                    "comparison anchor")
 
 
 def _render_totals_calibration_card(decided) -> None:
@@ -516,19 +541,36 @@ def _render_model_card(monitor: dict) -> None:
         "sportsbook price appears anywhere on this page."
     )
     mm = (monitor or {}).get("market_metrics") or {}
+    if not mm:
+        st.info("Per-line engine OOF metrics appear after a pipeline run "
+                "that emits market_metrics (the current artifact predates "
+                "them).")
+        return
+    # MLB's per-market-line rows: the canonical totals (220/225/230) and
+    # spreads (2/5) the monitor scores, plus the derived moneyline — the
+    # engine_* field names the emitter ships (NHL/NFL twin).
+    _line_labels = (
+        [(f"over_{u}", f"Over {u}")
+         for u in sorted({int(k.split("_")[1]) for k in mm
+                          if k.startswith("over_")})]
+        + [(k, "Home −" + k.split("_")[2])
+           for k in sorted(mm) if k.startswith("home_cover_")]
+        + [("derived_moneyline", "Derived ML")])
     rows = []
-    for key, value in mm.items():
+    for key, label in _line_labels:
+        value = mm.get(key)
         if not isinstance(value, dict):
             continue
         n = value.get("n")
         rows.append(
             f"<tr>"
-            f"<td style='color:#E2E8F0;font-weight:700;'>{key}</td>"
-            f"<td>{_fmt(value.get('ece'))}</td>"
-            f"<td>{_fmt(value.get('ece_calibrated'))}</td>"
-            f"<td>{_fmt(value.get('brier'), 4)}</td>"
-            f"<td>{_fmt(value.get('logloss'), 4)}</td>"
-            f"<td style='color:#E2E8F0;'>{int(n):,}</td>"
+            f"<td style='color:#E2E8F0;font-weight:700;'>{label}</td>"
+            f"<td>{_fmt(value.get('engine_ece_raw'), 4)}</td>"
+            f"<td>{_fmt(value.get('engine_ece_calibrated'), 4)}</td>"
+            f"<td>{_fmt(value.get('engine_brier'), 4)}</td>"
+            f"<td>{_fmt(value.get('engine_logloss'), 4)}</td>"
+            f"<td style='color:#E2E8F0;'>"
+            f"{(n or 0):,}</td>"
             f"</tr>")
     if not rows:
         st.info("Per-line engine OOF metrics appear after a pipeline run "
@@ -544,11 +586,13 @@ def _render_model_card(monitor: dict) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Run engine is a single NB(λ, α(λ)) paired-score Monte Carlo
-          sampler — no member blend; rows are per market line. ECE-CAL is
-          prequentially calibrated when the run ships a calibration map;
-          otherwise the cell shows the em-dash rather than a copy of the raw
-          figure. N = pooled OOF games scored for the line.
+          Run engine is the per-side Poisson score regressors + calibrated
+          NB Monte Carlo — no member blend; rows are per market line
+          (2-way no-push basis). Lines priced at the monitor's canonical
+          totals (220/225/230) and spreads (2/5); ECE-CAL is the
+          prequentially calibrated figure when a calibration map ships
+          (otherwise the cell shows the em-dash rather than a copy of the
+          raw figure). N = pooled OOF games scored for the line.
         </div>
         """,
         unsafe_allow_html=True,
@@ -665,7 +709,30 @@ def run() -> None:
         )
         return
 
-    _render_winner_cards(nd.winner_cards(decided, monitor))
+    # Markets-persisted flag — MLB/NHL's banner, same slot and wording.
+    persisted = monitor.get("markets_persisted", True)
+    persist_err = monitor.get("markets_persist_error")
+    if not persisted:
+        st.error(
+            f"**Markets CSV was NOT persisted for {date_str}**: "
+            f"{persist_err or 'unknown error'}. The monitor data below is "
+            "from the in-memory summary; downstream consumers should not "
+            "trust the markets artifact."
+        )
+    elif persist_err:
+        st.warning(f"Markets persist warning: {persist_err} (but CSV was written).")
+
+    # Winner cards — the monitor artifact's cards (MLB's source: the
+    # emitter ships the pooled card so artifact and page agree — one source
+    # of truth), with the live recompute as the fallback when the artifact
+    # predates the winner-card schema.
+    cards = monitor.get("winner_cards") or {}
+    if not cards and not decided.empty:
+        cards = nd.winner_cards(decided, monitor)
+    if cards:
+        _render_winner_cards(cards)
+    else:
+        st.info("No winner-card data in this monitor artifact.")
 
     if not decided.empty and {"home_score", "away_score"}.issubset(decided.columns):
         st.markdown("---")
@@ -685,9 +752,21 @@ def run() -> None:
         nd.load_run_engine_csv(date_str, "nba_run_engine_feature_coverage"))
     _render_model_card(monitor)
 
+    # Rolling history — the MLB convention: first build starts empty by
+    # design (nothing fabricated). Once daily runs ship decided-slate
+    # outcomes, the dated monitors carry per-card slate_history entries
+    # and this panel folds ACROSS the dated monitor family (newest first)
+    # into per-card series, mirroring MLB's rolling history table
+    # (Line / Date / ECE-cal / Brier / Logloss / Pred mean / n).
+    rolling = nd.fold_slate_history(utils.load_nba_run_engine_monitor_series("nba"))
     with st.expander("Rolling History (last 10 points per card)",
                      expanded=False):
-        _render_rolling_history(monitor.get("rolling") or {})
+        if not rolling:
+            st.info("No rolling history yet (first build starts empty).")
+        else:
+            # MLB's heading rides inside its renderer (line 604) — same
+            # slot and wording, printed exactly once.
+            _render_rolling_history(rolling)
 
 
 if __name__ == "__main__":

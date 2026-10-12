@@ -183,7 +183,10 @@ def semantic_probes() -> dict:
             "goalie_trade_selected_name": state.iloc[0].g_home_name,
             "goalie_trade_selected_starts": float(state.iloc[0].goalie_starts_home),
             "market_metric_correct_arguments": monitoring._markets_card_metrics(y, p),
-            "market_metric_current_caller_arguments": monitoring._markets_card_metrics(p, y)}
+            # The inverted argument order the Run-Engine Model card used
+            # before the 2026-10-11 pair-order fix: kept as a probe so the
+            # size of that class of bug stays measurable (logloss > 3 nats).
+            "market_metric_swapped_arguments": monitoring._markets_card_metrics(p, y)}
 
 
 def run(day: str, output: Path, draws: int) -> dict:
@@ -231,7 +234,7 @@ def run(day: str, output: Path, draws: int) -> dict:
     for key, kind, line in [("derived_ml", "ml", 0), ("over_5", "over", 5),
                             ("over_6", "over", 6), ("over_7", "over", 7),
                             ("home_cover_1", "spread", 1), ("home_cover_2", "spread", 2)]:
-        p, y = monitoring._run_engine_line_pairs(market, kind, line)
+        y, p = monitoring._run_engine_line_pairs(market, kind, line)
         market_metrics[key] = metrics(y, p)
     matched = d.merge(market[["game_id", "derived_ml", "p_home_cover_0", "p_push_0"]],
                       on="game_id", validate="one_to_one")

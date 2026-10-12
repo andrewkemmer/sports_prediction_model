@@ -63,4 +63,7 @@ def test_semantic_probes_are_inspectable():
     assert result["positive_home_advantage_expected"] > .5
     assert result["goalie_trade_selected_name"] in {"departed", "current"}
     assert result["market_metric_correct_arguments"]["logloss"] == pytest.approx(.2899)
-    assert result["market_metric_current_caller_arguments"]["logloss"] > 3
+    # The swapped (p, y) order the run-engine card scored with before the
+    # 2026-10-11 pair-order fix — the probe that made "logloss 6.79" a
+    # testable failure mode rather than a dashboard surprise.
+    assert result["market_metric_swapped_arguments"]["logloss"] > 3

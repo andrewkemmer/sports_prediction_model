@@ -1134,7 +1134,9 @@ def _run_engine_fit_block(oof_market_rows: pd.DataFrame) -> dict:
 
 def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
                            line: float) -> tuple[np.ndarray, np.ndarray]:
-    """(p, y) for one market line, 2-way push-excluded."""
+    """(y, p) for one market line, 2-way push-excluded — outcomes first,
+    probabilities second (the caller contract; see the return-order note
+    at the bottom of this function)."""
     ps: list[float] = []
     ys: list[float] = []
     for _, r in df.iterrows():
@@ -1183,7 +1185,14 @@ def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
                 continue
             ps.append(ml / (ml + (1.0 - ml)))
             ys.append(float(margin > 0))
-    return np.asarray(ps, dtype=float), np.asarray(ys, dtype=float)
+    # Return order is (y, p) — outcomes first, model probabilities second —
+    # the contract every _run_engine_market_metrics / write_markets_monitor
+    # call site unpacks (NFL monitoring.py carries the same note for its
+    # 2026-09-24 fix). Until 2026-10-11 this returned (p, y), so the
+    # Run-Engine Model card scored logloss/ECE with labels and predictions
+    # swapped: Brier survived (it is symmetric) while logloss exploded to
+    # ~5-7 and ECE sat near 0.5 — the "engine_logloss 6.79" artifact.
+    return np.asarray(ys, dtype=float), np.asarray(ps, dtype=float)
 
 
 def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:

@@ -1677,12 +1677,43 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         cal_metrics, platt, feature_importance=imp_decomp,
         raw_metrics=raw_metrics)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
+    # NB distribution scorer — the same run-line/totals OOF summary NHL and
+    # NFL log every run (it is a diagnostic, not the monitor's schema: the
+    # monitor's winner_cards/market_metrics are MLB's per-card / per-line
+    # structures computed from the persisted market frame, 2026-10-11).
+    dist_metrics = (evaluation.nb_distribution_metrics(dist_oof, dispersion)
+                    if dist_oof is not None and dispersion is not None else {})
+    if dist_metrics:
+        logger.info("run-line OOF:  %s", json.dumps(dist_metrics.get("run_line", {})))
+        logger.info("totals OOF:    %s", json.dumps(dist_metrics.get("totals", {})))
+    # The derived-ML card's comparison anchor (MLB/NHL/NFL parity): the
+    # shared moneyline ensemble's pooled pick win rate, so the run engine's
+    # own moneyline is read as a coherence report beside it.
+    ml_ref: dict = {}
+    _ml_src = ("p_ensemble" if ml_oof is not None and "p_ensemble" in ml_oof.columns
+               else "p_ensemble_calibrated" if ml_oof is not None
+               and "p_ensemble_calibrated" in ml_oof.columns else None)
+    if _ml_src and ml_oof is not None and "home_win" in ml_oof.columns:
+        prob = pd.to_numeric(ml_oof[_ml_src], errors="coerce")
+        yv = pd.to_numeric(ml_oof["home_win"], errors="coerce")
+        ok = prob.notna() & yv.isin([0, 1])
+        prob, yv = prob[ok], yv[ok].astype(int)
+        if len(prob):
+            pick_home = prob > 0.5
+            win = float(((pick_home & (yv == 1))
+                         | (~pick_home & (yv == 0))).mean())
+            ml_ref = {"source": "ml_win_prob", "n": int(len(prob)),
+                      "win_rate": round(win, 4),
+                      "predicted_mean": round(float(prob.mean()), 4)}
+    # The markets CSV is written only on a clean phase — the flag the page
+    # renders as the "Markets CSV was NOT persisted" banner.
+    _markets_path = out / config.MARKETS_CSV.format(date=date_c)
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,
-        (evaluation.nb_distribution_metrics(dist_oof, dispersion)
-         if dist_oof is not None and dispersion is not None else {}),
-        oof_markets if oof_markets is not None else {},
-        market_calibration, _config_meta(facts), dispersion=dispersion)
+        markets=oof_markets if oof_markets is not None else {},
+        calibration=market_calibration, config_meta=_config_meta(facts),
+        dispersion=dispersion, ml_reference=ml_ref,
+        markets_persisted=bool(phase_error is None and _markets_path.exists()))
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):

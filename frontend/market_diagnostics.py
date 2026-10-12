@@ -425,6 +425,91 @@ def _nb_pmf_scalar(k: int, mu: float, alpha: float) -> float:
     return math.exp(logp)
 
 
+def _nb_pmf_matrix(kmax: int, mu: np.ndarray, alpha: float) -> np.ndarray:
+    """Batched NB(k; μ_i, α) over k = 0…kmax — the vectorised twin of
+    :func:`_nb_pmf_scalar`.
+
+    Same convention as every backend's MC sampler (size n = 1/α,
+    p = n/(n+μ), so Var = μ + α·μ²). ``lgamma(n+k) − lgamma(n)`` is expanded
+    as ``Σ_{j<k} log(n+j)`` so a non-integer n stays exact without scipy —
+    the frontend host deliberately does not install it.
+    """
+    mu = np.maximum(np.asarray(mu, dtype=float), 1e-9)
+    n = 1.0 / max(float(alpha), 1e-9)
+    p = n / (n + mu)
+    ks = np.arange(kmax + 1, dtype=float)
+    log_rise = np.concatenate([[0.0], np.cumsum(np.log(n + np.arange(kmax)))])
+    log_fact = np.concatenate([[0.0], np.cumsum(np.log(np.arange(1, kmax + 1)))])
+    return np.exp(log_rise - log_fact
+                  + n * np.log(p)[:, None]
+                  + ks[None, :] * np.log1p(-p)[:, None])
+
+
+def _nb_conv_pmf(mu_h: np.ndarray, mu_a: np.ndarray, alpha: float,
+                 kmax: int) -> np.ndarray:
+    """Per-game NB⊗NB total PMF (one row per game) via a batched FFT
+    convolution — the exact object MLB's ``total_distribution`` averages,
+    at the NFL/NBA grid widths a per-game Python loop cannot reach."""
+    ph = _nb_pmf_matrix(kmax, np.asarray(mu_h, float), alpha)
+    pa = _nb_pmf_matrix(kmax, np.asarray(mu_a, float), alpha)
+    nfft = 1 << int(np.ceil(np.log2(2 * (kmax + 1) - 1)))
+    conv = np.fft.irfft(np.fft.rfft(ph, nfft, axis=1)
+                        * np.fft.rfft(pa, nfft, axis=1), nfft, axis=1)
+    return conv[:, :kmax + 1]
+
+
+def fit_total_dispersion(mu_h: np.ndarray, mu_a: np.ndarray,
+                         grid_ks: list[int] | np.ndarray,
+                         grid_pmf: np.ndarray,
+                         max_rows: int = 600) -> Optional[float]:
+    """Recover the per-side NB dispersion α the model's OWN grid PMF
+    implies (least squares, deterministic subsample).
+
+    The challenger artifacts ship per-game means (``mu_h``/``mu_a``) but no
+    per-game dispersion — unlike MLB's ``alpha_home``/``alpha_away`` columns
+    — so an MLB-style analytic overlay needs exactly one shape number. It is
+    fitted to the model's own published probabilities, never to outcomes, so
+    the distribution fit-check keeps its honesty: the overlay is still "what
+    the model believes", just reconstructed from a shape family the artifact
+    can support. Returns ``None`` when the frame cannot support a fit (the
+    caller then falls back to the published grid PMF as-is).
+    """
+    mu_h = np.asarray(mu_h, float)
+    mu_a = np.asarray(mu_a, float)
+    grid_pmf = np.asarray(grid_pmf, float)
+    kidx = np.asarray(grid_ks, int)
+    if grid_pmf.ndim != 2 or not len(kidx):
+        return None
+    ok = (np.isfinite(mu_h) & np.isfinite(mu_a)
+          & (mu_h > 0) & (mu_a > 0)
+          & np.isfinite(grid_pmf).all(axis=1))
+    if not ok.any():
+        return None
+    mu_h, mu_a, grid_pmf = mu_h[ok], mu_a[ok], grid_pmf[ok]
+    step = max(1, len(mu_h) // max_rows)
+    mu_h, mu_a, grid_pmf = mu_h[::step], mu_a[::step], grid_pmf[::step]
+    kmax = int(kidx.max())
+
+    def _loss(alpha: float) -> float:
+        conv = _nb_conv_pmf(mu_h, mu_a, alpha, kmax)
+        return float(((conv[:, kidx] - grid_pmf) ** 2).sum())
+
+    coarse = np.geomspace(0.002, 40.0, 32)
+    best = min(coarse, key=_loss)
+    fine = np.geomspace(max(best / 3.0, 0.001), best * 3.0, 17)
+    return round(float(min(fine, key=_loss)), 4)
+
+
+def smooth_modeled_total_pmf(mu_h: np.ndarray, mu_a: np.ndarray,
+                             alpha: float, ks: list[int] | np.ndarray) -> np.ndarray:
+    """MLB's modeled series: the mean over games of the NB⊗NB total PMF,
+    evaluated at the display support ``ks`` (mass beyond the last support
+    point is simply not plotted, exactly like MLB's kmax truncation)."""
+    ks = np.asarray(ks, int)
+    conv = _nb_conv_pmf(mu_h, mu_a, alpha, int(ks.max()))
+    return conv[:, ks].mean(axis=0)
+
+
 def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
     """Observed P(total=k) vs modeled mean game-level NB convolution.
 

@@ -151,10 +151,15 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
         return
     utils.show_chart(nd.chart_distribution(dist))
     c = dist["callouts"]
+    alpha = dist.get("alpha_total")
+    alpha_txt = f"α={alpha:.3f}" if alpha is not None else "raw grid PMF"
     st.caption(
-        f"Observed bars vs modeled mean per-game total PMF (average of the "
-        f"calibrated NB Monte Carlo draws' total marginals) over {dist['n_games']:,} "
-        f"decided games · P(total≤35): observed {c['P(total<=35)']['observed']:.3f} "
+        f"Observed bars vs modeled mean per-game NB⊗NB total PMF (MLB's "
+        f"analytic construction over the model's mu_h/mu_a; dispersion "
+        f"{alpha_txt} recovered from the model's own grid PMF, never "
+        "from outcomes — the pointwise-calibrated grid PMF is kept in the "
+        "artifact rather than plotted, which is why the line is smooth "
+        f"like MLB's) over {dist['n_games']:,} decided games · P(total≤35): observed {c['P(total<=35)']['observed']:.3f} "
         f"/ modeled {c['P(total<=35)']['modeled']:.3f} · P(total≥60): "
         f"observed {c['P(total>=60)']['observed']:.3f} / modeled "
         f"{c['P(total>=60)']['modeled']:.3f}. Integer-support means the "
@@ -824,7 +829,7 @@ def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
     st.markdown("**Totals — Over/Under calibration card**")
     c1, c2 = st.columns([1, 1])
     thresh = c1.selectbox("Confidence (pick_prob > …)",
-                          [0, 50, 55, 60, 65, 70], index=0,
+                          nd.TOTALS_CONF_THRESHOLDS, index=0,
                           key="nfl_totals_card_conf")
     side = c2.selectbox("Side", ["All", "Over", "Under"], index=0,
                         key="nfl_totals_card_side")

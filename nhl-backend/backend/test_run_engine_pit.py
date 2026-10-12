@@ -2233,22 +2233,54 @@ def test_goalie_state_ignores_short_relief_appearances():
 def test_monitor_line_pairs_use_canonical_lines_only():
     rows = _oof_market_rows()
     rows["derived_ml"] = rows["p_home_win_derived"]
-    # _run_engine_line_pairs is per-line: (p, y) push-excluded pairs.
+    # _run_engine_line_pairs is per-line: (y, p) push-excluded pairs —
+    # outcomes first (the 2026-10-11 fix; it shipped (p, y) and the card
+    # scored logloss with labels/predictions swapped).
     for line in config.RUN_ENGINE_FIXED_TOTALS:
-        p, y = mon._run_engine_line_pairs(rows, "over", float(line))
+        y, p = mon._run_engine_line_pairs(rows, "over", float(line))
         assert len(p) == len(y) and len(p) > 0, f"total {line}: empty pairs"
         # Ties (totals exactly ON the line) are excluded.
         on_line = (rows["total"].to_numpy(float) == float(line)).sum()
         assert len(p) == len(rows) - int(on_line)
         assert ((y == 0.0) | (y == 1.0)).all()
     for line in config.RUN_ENGINE_CANONICAL_SPREADS:
-        p, y = mon._run_engine_line_pairs(rows, "spread", float(line))
+        y, p = mon._run_engine_line_pairs(rows, "spread", float(line))
         assert len(p) > 0, f"spread {line}: empty pairs"
         on_line = (rows["margin"].to_numpy(float) == float(line)).sum()
         assert len(p) == len(rows) - int(on_line)
     # The 'ml' kind prices the derived moneyline in pick-side framing.
-    p, y = mon._run_engine_line_pairs(rows, "ml", 0.0)
+    y, p = mon._run_engine_line_pairs(rows, "ml", 0.0)
     assert len(p) > 0 and np.isfinite(p).all()
+
+
+def test_run_engine_line_pairs_return_outcomes_first():
+    """The (y, p) pair contract — the 2026-10-11 ""logloss is wrong"" fix.
+
+    ``_run_engine_line_pairs`` shipped (p, y) while every
+    ``_run_engine_market_metrics`` / holdout call site unpacked (y, p).
+    Brier survived (it is symmetric) while the Run-Engine Model card's
+    per-line logloss exploded to ~5-7 nats and ECE sat near 0.5 — the
+    delivered derived-ML ""engine_logloss 6.79"" artifact. NFL pinned the
+    identical contract in test_production.py after its 2026-09-24 twin.
+    """
+    rows = _oof_market_rows()
+    rows["derived_ml"] = rows["p_home_win_derived"]
+    probes = [("over", float(config.RUN_ENGINE_FIXED_TOTALS[0])),
+              ("spread", float(config.RUN_ENGINE_CANONICAL_SPREADS[0])),
+              ("ml", 0.0)]
+    for kind, line in probes:
+        y, p = mon._run_engine_line_pairs(rows, kind, line)
+        assert len(y) == len(p) > 0, f"{kind}: empty pairs"
+        assert set(np.unique(y)).issubset({0.0, 1.0}), \
+            f"{kind}: first element must be the binary outcome, got {set(np.unique(y))}"
+        assert 0.0 < p.min() and p.max() < 1.0, \
+            f"{kind}: second element must be a probability in (0, 1)"
+        m = mon._markets_card_metrics(y, p)
+        # The swapped-pairs bug read logloss ~5-7 / ECE ~0.49 here.
+        assert m["logloss"] is not None and m["logloss"] < 1.5, \
+            f"{kind}: logloss {m['logloss']} outside the binary range"
+        assert m["ece_raw"] is not None and m["ece_raw"] < 0.3, \
+            f"{kind}: ECE {m['ece_raw']} is the swapped-pairs signature"
 
 
 def test_run_engine_market_metrics_and_fit_block():

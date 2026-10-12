@@ -41,6 +41,8 @@ import pandas as pd
 import streamlit as st
 
 import utils
+from market_diagnostics import (fit_total_dispersion,
+                                smooth_modeled_total_pmf)
 
 # --- Grids and shared constants (MLB's shapes, NBA's ranges) ---------------
 TOTAL_GRID = list(range(180, 281))                      # integer totals grid
@@ -372,13 +374,18 @@ def fair_spread_thresholds(decided: pd.DataFrame) -> np.ndarray:
 
 
 def total_distribution(decided: pd.DataFrame) -> dict[str, Any]:
-    """Observed P(total=k) vs the model's own mean marginal.
+    """Observed P(total=k) vs modeled mean per-game total PMF.
 
-    The modeled series is the per-game mean of ``p_push_total_k`` — the
-    artifact ships the model's pmf directly, so the overlay is read rather
-    than recomputed from dispersion parameters the NBA monitor does not
-    carry. Callouts sit 10 points from each grid edge (MLB's P(<=1)/P(>=10)
-    tails are ~10% of its span from each edge; 10 of 100 here).
+    Modeled = average over games of the NB⊗NB total convolution built from
+    the artifact's per-game ``mu_h``/``mu_a`` (MLB's construction — a smooth
+    analytic overlay; the dispersion is recovered from the model's own
+    ``p_push_total_<k>`` grid PMF, never from outcomes). The published grid
+    PMF is calibrated POINTWISE (one causal map per integer total, then
+    renormalized), so averaging it jitters — that jagged overlay is kept as
+    ``modeled_grid`` rather than plotted. Observed = the actual totals
+    histogram. Callouts sit 10 points from each grid edge (MLB's
+    P(<=1)/P(>=10) tails are ~10% of its span from each edge; 10 of 100
+    here).
     """
     empty = {"ks": TOTAL_GRID, "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
@@ -394,12 +401,29 @@ def total_distribution(decided: pd.DataFrame) -> dict[str, Any]:
         # Coerce, don't cast: a malformed artifact (string-valued grid
         # columns) prices as NaN and drops out of the mean rather than
         # crashing the tab.
-        modeled = (decided[pmf_cols]
-                   .apply(pd.to_numeric, errors="coerce")
-                   .to_numpy(dtype=float)
-                   .mean(axis=0))
+        modeled_grid = (decided[pmf_cols]
+                        .apply(pd.to_numeric, errors="coerce")
+                        .to_numpy(dtype=float)
+                        .mean(axis=0))
     else:
-        modeled = np.zeros(len(ks))
+        modeled_grid = np.zeros(len(ks))
+
+    # MLB's MODELED SERIES (2026-10-12): analytic NB⊗NB convolution of the
+    # model's per-game means instead of the pointwise-calibrated grid PMF
+    # (the NBA monitor ships no per-game dispersion, so the single shape
+    # parameter is recovered from the model's OWN pmf — never the outcomes).
+    alpha = None
+    modeled = modeled_grid
+    if pmf_cols and {"mu_h", "mu_a"}.issubset(decided.columns):
+        mu_h = pd.to_numeric(decided["mu_h"], errors="coerce").to_numpy(float)
+        mu_a = pd.to_numeric(decided["mu_a"], errors="coerce").to_numpy(float)
+        alpha = fit_total_dispersion(
+            mu_h, mu_a, [int(c.rsplit("_", 1)[-1]) for c in pmf_cols],
+            (decided[pmf_cols]
+             .apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)))
+        if alpha is not None:
+            modeled = smooth_modeled_total_pmf(mu_h, mu_a, alpha, ks)
+    alpha_txt = (f"α={alpha:.3f}" if alpha is not None else "raw grid PMF")
     obs_lo = float(observed[:11].sum())
     obs_hi = float(observed[-10:].sum())
     mod_lo = float(modeled[:11].sum())
@@ -408,15 +432,19 @@ def total_distribution(decided: pd.DataFrame) -> dict[str, Any]:
         "ks": ks.tolist(),
         "observed": [round(float(v), 5) for v in observed],
         "modeled": [round(float(v), 5) for v in modeled],
+        "modeled_grid": [round(float(v), 5) for v in modeled_grid],
+        "alpha_total": alpha,
         "callouts": {
             "P(total<=190)": {"observed": round(obs_lo, 4),
                               "modeled": round(mod_lo, 4)},
             "P(total>=270)": {"observed": round(obs_hi, 4),
                               "modeled": round(mod_hi, 4)},
-            "note": ("The modeled series is the artifact's own mean "
-                     "P(total=k) grid pmf — read, not recomputed, because "
-                     "the NBA monitor ships no per-game dispersion "
-                     "parameters. This chart is the TOTALS law."),
+            "note": (f"Modeled line = mean per-game NB⊗NB convolution of "
+                     f"the model's mu_h/mu_a ({alpha_txt}; dispersion "
+                     "recovered from the model's own grid PMF, never from "
+                     "outcomes) — MLB's construction. The pointwise-"
+                     "calibrated grid PMF stays in the artifact and is the "
+                     "chart's honest tail reference."),
         },
         "n_games": int(len(decided)),
         "warning": None,
@@ -1159,8 +1187,21 @@ def _ece(y: np.ndarray, p: np.ndarray, bins: int = 10) -> float:
 
 def binary_card_metrics(y: np.ndarray, p: np.ndarray,
                         coeff: tuple[float, float] | None = None) -> dict:
-    """MLB's card metric block; win rate is CONDITIONAL accuracy (W/(W+L))
-    over rows with a real side lean."""
+    """MLB's card metric block in PICK-side framing (2026-10-11).
+
+    Every row contributes the side the model picked: ``p`` is flipped to
+    the picked side and ``y`` becomes "the picked side won", so
+    ``actual_win_rate`` IS ``win_rate`` (pick accuracy) and
+    ``predicted_mean`` is the mean pick probability — the two numbers the
+    card's header prints beside each other. The previous build mixed
+    framings (home/over-side ``actual_win_rate`` / ``predicted_mean`` next
+    to a pick-side ``win_rate``), which is why the Derived ML card read
+    "Actual 54.5% · Predicted 54.4%" over a "Win rate 65.8%" metric.
+
+    Rows with no side lean (P exactly 50%) make no pick and are excluded
+    from the pooled metrics; ``n`` stays the row count the history tables
+    use.
+    """
     ok = np.isfinite(y) & np.isfinite(p)
     y, p = y[ok].astype(float), np.clip(p[ok].astype(float), 1e-7, 1 - 1e-7)
     n = int(len(y))
@@ -1170,18 +1211,26 @@ def binary_card_metrics(y: np.ndarray, p: np.ndarray,
                 "predicted_mean": None, "actual_win_rate": None}
     pred = _platt(p, *coeff) if coeff else p
     leaned = np.abs(p - 0.5) > 1e-12
-    correct = (p > 0.5) == (y == 1.0)
-    win_rate = (round(float(correct[leaned].mean()), 6)
-                if leaned.any() else None)
+    pick_home = p >= 0.5
+    pool = leaned if leaned.any() else np.ones(n, bool)
+
+    def _pick(side_y, side_p):
+        return (np.where(pick_home, side_y, 1.0 - side_y)[pool],
+                np.where(pick_home, side_p, 1.0 - side_p)[pool])
+
+    y_pick, p_pick = _pick(y, p)
+    _, pred_pick = _pick(y, pred)
+    win_rate = round(float(y_pick.mean()), 6)
     return {
-        "n": n, "win_rate": win_rate, "auc": _auc(y.astype(bool), pred),
-        "brier": round(float(np.mean((p - y) ** 2)), 6),
-        "logloss": round(float(-np.mean(y * np.log(pred)
-                                        + (1 - y) * np.log(1 - pred))), 6),
-        "ece_raw": round(_ece(y, p), 6),
-        "ece_calibrated": round(_ece(y, pred), 6) if coeff else None,
-        "predicted_mean": round(float(p.mean()), 6),
-        "actual_win_rate": round(float(y.mean()), 6),
+        "n": n, "win_rate": win_rate, "actual_win_rate": win_rate,
+        "auc": _auc(y_pick.astype(bool), pred_pick),
+        "brier": round(float(np.mean((p_pick - y_pick) ** 2)), 6),
+        "logloss": round(float(-np.mean(y_pick * np.log(pred_pick)
+                                        + (1 - y_pick)
+                                        * np.log(1 - pred_pick))), 6),
+        "ece_raw": round(_ece(y_pick, p_pick), 6),
+        "ece_calibrated": round(_ece(y_pick, pred_pick), 6) if coeff else None,
+        "predicted_mean": round(float(p_pick.mean()), 6),
     }
 
 
@@ -1204,9 +1253,11 @@ def winner_cards(decided: pd.DataFrame,
                  monitor: dict | None = None) -> dict:
     """The three binary winner cards in MLB's schema, computed here.
 
-    The shipped monitor winner_cards carry only {n, brier, logloss, ece} and
-    in the 20260926 artifact both report the exact no-information values, so
-    the cards are computed from the decided rows rather than read.
+    This is the FALLBACK for artifacts that predate the winner-card schema
+    (2026-10-11: the emitter now ships MLB-shaped cards, so the page reads
+    ``monitor['winner_cards']`` first and only recomputes when it is
+    absent). The basis matches the emitter exactly — pick-side framing at
+    each game's own fair line — so artifact and page agree.
     """
     empty = {"n": 0, "win_rate": None, "auc": None, "brier": None,
              "logloss": None, "ece_raw": None, "ece_calibrated": None,
@@ -1243,10 +1294,22 @@ def winner_cards(decided: pd.DataFrame,
                 _int_line(pd.to_numeric(rl.loc[rl["correct"].notna(), "line"],
                                         errors="coerce").median())))
         if okr.any():
-            spread["win_rate"] = round(float(y[okr].mean()), 6)
+            # Same population the history table grades (non-push rows),
+            # kept in BOTH slots so the header and the metric never split.
+            wr = round(float(y[okr].mean()), 6)
+            spread["win_rate"] = wr
+            spread["actual_win_rate"] = wr
 
     margin = pd.to_numeric(decided.get("margin"), errors="coerce")
-    home_p = pd.to_numeric(decided.get("p_home_win_derived"), errors="coerce")
+    # ``derived_ml`` is the artifact's run-engine moneyline (the column the
+    # monitor's own card scores — mean 0.528 on 2026-10-11 vs 0.544 for the
+    # ensemble-flavoured ``p_home_win_derived``); the latter is the fixture /
+    # legacy-artifact fallback so a frame without the column still prices.
+    ml_src = decided.get("derived_ml")
+    if ml_src is None or pd.to_numeric(ml_src, errors="coerce").notna().sum() == 0:
+        ml_src = decided.get("p_home_win_derived")
+    home_p = pd.to_numeric(ml_src, errors="coerce") if ml_src is not None \
+        else pd.Series(np.nan, index=decided.index)
     okh = margin.notna() & home_p.notna()
     derived = binary_card_metrics(
         (margin[okh] > 0).to_numpy(float), home_p[okh].to_numpy(float))
@@ -1510,9 +1573,27 @@ def render_run_engine_coverage(frame: pd.DataFrame | None) -> None:
 
 
 def fold_slate_history(monitors: list[dict]) -> dict[str, list[dict]]:
-    folded: dict[str, list[dict]] = {}
-    for monitor in monitors or []:
-        for row in monitor.get("slate_history", []) or []:
-            key = str(row.get("game_id", "unknown"))
-            folded.setdefault(key, []).append(row)
-    return {key: rows[-10:] for key, rows in folded.items()}
+    """Fold the dated monitors' accumulating slate-history into per-card
+    series (the MLB ``rolling`` dict shape: ``{card_key: [points]}``).
+
+    Each dated ``nba_run_engine_monitor_<date>.json`` ships its own
+    ``slate_history`` list (one entry per winner card per run, carrying
+    ``card`` plus the metric fields ``date``, ``ece_calibrated``, ``brier``,
+    ``logloss``, ``predicted_mean``, ``n`` — the MLB rolling-point shape).
+    Entries without a ``card`` key are ignored (never fabricated, never
+    guessed). The per-card series is then sorted OLDEST-FIRST by ``date``
+    — the monitor family enumerates newest-first, so a raw concatenation
+    would hand ``series[-10:]`` the ten OLDEST points while the renderer
+    (MLB's ``_render_rolling_history`` twin) reads ``[-10:]`` as "the last
+    10". Empty input -> empty dict -> the page renders MLB's first-build
+    empty-state wording. NHL/NFL ``fold_slate_history`` twin."""
+    out: dict[str, list[dict]] = {}
+    for mon in monitors or []:
+        for entry in mon.get("slate_history") or []:
+            card = entry.get("card") if isinstance(entry, dict) else None
+            if not card:
+                continue
+            out.setdefault(str(card), []).append(entry)
+    for series in out.values():
+        series.sort(key=lambda pt: str(pt.get("date") or ""))
+    return out

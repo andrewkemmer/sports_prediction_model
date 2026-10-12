@@ -241,16 +241,41 @@ def test_chart_game_total_curve_returns_chart_and_table():
 
 # --- Distribution + pairs --------------------------------------------------
 
-def test_distribution_modeled_series_is_the_artifact_pmf_mean():
+def test_distribution_modeled_series_is_the_smooth_nb_overlay():
+    """2026-10-12: the plotted ``modeled`` series is MLB's analytic NB⊗NB
+    convolution of the model's per-game mu_h/mu_a (the pointwise-calibrated
+    grid PMF zig-zags when averaged — the jagged orange line), and the
+    artifact PMF mean is preserved untouched as ``modeled_grid``."""
     frame = SIMPLE.copy()
     for k in range(180, 281):
         frame[f"p_push_total_{k}"] = 0.005
     frame[f"p_push_total_225"] = 0.5
     dist = nd.total_distribution(frame)
     assert dist["warning"] is None
+    # the published artifact PMF mean is still there, spike included
+    grid = np.array(dist["modeled_grid"])
+    assert abs(grid[225 - 180] - 0.5) < 1e-9
+    # the plotted overlay is the smooth convolution — the 0.5 spike at 225
+    # is an artifact of a flat PMF, not a distribution the model believes
     modeled = np.array(dist["modeled"])
-    assert abs(modeled[TOTAL := 225 - 180] - 0.5) < 1e-9
+    assert abs(modeled[225 - 180] - 0.5) > 0.1
+    assert 0.0 < modeled.max() < 0.2
+    assert np.abs(np.diff(modeled, 2)).max() < 0.01      # smooth, no zig-zag
+    assert dist["alpha_total"] and dist["alpha_total"] > 0
     assert dist["callouts"]["P(total<=190)"]["modeled"] > 0
+
+
+def test_distribution_falls_back_to_the_grid_pmf_without_means():
+    """No mu_h/mu_a (legacy artifact) -> the overlay IS the artifact PMF
+    mean; nothing is fabricated."""
+    frame = SIMPLE[[c for c in SIMPLE.columns
+                    if c not in ("mu_h", "mu_a")]].copy()
+    for k in range(180, 281):
+        frame[f"p_push_total_{k}"] = 0.005
+    frame[f"p_push_total_225"] = 0.5
+    dist = nd.total_distribution(frame)
+    assert dist["alpha_total"] is None
+    assert abs(np.array(dist["modeled"])[225 - 180] - 0.5) < 1e-9
 
 
 def test_relativized_pairs_drop_pushes():

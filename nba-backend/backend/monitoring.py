@@ -923,9 +923,330 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
     return _dump(path, record)
 
 
-def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
+# ---------------------------------------------------------------------------
+# Run-Line & Totals Monitor (run-engine counterpart of the moneyline
+# monitor artifact — MLB ``run_engine_monitor_*.json`` shape, NBA data)
+# ---------------------------------------------------------------------------
+# The 2026-10-11 structural repair: this artifact used to ship the NB
+# distribution scorer's ``{run_line, totals}`` summary under BOTH
+# ``winner_cards`` and ``market_metrics``, so the Run-Engine Model card
+# rendered two mislabelled rows instead of MLB's per-market-line table, the
+# winner cards had no over_under/derived_ml sections at all, and
+# ``slate_history`` was never written — the page's Rolling ECE-Calibrated
+# History stayed on "first build starts empty" forever. Everything below is
+# the NHL/NFL port of MLB's card anatomy on NBA's integer grids.
+
+
+def _grid_col(base: str, x: float) -> str:
+    """Artifact grid column tag: '-' -> 'm', '.' -> '_', integral line drops
+    its trailing '.0' — ``p_push_total_225`` / ``p_home_cover_m2``."""
+    s = str(float(x))
+    if s.endswith(".0"):
+        s = s[:-2]
+    return f"{base}_{s.replace('-', 'm').replace('.', '_')}"
+
+
+def _reliability_ece(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
+    """Decile reliability ECE over finite (y, p) pairs (frontend mirror)."""
+    ok = np.isfinite(y) & np.isfinite(p)
+    y, p = y[ok], p[ok]
+    if len(y) < 20:
+        return float("nan")
+    edges = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = 0.0, 1.0 + 1e-12
+    idx = np.clip(np.digitize(p, edges[1:-1], right=False), 0, n_bins - 1)
+    errs = []
+    for b in range(n_bins):
+        m = idx == b
+        if m.sum() == 0:
+            continue
+        errs.append(abs(float(p[m].mean()) - float(y[m].mean())))
+    return float(np.mean(errs)) if errs else float("nan")
+
+
+def _rank_auc(y: np.ndarray, p: np.ndarray) -> float | None:
+    """Rank-based AUC (Mann-Whitney U); None for a single-class pool."""
+    y = np.asarray(y, dtype=bool)
+    p = np.asarray(p, dtype=float)
+    n_pos, n_neg = int(y.sum()), int((~y).sum())
+    if n_pos == 0 or n_neg == 0:
+        return None
+    ranks = pd.Series(p).rank(method="average").to_numpy()
+    return float((ranks[y].sum() - n_pos * (n_pos + 1) / 2.0)
+                 / (n_pos * n_neg))
+
+
+def _markets_logloss(y: np.ndarray, p: np.ndarray) -> float | None:
+    ok = np.isfinite(y) & np.isfinite(p)
+    y, p = y[ok], np.clip(p[ok], 1e-6, 1 - 1e-6)
+    if len(y) < 2:
+        return None
+    return round(float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))), 4)
+
+
+def _markets_card_metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    """MLB winner-card metric shape (push-excluded 2-way populations).
+
+    Argument order is (y, p) — outcomes first — the contract every call
+    site unpacks (the NHL 2026-10-11 / NFL 2026-09-24 pair-order fix: a
+    swapped call keeps Brier sane and sends logloss to ~5-7 nats).
+    """
+    ok = np.isfinite(y) & np.isfinite(p)
+    y, p = y[ok], np.clip(p[ok], 1e-6, 1 - 1e-6)
+    out: dict = {"n": int(len(y)), "actual_win_rate": None, "win_rate": None,
+                 "predicted_mean": None, "auc": None, "ece_raw": None,
+                 "ece_calibrated": None, "brier": None, "logloss": None}
+    if len(y) == 0:
+        return out
+    rate = round(float(y.mean()), 4)
+    out["actual_win_rate"] = rate
+    out["win_rate"] = rate
+    out["predicted_mean"] = round(float(p.mean()), 4)
+    out["brier"] = round(float(((p - y) ** 2).mean()), 4)
+    ece = _reliability_ece(y, p)
+    out["ece_raw"] = round(ece, 4)
+    out["ece_calibrated"] = round(ece, 4)
+    out["logloss"] = _markets_logloss(y, p)
+    auc = _rank_auc(y, p)
+    out["auc"] = round(auc, 4) if auc is not None else None
+    return out
+
+
+def _grid_values(df: pd.DataFrame, base: str, grid) -> np.ndarray | None:
+    """(n, len(grid)) numeric matrix of ``base_<line>`` columns, or None when
+    the artifact carries no complete grid for that namespace."""
+    cols = [_grid_col(base, float(x)) for x in grid]
+    if any(c not in df.columns for c in cols):
+        return None
+    return df[cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+
+
+def _two_way(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """2-way re-normalized P(side a) — push mass folded out of both sides."""
+    denom = a + b
+    ok = np.isfinite(a) & np.isfinite(b) & np.isfinite(denom) & (denom > 0)
+    out = np.full(a.shape, np.nan)
+    out[ok] = a[ok] / denom[ok]
+    return out
+
+
+def _fair_line(p_side: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    """Per-game FAIR line — grid argmin of |2-way P - 0.5|, ties to the
+    LOWER line (the page's ``fair_total_lines`` / ``fair_spread_thresholds``
+    semantics, so artifact and page price the same line). NaN when no grid
+    line can be priced — never fabricated."""
+    delta = np.abs(p_side - 0.5)
+    delta = np.where(np.isfinite(delta), delta, np.inf)
+    best = np.full(p_side.shape[0], np.nan)
+    best_delta = np.full(p_side.shape[0], np.inf)
+    for i in range(len(grid)):
+        take = delta[:, i] < best_delta - 1e-12
+        best_delta[take] = delta[take, i]
+        best[take] = float(grid[i])
+    best[~np.isfinite(best_delta)] = np.nan
+    return best
+
+
+def _column_at(mat: np.ndarray, grid: np.ndarray, line: np.ndarray) -> np.ndarray:
+    """Per-row lookup of ``mat``'s column at each row's own grid line."""
+    out = np.full(len(line), np.nan)
+    ok = np.isfinite(line)
+    pos = np.searchsorted(grid, line[ok])
+    valid = (pos >= 0) & (pos < len(grid))
+    grid_pos = np.clip(pos, 0, len(grid) - 1)
+    valid &= grid[grid_pos] == line[ok]
+    rows = np.flatnonzero(ok)[valid]
+    out[rows] = mat[rows, grid_pos[valid]]
+    return out
+
+
+def _pick_side(p_side: np.ndarray, y_side: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Favored-side framing (MLB ``compute_winner_cards``): every game
+    contributes the probability of the side the model picks and 1 when that
+    side won — so ``actual_win_rate`` IS ``win_rate`` (pick accuracy) and
+    ``predicted_mean`` is the mean pick probability, exactly as MLB / NHL /
+    NFL ship them."""
+    pick_home = np.where(np.isfinite(p_side), p_side >= 0.5, True)
+    p_pick = np.where(pick_home, p_side, 1.0 - p_side)
+    y_pick = np.where(pick_home, y_side, 1.0 - y_side)
+    return y_pick, p_pick
+
+
+def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
+    """The three binary winner cards from the decided OOF market rows —
+    MLB ``compute_winner_cards`` framing on the NBA grids:
+
+      over_under   pick Over at the game's own fair total (grid argmin of
+                   |2-way P(over) - 0.5|) else Under; total == line pushes
+                   excluded;
+      run_line     pick the side favored to cover the game's own fair
+                   spread threshold else the dog; margin == T pushes
+                   excluded;
+      derived_ml   pick the side with P > 50% off ``derived_ml`` — the run
+                   engine's own moneyline, distinct from the ensemble.
+    """
+    df = oof_rows
+    if df is None or not len(df):
+        return {}
+    n = len(df)
+    total = pd.to_numeric(df.get("total"), errors="coerce").to_numpy(float) \
+        if df.get("total") is not None else np.full(n, np.nan)
+    margin = pd.to_numeric(df.get("margin"), errors="coerce").to_numpy(float) \
+        if df.get("margin") is not None else np.full(n, np.nan)
+    sealed = (df.get("frame_view") == "sealed").to_numpy() \
+        if "frame_view" in df.columns else np.zeros(n, bool)
+
+    def _build(y: np.ndarray, p: np.ndarray,
+               sealed_ok: np.ndarray) -> dict:
+        """Card metrics over the pooled pool + the sealed-holdout twin
+        (``sealed_ok`` is the caller's row mask re-indexed onto y/p)."""
+        keep = np.isfinite(y) & np.isfinite(p)
+        if not keep.any():
+            return {}
+        card = _markets_card_metrics(y[keep], p[keep])
+        hold = keep & sealed_ok
+        card["holdout"] = (_markets_card_metrics(y[hold], p[hold])
+                           if hold.any() else {})
+        card["source"] = "oof_decided_store"
+        return card
+
+    cards: dict[str, dict] = {}
+
+    # --- over/under at each game's own fair total -------------------------
+    tg = np.asarray(config.TOTAL_GRID, dtype=float)
+    over = _grid_values(df, "p_over", tg)
+    under = _grid_values(df, "p_under", tg)
+    if over is not None and under is not None:
+        ft = _fair_line(_two_way(over, under), tg)
+        po = _column_at(over, tg, ft)
+        pu = _column_at(under, tg, ft)
+        p2 = _two_way(po, pu)
+        ok = np.isfinite(p2) & np.isfinite(total) & np.isfinite(ft) \
+            & (total != ft)
+        y_side = (total > ft).astype(float)
+        y, p = _pick_side(p2, y_side)
+        cards["over_under"] = _build(y[ok], p[ok], sealed[ok])
+
+    # --- run line at each game's own fair spread threshold ---------------
+    sg = np.asarray(config.SPREAD_GRID, dtype=float)
+    hc = _grid_values(df, "p_home_cover", sg)
+    ac = _grid_values(df, "p_away_cover", sg)
+    if hc is not None and ac is not None:
+        ft = _fair_line(_two_way(hc, ac), sg)
+        ph = _column_at(hc, sg, ft)
+        pa = _column_at(ac, sg, ft)
+        p2 = _two_way(ph, pa)
+        ok = np.isfinite(p2) & np.isfinite(margin) & np.isfinite(ft) \
+            & (margin != ft)
+        y_side = (margin > ft).astype(float)
+        y, p = _pick_side(p2, y_side)
+        cards["run_line"] = _build(y[ok], p[ok], sealed[ok])
+
+    # --- derived moneyline (pick-side) ----------------------------------
+    ml = pd.to_numeric(df.get("derived_ml"), errors="coerce").to_numpy(float) \
+        if df.get("derived_ml") is not None else np.full(n, np.nan)
+    ok = np.isfinite(ml) & np.isfinite(margin)
+    y_side = (margin > 0).astype(float)
+    y, p = _pick_side(ml, y_side)
+    cards["derived_ml"] = _build(y[ok], p[ok], sealed[ok])
+    return cards
+
+
+def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
+                           line: float) -> tuple[np.ndarray, np.ndarray]:
+    """(y, p) for one market line, 2-way push-excluded — the model-card
+    per-line scoring basis: ``over_<U>`` (total > U, pushes on total == U),
+    ``home_cover_<L>`` (margin > L, pushes on margin == L),
+    ``derived_moneyline`` (home-side, ties dead mass). Returns outcomes
+    first — the (y, p) contract the call sites unpack."""
+    n = len(df)
+    total = pd.to_numeric(df.get("total"), errors="coerce").to_numpy(float) \
+        if df.get("total") is not None else np.full(n, np.nan)
+    margin = pd.to_numeric(df.get("margin"), errors="coerce").to_numpy(float) \
+        if df.get("margin") is not None else np.full(n, np.nan)
+
+    def _col(base: str) -> np.ndarray:
+        c = _grid_col(base, line)
+        if c not in df.columns:
+            return np.full(n, np.nan)
+        return pd.to_numeric(df[c], errors="coerce").to_numpy(float)
+
+    if line_kind == "over":
+        po, pp = _col("p_over"), _col("p_push_total")
+        pu = 1.0 - po - np.where(np.isfinite(pp), pp, 0.0)
+        ok = np.isfinite(total) & np.isfinite(po) & (total != line) \
+            & ((po + pu) > 0)
+        y = (total > line).astype(float)
+        p = po / (po + pu)
+    elif line_kind == "spread":
+        ph, pp = _col("p_home_cover"), _col("p_push")
+        pa = 1.0 - ph - np.where(np.isfinite(pp), pp, 0.0)
+        ok = np.isfinite(margin) & np.isfinite(ph) & (margin != line) \
+            & ((ph + pa) > 0)
+        y = (margin > line).astype(float)
+        p = ph / (ph + pa)
+    else:  # derived moneyline — home side, ties excluded
+        ml = pd.to_numeric(df.get("derived_ml"), errors="coerce").to_numpy(float) \
+            if df.get("derived_ml") is not None else np.full(n, np.nan)
+        ok = np.isfinite(ml) & np.isfinite(margin) & (margin != 0)
+        y = (margin > 0).astype(float)
+        p = ml / (ml + (1.0 - ml))
+    y, p = y[ok], p[ok]
+    good = np.isfinite(p)
+    return y[good], p[good]
+
+
+def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:
+    """Per-line OOF metrics for the Run-Engine Model card (MLB
+    ``market_metrics`` shape): ECE/Brier/Logloss per canonical line over the
+    artifact's own rows. The run engine ships no calibration map, so
+    ECE-raw IS ECE-cal (the honest figure the frontend shows)."""
+    df = oof_market_rows
+    if df is None or not len(df):
+        return {}
+    out: dict = {}
+
+    def _add(key: str, y: np.ndarray, p: np.ndarray) -> None:
+        if not len(y):
+            return
+        m = _markets_card_metrics(y, p)
+        out[key] = {
+            "engine_ece_raw": m.get("ece_raw"),
+            "engine_ece_calibrated": m.get("ece_calibrated"),
+            "engine_brier": m.get("brier"),
+            "engine_logloss": m.get("logloss"),
+            "n": m.get("n"),
+        }
+
+    for u in config.RUN_ENGINE_FIXED_TOTALS:
+        y, p = _run_engine_line_pairs(df, "over", float(u))
+        _add(f"over_{u}", y, p)
+    for l in config.RUN_ENGINE_CANONICAL_SPREADS:
+        y, p = _run_engine_line_pairs(df, "spread", float(l))
+        _add(f"home_cover_{str(l).replace('.', '_')}", y, p)
+    y, p = _run_engine_line_pairs(df, "ml", 0.0)
+    _add("derived_moneyline", y, p)
+    return out
+
+
+def write_run_engine_monitor(path, date_c: str, markets=None,
                              calibration=None, config_meta=None,
-                             slate_history=None, dispersion=None) -> dict:
+                             dispersion=None, ml_reference=None,
+                             markets_persisted: bool = True,
+                             markets_persist_error=None) -> dict:
+    """``Run-Line & Totals Monitor`` artifact (MLB run-engine-monitor/v2
+    shape, NBA data): the three winner cards computed from THIS run's
+    decided OOF store, the per-line ``market_metrics`` + row-derived ``fit``
+    block for the model card / fit panel, the markets_persisted flags, and a
+    ``slate_history`` point per card dated today (the frontend folds the
+    dated monitors' accumulating histories into the rolling table).
+
+    ``markets`` is the persisted OOF market frame (kind='oof' rows); empty
+    frames yield empty cards — nothing fabricated. ``ml_reference`` is the
+    shared moneyline ensemble's pooled win rate — the derived-ML card's
+    comparison anchor, passed in by the caller that owns the moneyline OOF
+    store.
+    """
     # The fit block must report the ENGINE's constants, not a number a
     # refactor forgot: the draw count here used to be hardcoded at 4000 while
     # the derivation itself moved to the MLB pair (10k default, 50k SE-guard
@@ -934,11 +1255,39 @@ def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
         from backend import distributions as _dist_mod
     except ImportError:  # pragma: no cover - direct script/import fallback
         import distributions as _dist_mod
+
+    iso_date = (f"{date_c[:4]}-{date_c[4:6]}-{date_c[6:8]}"
+                if len(str(date_c)) == 8 and str(date_c).isdigit()
+                else str(date_c))
+    rows = markets if isinstance(markets, pd.DataFrame) else pd.DataFrame()
+    if "kind" in rows.columns:
+        rows = rows[rows["kind"].eq("oof")].copy()
+
+    cards = markets_winner_cards(rows)
+    slate_history: list[dict] = []
+    for card_key in ("over_under", "run_line", "derived_ml"):
+        c = cards.get(card_key) or {}
+        if not c.get("n"):
+            continue
+        slate_history.append({
+            "card": card_key,
+            "date": iso_date,
+            "ece_calibrated": c.get("ece_calibrated"),
+            "brier": c.get("brier"),
+            "logloss": c.get("logloss"),
+            "predicted_mean": c.get("predicted_mean"),
+            "n": c.get("n"),
+        })
+    if ml_reference and cards.get("derived_ml"):
+        cards["derived_ml"]["ml_reference"] = dict(ml_reference)
+
     record = {
-        "created_utc": pd.Timestamp.utcnow().isoformat(), "date": date_c,
-        "config": config_meta or {}, "winner_cards": metrics or {},
-        "market_metrics": metrics or {}, "calibration_cards": calibration or {},
-        "slate_history": slate_history or [],
+        "schema": "run-engine-monitor/v2",
+        "date": iso_date,
+        "markets_persisted": bool(markets_persisted),
+        "markets_persist_error": markets_persist_error,
+        "winner_cards": cards,
+        "slate_history": slate_history,
         "fit": {"distribution": "negative_binomial",
                 "mc_draws": _dist_mod.MC_DRAWS,
                 "mc_draws_tail": _dist_mod.MC_DRAWS_TAIL,
@@ -947,7 +1296,43 @@ def write_run_engine_monitor(path, date_c: str, metrics=None, markets=None,
                 "spread_grid": [min(config.SPREAD_GRID), max(config.SPREAD_GRID)],
                 "total_grid": [min(config.TOTAL_GRID), max(config.TOTAL_GRID)],
                 "half_stops": list(config.HALF_STOP_LINES)},
+        "market_metrics": _run_engine_market_metrics(rows),
+        "config": config_meta or {},
     }
+    # Sealed-holdout per-line metrics (MLB v3 / NHL parity): the last
+    # HOLDOUT_DAYS of OOF rows — stamped frame_view='sealed' — scored at the
+    # canonical lines against the same grids. The sealed window never fit
+    # the alpha layer nor the line calibrators, so this is the engine's
+    # honest recent-form evaluation, nested per line under each metric's own
+    # "holdout" key exactly like MLB's card shape.
+    hold_rows = None
+    if len(rows) and "frame_view" in rows.columns \
+            and (rows["frame_view"] == "sealed").any():
+        hold_rows = rows.loc[rows["frame_view"] == "sealed"]
+    if hold_rows is not None:
+        for u in config.RUN_ENGINE_FIXED_TOTALS:
+            y, p = _run_engine_line_pairs(hold_rows, "over", float(u))
+            if len(y):
+                entry = record["market_metrics"].get(f"over_{u}") or {}
+                entry["holdout"] = _markets_card_metrics(y, p)
+                record["market_metrics"][f"over_{u}"] = entry
+        for l in config.RUN_ENGINE_CANONICAL_SPREADS:
+            y, p = _run_engine_line_pairs(hold_rows, "spread", float(l))
+            if len(y):
+                key = f"home_cover_{str(l).replace('.', '_')}"
+                entry = record["market_metrics"].get(key) or {}
+                entry["holdout"] = _markets_card_metrics(y, p)
+                record["market_metrics"][key] = entry
+        y, p = _run_engine_line_pairs(hold_rows, "ml", 0.0)
+        if len(y):
+            entry = record["market_metrics"].get("derived_moneyline") or {}
+            entry["holdout"] = _markets_card_metrics(y, p)
+            record["market_metrics"]["derived_moneyline"] = entry
+        record["holdout_gate"] = {
+            "n_holdout": int(len(hold_rows)),
+            "note": (f"last {_dist_mod.HOLDOUT_DAYS} days of OOF rows; sealed "
+                     "from the alpha fit and the line calibrators"),
+        }
     # Sealed-holdout transparency (NHL 62d00fd / MLB v3 parity): the
     # monitor carries the gate scope so the evaluation numbers ship with
     # the record of what the alpha layer was allowed to fit on.

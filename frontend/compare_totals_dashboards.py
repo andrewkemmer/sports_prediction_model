@@ -1,11 +1,12 @@
-"""Local render test: MLB vs NBA Totals & Run Lines.
+"""Local render test: MLB vs the other three Totals & Run Lines pages.
 
-Renders BOTH pages through Streamlit's AppTest against their REAL
+Renders EVERY sport's page through Streamlit's AppTest against their REAL
 data_delivery artifacts and diffs the rendered element tree — headings,
-tabs, expanders, widget inventory and table schemas. The point is to compare
-what a user actually SEES, not what the source files look like.
+tabs, expanders, widget inventory, table schemas and the monitor's card /
+model-card / rolling-history contract — against MLB (the reference
+implementation).
 
-    python compare_totals_dashboards.py            # print both + the diff
+    python compare_totals_dashboards.py            # print all four + the diff
     python compare_totals_dashboards.py --assert   # non-zero on drift
 
 An earlier version of this harness staged synthetic 2099-dated artifacts into
@@ -13,12 +14,14 @@ data_delivery to force a deterministic frame. That was a mistake twice over:
 a future-dated file SHADOWS the real artifact (so the page under test silently
 stopped being the page users see), and the synthetic monitor block omitted
 `fit` entirely, which is exactly how an unguarded `int(None)` reached the
-rendered page unnoticed. Both sports ship real artifacts, so both are read
-as-is.
+rendered page unnoticed. All four sports ship real artifacts, so all four are
+read as-is.
 """
 from __future__ import annotations
 
 import argparse
+import ast
+import io
 import os
 import re
 import sys
@@ -27,11 +30,24 @@ from pathlib import Path
 FRONTEND = Path(__file__).resolve().parent
 sys.path.insert(0, str(FRONTEND))
 
+# Rewrap stdout for a non-UTF-8 console when run as a script (the fit-panel
+# captions carry λ/σ, which cp1252 cannot encode). Under pytest the capture
+# machinery OWNS sys.stdout — replacing it closes the capture tmpfile and
+# crashes the whole session at teardown, so leave it alone there.
+if "pytest" not in sys.modules and (
+        (getattr(sys.stdout, "encoding", "") or "").lower()
+        not in ("utf-8", "utf8")):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
+                                  errors="replace")
+
 # Each sport's page lives in its OWN module — rendering MLB's markets.py for
 # NBA would compare MLB against itself and "prove" nothing.
-PAGE_FILE = {"mlb": "markets.py", "nba": "nba_markets_page.py"}
+PAGE_FILE = {"mlb": "markets.py", "nba": "nba_markets_page.py",
+             "nhl": "nhl_markets_page.py", "nfl": "nfl_markets_page.py"}
+SPORTS = ("mlb", "nhl", "nba", "nfl")
 
-# MLB's three top-level sections, in order. NBA must reach parity on these.
+# MLB's three top-level sections, in order. The other three must reach
+# parity on these.
 REQUIRED_SECTIONS = (
     "Diagnostics",
     "Prediction History",
@@ -46,6 +62,17 @@ REQUIRED_TABS = ("Distribution", "Relativized", "Pooled lines",
                  "Game Total Lines", "Spread Lines")
 # Widget kinds the history + monitor sections must use, per the MLB page.
 REQUIRED_WIDGETS = ("selectbox", "TABLE", "metric", "TAB", "EXPANDER")
+# The winner-card metric row MLB renders (2026-10-11: every sport must show
+# the SAME seven metrics in the same slots — pooled AND sealed-holdout).
+REQUIRED_CARD_METRICS = ("Win rate", "AUC", "Pooled ECE-cal",
+                         "Holdout ECE-cal", "Pooled Brier",
+                         "Pooled Logloss", "Holdout AUC")
+# The two HTML blocks the monitor section must render (NBA shipped neither
+# before the 2026-10-11 structural repair).
+REQUIRED_HTML = ("Run-Engine Model per-line table",
+                 "Rolling ECE-Calibrated History (per winner card)")
+# MLB's totals-calibration confidence ladder (1-point steps from 50%).
+CONFIDENCE_LADDER = [50, 51, 52, 53, 54, 55]
 
 
 def _text_of(elements) -> list[str]:
@@ -70,6 +97,16 @@ def skeleton(app) -> list[str]:
             lines.append(f"HEADING :: {value.lstrip('#').strip()}")
         else:
             lines.append(f"markdown  :: {value[:70]}")
+    # HTML fb-box blocks the 70-char markdown truncation would hide: the
+    # run-engine model card's per-line table and the rolling-history header
+    # are exactly the two blocks the NBA page failed to render before the
+    # 2026-10-11 structural repair, so they get their own kind.
+    for element in app.markdown:
+        value = str(getattr(element, "value", ""))
+        if "MARKET LINE" in value and "LOG LOSS" in value:
+            lines.append("HTML       :: Run-Engine Model per-line table")
+        elif "Rolling ECE-Calibrated History" in value:
+            lines.append("HTML       :: Rolling ECE-Calibrated History (per winner card)")
     for value in _text_of(app.caption):
         lines.append(f"caption   :: {value[:70]}")
     for value in _text_of(app.info):
@@ -167,6 +204,36 @@ def check(sport: str, lines: list[str]) -> list[str]:
         if want not in kinds:
             failures.append(f"{sport}: no {want} rendered")
 
+    # Winner-card metric row — same seven metrics in the same slots.
+    metrics = [_label_of(l) for l in lines if _kind_of(l) == "metric"]
+    for want in REQUIRED_CARD_METRICS:
+        if want not in metrics:
+            failures.append(f"{sport}: winner cards miss metric {want!r}")
+
+    # The two HTML blocks (model card + rolling history heading).
+    html = [_label_of(l) for l in lines if _kind_of(l) == "HTML"]
+    for want in REQUIRED_HTML:
+        if want not in html:
+            failures.append(f"{sport}: monitor is missing {want!r}")
+
+    # Totals-calibration confidence ladder (MLB's 1-point steps from 50).
+    conf = [_label_of(l) for l in lines if _kind_of(l) == "selectbox"
+            and "Confidence (pick_prob" in _label_of(l)]
+    if not conf:
+        failures.append(f"{sport}: no confidence selectbox rendered")
+    else:
+        match = re.search(r"opts=(\[.*?\])", conf[0])
+        opts = None
+        if match:
+            try:
+                # AppTest may hand the options back as ints or strings.
+                opts = [int(x) for x in ast.literal_eval(match.group(1))]
+            except (ValueError, SyntaxError):
+                opts = None
+        if opts != CONFIDENCE_LADDER:
+            failures.append(f"{sport}: confidence ladder {opts} != MLB's "
+                            f"{CONFIDENCE_LADDER}")
+
     for line in lines:
         if "RAW ARTIFACT DUMP" in line:
             failures.append(f"{sport}: a section is dumping the raw artifact "
@@ -202,9 +269,9 @@ def main() -> int:
     for key in ("GITHUB_OWNER", "GITHUB_REPO", "GITHUB_BRANCH"):
         os.environ.setdefault(key, "")
 
-    rendered = {sport: render(sport) for sport in ("mlb", "nba")}
+    rendered = {sport: render(sport) for sport in SPORTS}
 
-    for sport in ("mlb", "nba"):
+    for sport in SPORTS:
         print("=" * 100)
         print(f"{sport.upper()} — Today's Totals & Run Lines")
         print("=" * 100)
@@ -215,16 +282,18 @@ def main() -> int:
     print("=" * 100)
     print("STRUCTURAL DIFF (headings / tabs / expanders)")
     print("=" * 100)
-    for sport in ("mlb", "nba"):
-        keys = {l.split(" ::")[0].strip() for l in rendered[sport]}
-        print(f"  {sport.upper()}: {sum(1 for l in rendered[sport] if l.split(' ::')[0].strip() in keys)} elements")
+    for sport in SPORTS:
+        kinds = {l.split(" ::")[0].strip() for l in rendered[sport]}
+        print(f"  {sport.upper()}: {len(rendered[sport])} elements, "
+              f"kinds={sorted(kinds)}")
     print()
-    for sport in ("nba", "mlb"):
-        other = "mlb" if sport == "nba" else "nba"
+    for sport in SPORTS:
+        if sport == "mlb":
+            continue
         mine = {l.split(" ::")[0].strip() for l in rendered[sport]}
-        theirs = {l.split(" ::")[0].strip() for l in rendered[other]}
-        print(f"  WIDGET KINDS {sport.upper()}: {sorted(mine)}")
-        print(f"  MISSING vs {other.upper()}: {sorted(theirs - mine)}")
+        theirs = {l.split(" ::")[0].strip() for l in rendered["mlb"]}
+        print(f"  {sport.upper()} MISSING vs MLB: {sorted(theirs - mine)}")
+        print(f"  {sport.upper()} EXTRA vs MLB:   {sorted(mine - theirs)}")
         print()
 
     print("=" * 100)
@@ -233,12 +302,17 @@ def main() -> int:
     for line in rendered["mlb"]:
         if line.startswith("TABLE"):
             print("  " + line)
-    print("\nNBA TABLE SCHEMAS")
-    for line in rendered["nba"]:
-        if line.startswith("TABLE"):
-            print("  " + line)
+    for sport in SPORTS:
+        if sport == "mlb":
+            continue
+        print(f"\n{sport.upper()} TABLE SCHEMAS")
+        for line in rendered[sport]:
+            if line.startswith("TABLE"):
+                print("  " + line)
 
-    failures = (check("mlb", rendered["mlb"]) + check("nba", rendered["nba"]))
+    failures: list[str] = []
+    for sport in SPORTS:
+        failures += check(sport, rendered[sport])
     print()
     print("=" * 100)
     if failures:
@@ -246,8 +320,9 @@ def main() -> int:
         for line in failures:
             print("  - " + line)
     else:
-        print("PARITY CONTRACT: PASS — both pages satisfy MLB's section, tab, "
-              "expander and widget contract")
+        print("PARITY CONTRACT: PASS — all four pages satisfy MLB's section, "
+              "tab, expander, widget, winner-card, model-card, rolling-"
+              "history and confidence-ladder contract")
     return 1 if (failures and args.strict) else 0
 
 

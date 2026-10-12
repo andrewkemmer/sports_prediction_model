@@ -53,7 +53,9 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 OWN_LINE_EDGES, OWN_LINE_LABELS,
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 calibration_curve, chart_calibration,
-                                chart_distribution, chart_game_total_curve)
+                                chart_distribution, chart_game_total_curve,
+                                fit_total_dispersion,
+                                smooth_modeled_total_pmf)
 
 # Integer-support grids (mirror of config.SPREAD_GRID / config.TOTAL_GRID —
 # the artifact's own column families; NHL-sized, NOT the NFL ranges).
@@ -75,6 +77,13 @@ DEEP_LINE_CAPTION_MAG = 6.0
 # Relativized offsets (integers — NHL totals are integer-support; ±2 keeps
 # the shifted lines inside the 4…12 grid for virtually every fair total).
 OFFSET_EDGES = [-2, -1, 0, 1, 2]
+
+# Cumulative percent-confidence thresholds for the totals calibration card
+# — MLB's 1-point steps 50-55 (``market_diagnostics.TOTALS_CONF_THRESHOLDS``
+# parity). The previous [0, 50, 55, 60, 65, 70] ladder was a 5-point list
+# MLB never shipped, and its 0 default meant "no confidence filter at all"
+# while MLB opens at pick_prob > 50% and steps one point at a time.
+TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
 
 # Pooled fixed lines for the "Pooled lines" tab — the canonical totals the
 # monitor's per-line metrics score (config.RUN_ENGINE_FIXED_TOTALS).
@@ -128,11 +137,14 @@ def _2way(po: float, pu: float) -> Optional[float]:
 def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
     """Observed P(total=k) vs modeled mean per-game total PMF.
 
-    Modeled = average over games of the total PMF — read directly from the
-    artifact's per-game ``p_push_total_<U>`` columns (P(total == U); the
-    totals-push namespace, never the margin's ``p_push_<U>``); observed =
-    the actual totals histogram. Mirrors MLB's total_distribution (observed
-    vs modeled bars/line).
+    Modeled = average over games of the NB⊗NB total convolution built from
+    the artifact's per-game ``mu_h``/``mu_a`` (MLB's construction — a smooth
+    analytic overlay; the dispersion is recovered from the model's own
+    ``p_push_total_<U>`` grid PMF, never from outcomes). The published grid
+    PMF itself is calibrated POINTWISE, so it zig-zags when averaged and is
+    kept as ``modeled_grid`` instead of being plotted. Observed = the actual
+    totals histogram. Mirrors MLB's total_distribution (observed vs modeled
+    bars/line).
     """
     empty = {"ks": list(range(kmax + 1)), "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
@@ -142,30 +154,62 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
     total = decided["total"].to_numpy(float)
     ks = np.arange(0, kmax + 1)
     observed = np.array([(total == k).mean() for k in ks])
-    modeled = np.zeros(len(ks))
+    modeled_grid = np.zeros(len(ks))
+    grid_cols: list[str] = []
     for U in TOTAL_GRID:
         col = _col("p_push_total", U)
         if col not in decided.columns:
             continue
         if U <= kmax:
-            modeled[U] = float(decided[col].mean())
-    # normalized (grid mass may not capture < 4 / > 12 exactly; keep both
-    # series on the same support and renormalize the modeled mass)
-    msum = modeled.sum()
-    if msum > 0:
-        modeled = modeled / msum
+            modeled_grid[U] = float(decided[col].mean())
+        grid_cols.append(col)
+    # Published grid PMF, renormalized (grid mass may not capture < 4 / > 12
+    # exactly; keep both series on the same support). Kept in the dict as
+    # ``modeled_grid`` — it is what the artifact prices from.
+    gsum = modeled_grid.sum()
+    if gsum > 0:
+        modeled_grid = modeled_grid / gsum
+
+    # MLB's MODELED SERIES (2026-10-12): the analytic NB⊗NB convolution of
+    # the model's per-game means, not the published grid PMF. The grid PMF is
+    # calibrated POINTWISE (the causal whole-CDF map fits one transform per
+    # integer total, then renormalizes), so plotting it zig-zags — that was
+    # the jagged orange line MLB's chart never shows. The dispersion is
+    # recovered from the model's OWN probabilities (never the outcomes), so
+    # the overlay stays an honest picture of what the model believes.
+    alpha = None
+    modeled = modeled_grid
+    if grid_cols and {"mu_h", "mu_a"}.issubset(decided.columns):
+        grid_pmf = (decided[grid_cols]
+                    .apply(pd.to_numeric, errors="coerce").to_numpy(float))
+        alpha = fit_total_dispersion(
+            pd.to_numeric(decided["mu_h"], errors="coerce").to_numpy(float),
+            pd.to_numeric(decided["mu_a"], errors="coerce").to_numpy(float),
+            [int(c.rsplit("_", 1)[-1]) for c in grid_cols], grid_pmf)
+        if alpha is not None:
+            modeled = smooth_modeled_total_pmf(
+                pd.to_numeric(decided["mu_h"], errors="coerce").to_numpy(float),
+                pd.to_numeric(decided["mu_a"], errors="coerce").to_numpy(float),
+                alpha, ks)
+    alpha_txt = (f"α={alpha:.3f}" if alpha is not None else "raw grid PMF")
     return {
         "ks": ks.tolist(),
         "observed": [round(float(v), 5) for v in observed],
         "modeled": [round(float(v), 5) for v in modeled],
+        "modeled_grid": [round(float(v), 5) for v in modeled_grid],
+        "alpha_total": alpha,
         "callouts": {
             "P(total<=4)": {"observed": round(float(observed[:5].sum()), 4),
                             "modeled": round(float(modeled[:5].sum()), 4)},
             "P(total>=10)": {"observed": round(float(observed[10:].sum()), 4),
                              "modeled": round(float(modeled[10:].sum()), 4)},
-            "note": ("Per-game total PMFs from the NB Monte Carlo score "
-                     "draws; integer-support means the whole-number mass "
-                     "IS the push band."),
+            "note": (f"Modeled line = mean per-game NB⊗NB convolution of "
+                     f"the model's mu_h/mu_a ({alpha_txt}; dispersion "
+                     "recovered from the model's own grid PMF, never from "
+                     "outcomes) — MLB's construction. The pointwise-"
+                     "calibrated grid PMF stays in the artifact; "
+                     "integer-support means the whole-number mass IS the "
+                     "push band."),
         },
         "n_games": int(len(decided)),
         "warning": None,
@@ -1041,10 +1085,14 @@ def fold_slate_history(monitors: list[dict]) -> dict[str, list[dict]]:
     ``over_under`` / ``run_line`` / ``derived_ml``) plus the metric fields
     ``date``, ``ece_calibrated``, ``brier``, ``logloss``,
     ``predicted_mean``, ``n`` — the MLB rolling-point shape). The fold
-    concatenates every dated file's entries newest-first and groups by
-    ``card``; entries without a ``card`` key are ignored (never fabricated,
-    never guessed). Empty input -> empty dict -> the page renders MLB's
-    first-build empty-state wording."""
+    concatenates every dated file's entries and groups by ``card``;
+    entries without a ``card`` key are ignored (never fabricated, never
+    guessed). The per-card series is then sorted OLDEST-FIRST by ``date``
+    — the monitor family enumerates newest-first, so the raw concatenation
+    would hand ``series[-10:]`` the ten OLDEST points in descending order
+    while the renderer (MLB's ``_render_rolling_history`` twin) reads
+    ``[-10:]`` as "the last 10". Empty input -> empty dict -> the page
+    renders MLB's first-build empty-state wording."""
     out: dict[str, list[dict]] = {}
     for mon in monitors or []:
         for entry in mon.get("slate_history") or []:
@@ -1052,6 +1100,8 @@ def fold_slate_history(monitors: list[dict]) -> dict[str, list[dict]]:
             if not card:
                 continue
             out.setdefault(str(card), []).append(entry)
+    for series in out.values():
+        series.sort(key=lambda pt: str(pt.get("date") or ""))
     return out
 
 
