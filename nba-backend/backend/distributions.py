@@ -1045,6 +1045,17 @@ CRPS_MIN_HISTORY = 200
 # to revert to legacy pricing; maps bundles without the NBA alphas key also
 # price legacy regardless of this flag.
 NBA_SIDE_DISPERSION = True
+# NBA skew/tailweight layer on the causal warp (Step 2; judged in scratch
+# A/B scratch/nba_skew_warp_ab.py before enabling): two extra GLOBAL warp
+# coefficients for TOTALS only (margin intentionally excluded after the
+# attempt-1 A/B: the joint refit absorbs the layer there) -- Jones-Pewsey
+# sinh-arcsinh, out =
+# Phi(sinh(eps*asinh(Phi^-1(w)) - delta)) on top of the level-dependent
+# logit warp w. eps = exp(c[6]) tailweight (<1 heavier tails), delta =
+# c[7] skew. Zero coefficients reduce EXACTLY to the legacy warp, so the
+# admission gate semantics are unchanged; bundles with 6-coefficient maps
+# price as before regardless of this flag.
+NBA_SKEW_WARP = False
 
 
 def _distribution_blocks(frame):
@@ -1151,12 +1162,22 @@ def _distribution_raw_cdf(h, a, kind, alphas=None):
 
 def _distribution_transform(cdf, design, coefficients):
     """One increasing map per game shared by ALL thresholds (valid CDF)."""
-    from scipy.special import expit, logit
+    from scipy.special import expit, logit, ndtr, ndtri
     coefficients = np.asarray(coefficients, float)
     shift = design @ coefficients[:3]
-    slope = np.exp(design @ coefficients[3:])
+    slope = np.exp(design @ coefficients[3:6])
     out = expit(logit(np.clip(cdf, 1e-12, 1 - 1e-12)) * slope[:, None]
                 + shift[:, None])
+    if (len(coefficients) >= 8
+            and (coefficients[6] != 0. or coefficients[7] != 0.)):
+        # Jones-Pewsey sinh-arcsinh layer (2026-10-12, Step 2): skew and
+        # tailweight the level-dependent warp cannot express. eps < 1
+        # fattens both tails, eps > 1 thins them; delta shifts asymmetry.
+        # eps=1, delta=0 is the exact identity on w.
+        w = np.clip(out, 1e-12, 1 - 1e-12)
+        z = ndtri(w)
+        tail = np.exp(coefficients[6]) * np.arcsinh(z) - coefficients[7]
+        out = ndtr(np.sinh(tail))
     out[cdf <= 0.] = 0.
     out[cdf >= 1.] = 1.
     return out
@@ -1203,21 +1224,47 @@ def _fit_distribution_map(h, a, outcome, kind, alphas=None):
     """
     from scipy.optimize import minimize
     from scipy.special import logit
+    skew_warp = (DISTRIBUTION_SPORT == "nba" and NBA_SKEW_WARP
+                and kind == "total")
+    n_coef = 8 if skew_warp else 6
     y = np.asarray(outcome, float)
     valid = np.isfinite(y) & np.isfinite(h) & np.isfinite(a)
     h, a, y = h[valid], a[valid], y[valid]
     if len(y) < CRPS_MIN_HISTORY:
-        return [0.] * 6
+        return [0.] * n_coef
     support, raw = _distribution_raw_cdf(h, a, kind, alphas)
     design = _distribution_design(h, a)
     logits = logit(np.clip(raw, 1e-12, 1 - 1e-12))
     target = (y[:, None] <= support[None, :]).astype(float)
     def loss_gradient(beta):
-        from scipy.special import expit
-        shift, slope = design @ beta[:3], np.exp(design @ beta[3:])
-        cdf = expit(logits * slope[:, None] + shift[:, None])
-        cdf[raw <= 0.] = 0.; cdf[raw >= 1.] = 1.
-        derivative = cdf * (1 - cdf)
+        from scipy.special import expit, ndtr, ndtri
+        shift, slope = design @ beta[:3], np.exp(design @ beta[3:6])
+        warp = expit(logits * slope[:, None] + shift[:, None])
+        if skew_warp:
+            # u-derivative: out = Phi(sinh(t)), t = eps*asinh(z) - delta,
+            # z = Phi^-1(w); chains z <- w <- u (the level-warped logit).
+            w = np.clip(warp, 1e-12, 1 - 1e-12)
+            z = ndtri(w)
+            eps = np.exp(beta[6])
+            arg = eps * np.arcsinh(z) - beta[7]
+            sinh_t = np.sinh(arg)
+            cdf = ndtr(sinh_t)
+            root2pi = np.sqrt(2 * np.pi)
+            phi_z = np.maximum(np.exp(-.5 * z ** 2) / root2pi, 1e-300)
+            phi_s = np.exp(-.5 * sinh_t ** 2) / root2pi
+            cosh_t = np.cosh(arg)
+            derivative = (phi_s * cosh_t * eps
+                          / (np.sqrt(1 + z ** 2) * phi_z)
+                          * warp * (1 - warp))
+            # Degenerate grid cells contribute no gradient, exactly as the
+            # legacy path where cdf*(1-cdf) is 0 after the 0/1 clamp.
+            derivative[(raw <= 0.) | (raw >= 1.)] = 0.
+        else:
+            cdf = warp.copy()
+        cdf[raw <= 0.] = 0.
+        cdf[raw >= 1.] = 1.
+        if not skew_warp:
+            derivative = cdf * (1 - cdf)
         if kind == "margin" and DISTRIBUTION_SPORT != "nfl":
             j = int(np.searchsorted(support, 0))
             # Both CDF thresholds share the average after tie resolution.
@@ -1231,11 +1278,23 @@ def _fit_distribution_map(h, a, outcome, kind, alphas=None):
         g = 2. * error * derivative / len(y)
         gradient = np.r_[design.T @ g.sum(axis=1),
                          design.T @ (g * logits * slope[:, None]).sum(axis=1)]
+        if skew_warp:
+            # beta6/beta7 act on t directly (w fixed under them), so no
+            # u chain: d out/d beta6 = phi_s*cosh*eps*asinh(z),
+            #          d out/d beta7 = -phi_s*cosh.
+            g_direct = 2. * error / len(y)
+            gradient = np.r_[gradient,
+                             float((g_direct * phi_s * cosh_t * eps
+                                    * np.arcsinh(z)).sum()),
+                             float(-(g_direct * phi_s * cosh_t).sum())]
         penalty = .01 * np.dot(beta, beta)
         return loss + penalty, gradient + .02 * beta
-    result = minimize(loss_gradient, np.zeros(6), jac=True, method="L-BFGS-B",
-                      bounds=[(-2., 2.)] * 3 + [(-1.5, 1.5)] * 3,
-                      options={"maxiter": 100, "ftol": 1e-8})
+    bounds = ([(-2., 2.)] * 3 + [(-1.5, 1.5)] * 3
+              + ([(-.7, .7), (-1., 1.)] if skew_warp else []))
+    result = minimize(loss_gradient, np.zeros(n_coef), jac=True,
+                      method="L-BFGS-B", bounds=bounds,
+                      options={"maxiter": 150 if skew_warp else 100,
+                               "ftol": 1e-8})
     if not result.success or not np.isfinite(result.x).all():
         raise RuntimeError(f"CRPS calibration failed: {result.message}")
     return result.x.tolist()
@@ -1247,7 +1306,11 @@ def _distribution_cdfs(frame, maps):
     out = {}
     for kind in ("total", "margin"):
         support, raw = _distribution_raw_cdf(h, a, kind, maps.get("alphas"))
-        cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 6))
+        default_map = [0.] * (8 if (DISTRIBUTION_SPORT == "nba"
+                                    and NBA_SKEW_WARP
+                                    and kind == "total") else 6)
+        cdf = _distribution_transform(raw, design, maps.get(kind,
+                                                            default_map))
         if kind == "margin":
             cdf = _distribution_no_tie(cdf, support)
         out[kind] = (support, cdf)
@@ -1398,10 +1461,12 @@ def causal_distribution_frame(frame):
             # identity CDFs. No same-origin fit performance selects the map.
             admitted[kind] = bool(len(differences) >= CRPS_MIN_HISTORY
                                   and differences.mean() < 0.)
-            if not admitted[kind]: maps[kind] = [0.] * 6
+            if not admitted[kind]: maps[kind] = [0.] * len(maps[kind])
         current = frame.iloc[np.flatnonzero(mask)]
         part = _distribution_price(current, maps)
-        baseline = dict(candidate, total=[0.] * 6, margin=[0.] * 6)
+        baseline = dict(candidate,
+                        total=[0.] * len(candidate["total"]),
+                        margin=[0.] * len(candidate["margin"]))
         cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
         for kind in ("total", "margin"):
             support, cdf = cc[kind]
@@ -1420,7 +1485,7 @@ def causal_distribution_frame(frame):
     for kind in ("total", "margin"):
         difference = np.concatenate(evidence[kind])
         if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
-            maps[kind] = [0.] * 6
+            maps[kind] = [0.] * len(maps[kind])
     bundle = {"method": "causal_lattice_crps", "scope": "whole_cdf",
               "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
               "maps": maps, "origins": origins, "fit_n": len(frame),
