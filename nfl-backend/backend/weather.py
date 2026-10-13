@@ -597,8 +597,17 @@ def _requeue_deferred_batches(
     recovered = 0
     attempted = 0
     unattempted = 0
+    # 2026-10-13 run-log review: this pass used to inherit the SWEEP's
+    # streak, so a sweep that ended at/over the abort line (streak 48 on
+    # that run, 18 on the top-up's) tripped the check on index 0 and the
+    # "one paced re-attempt" announced on the line above never happened —
+    # all 48 deferred batches went unattempted.  The abort line therefore
+    # bounds THIS pass on ITS OWN consecutive dead batches (12 paced probes,
+    # ~a minute); the global streak keeps describing the sweep for the
+    # callers that follow.
+    dead_streak = 0
     for index, (batch, chunk_start, chunk_end) in enumerate(deferred):
-        if _rate_limited_out():
+        if dead_streak >= _RATE_LIMIT_ABORT_STREAK:
             unattempted = len(deferred) - index
             break
         if index:
@@ -609,17 +618,18 @@ def _requeue_deferred_batches(
         )
         attempted += 1
         if result is None:
+            dead_streak += 1
             continue
+        dead_streak = 0
         by_key.update(result)
         recovered += 1
     if unattempted:
         logger.warning(
             "Open-Meteo archive requeue: stopping after %d consecutive "
-            "dead batches (streak %d >= %d) - %d deferred batch(es) not "
+            "dead batches (abort line %d) - %d deferred batch(es) not "
             "re-attempted; missing games recover via the same-run top-up "
             "and the next run's cache-miss pass",
-            _rate_limit_streak(), _rate_limit_streak(),
-            _RATE_LIMIT_ABORT_STREAK, unattempted)
+            dead_streak, _RATE_LIMIT_ABORT_STREAK, unattempted)
     elif attempted:
         logger.info(
             "Open-Meteo archive requeue: recovered %d of %d deferred "
@@ -672,11 +682,23 @@ def _fetch_batch_range(
         response = _get_with_retry(url, params=params,
                                    timeout=_REQUEST_TIMEOUT_SEC,
                                    defer_on_429=defer_on_429)
-        if defer_on_429 and response.status_code == 429:
-            # Deferred, not failed.  The sweep queues this batch for one
-            # paced re-attempt; one warning per dead batch would bury the
-            # log during a long closure, so the sweep accounts for its
-            # deferrals in a single line instead.
+        if response.status_code == 429:
+            # Rate-limited, never dead-for-good: None in BOTH modes, so a
+            # 429 joins the requeue instead of raising into the generic
+            # failure handler (which returns {} and silently drops the
+            # batch from the deferred list).  The sweep stays quiet — one
+            # warning per dead batch would bury the log during a long
+            # closure, and the sweep counts its deferrals in a single line —
+            # while a non-defer caller (the recovery pass's first batch, the
+            # recent/forecast phases) has already logged its cooldown and
+            # gets one explicit line here.
+            if not defer_on_429:
+                logger.warning(
+                    "Open-Meteo rate limited after cooldown+probe "
+                    "(%s..%s, source=%s) - no data for this batch; missing "
+                    "games stay NaN and recover via the requeue, the "
+                    "same-run top-up or the next run's cache-miss pass",
+                    start_date, end_date, source)
             return None
         response.raise_for_status()
         payload = response.json()
@@ -698,8 +720,19 @@ def _fetch_batch_range(
 def _fetch_batched_weather(
     targets: list[dict],
     now: datetime,
+    *,
+    cooldown_first_batch: bool = False,
 ) -> dict[tuple[str, date], dict[str, list]]:
-    """Fetch paced archive/recent-past/forecast hourly series for all targets."""
+    """Fetch paced archive/recent-past/forecast hourly series for all targets.
+
+    ``cooldown_first_batch`` is the RECOVERY pass's mode (the same-run
+    top-up): its first archive batch runs the non-defer client, so a closed
+    window costs one bounded cooldown + one probe before the batch defers,
+    instead of the whole gap set burning into a closed window at sweep pace
+    (2026-10-13 run: 18/18 top-up batches deferred in 39s and 142 games
+    still shipped without weather).  The remaining batches keep defer mode —
+    the sweep itself never sleeps.
+    """
     by_key: dict[tuple[str, date], dict[str, list]] = {}
     if not targets:
         return by_key
@@ -751,13 +784,16 @@ def _fetch_batched_weather(
         # at its steady pace however long the window stays shut; only the
         # requeue below is bounded by the dead-batch streak.
         deferred: list[tuple[list[tuple[str, float, float]], date, date]] = []
+        first_batch = True
         for chunk_start, chunk_end in windows:
             for i in range(0, len(locations), _BATCH_SIZE):
                 batch = locations[i:i + _BATCH_SIZE]
                 result = _fetch_batch_range(
                     batch, chunk_start, chunk_end,
-                    source=OPEN_METEO_ARCHIVE, defer_on_429=True,
+                    source=OPEN_METEO_ARCHIVE,
+                    defer_on_429=not (cooldown_first_batch and first_batch),
                 )
+                first_batch = False
                 if result is None:
                     deferred.append((batch, chunk_start, chunk_end))
                 else:
@@ -806,7 +842,10 @@ def _fetch_batched_weather(
                 past_days=(today - recent_start).days + 1,
                 forecast_days=1,
             )
-            for key, series in recent.items():
+            # A rate-limited/failed batch yields None (never data), so the
+            # phase skips instead of crashing on .items() (2026-10-13
+            # review: the 429 path used to raise into the caller here).
+            for key, series in (recent or {}).items():
                 by_key.setdefault(key, series)
 
     # Today/future forecasts are capped at Open-Meteo's supported horizon.
@@ -819,7 +858,7 @@ def _fetch_batched_weather(
             source=OPEN_METEO_FORECAST,
             forecast=True, past_days=1, forecast_days=forecast_days,
         )
-        for key, series in future.items():
+        for key, series in (future or {}).items():
             by_key.setdefault(key, series)
     return by_key
 
@@ -1109,8 +1148,13 @@ def fetch_games_weather(
             # the gap games' windows, every 429 defers instead of waiting,
             # and _RATE_LIMIT_ABORT_STREAK still caps its requeue.
             _reset_rate_limiter()
-        series_by_key = _fetch_batched_weather(still_missing,
-                                               fetched_at.to_pydatetime())
+        # The cooldown belongs to the RECOVERY pass (``_pass`` > 0): the
+        # main sweep keeps its never-sleep contract from the 2026-10-11
+        # review, while the gap-only pass — whose failure means shipping a
+        # hole — earns one bounded cooldown + probe before deferring.
+        series_by_key = _fetch_batched_weather(
+            still_missing, fetched_at.to_pydatetime(),
+            cooldown_first_batch=bool(_pass))
         fetched_ids: set[str] = set()
         for target in still_missing:
             # A kickoff at (or just after) 00:00 UTC has no earlier hour on
@@ -1165,14 +1209,18 @@ def fetch_games_weather(
         # shipped with a single INFO). The note documents the self-heal:
         # these game_ids stay out of the cache, so the next run's cache-miss
         # set refetches exactly and only them.
+        # 2026-10-13 run-log review: the numerator printed len(result) —
+        # the AVAILABLE count — as the number that LACKS records
+        # ("1881/2023 eligible games lack ... (142 remain missing)").
+        # It is the gap count; the INFO line above owns the available one.
         have_ids = set(result["game_id"].astype(str)) if not result.empty \
             else set()
         gaps = [t["game_id"] for t in targets
                 if str(t["game_id"]) not in have_ids]
         logger.warning(
             "PIT weather: %d/%d eligible games lack strict pre-kickoff "
-            "records (%d remain missing after the same-run top-up, e.g. "
-            "%s); their weather features stay NaN and the next run's "
-            "cache-miss pass refetches only these games",
-            len(result), len(targets), len(gaps), ", ".join(map(str, gaps[:5])))
+            "records after the same-run top-up (e.g. %s); their weather "
+            "features stay NaN and the next run's cache-miss pass refetches "
+            "only these games",
+            len(gaps), len(targets), ", ".join(map(str, gaps[:5])))
     return result

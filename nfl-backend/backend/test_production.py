@@ -625,7 +625,7 @@ with tempfile.TemporaryDirectory() as _weather_cache_dir:
     weather_mod._save_cache(_weather_cache_path, _pending_cached)
     _forecast_fetch_calls = []
 
-    def _fake_pending_fetch(targets, now):
+    def _fake_pending_fetch(targets, now, **_kw):
         _forecast_fetch_calls.append(now)
         return {
             (targets[0]["stadium"], targets[0]["kickoff_utc"].date()): {
@@ -764,7 +764,7 @@ _midnight_targets = weather_mod._targets(_midnight_game)
 _midnight_key_day = _midnight_targets[0]["kickoff_utc"].date()
 
 
-def _midnight_fetch(_targets, _now):
+def _midnight_fetch(_targets, _now, **_kw):
     return {
         (("MetLife Stadium"), _midnight_key_day): {
             "time": [f"{_midnight_key_day}T00:00:00Z"],
@@ -5530,11 +5530,13 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
         _pa_outdoor_game("PA_G1", "Gillette Stadium", "2024-09-02"),
     ])
     _pa_calls = []
+    _pa_flags = []          # cooldown_first_batch per _fetch_batched_weather call
 
-    def _pa_flaky_fetch(targets, now):
+    def _pa_flaky_fetch(targets, now, **_kw):
         # Pass 1: the "429-exhausted" batch answers for the first target
         # only; pass 2 (the top-up) recovers the remaining gap.
         _pa_calls.append([t["game_id"] for t in targets])
+        _pa_flags.append(_kw.get("cooldown_first_batch"))
         take = targets[:1] if len(_pa_calls) == 1 else targets
         out = {}
         for t in take:
@@ -5551,12 +5553,16 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
                 now=pd.Timestamp("2024-09-03T12:00:00Z"))
     finally:
         weather_mod._fetch_batched_weather = _pa_orig_fetch
-    check("the same-run top-up recovers games a first-pass batch lost",
+    check("the same-run top-up recovers games a first-pass batch lost, and "
+          "ONLY the recovery pass runs with cooldown_first_batch (the main "
+          "sweep keeps its never-sleep contract)",
           len(_pa_calls) == 2
           and _pa_calls[0] == ["PA_G0", "PA_G1"]
           and _pa_calls[1] == ["PA_G1"]
+          and _pa_flags == [False, True]
           and set(_pa_topup["game_id"]) == {"PA_G0", "PA_G1"},
-          f"calls={_pa_calls}, got={list(_pa_topup['game_id']) if len(_pa_topup) else []}")
+          f"calls={_pa_calls}, flags={_pa_flags}, "
+          f"got={list(_pa_topup['game_id']) if len(_pa_topup) else []}")
 
     _pa_five = pd.DataFrame([
         _pa_outdoor_game(gid, stadium, day)
@@ -5569,7 +5575,7 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
         )
     ])
 
-    def _pa_short_fetch(targets, now):
+    def _pa_short_fetch(targets, now, **_kw):
         # 4 of 5 games answer on both passes; PA_F4 stays 429-blocked even
         # through the top-up (its batch keeps failing).
         out = {}
@@ -5595,10 +5601,13 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
         weather_mod._fetch_batched_weather = _pa_orig_fetch
         weather_mod.logger.warning, weather_mod.logger.info = _pa_orig_warn, _pa_orig_info
     check("a weather hole above the 80% line is WARNING-visible with the "
-          "self-heal note (2026-10-09's silent 58-game hole)",
+          "self-heal note and the GAP count (2026-10-09's silent 58-game "
+          "hole; 2026-10-13's warning printed the AVAILABLE count as the "
+          "one that lacks records: \"1881/2023 lack ... (142 remain missing)\")",
           len(_pa_partial) == 4
-          and any("lack strict pre-kickoff" in w and "cache-miss" in w
-                  and "PA_F4" in w for w in _pa_warns),
+          and any("1/5 eligible games lack" in w and "cache-miss" in w
+                  and "PA_F4" in w and "4/5 eligible games lack" not in w
+                  for w in _pa_warns),
           f"warns={_pa_warns}")
 check("the top-up logs a gap-only second pass before refetching",
       any("PIT weather top-up" in i and "1 game(s)" in i for i in _pa_infos),

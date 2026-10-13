@@ -387,7 +387,13 @@ def test_requeue_stops_at_the_abort_line_and_names_the_recovery_paths(
     stops probing — a dead batch costs one paced request now, so the line
     bounds the requeue at about a minute of waste — and the warning names
     both recovery paths.  The SWEEP itself is never aborted: it completes
-    all 13 windows despite the streak."""
+    all 13 windows despite the streak.
+
+    The 2026-10-13 review changed WHICH streak bounds the pass: it used to
+    inherit the sweep's, so a sweep that ended past the line tripped the
+    check on index 0 and the pass attempted NOTHING.  The line now bounds
+    the pass on its own consecutive dead batches — 12 paced probes here —
+    while the sweep's 13 dead batches still stand."""
     state = {"archive": 0}
 
     def fake_batch_range(locations, start_date, end_date, *, source,
@@ -412,15 +418,125 @@ def test_requeue_stops_at_the_abort_line_and_names_the_recovery_paths(
     with caplog.at_level(logging.INFO):
         weather._fetch_batched_weather(targets, now)
 
-    assert state["archive"] == 13, (
-        f"the sweep completes every window despite the streak: {state}")
+    assert state["archive"] == 13 + weather._RATE_LIMIT_ABORT_STREAK, (
+        "the sweep completes every window, then the pass probes exactly "
+        f"its own abort line: {state}")
     warnings = [m for m in caplog.messages if "requeue" in m
                 and "not re-attempted" in m]
     assert len(warnings) == 1, caplog.messages
-    assert "13 deferred" in warnings[0], warnings[0]
+    assert "1 deferred" in warnings[0], warnings[0]
+    assert "12 consecutive dead batches" in warnings[0], warnings[0]
     assert "top-up" in warnings[0] and "cache-miss" in warnings[0], (
         "the warning must name the recovery paths")
     assert weather._rate_limit_streak() >= weather._RATE_LIMIT_ABORT_STREAK
+
+
+def test_requeue_probes_a_sweep_that_ended_past_the_abort_line(
+        monkeypatch, caplog):
+    """2026-10-13 run-log evidence: the archive sweep ended at streak 48
+    (48 of 448 batches deferred), the INFO line promised "one paced
+    re-attempt follows", and the requeue then tripped its inherited streak
+    on index 0 — "48 deferred batch(es) not re-attempted".  The pass must
+    actually probe in that state: every deferred batch gets its re-attempt
+    and a recovered batch merges, with no abort."""
+    weather._reset_rate_limiter()
+    weather._rate_limit["streak"] = 48      # the sweep's inheritance
+    deferred = [
+        ([("Test Stadium", 39.0, -95.0)],
+         date(2026, 9, 1) + timedelta(days=i),
+         date(2026, 9, 1) + timedelta(days=i))
+        for i in range(48)
+    ]
+    state = {"calls": 0}
+
+    def fake_batch_range(locations, start_date, end_date, *, source,
+                         defer_on_429=False, **kw):
+        state["calls"] += 1
+        weather._rate_limit["streak"] = 0    # a 200 closes the window
+        return {(locations[0][0], start_date): {"time": []}}
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    by_key: dict = {}
+    with caplog.at_level(logging.INFO):
+        weather._requeue_deferred_batches(deferred, by_key)
+
+    assert state["calls"] == 48, (
+        f"every deferred batch must be probed: {state['calls']} of 48")
+    assert len(by_key) == 48, by_key
+    assert not any("not re-attempted" in m for m in caplog.messages), (
+        caplog.messages)
+    assert weather._rate_limit_streak() == 0, (
+        "a recovered batch closes the window the sweep left open")
+
+
+def test_recovery_pass_first_batch_takes_the_cooldown_path(monkeypatch):
+    """2026-10-13 run-log evidence: the gap-only top-up fired all 18
+    batches into a still-shut archive window in 39 seconds (defer mode
+    never waits) and recovered 0 of the 142 missing games.  The recovery
+    pass's FIRST batch therefore runs the non-defer client — two quick
+    retries, one bounded cooldown, one probe — while every later batch
+    keeps defer mode so the sweep itself still never sleeps."""
+    modes: list[bool] = []
+
+    def fake_batch_range(locations, start_date, end_date, *, source,
+                         defer_on_429=False, **kw):
+        if source != weather.OPEN_METEO_ARCHIVE:
+            return {}
+        modes.append(defer_on_429)
+        weather._rate_limit["streak"] = 0
+        return {}
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
+
+    weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
+    assert modes == [True, True], (
+        f"the main sweep defers every batch: {modes}")
+
+    modes.clear()
+    weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now,
+                                   cooldown_first_batch=True)
+    assert modes == [False, True], (
+        f"only the recovery pass's first batch may cool down: {modes}")
+
+
+def test_a_429_is_a_deferred_batch_in_both_modes(monkeypatch, sleeps,
+                                                  caplog):
+    """Rate-limited is never dead-for-good: ``_fetch_batch_range`` returns
+    ``None`` instead of raising into the generic failure handler, which
+    returned ``{}`` and silently dropped the batch from the requeue list.
+    A non-defer caller gets one explicit line (the sweep stays quiet)."""
+    _patch_get(monkeypatch, lambda n: _Resp(429))
+
+    with caplog.at_level(logging.WARNING):
+        result = weather._fetch_batch_range(
+            [("Test Stadium", 39.0, -95.0)],
+            date(2026, 9, 1), date(2026, 9, 14),
+            source=weather.OPEN_METEO_ARCHIVE)
+
+    assert result is None, result
+    assert not any("batch failed" in m for m in caplog.messages), (
+        "a 429 must not be reported as a failed batch: "
+        f"{caplog.messages}")
+    assert any("rate limited after cooldown+probe" in m
+               for m in caplog.messages), caplog.messages
+    assert sleeps, "the non-defer path's cooldown must have been recorded"
+
+
+def test_recent_and_forecast_phases_skip_a_deferred_batch(monkeypatch):
+    """The recent/forecast phases receive ``None`` from a rate-limited
+    batch; calling ``.items()`` on it would raise straight out of the
+    weather phase.  They skip and leave the gap to the cache-miss pass."""
+    def always_none(locations, start_date, end_date, *, source, **kw):
+        weather._rate_limit["streak"] = 0
+        return None
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", always_none)
+    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
+    targets = [*_TWO_WINDOW_TARGETS,
+               _target("20261020_C@HOME", "2026-10-20T17:00:00Z")]
+
+    assert weather._fetch_batched_weather(targets, now) == {}
 
 
 def test_rate_limited_out_boundary():
