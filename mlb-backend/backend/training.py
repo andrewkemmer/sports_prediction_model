@@ -282,7 +282,7 @@ MONEYLINE_FEATURE_COLS = [
     # correlate with) the moneyline it shares inputs with. Removal is purely
     # an output-list change: the column stays COMPUTED and drift-monitored
     # (the attach guards in pipeline.py / training.py key on MARGIN_COL
-    # membership and now skip cleanly), and the run engine's NB pricing is
+    # membership and now skip cleanly), and the run engine's distribution pricing is
     # untouched. The live adopted RFE subset was re-issued
     # 62-col alongside this edit so apply_adopted_subset() keeps validating
     # (an out-of-pool name rejects the WHOLE state at startup, which would
@@ -308,7 +308,7 @@ MONEYLINE_FEATURE_COLS = [
     # data_delivery/exp2_feature_test_20260907.json +
     # exp2_stability_20260907.json. All 8 end in _diff and are matchup gaps
     # that the run engine's per-side view splits into side columns — the run
-    # engine (NB pricing) prices each side from its own columns; the run-line
+    # engine (distribution pricing) prices each side from its own columns; the run-line
     # model is the true −1.5 classifier below.
     "exp2_centered_k_diff",
     "exp2_cat_k_fastball_diff",
@@ -334,7 +334,7 @@ MONEYLINE_FEATURE_COLS = [
 # sp_xwoba_vs_r_diff stays absent (never in the original baseline).
 # The raw per-side source columns and every OTHER baseline feature are
 # preserved; the run engine's λ view (run_engine.py RUN_FEATURE_COLS) is a
-# separate list and is untouched — NB pricing behavior unchanged.
+# separate list and is untouched — distribution pricing behavior unchanged.
 #
 # REVERTED 2026-09-30 (user-directed structural alignment): sp_k9_diff
 # rejoins the universe — its raw per-side twins sp_k9_home/away re-entered
@@ -1598,7 +1598,7 @@ def set_calibration(calibrator: dict | None) -> None:
     """Restore the favored-team moneyline calibrator from a persisted bundle.
 
     Legacy home-space Platt maps are rejected rather than silently applied.
-    ``fit_platt`` remains available separately for NB market calibration.
+    Distribution markets use their own CRPS whole-CDF calibration.
     """
     global _LAST_CALIBRATOR
     if calibrator:

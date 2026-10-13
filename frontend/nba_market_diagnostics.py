@@ -29,9 +29,9 @@ NBA-specific facts, each read off the artifact rather than assumed:
      modeled series is the per-game mean of that pmf — the same observed-
      vs-modeled overlay built directly from the shipped probability mass,
      here read instead of recomputed.
-  3. ``calibration_cards`` ships a per-line prequential Platt (a, b) map,
-     so ECE-calibrated figures are computable read-only; where no map
-     exists for a line the calibrated value is None, never a copy of raw.
+  3. Challenger artifacts ship issued whole-CDF-calibrated Monte Carlo
+     probabilities. Diagnostic reliability uses those prices directly;
+     the frontend never fits or applies a second calibration map.
 """
 from __future__ import annotations
 
@@ -1205,28 +1205,6 @@ def _roll_up(view: pd.DataFrame, primary_pick: str) -> dict:
             "sides": {}}
 
 
-def _platt(p: np.ndarray, a: float, b: float) -> np.ndarray:
-    eps = 1e-7
-    q = np.clip(p.astype(float), eps, 1 - eps)
-    return 1.0 / (1.0 + np.exp(-(a * np.log(q / (1 - q)) + b)))
-
-
-def calibration_coefficients(monitor: dict | None, family: str,
-                             line) -> tuple[float, float] | None:
-    """(a, b) from ``calibration_cards`` for one line, or None."""
-    if line is None:
-        return None
-    cards = (monitor or {}).get("calibration_cards") or {}
-    entry = (cards.get(family) or {}).get(str(int(line)))
-    if not isinstance(entry, dict):
-        return None
-    primary = entry.get("over") or entry.get("home")
-    if not isinstance(primary, dict) or "a" not in primary or "b" not in primary:
-        return None
-    a, b = _num(primary.get("a")), _num(primary.get("b"))
-    return None if a is None or b is None else (a, b)
-
-
 def _ece(y: np.ndarray, p: np.ndarray, bins: int = 10) -> float:
     ok = np.isfinite(y) & np.isfinite(p)
     y, p = y[ok], p[ok]
@@ -1239,7 +1217,7 @@ def _ece(y: np.ndarray, p: np.ndarray, bins: int = 10) -> float:
 
 
 def binary_card_metrics(y: np.ndarray, p: np.ndarray,
-                        coeff: tuple[float, float] | None = None) -> dict:
+                        calibrated: bool = False) -> dict:
     """MLB's card metric block in PICK-side framing (2026-10-11).
 
     Every row contributes the side the model picked: ``p`` is flipped to
@@ -1262,7 +1240,7 @@ def binary_card_metrics(y: np.ndarray, p: np.ndarray,
         return {"n": 0, "win_rate": None, "auc": None, "brier": None,
                 "logloss": None, "ece_raw": None, "ece_calibrated": None,
                 "predicted_mean": None, "actual_win_rate": None}
-    pred = _platt(p, *coeff) if coeff else p
+    pred = p  # Issued probabilities: never recalibrate in the frontend.
     leaned = np.abs(p - 0.5) > 1e-12
     pick_home = p >= 0.5
     pool = leaned if leaned.any() else np.ones(n, bool)
@@ -1282,13 +1260,13 @@ def binary_card_metrics(y: np.ndarray, p: np.ndarray,
                                         + (1 - y_pick)
                                         * np.log(1 - pred_pick))), 6),
         "ece_raw": round(_ece(y_pick, p_pick), 6),
-        "ece_calibrated": round(_ece(y_pick, pred_pick), 6) if coeff else None,
+        "ece_calibrated": round(_ece(y_pick, pred_pick), 6) if calibrated else None,
         "predicted_mean": round(float(p_pick.mean()), 6),
     }
 
 
 def home_side_card_metrics(y: np.ndarray, p: np.ndarray,
-                           coeff: tuple[float, float] | None = None) -> dict:
+                           calibrated: bool = False) -> dict:
     """HOME-side binary card metrics (2026-10-12 run-line + derived-ML
     reframe).
 
@@ -1309,7 +1287,7 @@ def home_side_card_metrics(y: np.ndarray, p: np.ndarray,
         return {"n": 0, "win_rate": None, "auc": None, "brier": None,
                 "logloss": None, "ece_raw": None, "ece_calibrated": None,
                 "predicted_mean": None, "actual_win_rate": None}
-    pred = _platt(p, *coeff) if coeff else p
+    pred = p  # Issued probabilities: never recalibrate in the frontend.
     win_rate = round(float(y.mean()), 6)
     return {
         "n": n, "win_rate": win_rate, "actual_win_rate": win_rate,
@@ -1318,7 +1296,7 @@ def home_side_card_metrics(y: np.ndarray, p: np.ndarray,
         "logloss": round(float(-np.mean(y * np.log(pred)
                                         + (1 - y) * np.log(1 - pred))), 6),
         "ece_raw": round(_ece(y, p), 6),
-        "ece_calibrated": round(_ece(y, pred), 6) if coeff else None,
+        "ece_calibrated": round(_ece(y, pred), 6) if calibrated else None,
         "predicted_mean": round(float(p.mean()), 6),
     }
 
@@ -1359,11 +1337,11 @@ def winner_cards(decided: pd.DataFrame,
     over_p = _over_fair_series(decided)
     ok = total.notna() & over_p.notna()
     lines = fair_total_lines(decided)
-    med_line = _int_line(np.nanmedian(lines[ok.to_numpy()])) if ok.any() else None
+    calibrated = ((monitor or {}).get("fit") or {}).get("family") == "two_sided_asymmetric_gaussian_split_skew"
     over = binary_card_metrics(
         (total[ok] > pd.Series(lines, index=decided.index)[ok]).to_numpy(float),
         over_p[ok].to_numpy(float),
-        calibration_coefficients(monitor, "totals", med_line))
+        calibrated=calibrated)
 
     rl = runline_history_frame(decided)
     spread = dict(empty)
@@ -1381,10 +1359,7 @@ def winner_cards(decided: pd.DataFrame,
         home_covered = np.asarray(rl["winner"] == rl["home"], dtype=float)
         spread = home_side_card_metrics(
             home_covered[non_push], p_home[non_push],
-            calibration_coefficients(
-                monitor, "run_line",
-                _int_line(pd.to_numeric(rl.loc[non_push, "line"],
-                                        errors="coerce").median())))
+            calibrated=calibrated)
 
     margin = pd.to_numeric(decided.get("margin"), errors="coerce")
     # ``derived_ml`` is the artifact's run-engine moneyline (the column the
@@ -1398,7 +1373,8 @@ def winner_cards(decided: pd.DataFrame,
         else pd.Series(np.nan, index=decided.index)
     okh = margin.notna() & home_p.notna()
     derived = home_side_card_metrics(
-        (margin[okh] > 0).to_numpy(float), home_p[okh].to_numpy(float))
+        (margin[okh] > 0).to_numpy(float), home_p[okh].to_numpy(float),
+        calibrated=calibrated)
     return {"over_under": over, "run_line": spread, "derived_ml": derived}
 
 

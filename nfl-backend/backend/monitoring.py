@@ -263,7 +263,7 @@ def run_line_feature_weights(score_regressor,
     MLB parity (mlb ``distributions.run_line_feature_weights``): the Totals &
     Run Lines drift table's MODEL WEIGHT column reports the run line model
     itself — never the binary moneyline blend's weights, which is what the
-    run-engine drift CSV used to carry. The NB layer itself has no per-feature
+    run-engine drift CSV used to carry. The variance layer itself has no per-feature
     parameters (it shapes dispersion/MC only), so feature usage lives entirely
     in the two per-side Poisson fits; their pooled, n-weighted split GAIN is
     the run line's honest importance.
@@ -1268,8 +1268,7 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
 def _run_engine_fit_block(oof_market_rows: pd.DataFrame) -> dict:
     """Run-engine fit diagnostics computed from the artifact's OWN rows —
     the data behind the fit panel's tail/variance captions (MLB ships the
-    same anatomy from its NB sampler; the NFL engine is the pinned 76×76
-    joint, so the modeled legs come from the artifact's grid columns).
+    same anatomy; modeled legs come from the calibrated Monte Carlo grid).
     Row-derived only: nothing here is a constant."""
     out: dict = {}
     df = oof_market_rows
@@ -1315,10 +1314,9 @@ def _run_engine_fit_block(oof_market_rows: pd.DataFrame) -> dict:
                 "mod_push": round(push_mean, 4),
             }
         # Per-side residual dispersion (the variance-check "obs" legs —
-        # the pinned era sigmas are score-RESIDUAL SDs around mu, so the
+        # residual standard deviations are measured around mu, so the
         # observed legs are std(score − mu) over the decided rows; the
-        # "implied" legs are the pinned sigma0 values the frontend
-        # renders — never duplicated here).
+        # implied variance parameters are separately disclosed in the fitted bundle).
         mu_h = pd.to_numeric(df.get("mu_h"), errors="coerce")
         mu_a = pd.to_numeric(df.get("mu_a"), errors="coerce")
         hs = pd.to_numeric(df.get("home_score"), errors="coerce")
@@ -1472,7 +1470,12 @@ def write_markets_monitor_json(path, run_date: str,
         "markets_persist_error": None,
         "winner_cards": cards,
         "slate_history": slate_history,
-        "fit": _run_engine_fit_block(oof_market_rows),
+        "fit": {**_run_engine_fit_block(oof_market_rows),
+                "distribution": "causal_split_skew_crps_mc",
+                "family": "two_sided_asymmetric_gaussian_split_skew",
+                "variance": oof_market_rows.attrs.get("challenger_bundle", {}).get("maps", {}).get("variance", {}),
+                "monte_carlo": oof_market_rows.attrs.get("challenger_bundle", {}).get("monte_carlo", {}),
+                "holdout": oof_market_rows.attrs.get("challenger_bundle", {}).get("holdout", {})},
         "market_metrics": _run_engine_market_metrics(oof_market_rows),
         "config": config_meta or {},
     }

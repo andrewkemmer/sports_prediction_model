@@ -382,7 +382,7 @@ def _crps_test_frame():
     a = rng.uniform(100., 120., n) if dist.DISTRIBUTION_SPORT == "nba" else rng.uniform(2., 5., n)
     hs, aws = rng.poisson(h), rng.poisson(a)
     if dist.DISTRIBUTION_SPORT != "nfl": hs = hs + (hs == aws)
-    frame = pd.DataFrame({"home_score": hs, "away_score": aws})
+    frame = pd.DataFrame({"home_score": hs, "away_score": aws, "game_id": [f"g{i}" for i in range(n)]})
     if dist.DISTRIBUTION_SPORT == "mlb":
         frame["home_expected_runs"], frame["away_expected_runs"] = h, a
         frame["game_date"] = pd.date_range("2025-01-01", periods=n)
@@ -417,7 +417,7 @@ def test_crps_full_pipeline_future_poisoning_and_row_order_invariance():
     shuffled = frame.sample(frac=1., random_state=81)
     reordered, _ = dist.causal_distribution_frame(shuffled)
     np.testing.assert_allclose(priced[cols], reordered.reindex(frame.index)[cols], atol=1e-10)
-    assert bundle["method"] == "causal_lattice_crps"
+    assert bundle["method"] == "causal_split_skew_crps_mc"
     assert bundle["scope"] == "whole_cdf"
     assert bundle["origins"][0]["n_prior"] == 0
     assert all(o["n_prior"] < len(frame) for o in bundle["origins"])

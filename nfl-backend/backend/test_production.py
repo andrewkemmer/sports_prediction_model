@@ -978,112 +978,18 @@ check("preprocessor no NaN after impute", np.isfinite(Xt).all())
 
 # ---------------------------------------------------------------------------
 print("\n== 6. Run-line / totals distribution tests ==")
-# The shipped distribution model is Negative-Binomial Monte Carlo
-# (simulate_distributions -> apply_distribution). The former analytic layer
-# (discrete_normal_pmf / margin_cdf_above / margin_pmf_at /
-# total_probabilities over MARGIN_SUPPORT/TOTAL_SUPPORT grids) computed
-# probabilities from a discretized GAUSSIAN the pipeline never published;
-# every production consumer (evaluation.nb_distribution_metrics,
-# dist_mod.calibrate_market_frame, serving grids) reads the MC output.
-# Those helpers are removed, and the coherence checks below now exercise the
-# engine that actually ships.
-check("the superseded analytic Gaussian PMF layer is gone, not merely unused",
-      not any(hasattr(dist_mod, n) for n in (
-          "discrete_normal_pmf", "margin_cdf_above", "margin_pmf_at",
-          "total_probabilities", "MARGIN_SUPPORT", "TOTAL_SUPPORT",
-          "_pmf_median")),
-      "production grids come from simulate_distributions only")
+gd_ = dist_mod.apply_distribution(pd.DataFrame({"game_id": ["fixture"], "mu_h": [27.], "mu_a": [20.]}), seed=7).iloc[0].to_dict()
+check("score means and model medians present", all(k in gd_ for k in ("mu_h", "mu_a", "mu_margin", "mu_total", "fair_spread", "fair_total")))
+check("fair lines are half-point medians", gd_["fair_spread"] % 1 == .5 and gd_["fair_total"] % 1 == .5)
+for U in config.TOTAL_GRID:
+    tri = sum(gd_[dist_mod._grid_key(k, U)] for k in ("p_over", "p_push_total", "p_under"))
+    check(f"total {U} has coherent Monte Carlo settlement legs", abs(tri - 1.) < 1e-12)
+check("NFL retains unconditional win/tie/loss mass", abs(gd_["p_home_win_derived"] + gd_["p_tie"] + gd_["p_away_win_derived"] - 1.) < 1e-12 and gd_["p_tie"] > 0.)
+check("split-skew family is the live distribution", dist_mod.family.FAMILY == "two_sided_asymmetric_gaussian_split_skew")
+_meta = {}; dist_mod.apply_distribution(pd.DataFrame({"game_id": ["guard"], "mu_h": [27.], "mu_a": [20.]}), n_draws=200, meta_out=_meta)
+check("MC precision guard applies to calibrated Gaussian draws", _meta["n_draws"] == 10000 and _meta["mc_se_totals_max"] <= .005)
 
-gd_ = dist_mod.game_distribution(27.0, 20.0, seed=7)
-check("mu quartet present", all(k in gd_ for k in ("mu_h", "mu_a", "mu_margin", "mu_total")))
-check("mu_margin = mu_h - mu_a", abs(gd_["mu_margin"] - 7.0) < 1e-12)
-check("mu_total = mu_h + mu_a", abs(gd_["mu_total"] - 47.0) < 1e-12)
-check("fair_spread/fair_total present and on-grid",
-      gd_["fair_spread"] in [float(x) for x in config.SPREAD_GRID]
-      and gd_["fair_total"] in [float(x) for x in config.TOTAL_GRID],
-      f"fair_spread={gd_['fair_spread']} fair_total={gd_['fair_total']}")
-grid_cols = [f"p_home_cover_{L}" for L in config.SPREAD_GRID] + \
-            [f"p_push_{L}" for L in config.SPREAD_GRID] + \
-            [f"p_over_{U}" for U in config.TOTAL_GRID] + \
-            [f"p_under_{U}" for U in config.TOTAL_GRID] + \
-            [f"p_push_{U}" for U in config.TOTAL_GRID] + \
-            ["p_home_win_derived", "p_away_win_derived"]
-check("all grid columns emitted", all(c in gd_ for c in grid_cols))
-
-# Monte-Carlo coherence on the SHIPPED engine: the same three properties the
-# old PMF block asserted, now against the engine production reads. Keys go
-# through _grid_key (negative lines are stored as mN) — the raw negative
-# labels game_distribution re-adds exist only for the historical unit-test
-# contract, and serving.py converts them to the mN artifact labels.
-_int_m = [L for L in config.SPREAD_GRID if float(L) == int(L)]
-_int_t = [U for U in config.TOTAL_GRID if float(U) == int(U)]
-_ok = True
-for L in _int_m:
-    pc_ = gd_[dist_mod._grid_key("p_home_cover", L)]
-    pp_ = gd_[dist_mod._grid_key("p_push", L)]
-    if not (-1e-9 <= pc_ <= 1 + 1e-9 and -1e-9 <= pp_ <= 1 + 1e-9
-            and pc_ + pp_ <= 1.0 + 1e-6):
-        _ok = False
-for U in _int_t:
-    o = gd_[dist_mod._grid_key("p_over", U)]
-    e = gd_[dist_mod._grid_key("p_push", U)]
-    u = gd_[dist_mod._grid_key("p_under", U)]
-    if abs(o + e + u - 1.0) > 1e-6:
-        _ok = False
-check("MC spread/totals grids are coherent (cover+push<=1, over+push+under=1)", _ok,
-      f"checked {len(_int_m)} spread / {len(_int_t)} totals lines")
-_mc_ml = (gd_["p_home_win_derived"] + gd_["p_tie"]
-          + gd_["p_away_win_derived"])
-check("MC derived-ML identity (win+tie+lose=1)", abs(_mc_ml - 1.0) < 1e-6,
-      f"sum={_mc_ml:.6f}")
-check("MC respects the favored direction",
-      gd_["p_home_win_derived"] > 0.5,
-      f"home mu-7 favored but p_home_win_derived={gd_['p_home_win_derived']:.3f}")
-
-# Distribution dispersion — the LIVE model is a Negative Binomial alpha fit
-# from OOF residuals (calibrate_dispersion), bounded by its own
-# ALPHA_FLOOR/ALPHA_CAP. This check USED to assert a fixed-sigma value from
-# calibrate_sigma, a shim that declared itself superseded and had no caller
-# outside this test, against SIGMA_* bounds no production code ever applied.
-# Same coverage, on the model that actually ships.
-_sig_rng = np.random.default_rng(4242)
-_mu = np.full(4000, 230.0)
-_y = _sig_rng.poisson(_mu).astype(float)
-_poisson_alpha = dist_mod.estimate_alpha(_y, _mu)
-_over = _sig_rng.poisson(_mu * 1.6).astype(float) * 0 + (
-    _mu + _sig_rng.normal(0, 26.0, 4000))   # overdispersed scores
-_disp_alpha = dist_mod.estimate_alpha(_over, _mu)
-check("the Poisson limit is detected (alpha ~ 0) on NB-consistent residuals",
-      _poisson_alpha <= dist_mod.ALPHA_FLOOR * 10,
-      f"alpha={_poisson_alpha:.3e} floor={dist_mod.ALPHA_FLOOR:g}")
-check("overdispersed residuals get a strictly larger alpha than the Poisson limit",
-      _disp_alpha > max(_poisson_alpha, dist_mod.ALPHA_FLOOR),
-      f"overdispersed alpha={_disp_alpha:.4f} vs poisson {_poisson_alpha:.3e}")
-check("estimated alpha never exceeds the production cap",
-      0.0 <= _disp_alpha <= dist_mod.ALPHA_CAP,
-      f"alpha={_disp_alpha:.4f} cap={dist_mod.ALPHA_CAP:g}")
-_disp = dist_mod.calibrate_dispersion(pd.DataFrame(
-    {"home_score": _over, "away_score": _over,
-     "mu_h": _mu, "mu_a": _mu}))
-check("calibrate_dispersion reports the negative_binomial family, not a sigma",
-      _disp["distribution"] == "negative_binomial"
-      and "sigma_margin" not in _disp and "sigma_total" not in _disp,
-      str({k: _disp[k] for k in ("distribution", "alpha_home", "alpha_away")}))
-check("the superseded fixed-sigma API is gone, not merely unused",
-      not hasattr(dist_mod, "calibrate_sigma")
-      and not hasattr(config, "MARGIN_SIGMA")
-      and not hasattr(config, "SIGMA_FLOOR_MARGIN"),
-      "calibrate_sigma / MARGIN_SIGMA / SIGMA_* were shims with no caller")
-check("game_distribution no longer accepts a sigma it would silently discard",
-      "sigma_margin" not in inspect.signature(dist_mod.game_distribution).parameters
-      and "sigma_total" not in inspect.signature(dist_mod.game_distribution).parameters,
-      "accepting a Gaussian variance while shipping an NB engine is how a "
-      "caller comes to believe a variance was applied")
-check("apply_distribution no longer accepts a stray sigma_total",
-      "sigma_total" not in inspect.signature(dist_mod.apply_distribution).parameters,
-      "the NB params dict is the only dispersion channel")
-
-# ---- Integer-line three-way calibration: each leg gets its OWN map. -------
+# ---- Integer-line three-way calibration: coherent whole-CDF settlement. ---
 # The shipped 2026-09-27 artifact carried away legs derived as
 # 1 - cal(home) - cal(push); a 1627-row sample showed that residual up to
 # 0.036 from what the away leg's own map produces, a systematic away-side
@@ -1107,11 +1013,10 @@ try:
     })
     _oof3["margin"] = _oof3.home_score - _oof3.away_score
     _oof3["total"] = _oof3.home_score + _oof3.away_score
-    _mk3 = dist_mod.apply_distribution(_oof3, {"alpha_home": 0.12, "alpha_away": 0.12})
+    _mk3 = dist_mod.apply_distribution(_oof3)
     _mk3, _cal3 = dist_mod.calibrate_market_frame(_mk3)
     _sl3 = dist_mod.apply_distribution(
-        pd.DataFrame({"mu_h": [24.0], "mu_a": [20.0]}),
-        {"alpha_home": 0.12, "alpha_away": 0.12})
+        pd.DataFrame({"game_id": ["slate"], "mu_h": [24.0], "mu_a": [20.0]}))
     _sl3 = dist_mod.apply_market_calibration(_sl3, _cal3)
 
     def _away_leg(df, line):
@@ -1129,8 +1034,8 @@ try:
     # A single monotone CDF map, not independent per-leg Platt fits, now
     # supplies all three legs. Check exact train/serve CDF semantics.
     check("CRPS calibration uses the whole CDF rather than crossing per-line maps",
-          _cal3["method"] == "causal_lattice_crps" and _cal3["scope"] == "whole_cdf")
-    _raw_slate3 = pd.DataFrame({"mu_h": [24.0], "mu_a": [20.0]})
+          _cal3["method"] == "causal_split_skew_crps_mc" and _cal3["scope"] == "whole_cdf")
+    _raw_slate3 = pd.DataFrame({"game_id": ["slate"], "mu_h": [24.0], "mu_a": [20.0]})
     _price3 = dist_mod.distribution_probability(_raw_slate3, _cal3, "margin", _l)
     check("away and push legs are exact differences of the same serving CDF",
           abs(float(_price3["loss"][0]) - _a3) < 1e-12
@@ -1345,11 +1250,14 @@ _mu_h = pd.Series(_rng.normal(24, 4, _n)).clip(3, 45)
 _mu_a = pd.Series(_rng.normal(21, 4, _n)).clip(3, 45)
 _dd = dist_mod.apply_distribution(
     pd.DataFrame({"game_id": [f"G{i}" for i in range(_n)],
-                  "mu_h": _mu_h, "mu_a": _mu_a}),
-    {"alpha_home": 0.12, "alpha_away": 0.12})
+                  "mu_h": _mu_h, "mu_a": _mu_a}))
 _dd["fold_id"] = 0  # pass-through: no prequential refit on the synthetic frame
-_dd["total"] = ((_mu_h + _mu_a).round().to_numpy()
-                + _rng.integers(-6, 7, _n).astype(float))
+# Settlement outcomes sampled independently from the family under test:
+# a narrow +/-6 fixture would measure deliberate misspecification, not the
+# (y,p) return-order regression this assertion protects against.
+_total_support, _total_cdf = dist_mod._distribution_cdfs(_dd, {})["total"]
+_dd["total"] = np.array([_total_support[np.searchsorted(cdf, u)]
+                         for cdf, u in zip(_total_cdf, _rng.random(_n))])
 _yv, _pv = monitoring._run_engine_line_pairs(_dd, "over", 42.0)
 check("run-engine line pairs return (y, p): y binary, p in (0,1)",
       len(_yv) > 0 and set(np.unique(_yv)).issubset({0.0, 1.0})
@@ -4082,11 +3990,11 @@ try:
 
     # The removals. Each is asserted GONE so a future edit cannot quietly
     # resurrect a plausible-looking duplicate of live logic.
-    check("the superseded Gaussian metrics API is gone from evaluation",
-          not hasattr(eval_mod, "distribution_metrics")
+    check("evaluation exposes the challenger scorer without duplicate tables",
+          hasattr(eval_mod, "distribution_metrics")
           and not hasattr(eval_mod, "margin_calibration_table")
           and not hasattr(eval_mod, "total_calibration_table"),
-          "nb_distribution_metrics is the only distribution scorer")
+          "distribution_metrics is the challenger scorer")
     check("the duplicate power-rankings writer is consolidated, not forked",
           "serve_mod.write_power_rankings_csv(" in _shap_src
           and "def write_power_rankings_csv" in inspect.getsource(serve_mod),

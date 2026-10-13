@@ -299,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         "run_line_model": {
             "home_model": "lightgbm_poisson",
             "away_model": "lightgbm_poisson",
-            "distribution": "negative_binomial",
+            "distribution": "two_sided_asymmetric_gaussian_split_skew",
             "simulation": "monte_carlo",
             "mc_draws": dist_mod.MC_DRAWS,
             "feature_contract": "binary_moneyline",
@@ -530,13 +530,6 @@ def main(argv: list[str] | None = None) -> int:
                 fcontract.get("resolved_via"))
     logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",
                 dist.get("n_folds", len(fold_list)))
-    sig = dist_mod.calibrate_dispersion(oof_dist)
-    # Report the VERDICT, not just the numbers. `calibrate_dispersion` decides
-    # whether the fit sits at the Poisson limit — now evaluated over the
-    # per-row α vector under the fitted α(λ) curve (MLB's curve layer), not
-    # just the pooled scalar. The fit check (Pearson adequacy + deviance/RMSE
-    # vs the constant league-mean baseline) makes the Poisson verdict MEASURED
-    # every run, the way MLB's run-engine diagnostics do.
     _fit_check = dist_mod.run_line_fit_check(oof_dist)
     logger.info("run-line fit check (MLB diagnostics shape): "
                 "home pearson %.4f dev %.5f (baseline %.5f) | away pearson %.4f "
@@ -545,22 +538,6 @@ def main(argv: list[str] | None = None) -> int:
                 _fit_check["home"]["deviance_baseline"],
                 _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                 _fit_check["away"]["deviance_baseline"])
-    logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
-                "alpha_home %.4f (max %.4f), alpha_away %.4f (max %.4f) - %s",
-                sig["alpha_home"], sig.get("alpha_home_max", sig["alpha_home"]),
-                sig["alpha_away"], sig.get("alpha_away_max", sig["alpha_away"]),
-                "POISSON LIMIT: no over-dispersion to model, the NB term is "
-                "inactive and scoring is Poisson" if sig.get("poisson_limit")
-                else "over-dispersed fit active")
-    # Name the gate scope (MLB v3 parity): which rows the alpha layer was
-    # allowed to see, and how many recent rows are sealed away from it.
-    _hg = sig.get("holdout") or {}
-    if _hg.get("cutoff"):
-        logger.info("sealed holdout gate: alpha fitted on %s "
-                    "(cutoff %s; %d pre / %d sealed rows)",
-                    _hg.get("fitted_on"), _hg.get("cutoff"),
-                    _hg.get("n_pre", 0), _hg.get("n_holdout", 0))
-
     # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ────
     _banner("PHASE 8", "calibration")
     y_oof = oof_ml["home_win"].to_numpy(float)
@@ -720,13 +697,6 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
                     r["name"], r["weight"], r["auc"] or np.nan, r["brier"] or np.nan)
 
-    dist_metrics = eval_mod.nb_distribution_metrics(
-        oof_dist.merge(
-            oof_ml[["game_id"]].assign(_k=1), on="game_id", how="inner"
-        ).drop(columns=["_k"]) if len(oof_ml) else oof_dist,
-        sig)
-    logger.info("run-line OOF:  %s", json.dumps(dist_metrics["run_line"]))
-    logger.info("totals OOF:    %s", json.dumps(dist_metrics["totals"]))
 
     # daily calibration rows (frontend contract) — MLB's
     # _daily_calibration_rows semantics: the RAW series owns the ``metrics``
@@ -785,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
         p_home_cal = (ml_mod.moneyline_apply(p_home, platt)
                       if np.isfinite(p_home).any() else p_home)
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-        slate = dist_mod.apply_distribution(slate, sig)
+        slate = dist_mod.apply_distribution(slate)
         slate["p_home_win"] = p_home_cal
         slate["p_away_win"] = 1.0 - p_home_cal
         slate["p_tie"] = slate["p_push_0"]
@@ -808,14 +778,19 @@ def main(argv: list[str] | None = None) -> int:
     # mc_meta records the derivation's simulation resolution and whether the
     # SE-guard bumped it (MLB mc_meta parity) — it rides the markets meta.
     _mc_meta: dict = {}
-    oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig,
+    oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist,
                                              mc_meta_out=_mc_meta)
     oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
+    dist_metrics = market_calibration.get("oof_metrics", {})
+    logger.info("split-skew distribution OOF: %s", json.dumps(dist_metrics))
+    oof_market_rows.attrs["challenger_bundle"] = market_calibration
+    _mc_meta = market_calibration["monte_carlo"]
+    logger.info("sealed holdout gate: %s", json.dumps(market_calibration["holdout"]))
     # Sealed-holdout tail (MLB derive_markets_v3 parity): the last
     # HOLDOUT_DAYS of OOF rows are stamped frame_view='sealed' so the
     # monitor's winner cards and per-line metrics score them separately.
-    # The sealed window never fit the alpha layer above (pre-holdout-only
-    # gate in calibrate_dispersion) and never fit the final market-line
+    # The sealed window never fit the variance layer (pre-holdout-only
+    # challenger variance/calibration freeze) and never fit the final market-line
     # calibrators, so its scores are the engine's honest recent-form
     # evaluation instead of the window validating itself.
     if len(oof_market_rows) and "gameday" in oof_market_rows.columns:
@@ -967,7 +942,7 @@ def main(argv: list[str] | None = None) -> int:
         "platt": platt,
         "moneyline_fit_policy": config_meta["moneyline_evaluation"],
         "score_regressor": final_reg,
-        "distribution": sig,
+        "distribution": market_calibration,
         "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
         "feature_columns": config.active_moneyline_feature_cols(),
@@ -999,7 +974,7 @@ def main(argv: list[str] | None = None) -> int:
     # free: a failed gate now aborts BEFORE monitoring writes a word.
     _banner("PHASE 13", "schema validation")
     gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info,
-                              sig=sig, n_eligible=len(game_df),
+                              challenger_bundle=market_calibration, n_eligible=len(game_df),
                               schedule=schedule, window_start=start_date,
                               window_end=window_end)
     for name, ok in gates.items():
@@ -1228,7 +1203,6 @@ def _team_names() -> dict[str, str]:
 
 
 def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
-                           sig: dict,
                            mc_meta_out: dict | None = None) -> pd.DataFrame:
     """Decided OOF rows in the markets schema: distribution grids from the
     OOF mu pair + honest outcomes (y_*), plus the calibrated moneyline."""
@@ -1241,7 +1215,7 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     df = m.merge(d, on="game_id", how="inner")
     if not len(df):
         return pd.DataFrame()
-    df = dist_mod.apply_distribution(df, sig, meta_out=mc_meta_out)
+    df = dist_mod.apply_distribution(df, meta_out=mc_meta_out)
     df["p_home_win"] = df["p_ensemble_calibrated"].where(
         df["p_ensemble_calibrated"].notna(), df["p_ensemble"])
     df["p_away_win"] = 1.0 - df["p_home_win"]
@@ -1476,7 +1450,7 @@ def _season_openers_ingested(schedule: pd.DataFrame | None,
 
 def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
                       slate: pd.DataFrame, fold_info: dict,
-                      sig: dict | None = None,
+                      challenger_bundle: dict | None = None,
                       n_eligible: int = 0,
                       schedule: pd.DataFrame | None = None,
                       window_start: str | None = None,
@@ -1570,11 +1544,8 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     gates["oof_reach"] = bool(
         n_eligible
         and fold_info.get("total_val_games", 0) >= 0.90 * n_eligible)
-    # The dispersion fit must have run under the sealed-holdout gate: a
-    # record without a cutoff means the alpha layer saw the whole OOF
-    # window (an undated frame reaching production), which is exactly the
-    # silent regression this gate exists to catch.
-    gates["sealed_holdout_gate"] = bool(((sig or {}).get("holdout") or {}).get("cutoff"))
+    # Require dated challenger variance/calibration sealed evaluation scope.
+    gates["sealed_holdout_gate"] = bool(((challenger_bundle or {}).get("holdout") or {}).get("cutoff"))
     # Delivery consistency (2026-10-02 postmortem): commit cf7ecc0
     # ("Rotate NHL 20260925 data-delivery artifacts", 2026-09-27)
     # deleted the 20260925 markets/predictions/monitor/coverage family

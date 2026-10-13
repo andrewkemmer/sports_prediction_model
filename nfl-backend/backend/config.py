@@ -887,16 +887,9 @@ RUN_ENGINE_CANONICAL_SPREADS = (3,)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
 
-# Distribution model defaults
-# The margin/total distribution is FIT per run from OOF residuals as a
-# Negative Binomial alpha (distributions.calibrate_dispersion, bounded by its
-# own ALPHA_FLOOR/ALPHA_CAP), and every market grid is Monte-Carlo sampled
-# from that pair (distributions.simulate_distributions). There is no fixed
-# sigma and no analytic PMF support grid in the shipped model: the former
-# MARGIN_SIGMA/TOTAL_SIGMA/SIGMA_* bounds and MARGIN_PMF_MAX/TOTAL_PMF_MAX
-# grids described a discretized-Gaussian model that production never
-# published, and code that read them computed probabilities the artifacts
-# never carried.
+# Distribution model: side residual variance/correlation and asymmetric
+# Gaussian widths learned on prior OOF; causal CRPS CDF calibration and
+# reproducible Monte Carlo in distributions.py / gaussian_family.py.
 
 # ---------------------------------------------------------------------------
 # Artifact naming (frontend family contracts)

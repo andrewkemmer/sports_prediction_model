@@ -560,8 +560,9 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
     out = out[cols]
     out.to_csv(path, index=False)
     meta = {
-        "distribution_method": "causal_lattice_crps",
+        "distribution_method": "causal_split_skew_crps_mc",
         "distribution_objective": "discrete_crps",
+        "mc_meta": oof_rows.attrs.get("mc_meta", {}),
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
         "settlement": 'three_way_with_ties',
 

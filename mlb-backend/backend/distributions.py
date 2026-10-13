@@ -18,7 +18,7 @@ kept list is DERIVED from MONEYLINE_FEATURE_COLS at call time so new features fl
 One regularized LightGBM regressor (objective="poisson") per side, trained on
 the SAME fixed walk-forward folds as the moneyline pipeline. Pooled OOF scoring,
 baseline comparison vs constant league-mean, Pearson chi-square/dispersion
-probe for the Phase-2 Poisson-vs-negative-binomial decision.
+probe for score-mean diagnostics, separate from split-skew variance pricing.
 
 FEATURE PARITY (2026-09-27): the run line's per-side Poisson models train
 and price on EXACTLY the binary moneyline's active feature list — the same
@@ -413,7 +413,7 @@ def poisson_deviance(y: np.ndarray, lam: np.ndarray) -> float:
 
 def dispersion_ratio(y: np.ndarray, lam: np.ndarray) -> float:
     """Pearson chi-square / df. ≈1 → Poisson variance is adequate;
-    clearly >1 → over-dispersion (negative-binomial upgrade territory)."""
+    clearly >1 indicates residual variance above the score mean."""
     y = np.asarray(y, dtype=float)
     lam = np.clip(np.asarray(lam, dtype=float), 1e-10, None)
     chi2 = float(((y - lam) ** 2 / lam).sum())
@@ -693,741 +693,73 @@ def build_artifact_contract(oof: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — market derivation (NB marginals + Monte Carlo; NEVER Skellam/Poisson:
-# Phase 1 measured χ²/df ≈ 2.2–2.5, and the difference of two NBs has no closed
-# form — Monte Carlo is the honest route).
-# ---------------------------------------------------------------------------
-MARKET_SEED = 42
-MC_DRAWS = 10_000
-TOTAL_LINE = 8.5          # reference over line (over = total ≥ 9)
-RUN_LINE_MARGIN = 1.5     # home cover = home − away ≥ 2
-ALPHA_FLOOR = 1e-6        # α below this ≈ Poisson; sample with huge n instead
-
-# Phase 3 — full line grid so the dashboard toggle prices ANY line offline.
-TOTAL_LINE_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
-RUN_LINE_GRID = [0.5, 1.5, 2.5, 3.5]   # home-favorite margins (−0.5 … −3.5)
-# Per-line run-line grid for the p_rl_* columns: the legacy half-lines PLUS
-# the whole-number alternates (−1, −2, −3, −4) sportsbooks also post.
-# Convention (settled, mirrors totals): home covers −L iff margin > L
-# (strict); margin == L is a PUSH on whole lines only; half-lines can never
-# push. On half-lines, margin > L ⇔ margin ≥ L + 0.5 for integer margins,
-# so p_rl_<m>_home is byte-identical to the legacy p_home_cover_<m>
-# (computed as diff ≥ ceil(m)) — backward compat is exact, no re-fit.
-RUN_LINE_GRID_FULL = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]  # −1 … −4 by 0.5
-RUN_LINE_GRID_WHOLE = [1.0, 2.0, 3.0, 4.0]
-TOTAL_REF_LINES = (7.5, 8.5, 9.5)      # mandatory multi-line scoring points
+# Challenger market derivation: calibrated split-skew Gaussian Monte Carlo.
+from gaussian_family import MC_DRAWS, MC_SEED, MC_SE_TARGET
+import gaussian_family as family
+MARKET_SEED = MC_SEED
+HOLDOUT_DAYS = 21
+TOTAL_LINE = 8.5
+RUN_LINE_MARGIN = 1.5
+TOTAL_LINE_GRID = [round(6.5 + .5 * i, 1) for i in range(13)]
+RUN_LINE_GRID = [.5, 1.5, 2.5, 3.5]
+RUN_LINE_GRID_FULL = [1., 1.5, 2., 2.5, 3., 3.5, 4.]
+RUN_LINE_GRID_WHOLE = [1., 2., 3., 4.]
+TOTAL_REF_LINES = (7.5, 8.5, 9.5)
 RUN_REF_LINES = (1.5, 2.5)
 
-# Phase 3 — α(λ) dispersion model
-HOLDOUT_DAYS = 21        # sealed-holdout convention (matches LightGBM gate)
-ALPHA_N_BINS = 7
-ALPHA_MIN_BIN = 250
-ALPHA_CAP = 2.0          # sane max — beyond this variance is degenerate
-ALPHA_YEAR_REL_GAP = 0.25  # |Δα|/α between years above this → loud caveat
 
-# Structural home one-run adjustment — MARGIN POST-PROCESSING ONLY, no
-# sampler/λ/α(λ) change. The independent-NB marginals put ~10% mass on
-# impossible ties; MLB games always resolve, and real ties-after-regulation
-# resolve at margin = ±1 (walk-offs), home-weighted. So the tie mass
-# P(margin=0) is resolved into the +1 /−1 bands with home share α:
-#   P(+1)' = P(+1) + α·P(0),  P(−1)' = P(−1) + (1−α)·P(0),  P(0)' = 0,
-# and EVERY other margin stays at its RAW full-basis value (P(≥2) and
-# P(≤−2) already match reality; totals are sum-based and byte-identical).
-# α fit on pooled OOF to match the +1 target
-# (data_delivery/margin_adjustment_ablation_20260829.json): α = 0.744
-# yields +1 = 17.40% (actual 17.40%) and all run lines calibrated; the
-# seasonal fit ranges 0.657 (2026) / 0.706 (2024) / 0.853 (2025). α may
-# exceed the true extra-inning win rate — it absorbs walk-off/bottom-9th
-# effects, so it is a calibration parameter, not a mechanism rate.
-MARGIN_PLUS1_HOME_SHARE = 0.744
-
-MARKET_COLUMNS = ["game_pk", "game_date", "home_expected_runs",
-                  "away_expected_runs", "p_over_8_5", "p_home_cover_1_5",
-                  "p_home_win_derived", "home_score", "away_score",
-                  "total_runs"]
-
-
-def fit_alpha(y: np.ndarray, lam: np.ndarray) -> float:
-    """Method-of-moments NB dispersion: var = λ̄ + α·λ̄²  ⇒
-    α = max((var_obs − λ̄) / λ̄², 0)."""
-    y = np.asarray(y, dtype=float)
-    lam = np.asarray(lam, dtype=float)
-    lam_bar = float(lam.mean())
-    var_obs = float(y.var(ddof=0))
-    return round(max((var_obs - lam_bar) / (lam_bar ** 2), 0.0), 4)
-
-
-def _nb_size_prob(mu: np.ndarray | float,
-                  alpha: float | np.ndarray) -> tuple[np.ndarray | float, np.ndarray | float]:
-    """numpy's NB(n, p): mean n(1−p)/p = μ ⇒ p = n/(n+μ); variance μ + μ²/n
-    with n = 1/α. α below ALPHA_FLOOR → huge n (Poisson limit). Accepts
-    scalar or per-game column arrays."""
-    a = np.asarray(alpha, dtype=float)
-    n = np.where(a > ALPHA_FLOOR, 1.0 / np.maximum(a, ALPHA_FLOOR), 1e12)
-    p = n / (n + mu)
-    return n, p
-
-
-def nb_pmf(k: np.ndarray, mu: float, alpha: float) -> np.ndarray:
-    """NB(μ, α) pmf at integer k ≥ 0 (scipy-free, log-space stable)."""
-    from math import lgamma, exp, log
-    n = 1.0 / alpha if alpha > ALPHA_FLOOR else 1e12
-    out = np.empty(len(k), dtype=float)
-    for i, ki in enumerate(k):
-        out[i] = exp(lgamma(ki + n) - lgamma(n) - lgamma(ki + 1)
-                     + n * log(n / (n + mu)) + ki * log(mu / (n + mu)))
-    return out
-
-
-def fit_check_table(actual: np.ndarray, lam: np.ndarray, alpha: float,
-                    kmax: int = 12) -> list[dict]:
-    """NB(λ̄, α) implied score distribution vs observed OOF distribution."""
-    actual = np.asarray(actual, dtype=int)
-    lam_bar = float(np.asarray(lam, dtype=float).mean())
-    ks = np.arange(0, kmax + 1)
-    modeled = nb_pmf(ks, lam_bar, alpha)
-    observed = np.array([(actual == k).mean() for k in ks])
-    tail_ge10_m = float(modeled[ks >= 10].sum())
-    tail_ge10_o = float((actual >= 10).mean())
-    le1_m = float(modeled[ks <= 1].sum())
-    le1_o = float((actual <= 1).mean())
-    rows = [{"k": int(k), "modeled_p": round(float(m), 4),
-             "observed_p": round(float(o), 4)}
-            for k, m, o in zip(ks, modeled, observed)]
-    rows.append({"k": "≥10", "modeled_p": round(tail_ge10_m, 4),
-                 "observed_p": round(tail_ge10_o, 4)})
-    rows.append({"k": "≤1", "modeled_p": round(le1_m, 4),
-                 "observed_p": round(le1_o, 4)})
-    return rows
-
-
-def _as_alpha_col(alpha: float | np.ndarray, n_games: int) -> np.ndarray:
-    """Accept a scalar or per-game α vector; return an (n_games, 1) column."""
-    arr = np.asarray(alpha, dtype=float)
-    if arr.ndim == 0:
-        arr = np.full(n_games, float(arr))
-    return np.maximum(arr, ALPHA_FLOOR)[:, None]
-
-
-# ────────────────────────────────────────────────────────────────────────
-# PINNED VERDICT 2026-08-27 — discriminative totals/run-line blending member
-# (run_total_blend_ablation.py, data_delivery/total_blend_ablation_20260827.json):
-# DON'T ADOPT. A gradient-boosted member trained on the run engine's own
-# 29-feature view (levels + environment; the era's keep-list for this
-# module) with heads E[total runs] / P(over 8.5) / P(home
-# cover -1.5), blended with the NB sampler's per-line probabilities (fixed
-# 50/50 average + prequential L2 logistic stackers) through the shared 45-fold
-# geometry + sealed 284 holdout. The GBM member improves POOLED OOF on both
-# surfaces (totals ll 0.6843 vs NB 0.6882, run-line 0.6428 vs 0.6488), and the
-# stack improves SEALED totals (ll 0.6833 vs 0.6866, ECE-cal 0.0410 vs 0.0779)
-# — but every blend variant DEGRADES sealed run-line logloss (best +0.0056 vs
-# NB 0.6641), so no variant clears BOTH surfaces' sealed window. The same
-# pooled-gain/sealed-loss inversion seen in every prior blend-level gate
-# (stack, calibration flip, margin, edge correction). NB-only stays the
-# production pricing path; the harness remains for re-testing on a later frame.
-# ────────────────────────────────────────────────────────────────────────
-def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
-                      alpha_home: float | np.ndarray,
-                      alpha_away: float | np.ndarray,
-                      n_draws: int = MC_DRAWS,
-                      seed: int = MARKET_SEED) -> dict[str, np.ndarray]:
-    """Monte Carlo per game from INDEPENDENT NB(λ, α) marginals.
-
-    α may be scalar (Phase 2) or per-game vectors from the α(λ) curve
-    (Phase 3). Chunked over games to cap memory; identical seed ⇒ identical
-    output. Prices the FULL line grid (totals 6.5–12.5 half-steps; run lines
-    −0.5…−3.5) from the SAME draw matrix, so grid columns are mutually
-    consistent and p_over_8_5 equals its legacy value exactly.
-    Returns per-game probabilities plus the totals-market MC standard error."""
-    rng = np.random.default_rng(seed)
-    n_games = len(lam_home)
-    p_over = np.empty(n_games)
-    p_cover = np.empty(n_games)
-    p_win = np.empty(n_games)
-    n_lines = len(TOTAL_LINE_GRID)
-    n_margins = len(RUN_LINE_GRID)
-    grid_over = np.empty((n_games, n_lines))
-    grid_cover = np.empty((n_games, n_margins))
-    grid_push = np.empty((n_games, n_lines))
-    n_rl = len(RUN_LINE_GRID_FULL)
-    grid_rl_home = np.empty((n_games, n_rl))   # home -L: P(diff > L)
-    grid_rl_push = np.empty((n_games, n_rl))   # home -L push: P(diff == L)
-    grid_rl_away = np.empty((n_games, n_rl))   # home -L dog: P(diff < L)
-    # Symmetric orientation: away -L / home +L. These are deliberately
-    # separate from grid_rl_away: the latter is the home-oriented dog event,
-    # not the away-favorite cover event.
-    grid_rl_away_fav = np.empty((n_games, n_rl))
-    grid_rl_away_push = np.empty((n_games, n_rl))
-    grid_rl_home_dog = np.empty((n_games, n_rl))
-    chunk = max(1, min(n_games, 2_000_000 // max(n_draws, 1)))
-    for start in range(0, n_games, chunk):
-        end = min(start + chunk, n_games)
-        mu_h = np.maximum(np.asarray(lam_home[start:end], float), 1e-6)[:, None]
-        mu_a = np.maximum(np.asarray(lam_away[start:end], float), 1e-6)[:, None]
-        nh, ph_ = _nb_size_prob(mu_h, _as_alpha_col(alpha_home, n_games)[start:end])
-        na, pa = _nb_size_prob(mu_a, _as_alpha_col(alpha_away, n_games)[start:end])
-        h = rng.negative_binomial(nh, ph_,
-                                  size=(end - start, n_draws)).astype(np.int32)
-        a = rng.negative_binomial(na, pa,
-                                  size=(end - start, n_draws)).astype(np.int32)
-        total = h + a
-        diff = h - a
-        # Structural home one-run adjustment (replaces the proportional no-tie
-        # renormalization of 2531462). Instead of rescaling EVERY nonzero
-        # margin by 1/(1−P0) — which inflated P(≥2) 0.3583→0.3989 and caused
-        # the +4.1pt line −1 over — the impossible tie mass P(0) is resolved
-        # into ±1 home-weighted: P(+1)' = P(+1)+α·P(0), P(−1)' = P(−1)+
-        # (1−α)·P(0), P(0)'=0, and every other margin stays at its RAW
-        # full-basis value. P(≥2) and P(≤−2) already match actual rates, so
-        # they are untouched; totals stay byte-identical.
-        p0 = (diff == 0).mean(axis=1)
-        p1 = (diff == 1).mean(axis=1)
-        pn1 = (diff == -1).mean(axis=1)
-        ge2 = (diff >= 2).mean(axis=1)
-        ge3 = (diff >= 3).mean(axis=1)
-        ge4 = (diff >= 4).mean(axis=1)
-        ge5 = (diff >= 5).mean(axis=1)
-        le2 = (diff <= -2).mean(axis=1)
-        le3 = (diff <= -3).mean(axis=1)
-        le4 = (diff <= -4).mean(axis=1)
-        le5 = (diff <= -5).mean(axis=1)
-        eq2 = (diff == 2).mean(axis=1)
-        eq3 = (diff == 3).mean(axis=1)
-        eq4 = (diff == 4).mean(axis=1)
-        eqn1 = (diff == -1).mean(axis=1)
-        eqn2 = (diff == -2).mean(axis=1)
-        eqn3 = (diff == -3).mean(axis=1)
-        eqn4 = (diff == -4).mean(axis=1)
-        push1 = p1 + MARGIN_PLUS1_HOME_SHARE * p0   # resolved +1 band
-        # Strict over: total must EXCEED the line (total > line). Using
-        # TOTAL_LINE + 0.5 matches the monitor scorer's definition and
-        # fixes the push-inclusive bug where int(-(-line//1)) produced
-        # the same threshold for whole lines (9.0) and half-lines (8.5).
-        p_over[start:end] = (total >= TOTAL_LINE + 0.5).mean(axis=1)
-        p_cover[start:end] = ge2   # legacy home cover −1.5 = P'(margin>=2)
-        # p_home_win_derived = P'(margin>0) = P(≥2)+P(+1)' (ties resolve home
-        # with share α). −0.5 cover IS home win, so it stays equal to
-        # p_cover_grid[:, −0.5] (the identity the game-structure sampler's
-        # current-arm test pins). PURELY DIAGNOSTIC (see TRACED note below).
-        p_win[start:end] = ge2 + push1
-    # ------------------------------------------------------------------
-    # TRACED 2026-08-27: p_home_win_derived is PURELY DIAGNOSTIC — it does
-    # NOT feed production pricing. Consumers: the run-engine monitor's
-    # derived-ML card + nb_diagnostic, agreement_vs_moneyline/slate stats
-    # (p_run), the persisted markets CSV columns (p_home_win_derived /
-    # p_away_win_derived), and the agreement_conflict flag. NO EV or
-    # market-table math consumes it: Today's Games ML pick/edge uses the
-    # ENSEMBLE home_win_prob_model (training.py edge = model_prob -
-    # fair_market_prob), and the O/U + run-line prices use the grid/cover
-    # columns only. agreement_conflict is written to the artifact with no
-    # downstream consumer altering pricing. Therefore the NB home-edge
-    # underweighting (mean P(home) 0.4684 vs actual 0.5354; alpha_away >
-    # alpha_home with only a +0.12 lambda edge) is a DIAGNOSTIC-QUALITY
-    # issue only — no leakage-free ablation needed; finding recorded and
-    # closed. If p_home_win_derived ever feeds pricing, reopen this.
-    # ------------------------------------------------------------------
-        for j, line in enumerate(TOTAL_LINE_GRID):
-            # Strict over (total > line) — matches the monitor scorer's
-            # total >= line + 0.5.  The old formula int(-(-line//1))
-            # produced threshold = line for whole numbers (e.g. 9.0 → 9),
-            # making P(over) push-inclusive (~50% at line 9 instead of
-            # ~40%).  For half-lines (8.5) both formulas agree.
-            grid_over[start:end, j] = (total >= line + 0.5).mean(axis=1)
-        for j, m in enumerate(RUN_LINE_GRID):
-            # Legacy margins: P'(margin >= ceil(m)). −0.5 cover IS home win
-            # (ge2 + resolved +1); 1.5/2.5/3.5 are P'(>=2/3/4) = raw ge2/ge3/
-            # ge4 — unaffected by the tie resolve.
-            if m == 0.5:
-                grid_cover[start:end, j] = ge2 + push1
-            elif m == 1.5:
-                grid_cover[start:end, j] = ge2
-            elif m == 2.5:
-                grid_cover[start:end, j] = ge3
-            else:
-                grid_cover[start:end, j] = ge4
-        for j, line in enumerate(TOTAL_LINE_GRID):
-            grid_push[start:end, j] = (total == line).mean(axis=1)
-        for j, m in enumerate(RUN_LINE_GRID_FULL):
-            # Strict cover: margin > L. Under the structural fix only the +1
-            # band changes: P'(>1)=P'(>1.5)=ge2, P'(>2)=P'(>2.5)=ge3,
-            # P'(>3)=P'(>3.5)=ge4, P'(>4)=ge5. Push is the resolved +1 band at
-            # m=1.0 only (half-lines can never push; m=2/3/4 push = raw
-            # P(margin==m)); away is the residual, so home+push+away sums to
-            # 1.0 exactly on every line.
-            if m <= 1.5:
-                grid_rl_home[start:end, j] = ge2
-                grid_rl_push[start:end, j] = push1 if m == 1.0 else 0.0
-            elif m <= 2.5:
-                grid_rl_home[start:end, j] = ge3
-                grid_rl_push[start:end, j] = eq2 if m == 2.0 else 0.0
-            elif m <= 3.5:
-                grid_rl_home[start:end, j] = ge4
-                grid_rl_push[start:end, j] = eq3 if m == 3.0 else 0.0
-            else:
-                grid_rl_home[start:end, j] = ge5
-                grid_rl_push[start:end, j] = eq4
-            grid_rl_away[start:end, j] = (1.0 - grid_rl_home[start:end, j]
-                                          - grid_rl_push[start:end, j])
-            # The opposite orientation is calculated from the opposite tail,
-            # not by reusing the home-oriented dog probability. This preserves
-            # push mass and makes away favorites priceable at every depth.
-            if m <= 1.5:
-                grid_rl_away_fav[start:end, j] = le2
-                grid_rl_away_push[start:end, j] = eqn1 if m == 1.0 else 0.0
-            elif m <= 2.5:
-                grid_rl_away_fav[start:end, j] = le3
-                grid_rl_away_push[start:end, j] = eqn2 if m == 2.0 else 0.0
-            elif m <= 3.5:
-                grid_rl_away_fav[start:end, j] = le4
-                grid_rl_away_push[start:end, j] = eqn3 if m == 3.0 else 0.0
-            else:
-                grid_rl_away_fav[start:end, j] = le5
-                grid_rl_away_push[start:end, j] = eqn4
-            grid_rl_home_dog[start:end, j] = (
-                1.0 - grid_rl_away_fav[start:end, j]
-                - grid_rl_away_push[start:end, j])
-    mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
-    return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
-            "p_home_win_derived": p_win, "mc_se_totals": mc_se,
-            "p_over_grid": grid_over, "p_cover_grid": grid_cover,
-            "p_push_grid": grid_push,
-            "p_rl_home_grid": grid_rl_home, "p_rl_push_grid": grid_rl_push,
-            "p_rl_away_grid": grid_rl_away,
-            "p_rl_away_fav_grid": grid_rl_away_fav,
-            "p_rl_away_push_grid": grid_rl_away_push,
-            "p_rl_home_dog_grid": grid_rl_home_dog}
-
-
-def brier_score(y: np.ndarray, p: np.ndarray) -> float:
-    return float(((np.asarray(p) - np.asarray(y)) ** 2).mean())
-
-
-def ece_score(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
-    """Equal-width binned expected calibration error."""
-    y = np.asarray(y, dtype=float)
-    p = np.clip(np.asarray(p, dtype=float), 0.0, 1.0)
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    idx = np.digitize(p, edges[1:-1], right=False)
-    ece = 0.0
-    for b in range(n_bins):
-        m = idx == b
-        if m.any():
-            ece += m.mean() * abs(p[m].mean() - y[m].mean())
-    return round(float(ece), 5)
-
-
-def prequential_calibrate(y: np.ndarray, p: np.ndarray,
-                          fold_idx: np.ndarray) -> np.ndarray:
-    """Per-fold Platt maps fitted on PRIOR folds only (post-F2 discipline).
-    Folds before MIN_OOF_FOR_FIT games accumulate keep raw probabilities.
-    Never composes the global map on top of fold maps."""
-    from calibration import apply_platt, fit_platt
-
-    y = np.asarray(y, dtype=float)
-    p = np.asarray(p, dtype=float)
-    folds = np.unique(fold_idx)
-    history_y, history_p = [], []
-    out = p.copy()
-    for f in folds:
-        m = fold_idx == f
-        cal = fit_platt(np.concatenate(history_y) if history_y else [],
-                        np.concatenate(history_p) if history_p else [])
-        if cal is not None:
-            out[m] = apply_platt(p[m], cal)
-        history_y.append(y[m])
-        history_p.append(p[m])
-    return np.clip(out, 1e-6, 1 - 1e-6)
-
-
-def prequential_favored_calibrate(y: np.ndarray, p: np.ndarray,
-                                  fold_idx: np.ndarray) -> np.ndarray:
-    """Calibrate a home/away binary market in favored-side space.
-
-    The returned probabilities remain in home-side space for the existing
-    run-engine columns. Each fold's favored calibrator is fit only on prior
-    folds, matching the binary moneyline leakage contract.
-    """
-    from calibration import apply_moneyline_calibration, fit_favored_platt
-
-    y = np.asarray(y, dtype=float)
-    p = np.asarray(p, dtype=float)
-    folds = np.unique(fold_idx)
-    history_y, history_p = [], []
-    out = p.copy()
-    for f in folds:
-        m = fold_idx == f
-        cal = fit_favored_platt(
-            np.concatenate(history_y) if history_y else [],
-            np.concatenate(history_p) if history_p else [],
-        )
-        if cal is not None:
-            out[m] = apply_moneyline_calibration(p[m], cal)
-        history_y.append(y[m])
-        history_p.append(p[m])
-    return np.clip(out, 1e-6, 1 - 1e-6)
-
-
-def _calibration_metrics(p_raw: np.ndarray, p_cal: np.ndarray,
-                        y: np.ndarray) -> dict[str, Any]:
-    """Raw vs honest prequential metrics for one binary market."""
-    raw = np.clip(np.asarray(p_raw, float), 1e-6, 1 - 1e-6)
-    cal = np.clip(np.asarray(p_cal, float), 1e-6, 1 - 1e-6)
-    y = np.asarray(y, float)
-    try:
-        auc_raw = (float(roc_auc_score(y, raw))
-                   if len(np.unique(y)) > 1 else None)
-        auc_cal = (float(roc_auc_score(y, cal))
-                   if len(np.unique(y)) > 1 else None)
-    except ValueError:
-        auc_raw = auc_cal = None
-    return {
-        "n": int(len(y)),
-        "raw": {"logloss": round(float(log_loss(y, raw, labels=[0.0, 1.0])), 6),
-                "brier": round(brier_score(y, raw), 6),
-                "ece": ece_score(y, raw), "auc": auc_raw},
-        "prequential_calibrated": {
-            "logloss": round(float(log_loss(y, cal, labels=[0.0, 1.0])), 6),
-            "brier": round(brier_score(y, cal), 6),
-            "ece": ece_score(y, cal), "auc": auc_cal},
-    }
-
-def _normalize_three_way(a: np.ndarray, b: np.ndarray,
-                         c: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Normalize calibrated three-way probabilities without changing shape."""
-    vals = np.maximum(np.column_stack([a, b, c]), 1e-9)
-    vals /= vals.sum(axis=1, keepdims=True)
-    return vals[:, 0], vals[:, 1], vals[:, 2]
-
-def _fit_market_calibration(mc: dict[str, np.ndarray],
-                            total_runs: np.ndarray, margin: np.ndarray,
-                            home_scores: np.ndarray, away_scores: np.ndarray,
-                            fold_idx: np.ndarray,
-                            pre_mask: Optional[np.ndarray] = None,
-                            ) -> tuple[dict, dict, dict]:
-    """Fit prequential Platt maps for every published NB market.
-
-    OOF rows receive the prequential values; the returned calibrator bundle is
-    fit on the PRE-HOLDOUT OOF rows only (all rows when ``pre_mask`` is None)
-    and is reserved for future slate predictions. This is the same causal
-    calibration contract used by the binary moneyline path, with the sealed
-    window excluded from the final map so it stays a clean judge of the
-    published artifact (run-engine tuning policy, Stage 4).
-    """
-    cal_fit = (np.asarray(pre_mask, dtype=bool)
-               if pre_mask is not None
-               else np.ones(len(total_runs), dtype=bool))
-    calibration: dict[str, Any] = {
-        "method": "prequential_platt", "fit_scope": "pre_holdout",
-        "totals": {}, "run_lines": {}, "run_lines_away_favorite": {},
-        "legacy_run_lines": {}, "derived_moneyline": None,
-    }
-    metrics: dict[str, Any] = {"totals": {}, "run_lines": {},
-                               "run_lines_away_favorite": {},
-                               "legacy_run_lines": {}, "derived_moneyline": None}
-
-    from calibration import fit_favored_platt, apply_moneyline_calibration, fit_platt
-
-    def binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
-        pre = prequential_calibrate(y, raw, fold_idx)
-        # Final published map: pre-holdout rows only — the sealed window must
-        # not calibrate itself (fit_scope: pre_holdout).
-        final = fit_platt(y[cal_fit], raw[cal_fit])
-        return pre, final, _calibration_metrics(raw, pre, y)
-
-    def favored_binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
-        pre = prequential_favored_calibrate(y, raw, fold_idx)
-        # Final published map: pre-holdout rows only (fit_scope: pre_holdout).
-        final = fit_favored_platt(y[cal_fit], raw[cal_fit])
-        return pre, final, _calibration_metrics(raw, pre, y)
-
-    for j, line in enumerate(TOTAL_LINE_GRID):
-        key = str(line).replace(".", "_")
-        y_over = (total_runs >= line + 0.5).astype(float)
-        p_over = mc["p_over_grid"][:, j]
-        if float(line).is_integer():
-            y_push = (total_runs == line).astype(float)
-            y_under = (total_runs < line).astype(float)
-            p_push = mc["p_push_grid"][:, j]
-            p_under = 1.0 - p_over - p_push
-            co, cal_o, mo = binary(p_over, y_over)
-            cp, cal_p, mp = binary(p_push, y_push)
-            cu, cal_u, mu = binary(p_under, y_under)
-            co, cp, cu = _normalize_three_way(co, cp, cu)
-            calibration["totals"][key] = {"over": cal_o, "push": cal_p, "under": cal_u,
-                                           "three_way": True}
-            metrics["totals"][key] = {"over": mo, "push": mp, "under": mu}
-            metrics["totals"][key]["prequential_sum_error"] = round(
-                float(np.max(np.abs(co + cp + cu - 1.0))), 9)
-            mc["p_over_grid"][:, j] = co
-            mc["p_push_grid"][:, j] = cp
-        else:
-            co, cal_o, mo = binary(p_over, y_over)
-            calibration["totals"][key] = {"over": cal_o, "push": None, "under": None,
-                                           "three_way": False}
-            metrics["totals"][key] = mo
-            mc["p_over_grid"][:, j] = co
-            mc["p_push_grid"][:, j] = 0.0
-
-    for j, margin_line in enumerate(RUN_LINE_GRID_FULL):
-        key = str(margin_line).replace(".", "_")
-        p_home = mc["p_rl_home_grid"][:, j]
-        p_push = mc["p_rl_push_grid"][:, j]
-        p_away = mc["p_rl_away_grid"][:, j]
-        y_home = (margin > margin_line).astype(float)
-        if float(margin_line).is_integer():
-            y_push = (margin == margin_line).astype(float)
-            y_away = (margin < margin_line).astype(float)
-            ch, cal_h, mh = binary(p_home, y_home)
-            cp, cal_p, mp = binary(p_push, y_push)
-            ca, cal_a, ma = binary(p_away, y_away)
-            ch, cp, ca = _normalize_three_way(ch, cp, ca)
-            calibration["run_lines"][key] = {"home": cal_h, "push": cal_p, "away": cal_a,
-                                              "three_way": True}
-            metrics["run_lines"][key] = {"home": mh, "push": mp, "away": ma}
-            mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, cp, ca
-        else:
-            ch, cal_h, mh = favored_binary(p_home, y_home)
-            calibration["run_lines"][key] = {"home": cal_h, "push": None, "away": None,
-                                              "three_way": False, "favored": True}
-            metrics["run_lines"][key] = mh
-            mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, 0.0, 1.0 - ch
-
-    # Fit the opposite orientation separately. The positive-frame `away`
-    # column is the home-oriented dog event P(diff < +L), not the away
-    # favorite event P(diff < -L); conflating them made deep away favorites
-    # systematically unavailable in history and production cards.
-    for j, margin_line in enumerate(RUN_LINE_GRID_FULL):
-        key = str(margin_line).replace(".", "_")
-        p_fav = mc["p_rl_away_fav_grid"][:, j]
-        p_push = mc["p_rl_away_push_grid"][:, j]
-        y_fav = (margin < -margin_line).astype(float)
-        if float(margin_line).is_integer():
-            y_push = (margin == -margin_line).astype(float)
-            y_dog = (margin > -margin_line).astype(float)
-            cf, cal_f, mf = binary(p_fav, y_fav)
-            cp, cal_p, mp = binary(p_push, y_push)
-            cd, cal_d, md = binary(1.0 - p_fav - p_push, y_dog)
-            cf, cp, cd = _normalize_three_way(cf, cp, cd)
-            calibration["run_lines_away_favorite"][key] = {
-                "favorite": cal_f, "push": cal_p, "dog": cal_d,
-                "three_way": True}
-            metrics["run_lines_away_favorite"][key] = {
-                "favorite": mf, "push": mp, "dog": md}
-            mc["p_rl_away_fav_grid"][:, j] = cf
-            mc["p_rl_away_push_grid"][:, j] = cp
-            mc["p_rl_home_dog_grid"][:, j] = cd
-        else:
-            cf, cal_f, mf = favored_binary(p_fav, y_fav)
-            calibration["run_lines_away_favorite"][key] = {
-                "favorite": cal_f, "push": None, "dog": None,
-                "three_way": False, "favored": True}
-            metrics["run_lines_away_favorite"][key] = mf
-            mc["p_rl_away_fav_grid"][:, j] = cf
-            mc["p_rl_away_push_grid"][:, j] = 0.0
-            mc["p_rl_home_dog_grid"][:, j] = 1.0 - cf
-
-    for j, margin_line in enumerate(RUN_LINE_GRID):
-        key = str(margin_line).replace(".", "_")
-        raw = mc["p_cover_grid"][:, j]
-        y = (margin >= margin_line + 0.5).astype(float)
-        pre, cal, met = favored_binary(raw, y)
-        calibration["legacy_run_lines"][key] = {"calibrator": cal, "favored": True}
-        metrics["legacy_run_lines"][key] = met
-        mc["p_cover_grid"][:, j] = pre
-
-    raw_ml = mc["p_home_win_derived"]
-    y_ml = (home_scores > away_scores).astype(float)
-    pre_ml, cal_ml, met_ml = favored_binary(raw_ml, y_ml)
-    calibration["derived_moneyline"] = cal_ml
-    calibration["derived_moneyline_favored"] = True
-    metrics["derived_moneyline"] = met_ml
-    mc["p_home_win_derived"] = pre_ml
-    return mc, calibration, metrics
-
-
-def apply_market_calibration(mc: dict[str, np.ndarray], calibration: dict | None) -> dict[str, np.ndarray]:
-    """Apply the final NB calibration bundle to future MC probabilities."""
-    if not calibration:
-        return mc
-    from calibration import apply_platt
-    out = {k: np.asarray(v).copy() for k, v in mc.items()}
-    for j, line in enumerate(TOTAL_LINE_GRID):
-        key = str(line).replace(".", "_")
-        spec = calibration.get("totals", {}).get(key)
-        if not spec:
-            continue
-        over = apply_platt(out["p_over_grid"][:, j], spec.get("over"))
-        if spec.get("three_way"):
-            push = apply_platt(out["p_push_grid"][:, j], spec.get("push"))
-            under = apply_platt(1.0 - out["p_over_grid"][:, j] - out["p_push_grid"][:, j], spec.get("under"))
-            over, push, under = _normalize_three_way(over, push, under)
-            out["p_over_grid"][:, j], out["p_push_grid"][:, j] = over, push
-        else:
-            out["p_over_grid"][:, j], out["p_push_grid"][:, j] = over, np.zeros(len(over))
-    for j, line in enumerate(RUN_LINE_GRID_FULL):
-        key = str(line).replace(".", "_")
-        spec = calibration.get("run_lines", {}).get(key)
-        if not spec:
-            continue
-        if spec.get("three_way"):
-            home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
-            push = apply_platt(out["p_rl_push_grid"][:, j], spec.get("push"))
-            away = apply_platt(out["p_rl_away_grid"][:, j], spec.get("away"))
-            home, push, away = _normalize_three_way(home, push, away)
-        elif spec.get("favored"):
-            from calibration import apply_moneyline_calibration
-            home = apply_moneyline_calibration(out["p_rl_home_grid"][:, j], spec.get("home"))
-            push, away = np.zeros(len(home)), 1.0 - home
-        else:
-            home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
-            push, away = np.zeros(len(home)), 1.0 - home
-        out["p_rl_home_grid"][:, j], out["p_rl_push_grid"][:, j], out["p_rl_away_grid"][:, j] = home, push, away
-    for j, line in enumerate(RUN_LINE_GRID_FULL):
-        key = str(line).replace(".", "_")
-        spec = calibration.get("run_lines_away_favorite", {}).get(key)
-        if not spec:
-            continue
-        if spec.get("three_way"):
-            fav = apply_platt(out["p_rl_away_fav_grid"][:, j], spec.get("favorite"))
-            push = apply_platt(out["p_rl_away_push_grid"][:, j], spec.get("push"))
-            dog = apply_platt(out["p_rl_home_dog_grid"][:, j], spec.get("dog"))
-            fav, push, dog = _normalize_three_way(fav, push, dog)
-        else:
-            from calibration import apply_moneyline_calibration
-            fav = apply_moneyline_calibration(
-                out["p_rl_away_fav_grid"][:, j], spec.get("favorite"))
-            push, dog = np.zeros(len(fav)), 1.0 - fav
-        out["p_rl_away_fav_grid"][:, j] = fav
-        out["p_rl_away_push_grid"][:, j] = push
-        out["p_rl_home_dog_grid"][:, j] = dog
-
-    for j, line in enumerate(RUN_LINE_GRID):
-        key = str(line).replace(".", "_")
-        legacy_spec = calibration.get("legacy_run_lines", {}).get(key)
-        if isinstance(legacy_spec, dict) and legacy_spec.get("favored"):
-            from calibration import apply_moneyline_calibration
-            out["p_cover_grid"][:, j] = apply_moneyline_calibration(
-                out["p_cover_grid"][:, j], legacy_spec.get("calibrator"))
-        else:
-            out["p_cover_grid"][:, j] = apply_platt(out["p_cover_grid"][:, j], legacy_spec)
-    derived = calibration.get("derived_moneyline")
-    if calibration.get("derived_moneyline_favored"):
-        from calibration import apply_moneyline_calibration
-        out["p_home_win_derived"] = apply_moneyline_calibration(
-            out["p_home_win_derived"], derived)
-    else:
-        out["p_home_win_derived"] = apply_platt(out["p_home_win_derived"], derived)
-    return out
-
-
-def derive_markets(oof: pd.DataFrame,
-                   moneyline_probs: Optional[pd.DataFrame] = None,
-                   n_draws: int = MC_DRAWS,
-                   seed: int = MARKET_SEED) -> dict[str, Any]:
-    """Full Phase-2 layer: fit α per side, NB fit-check, MC markets, honest
-    pooled scoring vs base-rate baselines (raw + prequential calibrated),
-    agreement groundwork vs the moneyline ensemble."""
-    lam_h = oof["home_expected_runs"].to_numpy(float)
-    lam_a = oof["away_expected_runs"].to_numpy(float)
-    hs = oof["home_score"].to_numpy(float)
-    as_ = oof["away_score"].to_numpy(float)
-
-    alpha_home = fit_alpha(hs, lam_h)
-    alpha_away = fit_alpha(as_, lam_a)
-    logger.warning(
-        "Run engine Phase 2: fitted α_home=%.4f α_away=%.4f "
-        "(Poisson rejected by Phase-1 dispersion)", alpha_home, alpha_away)
-
-    summary: dict[str, Any] = {
-        "alpha_home": alpha_home, "alpha_away": alpha_away,
-        "n_draws": n_draws, "seed": seed,
-        "total_line": TOTAL_LINE, "run_line_margin": RUN_LINE_MARGIN,
-        "fit_check": {
-            "home": fit_check_table(hs, lam_h, alpha_home),
-            "away": fit_check_table(as_, lam_a, alpha_away),
-        },
-    }
-
-    mc = derive_markets_mc(lam_h, lam_a, alpha_home, alpha_away,
-                           n_draws=n_draws, seed=seed)
-    total_runs = hs + as_
-    y_over = (total_runs >= 9).astype(float)
-    y_cover = ((hs - as_) >= 2).astype(float)
-    y_win = (hs > as_).astype(float)
-
-    # MC standard error on example games (metadata honesty).
-    se = mc["mc_se_totals"]
-    summary["mc_se_examples"] = {
-        "first_game": round(float(se[0]), 6),
-        "median": round(float(np.median(se)), 6),
-        "max": round(float(se.max()), 6),
-    }
-
-    def score_market(name: str, p: np.ndarray, y: np.ndarray,
-                     fold_idx: np.ndarray) -> dict:
-        p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
-        base_p = float(np.asarray(y, float).mean())
-        p_cal = prequential_calibrate(y, p, fold_idx)
-        # labels=[0.0, 1.0]: a degenerate window (all overs, all covers) must
-        # score, not crash — sklearn raises on single-class y_true.
-        row = {
-            "engine_logloss": round(log_loss(y, p, labels=[0.0, 1.0]), 5),
-            "engine_brier": round(brier_score(y, p), 5),
-            "engine_ece_raw": ece_score(y, p),
-            "engine_ece_calibrated": ece_score(y, p_cal),
-            "engine_logloss_calibrated": round(log_loss(y, p_cal, labels=[0.0, 1.0]), 5),
-            "baseline_rate": round(base_p, 4),
-            "baseline_logloss": round(log_loss(y, np.full(len(y), base_p), labels=[0.0, 1.0]), 5),
-            "baseline_brier": round(brier_score(y, np.full(len(y), base_p)), 5),
-        }
-        row["beats_baseline_logloss"] = bool(row["engine_logloss"] < row["baseline_logloss"])
-        summary[f"market_{name}"] = row
-        return row
-
-    fold_idx = oof["fold_idx"].to_numpy()
-    score_market("over_8_5", mc["p_over_8_5"], y_over, fold_idx)
-    score_market("home_cover_1_5", mc["p_home_cover_1_5"], y_cover, fold_idx)
-    score_market("derived_moneyline", mc["p_home_win_derived"], y_win, fold_idx)
-
-    # Agreement groundwork vs the moneyline ensemble (if probabilities given).
+def derive_markets_v3(oof, moneyline_probs=None, n_draws=MC_DRAWS,
+                      seed=MC_SEED, holdout_days=HOLDOUT_DAYS):
+    """Causal split-skew Gaussian markets through calibrated Monte Carlo."""
+    if holdout_days != HOLDOUT_DAYS:
+        raise ValueError("challenger evaluation uses the fixed 21-day sealed tail")
+    if "game_pk" in oof and oof.game_pk.isna().any():
+        logger.warning("Dropping %d identity-less OOF rows", int(oof.game_pk.isna().sum()))
+        oof = oof[oof.game_pk.notna()].reset_index(drop=True)
+    markets, calibration = calibrate_market_frame(oof, n_draws=n_draws, seed=seed)
+    markets["kind"] = "oof"
+    markets["total_runs"] = markets.home_score + markets.away_score
+    markets["agreement_conflict"] = False
+    markets["ml_win_prob"] = np.nan
     if moneyline_probs is not None and len(moneyline_probs):
-        merged = pd.DataFrame({
-            "game_id": oof["game_id"].to_numpy(),
-            "p_run": mc["p_home_win_derived"],
-        }).merge(
-            moneyline_probs[["game_id", "home_win_prob_model"]],
-            on="game_id", how="inner",
-        )
-        if len(merged) > 30:
-            diff = (merged["p_run"] - merged["home_win_prob_model"]).abs()
-            summary["agreement_vs_moneyline"] = {
-                "n_merged": int(len(merged)),
-                "correlation": round(float(merged["p_run"].corr(
-                    merged["home_win_prob_model"])), 4),
-                "mean_abs_diff": round(float(diff.mean()), 4),
-                "share_gt_0_08": round(float((diff > 0.08).mean()), 4),
-                "share_gt_0_10": round(float((diff > 0.10).mean()), 4),
-            }
-
-    markets = oof[["game_pk", "game_date", "home_expected_runs",
-                   "away_expected_runs"]].copy()
-    markets["p_over_8_5"] = np.round(mc["p_over_8_5"], 5)
-    markets["p_home_cover_1_5"] = np.round(mc["p_home_cover_1_5"], 5)
-    markets["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
-    markets["home_score"] = hs.astype(int)
-    markets["away_score"] = as_.astype(int)
-    markets["total_runs"] = total_runs.astype(int)
+        key = "game_pk" if "game_pk" in moneyline_probs else "game_id"
+        if key in markets:
+            lookup = moneyline_probs.set_index(key).home_win_prob_model
+            markets["ml_win_prob"] = markets[key].map(lookup)
+            markets["agreement_conflict"] = (markets.p_home_win_derived - markets.ml_win_prob).abs() > AGREEMENT_FILTER_DELTA
+    hold = calibration["holdout"]
+    metrics = calibration["oof_metrics"]
+    summary = {"family": family.FAMILY, "n_draws": calibration["monte_carlo"]["n_draws"],
+               "holdout_cutoff": hold["cutoff"], "n_pre": hold["n_pre"], "n_holdout": hold["n_holdout"],
+               "distribution_metrics": metrics, "mc_meta": calibration["monte_carlo"],
+               "variance": calibration["maps"]["variance"], "holdout": hold,
+               "calibration": {"method": calibration["method"], "calibrators": calibration},
+               "line_grid": {"totals": TOTAL_LINE_GRID, "run_lines_full": [-m for m in RUN_LINE_GRID_FULL]}}
+    # Per-line model card uses the same issued probabilities, pushes excluded.
+    for kind, lines in (("total", TOTAL_REF_LINES), ("margin", RUN_REF_LINES)):
+        y = (markets.home_score + markets.away_score if kind == "total" else markets.home_score - markets.away_score).to_numpy(float)
+        for line in lines:
+            suffix = str(float(line)).replace('.', '_')
+            win_col = f"p_over_{suffix}" if kind == "total" else rl_col(line, "home")
+            push_col = f"p_push_{suffix}" if kind == "total" else rl_col(line, "push")
+            win, push = markets[win_col].to_numpy(float), markets[push_col].to_numpy(float)
+            valid = (y != line) & (push < 1.)
+            probability = np.clip(win[valid] / (1. - push[valid]), 1e-7, 1.-1e-7)
+            target = y[valid] > line
+            key = f"market_over_{str(line).replace('.', '_')}" if kind == "total" else f"market_home_cover_{str(line).replace('.', '_')}"
+            bins = np.minimum((probability * 10).astype(int), 9)
+            ece = sum(float((bins == b).mean()) * abs(float(probability[bins == b].mean() - target[bins == b].mean())) for b in np.unique(bins))
+            summary[key] = {"n": int(valid.sum()), "engine_ece_raw": None, "engine_ece_calibrated": ece,
+                            "engine_brier": float(np.mean((probability - target) ** 2)),
+                            "engine_logloss": float(-np.mean(target*np.log(probability)+(~target)*np.log1p(-probability))),
+                            "baseline_logloss": float(log_loss(target, np.full(len(target), np.clip(target.mean(), 1e-7, 1.-1e-7)), labels=[0, 1]))}
+    summary["market_derived_moneyline"] = {"n": metrics["derived_moneyline"]["n"],
+                                          "engine_ece_raw": None, "engine_ece_calibrated": None,
+                                          "engine_brier": metrics["derived_moneyline"]["brier"],
+                                          "engine_logloss": metrics["derived_moneyline"]["logloss"]}
     return {"markets": markets, "summary": summary}
 
 
-# Persisted Phase-3 contract. Grid columns are named p_over_<line> /
-# p_push_<line> / p_under_<line> / p_home_cover_<margin> / p_rl_<m>_<side>
-# so the dashboard toggle reads exact per-line values with zero frontend
-# math. p_push_<line> is P(total == line) from the MC draws (exactly 0.0 on
-# half-lines — integer totals never equal x.5); p_rl_<m>_{home,push,away} is
-# the 3-way margin split (margin > L cover / == L push / < L away) under the
-# post-fix margin distribution. ml_win_prob may be null when the moneyline
-# history lacks the game (conflicts then uncomputable, loudly).
 def rl_col(m: float, side: str) -> str:
     """Injective p_rl column name for a run-line margin + side.
 
@@ -1441,7 +773,7 @@ def rl_col(m: float, side: str) -> str:
 
 MARKET_COLUMNS_V3 = (
     ["game_pk", "game_date", "kind", "home_expected_runs", "away_expected_runs",
-     "alpha_home", "alpha_away"]
+     "distribution_mean_total", "distribution_mean_margin", "distribution_sd_total", "distribution_sd_margin"]
     + [f"p_over_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_push_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_under_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
@@ -1474,7 +806,8 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
     missing = [c for c in MARKET_COLUMNS_V3 if c not in markets.columns]
     if missing:
         raise ValueError(f"markets frame missing required columns: {missing}")
-    frame = markets[MARKET_COLUMNS_V3].copy()
+    extra = [c for c in markets if c.startswith(("p_over_", "p_push_", "p_under_")) and c not in MARKET_COLUMNS_V3]
+    frame = markets[[*MARKET_COLUMNS_V3, *extra]].copy()
     # OOF identity fields are part of the shipped join contract. Older direct
     # callers may not provide them; derive game_id from the stable key, while
     # team names remain nullable only for legacy direct callers. Daily OOF
@@ -1518,247 +851,6 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
     return out_path
 
 
-# ---------------------------------------------------------------------------
-# Phase 3 — α(λ) dispersion model. Phase 2's single global α underestimated
-# the blowout tail (P(X≥10): 0.052 vs 0.069 home, 0.053 vs 0.084 away)
-# because dispersion is heteroskedastic in λ. Here: binned method-of-moments
-# → candidate curves (piecewise / linear / power) selected by OUT-OF-BAG tail
-# validation, monotone + non-negative + capped. Never a 3rd-order polynomial:
-# the ≥10-run tail is only ~250–350 games/side.
-# ---------------------------------------------------------------------------
-def alpha_bins(y: np.ndarray, lam: np.ndarray,
-               n_bins: int = ALPHA_N_BINS,
-               min_count: int = ALPHA_MIN_BIN) -> list[dict]:
-    """Binned method-of-moments points: quantile bins on λ, underfilled bins
-    merged into their nearest neighbor until every bin holds ≥ min_count
-    games. Per bin: α = max(0, (Var(y) − mean(λ)) / mean(λ)²)."""
-    y = np.asarray(y, float)
-    lam = np.asarray(lam, float)
-    edges = np.unique(np.quantile(lam, np.linspace(0, 1, n_bins + 1)))
-    if len(edges) < 2:
-        edges = np.array([lam.min() - 1e-9, lam.max() + 1e-9])
-    idx = np.clip(np.digitize(lam, edges[1:-1], right=False), 0, len(edges) - 2)
-    groups = [np.where(idx == b)[0] for b in range(len(edges) - 1)]
-    # Merge any bin below min_count into its smaller neighbor (loop: merges
-    # can cascade).
-    while True:
-        sizes = [len(g) for g in groups]
-        if len(groups) <= 1 or min(sizes) >= min_count:
-            break
-        i = int(np.argmin(sizes))
-        if i == 0:
-            j = 1
-        elif i == len(groups) - 1:
-            j = i - 1
-        else:
-            j = i - 1 if sizes[i - 1] <= sizes[i + 1] else i + 1
-        lo, hi = min(i, j), max(i, j)
-        groups[lo] = np.concatenate([groups[lo], groups[hi]])
-        del groups[hi]
-    bins = []
-    for g in groups:
-        if not len(g):
-            continue
-        mu, var = float(lam[g].mean()), float(np.mean((y[g] - lam[g]) ** 2))
-        bins.append({
-            "count": int(len(g)),
-            "mean_lam": round(mu, 4),
-            "alpha": round(max((var - mu) / (mu ** 2), 0.0), 4),
-        })
-    return sorted(bins, key=lambda b: b["mean_lam"])
-
-
-def _bin_direction(lams: list[float], alphas: list[float]) -> int:
-    """+1 when dispersion rises with λ, −1 when it falls. Data decides per
-    side — Phase 2 residuals showed home RISING and away FALLING."""
-    if len(lams) < 2 or np.std(alphas) == 0 or np.std(lams) == 0:
-        return +1
-    corr = np.corrcoef(lams, alphas)[0, 1]
-    return -1 if corr < 0 else +1
-
-
-def _fit_curve_piecewise(bins: list[dict]) -> dict:
-    """Weighted isotonic fit through the bin points: monotone in the
-    data-chosen direction, count-weighted so big bins dominate, clipped to
-    [0, CAP]. Unlike a raw cummax it does NOT propagate one high bin into
-    every later point."""
-    from sklearn.isotonic import IsotonicRegression
-
-    xs = np.array([b["mean_lam"] for b in bins])
-    ys = np.array([max(b["alpha"], 0.0) for b in bins])
-    w = np.array([b["count"] for b in bins], dtype=float)
-    d = _bin_direction(xs.tolist(), ys.tolist())
-    iso = IsotonicRegression(increasing=bool(d > 0), out_of_bounds="clip")
-    iso.fit(xs, ys, sample_weight=w)
-    grid = np.linspace(float(xs.min()), float(xs.max()), 40)
-    vals = np.clip(iso.predict(grid), 0.0, ALPHA_CAP)
-    return {"form": "piecewise", "lam": [round(float(v), 5) for v in grid],
-            "alpha": [round(float(v), 5) for v in vals],
-            "direction": "rising" if d > 0 else "falling"}
-
-
-def _fit_curve_linear(bins: list[dict]) -> dict:
-    xs = np.array([b["mean_lam"] for b in bins])
-    ys = np.array([max(b["alpha"], 0.0) for b in bins])
-    if len(xs) < 2:   # degenerate: single bin → constant level, no polyfit
-        return {"form": "linear", "a": float(ys.mean()), "b": 0.0}
-    b_, a_ = np.polyfit(xs, ys, 1)
-    # Either slope sign is fine (both monotone); alpha_of clips at [0, CAP].
-    return {"form": "linear", "a": float(a_), "b": float(b_)}
-
-
-def _fit_curve_power(bins: list[dict]) -> dict:
-    pos = [b for b in bins if b["alpha"] > 0]
-    if len(pos) < 2:
-        return _fit_curve_linear(bins)
-    xs = np.log(np.array([b["mean_lam"] for b in pos]))
-    ys = np.log(np.array([b["alpha"] for b in pos]))
-    if len(xs) < 2:
-        return _fit_curve_linear(bins)
-    c, log_a = np.polyfit(xs, ys, 1)
-    return {"form": "power", "a": float(np.exp(log_a)), "c": float(c)}
-
-
-def alpha_of(lam: np.ndarray, curve: dict) -> np.ndarray:
-    """Evaluate the fitted α(λ) — always in [0, ALPHA_CAP]."""
-    lam = np.asarray(lam, float)
-    form = curve["form"]
-    if form == "piecewise":
-        out = np.interp(lam, curve["lam"], curve["alpha"])
-    elif form == "linear":
-        out = curve["a"] + curve["b"] * lam
-    else:
-        out = curve["a"] * np.power(np.maximum(lam, 1e-9), curve["c"])
-    return np.clip(out, 0.0, ALPHA_CAP)
-
-
-def nb_pmf_matrix(ks: np.ndarray, mu_col: np.ndarray,
-                  alpha_col: np.ndarray) -> np.ndarray:
-    """Vectorized NB pmf: (n_games, len(ks)). ks ints ≥0; columns (n,1)."""
-    from scipy.special import gammaln
-    ks = np.asarray(ks, dtype=float)[None, :]
-    n_size = 1.0 / np.maximum(alpha_col, ALPHA_FLOOR)
-    p = n_size / (n_size + mu_col)
-    logpmf = (gammaln(ks + n_size) - gammaln(n_size) - gammaln(ks + 1.0)
-              + n_size * np.log(p) + ks * np.log1p(-p))
-    return np.exp(logpmf)
-
-
-def eval_alpha_fit(y: np.ndarray, lam: np.ndarray, alpha: np.ndarray,
-                   tail_k: int = 10, kmax: int = 80) -> dict:
-    """Validation metrics for an α vector on held-out games: absolute gap in
-    P(X≥tail_k) and mean NB log-likelihood (higher is better)."""
-    y = np.asarray(y, float)
-    mu_col = np.maximum(np.asarray(lam, float), 1e-6)[:, None]
-    a_col = np.maximum(np.asarray(alpha, float), ALPHA_FLOOR)[:, None]
-    M = nb_pmf_matrix(np.arange(kmax + 1), mu_col, a_col)
-    modeled_tail = float(M[:, tail_k:].sum(axis=1).mean())
-    obs_tail = float((y >= tail_k).mean())
-    loglik = float(np.log(np.maximum(M[np.arange(len(y)), y.astype(int)], 1e-12)).mean())
-    return {"tail_gap": round(abs(modeled_tail - obs_tail), 5),
-            "modeled_tail": round(modeled_tail, 5),
-            "observed_tail": round(obs_tail, 5),
-            "loglik": round(loglik, 5)}
-
-
-def select_alpha_curve(y: np.ndarray, lam: np.ndarray,
-                       seed: int = RANDOM_SEED) -> tuple[dict, dict]:
-    """Out-of-bag selection among piecewise/linear/power forms.
-
-    Two-fold cross-fit (fit half A → score half B, swap); primary metric =
-    |P(X≥10) modeled − observed| on the held-out half, tie-break = mean NB
-    log-likelihood. The chosen form is then REFIT on all rows passed here by
-    the caller (pre-holdout only). Returns (curve, diagnostics)."""
-    # Input order is chronology. Prefix-only rolling selection; no reverse
-    # train-on-future half. Kept for legacy NB diagnostics, not CRPS pricing.
-    y, lam = np.asarray(y, float), np.asarray(lam, float)
-    if len(y) < 4:
-        bins = alpha_bins(y, lam) if len(y) else [{"count": 1, "mean_lam": 1., "alpha": 0.}]
-        return _fit_curve_piecewise(bins), {"selected": "piecewise", "candidates": {}, "bins": bins}
-    cuts = sorted(set([max(2, len(y) // 2), max(3, 3 * len(y) // 4), len(y)]))
-    splits = [(np.arange(cuts[i]), np.arange(cuts[i], cuts[i + 1]))
-              for i in range(len(cuts) - 1)]
-    fitters = {"piecewise": _fit_curve_piecewise,
-               "linear": _fit_curve_linear,
-               "power": _fit_curve_power}
-    diag: dict[str, dict] = {}
-    for name, fit_fn in fitters.items():
-        scores = []
-        for fit_idx, eval_idx in splits:
-            curve = fit_fn(alpha_bins(y[fit_idx], lam[fit_idx]))
-            ev = eval_alpha_fit(y[eval_idx], lam[eval_idx],
-                                alpha_of(lam[eval_idx], curve))
-            scores.append(ev)
-        diag[name] = {
-            "tail_gap_avg": round(np.mean([s["tail_gap"] for s in scores]), 5),
-            "loglik_avg": round(np.mean([s["loglik"] for s in scores]), 5),
-        }
-    best = min(fitters, key=lambda n: (diag[n]["tail_gap_avg"], -diag[n]["loglik_avg"]))
-    bins = alpha_bins(y, lam)
-    if len(bins) < 2:
-        # Everything merged into one bin (small samples): every parametric
-        # form degenerates to a constant level — ship piecewise directly.
-        best = "piecewise"
-    curve = fitters[best](bins)
-    diag["chosen"] = best
-    diag["bins"] = bins
-    return curve, diag
-
-
-def year_effect_check(oof: pd.DataFrame, side: str,
-                      rel_gap_flag: float = ALPHA_YEAR_REL_GAP) -> dict:
-    """2025-vs-2026 dispersion at the same λ: per-year global MoM α plus a
-    common-binned comparison. Reports a relative gap and pools with a loud
-    caveat when |Δα|/α exceeds the flag threshold (per-year curves are too
-    noisy at ~4k games/side to justify splitting)."""
-    years = pd.to_datetime(oof["game_date"]).dt.year
-    out: dict[str, Any] = {"rows": []}
-    alphas = {}
-    for yr in sorted(years.unique()):
-        sub = oof[years == yr]
-        y = sub[f"{side}_score"].to_numpy(float)
-        lam = sub[f"{side}_expected_runs"].to_numpy(float)
-        mu = float(lam.mean())
-        a = round(max((float(y.var(ddof=0)) - mu) / mu ** 2, 0.0), 4)
-        alphas[int(yr)] = a
-        out["rows"].append({"year": int(yr), "n_games": int(len(sub)),
-                            "alpha": a})
-    if len(alphas) >= 2:
-        vals = list(alphas.values())
-        base = min(vals) or 1e-9
-        out["rel_gap"] = round(abs(vals[-1] - vals[0]) / base, 4)
-        out["pooled_with_caveat"] = bool(out["rel_gap"] > rel_gap_flag)
-        if out["pooled_with_caveat"]:
-            logger.warning(
-                "Run engine %s side: year effect in dispersion — α by year %s "
-                "(rel gap %.0f%% > %.0f%%). Pooling with caveat: per-year "
-                "curves are too noisy at this sample size.",
-                side, alphas, 100 * out["rel_gap"], 100 * rel_gap_flag)
-    return out
-
-
-def fit_check_table_curve(actual: np.ndarray, lam: np.ndarray,
-                          alpha: np.ndarray, kmax: int = 12) -> list[dict]:
-    """Fit check under the α(λ) model: the modeled marginal score
-    distribution is the game-average of NB(k; λ_i, α(λ_i)) pmfs."""
-    actual = np.asarray(actual, int)
-    mu_col = np.maximum(np.asarray(lam, float), 1e-6)[:, None]
-    a_col = np.maximum(np.asarray(alpha, float), ALPHA_FLOOR)[:, None]
-    K = np.arange(0, kmax + 1)
-    modeled_k = nb_pmf_matrix(K, mu_col, a_col).mean(axis=0)
-    big = nb_pmf_matrix(np.arange(0, 61), mu_col, a_col)
-    surv = big[:, ::-1].cumsum(axis=1)[:, ::-1]   # P(X ≥ k) per game
-    rows = [{"k": int(k), "modeled_p": round(float(m), 4),
-             "observed_p": round(float((actual == k).mean()), 4)}
-            for k, m in zip(K, modeled_k)]
-    for t in (10, 11, 12):
-        rows.append({"k": f"≥{t}", "modeled_p": round(float(surv[:, t].mean()), 4),
-                     "observed_p": round(float((actual >= t).mean()), 4)})
-    rows.append({"k": "≤1", "modeled_p": round(float(modeled_k[:2].sum()), 4),
-                 "observed_p": round(float((actual <= 1).mean()), 4)})
-    return rows
-
-
 def agreement_stats(p_run: np.ndarray, p_ml: np.ndarray,
                     delta: float | None = None) -> dict:
     """Moneyline-vs-derived divergence stats at the configured delta plus the
@@ -1778,328 +870,6 @@ def agreement_stats(p_run: np.ndarray, p_ml: np.ndarray,
     stats["n_flagged_0_08"] = int((diff > 0.08).sum())
     stats["n_flagged_0_10"] = int((diff > 0.10).sum())
     return stats
-
-
-def derive_markets_v3(oof, moneyline_probs=None, n_draws=MC_DRAWS,
-                      seed=MARKET_SEED, holdout_days=HOLDOUT_DAYS):
-    """Production markets use prior-origin discrete CRPS CDFs, not global alpha."""
-    if "game_pk" in oof and oof.game_pk.isna().any():
-        logger.warning("CRPS markets: dropping %d identity-less OOF rows", int(oof.game_pk.isna().sum()))
-        oof = oof[oof.game_pk.notna()].reset_index(drop=True)
-    markets, calibration = causal_distribution_frame(oof)
-    markets["kind"] = "oof"
-    markets["total_runs"] = markets.home_score + markets.away_score
-    markets["alpha_home"] = 0.
-    markets["alpha_away"] = 0.
-    markets["agreement_conflict"] = False
-    markets["ml_win_prob"] = np.nan
-    if moneyline_probs is not None and len(moneyline_probs):
-        key = "game_pk" if "game_pk" in moneyline_probs else "game_id"
-        if key in markets:
-            lookup = moneyline_probs.set_index(key).home_win_prob_model
-            markets["ml_win_prob"] = markets[key].map(lookup)
-            markets["agreement_conflict"] = (markets.p_home_win_derived - markets.ml_win_prob).abs() > AGREEMENT_FILTER_DELTA
-    dates = pd.to_datetime(oof.game_date)
-    cutoff = dates.max() - pd.Timedelta(days=holdout_days)
-    pre = dates < cutoff
-    report = distribution_score_report(markets, calibration)
-    # Legacy curve records stay in the serving interface; CRPS maps override
-    # them before artifact persistence. No alpha form selection prices OOF.
-    constant = {"form": "linear", "a": 0., "b": 0.,
-                "fitted_on": "not_used_by_crps_distribution"}
-    summary = {"n_draws": 0, "seed": seed,
-               "holdout_cutoff": str(cutoff.date()), "n_pre": int(pre.sum()),
-               "n_holdout": int((~pre).sum()),
-               "alpha_home": dict(constant), "alpha_away": dict(constant),
-               "distribution_metrics": report,
-               "calibration": {"method": calibration["method"],
-                               "fit_scope": "all_settled_prior_oof_only",
-                               "calibrators": calibration},
-               "mc_meta": {"n_draws": 0, "requested_draws": n_draws,
-                           "mc_se_totals_max": 0., "reason": "analytic_cdf"}}
-    summary.update({"phase2_single_alpha": {"home": 0., "away": 0.},
-                    "fit_check_single_alpha": {"home": [], "away": []},
-                    "fit_check_alpha_lambda": {"home": [], "away": []},
-                    "variance_check": {"status": "replaced_by_causal_crps"},
-                    "year_effect_home": {"status": "not_evaluated"},
-                    "year_effect_away": {"status": "not_evaluated"},
-                    "line_grid": {"totals": TOTAL_LINE_GRID,
-                                  "run_lines_full": [-m for m in RUN_LINE_GRID_FULL]}})
-    return {"markets": markets, "summary": summary}
-
-
-def _legacy_derive_markets_v3(oof: pd.DataFrame,
-                      moneyline_probs: Optional[pd.DataFrame] = None,
-                      n_draws: int = MC_DRAWS,
-                      seed: int = MARKET_SEED,
-                      holdout_days: int = HOLDOUT_DAYS,
-                     ) -> dict[str, Any]:
-    """Phase 3: α(λ) dispersion curves + full-line-grid MC markets + sealed
-    holdout gate + agreement groundwork.
-
-    The last `holdout_days` of OOF games are SEALED: no α fitting, binning,
-    or form selection ever sees them. Everything is scored pooled OOF and
-    again holdout-only, each against constant-base-rate baselines."""
-    # OOF rows without a stable identity cannot be joined to slate/history
-    # artifacts and must never enter the persisted markets table. Keep this
-    # filter at the market-construction boundary so every caller is safe.
-    _identity = oof.get("game_pk")
-    if _identity is not None:
-        _bad_identity = _identity.isna()
-        if _bad_identity.any():
-            logger.warning(
-                "derive_markets_v3: dropping %d identity-less OOF row(s) "
-                "before market construction; game_pk=%s game_id=%s",
-                int(_bad_identity.sum()),
-                oof.loc[_bad_identity, "game_pk"].tolist(),
-                oof.loc[_bad_identity, "game_id"].tolist()
-                if "game_id" in oof.columns else "<absent>",
-            )
-            oof = oof.loc[~_bad_identity].reset_index(drop=True)
-    dates = pd.to_datetime(oof["game_date"])
-    cutoff = dates.max() - pd.Timedelta(days=holdout_days)
-    pre_mask = (dates < cutoff).to_numpy()
-    hs = oof["home_score"].to_numpy(float)
-    as_ = oof["away_score"].to_numpy(float)
-    total_runs = hs + as_
-    fold_idx = oof["fold_idx"].to_numpy()
-
-    summary: dict[str, Any] = {
-        "n_draws": n_draws, "seed": seed,
-        "holdout_cutoff": str(cutoff.date()),
-        "n_pre": int(pre_mask.sum()), "n_holdout": int((~pre_mask).sum()),
-        "line_grid": {"totals": TOTAL_LINE_GRID,
-                      "run_lines": [-m for m in RUN_LINE_GRID],
-                      "run_lines_full": [-m for m in RUN_LINE_GRID_FULL],
-                      "run_lines_whole": [-m for m in RUN_LINE_GRID_WHOLE],
-                      "total_ref_lines": list(TOTAL_REF_LINES),
-                      "run_ref_lines": [-m for m in RUN_REF_LINES]},
-    }
-
-    curves, alpha_cols, single_alpha = {}, {}, {}
-    phase2_fc, phase3_fc, variance_check = {}, {}, {}
-    for side, target in (("home", "home_score"), ("away", "away_score")):
-        y_all = oof[target].to_numpy(float)
-        lam_all = oof[f"{side}_expected_runs"].to_numpy(float)
-        y_pre, lam_pre = y_all[pre_mask], lam_all[pre_mask]
-        curve, diag = select_alpha_curve(y_pre, lam_pre,
-                                         seed=seed + (1 if side == "home" else 2))
-        curves[side] = curve
-        summary[f"alpha_{side}"] = {
-            **curve, "selection": diag,
-            "fitted_on": "pre-holdout OOF only",
-            "cap": ALPHA_CAP, "min_bin_count": ALPHA_MIN_BIN,
-        }
-        alpha_cols[side] = alpha_of(lam_all, curve)
-        single_alpha[side] = fit_alpha(y_pre, lam_pre)  # Phase-2 style, PRE-fit
-        # Phase-2 comparison: SAME single-α fit applied to the full OOF set.
-        phase2_fc[side] = fit_check_table(y_all, lam_all, single_alpha[side])
-        phase3_fc[side] = fit_check_table_curve(y_all, lam_all, alpha_cols[side])
-        # var = λ + α·λ² (NB size parameterization n = 1/α).
-        var_implied = float((lam_all + alpha_cols[side] * lam_all ** 2).mean())
-        variance_check[side] = {
-            "implied_var": round(var_implied, 3),
-            "observed_var": round(float(y_all.var(ddof=0)), 3),
-            "phase2_implied_var": round(float(lam_pre.mean()
-                                              + single_alpha[side] * lam_pre.mean() ** 2), 3),
-        }
-        summary[f"year_effect_{side}"] = year_effect_check(
-            oof.iloc[np.where(pre_mask)[0]], side)
-    summary["phase2_single_alpha"] = single_alpha
-    summary["fit_check_single_alpha"] = phase2_fc
-    summary["fit_check_alpha_lambda"] = phase3_fc
-    summary["variance_check"] = variance_check
-
-    mc = derive_markets_mc(oof["home_expected_runs"].to_numpy(float),
-                           oof["away_expected_runs"].to_numpy(float),
-                           alpha_cols["home"], alpha_cols["away"],
-                           n_draws=n_draws, seed=seed)
-    se = mc["mc_se_totals"]
-    # mc_meta keeps its schema (reason is always "default"): the historical
-    # SE-driven tail re-simulation (a conditional 5x-draws bump for tail
-    # precision) never fired in any retained production artifact and was
-    # removed 2026-09-27. If tail SE ever regresses, raise MC_DRAWS
-    # explicitly after measuring.
-    summary["mc_meta"] = {
-        "n_draws": n_draws, "requested_draws": n_draws,
-        "reason": "default",
-        "mc_se_totals_max": round(float(se.max()), 6),
-    }
-
-    # Calibrate the final MC event probabilities after simulation. Keep raw
-    # vectors for honest OOF scoring; the calibrated vectors become the
-    # published market probabilities and are also used for agreement checks.
-    mc_raw = {k: np.asarray(v).copy() for k, v in mc.items()}
-    # Two-scope calibration contract (2026-09-22):
-    #   serving — the published bundle is fit on ALL OOF rows (maximum
-    #     history for the board; the deviation from the OOF prequential
-    #     path is known and measured, <=1.2pp per published run-line
-    #     probability).
-    #   gates — Stage-4 sealed evaluation calls this function WITH
-    #     pre_mask so the sealed window never calibrates itself; see
-    #     docs/run_engine_tuning_policy.md.
-    mc, calibration_bundle, calibration_metrics = _fit_market_calibration(
-        mc, total_runs, hs - as_, hs, as_, fold_idx)
-    summary["calibration"] = {
-        "method": "prequential_platt",
-        "fit_scope": "all_oof",
-        "calibrator_fit_n": int(len(total_runs)),
-        "calibrator_excluded_n": 0,
-        "markets_published": "calibrated",
-        "calibrators": calibration_bundle,
-        "oof_metrics": calibration_metrics,
-    }
-
-    def line_key_total(line: float) -> str:
-        return f"p_over_{str(line).replace('.', '_')}"
-
-    def line_key_margin(m: float) -> str:
-        return f"p_home_cover_{str(m).replace('.', '_')}"
-
-    def score_at(name: str, p: np.ndarray, yv: np.ndarray,
-                 mask: Optional[np.ndarray] = None) -> None:
-        p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
-        yv = np.asarray(yv, float)
-        base = float(yv.mean())
-        row = {
-            "engine_logloss": round(log_loss(yv, p, labels=[0.0, 1.0]), 5),
-            "engine_brier": round(brier_score(yv, p), 5),
-            "engine_ece_raw": ece_score(yv, p),
-            "baseline_rate": round(base, 4),
-            "baseline_logloss": round(log_loss(
-                yv, np.full(len(yv), base), labels=[0.0, 1.0]), 5),
-            "baseline_brier": round(brier_score(yv, np.full(len(yv), base)), 5),
-        }
-        # AUC over the same OOF y/p vectors (additive). Single-class y cannot
-        # be rank-scored: auc=None with a loud warning, never a crash. Some
-        # sklearn builds raise ValueError, others return NaN — guard both.
-        try:
-            _auc = float(roc_auc_score(yv, p))
-        except ValueError:
-            _auc = None
-        if _auc is None or not np.isfinite(_auc):
-            row["auc"] = None
-            logger.warning(
-                "score_at(%s): single-class y (%d of %d) — auc=None",
-                name, int(yv.sum()), len(yv))
-        else:
-            row["auc"] = round(_auc, 5)
-        p_cal = prequential_calibrate(yv, p, fold_idx)
-        row["engine_logloss_calibrated"] = round(
-            log_loss(yv, p_cal, labels=[0.0, 1.0]), 5)
-        row["engine_ece_calibrated"] = ece_score(yv, p_cal)
-        # Pooled mean of the PREQUENTIALLY-CALIBRATED probability vector. This
-        # is the "predicted mean" the monitor shows next to base_rate so the
-        # calibration spread (mean prediction vs mean outcome) is explicit.
-        # Purely additive — no scoring math changed.
-        row["predicted_mean"] = round(float(np.mean(p_cal)), 4)
-        row["n"] = int(len(yv))  # pooled game count scored for this line
-        if mask is not None and mask.any():
-            ph = p[mask]
-            yh = yv[mask]
-            base_h = float(yh.mean())
-            h_ll = round(log_loss(yh, ph, labels=[0.0, 1.0]), 5)
-            h_bll = round(log_loss(
-                yh, np.full(len(yh), base_h), labels=[0.0, 1.0]), 5)
-            row["holdout"] = {
-                "n": int(mask.sum()),
-                "engine_logloss": h_ll,
-                "engine_brier": round(brier_score(yh, ph), 5),
-                "engine_ece_raw": ece_score(yh, ph),
-                "baseline_rate": round(base_h, 4),
-                "baseline_logloss": h_bll,
-                "baseline_brier": round(brier_score(yh, np.full(len(yh), base_h)), 5),
-                "beats_baseline_logloss": bool(h_ll < h_bll),
-            }
-        row["beats_baseline_logloss"] = bool(row["engine_logloss"] < row["baseline_logloss"])
-        summary[f"market_{name}"] = row
-
-    y_over = (total_runs >= 9).astype(float)
-    y_win = (hs > as_).astype(float)
-    score_at("derived_moneyline", mc_raw["p_home_win_derived"], y_win)
-    score_at("derived_moneyline_holdout", mc_raw["p_home_win_derived"], y_win,
-             mask=~pre_mask)
-    for line in TOTAL_REF_LINES:
-        col = TOTAL_LINE_GRID.index(line)
-        score_at(f"over_{str(line).replace('.', '_')}",
-                 mc_raw["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float))
-        score_at(f"over_{str(line).replace('.', '_')}_holdout",
-                 mc_raw["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float),
-                 mask=~pre_mask)
-    for m in RUN_REF_LINES:
-        col = RUN_LINE_GRID.index(m)
-        score_at(f"home_cover_{str(m).replace('.', '_')}",
-                 mc_raw["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float))
-        score_at(f"home_cover_{str(m).replace('.', '_')}_holdout",
-                 mc_raw["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float),
-                 mask=~pre_mask)
-
-    markets = oof[["game_pk", "game_date"]].copy()
-    if "game_id" in oof.columns:
-        markets["game_id"] = oof["game_id"].to_numpy()
-    for tc in ("home_team", "away_team"):
-        if tc in oof.columns:
-            markets[tc] = oof[tc]
-    markets["kind"] = "oof"
-    markets["home_expected_runs"] = np.round(
-        oof["home_expected_runs"].to_numpy(float), 4)
-    markets["away_expected_runs"] = np.round(
-        oof["away_expected_runs"].to_numpy(float), 4)
-    markets["alpha_home"] = np.round(alpha_cols["home"], 4)
-    markets["alpha_away"] = np.round(alpha_cols["away"], 4)
-    for j, line in enumerate(TOTAL_LINE_GRID):
-        key = line_key_total(line)
-        markets[key] = np.round(mc["p_over_grid"][:, j], 5)
-        markets[key.replace("p_over_", "p_push_")] = np.round(
-            mc["p_push_grid"][:, j], 5)
-        markets[key.replace("p_over_", "p_under_")] = np.round(
-            1 - mc["p_over_grid"][:, j] - mc["p_push_grid"][:, j], 5)
-    for j, m in enumerate(RUN_LINE_GRID):
-        markets[line_key_margin(m)] = np.round(mc["p_cover_grid"][:, j], 5)
-    for j, m in enumerate(RUN_LINE_GRID_FULL):
-        # Per-line run-line 3-way split (home covers −L, push, away +L),
-        # plus the symmetric away-favorite orientation.
-        markets[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
-        markets[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
-        markets[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
-        markets[rl_col(m, "away_favorite")] = np.round(mc["p_rl_away_fav_grid"][:, j], 5)
-        markets[rl_col(m, "away_push")] = np.round(mc["p_rl_away_push_grid"][:, j], 5)
-        markets[rl_col(m, "home_dog")] = np.round(mc["p_rl_home_dog_grid"][:, j], 5)
-    markets["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
-    markets["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
-    markets["home_score"] = hs.astype(int)
-    markets["away_score"] = as_.astype(int)
-    markets["total_runs"] = total_runs.astype(int)
-
-    if moneyline_probs is not None and len(moneyline_probs):
-        # predictions_history keys on game_id historically; newer frames
-        # carry game_pk. Merge on whichever the artifact actually has.
-        key = "game_pk" if "game_pk" in moneyline_probs.columns else "game_id"
-        merged = pd.DataFrame({
-            key: oof[key].to_numpy() if key in oof.columns
-            else markets["game_pk"].to_numpy(),
-            "p_run": mc["p_home_win_derived"],
-        }).merge(moneyline_probs[[key, "home_win_prob_model"]],
-                 on=key, how="inner")
-        if len(merged) > 30:
-            stats = agreement_stats(merged["p_run"], merged["home_win_prob_model"])
-            summary["agreement_vs_moneyline"] = stats
-            diff_series = ((merged["p_run"] - merged["home_win_prob_model"]).abs()
-                           > stats["delta_primary"])
-            conflict_map = dict(zip(merged[key], diff_series))
-            prob_map = dict(zip(merged[key], merged["home_win_prob_model"]))
-            join_key = (markets["game_pk"] if key == "game_pk"
-                        else oof["game_id"].to_numpy())
-            markets["agreement_conflict"] = [
-                bool(conflict_map.get(k, False)) for k in join_key]
-            markets["ml_win_prob"] = [prob_map.get(k) for k in join_key]
-    if "agreement_conflict" not in markets.columns:
-        logger.warning("Run engine: moneyline probabilities unavailable — "
-                       "agreement conflicts NOT computed for this run")
-        markets["agreement_conflict"] = False
-        markets["ml_win_prob"] = np.nan
-
-    return {"markets": markets, "summary": summary}
 
 
 def load_moneyline_probs(csv_path: Path) -> Optional[pd.DataFrame]:
@@ -2171,6 +941,16 @@ def _safe_auc(p: np.ndarray, y: np.ndarray) -> Optional[float]:
         return None
 
 
+def brier_score(y, p):
+    return float(np.mean((np.asarray(p) - np.asarray(y)) ** 2))
+
+
+def ece_score(y, p, n_bins=10):
+    y, p = np.asarray(y), np.asarray(p)
+    bins = np.minimum((p * n_bins).astype(int), n_bins - 1)
+    return float(sum((bins == b).mean() * abs(p[bins == b].mean() - y[bins == b].mean()) for b in np.unique(bins)))
+
+
 def _winner_card_stats(p: np.ndarray, y: np.ndarray,
                        fold_idx: Optional[np.ndarray],
                        hold_mask: np.ndarray,
@@ -2187,11 +967,15 @@ def _winner_card_stats(p: np.ndarray, y: np.ndarray,
     """
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     y = np.asarray(y, float)
+    if not len(y):
+        return {"n": 0, "actual_win_rate": None, "win_rate": None,
+                "predicted_mean": None, "ece_raw": None, "ece_calibrated": None,
+                "brier": None, "logloss": None, "logloss_calibrated": None,
+                "beats_baseline_logloss": None,
+                "by_pick": {side: {"n": 0, "win_rate": None, "predicted_mean": None}
+                            for side in ("home", "away")}}
     base = float(y.mean())
-    if fold_idx is not None and len(fold_idx) == len(y):
-        p_cal = prequential_calibrate(y, p, np.asarray(fold_idx, float))
-    else:
-        p_cal = p.copy()
+    p_cal = p.copy()  # already calibrated at issuance; never fit a second card map
     row = {
         "n": int(len(y)),
         "actual_win_rate": round(base, 4),
@@ -2257,7 +1041,7 @@ def compute_winner_cards(markets: pd.DataFrame,
       run_line    pick Home -1.5 if P(home cover -1.5) > 50% else Away +1.5;
                   half-run lines never push.
       derived_ml  pick the side with P > 50% (home if P(home win) > 50%,
-                  else away) — the run line model's own NB moneyline;
+                  else away) — the run line model's own derived moneyline;
                   the moneyline ensemble rides as a one-line ml_reference.
 
     Each card carries ``auc`` = roc_auc_score on its (picked-side
@@ -2358,8 +1142,8 @@ def compute_winner_cards(markets: pd.DataFrame,
         rl = None
 
     # --- derived_ml: HOME win (the RUN LINE model's own moneyline) ---
-    # SOURCE: p_home_win_derived — the NB Monte-Carlo moneyline derived from
-    # the SAME expected-runs/alpha machinery that prices the run-line card.
+    # SOURCE: p_home_win_derived — the split-skew Gaussian Monte Carlo moneyline derived from
+    # the SAME calibrated margin-CDF machinery that prices the run-line card.
     # It is a DISTINCT model from the binary moneyline ensemble. HOME-SIDE
     # (2026-10-12): only home-lean rows (P(home win) > 50%) are graded; the
     # ensemble reference below is scored on the SAME home-lean population
@@ -2377,10 +1161,10 @@ def compute_winner_cards(markets: pd.DataFrame,
         if hold_mask[ok].any():
             ml.setdefault("holdout", {})["auc"] = _safe_auc(
                 mp[ok][hold_mask[ok]], home_won[ok][hold_mask[ok]])
-        ml["source"] = "nb_mc_p_home_win_derived"
-        # nb_diagnostic: schema-stable record of the NB model finding
-        # (equals the card itself now that the card IS the NB moneyline).
-        ml["nb_diagnostic"] = {
+        ml["source"] = "split_skew_mc_p_home_win_derived"
+        # distribution_diagnostic: schema-stable record of the distribution model finding
+        # (equals the card itself now that the card IS the derived moneyline).
+        ml["distribution_diagnostic"] = {
             "n": ml["n"], "actual_win_rate": ml["actual_win_rate"],
             "predicted_mean": ml["predicted_mean"],
             "ece_raw": ml["ece_raw"], "by_pick": ml["by_pick"],
@@ -2436,7 +1220,7 @@ def run_line_feature_weights(decided_games: pd.DataFrame,
     split GAIN across the two per-side Poisson fits (home-λ + away-λ),
     normalized to sum to 1.0 over the SERVED features.
 
-    The side models are the run line's only feature consumers (the NB layer
+    The side models are the run line's only feature consumers (the variance layer
     carries no per-feature parameters), so this gain is the run-line model's
     honest importance — the drift table's MODEL WEIGHT column reports it
     instead of the moneyline blend's. The team-ID categorical columns are
@@ -2477,7 +1261,6 @@ def run_line_feature_weights(decided_games: pd.DataFrame,
 
 def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        final_fit_rounds: dict[str, int],
-                       curves: dict[str, dict],
                        n_draws: int = MC_DRAWS,
                        seed: int = MARKET_SEED,
                        calibration: Optional[dict] = None) -> pd.DataFrame:
@@ -2485,7 +1268,7 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
 
     Side models refit on ALL decided games at fixed rounds (median fold
     early-stopping iteration — no early stopping against the future), then
-    priced through the SAME α(λ) curves and MC machinery as OOF rows."""
+    priced through the same split-skew calibrated Monte Carlo as OOF rows."""
     # Run line's own MODEL WEIGHT (2026-09-27): pooled split-gain from the
     # side models, computed on the DECIDED frame — BEFORE the empty-slate
     # early return, so an off-day run weights exactly like a game day (the
@@ -2565,70 +1348,17 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         model.fit(tr, decided_games[f"{side}_score"].to_numpy(dtype=float))
         out[f"{side}_expected_runs"] = np.round(
             np.clip(model.predict(va), 1e-6, None), 4)
-    if calibration and calibration.get("method") == "causal_lattice_crps":
-        out["alpha_home"] = 0.
-        out["alpha_away"] = 0.
-        out["kind"] = "slate"
-        out = _distribution_price(out, calibration.get("maps", {}))
-        out["distribution_fit_n"] = calibration.get("fit_n", 0)
-        origins = calibration.get("origins") or []
-        out["distribution_fit_end"] = origins[-1]["end"] if origins else None
-        for col in ("home_score", "away_score", "total_runs", "fold_idx", "ml_win_prob"):
-            out[col] = np.nan
-        out["agreement_conflict"] = False
-        if out.game_pk.isna().any():
-            logger.warning("CRPS slate: dropping %d identity-less rows", int(out.game_pk.isna().sum()))
-            out = out[out.game_pk.notna()].reset_index(drop=True)
-        out.attrs["run_line_feature_weights"] = _rl_weight
-        return out
-    alpha_h = alpha_of(out["home_expected_runs"].to_numpy(float), curves["home"])
-    alpha_a = alpha_of(out["away_expected_runs"].to_numpy(float), curves["away"])
-    out["alpha_home"] = np.round(alpha_h, 4)
-    out["alpha_away"] = np.round(alpha_a, 4)
-    mc = derive_markets_mc(out["home_expected_runs"].to_numpy(float),
-                           out["away_expected_runs"].to_numpy(float),
-                           alpha_h, alpha_a, n_draws=n_draws, seed=seed)
-    mc = apply_market_calibration(
-        mc, calibration if not calibration or calibration.get("method") != "causal_lattice_crps" else None)
+    if not calibration or calibration.get("method") != family.METHOD:
+        raise ValueError("MLB slate requires a fitted split-skew challenger bundle")
     out["kind"] = "slate"
-    for j, line in enumerate(TOTAL_LINE_GRID):
-        key = f"p_over_{str(line).replace('.', '_')}"
-        out[key] = np.round(mc["p_over_grid"][:, j], 5)
-        out[key.replace("p_over_", "p_push_")] = np.round(
-            mc["p_push_grid"][:, j], 5)
-        out[key.replace("p_over_", "p_under_")] = np.round(
-            1 - mc["p_over_grid"][:, j] - mc["p_push_grid"][:, j], 5)
-    for j, m in enumerate(RUN_LINE_GRID):
-        out[f"p_home_cover_{str(m).replace('.', '_')}"] = np.round(
-            mc["p_cover_grid"][:, j], 5)
-    for j, m in enumerate(RUN_LINE_GRID_FULL):
-        out[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
-        out[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
-        out[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
-        out[rl_col(m, "away_favorite")] = np.round(mc["p_rl_away_fav_grid"][:, j], 5)
-        out[rl_col(m, "away_push")] = np.round(mc["p_rl_away_push_grid"][:, j], 5)
-        out[rl_col(m, "home_dog")] = np.round(mc["p_rl_home_dog_grid"][:, j], 5)
-    out["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
-    out["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
-    # Undecided by definition; excluded from the NaN-checked numeric contract.
-    out["home_score"] = pd.NA
-    out["away_score"] = pd.NA
-    out["total_runs"] = pd.NA
+    out = apply_market_calibration(out, calibration)
+    for col in ("home_score", "away_score", "total_runs", "fold_idx", "ml_win_prob"):
+        out[col] = np.nan
     out["agreement_conflict"] = False
-    out["ml_win_prob"] = np.nan
-    # Drop rows still without a resolvable key (loud, honest) — an
-    # unresolvable ESPN game_id must never be persisted as a NaN game_pk.
-    # Done last so the grid rows above stay position-aligned with slate_games.
-    unresolved = out["game_pk"].isna()
+    unresolved = out.game_pk.isna()
     if unresolved.any():
-        n = int(unresolved.sum())
-        logger.warning(
-            "predict_slate_runs: dropping %d unresolvable slate row(s) "
-            "(no game_pk/game_id) — excluded from the markets artifact "
-            "rather than persisted with a NaN key", n)
+        logger.warning("Dropping %d unresolved slate identities", int(unresolved.sum()))
         out = out[~unresolved].reset_index(drop=True)
-    if calibration and calibration.get("method") == "causal_lattice_crps":
-        out = _distribution_price(out, calibration.get("maps", {}))
     out.attrs["run_line_feature_weights"] = _rl_weight
     return out
 
@@ -2671,8 +1401,8 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                      ) -> dict[str, Any]:
     """Full Phase-3 daily pass inside the pipeline.
 
-    OOF re-derivation (α(λ) fitted on PRE-HOLDOUT OOF only) → markets artifact
-    with the full line grid → slate λ priced through the same curves →
+    Prior-origin split-skew fitting and calibration -> full Monte Carlo grid
+    -> slate means priced through the same calibrated family ->
     agreement conflicts vs predictions_history → rolling totals Brier.
     Returns the monitor-embed block plus written artifact paths."""
     decided = (decided_snapshot.copy() if decided_snapshot is not None
@@ -2681,14 +1411,6 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     # prices on exactly the moneyline's active feature list. (The P1
     # projection attach adopted by gate 7e4c529 was removed here so both
     # models see identical features.)
-    # Degenerate-fit accounting (2026-10-06 log review): fit_platt's WARNING
-    # line is capped at 3 process-wide, so the log showed three identity-map
-    # fallbacks with no way to tell whether there were three or thirty, or
-    # from which block. Snapshot the uncapped counters before this block fits
-    # and report the block's own totals before returning.
-    from calibration import fit_platt as _fit_platt_counted
-    _fit0 = getattr(_fit_platt_counted, "_fit_total", 0)
-    _degen0 = getattr(_fit_platt_counted, "_degen_total", 0)
     result = run_oof(decided, decided_snapshot=decided)
     oof = result["oof"]
 
@@ -2703,11 +1425,10 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     mk = derive_markets_v3(oof, moneyline_probs=ml_probs, n_draws=n_draws)
     summary = mk["summary"]
     markets = mk["markets"]
-    curves = {s: summary[f"alpha_{s}"] for s in ("home", "away")}
 
     slate_frame = predict_slate_runs(
         decided, target_games, result["summary"]["final_fit_rounds"],
-        curves, n_draws=n_draws,
+        n_draws=n_draws,
         calibration=summary.get("calibration", {}).get("calibrators"))
     if (not slate_frame.empty and ml_probs is not None
             and "home_win_prob_model" in target_games.columns):
@@ -2785,14 +1506,9 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         "version": "phase3",
         "winner_cards": compute_winner_cards(
             markets, oof, HOLDOUT_DAYS),
-        "alpha_home": summary["alpha_home"],
-        "alpha_away": summary["alpha_away"],
-        "phase2_single_alpha": summary["phase2_single_alpha"],
-        "fit_check_single_alpha": summary["fit_check_single_alpha"],
-        "fit_check_alpha_lambda": summary["fit_check_alpha_lambda"],
-        "variance_check": summary["variance_check"],
-        "year_effect_home": summary["year_effect_home"],
-        "year_effect_away": summary["year_effect_away"],
+        "family": family.FAMILY,
+        "variance": summary["variance"],
+        "holdout": summary["holdout"],
         "mc_meta": summary["mc_meta"],
         "calibration": summary.get("calibration"),
         "distribution_metrics": summary.get("distribution_metrics"),
@@ -2833,67 +1549,15 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         artifacts.append(
             str(DATA_DELIVERY_DIR
                 / f"run_engine_markets_{target_date_str}.meta.json"))
-    # The uncapped truth behind the capped WARNING line (2026-10-06 review).
-    _fits = getattr(_fit_platt_counted, "_fit_total", 0) - _fit0
-    _degen = getattr(_fit_platt_counted, "_degen_total", 0) - _degen0
-    if _degen:
-        logger.info(
-            "Calibration: %d of %d prequential Platt fits degenerated to "
-            "identity in the run-engine block (the WARNING line prints only "
-            "the first 3)", _degen, _fits)
     return {"block": monitor_block, "artifacts": artifacts,
             "markets_persisted": markets_persisted,
             "markets_persist_error": markets_persist_error}
 
 
-def _print_phase2(s: dict[str, Any],
-                  fc_key: str = "fit_check_single_alpha") -> None:
-    if s.get("distribution_metrics"):
-        print("\nCausal full-support CRPS distribution metrics:")
-        print(json.dumps(s["distribution_metrics"], indent=2))
-        return
-    print("\n========== PHASE 2 — NB MARGINALS ==========")
-    print(f"α_home={s['alpha_home']}  α_away={s['alpha_away']}  "
-          f"(N={s['n_draws']:,} draws, seed={s['seed']})")
-    for side in ("home", "away"):
-        print(f"\n{side.upper()} fit-check (single global alpha):")
-        print(f"{'k':>6}{'modeled':>10}{'observed':>10}")
-        for row in s[fc_key][side]:
-            print(f"{str(row['k']):>6}{row['modeled_p']:>10.4f}{row['observed_p']:>10.4f}")
-    print("\n========== MARKET SCORING (pooled OOF) ==========")
-    print(f"{'market':<20}{'logloss':>9}{'brier':>8}{'ECE(raw)':>9}"
-          f"{'ECE(cal)':>9}{'base LL':>9}{'ΔLL':>9}")
-    for key, name in (("market_over_8_5", "over 8.5"),
-                      ("market_home_cover_1_5", "home -1.5"),
-                      ("market_derived_moneyline", "derived ML")):
-        m = s[key]
-        print(f"{name:<20}{m['engine_logloss']:>9.4f}{m['engine_brier']:>8.4f}"
-              f"{m['engine_ece_raw']:>9.4f}{m['engine_ece_calibrated']:>9.4f}"
-              f"{m['baseline_logloss']:>9.4f}"
-              f"{m['engine_logloss'] - m['baseline_logloss']:>9.4f}")
-    if "agreement_vs_moneyline" in s:
-        a = s["agreement_vs_moneyline"]
-        print(f"\nAgreement vs moneyline ensemble (n={a['n']}): "
-              f"mean|d|={a['mean_abs_diff']}, flagged@{a['delta_primary']}: "
-              f"{a['n_flagged_primary']} ({100*a['share_gt_primary']:.1f}%), "
-              f"@0.10: {100*a['share_gt_0_10']:.1f}%")
+def _print_phase2(summary):
+    print("\nSplit-skew Gaussian challenger, causal CRPS calibration + Monte Carlo")
+    print(json.dumps(summary.get("distribution_metrics", {}), indent=2))
 
-
-# ---------------------------------------------------------------------------
-# Frozen Game-Totals prediction history (first-publication store)
-#
-# The frontend's totals Prediction History previously re-priced every decided
-# game on the LATEST run's basis each day (and selected each game's own fair
-# line), so its numbers drifted with every basis re-derivation and never
-# matched the card's published pre-game prices. As adopted 2026-09-22, the
-# OOF (prequential fold-model) totals prediction is FROZEN at first
-# publication: the first markets artifact in which a game_pk appears as a
-# decided OOF row prices the history row once, using the same fair-line /
-# re-scaled-pick rules the frontend applies, and the store is append-only
-# thereafter. The moneyline prediction history keeps its existing OOF
-# semantics (predictions_history_*.csv) — totals parity without changing the
-# moneyline contract.
-# ---------------------------------------------------------------------------
 
 TOTALS_HISTORY_SCHEMA_VERSION = 1
 
@@ -3167,61 +1831,37 @@ def main() -> None:
         print(f"{side} dispersion ratio (Pearson χ²/df): {ratio:.3f} → {verdict}")
     print(f"\nOOF artifact: {oof_path}")
     _print_phase2(mk["summary"])
-    if mk["summary"].get("distribution_metrics"):
-        return
-    s3 = mk["summary"]
-    print("\n========== PHASE 3 — α(λ) vs SINGLE α ==========")
-    for side in ("home", "away"):
-        a2 = s3[f"alpha_{side}"]
-        sel = a2["selection"]
-        params = {k: v for k, v in a2.items()
-                  if k in ("a", "b", "c", "lam", "alpha")}
-        print(f"\n{side}: form={a2['form']} params={params}")
-        sel_summary = [
-            (f, sel[f]["tail_gap_avg"], sel[f]["loglik_avg"])
-            for f in ("piecewise", "linear", "power") if f in sel
-        ]
-        print(f"  OOB selection (tail_gap, loglik): {sel_summary}")
-        print(f"  bins: {sel['bins']}")
-        print(f"  year effect: {s3[f'year_effect_{side}']}")
-        print(f"  variance check: {s3['variance_check'][side]}")
-        fc2 = {r["k"]: r for r in s3["fit_check_single_alpha"][side]}
-        fc3 = {r["k"]: r for r in s3["fit_check_alpha_lambda"][side]}
-        order = list(range(13)) + ["≥10", "≥11", "≥12", "≤1"]
-        print(f"  {'k':>5}{'single-a':>10}{'alpha(l)':>10}{'observed':>10}")
-        for k in order:
-            o = fc2.get(k, fc3.get(k, {})).get("observed_p")
-            m2 = fc2.get(k, {}).get("modeled_p")
-            m3 = fc3.get(k, {}).get("modeled_p")
-            if m2 is None or m3 is None or o is None:
-                continue
-            print(f"  {str(k):>5}{m2:>10.4f}{m3:>10.4f}{o:>10.4f}")
-    print("\n========== MULTI-LINE SCORING (pooled | holdout) ==========")
-    print(f"{'market':<22}{'LL':>8}{'Brier':>8}{'ECEcal':>8}{'baseLL':>8}"
-          f"{'hLL':>8}{'hBaseLL':>9}{'beats?':>7}")
-    for key in sorted(k for k in s3 if k.startswith("market_")):
-        m = s3[key]
-        if not isinstance(m, dict):
-            continue
-        h = m.get("holdout") or {}
-        name = key.replace("market_", "")
-        print(f"{name:<22}{m['engine_logloss']:>8.4f}{m['engine_brier']:>8.4f}"
-              f"{m.get('engine_ece_calibrated', float('nan')):>8.4f}"
-              f"{m['baseline_logloss']:>8.4f}"
-              f"{h.get('engine_logloss', float('nan')):>8.4f}"
-              f"{h.get('baseline_logloss', float('nan')):>9.4f}"
-              f"{str(h.get('beats_baseline_logloss', '-')):>7}")
-    if "agreement_vs_moneyline" in s3:
-        print(f"\nAgreement: {s3['agreement_vs_moneyline']}")
-    print(f"\nMarkets artifact: {mkt_path}")
+    print(f"Markets artifact: {mkt_path}")
 
 
 # ---------------------------------------------------------------------------
 # Causal whole-distribution layer. Mirrored across sports deliberately: these
 # backends run independently in Kaggle; no new shared runtime is required.
 # ---------------------------------------------------------------------------
+def calibrate_market_frame(df, n_draws=MC_DRAWS, seed=MC_SEED):
+    """Dated OOF only: fit split-skew calibration on strictly prior origins."""
+    priced, bundle = causal_distribution_frame(df, n_draws=n_draws, seed=seed)
+    if priced is not None and len(priced):
+        metrics = distribution_score_report(priced, bundle)
+        bundle["oof_metrics"] = metrics
+        priced.attrs["distribution_metrics"] = metrics
+    return priced, bundle
+
+
+def apply_market_calibration(df, bundle):
+    if not bundle or bundle.get("method") != family.METHOD:
+        raise ValueError("serving requires a fitted split-skew challenger bundle")
+    mc = bundle.get("monte_carlo", {})
+    out = _distribution_price(df, bundle.get("maps", {}),
+                              n_draws=mc.get("requested_draws", MC_DRAWS),
+                              seed=mc.get("seed", MC_SEED))
+    out["distribution_fit_n"] = bundle.get("fit_n", 0)
+    out["distribution_fit_end"] = bundle.get("fit_end")
+    return out
+
+
 DISTRIBUTION_SPORT = "mlb"
-CRPS_MIN_HISTORY = 200
+CRPS_MIN_HISTORY = family.MIN_HISTORY
 
 
 def _distribution_blocks(frame):
@@ -3257,163 +1897,63 @@ def _distribution_inputs(frame):
 
 
 def _distribution_support(kind):
-    # Fixed, outcome-independent integration ranges. Saturation is checked,
-    # not hidden by clipping observations at the integration boundary.
-    high = {"nba": 600, "nfl": 250, "nhl": 100, "mlb": 160}[DISTRIBUTION_SPORT]
-    return np.arange(0, high + 1) if kind == "total" else np.arange(-high, high + 1)
+    return family.support_for(kind, DISTRIBUTION_SPORT)
 
 
 def _distribution_design(h, a):
-    reference = {"nba": 220., "nfl": 44., "nhl": 6., "mlb": 9.}[DISTRIBUTION_SPORT]
-    return np.column_stack([np.ones(len(h)),
-                            np.clip((h + a) / reference - 1., -1., 2.),
-                            np.clip(np.abs(h - a) / reference, 0., 1.)])
+    return family.design(h, a, DISTRIBUTION_SPORT)
 
 
-def _distribution_raw_cdf(h, a, kind, alphas=None):
-    """Outcome-free sport baseline; discrete supports and exact CDFs, no MC."""
-    from scipy.special import ndtr
-    from scipy.stats import poisson, nbinom
-    from scipy.signal import fftconvolve
-    support = _distribution_support(kind)
-    if DISTRIBUTION_SPORT == "nba":
-        location = h + a if kind == "total" else h - a
-        # A baseline, not fitted dispersion. Conditional width is subsequently
-        # learned by CRPS on strictly earlier OOF predictions.
-        scale = np.sqrt(np.maximum(h + a, 1.))
-        cdf = ndtr((support[None, :] + .5 - location[:, None]) / scale[:, None])
-        if kind == "total":
-            lower = ndtr((-.5 - location) / scale)
-            cdf = (cdf - lower[:, None]) / (1. - lower[:, None])
-    else:
-        scores = np.arange(0, support[-1] + 1)
-        def side_pmf(mu, alpha):
-            mu = np.maximum(mu, 1e-6)[:, None]
-            if alpha <= 1e-6:
-                return poisson.pmf(scores[None, :], mu)
-            return nbinom.pmf(scores[None, :], 1. / alpha, 1. / (1. + alpha * mu))
-        ah, aa = alphas or (0., 0.)
-        hp, ap = side_pmf(h, ah), side_pmf(a, aa)
-        if np.any(hp.sum(axis=1) < 1 - 1e-9) or np.any(ap.sum(axis=1) < 1 - 1e-9):
-            raise ValueError("count distribution exceeds its integration support")
-        if kind == "total":
-            pmf = fftconvolve(hp, ap, axes=1)[:, :len(support)]
-        else:
-            pmf = fftconvolve(hp, ap[:, ::-1], axes=1)
-        cdf = np.cumsum(np.maximum(pmf, 0.), axis=1)
-    if np.any(cdf[:, -1] < 1 - 1e-8):
-        raise ValueError("distribution tail exceeds its integration support")
-    return support, np.clip(cdf, 0., 1.)
+def _distribution_raw_cdf(h, a, kind, parameters=None):
+    return family.raw_cdf(h, a, kind, DISTRIBUTION_SPORT, parameters)
 
 
 def _distribution_transform(cdf, design, coefficients):
-    """One increasing map per game shared by ALL thresholds (valid CDF)."""
-    from scipy.special import expit, logit
-    coefficients = np.asarray(coefficients, float)
-    shift = design @ coefficients[:3]
-    slope = np.exp(design @ coefficients[3:])
-    out = expit(logit(np.clip(cdf, 1e-12, 1 - 1e-12)) * slope[:, None]
-                + shift[:, None])
-    out[cdf <= 0.] = 0.
-    out[cdf >= 1.] = 1.
-    return out
+    return family.transform(cdf, design, coefficients)
 
 
 def _distribution_no_tie(cdf, support):
-    """Final-score NBA/NHL/MLB have no draws; resolve 0 into +/-1 equally.
-
-    NFL retains its genuine tie outcome. This settlement adjustment is part
-    of the distribution BEFORE fitting/scoring, never a separate ML map.
-    """
-    if DISTRIBUTION_SPORT == "nfl" or support[0] >= 0:
-        return cdf
-    out = cdf.copy()
-    j = int(np.searchsorted(support, 0))
-    mass = np.maximum(out[:, j] - out[:, j - 1], 0.)
-    out[:, j - 1] += .5 * mass
-    out[:, j] -= .5 * mass
-    return out
+    return family.no_tie(cdf, support, DISTRIBUTION_SPORT)
 
 
 def lattice_crps(cdf, support, outcome):
-    """Exact unit-lattice CRPS, including left/right boundary tail error."""
-    y = np.asarray(outcome, float)
-    support = np.asarray(support, float)
-    cdf = np.asarray(cdf, float)
-    if cdf.shape != (len(y), len(support)) or not np.isfinite(y).all():
-        raise ValueError("CRPS requires aligned finite outcomes and CDFs")
-    if not np.isfinite(cdf).all() or np.any(np.diff(cdf, axis=1) < -1e-9):
-        raise ValueError("CRPS requires a finite nondecreasing CDF")
-    if np.any(cdf < 0.) or np.any(cdf > 1.):
-        raise ValueError("CDF probabilities must be in [0, 1]")
-    return (np.square(cdf - (y[:, None] <= support[None, :])).sum(axis=1)
-            + np.maximum(support[0] - y, 0.)
-            + np.maximum(y - support[-1] - 1., 0.))
+    return family.crps(cdf, support, outcome)
 
 
-def _fit_distribution_map(h, a, outcome, kind, alphas=None):
-    """CRPS-optimal conditional location/scale recalibration on past OOF.
-
-    Bias and log-slope depend on expected total and absolute expected margin:
-    heteroscedasticity is learned independently for total and spread. A small
-    fixed ridge penalty limits extrapolation; no data-driven tuning on tests.
-    """
-    from scipy.optimize import minimize
-    from scipy.special import logit
-    y = np.asarray(outcome, float)
-    valid = np.isfinite(y) & np.isfinite(h) & np.isfinite(a)
-    h, a, y = h[valid], a[valid], y[valid]
-    if len(y) < CRPS_MIN_HISTORY:
-        return [0.] * 6
-    support, raw = _distribution_raw_cdf(h, a, kind, alphas)
-    design = _distribution_design(h, a)
-    logits = logit(np.clip(raw, 1e-12, 1 - 1e-12))
-    target = (y[:, None] <= support[None, :]).astype(float)
-    def loss_gradient(beta):
-        from scipy.special import expit
-        shift, slope = design @ beta[:3], np.exp(design @ beta[3:])
-        cdf = expit(logits * slope[:, None] + shift[:, None])
-        cdf[raw <= 0.] = 0.; cdf[raw >= 1.] = 1.
-        derivative = cdf * (1 - cdf)
-        if kind == "margin" and DISTRIBUTION_SPORT != "nfl":
-            j = int(np.searchsorted(support, 0))
-            # Both CDF thresholds share the average after tie resolution.
-            mid = .5 * (cdf[:, j - 1] + cdf[:, j])
-            cdf[:, j - 1] = mid; cdf[:, j] = mid
-        error = cdf - target
-        loss = np.square(error).sum(axis=1).mean()
-        if kind == "margin" and DISTRIBUTION_SPORT != "nfl":
-            mid_error = .5 * (error[:, j - 1] + error[:, j])
-            error[:, j - 1] = mid_error; error[:, j] = mid_error
-        g = 2. * error * derivative / len(y)
-        gradient = np.r_[design.T @ g.sum(axis=1),
-                         design.T @ (g * logits * slope[:, None]).sum(axis=1)]
-        penalty = .01 * np.dot(beta, beta)
-        return loss + penalty, gradient + .02 * beta
-    result = minimize(loss_gradient, np.zeros(6), jac=True, method="L-BFGS-B",
-                      bounds=[(-2., 2.)] * 3 + [(-1.5, 1.5)] * 3,
-                      options={"maxiter": 100, "ftol": 1e-8})
-    if not result.success or not np.isfinite(result.x).all():
-        raise RuntimeError(f"CRPS calibration failed: {result.message}")
-    return result.x.tolist()
+def _fit_distribution_map(h, a, outcome, kind, parameters=None):
+    return family.fit_map(h, a, outcome, kind, DISTRIBUTION_SPORT,
+                          parameters or family.defaults(DISTRIBUTION_SPORT))
 
 
-def _distribution_cdfs(frame, maps):
+def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
+                       seed=MC_SEED, meta_out=None):
     h, a = _distribution_inputs(frame)
     design = _distribution_design(h, a)
+    identity_col = "game_pk" if DISTRIBUTION_SPORT == "mlb" else "game_id"
+    if sampled and (identity_col not in frame or frame[identity_col].isna().any()):
+        raise ValueError("Monte Carlo pricing requires finite game identities")
     out = {}
     for kind in ("total", "margin"):
-        support, raw = _distribution_raw_cdf(h, a, kind, maps.get("alphas"))
-        cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 6))
+        support, raw = _distribution_raw_cdf(h, a, kind, maps.get("variance"))
+        cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 9))
         if kind == "margin":
             cdf = _distribution_no_tie(cdf, support)
+        if sampled:
+            cdf, meta = family.sample_cdf(cdf, support, frame[identity_col].astype(str),
+                                          kind, DISTRIBUTION_SPORT, n_draws, seed)
+            if meta_out is not None:
+                meta_out.update(meta)
         out[kind] = (support, cdf)
     return out
 
 
-def _distribution_price(frame, maps):
-    """All prices, pushes, fair HALF lines, and ML from the SAME two CDFs."""
-    cdfs = _distribution_cdfs(frame, maps)
+def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=None):
+    """All prices and settlement legs from the same sampled challenger CDFs."""
+    mc_meta = {}
+    cdfs = _distribution_cdfs(frame, maps, sampled=True, n_draws=n_draws,
+                               seed=seed, meta_out=mc_meta)
+    if meta_out is not None:
+        meta_out.update(mc_meta)
     h, a = _distribution_inputs(frame)
     updates = {"mu_margin": h - a, "mu_total": h + a}
     for kind, (support, cdf) in cdfs.items():
@@ -3427,7 +1967,7 @@ def _distribution_price(frame, maps):
             if index >= len(support): return np.ones(len(frame))
             return cdf[:, index]
         if DISTRIBUTION_SPORT == "mlb":
-            lines = (TOTAL_LINE_GRID if kind == "total" else
+            lines = (sorted(set([*TOTAL_LINE_GRID, *range(0, 31)])) if kind == "total" else
                      sorted(set([*RUN_LINE_GRID, *RUN_LINE_GRID_FULL,
                                  *[-x for x in RUN_LINE_GRID_FULL], 0.])))
         else:
@@ -3473,7 +2013,8 @@ def _distribution_price(frame, maps):
         updates["p_over_fair" if kind == "total" else "p_cover_fair"] = 1. - cdf[np.arange(len(frame)), j]
     out = pd.concat([frame.drop(columns=list(updates), errors="ignore"),
                      pd.DataFrame(updates, index=frame.index)], axis=1)
-    out.attrs["distribution_method"] = "causal_lattice_crps"
+    out.attrs["distribution_method"] = family.METHOD
+    out.attrs["mc_meta"] = mc_meta
     out.attrs["distribution_objective"] = "discrete_crps"
     if "home_score" in out and "away_score" in out:
         margin = out.home_score - out.away_score
@@ -3488,30 +2029,24 @@ def _distribution_price(frame, maps):
 
 
 def _distribution_fit_maps(h, a, outcomes):
-    alphas = None
-    if DISTRIBUTION_SPORT in ("nfl", "mlb", "nhl"):
-        hs = .5 * (outcomes["total"] + outcomes["margin"])
-        aws = .5 * (outcomes["total"] - outcomes["margin"])
-        def residual_alpha(y, mu):
-            if len(y) < CRPS_MIN_HISTORY: return 0.
-            return float(np.clip(np.sum((y - mu) ** 2 - mu) /
-                                 max(np.sum(mu ** 2), 1e-12), 0., .5))
-        alphas = [residual_alpha(hs, h), residual_alpha(aws, a)]
-    maps = {kind: _fit_distribution_map(h, a, y, kind, alphas)
-            for kind, y in outcomes.items()}
-    if alphas is not None:
-        maps["alphas"] = alphas
-    return maps
+    parameters = family.fit_variance(h, a, outcomes, DISTRIBUTION_SPORT)
+    return {"variance": parameters,
+            **{kind: _fit_distribution_map(h, a, y, kind, parameters)
+               for kind, y in outcomes.items()}}
 
 
-def causal_distribution_frame(frame):
+def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     """Fit distribution mechanics at each origin on PRIOR OOF outcomes only.
 
     Final serving maps may use all settled past OOF; NEVER apply those maps
     back to OOF rows. An undated frame is refused rather than claimed PIT.
     """
     if frame is None or not len(frame):
-        return frame, {"method": "causal_lattice_crps", "maps": {}}
+        return frame, {"method": family.METHOD, "maps": {}}
+    original_index = frame.index
+    date_key = "game_date" if DISTRIBUTION_SPORT == "mlb" else "gameday"
+    identity_key = "game_pk" if DISTRIBUTION_SPORT == "mlb" else "game_id"
+    frame = frame.sort_values([date_key, identity_key], kind="stable")
     h, a = _distribution_inputs(frame)
     outcomes = {"total": frame.home_score.to_numpy(float) + frame.away_score.to_numpy(float),
                 "margin": frame.home_score.to_numpy(float) - frame.away_score.to_numpy(float)}
@@ -3523,6 +2058,10 @@ def causal_distribution_frame(frame):
     if np.any(settled < 0.) or np.any(settled != np.floor(settled)):
         raise ValueError("distribution outcomes must be nonnegative integer final scores")
     blocks = _distribution_blocks(frame)
+    date_col = "game_date" if DISTRIBUTION_SPORT == "mlb" else "gameday"
+    dates = pd.to_datetime(frame[date_col], utc=True).dt.normalize()
+    cutoff = dates.max() - pd.Timedelta(days=HOLDOUT_DAYS)
+    pre_holdout = (dates < cutoff).to_numpy()
     history = np.zeros(len(frame), dtype=bool)
     parts, origins = [], []
     evidence = {"total": [], "margin": []}
@@ -3537,16 +2076,18 @@ def causal_distribution_frame(frame):
             # identity CDFs. No same-origin fit performance selects the map.
             admitted[kind] = bool(len(differences) >= CRPS_MIN_HISTORY
                                   and differences.mean() < 0.)
-            if not admitted[kind]: maps[kind] = [0.] * 6
+            if not admitted[kind]: maps[kind] = [0.] * len(maps[kind])
         current = frame.iloc[np.flatnonzero(mask)]
-        part = _distribution_price(current, maps)
-        baseline = dict(candidate, total=[0.] * 6, margin=[0.] * 6)
+        part = _distribution_price(current, maps, n_draws=n_draws, seed=seed)
+        baseline = dict(candidate,
+                        total=[0.] * len(candidate["total"]),
+                        margin=[0.] * len(candidate["margin"]))
         cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
         for kind in ("total", "margin"):
             support, cdf = cc[kind]
             difference = (lattice_crps(cdf, support, outcomes[kind][mask])
                           - lattice_crps(bc[kind][1], support, outcomes[kind][mask]))
-            evidence[kind].append(difference)
+            evidence[kind].append(difference[pre_holdout[mask]])
         part["distribution_fit_n"] = int(history.sum())
         part["distribution_fit_end"] = str(origins[-1]["end"]) if origins else None
         parts.append(part)
@@ -3554,18 +2095,28 @@ def causal_distribution_frame(frame):
                         "n_prior": int(history.sum()), "n_scored": int(mask.sum()),
                         "maps": maps, "candidate_maps": candidate,
                         "calibration_admitted": admitted})
-        history |= mask
+        history |= mask & pre_holdout
+    # Freeze evaluation learning through the sealed tail; serving can learn
+    # from all now-settled past games, but cannot rewrite issued OOF prices.
     maps = _distribution_fit_maps(h, a, outcomes)
     for kind in ("total", "margin"):
         difference = np.concatenate(evidence[kind])
         if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
-            maps[kind] = [0.] * 6
-    bundle = {"method": "causal_lattice_crps", "scope": "whole_cdf",
+            maps[kind] = [0.] * len(maps[kind])
+    bundle = {"method": family.METHOD, "family": family.FAMILY, "scope": "whole_cdf",
               "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
               "maps": maps, "origins": origins, "fit_n": len(frame),
+              "fit_end": str(dates.max().date()),
+              "monte_carlo": parts[-1].attrs["mc_meta"],
+              "holdout": {"cutoff": str(cutoff.date()), "n_pre": int(pre_holdout.sum()),
+                          "n_holdout": int((~pre_holdout).sum()),
+                          "holdout_days": HOLDOUT_DAYS,
+                          "fitted_on": "strictly prior pre-holdout origins"},
               "serving_fit_scope": "all_settled_prior_oof_only",
               "admission": "negative_mean_paired_crps_on_prior_issued_origins"}
-    return pd.concat(parts).reindex(frame.index), bundle
+    priced = pd.concat(parts).reindex(original_index)
+    priced.attrs["mc_meta"] = bundle["monte_carlo"]
+    return priced, bundle
 
 
 def distribution_score_report(frame, bundle):
@@ -3575,14 +2126,17 @@ def distribution_score_report(frame, bundle):
     row_losses = {"total": np.empty(len(frame)), "margin": np.empty(len(frame))}
     for (_, _, mask), origin in zip(_distribution_blocks(frame), bundle["origins"]):
         part = frame.iloc[np.flatnonzero(mask)]
-        cdfs = _distribution_cdfs(part, origin["maps"])
+        mc = bundle.get("monte_carlo", {})
+        cdfs = _distribution_cdfs(part, origin["maps"], sampled=True,
+                                  n_draws=mc.get("requested_draws", MC_DRAWS),
+                                  seed=mc.get("seed", MC_SEED))
         for kind, (support, cdf) in cdfs.items():
             y = (part.home_score + part.away_score if kind == "total"
                  else part.home_score - part.away_score).to_numpy(float)
             loss = lattice_crps(cdf, support, y)
             values[kind].append(loss)
             row_losses[kind][mask] = loss
-    result = {"method": "causal_lattice_crps", "roi_verified": False}
+    result = {"method": family.METHOD, "roi_verified": False}
     for kind, key, line_key, name in (("total", "p_over_fair", "fair_total", "totals"),
                                       ("margin", "p_cover_fair", "fair_spread", "run_line")):
         p = frame[key].to_numpy(float)
@@ -3673,7 +2227,10 @@ def distribution_probability(frame, bundle, kind, line):
     """
     if kind not in ("total", "margin") or not np.isfinite(line):
         raise ValueError("expected total/margin and finite line")
-    support, cdf = _distribution_cdfs(frame, bundle.get("maps", {}))[kind]
+    mc = bundle.get("monte_carlo", {})
+    support, cdf = _distribution_cdfs(frame, bundle.get("maps", {}), sampled=True,
+                                     n_draws=mc.get("requested_draws", MC_DRAWS),
+                                     seed=mc.get("seed", MC_SEED))[kind]
     def at(value):
         index = int(np.floor(value) - support[0])
         if index < 0: return np.zeros(len(frame))

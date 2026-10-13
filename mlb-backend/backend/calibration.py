@@ -22,7 +22,7 @@ The calibrator is a plain dict {"method","a","b","n"} so it survives
 joblib round-trips inside ensemble_latest.joblib and JSON reporting.
 
 CALIBRATION_MODE switch (moneyline path only; run-engine calibration always
-uses raw fit_platt/apply_platt and is untouched):
+uses whole-CDF CRPS calibration separately):
 - "platt" (default): the shipped 2-parameter logistic map.
 - "identity": publish the raw blend — moneyline_fit returns None and
   moneyline_apply returns p unchanged, so calibrated == raw everywhere.
@@ -92,8 +92,8 @@ def set_calibration_mode(mode: str) -> None:
     """Switch the moneyline calibration mode in-process (harness/test use).
 
     Affects ONLY the moneyline path via moneyline_fit/moneyline_apply;
-    fit_platt/apply_platt (and therefore the run-engine calibration) are
-    unchanged. "platt" is today's behavior; "identity" publishes raw.
+    Distribution-market CRPS calibration is independent of this switch.
+    "platt" is today's behavior; "identity" publishes raw.
     """
     m = str(mode).strip().lower()
     if m not in VALID_CALIBRATION_MODES:
@@ -106,8 +106,8 @@ def moneyline_fit(y_true, y_prob):
     """Moneyline calibrator fit, gated by CALIBRATION_MODE.
 
     Identity mode skips the map entirely (returns None -> raw published
-    probabilities); platt mode is today's behavior. Run-engine paths call
-    fit_platt directly and are unaffected.
+    probabilities); platt mode is today's behavior. Distribution markets
+    use whole-CDF CRPS calibration and are unaffected.
     """
     if get_calibration_mode() == "identity":
         logger.info(
@@ -256,7 +256,7 @@ def apply_moneyline_calibration(y_prob, calibrator: dict | None) -> np.ndarray:
     """Apply favored-space calibration and convert back to home-win space.
 
     Legacy home-space calibrators are deliberately rejected. Generic
-    ``apply_platt`` remains available to the NB run-engine markets, but it is
+    ``apply_platt`` remains available to the general calibration diagnostics, but it is
     no longer a valid moneyline calibration path.
     """
     p = np.clip(np.asarray(y_prob, dtype=float), 0.0, 1.0)
@@ -277,7 +277,7 @@ def apply_moneyline_calibration(y_prob, calibrator: dict | None) -> np.ndarray:
 def fit_platt(y_true, y_prob) -> dict | None:
     """Fit the Platt map on pooled OOF (y, p) pairs.
 
-    Returns a generic internal Platt map used by NB markets. The moneyline
+    Returns a generic internal Platt map used by binary calibration. The moneyline
     path wraps this result as ``favored_platt_floor``; generic ``method=platt``
     is not valid for moneyline serving. Returns {"method": "platt", "a": slope,
     "b": intercept, "n": n} or None when the data cannot support a fit (too

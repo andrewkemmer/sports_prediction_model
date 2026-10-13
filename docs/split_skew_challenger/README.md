@@ -20,4 +20,11 @@
 - Worst sampled analytical-vs-empirical CDF discrepancy across representative beginning/middle/end origins: 0.005867. This is consistent with stochastic sampling error; it is not bounded by one standard error.
 - Public path checked: OOF replay -> markets CSV/meta -> monitor JSON -> Streamlit fit/model-card rendering. Full input ingestion and score-mean retraining were not rerun. Published historical artifacts were not rewritten; the normal next pipeline run emits the new family.
 
+## MLB / NFL / NHL port verification
+
+- Structure mirrors NBA exactly (same two-piece CDF, nine-coefficient CRPS calibration, admission on negative paired CRPS differences, 21-day sealed tail, identity-keyed 50,000-draw inverse-CDF Monte Carlo); each sport fits its own home/away residual variance, correlation and total/margin skew from prior OOF. NFL keeps genuine tie mass; the other three settle zero-margin mass into adjacent margins.
+- Replays of delivered OOF means: MLB 7,033 rows / 84 persisted origins (120.96 s), total CRPS 2.46447, run-line CRPS 2.46745, derived-ML logloss 0.683504; NFL 2,572 rows / 200 origins (202.76 s), total CRPS 7.63846, run-line CRPS 7.38265, derived-ML logloss 0.629606 over 9 ties (conditional non-tie settlement); NHL 2,686 rows / 60 origins (26.05 s), total CRPS 1.29001, run-line CRPS 1.44244, derived-ML logloss 0.677175. See `mlb_replay.json`, `nfl_replay.json`, `nhl_replay.json`.
+- Worst sampled analytical-vs-empirical CDF discrepancy: MLB 0.005362, NFL 0.005619, NHL 0.005644 — sampling noise at the shipped draw count, not a pricing guarantee.
+- Suites after the port and the stale-label cleanup: MLB 403 passed / 1 skipped (pre-existing), NFL 55 passed, NHL 625 passed, NBA 636 passed, frontend 118 passed (all four markets pages rendered through AppTest against real artifacts).
+
 These are historical replay measurements, **not** proof of prospective improvement, betting profitability, or an optimized advantage over the retired model. Sport-specific parameter estimation optimizes conditional CRPS using prior data; no holdout metric is used for tuning.

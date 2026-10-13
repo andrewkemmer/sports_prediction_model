@@ -223,21 +223,19 @@ def test_degenerate_warning_carries_the_fit_size(caplog, monkeypatch):
     assert calibration.fit_platt._degen_total == 5
 
 
-def test_run_engine_block_reports_its_own_degenerate_count():
+def test_run_engine_block_discloses_challenger_calibration_and_sampling():
     src = (BACKEND / "distributions.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef)
               and n.name == "run_engine_daily")
     seg = ast.get_source_segment(src, fn) or ""
-    assert "prequential Platt fits degenerated" in seg, (
-        "run_engine_daily must report the block's uncapped degenerate "
-        "total — the capped WARNING line alone hides the true count")
-    # counters snapshotted BEFORE any fit and the summary must run inside
-    # this function (before its return), not left to a caller
-    assert seg.index("_degen0 = getattr") < seg.index("run_oof(decided")
-    assert seg.index("prequential Platt fits degenerated") < seg.rindex(
-        "return {\"block\": monitor_block")
+    assert '"family"' in seg and '"mc_meta"' in seg
+    assert '"calibration"' in seg and '"variance"' in seg
+    assert "derive_markets_v3(oof" in seg
+    assert 'calibration=summary.get("calibration", {}).get("calibrators")' in seg
+    assert "_fit_platt_counted" not in seg, (
+        "the challenger must not report retired per-line calibration counters")
 
 
 # ── T5: provisional folds mark their own metric line ────────────────────────

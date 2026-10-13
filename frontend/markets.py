@@ -71,7 +71,7 @@ st.markdown(
 )
 st.markdown(
     "<div style='color:#94A3B8;margin:2px 0 14px;'>"
-    "Run-engine model diagnostics from NB(λ, α(λ)) Monte Carlo over the "
+    "Run-engine model diagnostics from split-skew Gaussian Monte Carlo over the "
     "line grid — per-game projections and full probabilities live in "
     "run_engine_markets_*.csv.</div>",
     unsafe_allow_html=True,
@@ -161,12 +161,12 @@ else:
             utils.show_chart(diag.chart_distribution(dist))
             c = dist["callouts"]
             st.caption(
-                f"Observed bars vs modeled mean NB(λ, α(λ)) convolution over "
+                f"Observed bars vs modeled mean shipped split-skew Monte Carlo mass over "
                 f"{dist['n_games']:,} decided games · P(total≤1): observed "
                 f"{c['P(total<=1)']['observed']:.3f} / modeled "
-                f"{c['P(total<=1)']['modeled']:.3f} · P(total≥10): observed "
+                f"{('--' if c['P(total<=1)']['modeled'] is None else format(c['P(total<=1)']['modeled'], '.3f'))} · P(total≥10): observed "
                 f"{c['P(total>=10)']['observed']:.3f} / modeled "
-                f"{c['P(total>=10)']['modeled']:.3f}. Per-TEAM tail checks are "
+                f"{('--' if c['P(total>=10)']['modeled'] is None else format(c['P(total>=10)']['modeled'], '.3f'))}. Per-TEAM tail checks are "
                 "the fit-check table above — this is the totals law."
             )
 
@@ -391,14 +391,7 @@ def _team_map() -> dict:
 
 
 def _market_prob_note(date_str: str) -> str:
-    """Honest calibration label for the shipped grid probabilities.
-
-    The markets artifact ships RAW grid columns; the meta JSON records
-    prequentially CALIBRATED metrics (engine_*_calibrated) but does not
-    ship per-row Platt maps (and the CSV rows carry no fold id to apply
-    one), so the displayed probabilities are raw. If a future meta ships
-    a usable Platt section, this notes post-calibration instead — it
-    never claims calibration that is not there."""
+    """Label issued challenger prices only when the artifact identifies it."""
     cfg = utils.get_source_config()
     raw, _ = utils._fetch_bytes(f"run_engine_markets_{date_str}.meta.json",
                                 **cfg)
@@ -407,13 +400,10 @@ def _market_prob_note(date_str: str) -> str:
             meta = json.loads(raw)
         except Exception:
             meta = {}
-        for k, v in (meta or {}).items():
-            if "calibr" in str(k).lower() and isinstance(v, dict) \
-                    and "a" in v and "b" in v:
-                return (" · probabilities are post-calibration "
-                        "σ(a·logit(p)+b)")
-    return (" · probabilities are RAW (no calibration map shipped in "
-            "the run-engine artifact)")
+        if (meta or {}).get("family") == "two_sided_asymmetric_gaussian_split_skew":
+            return (" · probabilities are issued causal whole-CDF-calibrated "
+                    "split-skew Gaussian Monte Carlo forecasts")
+    return (" · historical artifact predates challenger calibration metadata")
 
 
 def _result_cell(correct) -> str:
@@ -686,7 +676,7 @@ else:
 # ---------------------------------------------------------------------------
 # The moneyline monitor lives in model_monitor_*.json (model_monitor.py).
 # This is its run-engine counterpart: per-reference-line calibration stats,
-# distributional fit diagnostics (alpha, chi-squared, tail checks), and a
+# distributional fit diagnostics (variance, skew, Monte Carlo), and a
 # rolling per-line history.  The file is protected from Phase-6 cleanup by
 # the ``run_engine_monitor_`` prefix in _PROTECTED_DELIVERY_PREFIXES.
 
@@ -701,7 +691,7 @@ _WINNER_CARDS = (
      "Home −1.5 if P(home cover −1.5) > 50%; no-lean games excluded "
      "(half lines never push)"),
     ("derived_ml", "Derived ML (home win, run-line model)",
-     "Home team if P(home win) > 50% (±0.5 dead cut) — NB Monte-Carlo "
+     "Home team if P(home win) > 50% (±0.5 dead cut) — split-skew Gaussian Monte Carlo "
      "derived ML; distinct from the moneyline ensemble"),
 )
 
@@ -803,7 +793,7 @@ def _render_winner_cards(winner_cards: dict) -> None:
                     f"Moneyline ensemble reference (ml_win_prob): "
                     f"{_fmt(rwr, pct=True) if rwr is not None else '--'} "
                     f"win rate (n={ref.get('n', '--'):,}) — the run-line "
-                    "model's NB moneyline is calibrated post-fix; the "
+                    "model's derived moneyline is calibrated post-fix; the "
                     "ensemble stays as the comparison anchor")
 
 
@@ -906,53 +896,19 @@ def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
 
 
 def _render_fit_panel(fit: dict) -> None:
-    """Render distributional fit diagnostics (alpha, chi2/df, variance, MC).
-
-    Reads through market_diagnostics.fit_panel_rows, which reconciles the
-    reader keys against backend/pipeline._run_engine_fit_block's writer
-    schema (alpha_home/alpha_away curves, dispersion_chi2_per_df,
-    fit_tables, variance_check, mc_meta). '--' only where data is genuinely
-    absent.
-    """
+    """Disclose the actual challenger parameters and Monte Carlo resolution."""
+    st.markdown("#### Distributional Fit (split-skew Gaussian + Monte Carlo)")
     if not fit:
         st.info("No fit diagnostics in the monitor artifact.")
         return
     rows = diag.fit_panel_rows(fit)
-
-    st.markdown("#### Distributional Fit (NB Monte Carlo)")
-
-    # Alpha per side + chi2/df (from the curve + dispersion check)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("alpha_home", _fmt(rows["alpha_home"], 4))
-    c2.metric("chi2/df_home", _fmt(rows["chi2_home"], 2))
-    c3.metric("alpha_away", _fmt(rows["alpha_away"], 4))
-    c4.metric("chi2/df_away", _fmt(rows["chi2_away"], 2))
-
-    forms = [f"{side}={form}" for side, form in (
-        ("home", rows["alpha_home_form"]),
-        ("away", rows["alpha_away_form"])) if form]
-    if forms or rows["fitted_on"]:
-        st.caption(
-            ("α form: " + " · ".join(forms) if forms else "α form: --")
-            + (f" · fitted on {rows['fitted_on']}"
-               if rows["fitted_on"] else ""))
-
-    # Tail checks (k<=1 / k>=10) from the per-side fit tables
-    for label in ("Home", "Away"):
-        t = rows["tails"].get(label)
-        if t:
-            st.caption(f"**{label}** tail: {t}")
-
-    # Variance check: implied vs observed per side
-    vh = rows["variance_home"]
-    va = rows["variance_away"]
-    if vh[0] is not None or va[0] is not None:
-        st.caption(
-            f"Variance check: home implied={_fmt(vh[0], 2)} / "
-            f"obs={_fmt(vh[1], 2)} · away implied={_fmt(va[0], 2)} / "
-            f"obs={_fmt(va[1], 2)}")
-
-    # Monte Carlo metadata (numeric n_draws only gets thousands separators)
+    v = rows["variance"]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("home variance factor", _fmt(v.get("home_variance"), 4))
+    c2.metric("away variance factor", _fmt(v.get("away_variance"), 4))
+    c3.metric("residual correlation", _fmt(v.get("correlation"), 4))
+    st.caption(f"Family: {rows['family'] or 'unavailable in historical artifact'}; "
+               f"total skew {_fmt(v.get('total_skew'), 4)}, margin skew {_fmt(v.get('margin_skew'), 4)}.")
     if rows["mc_caption"]:
         st.caption(rows["mc_caption"])
 
@@ -1010,41 +966,22 @@ _RUN_ENGINE_LINES = [
 
 
 def _render_run_engine_model_card(monitor: dict) -> None:
-    """Run-engine model card — the moneyline 'Model Ensemble' section's
-    honest adaptation: one row per market line (the NB sampler has no member
-    blend), with an NB-parameters block above it."""
+    """Per-line scores from issued challenger forecasts, not a member blend."""
     fit = monitor.get("fit") or {}
-    phase1 = monitor.get("phase1") or {}
-    st.markdown("### Run-Engine Model (NB Monte Carlo sampler)")
-
-    # NB-parameters block
+    st.markdown("### Run-Engine Model (split-skew Gaussian + Monte Carlo)")
     rows = diag.fit_panel_rows(fit)
-    edge = diag.lambda_edge(fit)
-    disp = fit.get("dispersion_chi2_per_df") or {}
-    rounds = phase1.get("final_fit_rounds") or {}
-    n_folds = phase1.get("n_folds")
-    n_games = phase1.get("n_games")
-    params = [
-        f"α_home={_fmt(rows['alpha_home'], 4)} ({rows['alpha_home_form'] or '--'})",
-        f"α_away={_fmt(rows['alpha_away'], 4)} ({rows['alpha_away_form'] or '--'})",
-        f"λ edge (home−away)={_fmt(edge, 3)}",
-        f"dispersion χ²/df: home {_fmt(disp.get('home'), 2)} · away {_fmt(disp.get('away'), 2)}",
-        f"median rounds: home {_fmt(rounds.get('home'))} · away {_fmt(rounds.get('away'))}",
-        f"walk-forward folds: {n_folds if isinstance(n_folds, int) else '--'}"
-        + (f" ({n_games:,} games)" if isinstance(n_games, int) else ""),
-    ]
-    st.caption("NB parameters — " + " · ".join(params))
-
+    st.caption(f"Family {rows['family'] or 'unavailable in historical artifact'}; "
+               "side residual variance/correlation, asymmetric Gaussian widths, "
+               "causal whole-CDF CRPS calibration and reproducible Monte Carlo.")
     mm = monitor.get("market_metrics") or {}
     if not mm:
         st.info("Per-line engine OOF metrics appear after a pipeline run that "
                 "emits market_metrics (the current artifact predates them).")
-        return
     rows_html = []
     for key, label in _RUN_ENGINE_LINES:
         r = mm.get(key)
         if not isinstance(r, dict):
-            continue
+            r = {"n": 0}
         rows_html.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;font-weight:700;'>{label}</td>"
@@ -1064,7 +1001,7 @@ def _render_run_engine_model_card(monitor: dict) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Run engine is a single NB(λ, α(λ)) Monte Carlo sampler — no member
+          Run engine is a single calibrated split-skew Gaussian Monte Carlo engine — no member
           blend; rows are per market line. ECE-CAL is prequentially
           calibrated when the run supplies fold_idx; locally-built bridge
           artifacts report raw-based values (persisted CSVs don't carry

@@ -3,7 +3,7 @@ over the NHL decided OOF store (``kind == "oof"`` rows of
 ``nhl_run_engine_markets_YYYYMMDD.csv``).
 
 The NHL artifact carries per game: the mu pair, fair spread/total (integer
-medians of the margin/total PMFs from the NB Monte Carlo), FULL grids
+medians of the calibrated split-skew Monte Carlo PMFs), FULL grids
 (``p_home_cover_<±L>`` / ``p_push_<±L>`` over −8…+8 plus the half-stop
 pair ±0.5; ``p_over_<U>`` / ``p_under_<U>`` over 4…12 with pushes in their
 OWN ``p_push_total_<U>`` namespace), the derived-ML pair, and ACTUALS
@@ -54,8 +54,7 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 calibration_curve, chart_calibration,
                                 chart_distribution, chart_game_total_curve,
-                                fit_total_dispersion,
-                                smooth_modeled_total_pmf)
+                                shipped_total_pmf)
 
 # Integer-support grids (mirror of config.SPREAD_GRID / config.TOTAL_GRID —
 # the artifact's own column families; NHL-sized, NOT the NFL ranges).
@@ -135,17 +134,7 @@ def _2way(po: float, pu: float) -> Optional[float]:
 # Chart 1 — totals distribution fit-check
 # ---------------------------------------------------------------------------
 def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
-    """Observed P(total=k) vs modeled mean per-game total PMF.
-
-    Modeled = average over games of the NB⊗NB total convolution built from
-    the artifact's per-game ``mu_h``/``mu_a`` (MLB's construction — a smooth
-    analytic overlay; the dispersion is recovered from the model's own
-    ``p_push_total_<U>`` grid PMF, never from outcomes). The published grid
-    PMF itself is calibrated POINTWISE, so it zig-zags when averaged and is
-    kept as ``modeled_grid`` instead of being plotted. Observed = the actual
-    totals histogram. Mirrors MLB's total_distribution (observed vs modeled
-    bars/line).
-    """
+    """Observed totals versus the actual shipped Monte Carlo PMF."""
     empty = {"ks": list(range(kmax + 1)), "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
              "warning": "No decided games with outcomes in the artifact."}
@@ -154,62 +143,19 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
     total = decided["total"].to_numpy(float)
     ks = np.arange(0, kmax + 1)
     observed = np.array([(total == k).mean() for k in ks])
-    modeled_grid = np.zeros(len(ks))
-    grid_cols: list[str] = []
-    for U in TOTAL_GRID:
-        col = _col("p_push_total", U)
-        if col not in decided.columns:
-            continue
-        if U <= kmax:
-            modeled_grid[U] = float(decided[col].mean())
-        grid_cols.append(col)
-    # Published grid PMF, renormalized (grid mass may not capture < 4 / > 12
-    # exactly; keep both series on the same support). Kept in the dict as
-    # ``modeled_grid`` — it is what the artifact prices from.
-    gsum = modeled_grid.sum()
-    if gsum > 0:
-        modeled_grid = modeled_grid / gsum
-
-    # MLB's MODELED SERIES (2026-10-12): the analytic NB⊗NB convolution of
-    # the model's per-game means, not the published grid PMF. The grid PMF is
-    # calibrated POINTWISE (the causal whole-CDF map fits one transform per
-    # integer total, then renormalizes), so plotting it zig-zags — that was
-    # the jagged orange line MLB's chart never shows. The dispersion is
-    # recovered from the model's OWN probabilities (never the outcomes), so
-    # the overlay stays an honest picture of what the model believes.
-    alpha = None
+    modeled_grid = shipped_total_pmf(decided, ks, "nhl")
     modeled = modeled_grid
-    if grid_cols and {"mu_h", "mu_a"}.issubset(decided.columns):
-        grid_pmf = (decided[grid_cols]
-                    .apply(pd.to_numeric, errors="coerce").to_numpy(float))
-        alpha = fit_total_dispersion(
-            pd.to_numeric(decided["mu_h"], errors="coerce").to_numpy(float),
-            pd.to_numeric(decided["mu_a"], errors="coerce").to_numpy(float),
-            [int(c.rsplit("_", 1)[-1]) for c in grid_cols], grid_pmf)
-        if alpha is not None:
-            modeled = smooth_modeled_total_pmf(
-                pd.to_numeric(decided["mu_h"], errors="coerce").to_numpy(float),
-                pd.to_numeric(decided["mu_a"], errors="coerce").to_numpy(float),
-                alpha, ks)
-    alpha_txt = (f"α={alpha:.3f}" if alpha is not None else "raw grid PMF")
     return {
         "ks": ks.tolist(),
         "observed": [round(float(v), 5) for v in observed],
         "modeled": [round(float(v), 5) for v in modeled],
         "modeled_grid": [round(float(v), 5) for v in modeled_grid],
-        "alpha_total": alpha,
         "callouts": {
             "P(total<=4)": {"observed": round(float(observed[:5].sum()), 4),
                             "modeled": round(float(modeled[:5].sum()), 4)},
             "P(total>=10)": {"observed": round(float(observed[10:].sum()), 4),
                              "modeled": round(float(modeled[10:].sum()), 4)},
-            "note": (f"Modeled line = mean per-game NB⊗NB convolution of "
-                     f"the model's mu_h/mu_a ({alpha_txt}; dispersion "
-                     "recovered from the model's own grid PMF, never from "
-                     "outcomes) — MLB's construction. The pointwise-"
-                     "calibrated grid PMF stays in the artifact; "
-                     "integer-support means the whole-number mass IS the "
-                     "push band."),
+            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF; no surrogate refit.",
         },
         "n_games": int(len(decided)),
         "warning": None,

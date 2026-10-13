@@ -1461,8 +1461,9 @@ def _model_monitor_json(
         # direction/derived members) for drift-table tooltips. One source of
         # truth generated from MONEYLINE_FEATURE_COLS -- see feature_metadata.py.
         "features_metadata": (features_metadata or {}).get("features", {}),
-        # Run-engine Phase 3: per-market metrics, α(λ) params + fit-checks,
-        # MC metadata, line-grid availability, agreement-filter stats.
+        # Run-engine Phase 3: per-market metrics, split-skew variance +
+        # causal-calibration fit checks, MC metadata, line-grid availability,
+        # agreement-filter stats.
         "run_engine": run_engine or {},
         # Candidate models behind the ensemble: name, blend weight (sums to
         # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
@@ -1505,32 +1506,13 @@ def _iso_from_ymd(ymd: str) -> str:
 
 
 def _run_engine_fit_block(block: Optional[dict]) -> dict:
-    """Extract the distributional-fit block for the monitor from the daily
-    run engine's monitor block (α per side, χ²/df, per-side observed-vs--modeled
-    NB PMF tables incl. the ">=10"/"<=1" tail rows, variance check)."""
+    """Extract challenger variance, causal calibration and draw metadata."""
     if not block:
         return {}
-    dispersion = (block.get("phase1") or {}).get("dispersion_ratio") or {}
-    hg = block.get("holdout_gate") or {}
-    return {
-        "alpha_home": block.get("alpha_home"),
-        "alpha_away": block.get("alpha_away"),
-        # k_edge key dropped 2026-09-27 with the retired C2 expansion (the
-        # monitor-only k-hat publication had no consumers).
-        "dispersion_chi2_per_df": {
-            "home": dispersion.get("home"),
-            "away": dispersion.get("away"),
-        },
-        "fit_tables": (block.get("fit_check_alpha_lambda") or {}),
-        "variance_check": block.get("variance_check"),
-        "mc_meta": block.get("mc_meta"),
-        "line_grid": block.get("line_grid"),
-        "holdout_gate": {
-            "cutoff": hg.get("cutoff"),
-            "n_pre": hg.get("n_pre"),
-            "n_holdout": hg.get("n_holdout"),
-        },
-    }
+    return {"distribution": "causal_split_skew_crps_mc",
+            "family": block.get("family"), "variance": block.get("variance", {}),
+            "monte_carlo": block.get("mc_meta", {}),
+            "holdout": block.get("holdout", {}), "line_grid": block.get("line_grid", {})}
 
 
 def _run_engine_phase1(block: Optional[dict]) -> dict:
@@ -1573,8 +1555,8 @@ def _run_engine_monitor_json(
                  derived_ml only) splits n / win_rate / predicted_mean by
                  pick direction (home vs away) — every metric is on the
                  PICKED side, never home-side unconditionally. derived_ml is
-                 the RUN LINE model's own NB moneyline (p_home_win_derived;
-                 nb_diagnostic = the same model finding — underweights home
+                 the RUN LINE model's own derived moneyline (p_home_win_derived;
+                 distribution_diagnostic = the same model finding — underweights home
                  edge, reported as-is); the moneyline ENSEMBLE ml_win_prob
                  rides as a one-line ml_reference so the model comparison
                  stays visible.
@@ -1584,9 +1566,8 @@ def _run_engine_monitor_json(
                  run_engine_monitor_ prefix in _PROTECTED_DELIVERY_PREFIXES
                  so they survive cleanup), trimmed to the last 45 days.
                  First build is empty; the renderer must handle [].
-      fit:       alpha_home/alpha_away (curve), dispersion chi2/df per side,
-                 per-side fit tables (observed vs modeled NB PMF incl. the
-                 ">=10"/"<=1" tail rows), mc meta, n_pre/n_holdout.
+      fit:       fitted side variance/correlation, total/margin skew,
+                 calibrated Monte Carlo draws/seed and sealed-tail scope.
       market_metrics: per-line engine OOF metrics (logloss / brier / ECE
                  raw+calibrated / auc / n / holdout) for the run-engine
                  model card — emitted by run_engine_daily's summary.
@@ -1620,7 +1601,7 @@ def _run_engine_monitor_json(
                 "holdout": c.get("holdout"),
                 "by_pick": c.get("by_pick"),
                 "source": c.get("source"),
-                "nb_diagnostic": c.get("nb_diagnostic"),
+                "distribution_diagnostic": c.get("distribution_diagnostic"),
                 "ml_reference": c.get("ml_reference"),
             }
 
@@ -2588,7 +2569,7 @@ def run_daily_pipeline(
         )
 
         # Run engine (Phase 3): OOF re-derivation on the SAME fixed folds →
-        # α(λ) dispersion curves fitted PRE-HOLDOUT only → NB Monte-Carlo
+        # prior-origin split-skew variance + CRPS calibration -> Monte Carlo
         # market grid (totals 6.5--12.5, run lines −0.5…−3.5) for OOF + today's
         # slate → agreement conflicts vs the moneyline ensemble. Must never
         # take down the rest of the run.
@@ -2701,7 +2682,7 @@ def run_daily_pipeline(
                 feature_cols=active_moneyline_feature_cols())
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"))
             # Run-engine view of the SAME windows: PSI + coverage over
-            # its shared moneyline feature contract (single NB sampler --
+            # its shared moneyline feature contract (single Gaussian sampler --
             # no weights, no run_margin_diff). Additive artifacts for the
             # run-line monitor; moneyline drift/coverage untouched.
             compute_run_engine_feature_drift(

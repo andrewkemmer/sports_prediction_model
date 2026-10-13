@@ -1,22 +1,16 @@
-"""Point-in-time regression pins for the run engine (Poisson/NB totals +
-spread-margin pricing).
+"""Point-in-time regression pins for calibrated split-skew Gaussian
+Monte Carlo totals and margin pricing.
 
 The production OOF hit rate (~51% on favored-side cards) and the live
 board's realized rate can only diverge through train/serve skew, so this
 suite pins every PIT invariant the engine's honesty depends on:
 
   1. fold geometry: expanding, train strictly before validation;
-  2. prequential Platt: a fold's map sees PRIOR folds only (poisoning the
-     last fold cannot move earlier folds' probabilities);
-  3. sealed holdout: α(λ) curve fitting never sees the holdout window;
-  4. k-edge: fit on the pre-holdout mask only (poisoning sealed margins
-     cannot move k); OOF markets and the slate board reprice through the
-     SAME k (the explicit-arm wrapper seam), and the level λ_H+λ_A is
-     preserved;
-  5. k-edge MONITOR-ONLY retirement (2026-09-22): the daily seam fits and
-     publishes the diagnostic k-hat but NEVER applies it — production
-     prices the RAW λ pair (production_used is False; the board-level
-     outcome is identical to k=1).
+  2. causal whole-CDF calibration: a fold's map sees PRIOR folds only;
+  3. sealed holdout: variance, skew and calibration fitting never see the
+     holdout window, and poisoned sealed outcomes cannot move issued prices;
+  4. OOF and slate pricing share one calibrated Monte Carlo family;
+  5. score means remain the per-side regressors' market-free forecasts.
 
 Run with: python mlb-backend/backend/test_run_engine_pit.py
 """
@@ -100,63 +94,20 @@ def test_run_engine_folds_are_expanding_and_strictly_prior():
 # ---------------------------------------------------------------------------
 # 2. Prequential calibration sees prior folds only
 # ---------------------------------------------------------------------------
-def test_prequential_calibration_is_strictly_prior():
-    """Poisoning the LAST fold's labels must not move any earlier fold's
-    calibrated probability — each fold's Platt map is fit on prior folds
-    only (post-F2 discipline shared with the binary moneyline)."""
-    rng = np.random.default_rng(3)
-    y = rng.integers(0, 2, 300).astype(float)
-    p = np.clip(0.5 + rng.normal(0, 0.15, 300) + 0.25 * (y - 0.5), 0.02, 0.98)
-    fold_idx = np.repeat(np.arange(6), 50)
-
-    cal = re.prequential_calibrate(y, p, fold_idx)
-    assert len(cal) == len(y) and np.isfinite(cal).all()
-    assert (cal >= 1e-6).all() and (cal <= 1 - 1e-6).all()
-
-    y_poisoned = y.copy()
-    y_poisoned[fold_idx == 5] = 1.0 - y_poisoned[fold_idx == 5]
-    cal_pois = re.prequential_calibrate(y_poisoned, p, fold_idx)
-    early = fold_idx < 5
-    np.testing.assert_array_equal(cal[early], cal_pois[early],
-                                  err_msg="earlier folds moved by a later "
-                                          "fold's labels — leakage")
-
-    # Same property for the favored-side variant used by run-line markets.
-    cal_f = re.prequential_favored_calibrate(y, p, fold_idx)
-    cal_fp = re.prequential_favored_calibrate(y_poisoned, p, fold_idx)
-    np.testing.assert_array_equal(cal_f[early], cal_fp[early])
-
-
-# ---------------------------------------------------------------------------
-# 3. Sealed holdout: α(λ) curves never see the holdout window
-# ---------------------------------------------------------------------------
-def test_alpha_curves_fit_on_pre_holdout_rows_only():
-    """Legacy NB diagnostics stay pre-holdout; CRPS production never calls them."""
+def test_causal_calibration_and_sealed_holdout_are_strictly_prior():
     oof = _synth_oof(n_days=40)
-    seen: dict = {}
-    orig = re.select_alpha_curve
-
-    def spy(y, lam, seed=re.RANDOM_SEED):
-        seen["n"] = len(y)
-        return orig(y, lam, seed=seed)
-
-    with _mock_patch.object(re, "select_alpha_curve", spy):
-        re._legacy_derive_markets_v3(oof.copy())
-    dates = pd.to_datetime(oof["game_date"])
-    cutoff = dates.max() - pd.Timedelta(days=re.HOLDOUT_DAYS)
-    n_pre = int((dates < cutoff).to_numpy().sum())
-    assert seen.get("n") == n_pre, (
-        f"α fit saw {seen.get('n')} rows, pre-holdout pool is {n_pre}")
-    with _mock_patch.object(re, "select_alpha_curve",
-                           side_effect=AssertionError("global alpha must not price production")):
-        original = re.derive_markets_v3(oof.copy())
-        poisoned = oof.copy()
-        poisoned.loc[dates >= cutoff, "home_score"] += 20
-        changed = re.derive_markets_v3(poisoned)
-    prices = [c for c in original["markets"] if c.startswith("p_")]
-    np.testing.assert_allclose(original["markets"].loc[dates < cutoff, prices],
-                               changed["markets"].loc[dates < cutoff, prices], atol=0., rtol=0.)
-    assert original["summary"]["calibration"]["method"] == "causal_lattice_crps"
+    original = re.derive_markets_v3(oof.copy())
+    cutoff = pd.Timestamp(original["summary"]["holdout_cutoff"])
+    changed = oof.copy()
+    changed.loc[pd.to_datetime(changed.game_date) >= cutoff, "home_score"] += 20
+    poisoned = re.derive_markets_v3(changed)
+    cols = [c for c in original["markets"] if c.startswith("p_")]
+    np.testing.assert_array_equal(original["markets"][cols], poisoned["markets"][cols])
+    bundle = original["summary"]["calibration"]["calibrators"]
+    other = poisoned["summary"]["calibration"]["calibrators"]
+    assert bundle["origins"] == other["origins"]
+    assert bundle["method"] == "causal_split_skew_crps_mc"
+    assert bundle["monte_carlo"]["n_draws"] == 50000
 
 
 # ---------------------------------------------------------------------------

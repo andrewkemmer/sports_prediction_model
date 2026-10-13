@@ -143,7 +143,7 @@ def calibration_buckets_pair(p_raw: np.ndarray, p_calibrated: np.ndarray,
     return rows
 
 
-def nb_distribution_metrics(oof, params, n_draws=2000):
+def distribution_metrics(oof):
     """Causal full-support CRPS; final serving params never grade old games."""
     if oof is None or not len(oof):
         return {"run_line": {"n": 0}, "totals": {"n": 0}}

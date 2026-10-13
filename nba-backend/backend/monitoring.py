@@ -927,7 +927,7 @@ def write_monitor_json(path, date_c: str, drift, cov, members, rolling,
 # Run-Line & Totals Monitor (run-engine counterpart of the moneyline
 # monitor artifact — MLB ``run_engine_monitor_*.json`` shape, NBA data)
 # ---------------------------------------------------------------------------
-# The 2026-10-11 structural repair: this artifact used to ship the NB
+# The 2026-10-11 structural repair: this artifact carries the distribution
 # distribution scorer's ``{run_line, totals}`` summary under BOTH
 # ``winner_cards`` and ``market_metrics``, so the Run-Engine Model card
 # rendered two mislabelled rows instead of MLB's per-market-line table, the

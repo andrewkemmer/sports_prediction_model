@@ -1,0 +1,408 @@
+{
+  "method": "causal_split_skew_crps_mc",
+  "roi_verified": false,
+  "totals": {
+    "n": 2572,
+    "n_pushes": 0,
+    "crps": 7.63845741729409,
+    "auc": 0.5153216019417476,
+    "logloss": 0.6928837023642997,
+    "logscore": 0.6928837023642997,
+    "brier": 0.2498682594189736,
+    "predicted_mean": 0.500301570762053,
+    "actual_win_rate": 0.48055987558320373,
+    "ece_cover": 0.01974169517884911,
+    "reliability": [
+      {
+        "n": 1224,
+        "predicted": 0.49275106209150327,
+        "actual": 0.46405228758169936,
+        "gap": 0.028698774509803904
+      },
+      {
+        "n": 1348,
+        "predicted": 0.5071575222551928,
+        "actual": 0.49554896142433236,
+        "gap": 0.011608560830860482
+      }
+    ],
+    "calibration_in_the_large": 0.019741695178849217,
+    "threshold_policy": "closest_half_point_to_model_50_percent"
+  },
+  "run_line": {
+    "n": 2572,
+    "n_pushes": 0,
+    "crps": 7.382648554973095,
+    "auc": 0.5067286526366714,
+    "logloss": 0.6930812745049646,
+    "logscore": 0.6930812745049646,
+    "brier": 0.24996703242612753,
+    "predicted_mean": 0.4999132503888025,
+    "actual_win_rate": 0.505443234836703,
+    "ece_cover": 0.00552998444790048,
+    "reliability": [
+      {
+        "n": 1268,
+        "predicted": 0.4921820031545741,
+        "actual": 0.4960567823343849,
+        "gap": -0.0038747791798107722
+      },
+      {
+        "n": 1304,
+        "predicted": 0.5074310582822086,
+        "actual": 0.5145705521472392,
+        "gap": -0.007139493865030655
+      }
+    ],
+    "calibration_in_the_large": -0.005529984447900427,
+    "threshold_policy": "closest_half_point_to_model_50_percent"
+  },
+  "derived_moneyline": {
+    "n": 2563,
+    "n_ties": 9,
+    "auc": 0.6995565655324899,
+    "logloss": 0.6296056479860715,
+    "brier": 0.21966721232476671,
+    "settlement": "conditional_non_tie"
+  },
+  "fixed_thresholds": {
+    "total_38.0": {
+      "n": 2572,
+      "auc": 0.6089875768330227,
+      "logloss": 0.606286178016312,
+      "brier": 0.2085920465973561,
+      "reliability": [
+        {
+          "n": 7,
+          "predicted": 0.4869885714285714,
+          "actual": 0.5714285714285714
+        },
+        {
+          "n": 299,
+          "predicted": 0.5697651505016722,
+          "actual": 0.5384615384615384
+        },
+        {
+          "n": 1140,
+          "predicted": 0.6537012280701754,
+          "actual": 0.65
+        },
+        {
+          "n": 992,
+          "predicted": 0.7430910887096773,
+          "actual": 0.7570564516129032
+        },
+        {
+          "n": 134,
+          "predicted": 0.818234328358209,
+          "actual": 0.8059701492537313
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "total_44.0": {
+      "n": 2572,
+      "auc": 0.6092082882091898,
+      "logloss": 0.675739319968656,
+      "brier": 0.2414275752438569,
+      "reliability": [
+        {
+          "n": 1,
+          "predicted": 0.29790000000000005,
+          "actual": 0.0
+        },
+        {
+          "n": 164,
+          "predicted": 0.372004512195122,
+          "actual": 0.35365853658536583
+        },
+        {
+          "n": 869,
+          "predicted": 0.4551666283084005,
+          "actual": 0.4154200230149597
+        },
+        {
+          "n": 1048,
+          "predicted": 0.5472159732824428,
+          "actual": 0.5305343511450382
+        },
+        {
+          "n": 459,
+          "predicted": 0.6380360348583878,
+          "actual": 0.6339869281045751
+        },
+        {
+          "n": 31,
+          "predicted": 0.7187651612903225,
+          "actual": 0.8064516129032258
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "total_50.0": {
+      "n": 2572,
+      "auc": 0.6163209717296929,
+      "logloss": 0.6271912225486959,
+      "brier": 0.21833491204463454,
+      "reliability": [
+        {
+          "n": 23,
+          "predicted": 0.18549826086956522,
+          "actual": 0.13043478260869565
+        },
+        {
+          "n": 625,
+          "predicted": 0.26395593599999995,
+          "actual": 0.24
+        },
+        {
+          "n": 1109,
+          "predicted": 0.3486122993688007,
+          "actual": 0.3363390441839495
+        },
+        {
+          "n": 677,
+          "predicted": 0.4404296602658789,
+          "actual": 0.4342688330871492
+        },
+        {
+          "n": 137,
+          "predicted": 0.5285721167883212,
+          "actual": 0.5328467153284672
+        },
+        {
+          "n": 1,
+          "predicted": 0.6118,
+          "actual": 0.0
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_-5.5": {
+      "n": 2572,
+      "auc": 0.6747827463803338,
+      "logloss": 0.5623810213418325,
+      "brier": 0.1903157891174183,
+      "reliability": [
+        {
+          "n": 16,
+          "predicted": 0.37563250000000004,
+          "actual": 0.5625
+        },
+        {
+          "n": 169,
+          "predicted": 0.4591405917159764,
+          "actual": 0.5088757396449705
+        },
+        {
+          "n": 403,
+          "predicted": 0.5563365756823822,
+          "actual": 0.5459057071960298
+        },
+        {
+          "n": 704,
+          "predicted": 0.6507182954545455,
+          "actual": 0.6676136363636364
+        },
+        {
+          "n": 739,
+          "predicted": 0.7505284438430312,
+          "actual": 0.7686062246278755
+        },
+        {
+          "n": 488,
+          "predicted": 0.8429677459016394,
+          "actual": 0.8688524590163934
+        },
+        {
+          "n": 53,
+          "predicted": 0.9148445283018869,
+          "actual": 1.0
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_0.5": {
+      "n": 2572,
+      "auc": 0.6998174670892248,
+      "logloss": 0.6309275506105894,
+      "brier": 0.22017903316034215,
+      "reliability": [
+        {
+          "n": 2,
+          "predicted": 0.18064999999999998,
+          "actual": 0.5
+        },
+        {
+          "n": 127,
+          "predicted": 0.2683151181102363,
+          "actual": 0.2992125984251969
+        },
+        {
+          "n": 384,
+          "predicted": 0.3559379166666667,
+          "actual": 0.3046875
+        },
+        {
+          "n": 591,
+          "predicted": 0.45150121827411166,
+          "actual": 0.43147208121827413
+        },
+        {
+          "n": 640,
+          "predicted": 0.5490560937500001,
+          "actual": 0.5890625
+        },
+        {
+          "n": 526,
+          "predicted": 0.6463838022813688,
+          "actual": 0.6901140684410646
+        },
+        {
+          "n": 264,
+          "predicted": 0.7419634090909091,
+          "actual": 0.8143939393939394
+        },
+        {
+          "n": 38,
+          "predicted": 0.8228094736842104,
+          "actual": 0.8947368421052632
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_5.5": {
+      "n": 2572,
+      "auc": 0.6939227081317474,
+      "logloss": 0.6097835691012173,
+      "brier": 0.21056025486143076,
+      "reliability": [
+        {
+          "n": 2,
+          "predicted": 0.09748999999999997,
+          "actual": 0.0
+        },
+        {
+          "n": 201,
+          "predicted": 0.17061233830845773,
+          "actual": 0.14925373134328357
+        },
+        {
+          "n": 585,
+          "predicted": 0.2540813333333333,
+          "actual": 0.2205128205128205
+        },
+        {
+          "n": 648,
+          "predicted": 0.3498099691358025,
+          "actual": 0.30401234567901236
+        },
+        {
+          "n": 595,
+          "predicted": 0.44908971428571437,
+          "actual": 0.4823529411764706
+        },
+        {
+          "n": 377,
+          "predicted": 0.5442331034482759,
+          "actual": 0.5676392572944297
+        },
+        {
+          "n": 147,
+          "predicted": 0.6380161904761905,
+          "actual": 0.6870748299319728
+        },
+        {
+          "n": 17,
+          "predicted": 0.71856,
+          "actual": 0.6470588235294118
+        }
+      ],
+      "event": "strict_exceedance_including_push_as_nonwin"
+    }
+  },
+  "conditional_crps": {
+    "season_2017": {
+      "n": 267,
+      "total": 8.031953371255431,
+      "margin": 7.765628024399999
+    },
+    "season_2018": {
+      "n": 267,
+      "total": 7.955264556948315,
+      "margin": 7.434706865629962
+    },
+    "season_2019": {
+      "n": 267,
+      "total": 7.683118648365543,
+      "margin": 7.668289932397004
+    },
+    "season_2020": {
+      "n": 269,
+      "total": 7.736525389440892,
+      "margin": 7.181596633579183
+    },
+    "season_2021": {
+      "n": 285,
+      "total": 7.594281293959298,
+      "margin": 7.904907237705264
+    },
+    "season_2022": {
+      "n": 284,
+      "total": 7.5700480157816905,
+      "margin": 6.643820474438028
+    },
+    "season_2023": {
+      "n": 285,
+      "total": 7.328651181458244,
+      "margin": 7.567515813956491
+    },
+    "season_2024": {
+      "n": 285,
+      "total": 7.12362335080421,
+      "margin": 7.217426441023157
+    },
+    "season_2025": {
+      "n": 285,
+      "total": 7.703578193674385,
+      "margin": 7.189599586057544
+    },
+    "season_2026": {
+      "n": 78,
+      "total": 7.901608325953848,
+      "margin": 7.024509733179489
+    }
+  },
+  "seconds": 202.75521970004775,
+  "n_rows": 2572,
+  "origins": 200,
+  "origin_policy": "persisted_origin_ids",
+  "family": "two_sided_asymmetric_gaussian_split_skew",
+  "monte_carlo": {
+    "method": "inverse_calibrated_cdf_monte_carlo",
+    "family": "two_sided_asymmetric_gaussian_split_skew",
+    "n_draws": 50000,
+    "requested_draws": 50000,
+    "seed": 42,
+    "mc_se_totals_max": 0.00223606797749979,
+    "reason": "requested",
+    "memory_policy": "one_game_at_a_time"
+  },
+  "serving_parameters": {
+    "home_variance": 3.8485475275926806,
+    "away_variance": 4.0305124383259585,
+    "correlation": 0.02849679283370934,
+    "total_skew": 0.06890301969085466,
+    "margin_skew": 0.018830191359327765
+  },
+  "holdout": {
+    "cutoff": "2026-09-20",
+    "n_pre": 2511,
+    "n_holdout": 61,
+    "holdout_days": 21,
+    "fitted_on": "strictly prior pre-holdout origins"
+  },
+  "evaluation_scope": "replay_of_delivered_OOF_means_not_retraining_or_prospective_admission",
+  "mc_cdf_max_absolute_error_sample": 0.005619466510252136,
+  "seconds_including_mc_check": 202.79700469993986
+}

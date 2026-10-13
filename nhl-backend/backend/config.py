@@ -556,18 +556,6 @@ RUN_ENGINE_FIXED_TOTALS = (5, 6, 7)
 RUN_ENGINE_CANONICAL_SPREADS = (1, 2)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
-# Goal/total PMF support (integer points; NB base)
-MARGIN_PMF_MAX = 12
-TOTAL_PMF_MAX = 18
-
-# Distribution model defaults
-MARGIN_SIGMA = 2.2          # initial NHL goal-margin sigma (goals)
-TOTAL_SIGMA = 3.2           # initial total sigma (goals)
-SIGMA_FLOOR_MARGIN = 1.5
-SIGMA_CAP_MARGIN = 3.5
-SIGMA_FLOOR_TOTAL = 2.0
-SIGMA_CAP_TOTAL = 5.0
-P_TIE_MAX = 0.25            # cap on the tied-margin mass (hockey ties ~5-8%)
 
 # Drift windows (MONITORING ONLY — nothing in the fit or serve path reads
 # these): PSI compares the LAST N decided games ("current") against a

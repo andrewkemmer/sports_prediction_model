@@ -57,7 +57,7 @@ import math
 import re
 
 # The NHL distribution engine's grids (mirror config.SPREAD_GRID /
-# config.TOTAL_GRID — integers; the NB Monte Carlo margin/total PMFs are
+# config.TOTAL_GRID — integers; the split-skew Gaussian Monte Carlo margin/total PMFs are
 # integer-support, so whole-number lines carry a real push band).
 SPREAD_GRID = list(range(-8, 9))
 TOTAL_GRID = list(range(4, 13))

@@ -411,158 +411,39 @@ def decided_rows(markets: Optional[pd.DataFrame]) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Chart 1 — totals distribution fit-check
 # ---------------------------------------------------------------------------
-def _nb_pmf_scalar(k: int, mu: float, alpha: float) -> float:
-    """NB(k; μ, α) via math.lgamma — scipy-free for the dashboard host."""
-    if mu <= 0:
-        return 1.0 if k == 0 else 0.0
-    alpha = max(float(alpha), 1e-9)
-    n = 1.0 / alpha
-    p = n / (n + mu)
-    if k < 0:
-        return 0.0
-    logp = (math.lgamma(k + n) - math.lgamma(n) - math.lgamma(k + 1)
-            + n * math.log(p) + k * math.log1p(-p))
-    return math.exp(logp)
-
-
-def _nb_pmf_matrix(kmax: int, mu: np.ndarray, alpha: float) -> np.ndarray:
-    """Batched NB(k; μ_i, α) over k = 0…kmax — the vectorised twin of
-    :func:`_nb_pmf_scalar`.
-
-    Same convention as every backend's MC sampler (size n = 1/α,
-    p = n/(n+μ), so Var = μ + α·μ²). ``lgamma(n+k) − lgamma(n)`` is expanded
-    as ``Σ_{j<k} log(n+j)`` so a non-integer n stays exact without scipy —
-    the frontend host deliberately does not install it.
-    """
-    mu = np.maximum(np.asarray(mu, dtype=float), 1e-9)
-    n = 1.0 / max(float(alpha), 1e-9)
-    p = n / (n + mu)
-    ks = np.arange(kmax + 1, dtype=float)
-    log_rise = np.concatenate([[0.0], np.cumsum(np.log(n + np.arange(kmax)))])
-    log_fact = np.concatenate([[0.0], np.cumsum(np.log(np.arange(1, kmax + 1)))])
-    return np.exp(log_rise - log_fact
-                  + n * np.log(p)[:, None]
-                  + ks[None, :] * np.log1p(-p)[:, None])
-
-
-def _nb_conv_pmf(mu_h: np.ndarray, mu_a: np.ndarray, alpha: float,
-                 kmax: int) -> np.ndarray:
-    """Per-game NB⊗NB total PMF (one row per game) via a batched FFT
-    convolution — the exact object MLB's ``total_distribution`` averages,
-    at the NFL/NBA grid widths a per-game Python loop cannot reach."""
-    ph = _nb_pmf_matrix(kmax, np.asarray(mu_h, float), alpha)
-    pa = _nb_pmf_matrix(kmax, np.asarray(mu_a, float), alpha)
-    nfft = 1 << int(np.ceil(np.log2(2 * (kmax + 1) - 1)))
-    conv = np.fft.irfft(np.fft.rfft(ph, nfft, axis=1)
-                        * np.fft.rfft(pa, nfft, axis=1), nfft, axis=1)
-    return conv[:, :kmax + 1]
-
-
-def fit_total_dispersion(mu_h: np.ndarray, mu_a: np.ndarray,
-                         grid_ks: list[int] | np.ndarray,
-                         grid_pmf: np.ndarray,
-                         max_rows: int = 600) -> Optional[float]:
-    """Recover the per-side NB dispersion α the model's OWN grid PMF
-    implies (least squares, deterministic subsample).
-
-    The challenger artifacts ship per-game means (``mu_h``/``mu_a``) but no
-    per-game dispersion — unlike MLB's ``alpha_home``/``alpha_away`` columns
-    — so an MLB-style analytic overlay needs exactly one shape number. It is
-    fitted to the model's own published probabilities, never to outcomes, so
-    the distribution fit-check keeps its honesty: the overlay is still "what
-    the model believes", just reconstructed from a shape family the artifact
-    can support. Returns ``None`` when the frame cannot support a fit (the
-    caller then falls back to the published grid PMF as-is).
-    """
-    mu_h = np.asarray(mu_h, float)
-    mu_a = np.asarray(mu_a, float)
-    grid_pmf = np.asarray(grid_pmf, float)
-    kidx = np.asarray(grid_ks, int)
-    if grid_pmf.ndim != 2 or not len(kidx):
-        return None
-    ok = (np.isfinite(mu_h) & np.isfinite(mu_a)
-          & (mu_h > 0) & (mu_a > 0)
-          & np.isfinite(grid_pmf).all(axis=1))
-    if not ok.any():
-        return None
-    mu_h, mu_a, grid_pmf = mu_h[ok], mu_a[ok], grid_pmf[ok]
-    step = max(1, len(mu_h) // max_rows)
-    mu_h, mu_a, grid_pmf = mu_h[::step], mu_a[::step], grid_pmf[::step]
-    kmax = int(kidx.max())
-
-    def _loss(alpha: float) -> float:
-        conv = _nb_conv_pmf(mu_h, mu_a, alpha, kmax)
-        return float(((conv[:, kidx] - grid_pmf) ** 2).sum())
-
-    coarse = np.geomspace(0.002, 40.0, 32)
-    best = min(coarse, key=_loss)
-    fine = np.geomspace(max(best / 3.0, 0.001), best * 3.0, 17)
-    return round(float(min(fine, key=_loss)), 4)
-
-
-def smooth_modeled_total_pmf(mu_h: np.ndarray, mu_a: np.ndarray,
-                             alpha: float, ks: list[int] | np.ndarray) -> np.ndarray:
-    """MLB's modeled series: the mean over games of the NB⊗NB total PMF,
-    evaluated at the display support ``ks`` (mass beyond the last support
-    point is simply not plotted, exactly like MLB's kmax truncation)."""
-    ks = np.asarray(ks, int)
-    conv = _nb_conv_pmf(mu_h, mu_a, alpha, int(ks.max()))
-    return conv[:, ks].mean(axis=0)
+def shipped_total_pmf(decided, ks, namespace):
+    """Read empirical push mass, preserving undisplayed/missing tail mass."""
+    values = []
+    for k in ks:
+        suffix = str(float(k)).replace('.', '_') if namespace == "mlb" else str(int(k))
+        prefix = "p_push_" if namespace == "mlb" else "p_push_total_"
+        column = prefix + suffix
+        if column not in decided and namespace != "mlb":
+            column = "p_push_" + suffix
+        values.append(float(pd.to_numeric(decided[column], errors="coerce").mean()) if column in decided else float("nan"))
+    return np.asarray(values)
 
 
 def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
-    """Observed P(total=k) vs modeled mean game-level NB convolution.
-
-    Modeled marginal = average over games of the convolution of the two
-    per-game side marginals NB(λ_side, α_side) — exactly what the Monte
-    Carlo samples from, evaluated analytically.
-    """
-    empty = {"ks": list(range(kmax + 1)), "observed": [], "modeled": [],
-             "callouts": {}, "n_games": 0,
-             "warning": "No decided games with outcomes in the artifact."}
-    need = {"total_runs", "home_expected_runs", "away_expected_runs",
-            "alpha_home", "alpha_away"}
-    if not len(decided) or not need.issubset(decided.columns):
+    """Observed totals and the shipped split-skew Monte Carlo total mass."""
+    ks = np.arange(kmax + 1)
+    empty = {"ks": ks.tolist(), "observed": [], "modeled": [], "callouts": {},
+             "n_games": 0, "warning": "No decided games with outcomes in the artifact."}
+    if not len(decided) or "total_runs" not in decided:
         return empty
-    ks = np.arange(0, kmax + 1)
-    observed = [(decided["total_runs"] == k).mean() for k in ks]
-    modeled = np.zeros(len(ks))
-    lam_h = decided["home_expected_runs"].to_numpy(float)
-    lam_a = decided["away_expected_runs"].to_numpy(float)
-    a_h = np.maximum(decided["alpha_home"].to_numpy(float), 1e-9)
-    a_a = np.maximum(decided["alpha_away"].to_numpy(float), 1e-9)
-    for i in range(len(decided)):
-        ph = [_nb_pmf_scalar(int(k), lam_h[i], a_h[i]) for k in ks]
-        pa = [_nb_pmf_scalar(int(k), lam_a[i], a_a[i]) for k in ks]
-        conv = np.convolve(ph, pa)[:len(ks)]
-        modeled += conv
-        # Tail mass beyond kmax flows into the last bucket implicitly via
-        # normalization below; keep raw means (both series share support).
-    modeled /= max(len(decided), 1)
-    obs_le1 = float(sum(observed[:2]))
-    obs_ge10 = float(sum(observed[10:]))
-    mod_le1 = float(modeled[:2].sum())
-    mod_ge10 = float(modeled[10:].sum())
-    return {
-        "ks": ks.tolist(),
-        "observed": [round(float(v), 5) for v in observed],
-        "modeled": [round(float(v), 5) for v in modeled],
-        "callouts": {
-            "P(total<=1)": {"observed": round(obs_le1, 4),
-                            "modeled": round(mod_le1, 4)},
-            "P(total>=10)": {"observed": round(obs_ge10, 4),
-                             "modeled": round(mod_ge10, 4)},
-            "note": ("Per-team tail checks (P(X>=10) home/away) live in the "
-                     "fit-check table above; this chart is the TOTALS law."),
-        },
-        "n_games": int(len(decided)),
-        "warning": None,
-    }
+    observed = np.array([(decided.total_runs == k).mean() for k in ks])
+    modeled = shipped_total_pmf(decided, ks, "mlb")
+    # Missing off-grid mass in historical artifacts is explicitly unavailable,
+    # never fabricated by fitting another family to the score means.
+    def tail(series, mask):
+        return float(series[mask].sum()) if np.isfinite(series[mask]).all() else None
+    return {"ks": ks.tolist(), "observed": observed.tolist(), "modeled": modeled.tolist(),
+            "modeled_grid": modeled.tolist(), "n_games": len(decided), "warning": None,
+            "callouts": {"P(total<=1)": {"observed": tail(observed, ks<=1), "modeled": tail(modeled, ks<=1)},
+                         "P(total>=10)": {"observed": tail(observed, ks>=10), "modeled": tail(modeled, ks>=10)},
+                         "note": "Mean shipped Monte Carlo PMF; missing historical off-grid mass is unavailable, not refitted."}}
 
 
-# ---------------------------------------------------------------------------
-# Charts 2–4 — calibration curves
-# ---------------------------------------------------------------------------
 def _logit(p: np.ndarray | float) -> np.ndarray | float:
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     out = np.log(p / (1 - p))
@@ -1501,7 +1382,7 @@ def map_run_line_zero(line: float) -> float:
 
 
 def corrected_home_win(decided: pd.DataFrame) -> np.ndarray:
-    """Corrected NB home-win probability from the POST-FIX margin
+    """Issued derived home-win probability from the POST-FIX margin
     distribution — never the legacy raw column.
 
     P'(home win) = P'(margin > 0) = P(margin >= 2) + P'(margin == 1 resolved)
@@ -1572,7 +1453,7 @@ def favored_cover_at(decided: pd.DataFrame, line: float,
 def runline_cut_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
     """Cut-line run-line prediction history — per decided OOF game.
 
-    Favored side (corrected NB moneyline) is picked at its CUT line: the
+    Favored side (corrected derived moneyline) is picked at its CUT line: the
     DEEPEST margin L in {0.5, 1, 1.5, …, 4} with P(favored covers −L or
     +L) >= 0.5. P(cover 0.5) = P(favored win) >= 0.5 by the favored
     definition, so the cut is ALWAYS >= 0.5 and line 0 never occurs —
@@ -2420,71 +2301,7 @@ def chart_pick_buckets(table: dict, title: str,
 # ---------------------------------------------------------------------------
 # The reader side of the fit block written by
 # backend/pipeline._run_engine_fit_block. Keys must stay reconciled with
-# that writer and with run_engine.py's monitor-embed dict (alpha_home /
-# alpha_away curves, dispersion_chi2_per_df, fit_tables, variance_check,
-# mc_meta). Both curve shapes are handled: v2 piecewise {form, lam, alpha,
-# selection.chosen} and v1 {form, a[, c], selection.chosen}.
-
-
-def alpha_hat(curve: Optional[dict]) -> tuple[Optional[float], Optional[str]]:
-    """Scalar α estimate + chosen form from an α(λ) curve dict.
-
-    Uses the selection-bin alpha (weighted by bin count) when present — the
-    same bins the backend fit displayed — falling back to the curve's alpha
-    array mean or the parametric ``a`` scalar. Never raises.
-    """
-    if not isinstance(curve, dict):
-        return None, None
-    sel = curve.get("selection")
-    form = (sel or {}).get("chosen") if isinstance(sel, dict) else None
-    if not form:
-        form = curve.get("form")
-    bins = (sel or {}).get("bins") if isinstance(sel, dict) else None
-    if isinstance(bins, list) and bins:
-        alphas = [b.get("alpha") for b in bins if isinstance(b, dict)]
-        counts = [b.get("count", 1) for b in bins if isinstance(b, dict)]
-        if alphas and all(isinstance(a, (int, float)) for a in alphas):
-            total = float(sum(counts)) or 1.0
-            return (float(sum(a * c for a, c in zip(alphas, counts))) /
-                    total), form
-    alphas = curve.get("alpha")
-    if (isinstance(alphas, list) and alphas
-            and all(isinstance(a, (int, float)) for a in alphas)):
-        return float(sum(alphas)) / len(alphas), form
-    a = curve.get("a")
-    if isinstance(a, (int, float)):
-        return float(a), form
-    return None, form
-
-
-def fit_tail_rows(tbl: Optional[list]) -> list[tuple[str, float, float]]:
-    """Tail rows (k<=1, k>=10) from a per-side fit-check table.
-
-    Handles the backend's labels ("≤1" / "≥10" plus the legacy "<={1}" /
-    ">={10}") and both row-key spellings (observed_p/modeled_p and
-    observed/modeled).
-    """
-    if not isinstance(tbl, list):
-        return []
-    out: list[tuple[str, float, float]] = []
-    for r in tbl:
-        if not isinstance(r, dict):
-            continue
-        k = r.get("k")
-        if k in ("≤1", "<={1}"):
-            label = "k≤1"
-        elif k in ("≥10", ">={10}"):
-            label = "k≥10"
-        else:
-            continue
-        obs = r.get("observed_p", r.get("observed"))
-        mod = r.get("modeled_p", r.get("modeled"))
-        if not isinstance(obs, (int, float)) or not isinstance(mod,
-                                                               (int, float)):
-            continue
-        out.append((label, float(obs), float(mod)))
-    return out
-
+# Challenger monitor reconciliation: fitted variance/skew and actual draw metadata.
 
 def mc_caption(mc: Optional[dict]) -> Optional[str]:
     """Monte Carlo metadata line. Formats n_draws with thousands separators
@@ -2508,69 +2325,10 @@ def mc_caption(mc: Optional[dict]) -> Optional[str]:
     return "Monte Carlo: " + " · ".join(parts) if parts else None
 
 
-def lambda_edge(fit: Optional[dict]) -> Optional[float]:
-    """Modeled home-away run differential from the α(λ) curve bins (weighted
-    mean of each side's bin mean_lam) — the NB sampler's λ edge, used by the
-    run-engine model card. None when either side lacks bin data."""
-    if not isinstance(fit, dict):
-        return None
-
-    def _mean_lam(curve) -> Optional[float]:
-        if not isinstance(curve, dict):
-            return None
-        bins = (curve.get("selection") or {}).get("bins") \
-            if isinstance(curve.get("selection"), dict) else None
-        if not isinstance(bins, list) or not bins:
-            return None
-        lams = [b.get("mean_lam") for b in bins if isinstance(b, dict)]
-        counts = [b.get("count", 1) for b in bins if isinstance(b, dict)]
-        if not lams or not all(isinstance(x, (int, float)) for x in lams):
-            return None
-        total = float(sum(counts)) or 1.0
-        return float(sum(x * c for x, c in zip(lams, counts))) / total
-
-    lh = _mean_lam(fit.get("alpha_home"))
-    la = _mean_lam(fit.get("alpha_away"))
-    if lh is None or la is None:
-        return None
-    return lh - la
-
-
 def fit_panel_rows(fit: Optional[dict]) -> dict:
-    """Reconcile a monitor fit block into render-ready rows. Every access is
-    defensive: a fit dict missing EVERY key yields all-default rows (the
-    '--' fallbacks), never a crash."""
+    """Render only actual challenger parameters and draw metadata."""
     fit = fit or {}
-    alpha_home, form_home = alpha_hat(fit.get("alpha_home"))
-    alpha_away, form_away = alpha_hat(fit.get("alpha_away"))
-    chi2 = fit.get("dispersion_chi2_per_df") or {}
-    vc = fit.get("variance_check") or {}
-    vc_h = vc.get("home") or {}
-    vc_a = vc.get("away") or {}
-    tables = fit.get("fit_tables") or {}
-    tails: dict[str, str] = {}
-    for label, key in (("Home", "home"), ("Away", "away")):
-        rows = fit_tail_rows(tables.get(key))
-        if rows:
-            tails[label] = " | ".join(
-                f"{lab}: obs={o:.3f} mod={m:.3f}" for lab, o, m in rows)
-    fitted_on = None
-    for curve in (fit.get("alpha_home"), fit.get("alpha_away")):
-        if isinstance(curve, dict) and curve.get("fitted_on"):
-            fitted_on = curve.get("fitted_on")
-            break
-    return {
-        "alpha_home": alpha_home,
-        "alpha_home_form": form_home,
-        "alpha_away": alpha_away,
-        "alpha_away_form": form_away,
-        "chi2_home": chi2.get("home"),
-        "chi2_away": chi2.get("away"),
-        "variance_home": (vc_h.get("implied_var"), vc_h.get("observed_var")),
-        "variance_away": (vc_a.get("implied_var"), vc_a.get("observed_var")),
-        "fitted_on": fitted_on,
-        "tails": tails,
-        "mc_caption": mc_caption(fit.get("mc_meta")),
-    }
-
-
+    variance = fit.get("variance") or {}
+    return {"family": fit.get("family"), "variance": variance,
+            "mc_caption": mc_caption(fit.get("monte_carlo") or fit.get("mc_meta")),
+            "holdout": fit.get("holdout") or {}}

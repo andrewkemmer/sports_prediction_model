@@ -194,7 +194,7 @@ def run_line_feature_weights(score_regressor,
     MLB parity (mlb ``distributions.run_line_feature_weights``): the Totals &
     Run Lines drift table's MODEL WEIGHT column reports the run line model
     itself — never the binary moneyline blend's weights, which is what the
-    run-engine drift CSV used to carry. The NB layer itself has no per-feature
+    run-engine drift CSV used to carry. The variance layer itself has no per-feature
     parameters (it shapes dispersion/MC only), so feature usage lives entirely
     in the two per-side Poisson fits; their pooled, n-weighted split GAIN is
     the run line's honest importance.
@@ -1270,14 +1270,19 @@ def write_markets_monitor_json(path, run_date: str,
         "markets_persist_error": None,
         "winner_cards": cards,
         "slate_history": slate_history,
-        "fit": _run_engine_fit_block(oof_market_rows),
+        "fit": {**_run_engine_fit_block(oof_market_rows),
+                "distribution": "causal_split_skew_crps_mc",
+                "family": "two_sided_asymmetric_gaussian_split_skew",
+                "variance": oof_market_rows.attrs.get("challenger_bundle", {}).get("maps", {}).get("variance", {}),
+                "monte_carlo": oof_market_rows.attrs.get("challenger_bundle", {}).get("monte_carlo", {}),
+                "holdout": oof_market_rows.attrs.get("challenger_bundle", {}).get("holdout", {})},
         "market_metrics": _run_engine_market_metrics(oof_market_rows),
         "config": config_meta or {},
     }
     # Sealed-holdout per-line metrics (MLB v3 parity): the last HOLDOUT_DAYS
     # of OOF rows — stamped frame_view='sealed' — scored at the canonical
     # lines against the same prequentially calibrated grids. The sealed
-    # window never fit the alpha layer nor the final line calibrators, so
+    # window never fit the variance layer nor the CDF calibrators, so
     # this is the engine's honest recent-form evaluation, nested per line
     # under each metric's "holdout" key exactly like MLB's card shape.
     hold_rows = None
@@ -1308,7 +1313,7 @@ def write_markets_monitor_json(path, run_date: str,
         record["holdout_gate"] = {
             "n_holdout": int(len(hold_rows)),
             "note": (f"last {HOLDOUT_DAYS} days of OOF rows; sealed from "
-                     "the alpha fit and the final line calibrators"),
+                     "the variance fit and the CDF calibrators"),
         }
     _dump_json(path, record)
     return record

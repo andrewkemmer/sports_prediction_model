@@ -609,18 +609,23 @@ def test_absent_calibration_map_yields_no_calibrated_ece():
         assert card["ece_raw"] is not None
 
 
-def test_a_shipped_calibration_map_populates_ece_calibrated():
-    monitor = {"calibration_cards": {
-        "totals": {"225": {"over": {"a": 1.0, "b": 0.0}}}}}
+def test_challenger_cards_score_issued_probabilities_without_recalibration():
+    monitor = {"fit": {"family": "two_sided_asymmetric_gaussian_split_skew"}}
     cards = nd.winner_cards(SIMPLE, monitor)
-    assert cards["over_under"]["ece_calibrated"] is not None
+    unlabelled = nd.winner_cards(SIMPLE)
+    for key, card in cards.items():
+        assert card["ece_calibrated"] == card["ece_raw"]
+        assert card["ece_calibrated"] is not None
+        for metric in ("brier", "logloss", "auc", "predicted_mean", "win_rate"):
+            assert card[metric] == unlabelled[key][metric]
 
 
-def test_missing_calibration_line_is_not_invented():
-    assert nd.calibration_coefficients(
-        {"calibration_cards": {"totals": {"225": {"over": {"a": 1.0, "b": 0.0}}}}},
-        "totals", 999) is None
-    assert nd.calibration_coefficients(None, "totals", 225) is None
+def test_challenger_calibration_note_is_family_aware():
+    monitor = {"fit": {"family": "two_sided_asymmetric_gaussian_split_skew"}}
+    note = page._cal_note(monitor)
+    assert "whole-CDF-calibrated" in note and "Monte Carlo" in note
+    assert "Platt" not in note and "RAW" not in note
+    assert "predates" in page._cal_note(None)
 
 
 # --- Empty / degraded states ---------------------------------------------

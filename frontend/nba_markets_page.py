@@ -274,12 +274,11 @@ def _render_spread_tab(decided):
 
 
 def _cal_note(monitor: dict | None) -> str:
-    cards = (monitor or {}).get("calibration_cards") or {}
-    if cards:
-        return (" · probabilities are post-calibration σ(a·logit(p)+b)"
-                " (prequential Platt, per line)")
-    return (" · probabilities are RAW (no calibration map shipped in "
-            "the run-engine artifact)")
+    fit = (monitor or {}).get("fit") or {}
+    if fit.get("family") == "two_sided_asymmetric_gaussian_split_skew":
+        return (" · probabilities are issued causal whole-CDF-calibrated "
+                "split-skew Gaussian Monte Carlo forecasts")
+    return (" · historical artifact predates challenger calibration metadata")
 
 
 def _render_totals_history(decided, monitor, start_d, end_d) -> None:
@@ -524,6 +523,8 @@ def _render_fit_panel(fit: dict) -> None:
     if not fit:
         st.info("No fit diagnostics in the monitor artifact.")
         return
+    if not fit.get("family"):
+        st.info("Historical artifact predates challenger family metadata; the next pipeline run supplies it.")
     spread = fit.get("spread_grid") or []
     total = fit.get("total_grid") or []
     c1, c2 = st.columns(2)
