@@ -1074,16 +1074,23 @@ def _pick_side(p_side: np.ndarray, y_side: np.ndarray) -> tuple[np.ndarray, np.n
 
 def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     """The three binary winner cards from the decided OOF market rows —
-    MLB ``compute_winner_cards`` framing on the NBA grids:
+    MLB ``compute_winner_cards`` field shape on the NBA grids:
 
       over_under   pick Over at the game's own fair total (grid argmin of
                    |2-way P(over) - 0.5|) else Under; total == line pushes
-                   excluded;
-      run_line     pick the side favored to cover the game's own fair
-                   spread threshold else the dog; margin == T pushes
-                   excluded;
-      derived_ml   pick the side with P > 50% off ``derived_ml`` — the run
-                   engine's own moneyline, distinct from the ensemble.
+                   excluded (pick-side framing — the standing pick flips
+                   with the lean);
+      run_line     HOME cover at the game's own fair spread threshold (the
+                   0.5-ladder step closest to the 50/50 anchor), graded
+                   only on home-lean rows (P > 50%); margin == T pushes and
+                   no-lean rows excluded (HOME-side framing, 2026-10-12);
+      derived_ml   the run engine's own HOME win probability at the +-0.5
+                   dead cut (ties excluded), again home-lean rows only —
+                   distinct from the moneyline ensemble.
+
+    The home-side cards share the binary moneyline KPI structure: one row
+    per graded game at its home probability, W/(W+L) as the win rate, and
+    Actual/Predicted over the SAME home-lean population.
     """
     df = oof_rows
     if df is None or not len(df):
@@ -1127,7 +1134,13 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         y, p = _pick_side(p2, y_side)
         cards["over_under"] = _build(y[ok], p[ok], sealed[ok])
 
-    # --- run line at each game's own fair spread threshold ---------------
+    # --- run line: HOME cover at its own fair spread threshold -----------
+    # HOME-SIDE framing (2026-10-12): the line is the fair threshold on the
+    # 0.5 ladder (grid argmin |2-way P - 0.5|, home orientation — the step
+    # closest to a coin flip), the probability is the HOME cover with the
+    # push band folded out, and only home-lean rows (P > 50%) are graded:
+    # no-lean rows and whole-line pushes are excluded — the binary moneyline
+    # KPI population with the home team as the standing pick.
     sg = np.asarray(config.SPREAD_GRID, dtype=float)
     hc = _grid_values(df, "p_home_cover", sg)
     ac = _grid_values(df, "p_away_cover", sg)
@@ -1136,19 +1149,21 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         ph = _column_at(hc, sg, ft)
         pa = _column_at(ac, sg, ft)
         p2 = _two_way(ph, pa)
-        ok = np.isfinite(p2) & np.isfinite(margin) & np.isfinite(ft) \
-            & (margin != ft)
-        y_side = (margin > ft).astype(float)
-        y, p = _pick_side(p2, y_side)
-        cards["run_line"] = _build(y[ok], p[ok], sealed[ok])
+        lean = np.isfinite(p2) & np.isfinite(margin) & np.isfinite(ft) \
+            & (margin != ft) & (p2 > 0.5)
+        y_home = (margin > ft).astype(float)
+        cards["run_line"] = _build(y_home[lean], p2[lean], sealed[lean])
 
-    # --- derived moneyline (pick-side) ----------------------------------
+    # --- derived moneyline (HOME-side at the +-0.5 dead cut) -------------
+    # The run engine's own home win probability: ties (margin == 0) are
+    # dead mass and rows without a home lean are excluded — only the
+    # graded population changes vs the old pick-side card; the fields and
+    # their meanings are unchanged.
     ml = pd.to_numeric(df.get("derived_ml"), errors="coerce").to_numpy(float) \
         if df.get("derived_ml") is not None else np.full(n, np.nan)
-    ok = np.isfinite(ml) & np.isfinite(margin)
-    y_side = (margin > 0).astype(float)
-    y, p = _pick_side(ml, y_side)
-    cards["derived_ml"] = _build(y[ok], p[ok], sealed[ok])
+    lean = np.isfinite(ml) & np.isfinite(margin) & (margin != 0) & (ml > 0.5)
+    y_home = (margin > 0).astype(float)
+    cards["derived_ml"] = _build(y_home[lean], ml[lean], sealed[lean])
     return cards
 
 

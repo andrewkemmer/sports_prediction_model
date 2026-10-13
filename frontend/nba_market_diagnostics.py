@@ -97,14 +97,32 @@ TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
 WINNER_CARDS = (
     ("over_under", "Over/Under",
      "Pick Over if P(over the game's line) > 50%, else Under"),
-    ("run_line", "Run Line (favorite cover)",
-     "Pick the favorite to cover its own fair line if P(cover) > 50%, "
-     "else the dog"),
-    ("derived_ml", "Derived ML (run-line model moneyline)",
-     "Pick the side with P > 50% — home if P(home win) > 50%, else away "
-     "(derived from the paired score distribution; distinct from the "
-     "moneyline ensemble)"),
+    ("run_line", "Run Line (home cover)",
+     "Home side at its own fair 0.5-ladder line (the step closest to the "
+     "50/50 anchor) if P(home cover) > 50%; no-lean games excluded"),
+    ("derived_ml", "Derived ML (home win, run-line model)",
+     "Home team if P(home win) > 50% (±0.5 dead cut; ties excluded) — "
+     "derived from the paired score distribution; distinct from the "
+     "moneyline ensemble"),
 )
+# Per-card population note printed under each card's metrics (2026-10-12:
+# run_line + derived_ml are HOME-side — only home-lean rows are graded —
+# while over_under keeps the pick-side framing).
+CARD_POPULATION = {
+    "over_under": "Win rate is W/(W+L): rows with no side lean (P = 50%) "
+                  "and whole-line pushes are excluded from both sides; "
+                  "Actual and Predicted are the SAME pick-side population "
+                  "(MLB framing).",
+    "run_line": "Win rate is W/(W+L) over the HOME-LEAN population: only "
+                "games where P(home cover) > 50% at the home's own fair "
+                "ladder line are counted; no-lean games and whole-line "
+                "pushes are excluded. Actual and Predicted are the SAME "
+                "home-lean population.",
+    "derived_ml": "Win rate is W/(W+L) over the HOME-LEAN population: "
+                  "only games where P(home win) > 50% are counted; ties "
+                  "are dead at ±0.5 and no-lean games are excluded. "
+                  "Actual and Predicted are the SAME home-lean population.",
+}
 _HISTORY_COLUMNS = ["game_date", "away", "home", "home_score", "away_score",
                     "line", "pick", "pick_prob", "winner", "correct"]
 
@@ -1303,6 +1321,42 @@ def binary_card_metrics(y: np.ndarray, p: np.ndarray,
     }
 
 
+def home_side_card_metrics(y: np.ndarray, p: np.ndarray,
+                           coeff: tuple[float, float] | None = None) -> dict:
+    """HOME-side binary card metrics (2026-10-12 run-line + derived-ML
+    reframe).
+
+    ``p`` is the model's probability of the HOME side and ``y`` the HOME
+    outcome; the graded population is the home-lean subset (p > 50%), so
+    the card reads exactly like the binary moneyline KPIs with the home
+    team as the standing pick: one row per graded game at its home
+    probability, ``win_rate`` = home W/(W+L), and Actual/Predicted over
+    the SAME home-lean population. ``n`` counts the graded (home-lean)
+    rows — no-lean games make no pick and never enter the card.
+    """
+    ok = np.isfinite(y) & np.isfinite(p)
+    y, p = y[ok].astype(float), np.clip(p[ok].astype(float), 1e-7, 1 - 1e-7)
+    lean = p > 0.5
+    y, p = y[lean], p[lean]
+    n = int(len(y))
+    if n == 0:
+        return {"n": 0, "win_rate": None, "auc": None, "brier": None,
+                "logloss": None, "ece_raw": None, "ece_calibrated": None,
+                "predicted_mean": None, "actual_win_rate": None}
+    pred = _platt(p, *coeff) if coeff else p
+    win_rate = round(float(y.mean()), 6)
+    return {
+        "n": n, "win_rate": win_rate, "actual_win_rate": win_rate,
+        "auc": _auc(y.astype(bool), pred),
+        "brier": round(float(np.mean((p - y) ** 2)), 6),
+        "logloss": round(float(-np.mean(y * np.log(pred)
+                                        + (1 - y) * np.log(1 - pred))), 6),
+        "ece_raw": round(_ece(y, p), 6),
+        "ece_calibrated": round(_ece(y, pred), 6) if coeff else None,
+        "predicted_mean": round(float(p.mean()), 6),
+    }
+
+
 def _over_fair_series(decided: pd.DataFrame) -> pd.Series:
     """2-way P(over) at each game's own fair line, from the grid."""
     values: list[float] = []
@@ -1325,8 +1379,9 @@ def winner_cards(decided: pd.DataFrame,
     This is the FALLBACK for artifacts that predate the winner-card schema
     (2026-10-11: the emitter now ships MLB-shaped cards, so the page reads
     ``monitor['winner_cards']`` first and only recomputes when it is
-    absent). The basis matches the emitter exactly — pick-side framing at
-    each game's own fair line — so artifact and page agree.
+    absent). The basis matches the emitter exactly — HOME-side framing for
+    run_line and derived_ml (2026-10-12: only home-lean rows are graded),
+    pick-side for over_under — so artifact and page agree.
     """
     empty = {"n": 0, "win_rate": None, "auc": None, "brier": None,
              "logloss": None, "ece_raw": None, "ece_calibrated": None,
@@ -1347,27 +1402,23 @@ def winner_cards(decided: pd.DataFrame,
     rl = runline_history_frame(decided)
     spread = dict(empty)
     if len(rl):
-        okr = rl["correct"].notna().to_numpy()
+        # HOME-side (2026-10-12): p_home is the home cover probability at
+        # the home's own fair threshold (the stored pick prob is the
+        # PICKED side's — flip when the pick was away); y is whether the
+        # HOME covered. The home-lean gate (p_home > 50%) drops no-lean
+        # rows inside home_side_card_metrics; pushed rows are dropped here.
+        non_push = rl["correct"].notna().to_numpy()
         picked_home = (rl["pick"] == rl["home"]).to_numpy()
-        p_pick = np.asarray(
+        p_home = np.asarray(
             np.where(picked_home, rl["pick_prob"], 1.0 - rl["pick_prob"]),
             dtype=float)
-        covered = np.asarray(
-            np.where(picked_home, rl["winner"] == rl["home"],
-                     rl["winner"] != rl["home"]), dtype=float)
-        y = np.where(okr, covered, np.nan)
-        spread = binary_card_metrics(
-            y[okr], p_pick[okr],
+        home_covered = np.asarray(rl["winner"] == rl["home"], dtype=float)
+        spread = home_side_card_metrics(
+            home_covered[non_push], p_home[non_push],
             calibration_coefficients(
                 monitor, "run_line",
-                _int_line(pd.to_numeric(rl.loc[rl["correct"].notna(), "line"],
+                _int_line(pd.to_numeric(rl.loc[non_push, "line"],
                                         errors="coerce").median())))
-        if okr.any():
-            # Same population the history table grades (non-push rows),
-            # kept in BOTH slots so the header and the metric never split.
-            wr = round(float(y[okr].mean()), 6)
-            spread["win_rate"] = wr
-            spread["actual_win_rate"] = wr
 
     margin = pd.to_numeric(decided.get("margin"), errors="coerce")
     # ``derived_ml`` is the artifact's run-engine moneyline (the column the
@@ -1380,7 +1431,7 @@ def winner_cards(decided: pd.DataFrame,
     home_p = pd.to_numeric(ml_src, errors="coerce") if ml_src is not None \
         else pd.Series(np.nan, index=decided.index)
     okh = margin.notna() & home_p.notna()
-    derived = binary_card_metrics(
+    derived = home_side_card_metrics(
         (margin[okh] > 0).to_numpy(float), home_p[okh].to_numpy(float))
     return {"over_under": over, "run_line": spread, "derived_ml": derived}
 

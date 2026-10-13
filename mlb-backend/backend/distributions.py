@@ -2339,46 +2339,40 @@ def compute_winner_cards(markets: pd.DataFrame,
             ou.setdefault("holdout", {})["auc"] = _safe_auc(
                 ou_arr_p[ou_hold], ou_arr_y[ou_hold])
 
-    # --- run_line: -1.5/+1.5, half-run lines never push ---
+    # --- run line: HOME cover at -1.5, half-run lines never push ---
+    # HOME-SIDE (2026-10-12): only home-lean rows (P(home covers -1.5) >
+    # 50%) are graded — no pick is made on the away side; the card fields
+    # and their meanings are unchanged.
     if "p_home_cover_1_5" in df.columns:
         rp = df["p_home_cover_1_5"].to_numpy(float)
-        ok = np.isfinite(rp)
         margin = hs - as_
         home_covers = (margin >= 2).astype(float)
-        pick_home = rp >= 0.5
-        hit = (pick_home.astype(float) == home_covers).astype(float)
-        fav = np.where(pick_home, rp, 1.0 - rp)
-        rl = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
-                                 hold_mask[ok], pick_home[ok])
-        rl["auc"] = _safe_auc(fav[ok], hit[ok])
+        ok = np.isfinite(rp) & (rp > 0.5)
+        rl = _winner_card_stats(rp[ok], home_covers[ok], _fold_idx(pks[ok]),
+                                hold_mask[ok], np.ones(int(ok.sum()), bool))
+        rl["auc"] = _safe_auc(rp[ok], home_covers[ok])
         if hold_mask[ok].any():
             rl.setdefault("holdout", {})["auc"] = _safe_auc(
-                fav[ok][hold_mask[ok]], hit[ok][hold_mask[ok]])
+                rp[ok][hold_mask[ok]], home_covers[ok][hold_mask[ok]])
     else:
         rl = None
 
-    # --- derived_ml: home vs away (the RUN LINE model's own moneyline) ---
+    # --- derived_ml: HOME win (the RUN LINE model's own moneyline) ---
     # SOURCE: p_home_win_derived — the NB Monte-Carlo moneyline derived from
     # the SAME expected-runs/alpha machinery that prices the run-line card.
-    # It is a DISTINCT model from the binary moneyline ensemble. Post the
-    # tie-mass renormalization + home one-run structural fix the derivation
-    # is CALIBRATED (pooled 54.1% vs 53.9%, ECE_raw 0.004; mean P(home)
-    # 0.5323 vs actual home-win rate 0.532) — the earlier "underweights the
-    # home edge" finding is resolved, not masked. The moneyline ENSEMBLE
-    # (ml_win_prob) is kept as a one-line ml_reference so the model
-    # comparison stays visible.
+    # It is a DISTINCT model from the binary moneyline ensemble. HOME-SIDE
+    # (2026-10-12): only home-lean rows (P(home win) > 50%) are graded; the
+    # ensemble reference below is scored on the SAME home-lean population
+    # so the comparison stays apples-to-apples.
     home_won = (hs > as_).astype(float)
     ml = None
     if "p_home_win_derived" in df.columns:
         mp = df["p_home_win_derived"].to_numpy(float)
-        ok = np.isfinite(mp)
-        pick_home = mp >= 0.5
-        hit = (pick_home.astype(float) == home_won).astype(float)
-        fav = np.where(pick_home, mp, 1.0 - mp)
-        ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
-                                hold_mask[ok], pick_home[ok])
-        # AUC on the RAW p_home_win vs home/away win (the standard moneyline
-        # discrimination) — not the picked-side framing (per monitor spec).
+        ok = np.isfinite(mp) & (mp > 0.5)
+        ml = _winner_card_stats(mp[ok], home_won[ok], _fold_idx(pks[ok]),
+                                hold_mask[ok], np.ones(int(ok.sum()), bool))
+        # AUC on the home-side probability vs the home win (the standard
+        # moneyline discrimination), on the same home-lean population.
         ml["auc"] = _safe_auc(mp[ok], home_won[ok])
         if hold_mask[ok].any():
             ml.setdefault("holdout", {})["auc"] = _safe_auc(
@@ -2391,17 +2385,15 @@ def compute_winner_cards(markets: pd.DataFrame,
             "predicted_mean": ml["predicted_mean"],
             "ece_raw": ml["ece_raw"], "by_pick": ml["by_pick"],
         }
-        # Moneyline ENSEMBLE one-line reference (comparison anchor only).
+        # Moneyline ENSEMBLE one-line reference (comparison anchor only),
+        # scored on the SAME home-lean population as the card above.
         ens = (df["ml_win_prob"].to_numpy(float)
                if "ml_win_prob" in df.columns else None)
         if ens is not None and np.isfinite(ens).any():
-            eok = np.isfinite(ens)
-            epk = ens >= 0.5
-            ehit = (epk.astype(float) == home_won).astype(float)
-            efav = np.where(epk, ens, 1.0 - ens)
-            es = _winner_card_stats(efav[eok], ehit[eok],
+            eok = np.isfinite(ens) & (ens > 0.5)
+            es = _winner_card_stats(ens[eok], home_won[eok],
                                     _fold_idx(pks[eok]), hold_mask[eok],
-                                    epk[eok])
+                                    np.ones(int(eok.sum()), bool))
             ml["ml_reference"] = {
                 "source": "ml_win_prob", "n": es["n"],
                 "win_rate": es["win_rate"],

@@ -624,8 +624,10 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
     """The three binary winner cards (MLB _WINNER_CARDS schema) computed
     from the decided OOF store: pooled = all rows, holdout = sealed 2025
     (frame_view == 'sealed'). Each card: win_rate / auc / ece_calibrated /
-    brier / logloss / n + holdout — pushes excluded from the 2-way pick
-    basis (whole-number lines, neither wins nor losses)."""
+    brier / logloss / n + holdout — pushes excluded from the 2-way basis
+    (whole-number lines, neither wins nor losses); run_line and derived_ml
+    are HOME-side (2026-10-12: only home-lean rows are graded), over_under
+    keeps the pick-side framing."""
     def _split(view: pd.DataFrame) -> dict[str, Any]:
         return _card_metrics(view["y"].to_numpy(float),
                              view["p"].to_numpy(float))
@@ -662,42 +664,51 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
                     continue
                 rows.append({"p": p2, "y": float(tot > U)})
             elif kind == "run_line":
+                # HOME-side (2026-10-12): the HOME cover at the game's own
+                # fair spread — ``fair_spread`` is the signed grid argmin
+                # |P(home cover) - 0.5| (the step closest to a coin flip,
+                # positive = home favored). Only home-lean rows (2-way P >
+                # 50%) are graded; no-lean rows and whole-line pushes
+                # (margin == line) are excluded — the binary moneyline KPI
+                # population, home orientation. Column tags go through
+                # ``_col`` so negative lines read the m-tagged artifact
+                # columns (``p_home_cover_m3``), never a fabricated
+                # ``p_home_cover_-3``.
                 fs = _fnum(r, "fair_spread")
                 margin = _fnum(r, "margin")
-                hw = _fnum(r, "derived_ml")
-                if not (np.isfinite(fs) and np.isfinite(margin)
-                        and np.isfinite(hw)):
+                if not (np.isfinite(fs) and np.isfinite(margin)):
                     continue
-                home_fav = hw >= 0.5
                 m = int(max(abs(fs), 0.5))
-                if home_fav:
-                    cov = _fnum(r, f"p_home_cover_{m}")
-                    push_p = _fnum(r, f"p_push_{m}")
-                else:
-                    ph = _fnum(r, f"p_home_cover_{-m}")
-                    push_p = _fnum(r, f"p_push_{-m}")
-                    cov = 1.0 - ph - push_p
-                dog = 1.0 - cov - push_p
-                if not (cov + dog) > 0:
+                if fs < 0:
+                    m = -m
+                cov = _fnum(r, _col("p_home_cover", m))
+                push_p = _fnum(r, _col("p_push", m))
+                if not (np.isfinite(cov) and np.isfinite(push_p)):
                     continue
-                p2 = cov / (cov + dog)
-                if (margin == m and home_fav) or (margin == -m
-                                                  and not home_fav):
+                if cov < 0 or cov > 1 or push_p < 0:
                     continue
-                covered = (margin > m) if home_fav else (margin < -m)
-                rows.append({"p": p2, "y": float(covered)})
-            else:  # derived_ml — PICK-SIDE framing (every metric on the
-                # picked side, never home-side unconditionally, MLB
-                # convention): home picked when P(H>A)/(1-P(tie)) >= 0.5,
-                # away otherwise.
+                away = 1.0 - cov - push_p
+                if not (cov + away) > 0:
+                    continue
+                if margin == m:        # whole-line push (home orientation)
+                    continue
+                p2 = cov / (cov + away)
+                if p2 <= 0.5:          # no home lean -> no pick
+                    continue
+                rows.append({"p": p2, "y": float(margin > m)})
+            else:  # derived_ml — HOME-side: the run engine's own HOME win
+                # probability at the +-0.5 dead cut (ties excluded). Only
+                # home-lean rows (P > 50%) are counted — no pick is made
+                # on the away side.
                 ml = _fnum(r, "derived_ml")
                 margin = _fnum(r, "margin")
                 if not np.isfinite(ml) or not np.isfinite(margin):
                     continue
-                if ml >= 0.5:
-                    rows.append({"p": ml, "y": float(margin > 0)})
-                else:
-                    rows.append({"p": 1.0 - ml, "y": float(margin < 0)})
+                if margin == 0:        # tie — dead mass at the +-0.5 cut
+                    continue
+                if ml <= 0.5:          # no home lean -> no pick
+                    continue
+                rows.append({"p": ml, "y": float(margin > 0)})
         return pd.DataFrame(rows)
 
     def _build(kind: str, df: pd.DataFrame) -> dict[str, Any]:

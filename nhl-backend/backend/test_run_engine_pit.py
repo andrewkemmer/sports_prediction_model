@@ -314,6 +314,117 @@ def test_pull_progress_bar_never_breaks_a_run():
         f"the bar did not track the pull (updates={rec.updates}, closed={rec.closed})"
 
 
+def test_boxscore_pull_draws_ONE_bar_across_every_chunk():
+    """One pull, ONE 0 -> 100% bar — pinned against the 2026-10-12 log.
+
+    That run drew eleven separate ``boxscore chunk n/N: 100%|...|`` bars
+    (and thirteen more for scores), because every _PullProgress built its own
+    tqdm: a capture filled up with finished bars, none of which said how much
+    of the PULL was done. The chunk structure itself must survive — the
+    ``chunk n/N`` log lines still name every window — but the bar is built
+    once, ticks every game the call serves (cached or fetched), and closes
+    exactly once, when the last chunk finishes.
+    """
+    base = pd.Timestamp("2024-10-01")
+    ids = [f"{base + pd.Timedelta(days=d):%Y%m%d}_{k}"
+           for d in range(0, 200, 4) for k in range(2)]
+    gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
+    # 200 calendar days at 60-day chunks -> four windows: multiple chunks or
+    # the assertion below proves nothing.
+    assert len(ing._chunk_games(ids, gamedays)) > 1
+
+    def _fake_http(url):
+        gid = url.rsplit("/", 2)[-2]
+        return {"id": gid, "gameState": "OFF",
+                "away": {"abbrev": "AAA", "goals": 1},
+                "home": {"abbrev": "HHH", "goals": 2}}
+
+    class _Spy:
+        def __init__(self, total, desc):
+            self.total, self.desc = total, desc
+            self.updates = self.closed = 0
+
+        def update(self, n=1):
+            self.updates += n
+
+        def set_postfix(self, **_kw):
+            pass
+
+        def close(self):
+            self.closed += 1
+
+    built = []
+
+    def _bar(total, desc):
+        spy = _Spy(total, desc)
+        built.append(spy)
+        return spy
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", side_effect=_bar):
+            out = ing.load_boxscores(ids, use_cache=False,
+                                     gameday_by_id=gamedays)
+
+    assert len(out) == len(ids)
+    assert len(built) == 1, \
+        f"one pull must draw one bar, not {len(built)} (a bar per chunk)"
+    assert built[0].desc == "boxscores" and built[0].total == len(ids), \
+        f"bar must count every game of the pull: {built[0].desc} {built[0].total}"
+    assert built[0].updates == len(ids) and built[0].closed == 1, \
+        f"updates={built[0].updates} closed={built[0].closed}"
+
+
+def test_score_pull_draws_ONE_bar_across_every_chunk():
+    """The score sweep gets the same single-bar contract as boxscores.
+
+    The 2026-10-12 log's thirteen ``score chunk n/N: 100%|...|`` bars are
+    the other half of the defect: one continuous pull of 678 dates must
+    render as one bar walking 0 -> 100% across every date, cached or
+    fetched, with the per-chunk ``score chunk n/N`` log lines unchanged.
+    """
+    dates = [f"2024-{m:02d}-{d:02d}" for m in range(1, 13) for d in (1, 15)]
+    assert len(ing._date_windows(dates, ing.PULL_CHUNK_DAYS)) > 1
+
+    class _Spy:
+        def __init__(self, total, desc):
+            self.total, self.desc = total, desc
+            self.updates = self.closed = 0
+
+        def update(self, n=1):
+            self.updates += n
+
+        def set_postfix(self, **_kw):
+            pass
+
+        def close(self):
+            self.closed += 1
+
+    built = []
+
+    def _bar(total, desc):
+        spy = _Spy(total, desc)
+        built.append(spy)
+        return spy
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json",
+                                side_effect=lambda _u: {"games": []}), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", side_effect=_bar):
+            ing.load_score_dates(dates)
+
+    assert len(built) == 1, \
+        f"one pull must draw one bar, not {len(built)} (a bar per chunk)"
+    assert built[0].desc == "scores" and built[0].total == len(dates), \
+        f"bar must count every date of the pull: {built[0].desc} {built[0].total}"
+    assert built[0].updates == len(dates) and built[0].closed == 1, \
+        f"updates={built[0].updates} closed={built[0].closed}"
+
+
 def test_score_dates_chunking_covers_every_date_once():
     dates = [f"2024-{m:02d}-{d:02d}" for m in range(1, 13) for d in (1, 15)]
     windows = ing._date_windows(dates, ing.PULL_CHUNK_DAYS)
@@ -2129,23 +2240,42 @@ def test_markets_winner_cards_price_fair_lines_with_honest_outcomes():
         assert card["n"] <= len(rows)
 
 
-def test_markets_winner_cards_handle_away_favorite_run_line():
-    """The away-favorite branch must score the favorite-side cover leg."""
-    line = 1
+def test_markets_winner_cards_are_home_side_run_line_and_ml():
+    """2026-10-12 HOME-side reframe: the run-line card grades the HOME
+    cover at the game's own fair (signed) ladder line — the grid argmin
+    |P(home cover) - 0.5| — counting only home-lean rows (2-way P > 50%);
+    the derived-ML card grades the HOME win at the +-0.5 dead cut, again
+    home-lean only. No-lean rows and whole-line pushes never enter either
+    card, and an away lean is never scored as a pick."""
     rows = pd.DataFrame([
-        {
-            "fair_spread": line, "margin": -2.0, "derived_ml": 0.40,
-            "p_home_cover_m1": 0.30, "p_push_m1": 0.10,
-        },
-        {
-            "fair_spread": line, "margin": -2.0, "derived_ml": 0.40,
-            "p_home_cover_m1": None, "p_push_m1": None,
-        },
+        # Home lean at +1: 2-way P(home cover) = 0.6/(0.6+0.2) = 0.75 > 0.5
+        # -> graded; home covers (margin 2 > 1).
+        {"fair_spread": 1.0, "margin": 2.0, "derived_ml": 0.62,
+         "p_home_cover_1": 0.60, "p_push_1": 0.20},
+        # Away lean at +2: 2-way P = 0.3/(0.3+0.5) = 0.375 < 0.5 -> the
+        # home side has no lean, so the row is excluded entirely.
+        {"fair_spread": 2.0, "margin": -3.0, "derived_ml": 0.35,
+         "p_home_cover_2": 0.30, "p_push_2": 0.20},
+        # Whole-line push at +1 (margin == line) -> excluded from the
+        # run-line card; its derived-ML leg (0.55 > 0.5, margin > 0) still
+        # counts as a home lean and a home win.
+        {"fair_spread": 1.0, "margin": 1.0, "derived_ml": 0.55,
+         "p_home_cover_1": 0.55, "p_push_1": 0.10},
+        # Missing grid columns -> the run-line row is dropped, never
+        # fabricated; its derived-ML leg (0.70 > 0.5) still counts.
+        {"fair_spread": 1.0, "margin": 2.0, "derived_ml": 0.70,
+         "p_home_cover_1": None, "p_push_1": None},
     ])
     cards = mon.markets_winner_cards(rows)
     assert cards["run_line"]["n"] == 1
-    assert cards["run_line"]["predicted_mean"] == round(2.0 / 3.0, 4)
+    assert cards["run_line"]["predicted_mean"] == round(0.75, 4)
     assert cards["run_line"]["actual_win_rate"] == 1.0
+    # Derived ML: the three home-lean rows (0.62, 0.55, 0.70) — all home
+    # wins; the away-lean row (0.35) is excluded.
+    assert cards["derived_ml"]["n"] == 3
+    assert cards["derived_ml"]["predicted_mean"] == round(
+        (0.62 + 0.55 + 0.70) / 3, 4)
+    assert cards["derived_ml"]["actual_win_rate"] == 1.0
 
 
 def test_nhl_boxscore_uses_per_goalie_goals_and_shots():

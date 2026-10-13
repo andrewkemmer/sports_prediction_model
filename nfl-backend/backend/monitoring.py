@@ -1136,14 +1136,15 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     """The three binary winner cards computed from the decided OOF market
     rows — the same pick basis the frontend recomputes for rendering
     (nfl_market_diagnostics.winner_cards): 2-way no-push rescale, whole
-    -number pushes excluded, PICK-SIDE framing for derived_ml (every
-    metric on the picked side). The artifact ships the pooled card so the
-    monitor history and downstream consumers see the exact values the
-    frontend recomputes — one source of truth, never two.
+    -number pushes excluded, HOME-side framing for run_line and derived_ml
+    (2026-10-12: only home-lean rows are graded — every metric on the home
+    team). The artifact ships the pooled card so the monitor history and
+    downstream consumers see the exact values the frontend recomputes —
+    one source of truth, never two.
 
     Cards: over_under (P(over) at each game's own fair total), run_line
-    (favorite cover at its derived magnitude), derived_ml (the run-engine
-    model's own moneyline).
+    (HOME cover at the game's own fair spread), derived_ml (the run
+    engine's own HOME win probability at the +-0.5 dead cut).
     """
     def _pairs(kind: str, df: pd.DataFrame) -> pd.DataFrame:
         rows: list[dict] = []
@@ -1185,37 +1186,48 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                     continue
                 rows.append({"p": po / (po + pu), "y": float(tot > U)})
             elif kind == "run_line":
-                fs, margin, hw = (r.get("fair_spread"), r.get("margin"),
-                                  r.get("derived_ml"))
+                # HOME-side (2026-10-12): the HOME cover at the game's own
+                # fair spread — ``fair_spread`` is the signed grid argmin
+                # |P(home cover) - 0.5| (the step closest to a coin flip,
+                # positive = home favored). Only home-lean rows (2-way P >
+                # 50%) are graded; no-lean rows and whole-line pushes
+                # (margin == line) are excluded — the binary moneyline KPI
+                # population, home orientation. (Replaces the favorite-side
+                # transform, which also read ``cov`` unbound for away
+                # favorites — silently scoring the previous row's leg.)
+                fs, margin = r.get("fair_spread"), r.get("margin")
                 try:
-                    fs, margin, hw = float(fs), float(margin), float(hw)
+                    fs, margin = float(fs), float(margin)
                 except (TypeError, ValueError):
                     continue
-                if not all(np.isfinite(v) for v in (fs, margin, hw)):
+                if not (np.isfinite(fs) and np.isfinite(margin)):
                     continue
-                home_fav = hw >= 0.5
                 m = int(max(abs(fs), 0.5))
-                if home_fav:
-                    cov = r.get(_grid_col("p_home_cover", m))
-                    push_p = r.get(_grid_col("p_push", m))
-                else:
-                    ph = r.get(_grid_col("p_home_cover", -m))
-                    push_p = r.get(_grid_col("p_push", -m))
+                if fs < 0:
+                    m = -m
+                cov = r.get(_grid_col("p_home_cover", m))
+                push_p = r.get(_grid_col("p_push", m))
                 try:
                     cov, push_p = float(cov), float(push_p)
-                    if not home_fav:
-                        cov = 1.0 - cov - push_p   # away-favored cover leg
                 except (TypeError, ValueError):
                     continue
-                dog = 1.0 - cov - push_p
-                if not (cov + dog) > 0:
+                if not all(np.isfinite(v) for v in (cov, push_p)):
                     continue
-                if (margin == m and home_fav) or (margin == -m
-                                                  and not home_fav):
+                if cov < 0 or cov > 1 or push_p < 0:
                     continue
-                covered = (margin > m) if home_fav else (margin < -m)
-                rows.append({"p": cov / (cov + dog), "y": float(covered)})
-            else:  # derived_ml — PICK-SIDE framing
+                away = 1.0 - cov - push_p
+                if not (cov + away) > 0:
+                    continue
+                if margin == m:        # whole-line push (home orientation)
+                    continue
+                p2 = cov / (cov + away)
+                if p2 <= 0.5:          # no home lean -> no pick
+                    continue
+                rows.append({"p": p2, "y": float(margin > m)})
+            else:  # derived_ml — HOME-side: the run engine's own HOME win
+                # probability at the +-0.5 dead cut (ties excluded). Only
+                # home-lean rows (P > 50%) are counted — no pick is made
+                # on the away side.
                 ml, margin = r.get("derived_ml"), r.get("margin")
                 try:
                     ml, margin = float(ml), float(margin)
@@ -1223,10 +1235,11 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                     continue
                 if not (np.isfinite(ml) and np.isfinite(margin)):
                     continue
-                if ml >= 0.5:
-                    rows.append({"p": ml, "y": float(margin > 0)})
-                else:
-                    rows.append({"p": 1.0 - ml, "y": float(margin < 0)})
+                if margin == 0:        # tie — dead mass at the +-0.5 cut
+                    continue
+                if ml <= 0.5:          # no home lean -> no pick
+                    continue
+                rows.append({"p": ml, "y": float(margin > 0)})
         return pd.DataFrame(rows)
 
     def _build(kind: str, df: pd.DataFrame) -> dict:

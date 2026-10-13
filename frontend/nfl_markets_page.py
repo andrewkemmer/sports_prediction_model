@@ -102,14 +102,17 @@ HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th><th>LINE"
                    "</th><th>MODEL PICK</th><th>WINNER</th><th>RESULT")
 
 # The three winner cards (MLB _WINNER_CARDS structure, NFL rules).
+# HOME-SIDE framing (2026-10-12): run_line and derived_ml grade the HOME
+# team on home-lean rows only; over_under keeps the pick-side framing.
 _WINNER_CARDS = (
     ("over_under", "Over/Under",
      "Pick Over if P(over the game's own fair total) > 50%, else Under"),
-    ("run_line", "Run Line (favorite)",
-     "Pick the favorite side to cover at its own fair run line"),
-    ("derived_ml", "Derived ML (run-line model moneyline)",
-     "Pick the side with P > 50% — home if P(home win) > 50%, else away "
-     "(P(H>A)/(1−P(tie)) of the calibrated NB Monte Carlo draws)"),
+    ("run_line", "Run Line (home cover)",
+     "Home side at its own fair line if P(home cover) > 50%; no-lean "
+     "games and whole-line pushes excluded"),
+    ("derived_ml", "Derived ML (home win, run-line model)",
+     "Home team if P(home win) > 50% (±0.5 dead cut; ties excluded) — "
+     "P(H>A)/(1−P(tie)) of the calibrated NB Monte Carlo draws"),
 )
 
 

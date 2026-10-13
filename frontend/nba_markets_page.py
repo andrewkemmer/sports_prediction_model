@@ -442,10 +442,11 @@ def _render_winner_cards(cards: dict) -> None:
             h_txt = f"{h_n:,}" if isinstance(h_n, int) else str(h_n or 0)
             st.caption(f"n = {n_txt} pooled"
                        + (f" / {h_txt} holdout" if h else "")
-                       + " · Win rate is W/(W+L): rows with no side lean "
-                       "(P = 50%) and whole-line pushes are excluded from "
-                       "both sides; Actual and Predicted are the SAME "
-                       "pick-side population (MLB framing).")
+                       + " · "
+                       + nd.CARD_POPULATION.get(
+                           key, "Win rate is W/(W+L) over the graded "
+                           "population; Actual and Predicted are the SAME "
+                           "population."))
             ref = card.get("ml_reference")
             if ref and key == "derived_ml":
                 rwr = ref.get("win_rate")

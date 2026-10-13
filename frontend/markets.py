@@ -692,14 +692,17 @@ else:
 
 import datetime as _dt  # noqa: E402 — page-level, after existing imports
 
+# HOME-SIDE framing (2026-10-12): run_line and derived_ml grade the HOME
+# team on home-lean rows only; over_under keeps the pick-side framing.
 _WINNER_CARDS = (
     ("over_under", "Over/Under",
      "Pick Over if P(over the game's line) > 50%, else Under"),
-    ("run_line", "Run Line ±1.5",
-     "Pick Home −1.5 if P(home cover −1.5) > 50%, else Away +1.5"),
-    ("derived_ml", "Derived ML (run-line model moneyline)",
-     "Pick the side with P > 50% — home if P(home win) > 50%, else away "
-     "(NB Monte-Carlo derived ML; distinct from the moneyline ensemble)"),
+    ("run_line", "Run Line −1.5 (home cover)",
+     "Home −1.5 if P(home cover −1.5) > 50%; no-lean games excluded "
+     "(half lines never push)"),
+    ("derived_ml", "Derived ML (home win, run-line model)",
+     "Home team if P(home win) > 50% (±0.5 dead cut) — NB Monte-Carlo "
+     "derived ML; distinct from the moneyline ensemble"),
 )
 
 
@@ -752,7 +755,8 @@ def _ec_indicator(raw: float | None, cal: float | None) -> str:
 
 
 def _render_winner_cards(winner_cards: dict) -> None:
-    """Render the three binary winner cards (pick framing) in a row."""
+    """Render the three binary winner cards in a row — over/under in pick
+    framing, run line + derived ML in HOME-side framing (2026-10-12)."""
     items = [(k, label, rule) for k, label, rule in _WINNER_CARDS
              if k in winner_cards]
     if not items:

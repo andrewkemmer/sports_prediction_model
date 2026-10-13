@@ -534,12 +534,24 @@ def test_pooled_lines_are_four_fixed_lines():
 
 # --- History / card cross-checks -------------------------------------------
 
-def test_spread_card_agrees_with_its_own_history_frame():
+def test_spread_card_is_the_home_lean_view_of_its_history_frame():
+    """2026-10-12 HOME-side reframe: the run-line card grades the HOME
+    cover at each game's own fair threshold, counting only home-lean
+    non-push rows (P(home cover) > 50%) — the pick-side history-frame
+    win rate no longer equals the card, so pin the home-lean identity
+    directly on the SIMPLE fixture (G1 home pick won, G3 home pick lost,
+    G2 away lean excluded, G4 spread push excluded)."""
     rl = nd.runline_history_frame(SIMPLE)
-    stats = nd.history_win_rate(rl)
+    picked_home = (rl["pick"] == rl["home"]).to_numpy()
+    non_push = rl["correct"].notna().to_numpy()
+    lean = rl[non_push & picked_home]
     card = nd.winner_cards(SIMPLE)["run_line"]
-    assert card["n"] == stats["n_games"]
-    assert card["win_rate"] == stats["win_rate"]
+    assert len(lean) > 0
+    assert card["n"] == len(lean)
+    home_won = (lean["winner"] == lean["home"]).to_numpy(dtype=float)
+    assert card["win_rate"] == round(float(home_won.mean()), 6)
+    assert card["win_rate"] == card["actual_win_rate"]
+    assert card["predicted_mean"] is not None and card["predicted_mean"] > 0.5
 
 
 def test_totals_card_agrees_with_its_own_history_frame():
@@ -564,6 +576,19 @@ def test_rows_at_exactly_a_half_probability_make_no_pick():
     y = np.array([1.0, 0.0, 1.0])
     p = np.array([0.9, 0.1, 0.5])
     assert nd.binary_card_metrics(y, p)["win_rate"] == 1.0
+
+
+def test_home_side_card_metrics_grades_only_home_lean_rows():
+    """2026-10-12 HOME-side reframe: no-lean rows (p <= 50%) make no pick
+    and are dropped from ``n`` itself, and Actual/Predicted stay on the
+    SAME home-lean population."""
+    y = np.array([1.0, 0.0, 1.0, 1.0])
+    p = np.array([0.60, 0.40, 0.50, 0.90])
+    m = nd.home_side_card_metrics(y, p)
+    assert m["n"] == 2                      # 0.60 and 0.90 only
+    assert m["win_rate"] == 1.0
+    assert m["actual_win_rate"] == m["win_rate"]
+    assert m["predicted_mean"] == round((0.60 + 0.90) / 2, 6)
 
 
 def test_confidence_threshold_is_a_nested_subset():
