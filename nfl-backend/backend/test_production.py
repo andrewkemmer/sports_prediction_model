@@ -512,18 +512,20 @@ with mock.patch.object(weather_mod.requests, "get", side_effect=_always_429) as 
      mock.patch.object(weather_mod.time, "sleep", side_effect=_retry_sleeps.append), \
      mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
     _retry_result = weather_mod._get_with_retry("https://weather.test", {})
-# 2026-10-11 second review: a 429 is a quota minute closing, not a blip.
-# Two quick retries ride out the marginal case; a still-closed window
-# cools down ONE quota minute and probes ONCE (4 calls, not a 7-attempt
-# ladder that can only re-429 inside the same closed minute — the 15:50
-# run burned 21 logged retries that way).
-check("Open-Meteo 429 costs two quick retries, one cooldown, one probe",
-      _retry_get.call_count == 4
-      and _retry_sleeps == [1.0, 2.0, weather_mod._RATE_LIMIT_COOLDOWN_SEC]
+# 2026-10-13 structural review (MLB shape): a 429 drains through the
+# 63s ladder — 7 requests, waits 1+2+4+8+16+32 — which outlasts one
+# quota minute so the batch SURVIVES instead of dying, and the first
+# full-ladder failure counts toward the fail-fast brake (no cooldown
+# sleeps, no defer modes).
+check("Open-Meteo 429 drains through the 63s MLB ladder (7 requests)",
+      _retry_get.call_count == 7
+      and _retry_sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
       and _retry_result.status_code == 429
-      and weather_mod._rate_limit_streak() == 2,
-      f"calls={_retry_get.call_count}, sleeps={_retry_sleeps}")
-weather_mod._reset_rate_limiter()  # hermetic: no streak leaks into later checks
+      and weather_mod._rate_limit["drain_fails"] == 1
+      and not weather_mod._rate_limit["brake"],
+      f"calls={_retry_get.call_count}, sleeps={_retry_sleeps}, "
+      f"state={weather_mod._rate_limit}")
+weather_mod._reset_rate_limiter()  # hermetic: no breaker state leaks past here
 
 # The weather archive loop is the LONGEST phase in a run (minutes over a
 # decade of history, longer when Open-Meteo answers 429) and used to log
@@ -2380,16 +2382,21 @@ check("NGS/FTN unit counts exclude out-of-window seasons (no doomed units)",
       and ingest_mod.ngs_seasons([2014, 2015, 2016, 2026]) == [2016, 2026]
       and ingest_mod.ftn_charting_seasons([2016, 2021, 2022, 2026])
       == [2022, 2026])
-check("the Open-Meteo archive window is 14 days (MLB-matched), paced slower",
-      weather_mod._BATCH_DAYS == 14
+check("the Open-Meteo archive window is 60 days (measured request budget), "
+      "MLB-sized batches, paced slower",
+      weather_mod._BATCH_DAYS == 60
       and weather_mod._BATCH_SIZE == 15
-      # NFL's sweep (~444 batches on a full repull) is ~4x MLB's and kept
-      # tripping the shared-IP quota at MLB's 1.0s pause (~39 req/min on
-      # 2026-10-11); 2.0s halves our contribution (~23 req/min).  Pinning
-      # the floor so a silent re-slowdown back to 1.0s is a reviewed edit.
+      # 2026-10-13 structural review: 14-day windows cost 448 requests over
+      # ~20 min and lost 142 games to a shared-IP quota closure at minute
+      # 18; 60-day windows were measured (357 -> 111 batches) and cut a
+      # full repull to ~132 requests over ~6-8 min.  The pace floor keeps
+      # our share at ~15 req/min.  Both numbers moving is a reviewed edit.
       and weather_mod._BATCH_PAUSE_SEC >= 2.0)
-check("weather and reporting chunk intervals are deliberately different",
-      weather_mod._BATCH_DAYS == 14 and ingest_mod.POPULATE_CHUNK_DAYS == 60)
+check("the weather window's 60 days is its OWN measured choice (the old "
+      "14-vs-60 distinction is gone; provenance must stay documented)",
+      weather_mod._BATCH_DAYS == 60
+      and ingest_mod.POPULATE_CHUNK_DAYS == 60
+      and "357 to 111" in inspect.getsource(weather_mod))
 def _imports_tqdm(mod) -> bool:
     """True if the module actually IMPORTS tqdm (prose mentioning it is fine)."""
     import ast as _a
@@ -5530,15 +5537,13 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
         _pa_outdoor_game("PA_G1", "Gillette Stadium", "2024-09-02"),
     ])
     _pa_calls = []
-    _pa_flags = []          # cooldown_first_batch per _fetch_batched_weather call
-    _pa_finals = []         # final_pass per call (the honest-message marker)
 
     def _pa_flaky_fetch(targets, now, **_kw):
         # Pass 1: the "429-exhausted" batch answers for the first target
-        # only; pass 2 (the top-up) recovers the remaining gap.
+        # only; pass 2 (the top-up) recovers the remaining gap.  No
+        # cooldown/defer kwargs exist since the 2026-10-13 structural
+        # review — the full-repull flow has one mode only.
         _pa_calls.append([t["game_id"] for t in targets])
-        _pa_flags.append(_kw.get("cooldown_first_batch"))
-        _pa_finals.append(_kw.get("final_pass"))
         take = targets[:1] if len(_pa_calls) == 1 else targets
         out = {}
         for t in take:
@@ -5556,16 +5561,13 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
     finally:
         weather_mod._fetch_batched_weather = _pa_orig_fetch
     check("the same-run top-up recovers games a first-pass batch lost, and "
-          "ONLY the recovery pass runs with cooldown_first_batch (the main "
-          "sweep keeps its never-sleep contract) and final_pass (its "
-          "messages may no longer promise a same-run top-up)",
+          "ONLY the recovery pass refetches the gap — the sweep's set is "
+          "every eligible game (full repull, no cache gating)",
           len(_pa_calls) == 2
           and _pa_calls[0] == ["PA_G0", "PA_G1"]
           and _pa_calls[1] == ["PA_G1"]
-          and _pa_flags == [False, True]
-          and _pa_finals == [False, True]
           and set(_pa_topup["game_id"]) == {"PA_G0", "PA_G1"},
-          f"calls={_pa_calls}, flags={_pa_flags}, finals={_pa_finals}, "
+          f"calls={_pa_calls}, "
           f"got={list(_pa_topup['game_id']) if len(_pa_topup) else []}")
 
     _pa_five = pd.DataFrame([
@@ -5609,7 +5611,8 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
           "hole; 2026-10-13's warning printed the AVAILABLE count as the "
           "one that lacks records: \"1881/2023 lack ... (142 remain missing)\")",
           len(_pa_partial) == 4
-          and any("1/5 eligible games lack" in w and "cache-miss" in w
+          and any("1/5 eligible games lack" in w
+                  and "next run's full repull" in w
                   and "PA_F4" in w and "4/5 eligible games lack" not in w
                   for w in _pa_warns),
           f"warns={_pa_warns}")
@@ -5618,106 +5621,47 @@ check("the top-up logs a gap-only second pass before refetching",
       str([i for i in _pa_infos if "top-up" in i]))
 
 # ---------------------------------------------------------------------------
-# Final-pass recovery honesty (2026-10-13 10:23 run-log review, fourth pass)
+# Rate-limit honesty after the 2026-10-13 structural review (MLB shape)
 #
-# The run's LAST recovery pass (the same-run top-up's second pass) emitted
-# "missing games stay NaN and recover via the requeue, the same-run top-up
-# or the next run's cache-miss pass" (log line 24) and its requeue abort
-# repeated "missing games recover via the same-run top-up and the next
-# run's cache-miss pass" (line 27) -- both from INSIDE the top-up itself,
-# where no further in-run recovery exists: the 142 lost games healed only
-# on the next run.  A reader of the remote log was twice told the hole
-# would close in-run.  _recovery_note owns the string; both emitters must
-# name only the next-run path in final mode and keep both paths in sweep
-# mode (whose top-up really does follow).
+# The delivered 10:23 log's emitters named recovery paths that did not
+# exist for the pass printing them ("the requeue", "the next run's
+# cache-miss pass", and a same-run top-up promised from INSIDE that very
+# top-up).  The restructured weather module has exactly TWO recovery
+# paths — the same-run top-up and the next run's FULL REPULL — and the
+# batch-level 429 line must name those, nothing else.
 # ---------------------------------------------------------------------------
-def _fp_dead_batch(locations, start_date, end_date, *, source,
-                   defer_on_429=False, final_pass=False, **_kw):
-    """A batch that always dies to the quota (dead-batch streak and all)."""
-    weather_mod._rate_limit["streak"] += 1
-    return None
-
-_fp_deferred = [(
-    [("Test Stadium", 39.0, -95.0)],
-    date(2026, 9, 1) + timedelta(days=i),
-    date(2026, 9, 1) + timedelta(days=i),
-) for i in range(weather_mod._RATE_LIMIT_ABORT_STREAK + 1)]
-
-_fp_warns, _fp_infos = [], []
-_fp_orig_warn, _fp_orig_info = weather_mod.logger.warning, weather_mod.logger.info
-weather_mod.logger.warning = lambda m, *a, **k: _fp_warns.append(m % a if a else m)
-weather_mod.logger.info = lambda m, *a, **k: _fp_infos.append(m % a if a else m)
-_fp_orig_batch = weather_mod._fetch_batch_range
-weather_mod._fetch_batch_range = _fp_dead_batch
-try:
-    weather_mod._reset_rate_limiter()
-    weather_mod._requeue_deferred_batches(_fp_deferred, {}, final_pass=True)
-    _fp_final_abort = [m for m in _fp_warns if "not re-attempted" in m]
-    _fp_warns.clear()
-    weather_mod._reset_rate_limiter()
-    weather_mod._requeue_deferred_batches(_fp_deferred, {})
-    _fp_sweep_abort = [m for m in _fp_warns if "not re-attempted" in m]
-finally:
-    weather_mod._fetch_batch_range = _fp_orig_batch
-    weather_mod.logger.warning, weather_mod.logger.info = _fp_orig_warn, _fp_orig_info
-check("the FINAL recovery pass's requeue abort names only the next run's "
-      "cache-miss pass (2026-10-13 10:23 log line 27 promised the "
-      "same-run top-up from inside that very top-up)",
-      len(_fp_final_abort) == 1
-      and "same-run top-up" not in _fp_final_abort[0]
-      and "next run's cache-miss pass" in _fp_final_abort[0]
-      and "final recovery pass" in _fp_final_abort[0],
-      str(_fp_final_abort))
-check("the SWEEP's requeue abort keeps naming both recovery paths "
-      "(the same-run top-up really does follow the sweep)",
-      len(_fp_sweep_abort) == 1
-      and "same-run top-up" in _fp_sweep_abort[0]
-      and "cache-miss" in _fp_sweep_abort[0],
-      str(_fp_sweep_abort))
-
-_fp_resp = mock.Mock(status_code=429, headers={})
-_fp_rl_warns = []
+_fp_warns = []
+_fp_orig_warn = weather_mod.logger.warning
 weather_mod.logger.warning = (
-    lambda m, *a, **k: _fp_rl_warns.append(m % a if a else m))
+    lambda m, *a, **k: _fp_warns.append(m % a if a else m))
 try:
     weather_mod._reset_rate_limiter()
+    _fp_resp = mock.Mock(status_code=429, headers={})
     with mock.patch.object(weather_mod.requests, "get", return_value=_fp_resp), \
          mock.patch.object(weather_mod.time, "sleep"), \
          mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
-        _fp_final_429 = weather_mod._fetch_batch_range(
-            [("Test Stadium", 39.0, -95.0)], date(2026, 9, 1),
-            date(2026, 9, 14), source=weather_mod.OPEN_METEO_ARCHIVE,
-            final_pass=True)
-    _fp_final_rl = [m for m in _fp_rl_warns if "cooldown+probe" in m]
-    _fp_rl_warns.clear()
-    weather_mod._reset_rate_limiter()
-    with mock.patch.object(weather_mod.requests, "get", return_value=_fp_resp), \
-         mock.patch.object(weather_mod.time, "sleep"), \
-         mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
-        _fp_sweep_429 = weather_mod._fetch_batch_range(
+        _fp_429 = weather_mod._fetch_batch_range(
             [("Test Stadium", 39.0, -95.0)], date(2026, 9, 1),
             date(2026, 9, 14), source=weather_mod.OPEN_METEO_ARCHIVE)
-    _fp_sweep_rl = [m for m in _fp_rl_warns if "cooldown+probe" in m]
+    _fp_batch_lines = [m for m in _fp_warns
+                       if "429 after the drain ladder" in m]
 finally:
     weather_mod.logger.warning = _fp_orig_warn
-check("the FINAL pass's rate-limited line names only the requeue and the "
-      "next run's cache-miss pass (2026-10-13 10:23 log line 24)",
-      _fp_final_429 is None and len(_fp_final_rl) == 1
-      and "same-run top-up" not in _fp_final_rl[0]
-      and "the requeue" in _fp_final_rl[0]
-      and "final recovery pass" in _fp_final_rl[0],
-      str(_fp_final_rl))
-check("the sweep's rate-limited line keeps naming the same-run top-up",
-      _fp_sweep_429 is None and len(_fp_sweep_rl) == 1
-      and "same-run top-up" in _fp_sweep_rl[0]
-      and "final recovery pass" not in _fp_sweep_rl[0],
-      str(_fp_sweep_rl))
-check("_recovery_note is the single owner of the recovery-path string",
-      weather_mod._recovery_note(False)
-      == "the same-run top-up and the next run's cache-miss pass"
-      and "same-run top-up" not in weather_mod._recovery_note(True)
-      and "final recovery pass" in weather_mod._recovery_note(True))
-weather_mod._reset_rate_limiter()  # hermetic: no streak leaks past this section
+check("the 429 batch line names the two real recovery paths and nothing "
+      "the review removed (2026-10-13 log line 24's \"requeue\" and "
+      "\"cache-miss pass\" are gone)",
+      _fp_429 is None and len(_fp_batch_lines) == 1
+      and "same-run top-up" in _fp_batch_lines[0]
+      and "next run's full repull" in _fp_batch_lines[0]
+      and "requeue" not in _fp_batch_lines[0]
+      and "cache-miss" not in _fp_batch_lines[0],
+      str(_fp_batch_lines))
+check("the removed machinery stays gone (no requeue/defer recovery ever "
+      "gets promised or attempted)",
+      not hasattr(weather_mod, "_requeue_deferred_batches")
+      and not hasattr(weather_mod, "_recovery_note")
+      and not hasattr(weather_mod, "_rate_limited_out"))
+weather_mod._reset_rate_limiter()  # hermetic: no breaker state leaks past here
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

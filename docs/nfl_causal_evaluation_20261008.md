@@ -238,3 +238,81 @@ behavior (deliberate bounded recovery — healing stays with the next
 run's cache-miss pass, which the persistent `.nfl_cache` makes cheap: 18
 batches vs the sweep's 448). No performance claims: this pass is
 observability honesty only.
+
+## Fifth pass — weather structural review: full repull, no cache top-off, MLB rate-limit shape
+
+Scope (user directive): *"The nfl pipeline must not use cache files to
+top off weather observations. The observations must be optimized for a
+full repull every pipeline run and avoid rate limits. Mlb also
+accomplishes this successfully. Guardrail: weather must be able to fully
+repopulate every pipeline run without triggering rate limits."*
+Existing files only; no new programs.
+
+**What MLB does (the guidance).** `mlb-backend/backend/weather.py` has
+no cache in its fetch path at all: `fetch_games_weather` builds targets
+from the schedule and fetches EVERY one each run through one paced flow
+(14-day windows × 15 locations, 1.0s pause), with a single retry ladder
+— 7 attempts, `2**attempt` + jitter ≈ 63s, `Retry-After` authoritative —
+that "outlasts one full quota reset so a rate-limited batch drains
+instead of being lost", plus loud 80%/per-year coverage gates.
+
+**What NFL had.** A `.nfl_cache` parquet gated the fetch (`missing` =
+games not in cache), a defer/requeue/abort machinery for shut windows,
+a two-tier cooldown breaker, and 14-day windows → **448 requests over
+~20 minutes** per run. On Kaggle the repo is cloned fresh each session
+(2026-10-13 10:23 run: `NFL_FULL_REPULL=1`, cold cache → full 448-batch
+sweep), the shared-IP quota closed at minute 18, and 142/2023 games
+shipped NaN after three recovery passes all met the same shut window —
+while local runs with a warm cache silently under-fetched. The top-off
+could only ever heal runs whose cache survived; the log's recovery
+promises (`next run's cache-miss pass`) assume exactly that.
+
+**What changed (`weather.py`, net −377 lines).**
+- **Full repull, no cache gating**: `fetch_games_weather` requests every
+  eligible game every run; `refresh=` is a documented no-op (kept for
+  `build_weather_table`); delivery is what THAT run observed — a failed
+  fetch ships NaN and is never backfilled from disk. The cache file is
+  still written as provenance history for the `--skip-pull` cache-only
+  reader; `ingestion.clear_cache`'s keep-the-weather-cache rationale and
+  `build_weather_table`'s usage text were updated to the new contract.
+- **MLB drain ladder**: one ladder for 429/502/503/504 and network
+  exceptions (7 attempts, 63s worst case, Retry-After authoritative) —
+  a rate-limited batch drains instead of dying.
+- **Fail-fast brake**: `_DRAIN_FAIL_FAST_AFTER = 2` consecutive
+  full-ladder 429 failures engage the brake (logged once); then a
+  still-shut window costs ONE request per batch, the paced sweep keeps
+  probing, and the first definitive answer re-arms draining. Bounds the
+  measured 37-minute flap at 2×63s of sleep + fast-fail batches.
+- **Request budget**: `_BATCH_DAYS` 14 → 60 (NFL's own measured option:
+  "357 → 111 request batches"); a full repull of a decade-dense schedule
+  now costs ~132 requests over ~6–8 minutes vs 448 over ~20 — a third of
+  the requests and of the quota exposure. Pace floor stays ≥2.0s
+  (~15 req/min); batch size stays 15 (MLB-proven response size).
+- **Removed**: defer mode, `_requeue_deferred_batches`, the cooldown/probe
+tier, the retry budget, the abort streak, `_recovery_note`. The same-run
+top-up remains as the in-run gap recovery (fresh breaker, gaps only);
+recovery messages now name only the truth: the same-run top-up and the
+next run's full repull.
+
+**Pins.** `test_log_review_20261011.py` rewritten to the new contract (18
+tests: ladder geometry, brake engage/re-arm/one-shot disclosure,
+gateway-errors-are-not-quota, None-vs-{} semantics, sweep-completes-
+under-a-shut-window, top-up gap-only + fresh breaker, warm-cache-still-
+full-fetch, no-cache-backfill, refresh-noop, request-budget ≤140, pace
+floor, machinery-stays-gone). `test_production.py` updated: ladder pin
+(7 calls, [1,2,4,8,16,32]), top-up shape without per-pass kwargs, 429-line
+honesty (two real recovery paths, no "requeue"/"cache-miss"), window pins
+(60 days with the measured rationale on record).
+
+**Verified (exit statuses captured).** production **546 passed / 0
+failed**; log-review **18 passed** (71s — was 153s with the old requeue
+sleeps); fold 13, tee exit 0, feature-name 39, data-delivery 102, all
+exit 0. Guards probed live: a fully warm cache still triggers a full
+fetch of every target; a failed fetch delivers 0 rows with the top-up
+re-attempting exactly the gaps; 2×63s + fast-fail brake bounds a storm.
+
+**Limitations.** The next real run is the first to execute the new
+shape (~132 requests; drain/brake lines appear only if the shared IP
+shuts a window); the previous 142-game hole class is now healed by the
+next run's guaranteed full repull rather than by cache-miss targeting.
+No performance claims beyond the request-count arithmetic above.

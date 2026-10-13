@@ -11,8 +11,12 @@ Production rule (mirrors the MLB implementation):
   unavailable (NaN), never climatology, a daily aggregate, or schedule data.
 
 The cache stores both the API source and the weather's valid timestamp, plus
-the fetch time.  Production reads that cache through ``features.py``, which
-revalidates every row at the feature boundary.
+the fetch time, and is written every run as provenance history for the
+``--skip-pull`` cache-only reader.  It never gates what is fetched: every
+run is a FULL repull of every eligible game (2026-10-13 structural review,
+MLB parity), paced below Open-Meteo's shared-IP quota with MLB's drain
+ladder, and delivery is what THAT run observed — features.py revalidates
+every row at the feature boundary.
 """
 from __future__ import annotations
 
@@ -72,16 +76,20 @@ CACHE_COLUMNS = [
 ]
 REQUIRED_CACHE_COLUMNS = frozenset(CACHE_COLUMNS)
 
-# Open-Meteo archive window: 14 days, matching MLB's _WEATHER_BATCH_DAYS
-# exactly (also 15 locations per batch; the PAUSE is deliberately slower
-# than MLB's 1.0s -- see _BATCH_PAUSE_SEC below).  60 is MLB's
-# SCHEDULE_CHUNK_DAYS -- the StatsAPI pull, not the weather pull -- and is
-# carried in ingestion.POPULATE_CHUNK_DAYS as the reporting interval. The two
-# constants answer different questions and are deliberately not the same
-# number: 60-day weather windows were measured and work (a decade of history
-# drops from 357 to 111 request batches), but the 14-day cadence is the
-# proven one and wins on request size and rate-limit headroom, so it stays.
-_BATCH_DAYS = 14
+# Open-Meteo archive window: 60 days (2026-10-13 structural review — "MLB
+# for structural guidance", full repull every run).  This module inherited
+# MLB's 14-day cadence; what matters from MLB is the SHAPE — no cache in
+# the fetch path, one paced full sweep per run, a drain ladder on 429 —
+# not the window count.  At 14 days a decade of NFL game days spans 112
+# windows x 4 batches = 448 requests, and the 2026-10-13 run lost 142
+# games when the shared egress IP's quota closed at minute 18 of that
+# sweep.  60-day windows were already MEASURED in this module's history
+# (a decade of history drops from 357 to 111 request batches) and keep the
+# MLB-proven 15 locations per batch, so a FULL repull of every eligible
+# game every run costs ~111 requests over ~6-8 minutes instead of 448 over
+# ~20: a quarter of the requests and a third of the quota exposure for the
+# same observations.
+_BATCH_DAYS = 60
 _BATCH_SIZE = 15
 # Sustained sweep pace.  The 2026-10-11 15:50 run measured the trip rate:
 # 444 batches in 689s (~39 requests/min with the old 1.0s pause) interleaved
@@ -89,98 +97,50 @@ _BATCH_SIZE = 15
 # Open-Meteo's documented free-tier limits (600/min, 5000/hr, 10000/day) are
 # enforced PER IP -- and Kaggle's egress IP is shared with every other
 # tenant hitting the same endpoint, so the effective budget under burst is
-# far below the documented one.  2.0s between batches halves our contribution
-# (~23 req/min; 444 batches ~= 19 min, still well under the ~30-minute storm
-# cost this breaker replaced) and buys headroom on that shared IP.
+# far below the documented one.  2.0s between batches holds our
+# contribution to ~15 req/min across the much shorter 111-batch sweep and
+# buys headroom on that shared IP.
 _BATCH_PAUSE_SEC = 2.0
 _RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
-# Gateway errors (502/503/504) and network blips answer quick retries: the
-# MLB-parity ladder of 2**attempt + jitter across 7 attempts stays right for
-# those.  429 is NOT that kind of error -- see _get_with_retry: a 429 is a
-# quota minute closing, and only the two quick retries below are spent on
-# the marginal case before the cooldown/probe takes over.
+# MLB's drain ladder — one shape for every retriable status: 2**attempt +
+# jitter across 7 attempts = 1+2+4+8+16+32 = 63s of waiting, Retry-After
+# authoritative when the server sends one.  63s outlasts one full
+# Open-Meteo quota minute, so a rate-limited batch DRAINS instead of being
+# lost (mlb weather._get_with_retry records the evidence: the 2026-09-25
+# full repull lost batches to a 15s ladder; this one drains them).
 _RETRY_ATTEMPTS = 7
 _RETRY_BASE_SEC = 2.0
 _RETRY_JITTER_SEC = 0.5
-# --- Rate-limit breaker (2026-10-11 run-log reviews, first + second pass) --
-# The per-request ladder above is right for an ISOLATED blip, but a closed
-# quota window answers every FOLLOWING batch with 429 as well, and each batch
-# re-armed the full ladder on its own: the reviewed run spent 156 retry
-# requests across 25 back-to-back dead batches (05:30:35 -> 05:39:42), and
-# the storms grow run over run (13 -> 72 -> 119 -> 156 retries over
-# 10-07 -> 10-11).  Requests cannot land while the window is shut;
-# hammering only extends the penalty, and 7 attempts x a 45s timeout per
-# batch is how a rate-limited sweep becomes a wall-clock timeout risk.
-# The breaker trades hammering for waiting and bounds total attempts:
-#   * a batch dead to a retriable status OPENS the window: the next request
-#     cools down for one quota minute (60s), doubling per consecutive dead
-#     batch to a 4-minute cap, then probes ONCE -- never a ladder;
-#   * any definitive (non-retriable) response CLOSES the window (streak 0);
-#   * _429_RETRY_BUDGET caps rate-limited retries for the whole process;
-#     past it, a rate-limited request fails after a single attempt;
-#   * _RATE_LIMIT_ABORT_STREAK consecutive dead batches stop the REQUEUE
-#     pass below with a loud count of what was skipped -- the same-run
-#     top-up and the next run's cache-miss pass refetch exactly the games
-#     that stay missing (features stay NaN, never substituted).
-# Third review (same day, evening 18:10 run -- the first WITH the breaker):
-# the breaker behaved as designed (9 dead batches, one cooldown each,
-# streak 10, under the abort line, full 2022/2022 coverage) yet the
-# shared-IP window flapped shut for ~37 minutes anyway and the escalating
-# cooldowns stretched a ~26-minute sweep to 51m28s -- sleeping through
-# closed windows is itself the wall-clock risk this breaker exists to
-# remove.  The archive sweep therefore never sleeps on a 429 at all:
-# _get_with_retry(defer_on_429=True) returns the batch immediately (at
-# most the two marginal quick retries when the streak was 0) and the
-# sweep DEFERS it into a requeue list; every subsequent paced batch
-# doubles as the probe that notices a reopened window, so a flap costs
-# ~one batch interval (~4s) per deferred batch instead of 60-240s of
-# cooldown, and the sweep runs to completion at its steady pace no
-# matter how long the window stays shut.  One paced re-attempt per
-# deferred batch follows the sweep (_requeue_deferred_batches), and the
-# same-run top-up resets the streak first so the run's final recovery
-# re-probes a window that may have reopened.
-# Fourth review (2026-10-13, the 10:23 run): every mechanism above
-# behaved as designed -- sweep deferred 48/448, the requeue's pass-local
-# abort line attempted its own 12 (not index 0), the recent phase's
-# bounded 240s cooldown + probe recovered the 91-day observed window,
-# and the top-up's cooldown-first-batch ran its full discovery -- yet the
-# FINAL recovery pass emitted "recover via the same-run top-up and the
-# next run's cache-miss pass" twice (lines 24 and 27) from INSIDE that
-# same-run top-up, where no further in-run recovery exists: the 142 lost
-# games healed only on the next run.  A reader of the remote log was told
-# the hole would close in-run, twice, by the pass that was itself
-# aborting.  _recovery_note(final_pass) now owns the recovery-path string
-# for both emitters; fetch_games_weather marks its second top-up pass
-# final_pass=True so those two lines name only the next run's cache-miss
-# pass, while the sweep's messages (whose top-up really does follow)
-# keep naming both paths.
-_RATE_LIMIT_COOLDOWN_SEC = 60.0
-_RATE_LIMIT_COOLDOWN_MAX_SEC = 240.0
-_RATE_LIMIT_PROBE_ATTEMPTS = 1
-# A 429 can be a MARGINAL moment (the quota nearly full, reopens in seconds)
-# or a closed minute.  The 15:50 run measured both: batches that recovered
-# after 2 retries waited ~3-9s in total, while quick retries fired into a
-# truly closed minute re-429'd every time -- 21 logged retries across 7
-# groups, one batch burning all 6 retries (~65s) and dying anyway.  Two quick retries
-# cover the marginal case at MLB's ladder shape; past them the window is
-# treated as shut: cool down, probe once.
-_429_QUICK_RETRIES = 2
-# The requeue stops after this many CONSECUTIVE dead batches.  Under defer
-# mode a dead batch costs one paced request (~4s), so 12 bounds the requeue
-# at roughly a minute of probing into a window that is not coming back;
-# anything still deferred flows to the same-run top-up (fresh streak) and
-# the next run's cache-miss pass.
-_RATE_LIMIT_ABORT_STREAK = 12
-_429_RETRY_BUDGET = 40
+# --- Rate-limit brake (2026-10-11 and 2026-10-13 run-log reviews) ---
+# History that shapes the knob below:
+#   * 10-07 -> 10-11: each batch re-armed its own ladder into a shut
+#     window — 156 retry requests across 25 back-to-back dead batches,
+#     growing run over run (13 -> 72 -> 119 -> 156);
+#   * 10-11 evening: escalating cooldown sleeps (60-240s per batch)
+#     stretched a ~26-minute sweep to 51m28s while the shared-IP window
+#     flapped shut for ~37 minutes — sleeping through a LONG closure is
+#     wall-clock risk;
+#   * 10-13 10:23: the defer/requeue machinery bounded everything, yet
+#     142/2023 games still shipped weather-less after three recovery
+#     passes all ran into the same shut window.
+# The lesson that survives all three: drain ONE quota minute (the ladder
+# above), and when the window stays shut beyond that, stop sleeping and
+# fail fast at sweep pace — the paced request itself is the probe that
+# notices a reopened window, and the first definitive answer re-arms
+# draining.  _DRAIN_FAIL_FAST_AFTER consecutive full-ladder 429 failures
+# engage that brake, which bounds a 37-minute flap at 2 x 63s of sleep
+# plus fast-fail batches (minutes, not hours), instead of either 156
+# wasted retries or ~30 minutes of pure cooldown sleep.
+_DRAIN_FAIL_FAST_AFTER = 2
+# Process-local breaker state (the pipeline is single-threaded).
+# _reset_rate_limiter() restores it for tests and fresh sweeps.
+_rate_limit: dict = {"drain_fails": 0, "brake": False}
 # One stalled connection is retried; a stalled ENDPOINT is not.  Three
 # consecutive timeouts end the request (3 x 20s + backoff ~= 63s) instead
 # of the old 7 x 45s = 5+ minutes per dead batch, cascading across a sweep.
 # 20s is still 4-10x Open-Meteo's normal answer time for a ~400KB batch.
 _REQUEST_TIMEOUT_SEC = 20
 _TIMEOUT_RETRY_LIMIT = 3
-# Process-local breaker state (the pipeline is single-threaded).
-# _reset_rate_limiter() restores it for tests and fresh sweeps.
-_rate_limit: dict = {"streak": 0, "retries": 0, "budget_logged": False}
 _SNOWFALL_UNIT_TO_INCH = {
     "inch": 1.0,
     "in": 1.0,
@@ -349,109 +309,62 @@ def _targets(games: pd.DataFrame) -> list[dict]:
 
 def _reset_rate_limiter() -> None:
     """Restore breaker state (tests, or a caller starting a fresh sweep)."""
-    _rate_limit.update(streak=0, retries=0, budget_logged=False)
+    _rate_limit.update(drain_fails=0, brake=False)
 
 
-def _rate_limit_streak() -> int:
-    """Consecutive requests that died without a definitive answer."""
-    return int(_rate_limit["streak"])
+def _note_drain_failure() -> None:
+    """Record one batch that spent the full drain ladder on a 429.
 
-
-def _cooldown_wait(streak: int) -> float:
-    """Seconds to quiet down before the next request: one quota window,
-    doubling per consecutive dead batch, capped at four minutes."""
-    return float(min(_RATE_LIMIT_COOLDOWN_SEC * (2 ** (streak - 1)),
-                     _RATE_LIMIT_COOLDOWN_MAX_SEC))
-
-
-def _rate_limited_out(streak: int | None = None) -> bool:
-    """True once consecutive dead batches reach the sweep-abort line.
-
-    With no argument this reads the GLOBAL breaker streak (the sweep's
-    history); the requeue passes its own pass-local count, so one predicate
-    owns the abort line for both.
+    ``_DRAIN_FAIL_FAST_AFTER`` consecutive ones engage the brake (logged
+    once): from then on a still-shut window costs ONE request per batch
+    and the paced sweep keeps probing instead of sleeping; any definitive
+    answer re-arms draining via :func:`_note_window_open`.
     """
-    value = _rate_limit_streak() if streak is None else int(streak)
-    return value >= _RATE_LIMIT_ABORT_STREAK
+    _rate_limit["drain_fails"] = _rate_limit["drain_fails"] + 1
+    if (_rate_limit["drain_fails"] >= _DRAIN_FAIL_FAST_AFTER
+            and not _rate_limit["brake"]):
+        _rate_limit["brake"] = True
+        logger.warning(
+            "Open-Meteo rate-limit brake: %d consecutive batches exhausted "
+            "the %.0fs drain ladder — failing fast from here (one request "
+            "per batch, the paced sweep keeps probing); any success "
+            "re-arms draining",
+            _rate_limit["drain_fails"],
+            sum(_RETRY_BASE_SEC ** i for i in range(_RETRY_ATTEMPTS - 1)))
 
 
-def _recovery_note(final_pass: bool) -> str:
-    """The recovery paths a lost-batch message may HONESTLY name.
-
-    Fourth review (2026-10-13, the 10:23 run): both rate-limit emitters
-    ended with "...recover via the same-run top-up ..." — true for the main
-    sweep, but the SAME strings fired inside the same-run top-up's FINAL
-    pass (log lines 24 and 27: "recover via the requeue, the same-run top-up
-    or the next run's cache-miss pass" / "recover via the same-run top-up
-    and the next run's cache-miss pass"), where no further in-run recovery
-    exists: the run's last recovery pass was itself the one being aborted,
-    and the 142 lost games recovered only on the next run.  A reader of the
-    remote log was twice told the hole would heal in-run.  One note, owned
-    by one helper, keeps every emitter honest per call site: the sweep
-    (whose top-up really does follow) names both paths; the final pass names
-    only the next run's.
-    """
-    if final_pass:
-        return ("the next run's cache-miss pass (this was the run's final "
-                "recovery pass)")
-    return "the same-run top-up and the next run's cache-miss pass"
+def _note_window_open() -> None:
+    """A definitive answer: the quota window (re)opened — re-arm draining."""
+    if _rate_limit["drain_fails"] or _rate_limit["brake"]:
+        _rate_limit.update(drain_fails=0, brake=False)
 
 
 def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
-                    timeout: int = _REQUEST_TIMEOUT_SEC, *,
-                    defer_on_429: bool = False):
-    """GET with bounded retries for transient Open-Meteo errors.
+                    timeout: int = _REQUEST_TIMEOUT_SEC):
+    """GET with MLB's drain ladder for transient Open-Meteo errors.
 
-    Gateway errors (502/503/504) and network exceptions keep the MLB-parity
-    ladder: ``2**attempt`` + jitter across ``attempts`` rounds, or the
-    server's ``Retry-After`` when it sends one (whichever is longer); every
-    other status returns immediately (fail fast).  A retriable answer that
-    spends the ladder still counts as a dead batch for the streak below.
+    One ladder answers every retriable status (429/502/503/504) and every
+    network exception: ``2**attempt`` + jitter across ``attempts`` rounds,
+    or the server's ``Retry-After`` when it sends one (whichever is
+    longer); every other status returns immediately (fail fast).  Six
+    waits total 1+2+4+8+16+32 = 63s, which outlasts one full Open-Meteo
+    quota minute — a rate-limited batch DRAINS instead of being lost
+    (2026-10-13 structural review; mlb weather._get_with_retry carries the
+    evidence that a shorter ladder loses batches).
 
-    429 is a quota event, not a blip (2026-10-11 second run-log review; the
-    15:50 run burned 21 logged 429 retries on 1/2/4s ladder waits that can only land
-    inside the same closed quota minute, and one batch burned all six
-    retries (~65s) and died anyway):
-
-      * up to ``_429_QUICK_RETRIES`` short retries ride out a MARGINAL
-        window (the observed recoveries answered within ~3-9s);
-      * a still-closed window OPENS the rate-limit streak and buys ONE
-        cooldown (one quota minute, doubling per consecutive dead batch,
-        capped at four) + one probe.  A probe that 429s is terminal for
-        this call; any definitive answer resets the streak to 0.
-
-    One call therefore costs at most ``_429_QUICK_RETRIES + 2`` requests
-    and one cooldown; batches that arrive while the window is already shut
-    (streak > 0) cool down at entry and probe exactly once.  The per-run
-    ``_429_RETRY_BUDGET`` bounds rate-limited attempts outright.
-
-    ``defer_on_429=True`` (the archive sweep's mode; third review,
-    2026-10-11 evening run) trades the cooldown/probe stage for DEFERRAL:
-    a 429 opens the streak and returns immediately so the caller can
-    queue the batch for one paced re-attempt later.  No request in this
-    mode ever sleeps on a 429 -- the streak-0 marginal case still gets its
-    two quick retries, a streak-open batch costs exactly ONE request, and
-    the next paced batch of the sweep is itself the probe that notices a
-    reopened window (within one batch interval instead of after a
-    60-240s cooldown).  Gateway-error and timeout ladders are identical in
-    both modes.
+    A shared-IP window can stay shut for much longer than one quota minute
+    (2026-10-11: a ~37-minute flap), so ``_note_drain_failure`` engages a
+    brake after ``_DRAIN_FAIL_FAST_AFTER`` consecutive batches spend the
+    whole ladder on a 429: from then on this function returns a 429 after
+    a SINGLE request (no sleeps) and the caller's paced sweep keeps
+    probing; the first definitive answer re-arms draining via
+    ``_note_window_open``.  Three consecutive hangs still end the request
+    (``_TIMEOUT_RETRY_LIMIT``) — a stalled connection is not fixed by more
+    waiting.
     """
-    probe_only = _rate_limit_streak() > 0
-    if probe_only and not defer_on_429:
-        wait = _cooldown_wait(_rate_limit_streak())
-        logger.warning(
-            "Open-Meteo rate limited: cooling down %.0fs before the next "
-            "request (consecutive dead batches: %d)", wait,
-            _rate_limit_streak())
-        time.sleep(wait)
-        attempts = min(attempts, _RATE_LIMIT_PROBE_ATTEMPTS)
     last_exc: Exception | None = None
     response = None
     timeouts = 0
-    quick_429 = 0
-    # The cooldown+probe below fires at most ONCE per call: an entry probe
-    # (streak already open) or a ladder-exhausted 429 that just opened it.
-    probed = probe_only
     attempt = -1
     while True:
         attempt += 1
@@ -463,93 +376,39 @@ def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
                 exc, (requests.Timeout, requests.ConnectionError)) else 0
             if timeouts >= _TIMEOUT_RETRY_LIMIT:
                 # A stalled endpoint is not fixed by four more hangs: end
-                # the request and let the dead-batch streak account for it.
-                _rate_limit["streak"] = _rate_limit_streak() + 1
+                # the request; _fetch_batch_range reports the dead batch.
                 raise
             if attempt < attempts - 1:
                 time.sleep(_RETRY_BASE_SEC ** attempt + random.uniform(
                     0, _RETRY_JITTER_SEC))
                 continue
-            _rate_limit["streak"] = _rate_limit_streak() + 1
             raise last_exc
         if response.status_code in _RETRIABLE_STATUSES:
-            if response.status_code == 429:
-                budget_spent = _rate_limit["retries"] >= _429_RETRY_BUDGET
-                may_quick = (not probe_only
-                             and quick_429 < _429_QUICK_RETRIES
-                             and not budget_spent)
-                if may_quick:
-                    quick_429 += 1
-                    _rate_limit["retries"] += 1
-                    wait = _RETRY_BASE_SEC ** (quick_429 - 1) + random.uniform(
-                        0, _RETRY_JITTER_SEC)
-                    try:
-                        wait = max(wait, float(
-                            response.headers.get("Retry-After", "")))
-                    except (AttributeError, TypeError, ValueError):
-                        pass
-                    logger.warning(
-                        "Open-Meteo %s; retrying in %.1fs (%d/%d)",
-                        response.status_code, wait, quick_429,
-                        _429_QUICK_RETRIES)
-                    time.sleep(wait)
-                    continue
-                if budget_spent:
-                    if not _rate_limit["budget_logged"]:
-                        _rate_limit["budget_logged"] = True
-                        logger.warning(
-                            "Open-Meteo 429 retry budget exhausted (%d per "
-                            "run) — rate-limited requests now fail after "
-                            "one attempt; the same-run top-up and the next "
-                            "run's cache-miss pass recover the gaps",
-                            _429_RETRY_BUDGET)
-                    _rate_limit["streak"] = _rate_limit_streak() + 1
-                    return response
-                if defer_on_429:
-                    # Sweep mode: the caller DEFERS this batch (one paced
-                    # re-attempt after the sweep) instead of this call
-                    # waiting out a quota minute.  Nothing here sleeps.
-                    _rate_limit["streak"] = _rate_limit_streak() + 1
-                    return response
-                if probed:
-                    # This call already waited out a quota minute; a second
-                    # 429 proves the window is still shut.  Terminal: open
-                    # the streak and let the NEXT batch decide whether to
-                    # keep probing or trip the sweep abort.
-                    _rate_limit["streak"] = _rate_limit_streak() + 1
-                    return response
-                # Window confirmed shut: open the streak, cool down one
-                # quota minute, and let the next loop round be the single
-                # probe.  Retry-After stays authoritative when sent.
-                probed = True
-                _rate_limit["retries"] += 1
-                _rate_limit["streak"] = _rate_limit_streak() + 1
-                wait = _cooldown_wait(_rate_limit["streak"])
+            # One ladder for 429 and gateway trouble alike; a 429 while
+            # the brake is engaged returns after a single request.
+            braked = (response.status_code == 429
+                      and _rate_limit["brake"])
+            if attempt < attempts - 1 and not braked:
+                wait = _RETRY_BASE_SEC ** attempt + random.uniform(
+                    0, _RETRY_JITTER_SEC)
                 try:
                     wait = max(wait, float(
                         response.headers.get("Retry-After", "")))
                 except (AttributeError, TypeError, ValueError):
                     pass
                 logger.warning(
-                    "Open-Meteo 429: quota window closed — cooling down "
-                    "%.0fs, then one probe (dead batches: %d)", wait,
-                    _rate_limit["streak"])
-                time.sleep(wait)
-                continue
-            if attempt < attempts - 1:
-                # 502/503/504: gateway trouble -- same ladder, but still a
-                # dead answer, so the terminal one counts toward the streak.
-                wait = _RETRY_BASE_SEC ** attempt + random.uniform(
-                    0, _RETRY_JITTER_SEC)
-                logger.warning(
                     "Open-Meteo %s; retrying in %.1fs (%d/%d)",
                     response.status_code, wait, attempt + 1, attempts - 1)
                 time.sleep(wait)
                 continue
-            _rate_limit["streak"] = _rate_limit_streak() + 1
+            if response.status_code == 429:
+                # Terminal for this call: the ladder ran out (or the brake
+                # is engaged).  Record it so the brake can engage; the
+                # batch-level line is _fetch_batch_range's to print.
+                _note_drain_failure()
             return response
-        # 2xx (or a fail-fast 4xx): the endpoint gave a definitive answer.
-        _rate_limit["streak"] = 0
+        # 2xx (or a fail-fast 4xx): definitive answer — the window (re)opened.
+        _note_window_open()
         return response
 
 
@@ -622,72 +481,6 @@ def _parse_batch_response(
     return out
 
 
-def _requeue_deferred_batches(
-    deferred: list[tuple[list[tuple[str, float, float]], date, date]],
-    by_key: dict[tuple[str, date], dict[str, list]],
-    *,
-    final_pass: bool = False,
-) -> None:
-    """One paced re-attempt per sweep batch a closed window deferred.
-
-    Each deferred batch gets exactly one more request, at the sweep's pace
-    and still in defer mode, so a still-closed window re-defers it without
-    sleeping and ``_RATE_LIMIT_ABORT_STREAK`` consecutive dead batches
-    stop the pass outright.  Recovered series merge into ``by_key``;
-    anything still deferred stays missing and the documented recovery
-    paths take it from there -- the same-run top-up refetches the gap
-    games with a fresh breaker, and the next run's cache-miss pass
-    refetches exactly and only the games whose rows never landed.
-
-    ``final_pass`` marks the run's LAST recovery pass (the same-run
-    top-up's second pass): its messages then name only the next run's
-    cache-miss pass, because no further in-run recovery exists after this
-    requeue aborts (:func:`_recovery_note`, fourth review 2026-10-13).
-    """
-    recovered = 0
-    attempted = 0
-    unattempted = 0
-    # 2026-10-13 run-log review: this pass used to inherit the SWEEP's
-    # streak, so a sweep that ended at/over the abort line (streak 48 on
-    # that run, 18 on the top-up's) tripped the check on index 0 and the
-    # "one paced re-attempt" announced on the line above never happened —
-    # all 48 deferred batches went unattempted.  The abort line therefore
-    # bounds THIS pass on ITS OWN consecutive dead batches (12 paced probes,
-    # ~a minute); the global streak keeps describing the sweep for the
-    # callers that follow.
-    dead_streak = 0
-    for index, (batch, chunk_start, chunk_end) in enumerate(deferred):
-        if _rate_limited_out(dead_streak):
-            unattempted = len(deferred) - index
-            break
-        if index:
-            time.sleep(_BATCH_PAUSE_SEC)
-        result = _fetch_batch_range(
-            batch, chunk_start, chunk_end,
-            source=OPEN_METEO_ARCHIVE, defer_on_429=True,
-        )
-        attempted += 1
-        if result is None:
-            dead_streak += 1
-            continue
-        dead_streak = 0
-        by_key.update(result)
-        recovered += 1
-    if unattempted:
-        logger.warning(
-            "Open-Meteo archive requeue: stopping after %d consecutive "
-            "dead batches (abort line %d) - %d deferred batch(es) not "
-            "re-attempted; missing games recover via %s",
-            dead_streak, _RATE_LIMIT_ABORT_STREAK, unattempted,
-            _recovery_note(final_pass))
-    elif attempted:
-        logger.info(
-            "Open-Meteo archive requeue: recovered %d of %d deferred "
-            "batch(es); %d stay deferred for %s",
-            recovered, attempted, attempted - recovered,
-            _recovery_note(final_pass))
-
-
 def _fetch_batch_range(
     locations: list[tuple[str, float, float]],
     start_date: date,
@@ -697,20 +490,15 @@ def _fetch_batch_range(
     forecast: bool = False,
     past_days: int | None = None,
     forecast_days: int | None = None,
-    defer_on_429: bool = False,
-    final_pass: bool = False,
 ) -> dict[tuple[str, date], dict[str, list]] | None:
-    """One bounded multi-coordinate request; None = rate-limited, deferred.
+    """One bounded multi-coordinate request; None = rate-limited, {} = failed.
 
-    ``defer_on_429`` passes through to :func:`_get_with_retry`; a batch
-    that comes back 429 in that mode returns ``None`` (not ``{}``) so the
-    sweep can distinguish "deferred by the quota" from "dead for good" and
-    requeue it.  Callers that merge with ``by_key.update`` must therefore
-    only pass ``defer_on_429`` where they handle ``None``.
-
-    ``final_pass`` passes through to the rate-limited message
-    (:func:`_recovery_note`): the run's last recovery pass must not
-    promise a same-run top-up that cannot follow it.
+    A 429 the drain ladder cannot save returns ``None`` (never ``{}``) so
+    callers can tell "the quota said no" from "the request died": both
+    leave the batch's days missing, and the recovery is the same — the
+    same-run top-up refetches the gap games, the next run's full repull
+    refetches everything.  Callers that merge with ``by_key.update`` must
+    therefore handle ``None`` (``if result:``).
     """
     params = {
         "latitude": ",".join(str(info[1]) for info in locations),
@@ -735,24 +523,22 @@ def _fetch_batch_range(
         url = ARCHIVE_URL
     try:
         response = _get_with_retry(url, params=params,
-                                   timeout=_REQUEST_TIMEOUT_SEC,
-                                   defer_on_429=defer_on_429)
+                                   timeout=_REQUEST_TIMEOUT_SEC)
         if response.status_code == 429:
-            # Rate-limited, never dead-for-good: None in BOTH modes, so a
-            # 429 joins the requeue instead of raising into the generic
-            # failure handler (which returns {} and silently drops the
-            # batch from the deferred list).  The sweep stays quiet — one
-            # warning per dead batch would bury the log during a long
-            # closure, and the sweep counts its deferrals in a single line —
-            # while a non-defer caller (the recovery pass's first batch, the
-            # recent/forecast phases) has already logged its cooldown and
-            # gets one explicit line here.
-            if not defer_on_429:
+            # Rate-limited, never dead-for-good: None (not {}), so callers
+            # never treat a shut quota window as a parse failure.  The
+            # batch-level line prints only while draining is still awake —
+            # once the brake is engaged, one brake warning plus the final
+            # coverage/gap lines own the story instead of one line per
+            # fast-failed batch (the 2026-10-11 review: per-dead-batch
+            # warnings bury a long closure).
+            if not _rate_limit["brake"]:
                 logger.warning(
-                    "Open-Meteo rate limited after cooldown+probe "
+                    "Open-Meteo 429 after the drain ladder "
                     "(%s..%s, source=%s) - no data for this batch; missing "
-                    "games stay NaN and recover via the requeue, %s",
-                    start_date, end_date, source, _recovery_note(final_pass))
+                    "games stay NaN and recover via the same-run top-up, "
+                    "else the next run's full repull",
+                    start_date, end_date, source)
             return None
         response.raise_for_status()
         payload = response.json()
@@ -774,24 +560,17 @@ def _fetch_batch_range(
 def _fetch_batched_weather(
     targets: list[dict],
     now: datetime,
-    *,
-    cooldown_first_batch: bool = False,
-    final_pass: bool = False,
 ) -> dict[tuple[str, date], dict[str, list]]:
-    """Fetch paced archive/recent-past/forecast hourly series for all targets.
+    """Fetch ALL targets' paced archive/recent-past/forecast hourly series.
 
-    ``cooldown_first_batch`` is the RECOVERY pass's mode (the same-run
-    top-up): its first archive batch runs the non-defer client, so a closed
-    window costs one bounded cooldown + one probe before the batch defers,
-    instead of the whole gap set burning into a closed window at sweep pace
-    (2026-10-13 run: 18/18 top-up batches deferred in 39s and 142 games
-    still shipped without weather).  The remaining batches keep defer mode —
-    the sweep itself never sleeps.
-
-    ``final_pass`` marks that same recovery pass (the run's LAST): every
-    rate-limited message this call emits then names only the next run's
-    cache-miss pass as recovery — no same-run top-up follows the final one
-    (:func:`_recovery_note`, fourth review 2026-10-13, the 10:23 run).
+    One MLB-shaped flow, no deferral modes (2026-10-13 structural review):
+    archive windows (game-day filtered) at sweep pace, then the forecast
+    endpoint's observed-past window for ERA5's publication lag, then the
+    future forecast.  A batch the drain ladder cannot save returns ``None``
+    / ``{}`` and simply leaves its days missing: the same-run top-up
+    refetches exactly the gaps with a fresh breaker, and the next run's
+    FULL repull refetches everything regardless — no cache stands between
+    a hole and its recovery.
     """
     by_key: dict[tuple[str, date], dict[str, list]] = {}
     if not targets:
@@ -835,29 +614,19 @@ def _fetch_batched_weather(
         # print 384 lines and bury the rest of the run's log.
         bar = StageProgress(total_batches, "PIT weather archive batches")
         attempted = 0
-        # A 429 here DEFERS the batch instead of killing it (third review,
-        # 2026-10-11 evening run): the batch is queued for one paced
-        # re-attempt after the sweep, and the sweep immediately sends its
-        # next request -- that request IS the quota probe, so a reopened
-        # window is detected within one batch interval instead of after a
-        # 60-240s cooldown.  The sweep therefore always runs to completion
-        # at its steady pace however long the window stays shut; only the
-        # requeue below is bounded by the dead-batch streak.
-        deferred: list[tuple[list[tuple[str, float, float]], date, date]] = []
-        first_batch = True
+        # A 429 the drain ladder cannot save leaves its days MISSING for
+        # this pass (None), never a silent {}: the top-up refetches exactly
+        # the gaps, and the next run's full repull refetches everything.
+        # The sweep runs to completion at its steady pace either way — a
+        # shut window costs one request per batch once the brake engages.
         for chunk_start, chunk_end in windows:
             for i in range(0, len(locations), _BATCH_SIZE):
                 batch = locations[i:i + _BATCH_SIZE]
                 result = _fetch_batch_range(
                     batch, chunk_start, chunk_end,
                     source=OPEN_METEO_ARCHIVE,
-                    defer_on_429=not (cooldown_first_batch and first_batch),
-                    final_pass=final_pass,
                 )
-                first_batch = False
-                if result is None:
-                    deferred.append((batch, chunk_start, chunk_end))
-                else:
+                if result:
                     by_key.update(result)
                 attempted += 1
                 bar.advance()
@@ -866,13 +635,6 @@ def _fetch_batched_weather(
             if chunk_end < archive_end:
                 time.sleep(_BATCH_PAUSE_SEC)
         bar.close()
-        if deferred:
-            logger.info(
-                "Open-Meteo: %d of %d archive batches came back 429 and "
-                "were deferred — one paced re-attempt follows",
-                len(deferred), attempted)
-            _requeue_deferred_batches(deferred, by_key,
-                                      final_pass=final_pass)
 
     # ERA5/archive publication lags. The forecast endpoint's observed past
     # window exposes the same hourly records immediately, with the identical
@@ -903,7 +665,6 @@ def _fetch_batched_weather(
                 forecast=True,
                 past_days=(today - recent_start).days + 1,
                 forecast_days=1,
-                final_pass=final_pass,
             )
             # A rate-limited/failed batch yields None (never data), so the
             # phase skips instead of crashing on .items() (2026-10-13
@@ -920,7 +681,6 @@ def _fetch_batched_weather(
             locations, forecast_start, end_date,
             source=OPEN_METEO_FORECAST,
             forecast=True, past_days=1, forecast_days=forecast_days,
-            final_pass=final_pass,
         )
         for key, series in (future or {}).items():
             by_key.setdefault(key, series)
@@ -1149,12 +909,20 @@ def fetch_games_weather(
     path: str | Path | None = None,
     now: datetime | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Fetch/cache hourly Open-Meteo weather for all eligible NFL games.
+    """Fetch PIT hourly Open-Meteo weather for ALL eligible NFL games.
 
-    The cache is incremental for settled games. Missing outdoor games trigger
-    network calls, and still-pending forecast games are refreshed on every run
-    so serving uses a current pre-kickoff forecast. A refresh re-fetches all
-    requested games but never trusts or consumes the legacy daily table.
+    FULL REPULL EVERY RUN (2026-10-13 structural review, MLB parity): no
+    cache file gates what is fetched.  The earlier design read the cache
+    first and requested only uncached games ("top-off"), which made a run's
+    completeness depend on files surviving between runs — on Kaggle the
+    repo is cloned fresh every run, so the top-off never fired there while
+    local runs silently under-fetched.  MLB's fetch path has no cache at
+    all; this one keeps the file as provenance history for the
+    ``--skip-pull`` cache-only reader (:func:`cached_weather_for_games`)
+    and ``build_weather_table``, but delivery is what THIS run observed: a
+    failed fetch ships NaN and the next run refetches everything.
+    ``refresh`` is retained for caller compatibility and is a no-op —
+    every run refreshes every game.
     """
     targets = _targets(games)
     if not targets:
@@ -1168,35 +936,22 @@ def fetch_games_weather(
         return _empty_weather()
 
     target_path = cache_path(path)
+    # FULL REPULL: the cache is NEVER consulted to decide WHAT gets fetched
+    # — every eligible game is requested on every run.  ``old`` exists only
+    # so the saved cache keeps its provenance history for the --skip-pull
+    # cache-only path; nothing in the delivered result is backfilled from
+    # disk.  ``refresh`` is the documented no-op above.
     old = _load_cache(target_path)
-    existing = _empty_weather() if refresh else _records_for_targets(old, targets)
-    if existing.empty:
-        have: set[str] = set()
-    else:
-        cached = existing.set_index("game_id", drop=False)
-        have = set()
-        for target in targets:
-            game_id = target["game_id"]
-            if game_id not in cached.index:
-                continue
-            row = cached.loc[game_id]
-            pending_forecast = (
-                row["source"] == OPEN_METEO_FORECAST
-                and target["kickoff_utc"] > fetched_at
-            )
-            if not pending_forecast:
-                have.add(game_id)
-    missing = [target for target in targets if target["game_id"] not in have]
 
     fresh_rows: list[dict] = []
     # SAME-RUN TOP-UP (2026-10-09): twelve Open-Meteo 429 ladders exhausted
     # themselves mid-repull and 58 eligible games ended the run weather-less
     # under a 97.1% coverage figure that printed nothing but INFO — the
     # silent-starvation class this pipeline's monitoring exists to catch.
-    # The cache-miss set is self-healing on the NEXT run, but a second pass
-    # over only the gaps costs seconds once the rate limit has cleared and
+    # The next run's full repull is self-healing, but a second pass over
+    # only the gaps costs seconds once the rate limit has cleared and
     # closes the hole inside the delivery that opened it.
-    still_missing = list(missing)
+    still_missing = list(targets)
     for _pass in range(2):
         if not still_missing:
             break
@@ -1204,22 +959,16 @@ def fetch_games_weather(
             logger.info(
                 "PIT weather top-up: %d game(s) still missing after the "
                 "first pass — refetching the gaps only", len(still_missing))
-            # Fresh breaker budget for the run's final recovery pass: the
-            # dead-batch streak describes the pass that just ended, and the
+            # Fresh breaker budget for the run's recovery pass: the brake
+            # (if engaged) describes the pass that just ended, and the
             # top-up must re-probe a window that may have reopened (the
             # 2026-10-11 18:10 run recovered all 48 of its gaps in 12s at
             # the tail of a flap).  The pass stays bounded: it covers only
-            # the gap games' windows, every 429 defers instead of waiting,
-            # and _RATE_LIMIT_ABORT_STREAK still caps its requeue.
+            # the gap games' windows, drains one quota minute per batch,
+            # then fails fast under the brake.
             _reset_rate_limiter()
-        # The cooldown belongs to the RECOVERY pass (``_pass`` > 0): the
-        # main sweep keeps its never-sleep contract from the 2026-10-11
-        # review, while the gap-only pass — whose failure means shipping a
-        # hole — earns one bounded cooldown + probe before deferring.
         series_by_key = _fetch_batched_weather(
-            still_missing, fetched_at.to_pydatetime(),
-            cooldown_first_batch=bool(_pass),
-            final_pass=bool(_pass))
+            still_missing, fetched_at.to_pydatetime())
         fetched_ids: set[str] = set()
         for target in still_missing:
             # A kickoff at (or just after) 00:00 UTC has no earlier hour on
@@ -1244,6 +993,10 @@ def fetch_games_weather(
     # The cache is already validated, so omit those frames and retain the
     # existing empty-cache fallback and replacement/deduplication semantics.
     fresh = pd.DataFrame(fresh_rows, columns=list(CACHE_COLUMNS))
+    # The cache file keeps its provenance HISTORY (old rows survive for the
+    # --skip-pull cache-only reader), but delivery is this run's observations
+    # ONLY: a game this run failed to fetch ships NaN even when an older row
+    # exists on disk — the next run's full repull, not the file, recovers it.
     frames = [
         frame for frame in (old, fresh)
         if not frame.empty and bool(frame.notna().to_numpy().any())
@@ -1256,7 +1009,7 @@ def fetch_games_weather(
                 if not combined.empty else _empty_weather())
     combined = _validate_cache_frame(combined)
     _save_cache(target_path, combined)
-    result = _records_for_targets(combined, targets)
+    result = _records_for_targets(fresh, targets)
     coverage = len(result) / max(len(targets), 1)
     logger.info(
         "PIT weather: %d/%d eligible games available from strict pre-kickoff "
@@ -1272,8 +1025,8 @@ def fetch_games_weather(
         # Any hole is visible, not only a catastrophic one (2026-10-09:
         # 1964/2022 = 97.1% sat ABOVE the 80% line, so 58 429-blocked games
         # shipped with a single INFO). The note documents the self-heal:
-        # these game_ids stay out of the cache, so the next run's cache-miss
-        # set refetches exactly and only them.
+        # the next run repulls EVERYTHING, gaps included — no cache-miss
+        # set exists (or is needed) under the full-repull contract.
         # 2026-10-13 run-log review: the numerator printed len(result) —
         # the AVAILABLE count — as the number that LACKS records
         # ("1881/2023 eligible games lack ... (142 remain missing)").
@@ -1285,7 +1038,7 @@ def fetch_games_weather(
         logger.warning(
             "PIT weather: %d/%d eligible games lack strict pre-kickoff "
             "records after the same-run top-up (e.g. %s); their weather "
-            "features stay NaN and the next run's cache-miss pass refetches "
-            "only these games",
+            "features stay NaN for this run and the next run's full repull "
+            "refetches them",
             len(gaps), len(targets), ", ".join(map(str, gaps[:5])))
     return result

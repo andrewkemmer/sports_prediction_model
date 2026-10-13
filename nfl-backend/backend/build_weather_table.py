@@ -19,8 +19,8 @@ reads it.
 
 Usage (from ``nfl-backend/backend/``)::
 
-    python build_weather_table.py             # incremental cache build
-    python build_weather_table.py --refresh   # re-fetch requested games
+    python build_weather_table.py             # full repull of every game
+    python build_weather_table.py --refresh   # same (no-op flag, compatibility)
     python build_weather_table.py --cache /path/to/weather.parquet
 """
 from __future__ import annotations
@@ -65,7 +65,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--refresh", action="store_true",
-        help="re-fetch requested games while preserving failed-refresh cache rows",
+        help="kept for compatibility — every run already full-repulls all "
+             "games (the flag is a no-op; the cache keeps its history either way)",
     )
     parser.add_argument(
         "--cache", default=None,

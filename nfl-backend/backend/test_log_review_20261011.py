@@ -1,68 +1,48 @@
-"""2026-10-11 NFL run-log review: the Open-Meteo rate-limit/timeout breaker.
+"""2026-10-11/13 NFL run-log reviews: Open-Meteo rate limits under a FULL REPULL.
 
-Evidence (``data_delivery/nfl_pipeline_run_log.txt``, run 2026-10-11
-05:30:35 → 05:39:42): **156** ``Open-Meteo 429; retrying`` lines and **25**
-``Open-Meteo batch failed`` batches inside a single archive sweep — and the
-storms grow run over run (13 → 72 → 119 → 156 retries over 10-07 → 10-11).
-The per-request ladder (7 attempts, 2**n + jitter, Retry-After honored —
-MLB parity) is right for an isolated blip, but a closed quota window answers
-EVERY following batch with 429 too, and each batch re-armed the full ladder
-independently: ~7 requests + 63s of sleeps per dead batch, back-to-back, into
-a window that could not answer with anything else. Each attempt also carried
-a 45s timeout, so a batch that STALLED instead of 429-ing cost up to 7×45s +
-63s ≈ 6.5 minutes — the "times out after multiple attempts" class.
+Evidence history (``data_delivery/nfl_pipeline_run_log.txt``):
 
-Second evidence set (same file, 15:50 run — the first with the breaker):
-the breaker bounded the sweep (444/444 batches in 11:29, one dead batch,
-one 60s cooldown, zero errors) but the LADDER still burned **21 logged
-429 retries** across 7 groups: quick 1/2/4s retries fired into quota
-minutes that stayed shut for ~60s, and one batch consumed all six retries
-(~65s) and died anyway. Open-Meteo's
-limits are per IP (600/min, 5000/hr, 10000/day) and Kaggle's egress IP is
-shared, so the sweep also had to slow down.
+* 10-07 -> 10-11: storms GROWING run over run — 13 -> 72 -> 119 -> 156
+  ``Open-Meteo 429; retrying`` lines across 25 back-to-back dead batches,
+  because each batch re-armed its own ladder into a window that could not
+  answer with anything else (05:30:35 -> 05:39:42 in the 10-11 05:30 run).
+* 10-11 15:50: the first breaker bounded the sweep but burned 21 logged
+  429 retries on 1/2/4s waits inside quota minutes that stayed shut.
+* 10-11 18:10: cooldown sleeping was itself the wall-clock risk — a
+  ~37-minute shared-IP flap stretched a ~26-minute sweep to 51m28s, so the
+  archive sweep learned to NEVER sleep on a 429 (defer-and-requeue).
+* 10-13 10:23: defer/requeue bounded everything correctly, yet 142/2023
+  games still shipped weather-less — the sweep alone was 448 requests over
+  ~20 minutes, three recovery passes all met the same shut window, and the
+  delivered log's final-pass messages promised a same-run top-up that was
+  itself the pass aborting.
 
-Third evidence set (same file, evening 18:10 run — the first WITH both
-remediations): the breaker behaved exactly as designed — 2 quick retries
-on the first 429, one cooldown + one probe per dead batch, 9 dead
-batches, streak peaked at 10 (under the 12 line), the top-up recovered
-the 48 gap games in 12s, final coverage 2022/2022 — yet the shared-IP
-window flapped shut for ~37 minutes and the escalating cooldowns (60 →
-240s, ~30 minutes of pure sleep) stretched a ~26-minute sweep to
-**51m28s**.  Cooldown waiting itself was the remaining wall-clock risk:
-every closed-window batch still bought a 60–240s wait, and only the
-abort line stood between a longer block and a stalling run.
+Remediation (``nfl-backend/backend/weather.py``, 2026-10-13 structural
+review — MLB for structural guidance, guardrail: a full repull every run
+WITHOUT triggering rate limits):
 
-Remediation (``nfl-backend/backend/weather.py``, structure mirrors
-``mlb-backend/backend/weather.py``'s documented-constants + retry + batch +
-top-up layout):
-
-* 429 is a quota event: up to _429_QUICK_RETRIES (2) short retries ride
-  out a MARGINAL window (observed recoveries at ~3-9s); a still-closed
-  window OPENS the streak and buys one cooldown (60s, doubling per
-  consecutive dead batch, 4-minute cap) + one probe — never a ladder.
-  This remains the path for non-sweep callers (the recent/forecast
-  phases and anything outside the archive sweep);
-* third pass (defer-and-requeue): the ARCHIVE SWEEP never sleeps on a
-  429 — _get_with_retry(defer_on_429=True) returns immediately (the two
-  quick retries survive only for the streak-0 marginal case) and
-  _fetch_batch_range returns None so the sweep DEFERS the batch; every
-  subsequent paced batch is itself the probe, so a reopened window is
-  detected within one batch interval (~4s) instead of after a 60–240s
-  cooldown, and the sweep completes at its steady pace however long the
-  window stays shut;
-* one paced re-attempt per deferred batch follows the sweep
-  (_requeue_deferred_batches), bounded by _RATE_LIMIT_ABORT_STREAK (12)
-  consecutive dead batches; the same-run top-up resets the streak first
-  so the run's final recovery re-probes a possibly-reopened window, and
-  the next run's cache-miss pass remains the last resort (features NaN,
-  never substituted);
-* any definitive (non-retriable) response CLOSES the window (streak reset);
-* a per-process 429 budget (40) bounds rate-limited attempts outright —
-  past it a rate-limited request fails after one attempt, logged once;
-* timeouts: 20s per attempt, and three consecutive hangs end the request
-  (≈63s) instead of seven 45s hangs (≈6.5 min per dead batch);
-* _BATCH_PAUSE_SEC = 2.0: the sweep paces to ~23 requests/min, halving
-  the ~39/min rate at which the shared-IP quota kept closing.
+* **Full repull, no cache gating**: ``fetch_games_weather`` requests every
+  eligible game every run; the cache file is provenance history for the
+  --skip-pull reader only and never decides what is fetched, and delivery
+  is what THAT run observed (failed fetch -> NaN, never a backfilled row).
+* **MLB drain ladder**: one ``2**attempt`` + jitter ladder (7 attempts,
+  1+2+4+8+16+32 = 63s, Retry-After authoritative) for every retriable
+  status — 63s outlasts one Open-Meteo quota minute, so a rate-limited
+  batch DRAINS instead of being lost.
+* **Fail-fast brake**: ``_DRAIN_FAIL_FAST_AFTER`` (2) consecutive batches
+  that spend the whole ladder on a 429 engage the brake (logged once);
+  then a still-shut window costs ONE request per batch, the paced sweep
+  keeps probing, and any definitive answer re-arms draining.  Bounds a
+  37-minute flap at 2 x 63s of sleep + fast-fail batches.
+* **Request budget**: ``_BATCH_DAYS`` 14 -> 60 (already measured: a decade
+  of history drops to ~111 request batches), 15 locations per batch,
+  ``_BATCH_PAUSE_SEC`` 2.0 — a full repull is ~132 requests over ~6-8
+  minutes instead of 448 over ~20.
+* **Same-run top-up** remains the in-run gap recovery (fresh breaker,
+  gaps only); the next run's full repull is the durable recovery.  No
+  requeue pass exists anymore — deferred/braked batches are simply missing
+  until one of those two recovers them.
+* Timeouts: 20s per attempt, three consecutive hangs end the request.
 
 Thresholds are pinned here so a future tuning change is a deliberate,
 reviewed edit rather than a silent drift back toward storming.
@@ -71,6 +51,8 @@ from __future__ import annotations
 
 import logging
 import sys
+import tempfile
+import warnings
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -121,14 +103,14 @@ def _patch_get(monkeypatch, responder):
     return calls
 
 
-def _budget_messages(caplog):
-    return [m for m in caplog.messages if "budget exhausted" in m]
+def _brake_messages(caplog):
+    return [m for m in caplog.messages if "rate-limit brake" in m]
 
 
-def test_isolated_blip_still_uses_the_mlb_parity_ladder(
+def test_isolated_blip_rides_the_ladder_with_retry_after_authority(
         monkeypatch, sleeps, caplog):
-    """A marginal 429 blip rides out with the two quick retries
-    (Retry-After authoritative) and never opens the breaker."""
+    """A marginal 429 blip drains through the ladder (Retry-After
+    authoritative) and a 200 re-arms — nothing persistent is recorded."""
     seq = [_Resp(429, {"Retry-After": "7"}), _Resp(429), _Resp(200)]
     calls = _patch_get(monkeypatch, lambda n: seq[n - 1])
 
@@ -140,87 +122,101 @@ def test_isolated_blip_still_uses_the_mlb_parity_ladder(
     assert len(sleeps) == 2, sleeps
     assert sleeps[0] >= 7.0, f"Retry-After must be authoritative: {sleeps}"
     assert 2.0 <= sleeps[1] <= 2.5, sleeps
-    assert weather._rate_limit_streak() == 0, "a recovered blip opens nothing"
+    assert weather._rate_limit == {"drain_fails": 0, "brake": False}, (
+        "a recovered blip records nothing")
     assert all(t == weather._REQUEST_TIMEOUT_SEC for t in calls), calls
-    # Two quick retries were available; both were consumed and recovered
-    # the batch without ever entering the cooldown/probe stage.
-    assert weather._rate_limit["retries"] == 2
-    assert not any("cooling down" in m for m in caplog.messages)
+    assert not _brake_messages(caplog)
 
 
-def test_closed_window_cools_down_then_probes_once(
+def test_closed_window_drains_one_quota_minute_then_brakes(
         monkeypatch, sleeps, caplog):
-    """The storm shape from the delivered log: every request answers 429.
+    """    The storm shape from the delivered log: every request answers 429.
 
-    The first call spends its two quick retries (a marginal window might
-    reopen), then OPENS the streak, cools down one quota minute and probes
-    once — 4 requests total, not a 7-attempt ladder. Afterwards every
-    call cools down (60s → 120s → … capped at 240s) and makes exactly
-    ONE request — and a definitive answer resets the streak.
+    Each batch spends MLB's full drain ladder once — 7 requests, waits
+    1+2+4+8+16+32 = 63s, which outlasts one quota minute.  Two such
+    batches in a row engage the brake (logged once); from then on a 429
+    costs exactly ONE request and ZERO sleeps.
     """
+    monkeypatch.setattr(weather.random, "uniform", lambda a, b: 0.0)
     calls = _patch_get(monkeypatch, lambda n: _Resp(429))
 
     with caplog.at_level(logging.WARNING):
         resp = weather._get_with_retry("https://example.invalid", {})
-    assert resp.status_code == 429, "a terminal probe returns the 429"
-    assert len(calls) == 2 + 1 + weather._RATE_LIMIT_PROBE_ATTEMPTS, calls
-    assert len(sleeps) == 3, sleeps
-    assert sleeps[2] == weather._RATE_LIMIT_COOLDOWN_SEC, sleeps
-    assert weather._rate_limit_streak() == 2
+    assert resp.status_code == 429, "a drained batch returns the 429"
+    assert len(calls) == weather._RETRY_ATTEMPTS, calls
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0], sleeps
+    assert weather._rate_limit["drain_fails"] == 1
+    assert not weather._rate_limit["brake"], "one failure is not yet a flap"
 
+    # Second consecutive full-ladder failure engages the brake, once.
     sleeps.clear()
-    weather._get_with_retry("https://example.invalid", {})
-    assert sleeps == [weather._cooldown_wait(2)], (
-        f"an entry probe cools down for the quota minute: {sleeps}")
-    assert len(calls) == 5, f"one entry probe, never a ladder: {calls}"
-    assert weather._rate_limit_streak() == 3
+    with caplog.at_level(logging.WARNING):
+        weather._get_with_retry("https://example.invalid", {})
+    assert len(calls) == 2 * weather._RETRY_ATTEMPTS, calls
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+    assert weather._rate_limit["brake"] is True
+    assert len(_brake_messages(caplog)) == 1
 
+    # Braked: one request, no sleeps, no repeated disclosure.
     sleeps.clear()
+    with caplog.at_level(logging.WARNING):
+        weather._get_with_retry("https://example.invalid", {})
+    assert len(calls) == 2 * weather._RETRY_ATTEMPTS + 1, (
+        "a braked 429 must cost exactly one request")
+    assert sleeps == [], f"the brake must never sleep: {sleeps}"
+    assert len(_brake_messages(caplog)) == 1, "brake disclosure is one-shot"
+
+
+def test_a_success_rearms_draining_after_the_brake(monkeypatch, sleeps, caplog):
+    """The paced sweep keeps probing under the brake, and the first
+    definitive answer re-arms the ladder (drain again, brake clears)."""
+    _patch_get(monkeypatch, lambda n: _Resp(429))
+    with caplog.at_level(logging.WARNING):
+        weather._get_with_retry("https://example.invalid", {})
+        weather._get_with_retry("https://example.invalid", {})
+    assert weather._rate_limit["brake"] is True
+
     reopened = _patch_get(monkeypatch, lambda n: _Resp(200))
-    weather._get_with_retry("https://example.invalid", {})
-    assert sleeps == [weather._cooldown_wait(3)], (
-        f"cooldown doubles per dead batch: {sleeps}")
-    assert len(reopened) == 1, reopened
-    assert weather._rate_limit_streak() == 0, "a 200 closes the window"
-
     sleeps.clear()
     weather._get_with_retry("https://example.invalid", {})
-    assert sleeps == [], f"window open again, no cooldown owed: {sleeps}"
-    assert len(reopened) == 2, reopened
+    assert len(reopened) == 1, reopened
+    assert weather._rate_limit == {"drain_fails": 0, "brake": False}, (
+        "a definitive answer re-arms draining and clears the brake")
 
-    # Quota math: one minute, doubling, capped at four.
-    assert weather._cooldown_wait(1) == 60.0
-    assert weather._cooldown_wait(2) == 120.0
-    assert weather._cooldown_wait(5) == weather._RATE_LIMIT_COOLDOWN_MAX_SEC
-
-    cooldowns = [m for m in caplog.messages if "cooling down" in m]
-    assert len(cooldowns) == 3, cooldowns
-
-
-def test_429_budget_fails_fast_and_logs_once(monkeypatch, sleeps, caplog):
-    """Past the per-run budget a rate-limited request must not ladder at all:
-    one attempt, no sleep, and the budget disclosure repeats only once."""
-    weather._rate_limit["retries"] = weather._429_RETRY_BUDGET
+    # The next closure drains the FULL ladder again (not fast-fail).
     calls = _patch_get(monkeypatch, lambda n: _Resp(429))
+    sleeps.clear()
+    weather._get_with_retry("https://example.invalid", {})
+    assert len(calls) == weather._RETRY_ATTEMPTS, calls
+    assert len(sleeps) == weather._RETRY_ATTEMPTS - 1, sleeps
+
+
+def test_gateway_errors_share_the_ladder_but_never_the_brake(
+        monkeypatch, sleeps, caplog):
+    """502s answer the same drain ladder (MLB parity) but are NOT quota
+    events: they never count toward, never engage, and never clear the
+    rate-limit brake."""
+    seq = [_Resp(503)] * (weather._RETRY_ATTEMPTS - 1) + [_Resp(503)]
+    calls = _patch_get(monkeypatch, lambda n: seq[min(n - 1, len(seq) - 1)])
 
     with caplog.at_level(logging.WARNING):
-        weather._get_with_retry("https://example.invalid", {})
-    assert len(calls) == 1, calls
-    assert sleeps == [], f"budget-exhausted = fail fast, no retry sleep: {sleeps}"
-    assert weather._rate_limit_streak() == 1
-    assert len(_budget_messages(caplog)) == 1
+        resp = weather._get_with_retry("https://example.invalid", {})
+    assert resp.status_code == 503
+    assert len(calls) == weather._RETRY_ATTEMPTS, calls
+    assert len(sleeps) == weather._RETRY_ATTEMPTS - 1, sleeps
+    assert weather._rate_limit == {"drain_fails": 0, "brake": False}, (
+        "gateway trouble is not a quota event")
 
-    with caplog.at_level(logging.WARNING):
-        weather._get_with_retry("https://example.invalid", {})
-    assert len(calls) == 2, "the second call is one cooldown probe"
-    assert sleeps == [weather._RATE_LIMIT_COOLDOWN_SEC], sleeps
-    assert len(_budget_messages(caplog)) == 1, "budget warning is one-shot"
+    # A 200 must NOT be required to clear a brake that was never set.
+    _patch_get(monkeypatch, lambda n: _Resp(429))
+    weather._get_with_retry("https://example.invalid", {})
+    assert weather._rate_limit["drain_fails"] == 1
 
 
 def test_timeout_cascade_ends_after_three_hangs(monkeypatch, sleeps, caplog):
-    """A stalled endpoint must not cost 7 x 45s per batch: three hangs end
-    the request (~63s with backoff), the batch dies, and the streak accounts
-    for it so the breaker can pace/abort the sweep."""
+    """A stalled endpoint must not cost 7 x 20s per batch: three hangs end
+    the request (~63s with backoff), the batch dies, and timeouts never
+    touch the quota brake (a stalled connection is not a closed window)."""
     calls = _patch_get(monkeypatch, lambda n: weather.requests.Timeout("hang"))
 
     with caplog.at_level(logging.WARNING), pytest.raises(weather.requests.Timeout):
@@ -228,9 +224,7 @@ def test_timeout_cascade_ends_after_three_hangs(monkeypatch, sleeps, caplog):
 
     assert len(calls) == weather._TIMEOUT_RETRY_LIMIT, calls
     assert len(sleeps) == weather._TIMEOUT_RETRY_LIMIT - 1, sleeps
-    assert weather._rate_limit_streak() == 1, (
-        "a timeout-dead batch must open the streak, or a timeout storm "
-        "would never trip the abort")
+    assert weather._rate_limit == {"drain_fails": 0, "brake": False}
     assert all(t == weather._REQUEST_TIMEOUT_SEC for t in calls), calls
 
 
@@ -244,268 +238,20 @@ def _target(game_id: str, kickoff: str) -> dict:
     }
 
 
-# Kickoffs 30 days apart -> two 14-day archive windows (the days between
+# Kickoffs 80 days apart -> TWO 60-day archive windows (the days between
 # hold no game, so exactly these two windows are planned, as in production).
 _TWO_WINDOW_TARGETS = [
-    _target("20260812_A@HOME", "2026-08-12T17:00:00Z"),
-    _target("20260911_B@HOME", "2026-09-11T17:00:00Z"),
+    _target("20260601_A@HOME", "2026-06-01T17:00:00Z"),
+    _target("20260820_B@HOME", "2026-08-20T17:00:00Z"),
 ]
 
 
-def test_defer_mode_never_cools_down_and_costs_one_request_per_batch(
+def test_fetch_batch_range_returns_none_on_429_with_honest_recovery_line(
         monkeypatch, sleeps, caplog):
-    """The sweep's mode, pinned at the client level (third review): a 429
-    in defer mode returns immediately — no entry cooldown, no
-    cooldown/probe stage — so no rate-limited request in that mode can ever
-    sleep.  The streak-0 marginal case still gets its two quick retries; a
-    streak-open batch costs exactly ONE request; a definitive answer closes
-    the window."""
-    calls = _patch_get(monkeypatch, lambda n: _Resp(429))
-
-    with caplog.at_level(logging.WARNING):
-        resp = weather._get_with_retry("https://example.invalid", {},
-                                       defer_on_429=True)
-    assert resp.status_code == 429
-    assert len(calls) == 1 + weather._429_QUICK_RETRIES, (
-        f"streak-0 marginal case keeps its quick retries: {calls}")
-    assert len(sleeps) == 2, sleeps  # the two quick retries, nothing else
-    assert weather._rate_limit_streak() == 1
-    assert not any("cooling down" in m for m in caplog.messages)
-
-    per_call = []
-    for _ in range(2):
-        before = len(calls)
-        sleeps.clear()
-        weather._get_with_retry("https://example.invalid", {},
-                                defer_on_429=True)
-        per_call.append(len(calls) - before)
-        assert sleeps == [], (
-            f"a streak-open defer-mode batch must never sleep: {sleeps}")
-    assert per_call == [1, 1], (
-        f"a closed-window defer-mode batch costs one request each: {per_call}")
-    assert weather._rate_limit_streak() == 3
-    # Only the marginal case spent the per-run 429 budget.
-    assert weather._rate_limit["retries"] == weather._429_QUICK_RETRIES
-
-    reopened = _patch_get(monkeypatch, lambda n: _Resp(200))
-    resp = weather._get_with_retry("https://example.invalid", {},
-                                   defer_on_429=True)
-    assert resp.status_code == 200 and len(reopened) == 1
-    assert weather._rate_limit_streak() == 0, "a 200 closes the window"
-
-
-def test_sweep_defers_429_batches_and_still_completes(
-        monkeypatch, sleeps, caplog):
-    """Third-review contract: a closed window must neither stretch nor
-    truncate the archive sweep.  Every window is attempted at the sweep's
-    pace; 429 batches come back ``None`` and are DEFERRED for one re-attempt
-    — never dying into cooldown sleeps — and the requeue gets exactly one
-    paced request per deferred batch."""
-    state = {"closed": False, "archive": 0}
-
-    def fake_batch_range(locations, start_date, end_date, *, source,
-                         defer_on_429=False, **kw):
-        if source != weather.OPEN_METEO_ARCHIVE:
-            return {}
-        state["archive"] += 1
-        if state["closed"] and defer_on_429:
-            weather._rate_limit["streak"] += 1  # a real 429 opens it
-            return None
-        weather._rate_limit["streak"] = 0
-        return {}
-
-    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
-    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
-
-    # Control: an open window sweeps both windows normally, deferring nothing.
-    with caplog.at_level(logging.INFO):
-        weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
-    assert state["archive"] == 2, state
-    assert not any("deferred" in m for m in caplog.messages)
-
-    # Closed: the sweep STILL completes both windows (one request each) and
-    # the requeue re-attempts each exactly once — four requests total, and
-    # the only sleeps are the pace pauses, never a cooldown.
-    state.update(closed=True, archive=0)
-    weather._reset_rate_limiter()
-    caplog.clear()
-    sleeps.clear()
-    with caplog.at_level(logging.INFO):
-        weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
-
-    assert state["archive"] == 4, (
-        "closed window: sweep completes both windows + one re-attempt each")
-    assert weather._rate_limit_streak() == 4, (
-        "each deferred request opens one more streak unit")
-    assert sleeps == [weather._BATCH_PAUSE_SEC,
-                      weather._BATCH_PAUSE_SEC], (
-        f"defer mode must never sleep a cooldown: {sleeps}")
-    deferred = [m for m in caplog.messages if "were deferred" in m]
-    assert len(deferred) == 1 and "2 of 2" in deferred[0], caplog.messages
-    requeue = [m for m in caplog.messages if "requeue" in m]
-    assert len(requeue) == 1 and "0 of 2" in requeue[0], caplog.messages
-
-
-def test_requeue_recovers_deferred_batches_when_the_window_reopens(
-        monkeypatch, caplog):
-    """The deferral's payoff: a window that reopens mid-sweep is noticed by
-    the next paced batch (no cooldown required), and the requeue refills
-    every deferred window in-run — the same-run top-up never sees them."""
-    state = {"deferred": 0, "archive": 0}
-
-    def fake_batch_range(locations, start_date, end_date, *, source,
-                         defer_on_429=False, **kw):
-        if source != weather.OPEN_METEO_ARCHIVE:
-            return {}
-        state["archive"] += 1
-        if state["deferred"] < 1:
-            state["deferred"] += 1
-            weather._rate_limit["streak"] += 1
-            return None
-        weather._rate_limit["streak"] = 0
-        return {(str(locations[0][0]), end_date): {"time": []}}
-
-    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
-    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
-
-    with caplog.at_level(logging.INFO):
-        by_key = weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
-
-    # Sweep: window 1 deferred, window 2 answered (streak reset).  Requeue:
-    # window 1 recovered.  Three archive requests, no extra sleeps.
-    assert state["archive"] == 3, state
-    assert weather._rate_limit_streak() == 0, "the reopened window closes it"
-    assert {day for (_stadium, day) in by_key} == {date(2026, 8, 24),
-                                                  date(2026, 9, 11)}, by_key
-    requeue = [m for m in caplog.messages if "requeue" in m]
-    assert len(requeue) == 1 and "1 of 1" in requeue[0], caplog.messages
-
-
-def test_requeue_stops_at_the_abort_line_and_names_the_recovery_paths(
-        monkeypatch, caplog):
-    """Past _RATE_LIMIT_ABORT_STREAK consecutive dead batches the requeue
-    stops probing — a dead batch costs one paced request now, so the line
-    bounds the requeue at about a minute of waste — and the warning names
-    both recovery paths.  The SWEEP itself is never aborted: it completes
-    all 13 windows despite the streak.
-
-    The 2026-10-13 review changed WHICH streak bounds the pass: it used to
-    inherit the sweep's, so a sweep that ended past the line tripped the
-    check on index 0 and the pass attempted NOTHING.  The line now bounds
-    the pass on its own consecutive dead batches — 12 paced probes here —
-    while the sweep's 13 dead batches still stand."""
-    state = {"archive": 0}
-
-    def fake_batch_range(locations, start_date, end_date, *, source,
-                         defer_on_429=False, **kw):
-        if source != weather.OPEN_METEO_ARCHIVE:
-            return {}
-        state["archive"] += 1
-        weather._rate_limit["streak"] += 1
-        return None
-
-    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
-    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
-    # A game every 15 days -> exactly one per 14-day window, 13 windows.
-    targets = [
-        _target(
-            f"2026{i:02d}01_TEST@HOME",
-            (datetime(2026, 1, 1, tzinfo=timezone.utc)
-             + timedelta(days=15 * i)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-        for i in range(13)
-    ]
-
-    with caplog.at_level(logging.INFO):
-        weather._fetch_batched_weather(targets, now)
-
-    assert state["archive"] == 13 + weather._RATE_LIMIT_ABORT_STREAK, (
-        "the sweep completes every window, then the pass probes exactly "
-        f"its own abort line: {state}")
-    warnings = [m for m in caplog.messages if "requeue" in m
-                and "not re-attempted" in m]
-    assert len(warnings) == 1, caplog.messages
-    assert "1 deferred" in warnings[0], warnings[0]
-    assert "12 consecutive dead batches" in warnings[0], warnings[0]
-    assert "top-up" in warnings[0] and "cache-miss" in warnings[0], (
-        "the warning must name the recovery paths")
-    assert weather._rate_limit_streak() >= weather._RATE_LIMIT_ABORT_STREAK
-
-
-def test_requeue_probes_a_sweep_that_ended_past_the_abort_line(
-        monkeypatch, caplog):
-    """2026-10-13 run-log evidence: the archive sweep ended at streak 48
-    (48 of 448 batches deferred), the INFO line promised "one paced
-    re-attempt follows", and the requeue then tripped its inherited streak
-    on index 0 — "48 deferred batch(es) not re-attempted".  The pass must
-    actually probe in that state: every deferred batch gets its re-attempt
-    and a recovered batch merges, with no abort."""
-    weather._reset_rate_limiter()
-    weather._rate_limit["streak"] = 48      # the sweep's inheritance
-    deferred = [
-        ([("Test Stadium", 39.0, -95.0)],
-         date(2026, 9, 1) + timedelta(days=i),
-         date(2026, 9, 1) + timedelta(days=i))
-        for i in range(48)
-    ]
-    state = {"calls": 0}
-
-    def fake_batch_range(locations, start_date, end_date, *, source,
-                         defer_on_429=False, **kw):
-        state["calls"] += 1
-        weather._rate_limit["streak"] = 0    # a 200 closes the window
-        return {(locations[0][0], start_date): {"time": []}}
-
-    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
-    by_key: dict = {}
-    with caplog.at_level(logging.INFO):
-        weather._requeue_deferred_batches(deferred, by_key)
-
-    assert state["calls"] == 48, (
-        f"every deferred batch must be probed: {state['calls']} of 48")
-    assert len(by_key) == 48, by_key
-    assert not any("not re-attempted" in m for m in caplog.messages), (
-        caplog.messages)
-    assert weather._rate_limit_streak() == 0, (
-        "a recovered batch closes the window the sweep left open")
-
-
-def test_recovery_pass_first_batch_takes_the_cooldown_path(monkeypatch):
-    """2026-10-13 run-log evidence: the gap-only top-up fired all 18
-    batches into a still-shut archive window in 39 seconds (defer mode
-    never waits) and recovered 0 of the 142 missing games.  The recovery
-    pass's FIRST batch therefore runs the non-defer client — two quick
-    retries, one bounded cooldown, one probe — while every later batch
-    keeps defer mode so the sweep itself still never sleeps."""
-    modes: list[bool] = []
-
-    def fake_batch_range(locations, start_date, end_date, *, source,
-                         defer_on_429=False, **kw):
-        if source != weather.OPEN_METEO_ARCHIVE:
-            return {}
-        modes.append(defer_on_429)
-        weather._rate_limit["streak"] = 0
-        return {}
-
-    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
-    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
-
-    weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
-    assert modes == [True, True], (
-        f"the main sweep defers every batch: {modes}")
-
-    modes.clear()
-    weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now,
-                                   cooldown_first_batch=True)
-    assert modes == [False, True], (
-        f"only the recovery pass's first batch may cool down: {modes}")
-
-
-def test_a_429_is_a_deferred_batch_in_both_modes(monkeypatch, sleeps,
-                                                  caplog):
-    """Rate-limited is never dead-for-good: ``_fetch_batch_range`` returns
-    ``None`` instead of raising into the generic failure handler, which
-    returned ``{}`` and silently dropped the batch from the requeue list.
-    A non-defer caller gets one explicit line (the sweep stays quiet)."""
+    """Rate-limited is never dead-for-good: ``None`` (not ``{}``), with a
+    line naming the recovery that REALLY exists — the same-run top-up and
+    the next run's full repull.  The 10-13 10:23 log's line named a
+    \"requeue\" and a \"cache-miss pass\"; neither exists anymore."""
     _patch_get(monkeypatch, lambda n: _Resp(429))
 
     with caplog.at_level(logging.WARNING):
@@ -518,76 +264,359 @@ def test_a_429_is_a_deferred_batch_in_both_modes(monkeypatch, sleeps,
     assert not any("batch failed" in m for m in caplog.messages), (
         "a 429 must not be reported as a failed batch: "
         f"{caplog.messages}")
-    assert any("rate limited after cooldown+probe" in m
+    honest = [m for m in caplog.messages if "429 after the drain ladder" in m]
+    assert len(honest) == 1, caplog.messages
+    assert "same-run top-up" in honest[0], honest[0]
+    assert "next run's full repull" in honest[0], honest[0]
+    assert "requeue" not in honest[0] and "cache-miss" not in honest[0], (
+        "the removed recovery paths must never be promised again: "
+        f"{honest[0]}")
+
+
+def test_fetch_batch_range_is_silent_while_the_brake_is_engaged(
+        monkeypatch, sleeps, caplog):
+    """One line per fast-failed batch would bury a long closure (the
+    10-11 review): once the brake owns the disclosure, terminal 429s stay
+    quiet and still return ``None``."""
+    _patch_get(monkeypatch, lambda n: _Resp(429))
+    with caplog.at_level(logging.WARNING):
+        weather._get_with_retry("https://example.invalid", {})
+        weather._get_with_retry("https://example.invalid", {})
+    assert weather._rate_limit["brake"] is True
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING):
+        result = weather._fetch_batch_range(
+            [("Test Stadium", 39.0, -95.0)],
+            date(2026, 9, 1), date(2026, 9, 14),
+            source=weather.OPEN_METEO_ARCHIVE)
+    assert result is None
+    assert not any("429 after the drain ladder" in m
+                   for m in caplog.messages), caplog.messages
+
+
+def test_fetch_batch_range_generic_failure_returns_empty(monkeypatch, caplog):
+    """Non-429 failures (gateway exhaustion, parse errors) return ``{}``
+    and are logged as failed batches with their locations named."""
+    _patch_get(monkeypatch, lambda n: _Resp(503))
+
+    with caplog.at_level(logging.WARNING):
+        result = weather._fetch_batch_range(
+            [("Test Stadium", 39.0, -95.0)],
+            date(2026, 9, 1), date(2026, 9, 14),
+            source=weather.OPEN_METEO_ARCHIVE)
+
+    assert result == {}, result
+    assert any("batch failed" in m and "Test Stadium" in m
                for m in caplog.messages), caplog.messages
-    assert sleeps, "the non-defer path's cooldown must have been recorded"
 
 
-def test_recent_and_forecast_phases_skip_a_deferred_batch(monkeypatch):
+def test_sweep_completes_under_a_shut_window_leaving_days_missing(
+        monkeypatch, caplog):
+    """The sweep has no requeue and no defer mode anymore: a window the
+    drain ladder cannot save contributes NOTHING to ``by_key`` (its days
+    stay missing), the other windows still land, and the pass runs to
+    completion with no requeue/abort message anywhere."""
+    def fake_batch_range(locations, start_date, end_date, *, source, **kw):
+        if source != weather.OPEN_METEO_ARCHIVE:
+            return None                      # recent phase: also rate-limited
+        if start_date <= date(2026, 6, 1) <= end_date:
+            return {("Test Stadium", date(2026, 6, 1)): {"time": []}}
+        return None                          # the second window is 429-dead
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    now = datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level(logging.INFO):
+        out = weather._fetch_batched_weather(_TWO_WINDOW_TARGETS, now)
+
+    assert {day for (_stadium, day) in out} == {date(2026, 6, 1)}, (
+        "the open window lands; the shut window stays missing")
+    assert not any("requeue" in m or "deferred" in m
+                   for m in caplog.messages), caplog.messages
+
+
+def test_a_reopened_window_lands_the_remaining_windows(
+        monkeypatch, caplog):
+    """The recovery story without a requeue: whatever the sweep could not
+    fetch is missing here and recovered by the same-run top-up — which is
+    exactly the gap set (this run's missing targets), refetched with a
+    fresh breaker.  Simulated end-to-end through fetch_games_weather."""
+    fetch_calls: list[list[str]] = []
+
+    def _series(target):
+        return {(target["stadium"], target["kickoff_utc"].date()): {
+                "time": [target["kickoff_utc"].strftime("%Y-%m-%dT16:00:00Z")],
+                "temperature_2m": [70.0], "wind_speed_10m": [5.0],
+                "precipitation": [0.0], "snowfall": [0.0],
+                "_source": weather.OPEN_METEO_ARCHIVE,
+                "_fetched_at_utc": pd.Timestamp("2026-06-03T12:00:00Z")}}
+
+    def fake_fetch(targets, now, **kw):
+        fetch_calls.append([t["game_id"] for t in targets])
+        # Pass 1 (the sweep) loses B; pass 2 (the top-up) recovers it.
+        out = {}
+        for t in targets:
+            if len(fetch_calls) == 1 and t["game_id"].endswith("B@HOME"):
+                continue
+            out.update(_series(t))
+        return out
+
+    monkeypatch.setattr(weather, "_fetch_batched_weather", fake_fetch)
+    gdf = pd.DataFrame([
+        {"game_id": "20260601_A@HOME", "season": 2026, "week": 1,
+         "gameday": "2026-06-01", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "MetLife Stadium", "surface": "grass"},
+        {"game_id": "20260602_B@HOME", "season": 2026, "week": 1,
+         "gameday": "2026-06-02", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "Gillette Stadium", "surface": "grass"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp, warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        got = weather.fetch_games_weather(
+            gdf, path=Path(tmp) / "w.parquet",
+            now=pd.Timestamp("2026-06-03T12:00:00Z"))
+
+    assert len(fetch_calls) == 2, (
+        f"exactly one sweep + one gap-only top-up: {fetch_calls}")
+    assert sorted(fetch_calls[0]) == ["20260601_A@HOME", "20260602_B@HOME"]
+    assert fetch_calls[1] == ["20260602_B@HOME"], (
+        "the top-up refetches ONLY the gaps")
+    assert set(got["game_id"]) == {"20260601_A@HOME", "20260602_B@HOME"}
+
+
+def test_top_up_starts_with_a_fresh_breaker(monkeypatch, caplog):
+    """The top-up must re-probe a window that may have reopened: it calls
+    _reset_rate_limiter() first, clearing a brake the sweep may have set
+    (the 10-11 18:10 run recovered all 48 gaps in 12s after a reset)."""
+    resets: list[bool] = []
+    original_reset = weather._reset_rate_limiter
+
+    def spy_reset():
+        resets.append(True)
+        original_reset()
+
+    fetch_calls: list[list[str]] = []
+
+    def _series(target):
+        return {(target["stadium"], target["kickoff_utc"].date()): {
+                "time": [target["kickoff_utc"].strftime("%Y-%m-%dT16:00:00Z")],
+                "temperature_2m": [70.0], "wind_speed_10m": [5.0],
+                "precipitation": [0.0], "snowfall": [0.0],
+                "_source": weather.OPEN_METEO_ARCHIVE,
+                "_fetched_at_utc": pd.Timestamp("2026-06-03T12:00:00Z")}}
+
+    def fake_fetch(targets, now, **kw):
+        fetch_calls.append([t["game_id"] for t in targets])
+        if len(fetch_calls) == 1:
+            # The sweep ends braked and loses one game.
+            weather._rate_limit.update(drain_fails=5, brake=True)
+            return _series(targets[0])
+        assert not weather._rate_limit["brake"], (
+            "the top-up must start with a cleared brake")
+        return _series(targets[0])
+
+    monkeypatch.setattr(weather, "_reset_rate_limiter", spy_reset)
+    monkeypatch.setattr(weather, "_fetch_batched_weather", fake_fetch)
+    gdf = pd.DataFrame([
+        {"game_id": "TOP_A", "season": 2026, "week": 1,
+         "gameday": "2026-06-01", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "MetLife Stadium", "surface": "grass"},
+        {"game_id": "TOP_B", "season": 2026, "week": 1,
+         "gameday": "2026-06-02", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "Gillette Stadium", "surface": "grass"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp, warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        weather.fetch_games_weather(
+            gdf, path=Path(tmp) / "w.parquet",
+            now=pd.Timestamp("2026-06-03T12:00:00Z"))
+
+    assert fetch_calls == [["TOP_A", "TOP_B"], ["TOP_B"]], fetch_calls
+    assert len(resets) == 1, "exactly one fresh-breaker reset, before pass 2"
+    assert weather._rate_limit == {"drain_fails": 0, "brake": False}
+
+
+def test_recent_and_forecast_phases_skip_a_rate_limited_batch(monkeypatch):
     """The recent/forecast phases receive ``None`` from a rate-limited
     batch; calling ``.items()`` on it would raise straight out of the
-    weather phase.  They skip and leave the gap to the cache-miss pass."""
+    weather phase.  They skip and leave the gap to the top-up."""
     def always_none(locations, start_date, end_date, *, source, **kw):
-        weather._rate_limit["streak"] = 0
         return None
 
     monkeypatch.setattr(weather, "_fetch_batch_range", always_none)
-    now = datetime(2026, 10, 11, 6, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)
     targets = [*_TWO_WINDOW_TARGETS,
                _target("20261020_C@HOME", "2026-10-20T17:00:00Z")]
 
     assert weather._fetch_batched_weather(targets, now) == {}
 
 
-def test_rate_limited_out_boundary():
-    """The abort line is exactly _RATE_LIMIT_ABORT_STREAK dead batches."""
-    weather._reset_rate_limiter()
-    assert not weather._rate_limited_out()
-    weather._rate_limit["streak"] = weather._RATE_LIMIT_ABORT_STREAK - 1
-    assert not weather._rate_limited_out()
-    weather._rate_limit["streak"] = weather._RATE_LIMIT_ABORT_STREAK
-    assert weather._rate_limited_out()
+# ---------------------------------------------------------------------------
+# Full repull guardrails (2026-10-13 structural review)
+#
+# The request: "the nfl pipeline must not use cache files to top off
+# weather observations ... optimized for a full repull every pipeline run
+# and avoid rate limits ... weather must be able to fully repopulate every
+# pipeline run without triggering rate limits."
+# ---------------------------------------------------------------------------
+
+def _full_repull_schedule() -> pd.DataFrame:
+    return pd.DataFrame([
+        {"game_id": "FR_A", "season": 2024, "week": 1,
+         "gameday": "2024-09-01", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "MetLife Stadium", "surface": "grass"},
+        {"game_id": "FR_B", "season": 2024, "week": 1,
+         "gameday": "2024-09-02", "gametime": "13:00", "home_team": "A",
+         "away_team": "B", "home_score": 20.0, "away_score": 10.0,
+         "game_type": "REG", "roof": "outdoors", "div_game": 0,
+         "stadium": "Gillette Stadium", "surface": "grass"},
+    ])
 
 
-def test_dead_batches_cost_one_request_each_after_the_first(
-        monkeypatch, sleeps, caplog):
-    """The 15:50-run contract, pinned: a dead quota minute costs ONE
-    request per batch, never a re-armed ladder.
+def _warm_cache(path: Path) -> None:
+    """A PIT-valid cached row for BOTH schedule games (the old top-off's
+    reason to fetch nothing)."""
+    rows = [
+        {"game_id": gid, "stadium": stadium,
+         "kickoff_utc": pd.Timestamp(f"{day} 17:00:00Z"),
+         "weather_time_utc": pd.Timestamp(f"{day} 16:00:00Z"),
+         "fetched_at_utc": pd.Timestamp(f"{day} 18:00:00Z"),
+         "source": weather.OPEN_METEO_ARCHIVE, "temp_f": 70.0,
+         "wind_mph": 5.0, "precip_in": 0.0, "snow_in": 0.0,
+         "is_precip": 0.0, "is_snow": 0.0}
+        for gid, stadium, day in (("FR_A", "MetLife Stadium", "2024-09-01"),
+                                  ("FR_B", "Gillette Stadium", "2024-09-02"))
+    ]
+    weather._save_cache(path, pd.DataFrame(rows, columns=list(weather.CACHE_COLUMNS)))
 
-    Five back-to-back all-429 calls (the storm shape) must cost exactly
-    4 + 4 requests — two quick retries + cooldown + probe on the first,
-    then one entry probe each — with at most one cooldown sleep per call,
-    every wait capped at the 4-minute ceiling, and the streak climbing
-    the whole way.  This is the DEFAULT path (recent/forecast phases,
-    top-up, any non-sweep caller); the archive sweep uses defer mode
-    instead — see test_defer_mode_never_cools_down_and_costs_one_request.
-    """
-    calls = _patch_get(monkeypatch, lambda n: _Resp(429))
 
-    with caplog.at_level(logging.WARNING):
-        weather._get_with_retry("https://example.invalid", {})          # 1
-    assert len(calls) == 4, f"first dead batch: 2 quick + cooldown + probe: {calls}"
-    per_call = [len(calls)]
-    for _ in range(4):
-        before = len(calls)
-        sleeps.clear()
-        weather._get_with_retry("https://example.invalid", {})
-        per_call.append(len(calls) - before)
-        assert len(sleeps) == 1, (
-            "a closed window costs one cooldown wait, not a ladder: "
-            f"{sleeps}")
-        assert sleeps[0] <= weather._RATE_LIMIT_COOLDOWN_MAX_SEC, sleeps
+def test_a_warm_cache_never_top_off_the_fetch(monkeypatch):
+    """THE guardrail: with a fully populated cache, the run still requests
+    EVERY eligible game.  (The old design computed ``missing`` from the
+    cache and fetched nothing here.)"""
+    gdf = _full_repull_schedule()
+    fetch_calls: list[list[str]] = []
 
-    assert per_call == [4, 1, 1, 1, 1], (
-        f"dead batches after the first must cost one request each: {per_call}")
-    assert weather._rate_limit_streak() == 6, (
-        "every dead batch opens one more streak unit toward the abort")
-    # Budget accounting: only the FIRST batch spent budget (2 quick retries
-    # + 1 cooldown-probe = 3 of _429_RETRY_BUDGET).  Entry probes are
-    # already minimal — one request, no retries — and are bounded by the
-    # abort streak instead, exactly as in the first remediation.
-    assert weather._rate_limit["retries"] == 3, weather._rate_limit
-    assert weather._rate_limit["retries"] < weather._429_RETRY_BUDGET
+    def fake_fetch(targets, now, **kw):
+        fetch_calls.append([t["game_id"] for t in targets])
+        out = {}
+        for t in targets:
+            out[(t["stadium"], t["kickoff_utc"].date())] = {
+                "time": [t["kickoff_utc"].strftime("%Y-%m-%dT16:00:00Z")],
+                "temperature_2m": [70.0], "wind_speed_10m": [5.0],
+                "precipitation": [0.0], "snowfall": [0.0],
+                "_source": weather.OPEN_METEO_ARCHIVE,
+                "_fetched_at_utc": pd.Timestamp("2024-09-03T12:00:00Z"),
+            }
+        return out
+
+    monkeypatch.setattr(weather, "_fetch_batched_weather", fake_fetch)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "w.parquet"
+        _warm_cache(path)
+        assert len(weather.cached_weather_for_games(gdf, path=path)) == 2, (
+            "the cache must be warm for this test to mean anything")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            got = weather.fetch_games_weather(
+                gdf, path=path, now=pd.Timestamp("2024-09-03T12:00:00Z"))
+
+    assert fetch_calls == [["FR_A", "FR_B"]], (
+        f"a warm cache must not shrink the fetch: {fetch_calls}")
+    assert set(got["game_id"]) == {"FR_A", "FR_B"}
+
+
+def test_a_failed_fetch_never_backfills_from_the_cache(monkeypatch):
+    """Delivery is THIS run's observations only: when the fetch fails the
+    run ships NaN for those games even though valid older rows exist on
+    disk — the next run's full repull (not the file) recovers them."""
+    gdf = _full_repull_schedule()
+    fetch_calls: list[list[str]] = []
+
+    def empty_fetch(targets, now, **kw):
+        fetch_calls.append([t["game_id"] for t in targets])
+        return {}
+
+    monkeypatch.setattr(weather, "_fetch_batched_weather", empty_fetch)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "w.parquet"
+        _warm_cache(path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            got = weather.fetch_games_weather(
+                gdf, path=path, now=pd.Timestamp("2024-09-04T12:00:00Z"))
+        # The cache file itself still holds the history for --skip-pull.
+        assert len(weather.cached_weather_for_games(gdf, path=path)) == 2
+
+    assert len(got) == 0, (
+        f"cache rows must never backfill delivery: {list(got.get('game_id', []))}")
+    assert len(fetch_calls) == 2, (
+        "sweep + gap-only top-up, both attempted: %s" % fetch_calls)
+
+
+def test_refresh_is_a_documented_noop(monkeypatch):
+    """``refresh=`` survives for build_weather_table compatibility; it must
+    not change what is fetched — every run fetches everything."""
+    gdf = _full_repull_schedule()
+    fetch_calls: list[int] = []
+
+    def fake_fetch(targets, now, **kw):
+        fetch_calls.append(len(targets))
+        return {}
+
+    monkeypatch.setattr(weather, "_fetch_batched_weather", fake_fetch)
+    with tempfile.TemporaryDirectory() as tmp:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            weather.fetch_games_weather(
+                gdf, path=Path(tmp) / "a.parquet", refresh=False,
+                now=pd.Timestamp("2024-09-03T12:00:00Z"))
+            weather.fetch_games_weather(
+                gdf, path=Path(tmp) / "b.parquet", refresh=True,
+                now=pd.Timestamp("2024-09-03T12:00:00Z"))
+
+    assert fetch_calls == [2, 2, 2, 2], (
+        "per run: sweep + gap-only top-up (the fake yields nothing), "
+        f"identically with refresh on or off: {fetch_calls}")
+
+
+def test_full_repul_request_budget_pinned():
+    """The rate-limit geometry: 60-day windows x 15-location batches keep
+    a decade-long FULL repull near ~132 requests (measured ~111 for the
+    production date span) instead of the 448-request 14-day sweep that
+    lost 142 games on 2026-10-13."""
+    assert weather._BATCH_DAYS == 60, (
+        "window width drives the request count; tune deliberately")
+    assert weather._BATCH_SIZE == 15, (
+        "MLB-proven response size per multi-coordinate request")
+
+    needed = set()
+    for yr in range(2016, 2027):
+        for off in range(0, 130, 3):        # dense game cluster per season
+            needed.add(date(yr, 9, 1) + timedelta(days=off))
+    start, end = date(2016, 1, 1), date(2026, 10, 13)
+    plan = []
+    for off in range(0, (end - start).days + 1, weather._BATCH_DAYS):
+        cs = start + timedelta(days=off)
+        ce = min(cs + timedelta(days=weather._BATCH_DAYS - 1), end)
+        if any(cs <= d <= ce for d in needed):
+            for i in range(0, 50, weather._BATCH_SIZE):
+                plan.append((cs, ce, i))
+    assert len(plan) <= 140, (
+        f"a full repull must stay near ~132 requests, got {len(plan)}")
 
 
 def test_sweep_pace_paces_below_the_observed_trip_rate():
@@ -597,10 +626,25 @@ def test_sweep_pace_paces_below_the_observed_trip_rate():
     The 15:50 run measured ~39 requests/min (444 batches in 689s with the
     old 1.0s pause) and the quota closed intermittently from minute ~8.
     Open-Meteo enforces its limits per IP and Kaggle's egress IP is shared,
-    so the pace is pinned at ≥ 2.0s (~23 requests/min, ~19 min for a full
-    repull) — halving our contribution while staying far below the ~30-min
-    storm cost this breaker replaced.
+    so the pace stays pinned at >= 2.0s (~15 requests/min over the much
+    shorter 132-batch sweep) — tune deliberately, with a new review.
     """
     assert weather._BATCH_PAUSE_SEC >= 2.0, (
         "sweep pacing below 2.0s re-opens the shared-IP 429 bursts "
         "observed on 2026-10-11 — tune deliberately, with a new review")
+
+
+def test_the_defer_requeue_machinery_is_gone():
+    """The 2026-10-13 structural review replaced defer-and-requeue (three
+    recovery passes, 142 games still lost) with the drain ladder + brake
+    + full repull.  The removed entry points must not quietly return."""
+    for symbol in ("_requeue_deferred_batches", "_recovery_note",
+                   "_rate_limited_out", "_cooldown_wait",
+                   "_rate_limit_streak"):
+        assert not hasattr(weather, symbol), (
+            f"{symbol} belongs to the removed defer/requeue design")
+    import inspect
+    sig = inspect.signature(weather._get_with_retry)
+    assert "defer_on_429" not in sig.parameters, sig
+    sig = inspect.signature(weather._fetch_batch_range)
+    assert "defer_on_429" not in sig.parameters, sig
