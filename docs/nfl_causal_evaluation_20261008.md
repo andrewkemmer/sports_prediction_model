@@ -182,3 +182,59 @@ smokes 5, monitor smoke and board-render smoke exit 0.
 - LightGBM consumes the team-ID pair as categoricals by name at fit; its
   sklearn predict path replays the same integer codes (config IDs equal
   category codes by construction — the reason the map is versioned config).
+
+## Fourth pass — run-log review of the 2026-10-13 10:23 delivery (Open-Meteo rate limits)
+
+Scope: review the delivered `nfl_pipeline_run_log.txt` (remote `d4665299`)
+and remediate what it still shows. Guardrail held: existing files only,
+no new programs.
+
+**What the log showed (reconstructed timeline).** The archive sweep ran
+448 batches clean for ~18 minutes, then the shared Kaggle egress IP's
+quota closed (10:41:35): one batch burned its two quick retries, 47 more
+deferred at pace (48/448 deferred). The requeue's pass-local abort line
+behaved correctly (12 paced probes attempted, 36 unattempted — the
+2026-10-13-01:15 fix held). The recent phase inherited the sweep's
+streak, cooled down the designed 240s cap and its single probe
+**succeeded** — the 91-day observed window landed (all final gaps are
+2025-era archive games, none recent). The same-run top-up then ran its
+discovery (2 quick retries + one 60s cooldown + probe), the window had
+re-closed within seconds of the recent probe's success, 18/18 gap
+batches deferred, its requeue aborted at its own line of 12, and the run
+shipped **142/2023 games with NaN weather**, surfaced correctly by the
+gap warning (count semantics from the 2026-10-13-01:07 fix) and by the
+monitoring coverage rows (`temp_f`/`wind_mph`/`is_precip`/`is_snow`
+LOW_COVERAGE at 58.4%/75.0% in both views). Prior seams all fired as
+intended: view-labeled drift lines with 2 `OK-SEASONAL` verdicts, the
+`inj_ol_out_*` ALERTs staying alert on real shift, `season_openers_ingested
+PASS`, and the missing-finals guard staying silent because TB-DAL had
+resolved.
+
+**Defect found and fixed.** Both rate-limit emitters inside the run's
+**final** recovery pass promised an in-run recovery that cannot exist:
+log line 24 ("recover via the requeue, the same-run top-up or the next
+run's cache-miss pass") and line 27's requeue abort ("recover via the
+same-run top-up and the next run's cache-miss pass") fired from *inside*
+the same-run top-up itself — the pass that was aborting. The 142 lost
+games healed only on the next run, so a reader of the remote log was
+twice told the hole would close in-run. `weather._recovery_note(final_pass)`
+now owns that string for both emitters; `fetch_games_weather` marks its
+second top-up pass `final_pass=True`, so those lines name only the next
+run's cache-miss pass (tagged "this was the run's final recovery pass"),
+while the sweep's messages — whose top-up really does follow — keep
+naming both paths byte-identically to the shipped log.
+
+**Verified (exit statuses captured).** production script **549 passed /
+0 failed** (6 new honesty pins + the extended top-up wiring pin),
+log-review suite 15 passed, fold 13, tee exit 0, feature-name 39,
+data-delivery 102. Note: `test_requeue_probes_a_sweep_that_ended_past_the_abort_line`
+is slow by design (~94s of real `_BATCH_PAUSE_SEC` sleeps across 48
+probes; it does not use the `sleeps` fixture) — it passes, and the suite
+takes ~153s in total.
+
+**Limitations.** The message fix changes what the NEXT run's log prints
+after a final-pass abort; the 142-game NaN hole itself is unchanged
+behavior (deliberate bounded recovery — healing stays with the next
+run's cache-miss pass, which the persistent `.nfl_cache` makes cheap: 18
+batches vs the sweep's 448). No performance claims: this pass is
+observability honesty only.

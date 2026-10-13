@@ -139,6 +139,21 @@ _RETRY_JITTER_SEC = 0.5
 # deferred batch follows the sweep (_requeue_deferred_batches), and the
 # same-run top-up resets the streak first so the run's final recovery
 # re-probes a window that may have reopened.
+# Fourth review (2026-10-13, the 10:23 run): every mechanism above
+# behaved as designed -- sweep deferred 48/448, the requeue's pass-local
+# abort line attempted its own 12 (not index 0), the recent phase's
+# bounded 240s cooldown + probe recovered the 91-day observed window,
+# and the top-up's cooldown-first-batch ran its full discovery -- yet the
+# FINAL recovery pass emitted "recover via the same-run top-up and the
+# next run's cache-miss pass" twice (lines 24 and 27) from INSIDE that
+# same-run top-up, where no further in-run recovery exists: the 142 lost
+# games healed only on the next run.  A reader of the remote log was told
+# the hole would close in-run, twice, by the pass that was itself
+# aborting.  _recovery_note(final_pass) now owns the recovery-path string
+# for both emitters; fetch_games_weather marks its second top-up pass
+# final_pass=True so those two lines name only the next run's cache-miss
+# pass, while the sweep's messages (whose top-up really does follow)
+# keep naming both paths.
 _RATE_LIMIT_COOLDOWN_SEC = 60.0
 _RATE_LIMIT_COOLDOWN_MAX_SEC = 240.0
 _RATE_LIMIT_PROBE_ATTEMPTS = 1
@@ -358,6 +373,28 @@ def _rate_limited_out(streak: int | None = None) -> bool:
     """
     value = _rate_limit_streak() if streak is None else int(streak)
     return value >= _RATE_LIMIT_ABORT_STREAK
+
+
+def _recovery_note(final_pass: bool) -> str:
+    """The recovery paths a lost-batch message may HONESTLY name.
+
+    Fourth review (2026-10-13, the 10:23 run): both rate-limit emitters
+    ended with "...recover via the same-run top-up ..." — true for the main
+    sweep, but the SAME strings fired inside the same-run top-up's FINAL
+    pass (log lines 24 and 27: "recover via the requeue, the same-run top-up
+    or the next run's cache-miss pass" / "recover via the same-run top-up
+    and the next run's cache-miss pass"), where no further in-run recovery
+    exists: the run's last recovery pass was itself the one being aborted,
+    and the 142 lost games recovered only on the next run.  A reader of the
+    remote log was twice told the hole would heal in-run.  One note, owned
+    by one helper, keeps every emitter honest per call site: the sweep
+    (whose top-up really does follow) names both paths; the final pass names
+    only the next run's.
+    """
+    if final_pass:
+        return ("the next run's cache-miss pass (this was the run's final "
+                "recovery pass)")
+    return "the same-run top-up and the next run's cache-miss pass"
 
 
 def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
@@ -588,6 +625,8 @@ def _parse_batch_response(
 def _requeue_deferred_batches(
     deferred: list[tuple[list[tuple[str, float, float]], date, date]],
     by_key: dict[tuple[str, date], dict[str, list]],
+    *,
+    final_pass: bool = False,
 ) -> None:
     """One paced re-attempt per sweep batch a closed window deferred.
 
@@ -599,6 +638,11 @@ def _requeue_deferred_batches(
     paths take it from there -- the same-run top-up refetches the gap
     games with a fresh breaker, and the next run's cache-miss pass
     refetches exactly and only the games whose rows never landed.
+
+    ``final_pass`` marks the run's LAST recovery pass (the same-run
+    top-up's second pass): its messages then name only the next run's
+    cache-miss pass, because no further in-run recovery exists after this
+    requeue aborts (:func:`_recovery_note`, fourth review 2026-10-13).
     """
     recovered = 0
     attempted = 0
@@ -633,15 +677,15 @@ def _requeue_deferred_batches(
         logger.warning(
             "Open-Meteo archive requeue: stopping after %d consecutive "
             "dead batches (abort line %d) - %d deferred batch(es) not "
-            "re-attempted; missing games recover via the same-run top-up "
-            "and the next run's cache-miss pass",
-            dead_streak, _RATE_LIMIT_ABORT_STREAK, unattempted)
+            "re-attempted; missing games recover via %s",
+            dead_streak, _RATE_LIMIT_ABORT_STREAK, unattempted,
+            _recovery_note(final_pass))
     elif attempted:
         logger.info(
             "Open-Meteo archive requeue: recovered %d of %d deferred "
-            "batch(es); %d stay deferred for the same-run top-up and the "
-            "next run's cache-miss pass",
-            recovered, attempted, attempted - recovered)
+            "batch(es); %d stay deferred for %s",
+            recovered, attempted, attempted - recovered,
+            _recovery_note(final_pass))
 
 
 def _fetch_batch_range(
@@ -654,6 +698,7 @@ def _fetch_batch_range(
     past_days: int | None = None,
     forecast_days: int | None = None,
     defer_on_429: bool = False,
+    final_pass: bool = False,
 ) -> dict[tuple[str, date], dict[str, list]] | None:
     """One bounded multi-coordinate request; None = rate-limited, deferred.
 
@@ -662,6 +707,10 @@ def _fetch_batch_range(
     sweep can distinguish "deferred by the quota" from "dead for good" and
     requeue it.  Callers that merge with ``by_key.update`` must therefore
     only pass ``defer_on_429`` where they handle ``None``.
+
+    ``final_pass`` passes through to the rate-limited message
+    (:func:`_recovery_note`): the run's last recovery pass must not
+    promise a same-run top-up that cannot follow it.
     """
     params = {
         "latitude": ",".join(str(info[1]) for info in locations),
@@ -702,9 +751,8 @@ def _fetch_batch_range(
                 logger.warning(
                     "Open-Meteo rate limited after cooldown+probe "
                     "(%s..%s, source=%s) - no data for this batch; missing "
-                    "games stay NaN and recover via the requeue, the "
-                    "same-run top-up or the next run's cache-miss pass",
-                    start_date, end_date, source)
+                    "games stay NaN and recover via the requeue, %s",
+                    start_date, end_date, source, _recovery_note(final_pass))
             return None
         response.raise_for_status()
         payload = response.json()
@@ -728,6 +776,7 @@ def _fetch_batched_weather(
     now: datetime,
     *,
     cooldown_first_batch: bool = False,
+    final_pass: bool = False,
 ) -> dict[tuple[str, date], dict[str, list]]:
     """Fetch paced archive/recent-past/forecast hourly series for all targets.
 
@@ -738,6 +787,11 @@ def _fetch_batched_weather(
     (2026-10-13 run: 18/18 top-up batches deferred in 39s and 142 games
     still shipped without weather).  The remaining batches keep defer mode —
     the sweep itself never sleeps.
+
+    ``final_pass`` marks that same recovery pass (the run's LAST): every
+    rate-limited message this call emits then names only the next run's
+    cache-miss pass as recovery — no same-run top-up follows the final one
+    (:func:`_recovery_note`, fourth review 2026-10-13, the 10:23 run).
     """
     by_key: dict[tuple[str, date], dict[str, list]] = {}
     if not targets:
@@ -798,6 +852,7 @@ def _fetch_batched_weather(
                     batch, chunk_start, chunk_end,
                     source=OPEN_METEO_ARCHIVE,
                     defer_on_429=not (cooldown_first_batch and first_batch),
+                    final_pass=final_pass,
                 )
                 first_batch = False
                 if result is None:
@@ -816,7 +871,8 @@ def _fetch_batched_weather(
                 "Open-Meteo: %d of %d archive batches came back 429 and "
                 "were deferred — one paced re-attempt follows",
                 len(deferred), attempted)
-            _requeue_deferred_batches(deferred, by_key)
+            _requeue_deferred_batches(deferred, by_key,
+                                      final_pass=final_pass)
 
     # ERA5/archive publication lags. The forecast endpoint's observed past
     # window exposes the same hourly records immediately, with the identical
@@ -847,6 +903,7 @@ def _fetch_batched_weather(
                 forecast=True,
                 past_days=(today - recent_start).days + 1,
                 forecast_days=1,
+                final_pass=final_pass,
             )
             # A rate-limited/failed batch yields None (never data), so the
             # phase skips instead of crashing on .items() (2026-10-13
@@ -863,6 +920,7 @@ def _fetch_batched_weather(
             locations, forecast_start, end_date,
             source=OPEN_METEO_FORECAST,
             forecast=True, past_days=1, forecast_days=forecast_days,
+            final_pass=final_pass,
         )
         for key, series in (future or {}).items():
             by_key.setdefault(key, series)
@@ -1160,7 +1218,8 @@ def fetch_games_weather(
         # hole — earns one bounded cooldown + probe before deferring.
         series_by_key = _fetch_batched_weather(
             still_missing, fetched_at.to_pydatetime(),
-            cooldown_first_batch=bool(_pass))
+            cooldown_first_batch=bool(_pass),
+            final_pass=bool(_pass))
         fetched_ids: set[str] = set()
         for target in still_missing:
             # A kickoff at (or just after) 00:00 UTC has no earlier hour on

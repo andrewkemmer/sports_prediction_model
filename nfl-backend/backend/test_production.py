@@ -5531,12 +5531,14 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
     ])
     _pa_calls = []
     _pa_flags = []          # cooldown_first_batch per _fetch_batched_weather call
+    _pa_finals = []         # final_pass per call (the honest-message marker)
 
     def _pa_flaky_fetch(targets, now, **_kw):
         # Pass 1: the "429-exhausted" batch answers for the first target
         # only; pass 2 (the top-up) recovers the remaining gap.
         _pa_calls.append([t["game_id"] for t in targets])
         _pa_flags.append(_kw.get("cooldown_first_batch"))
+        _pa_finals.append(_kw.get("final_pass"))
         take = targets[:1] if len(_pa_calls) == 1 else targets
         out = {}
         for t in take:
@@ -5555,13 +5557,15 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
         weather_mod._fetch_batched_weather = _pa_orig_fetch
     check("the same-run top-up recovers games a first-pass batch lost, and "
           "ONLY the recovery pass runs with cooldown_first_batch (the main "
-          "sweep keeps its never-sleep contract)",
+          "sweep keeps its never-sleep contract) and final_pass (its "
+          "messages may no longer promise a same-run top-up)",
           len(_pa_calls) == 2
           and _pa_calls[0] == ["PA_G0", "PA_G1"]
           and _pa_calls[1] == ["PA_G1"]
           and _pa_flags == [False, True]
+          and _pa_finals == [False, True]
           and set(_pa_topup["game_id"]) == {"PA_G0", "PA_G1"},
-          f"calls={_pa_calls}, flags={_pa_flags}, "
+          f"calls={_pa_calls}, flags={_pa_flags}, finals={_pa_finals}, "
           f"got={list(_pa_topup['game_id']) if len(_pa_topup) else []}")
 
     _pa_five = pd.DataFrame([
@@ -5612,6 +5616,108 @@ with tempfile.TemporaryDirectory() as _pa_cache_dir:
 check("the top-up logs a gap-only second pass before refetching",
       any("PIT weather top-up" in i and "1 game(s)" in i for i in _pa_infos),
       str([i for i in _pa_infos if "top-up" in i]))
+
+# ---------------------------------------------------------------------------
+# Final-pass recovery honesty (2026-10-13 10:23 run-log review, fourth pass)
+#
+# The run's LAST recovery pass (the same-run top-up's second pass) emitted
+# "missing games stay NaN and recover via the requeue, the same-run top-up
+# or the next run's cache-miss pass" (log line 24) and its requeue abort
+# repeated "missing games recover via the same-run top-up and the next
+# run's cache-miss pass" (line 27) -- both from INSIDE the top-up itself,
+# where no further in-run recovery exists: the 142 lost games healed only
+# on the next run.  A reader of the remote log was twice told the hole
+# would close in-run.  _recovery_note owns the string; both emitters must
+# name only the next-run path in final mode and keep both paths in sweep
+# mode (whose top-up really does follow).
+# ---------------------------------------------------------------------------
+def _fp_dead_batch(locations, start_date, end_date, *, source,
+                   defer_on_429=False, final_pass=False, **_kw):
+    """A batch that always dies to the quota (dead-batch streak and all)."""
+    weather_mod._rate_limit["streak"] += 1
+    return None
+
+_fp_deferred = [(
+    [("Test Stadium", 39.0, -95.0)],
+    date(2026, 9, 1) + timedelta(days=i),
+    date(2026, 9, 1) + timedelta(days=i),
+) for i in range(weather_mod._RATE_LIMIT_ABORT_STREAK + 1)]
+
+_fp_warns, _fp_infos = [], []
+_fp_orig_warn, _fp_orig_info = weather_mod.logger.warning, weather_mod.logger.info
+weather_mod.logger.warning = lambda m, *a, **k: _fp_warns.append(m % a if a else m)
+weather_mod.logger.info = lambda m, *a, **k: _fp_infos.append(m % a if a else m)
+_fp_orig_batch = weather_mod._fetch_batch_range
+weather_mod._fetch_batch_range = _fp_dead_batch
+try:
+    weather_mod._reset_rate_limiter()
+    weather_mod._requeue_deferred_batches(_fp_deferred, {}, final_pass=True)
+    _fp_final_abort = [m for m in _fp_warns if "not re-attempted" in m]
+    _fp_warns.clear()
+    weather_mod._reset_rate_limiter()
+    weather_mod._requeue_deferred_batches(_fp_deferred, {})
+    _fp_sweep_abort = [m for m in _fp_warns if "not re-attempted" in m]
+finally:
+    weather_mod._fetch_batch_range = _fp_orig_batch
+    weather_mod.logger.warning, weather_mod.logger.info = _fp_orig_warn, _fp_orig_info
+check("the FINAL recovery pass's requeue abort names only the next run's "
+      "cache-miss pass (2026-10-13 10:23 log line 27 promised the "
+      "same-run top-up from inside that very top-up)",
+      len(_fp_final_abort) == 1
+      and "same-run top-up" not in _fp_final_abort[0]
+      and "next run's cache-miss pass" in _fp_final_abort[0]
+      and "final recovery pass" in _fp_final_abort[0],
+      str(_fp_final_abort))
+check("the SWEEP's requeue abort keeps naming both recovery paths "
+      "(the same-run top-up really does follow the sweep)",
+      len(_fp_sweep_abort) == 1
+      and "same-run top-up" in _fp_sweep_abort[0]
+      and "cache-miss" in _fp_sweep_abort[0],
+      str(_fp_sweep_abort))
+
+_fp_resp = mock.Mock(status_code=429, headers={})
+_fp_rl_warns = []
+weather_mod.logger.warning = (
+    lambda m, *a, **k: _fp_rl_warns.append(m % a if a else m))
+try:
+    weather_mod._reset_rate_limiter()
+    with mock.patch.object(weather_mod.requests, "get", return_value=_fp_resp), \
+         mock.patch.object(weather_mod.time, "sleep"), \
+         mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
+        _fp_final_429 = weather_mod._fetch_batch_range(
+            [("Test Stadium", 39.0, -95.0)], date(2026, 9, 1),
+            date(2026, 9, 14), source=weather_mod.OPEN_METEO_ARCHIVE,
+            final_pass=True)
+    _fp_final_rl = [m for m in _fp_rl_warns if "cooldown+probe" in m]
+    _fp_rl_warns.clear()
+    weather_mod._reset_rate_limiter()
+    with mock.patch.object(weather_mod.requests, "get", return_value=_fp_resp), \
+         mock.patch.object(weather_mod.time, "sleep"), \
+         mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
+        _fp_sweep_429 = weather_mod._fetch_batch_range(
+            [("Test Stadium", 39.0, -95.0)], date(2026, 9, 1),
+            date(2026, 9, 14), source=weather_mod.OPEN_METEO_ARCHIVE)
+    _fp_sweep_rl = [m for m in _fp_rl_warns if "cooldown+probe" in m]
+finally:
+    weather_mod.logger.warning = _fp_orig_warn
+check("the FINAL pass's rate-limited line names only the requeue and the "
+      "next run's cache-miss pass (2026-10-13 10:23 log line 24)",
+      _fp_final_429 is None and len(_fp_final_rl) == 1
+      and "same-run top-up" not in _fp_final_rl[0]
+      and "the requeue" in _fp_final_rl[0]
+      and "final recovery pass" in _fp_final_rl[0],
+      str(_fp_final_rl))
+check("the sweep's rate-limited line keeps naming the same-run top-up",
+      _fp_sweep_429 is None and len(_fp_sweep_rl) == 1
+      and "same-run top-up" in _fp_sweep_rl[0]
+      and "final recovery pass" not in _fp_sweep_rl[0],
+      str(_fp_sweep_rl))
+check("_recovery_note is the single owner of the recovery-path string",
+      weather_mod._recovery_note(False)
+      == "the same-run top-up and the next run's cache-miss pass"
+      and "same-run top-up" not in weather_mod._recovery_note(True)
+      and "final recovery pass" in weather_mod._recovery_note(True))
+weather_mod._reset_rate_limiter()  # hermetic: no streak leaks past this section
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
