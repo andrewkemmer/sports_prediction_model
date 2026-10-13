@@ -349,9 +349,15 @@ def _cooldown_wait(streak: int) -> float:
                      _RATE_LIMIT_COOLDOWN_MAX_SEC))
 
 
-def _rate_limited_out() -> bool:
-    """True once consecutive dead batches reach the sweep-abort line."""
-    return _rate_limit_streak() >= _RATE_LIMIT_ABORT_STREAK
+def _rate_limited_out(streak: int | None = None) -> bool:
+    """True once consecutive dead batches reach the sweep-abort line.
+
+    With no argument this reads the GLOBAL breaker streak (the sweep's
+    history); the requeue passes its own pass-local count, so one predicate
+    owns the abort line for both.
+    """
+    value = _rate_limit_streak() if streak is None else int(streak)
+    return value >= _RATE_LIMIT_ABORT_STREAK
 
 
 def _get_with_retry(url: str, params: dict, attempts: int = _RETRY_ATTEMPTS,
@@ -607,7 +613,7 @@ def _requeue_deferred_batches(
     # callers that follow.
     dead_streak = 0
     for index, (batch, chunk_start, chunk_end) in enumerate(deferred):
-        if dead_streak >= _RATE_LIMIT_ABORT_STREAK:
+        if _rate_limited_out(dead_streak):
             unattempted = len(deferred) - index
             break
         if index:
