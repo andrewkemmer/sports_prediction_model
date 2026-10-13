@@ -86,15 +86,10 @@ def _render_distribution_tab(decided):
         return
     utils.show_chart(nd.chart_distribution(dist))
     c = dist["callouts"]
-    alpha = dist.get("alpha_total")
-    alpha_txt = f"α={alpha:.3f}" if alpha is not None else "raw grid PMF"
     st.caption(
-        f"Observed bars vs modeled mean per-game NB⊗NB total PMF (MLB's "
-        f"analytic construction over the model's mu_h/mu_a; dispersion "
-        f"{alpha_txt} recovered from the model's own grid PMF, never from "
-        "outcomes — the pointwise-calibrated grid PMF is kept in the "
-        "artifact rather than plotted, which is why the line is smooth "
-        f"like MLB's) over {dist['n_games']:,} decided games · P(total≤190): observed "
+        f"Observed bars vs mean shipped calibrated split-skew Gaussian "
+        f"Monte Carlo total PMF, without a replacement plotting model, "
+        f"over {dist['n_games']:,} decided games · P(total≤190): observed "
         f"{c['P(total<=190)']['observed']:.3f} / modeled "
         f"{c['P(total<=190)']['modeled']:.3f} · P(total≥270): observed "
         f"{c['P(total>=270)']['observed']:.3f} / modeled "
@@ -525,43 +520,39 @@ def _render_runline_calibration_card(decided) -> None:
 
 def _render_fit_panel(fit: dict) -> None:
     """Distributional fit diagnostics over the NBA monitor's fit block."""
-    st.markdown("#### Distributional Fit (NB Monte Carlo)")
+    st.markdown("#### Distributional Fit (split-skew Gaussian + Monte Carlo)")
     if not fit:
         st.info("No fit diagnostics in the monitor artifact.")
         return
-    draws = nd._num(fit.get("mc_draws"))
-    seed = nd._num(fit.get("seed"))
     spread = fit.get("spread_grid") or []
     total = fit.get("total_grid") or []
-    half = fit.get("half_stops") or []
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2 = st.columns(2)
     c1.metric("distribution", str(fit.get("distribution") or "—"))
-    c2.metric("MC draws", f"{int(draws):,}" if draws else "—")
-    c3.metric("seed", str(int(seed)) if seed is not None else "—")
-    c4.metric("half stops", ", ".join(f"{v:+g}" for v in half) if half else "—")
+    c2.metric("family", str(fit.get("family") or "—"))
     st.caption(
-        f"Priced grids — spread {spread[0]:g}…{spread[-1]:g} "
-        f"(integer steps + the ±0.5 half stop) · totals "
-        f"{total[0]:g}…{total[-1]:g}. The spread grid has no half steps "
-        "beyond ±0.5, so every whole-number line is push-capable — which is "
-        "why the history tables resolve 3-way."
+        f"Priced grids — spread {_fmt(spread[0], 1) if spread else '—'}…"
+        f"{_fmt(spread[-1], 1) if spread else '—'} · totals "
+        f"{_fmt(total[0], 1) if total else '—'}…"
+        f"{_fmt(total[-1], 1) if total else '—'}, with half-point lines. "
+        "Whole-number lines are push-capable; half-point lines never push. "
+        "Challenger Monte Carlo: "
+        f"{(fit.get('monte_carlo') or {}).get('n_draws', '—')} draws, seed "
+        f"{(fit.get('monte_carlo') or {}).get('seed', '—')}."
     )
 
 
 def _render_model_card(monitor: dict) -> None:
     """Run-engine model card — MLB's per-market-line fb-box table."""
     fit = (monitor or {}).get("fit") or {}
-    st.markdown("### Run-Engine Model (NB Monte Carlo sampler)")
-    draws = nd._num(fit.get("mc_draws"))
-    seed = nd._num(fit.get("seed"))
-    draws_txt = f"{int(draws):,}" if draws is not None else "—"
-    seed_txt = str(int(seed)) if seed is not None else "—"
+    st.markdown("### Run-Engine Model (split-skew Gaussian + Monte Carlo)")
     st.caption(
-        f"Sampler — {fit.get('distribution') or '—'} · "
-        f"MC draws {draws_txt} · seed {seed_txt} · two Poisson score "
-        "regressors feed a seeded negative-binomial paired score sampler. "
-        "Totals and point spreads are model probabilities only; no "
-        "sportsbook price appears anywhere on this page."
+        f"{fit.get('distribution') or '—'} · family "
+        f"{fit.get('family') or '—'} · two per-side Poisson score "
+        "regressors give mu_h/mu_a. Home/away residual variance and correlation "
+        "anchor asymmetric left/right Gaussian widths; causal CRPS calibration "
+        "and reproducible Monte Carlo price every line. Totals and spreads are model "
+        "probabilities only; no sportsbook price appears anywhere on this "
+        "page."
     )
     mm = (monitor or {}).get("market_metrics") or {}
     if not mm:
@@ -609,8 +600,8 @@ def _render_model_card(monitor: dict) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Run engine is the per-side Poisson score regressors + calibrated
-          NB Monte Carlo — no member blend; rows are per market line
+          Run engine is the per-side Poisson score regressors +
+          calibrated split-skew Gaussian Monte Carlo — no member blend; rows are per market line
           (2-way no-push basis). Lines priced at the monitor's canonical
           totals (220/225/230) and spreads (2/5); ECE-CAL is the
           prequentially calibrated figure when a calibration map ships
@@ -645,8 +636,8 @@ def run() -> None:
     )
     st.markdown(
         "<div style='color:#94A3B8;margin:2px 0 14px;'>"
-        "Run-engine model diagnostics from the per-side era model + pinned "
-        "joint (NB) over the line grid — per-game projections and full "
+        "Split-skew Gaussian variance, causal calibration and Monte Carlo "
+        "over the line grid — per-game projections and full "
         "probabilities live in nba_run_engine_markets_*.csv.</div>",
         unsafe_allow_html=True,
     )

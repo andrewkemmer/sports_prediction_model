@@ -31,8 +31,11 @@ def calibration_buckets(p, y, n_bins=10):
         rows.append({"bucket": f"{edges[i]*100:.0f}–{edges[i+1]*100:.0f}%", "mean_predicted": round(float(fp[m].mean()), 4), "mean_actual": round(float(fy[m].mean()), 4), "count": int(m.sum()), "gap": round(float(fp[m].mean()-fy[m].mean()), 4)})
     return rows
 
-def nb_distribution_metrics(oof, params, n_draws=2000):
-    """Causal full-support CRPS; final serving params never grade old games."""
+def distribution_metrics(oof):
+    """Causal full-support CRPS; final serving params never grade old games.
+
+    Scores the same calibrated Monte Carlo CDFs used by issued forecasts.
+    """
     if oof is None or not len(oof):
         return {"run_line": {"n": 0}, "totals": {"n": 0}}
     frame, bundle = dist_mod.causal_distribution_frame(oof)

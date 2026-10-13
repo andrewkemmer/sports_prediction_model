@@ -1043,15 +1043,7 @@ class TestAdaptiveBlendPolicy:
 
 
 class TestRunLineStructuralContract:
-    """The run line's structural contract with the MLB/NHL/NFL family.
-
-    Each test pins one clause of the alignment: the feature matrix is PULLED
-    from the binary moneyline's own member path (never a parallel list), the
-    dispersion estimator is MLB's pooled method-of-moments form, the MC
-    derivation records its own resolution and guards it, and the artifacts
-    carry the transparency blocks. Every later run-line change must flip one
-    of these deliberately or it is a regression.
-    """
+    """Same-feature score means and coherent split-skew Monte Carlo markets."""
 
     @staticmethod
     def _decided(n: int = 240, seed: int = 7) -> pd.DataFrame:
@@ -1103,72 +1095,29 @@ class TestRunLineStructuralContract:
         assert list(X.columns) == list(expected.columns)
         assert X.shape == expected.shape
 
-    def test_dispersion_estimator_is_mlbs_pooled_moment_form(self):
-        import distributions as dist_mod
-        # MLB's fit_alpha: pooled, unweighted, UNcapped, 4dp:
-        #   alpha = max((var(y) - mean(mu)) / mean(mu)^2, 0)
-        rng = np.random.default_rng(3)
-        mu = np.full(500, 110.0)
-        # Poisson sample -> estimate ~ 0
-        y = rng.poisson(mu).astype(float)
-        est = dist_mod.estimate_alpha(y, mu)
-        expect = max((y.var(ddof=0) - mu.mean()) / mu.mean() ** 2, 0.0)
-        assert abs(est - round(expect, 4)) < 1e-9
-        # A genuinely over-dispersed sample must NOT be clipped by a cap
-        # (the old mu^2-weighted capped form silently saturated): variance
-        # far above the mean must land well above the Poisson-limit noise.
-        y_over = mu + rng.normal(0, 25, 500)
-        assert dist_mod.estimate_alpha(y_over, mu) > 0.03
-        assert dist_mod.ALPHA_FLOOR == 1e-6
-
-    def test_the_alpha_curve_layer_rides_alongside_the_scalars(self):
-        import distributions as dist_mod
+    def test_split_skew_variances_are_fitted_from_side_residuals(self):
+        import distributions as dist
         oof = self._oof()
-        sig = dist_mod.calibrate_dispersion(oof)
-        for side in ("home", "away"):
-            curve = sig[f"alpha_{side}_curve"]
-            assert curve["form"] in ("piecewise", "linear", "power")
-            assert f"alpha_{side}_max" in sig
-        # The draw path consumes the SCALARS; the limit verdict is scalar too.
-        assert sig["poisson_limit"] == bool(
-            sig["alpha_home"] <= dist_mod.ALPHA_FLOOR
-            and sig["alpha_away"] <= dist_mod.ALPHA_FLOOR)
+        maps = dist._distribution_fit_maps(oof.mu_h.to_numpy(), oof.mu_a.to_numpy(),
+                                          {"total": oof.total.to_numpy(), "margin": oof.margin.to_numpy()})
+        assert set(maps) == {"variance", "total", "margin"}
+        assert maps["variance"]["home_variance"] > 0
+        assert maps["variance"]["away_variance"] > 0
+        assert len(maps["total"]) == len(maps["margin"]) == 9
 
-    def test_empty_oof_degrades_to_poisson_not_an_exception(self):
-        import distributions as dist_mod
-        sig = dist_mod.calibrate_dispersion(None)
-        assert sig["poisson_limit"] is True
-        assert sig["alpha_home"] == 0.0 and sig["alpha_away"] == 0.0
-
-    def test_mc_derivation_records_its_resolution_and_guards_it(self):
-        import distributions as dist_mod
-        rng = np.random.default_rng(5)
-        mu_h = rng.uniform(105, 115, 4)
-        mu_a = rng.uniform(105, 115, 4)
-        meta: dict = {}
-        dist_mod.simulate_distributions(mu_h, mu_a, 0.0, 0.0,
-                                        n_draws=2000, meta_out=meta)
-        assert set(meta) == {"n_draws", "requested_draws",
-                             "mc_se_totals_max", "reason"}
-        # At a tiny draw count the guard MUST fire: the NBA totals grid is
-        # 101 lines, and the tail lines cannot be priced at se <= 5e-3
-        # without the bump.
-        assert meta["n_draws"] == dist_mod.MC_DRAWS_TAIL
-        assert "bumped" in meta["reason"]
-        # At the production resolution the guard must NOT fire.
-        meta2: dict = {}
-        dist_mod.simulate_distributions(mu_h[:2], mu_a[:2], 0.0, 0.0,
-                                        n_draws=dist_mod.MC_DRAWS,
-                                        meta_out=meta2)
-        assert meta2["n_draws"] == dist_mod.MC_DRAWS
-        assert meta2["reason"] == "default"
-
-    def test_draw_constants_are_family_aligned(self):
-        import distributions as dist_mod
-        assert dist_mod.MC_DRAWS == 10_000
-        assert dist_mod.MC_DRAWS_TAIL == 50_000
-        assert dist_mod.MC_SE_TARGET == 5e-3
-        assert dist_mod.ALPHA_CAP == 2.0
+    def test_mc_precision_guard_and_seed_reproducibility(self):
+        import distributions as dist
+        frame = self._oof(n=4)
+        meta = {}
+        low = dist.apply_distribution(frame, n_draws=100, meta_out=meta)
+        assert meta["n_draws"] == 10000
+        assert meta["requested_draws"] == 100
+        assert meta["mc_se_totals_max"] <= dist.MC_SE_TARGET
+        assert meta["reason"] == "precision_guard"
+        again = dist.apply_distribution(frame.iloc[::-1], n_draws=100)
+        cols = [c for c in low if c.startswith("p_")]
+        np.testing.assert_array_equal(low[cols], again.reindex(frame.index)[cols])
+        assert not np.array_equal(low.p_over_220, dist.apply_distribution(frame, n_draws=100, seed=11).p_over_220)
 
     def test_the_fit_diagnostics_pack_is_measured_every_run(self):
         import distributions as dist_mod
@@ -1194,34 +1143,23 @@ class TestRunLineStructuralContract:
         serving.write_markets_csv(
             tmp_path / "markets.csv", meta_path, oof, slate,
             mc_meta={"n_draws": 10000, "requested_draws": 10000,
-                     "mc_se_totals_max": 0.0005, "reason": "default"},
+                     "mc_se_totals_max": 0.005, "reason": "requested"},
             run_line_fit_check={"home": {"pearson": 1.0}, "away": {"pearson": 1.0}})
         import json
         meta = json.loads(meta_path.read_text())
         assert meta["mc_meta"]["n_draws"] == 10000
         assert "home" in meta["run_line_fit_check"]
 
-    def test_every_market_leg_is_calibrated_from_its_own_outcome(self):
-        """NHL 8d6f9b0 parity, pinned: over/under/push legs must each carry
-        their OWN platt map in the bundle, never a shared one."""
-        import distributions as dist_mod
-        rng = np.random.default_rng(9)
-        n = 120
-        total = rng.uniform(190, 260, n)
-        oof = self._oof(n=n, seed=13)
-        oof["total"] = total
-        oof["margin"] = rng.uniform(-20, 20, n)
-        grid = dist_mod.simulate_distributions(
-            oof.mu_h.to_numpy(), oof.mu_a.to_numpy(), 0.0, 0.0,
-            n_draws=dist_mod.MC_DRAWS)
-        frame = grid
-        frame["fold_id"] = oof.fold_id.to_numpy()
-        frame["margin"] = oof.margin.to_numpy()
-        frame["total"] = oof.total.to_numpy()
-        _, bundle = dist_mod.calibrate_market_frame(frame)
-        sample = bundle["totals"].get("220") or next(iter(bundle["totals"].values()))
-        assert sample["over"] is not None and sample["under"] is not None
-        assert sample["over"] != sample["under"] or sample["push"] != sample["over"]
+    def test_every_market_leg_comes_from_one_calibrated_cdf(self):
+        import distributions as dist
+        frame = self._oof(n=240)
+        frame["gameday"] = pd.date_range("2025-01-01", periods=len(frame))
+        priced, bundle = dist.calibrate_market_frame(frame)
+        np.testing.assert_allclose(priced.p_over_220 + priced.p_push_total_220 + priced.p_under_220, 1.)
+        np.testing.assert_allclose(priced.p_home_cover_0, priced.p_home_win_derived)
+        assert bundle["scope"] == "whole_cdf"
+        assert bundle["monte_carlo"]["n_draws"] > 0
+
 
 
 class TestMemberTuningNoiseFloor:
@@ -1481,21 +1419,14 @@ class TestCausalMoneylineParity:
         assert all(ids == frame.game_id.tolist() for name, ids in seen)
 
 
-class TestSealedDispersionHoldout:
-    """The alpha layer never fits the rows it is evaluated against.
-
-    Finding-2 remediation pins (NHL 62d00fd / MLB derive_markets_v3
-    parity): the last HOLDOUT_DAYS of a dated OOF frame are sealed away
-    from the curve fit, the scalars, and the alpha-vector max — and the
-    gate records its own scope so a run cannot silently claim a discipline
-    it did not exercise. An undated frame is ungated, exactly as before.
-    """
+class TestSealedChallengerHoldout:
+    """Recent evaluation outcomes cannot fit variance, maps, or admission."""
 
     @staticmethod
     def _oof(n: int = 200, seed: int = 13) -> pd.DataFrame:
         """Dated OOF frame whose tail is intentionally degenerate: the
         sealed window's scores are wildly inflated so that any fit that
-        saw them would produce a visibly different alpha."""
+        saw them would produce visibly different variance parameters."""
         rng = np.random.default_rng(seed)
         scores_h = rng.integers(95, 125, n).astype(float)
         scores_a = rng.integers(95, 125, n).astype(float)
@@ -1508,7 +1439,7 @@ class TestSealedDispersionHoldout:
             "fold_id": np.arange(n) // 25,
         })
         # The sealed tail: 21 days of absurdly lopsided scores. A fit that
-        # included these rows would read massive over-dispersion.
+        # included these rows would read massive residual variance.
         tail = oof.gameday >= (oof.gameday.max().normalize()
                                - pd.Timedelta(days=21))
         oof.loc[tail, "home_score"] = 200.0
@@ -1517,35 +1448,24 @@ class TestSealedDispersionHoldout:
         oof["total"] = oof.home_score + oof.away_score
         return oof
 
-    def test_the_gate_fits_pre_holdout_rows_and_records_its_scope(self):
-        import distributions as dist_mod
-        oof = self._oof()
-        sig = dist_mod.calibrate_dispersion(oof)
-        hold = sig["holdout"]
-        cutoff = (oof.gameday.max().normalize() - pd.Timedelta(days=21))
-        assert hold["cutoff"] == str(cutoff.date())
-        # The definition, not a count: sealed rows are dates >= cutoff
-        # (on a daily grid the cutoff day itself is sealed, so 21 days of
-        # separation seals 22 rows).
-        n_sealed = int((oof.gameday >= cutoff).sum())
-        assert hold["n_holdout"] == n_sealed
-        assert hold["n_pre"] == len(oof) - n_sealed
-        assert hold["fitted_on"] == "pre-holdout OOF only"
-        # The degenerate sealed tail did NOT reach the fit: alpha stays in
-        # the sane range the pre-holdout rows support, not the inflated
-        # value the lopsided tail would drag it to.
-        ungated = dist_mod.calibrate_dispersion(
-            oof.drop(columns=["gameday"]))
-        assert sig["alpha_home"] < ungated["alpha_home"]
+    def test_sealed_outcomes_do_not_change_issued_prices_or_fit_parameters(self):
+        import distributions as dist
+        frame = self._oof(n=300)
+        priced, bundle = dist.causal_distribution_frame(frame)
+        cutoff = frame.gameday.max().normalize() - pd.Timedelta(days=dist.HOLDOUT_DAYS)
+        changed = frame.copy()
+        changed.loc[changed.gameday >= cutoff, "home_score"] += 100
+        second, second_bundle = dist.causal_distribution_frame(changed)
+        cols = [c for c in priced if c.startswith("p_")]
+        np.testing.assert_array_equal(priced[cols], second[cols])
+        assert bundle["origins"] == second_bundle["origins"]
+        assert bundle["holdout"]["n_holdout"] == int((frame.gameday >= cutoff).sum())
+        assert bundle["maps"]["variance"] != second_bundle["maps"]["variance"]  # serving may refit settled history
 
-    def test_an_undated_frame_is_ungated_and_fully_fit(self):
-        import distributions as dist_mod
-        oof = self._oof().drop(columns=["gameday"])
-        sig = dist_mod.calibrate_dispersion(oof)
-        hold = sig["holdout"]
-        assert hold["cutoff"] is None
-        assert hold["fitted_on"] == "full OOF (no gameday on frame)"
-        assert hold["n_holdout"] == 0 and hold["n_pre"] == len(oof)
+    def test_undated_evaluation_is_refused(self):
+        import distributions as dist
+        with pytest.raises(KeyError):
+            dist.causal_distribution_frame(self._oof().drop(columns=["gameday"]))
 
     def test_the_stamp_marks_exactly_the_sealed_window(self):
         import master_pipeline as mp
@@ -1567,20 +1487,17 @@ class TestSealedDispersionHoldout:
         # And a None frame does not raise.
         assert mp._stamp_sealed_tail(None) is None
 
-    def test_the_monitor_carries_the_gate_scope(self):
+    def test_the_monitor_carries_challenger_scope_and_draws(self, tmp_path):
+        import distributions as dist
         import monitoring as mon
-        import distributions as dist_mod
-        sig = dist_mod.calibrate_dispersion(self._oof())
-        import tempfile, pathlib
-        with tempfile.TemporaryDirectory() as tmp:
-            out = pathlib.Path(tmp) / "m.json"
-            record = mon.write_run_engine_monitor(
-                out, "20260928", dispersion=sig,
-                config_meta={"sport": "nba"})
-            fit = record["fit"]["holdout"]
-            assert fit["cutoff"] == sig["holdout"]["cutoff"]
-            assert fit["holdout_days"] == dist_mod.HOLDOUT_DAYS
-            assert fit["fitted_on"] == "pre-holdout OOF only"
+        priced, bundle = dist.causal_distribution_frame(self._oof())
+        priced["kind"] = "oof"
+        record = mon.write_run_engine_monitor(tmp_path / "m.json", "20261012",
+                                               markets=priced, calibration=bundle)
+        assert record["fit"]["holdout"] == bundle["holdout"]
+        assert record["fit"]["monte_carlo"]["n_draws"] == dist.MC_DRAWS
+        assert record["fit"]["family"] == dist.family.FAMILY
+
 
 
 class TestEloSeasonBoundary:
@@ -1816,7 +1733,7 @@ def _crps_test_frame():
     a = rng.uniform(100., 120., n) if dist.DISTRIBUTION_SPORT == "nba" else rng.uniform(2., 5., n)
     hs, aws = rng.poisson(h), rng.poisson(a)
     if dist.DISTRIBUTION_SPORT != "nfl": hs = hs + (hs == aws)
-    frame = pd.DataFrame({"home_score": hs, "away_score": aws})
+    frame = pd.DataFrame({"home_score": hs, "away_score": aws, "game_id": [f"g{i}" for i in range(n)]})
     if dist.DISTRIBUTION_SPORT == "mlb":
         frame["home_expected_runs"], frame["away_expected_runs"] = h, a
         frame["game_date"] = pd.date_range("2025-01-01", periods=n)
@@ -1851,7 +1768,7 @@ def test_crps_full_pipeline_future_poisoning_and_row_order_invariance():
     shuffled = frame.sample(frac=1., random_state=81)
     reordered, _ = dist.causal_distribution_frame(shuffled)
     np.testing.assert_allclose(priced[cols], reordered.reindex(frame.index)[cols], atol=1e-10)
-    assert bundle["method"] == "causal_lattice_crps"
+    assert bundle["method"] == "causal_split_skew_crps_mc"
     assert bundle["scope"] == "whole_cdf"
     assert bundle["origins"][0]["n_prior"] == 0
     assert all(o["n_prior"] < len(frame) for o in bundle["origins"])

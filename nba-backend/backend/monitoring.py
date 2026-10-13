@@ -1246,7 +1246,7 @@ def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:
 
 def write_run_engine_monitor(path, date_c: str, markets=None,
                              calibration=None, config_meta=None,
-                             dispersion=None, ml_reference=None,
+                             ml_reference=None,
                              markets_persisted: bool = True,
                              markets_persist_error=None) -> dict:
     """``Run-Line & Totals Monitor`` artifact (MLB run-engine-monitor/v2
@@ -1261,16 +1261,10 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
     shared moneyline ensemble's pooled win rate — the derived-ML card's
     comparison anchor, passed in by the caller that owns the moneyline OOF
     store.
-    """
-    # The fit block must report the ENGINE's constants, not a number a
-    # refactor forgot: the draw count here used to be hardcoded at 4000 while
-    # the derivation itself moved to the MLB pair (10k default, 50k SE-guard
-    # tail), so the monitor described a resolution the run never used.
-    try:
-        from backend import distributions as _dist_mod
-    except ImportError:  # pragma: no cover - direct script/import fallback
-        import distributions as _dist_mod
 
+    ``calibration`` carries split-skew variance parameters, causal CRPS maps,
+    sealed evaluation scope, and the actual Monte Carlo draw resolution.
+    """
     iso_date = (f"{date_c[:4]}-{date_c[4:6]}-{date_c[6:8]}"
                 if len(str(date_c)) == 8 and str(date_c).isdigit()
                 else str(date_c))
@@ -1303,11 +1297,11 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
         "markets_persist_error": markets_persist_error,
         "winner_cards": cards,
         "slate_history": slate_history,
-        "fit": {"distribution": "negative_binomial",
-                "mc_draws": _dist_mod.MC_DRAWS,
-                "mc_draws_tail": _dist_mod.MC_DRAWS_TAIL,
-                "mc_se_target": _dist_mod.MC_SE_TARGET,
-                "seed": _dist_mod.MC_SEED,
+        "fit": {"distribution": "causal_split_skew_crps_mc",
+                "family": "two_sided_asymmetric_gaussian_split_skew",
+                "priced_by": "inverse_calibrated_cdf_monte_carlo",
+                "variance": (calibration or {}).get("maps", {}).get("variance", {}),
+                "monte_carlo": (calibration or {}).get("monte_carlo", {}),
                 "spread_grid": [min(config.SPREAD_GRID), max(config.SPREAD_GRID)],
                 "total_grid": [min(config.TOTAL_GRID), max(config.TOTAL_GRID)],
                 "half_stops": list(config.HALF_STOP_LINES)},
@@ -1317,7 +1311,7 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
     # Sealed-holdout per-line metrics (MLB v3 / NHL parity): the last
     # HOLDOUT_DAYS of OOF rows — stamped frame_view='sealed' — scored at the
     # canonical lines against the same grids. The sealed window never fit
-    # the alpha layer nor the line calibrators, so this is the engine's
+    # the variance layer nor the causal CDF calibrators, so this is the engine's
     # honest recent-form evaluation, nested per line under each metric's own
     # "holdout" key exactly like MLB's card shape.
     hold_rows = None
@@ -1345,16 +1339,10 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
             record["market_metrics"]["derived_moneyline"] = entry
         record["holdout_gate"] = {
             "n_holdout": int(len(hold_rows)),
-            "note": (f"last {_dist_mod.HOLDOUT_DAYS} days of OOF rows; sealed "
-                     "from the alpha fit and the line calibrators"),
+            "note": ("recent OOF tail sealed from variance fitting, "
+                     "CDF calibration, and admission evidence"),
         }
-    # Sealed-holdout transparency (NHL 62d00fd / MLB v3 parity): the
-    # monitor carries the gate scope so the evaluation numbers ship with
-    # the record of what the alpha layer was allowed to fit on.
-    holdout = (dispersion or {}).get("holdout") or {}
+    holdout = (calibration or {}).get("holdout") or {}
     if holdout:
-        record["fit"]["holdout"] = {
-            **holdout,
-            "holdout_days": _dist_mod.HOLDOUT_DAYS,
-        }
+        record["fit"]["holdout"] = holdout
     return _dump(path, record)

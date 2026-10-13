@@ -319,7 +319,7 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)
     meta = {
-        "distribution_method": "causal_lattice_crps",
+        "distribution_method": "causal_split_skew_crps_mc",
         "distribution_objective": "discrete_crps",
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
         "settlement": 'final_score_no_tie',
@@ -333,15 +333,12 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
                   "half_stops": list(config.HALF_STOP_LINES),
                   "totals_push_namespace": "p_push_total_<U>"},
     }
-    # MLB mc_meta parity: the markets meta records the MC resolution the
-    # derivation actually used, the worst totals-line standard error at that
-    # resolution, and whether the SE-guard bumped the draw count. A reader
-    # can tell a 10k grid from a 50k grid without re-deriving anything.
+    # Record actual challenger Monte Carlo resolution and reproducibility.
     if mc_meta:
         meta["mc_meta"] = mc_meta
     # MLB fit-diagnostics parity: the Pearson Poisson-adequacy probe and the
     # pooled deviance/RMSE against the constant league-mean baseline, per
-    # side — the measured verdict behind the poisson_limit flag.
+    # side — score-mean adequacy, not challenger variance parameters.
     if run_line_fit_check:
         meta["run_line_fit_check"] = run_line_fit_check
     dump_json(Path(meta_path), meta)

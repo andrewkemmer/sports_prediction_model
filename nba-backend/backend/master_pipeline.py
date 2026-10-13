@@ -149,13 +149,12 @@ def _stamp_sealed_tail(oof_markets: pd.DataFrame) -> pd.DataFrame:
     """Stamp frame_view='sealed' on the last HOLDOUT_DAYS of OOF rows.
 
     Sealed-holdout tail (NHL 62d00fd / MLB derive_markets_v3 parity): the
-    sealed window never fit the alpha layer (the pre-holdout-only gate
-    inside ``calibrate_dispersion``), so its market scores are the engine's
-    honest recent-form evaluation instead of the window validating itself.
-    The per-line Platt calibrators are prequential — each fold's map fits
-    prior folds only — so they were already clean for every row including
-    the sealed tail. An undated frame (or absent gameday column) is
-    returned untouched, exactly as the ungated dispersion fit treats it.
+    sealed window is never fitted on — the CRPS admission evidence in
+    ``causal_distribution_frame`` sees prior origins only — so its market
+    scores are the engine's honest recent-form evaluation instead of the
+    window validating itself. Variance and whole-CDF calibration learning
+    are frozen before the sealed tail, including admission evidence. An undated frame
+    (or absent gameday column) is returned untouched.
     """
     if oof_markets is None or not len(oof_markets) \
             or "gameday" not in oof_markets.columns:
@@ -214,16 +213,11 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
 
 
 def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
-                distribution_params: dict[str, Any] | None = None,
                 mc_meta_out: dict | None = None) -> pd.DataFrame:
     """Attach a complete NBA score/line distribution to a base game frame.
 
-    ``distribution_params`` carries the OOF-estimated dispersion into the
-    slate pricing path; omitting it would silently fall back to Poisson even
-    after the production fit learned overdispersion. ``mc_meta_out`` receives
-    the derivation's mc_meta transparency block when the grid is expanded
-    here (MLB mc_meta parity; the OOF path passes it, the slate path — whose
-    grid rides the calibrated OOF bundle — reuses the OOF resolution).
+    The challenger samples its calibrated CDF; ``mc_meta_out`` records
+    the draw count, seed and precision guard used by this grid expansion.
     """
     if base is None or not len(base) or dist is None or not len(dist):
         return pd.DataFrame()
@@ -242,8 +236,7 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
     # line grid when no priced spread column is present yet.
     has_grid = any(str(c).startswith("p_home_cover_") for c in out.columns)
     if "mu_h" not in out or "mu_a" not in out or not has_grid:
-        out = dist_mod.apply_distribution(out, distribution_params or {},
-                                          meta_out=mc_meta_out)
+        out = dist_mod.apply_distribution(out, meta_out=mc_meta_out)
     out["kind"] = kind
     out["decided"] = kind == "oof"
     out["frame_view"] = kind
@@ -1320,7 +1313,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     phase_error: Exception | None = None
     ml: dict | None = None
-    ml_oof = platt = dist_oof = dispersion = None
+    ml_oof = platt = dist_oof = None
     oof_markets = market_calibration = None
     _fit_check: dict | None = None
     _mc_meta: dict = {}
@@ -1386,13 +1379,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
         dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
         dist_oof = _merge_oof_metadata(dist["oof"], game_df)
-        dispersion = dist_mod.calibrate_dispersion(dist_oof)
-        # The run line's fit is now MEASURED every run the way MLB's run
-        # engine reports its own: the Pearson Poisson-adequacy probe plus
-        # pooled deviance/RMSE against the constant league-mean baseline.
-        # "Poisson limit" stops being an unmeasured assertion — the probe
-        # either confirms adequate Poisson variance or names the
-        # over-dispersion the NB term should absorb.
+        # Score-mean adequacy diagnostics remain distinct from challenger pricing.
         _fit_check = dist_mod.run_line_fit_check(dist_oof)
         logger.info("run-line fit check: "
                     "home pearson %.4f dev %.5f (baseline %.5f) | away pearson %.4f "
@@ -1401,30 +1388,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     _fit_check["home"]["deviance_baseline"],
                     _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                     _fit_check["away"]["deviance_baseline"])
-        logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
-                    "alpha_home %.4f (per-row curve max %.4f), alpha_away "
-                    "%.4f (per-row curve max %.4f) - %s",
-                    dispersion["alpha_home"],
-                    dispersion.get("alpha_home_max", dispersion["alpha_home"]),
-                    dispersion["alpha_away"],
-                    dispersion.get("alpha_away_max", dispersion["alpha_away"]),
-                    "POISSON LIMIT: no over-dispersion to model, the NB term is "
-                    "inactive and scoring is Poisson" if dispersion.get("poisson_limit")
-                    else "over-dispersed fit active")
-        # Name the gate scope (NHL 62d00fd / MLB v3 parity): which rows the
-        # alpha layer was allowed to see, and how many recent rows are
-        # sealed away from it.
-        _hg = dispersion.get("holdout") or {}
-        if _hg.get("cutoff"):
-            logger.info("sealed holdout gate: alpha fitted on %s "
-                        "(cutoff %s; %d pre / %d sealed rows)",
-                        _hg.get("fitted_on"), _hg.get("cutoff"),
-                        _hg.get("n_pre", 0), _hg.get("n_holdout", 0))
-        # mc_meta rides the markets meta: the derivation records its own MC
-        # resolution and whether the SE-guard bumped it (MLB mc_meta parity).
-        oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion,
-                                 mc_meta_out=_mc_meta)
+        # Learn variance/skew and coherent calibration only from prior origins.
+        oof_markets = _marketize(ml_oof, dist_oof, "oof", mc_meta_out=_mc_meta)
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        _mc_meta = market_calibration["monte_carlo"]
         oof_markets = _stamp_sealed_tail(oof_markets)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
                               f"{len(fold_list)} folds")
@@ -1441,7 +1408,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 slate.home_win_prob_model.to_numpy(float), platt)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-            slate_markets = _marketize(slate, slate, "slate", dispersion)
+            slate_markets = _marketize(slate, slate, "slate")
             slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                                market_calibration)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
@@ -1637,7 +1604,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             "moneyline_models": {name: entry["model"] for name, entry in final_models.items()},
             "moneyline_preprocessors": {name: entry["pre"] for name, entry in final_models.items()},
             "ensemble_weights": ml["member_weights"], "platt": platt,
-            "score_regressor": final_reg, "distribution": dispersion,
+            "score_regressor": final_reg,
             "market_calibration": market_calibration,
             "feature_set_version": config.FEATURE_SET_VERSION,
             "feature_columns": config.active_moneyline_feature_cols(),
@@ -1677,12 +1644,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         cal_metrics, platt, feature_importance=imp_decomp,
         raw_metrics=raw_metrics)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
-    # NB distribution scorer — the same run-line/totals OOF summary NHL and
+    # Distribution scorer — the same run-line/totals OOF summary NHL and
     # NFL log every run (it is a diagnostic, not the monitor's schema: the
     # monitor's winner_cards/market_metrics are MLB's per-card / per-line
     # structures computed from the persisted market frame, 2026-10-11).
-    dist_metrics = (evaluation.nb_distribution_metrics(dist_oof, dispersion)
-                    if dist_oof is not None and dispersion is not None else {})
+    dist_metrics = (market_calibration or {}).get("oof_metrics", {})
     if dist_metrics:
         logger.info("run-line OOF:  %s", json.dumps(dist_metrics.get("run_line", {})))
         logger.info("totals OOF:    %s", json.dumps(dist_metrics.get("totals", {})))
@@ -1712,7 +1678,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,
         markets=oof_markets if oof_markets is not None else {},
         calibration=market_calibration, config_meta=_config_meta(facts),
-        dispersion=dispersion, ml_reference=ml_ref,
+        ml_reference=ml_ref,
         markets_persisted=bool(phase_error is None and _markets_path.exists()))
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
