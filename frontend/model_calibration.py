@@ -314,19 +314,42 @@ _cal_buckets = {
 if curve_df.empty:
     st.info("No reliability data available.")
 else:
+    # CALIBRATED / CALIB. WIN RATE sourcing: the artifact's published
+    # prequential partition when it has one; otherwise the STORED per-game
+    # calibrated column (the green reference line's source), grouped by the
+    # same bucket labels — display-only grouping, never a refit. The
+    # artifact always wins; the fallback exists because identity-gated runs
+    # (e.g. NBA 2026-10-09+) publish no ``calibration`` section at all,
+    # which left the whole calibrated side of this table as em-dashes.
+    _cal_wr = mlc.calibrated_bucket_stats(hist_curve,
+                                          list(curve_df["bucket"]))
     rows = []
     for _, r in curve_df.iterrows():
         gap = r["gap"]
         gap_color = utils.PRIMARY if gap > 0 else utils.RED
         gap_txt = f"{gap:+.3f}"
         _cb = _cal_buckets.get(r["bucket"])
+        _fb = _cal_wr.get(r["bucket"])
+        cal_val = (_cb or {}).get("mean_predicted")
+        if cal_val is None:
+            cal_val = (_fb or {}).get("mean_calibrated")
         cal_cell = (
-            f"<td style='color:#34D399;'>{_cb['mean_predicted']:.3f}</td>"
-            if _cb else "<td style='color:#475569;'>—</td>"
+            f"<td style='color:#34D399;'>{cal_val:.3f}</td>"
+            if cal_val is not None else "<td style='color:#475569;'>—</td>"
+        )
+        # The realized twin of the CALIBRATED column: the actual win rate
+        # inside each CALIBRATED bucket (the artifact partition's
+        # mean_actual first; the history fallback otherwise).
+        cw_val = (_cb or {}).get("mean_actual")
+        if cw_val is None:
+            cw_val = (_fb or {}).get("win_rate")
+        cw_cell = (
+            f"<td style='color:#34D399;'>{cw_val:.3f}</td>"
+            if cw_val is not None else "<td style='color:#475569;'>—</td>"
         )
         rows.append(
             f"<tr><td>{r['bucket']}</td><td>{r['mean_predicted']:.3f}</td>"
-            f"{cal_cell}"
+            f"{cal_cell}{cw_cell}"
             f"<td>{r['mean_actual']:.3f}</td><td>{int(r['count'])}</td>"
             f"<td style='color:{gap_color};font-weight:700;'>{gap_txt}</td></tr>"
         )
@@ -344,22 +367,44 @@ else:
         # honest em-dash instead of masquerading as a total (2026-10-05).
         _cal_cov = [_cal_buckets.get(b) for b in curve_df["bucket"]]
         mp_cal_tot = None
+        cw_cal_tot = None
         if all(_cal_cov):
             _n_cal = sum(int(b["count"]) for b in _cal_cov)
             if _n_cal == n_tot:
                 mp_cal_tot = (
                     sum(float(b["mean_predicted"]) * int(b["count"])
                         for b in _cal_cov) / _n_cal)
+                if all(b.get("mean_actual") is not None for b in _cal_cov):
+                    cw_cal_tot = (
+                        sum(float(b["mean_actual"]) * int(b["count"])
+                            for b in _cal_cov) / _n_cal)
+        # History-fallback totals: the same coverage guard (every displayed
+        # bucket covered), but over the history's own population — the
+        # caption says so rather than passing it off as the graded pool.
+        _fb_cov = [_cal_wr.get(b) for b in curve_df["bucket"]]
+        if mp_cal_tot is None and _cal_wr and all(_fb_cov):
+            _n_fb = sum(int(b["count"]) for b in _fb_cov)
+            mp_cal_tot = (
+                sum(float(b["mean_calibrated"]) * int(b["count"])
+                    for b in _fb_cov) / _n_fb)
+            cw_cal_tot = (
+                sum(float(b["win_rate"]) * int(b["count"])
+                    for b in _fb_cov) / _n_fb)
         cal_tot_cell = (
             f"<td style='color:#34D399;'>{mp_cal_tot:.3f}</td>"
             if mp_cal_tot is not None
+            else "<td style='color:#64748B;'>—</td>"
+        )
+        cw_tot_cell = (
+            f"<td style='color:#34D399;'>{cw_cal_tot:.3f}</td>"
+            if cw_cal_tot is not None
             else "<td style='color:#64748B;'>—</td>"
         )
         gap_tot = mp_tot - ma_tot
         tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
         rows.append(
             f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
-            f"<td>{mp_tot:.3f}</td>{cal_tot_cell}"
+            f"<td>{mp_tot:.3f}</td>{cal_tot_cell}{cw_tot_cell}"
             f"<td>{ma_tot:.3f}</td><td>{n_tot}</td>"
             f"<td style='color:{tot_color};font-weight:700;'>{gap_tot:+.3f}</td></tr>"
         )
@@ -368,6 +413,7 @@ else:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>BUCKET</th><th>MEAN PREDICTED (RAW)</th><th>CALIBRATED</th>
+            <th>CALIB. WIN RATE</th>
             <th>MEAN ACTUAL</th><th>COUNT</th><th>GAP (RAW)</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
@@ -375,6 +421,7 @@ else:
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
           CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment. TOTAL CALIBRATED = count-weighted mean across those calibrated buckets (each game counted once in the bucket its calibrated probability falls in).
+          CALIB. WIN RATE = the realized win rate inside each CALIBRATED bucket — the artifact's calibrated partition when it publishes one, otherwise computed from the stored per-game prequential column (the green line's source; its bucket counts then follow that wider decided-history population, not the graded pool the raw columns use).
         </div>
         """,
         unsafe_allow_html=True,

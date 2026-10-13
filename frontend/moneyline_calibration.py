@@ -12,6 +12,7 @@ bar, so the curve and the bars always align one-to-one on the same x-axis.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import altair as alt
@@ -117,6 +118,71 @@ def favored_oof_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFr
             .groupby("prob")
             .agg(cal_mean=("cal_mean", "mean"), n=("cal_mean", "size"))
             .reset_index())
+
+
+def _bucket_bounds(label: object) -> Optional[tuple[float, float]]:
+    """Parse a reliability-table bucket label into (lo, hi) probability
+    bounds. Handles the en-dash form the backends emit (``"50–60%"``), the
+    hyphen form older fixtures carry (``"52%-60%"``), and the open-top form
+    (``"70%+"`` → (0.70, 1.0)). Returns None for anything unparseable — the
+    caller drops the label rather than guess edges."""
+    text = str(label).strip().replace(" ", "")
+    m = re.match(r"^(\d+(?:\.\d+)?)%?[–-](\d+(?:\.\d+)?)%$", text)
+    if m:
+        lo, hi = float(m.group(1)) / 100.0, float(m.group(2)) / 100.0
+        return (lo, hi) if hi > lo else None
+    m = re.match(r"^(\d+(?:\.\d+)?)%\+$", text)
+    if m:
+        lo = float(m.group(1)) / 100.0
+        return (lo, 1.0) if lo < 1.0 else None
+    return None
+
+
+def calibrated_bucket_stats(hist: Optional[pd.DataFrame],
+                            labels: list) -> dict:
+    """Per-bucket CALIBRATED view grouped by the STORED per-game
+    calibrated column — display-only grouping, never a refit.
+
+    Bucket membership is the calibrated pick probability: the calibrated
+    probability of the RAW-favored side (``where(raw >= 0.5, cal, 1-cal)``,
+    the same orientation the green reference line uses), so a monotone map
+    never flips a pick and each bucket's ``win_rate`` is the realized win
+    rate of the same games the raw columns count. Returns ``{label:
+    {mean_calibrated, win_rate, count}}`` for the requested labels; games
+    whose calibrated probability falls outside every requested bucket
+    (possible only when a deployed map pushes a near-boundary game below
+    50%) are dropped — never fabricated. Empty dict (never an error) when
+    the history lacks the three columns, so the page can keep the
+    artifact-sourced cells."""
+    cols = {"home_win_prob_model", "home_win_prob_model_calibrated",
+            "correct"}
+    if hist is None or getattr(hist, "empty", True) or not cols <= set(hist.columns):
+        return {}
+    raw = pd.to_numeric(hist["home_win_prob_model"], errors="coerce")
+    cal = pd.to_numeric(hist["home_win_prob_model_calibrated"], errors="coerce")
+    won = pd.to_numeric(hist["correct"], errors="coerce")
+    ok = raw.notna() & cal.notna() & won.notna()
+    if not ok.any():
+        return {}
+    cal_fav = pd.Series(np.where(raw[ok] >= 0.5, cal[ok], 1.0 - cal[ok]),
+                        index=raw[ok].index)
+    out: dict = {}
+    for label in labels:
+        bounds = _bucket_bounds(label)
+        if bounds is None:
+            continue
+        lo, hi = bounds
+        mask = (cal_fav >= lo) & (cal_fav < hi)
+        if hi >= 1.0:                     # top bucket is closed at 1.0
+            mask |= (cal_fav == hi)
+        if not mask.any():
+            continue
+        out[str(label)] = {
+            "mean_calibrated": round(float(cal_fav[mask].mean()), 4),
+            "win_rate": round(float(won[mask].mean()), 4),
+            "count": int(mask.sum()),
+        }
+    return out
 
 
 def chart_calibration_curve(

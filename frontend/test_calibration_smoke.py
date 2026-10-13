@@ -443,6 +443,141 @@ def test_total_calibrated_win_probability_renders_in_reliability_table():
         _remove_artifacts()
 
 
+def _restage(path: Path, data: bytes) -> None:
+    """Overwrite an ALREADY-staged fixture in place. Deliberately does not
+    touch _BACKUPS: the original committed bytes were captured by the first
+    _stage() call, and cleanup must restore THOSE — not this second
+    fixture — so a restage can never leave fake artifacts in the tree."""
+    path.write_bytes(data)
+
+
+def _table_row(text: str, bucket: str) -> list[str]:
+    """The reliability-table row for one bucket label, as cell texts.
+    Cells: [MEAN PREDICTED (RAW), CALIBRATED, CALIB. WIN RATE, MEAN ACTUAL,
+    COUNT, GAP (RAW)]. Empty list when the row is missing."""
+    m = re.search(rf"<tr><td>{re.escape(bucket)}</td>(.*?)</tr>", text, re.S)
+    if not m:
+        return []
+    return re.findall(r"<td[^>]*>([^<]*)</td>", m.group(1))
+
+
+def test_cal_win_rate_column_uses_the_artifact_partition_when_present():
+    """2026-10-12: the CALIB. WIN RATE column renders the artifact's own
+    calibrated-bucket mean_actual (fixture publishes the pair-shaped
+    partition), beside the CALIBRATED predicted cell — no fallback mixing
+    when the artifact has the data."""
+    _write_artifacts()
+    try:
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        assert "CALIB. WIN RATE" in text, "calibrated win-rate header missing"
+        cbs = _calibration_record()["calibration"][
+            "calibration_buckets_calibrated"]
+        for cb in cbs:
+            cells = _table_row(text, cb["bucket"])
+            assert cells, f"bucket row {cb['bucket']} missing"
+            assert cells[2] == f"{float(cb['mean_actual']):.3f}", (
+                f"{cb['bucket']}: CALIB. WIN RATE shows {cells[2]!r}, artifact "
+                f"calibrated partition says {cb['mean_actual']}")
+            assert cells[1] == f"{float(cb['mean_predicted']):.3f}", (
+                f"{cb['bucket']}: CALIBRATED cell drifted from the artifact")
+        # TOTAL row: count-weighted artifact partition (guard passes because
+        # the fixture's calibrated counts equal the raw counts).
+        n = sum(int(b["count"]) for b in cbs)
+        tot = sum(float(b["mean_actual"]) * int(b["count"]) for b in cbs) / n
+        tot_row = re.search(
+            r"<tr style='border-top:2px solid #334155[^']*'[^>]*>.*?</tr>",
+            text, re.S)
+        assert tot_row and f"{tot:.3f}" in tot_row.group(0), (
+            f"TOTAL row lacks the count-weighted calibrated win rate {tot:.3f}")
+    finally:
+        _remove_artifacts()
+
+
+def test_cal_win_rate_column_falls_back_to_the_stored_column():
+    """2026-10-12 (NBA identity-gated artifacts publish NO ``calibration``
+    section): with the partition absent the column must compute the win
+    rate from the STORED per-game calibrated column — grouped by the
+    calibrated pick probability, independently reproducible here — not
+    show an em-dash and not refit anything."""
+    rec = _calibration_record()
+    rec["calibration"] = {}          # NBA 2026-10-09+ artifact shape
+    payload = json.dumps(rec, indent=2).encode("utf-8")
+    _write_artifacts()
+    try:
+        _restage(CALIBRATION_PATH, payload)
+        _restage(NHL_CALIBRATION_PATH, payload)
+        import streamlit as st
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        hist = _history_frame()
+        raw = pd.to_numeric(hist["home_win_prob_model"], errors="coerce")
+        cal = pd.to_numeric(hist["home_win_prob_model_calibrated"],
+                            errors="coerce")
+        won = pd.to_numeric(hist["correct"], errors="coerce")
+        cal_fav = pd.Series(np.where(raw >= 0.5, cal, 1.0 - cal))
+        # Independent recomputation of the FIRST fixture bucket's fallback
+        # cells (bucket label "52%-60%" -> edges 0.52..0.60).
+        mask = (cal_fav >= 0.52) & (cal_fav < 0.60)
+        assert mask.any(), "fixture must populate the 52-60% bucket"
+        exp_wr = round(float(won[mask].mean()), 4)
+        exp_mp = round(float(cal_fav[mask].mean()), 4)
+        cells = _table_row(text, "52%-60%")
+        assert cells, "bucket row missing"
+        assert cells[1] == f"{exp_mp:.3f}", (
+            f"CALIBRATED cell {cells[1]!r} != history-grouped {exp_mp:.3f}")
+        assert cells[2] == f"{exp_wr:.3f}", (
+            f"CALIB. WIN RATE {cells[2]!r} != history-grouped {exp_wr:.3f}")
+        # Every displayed bucket must be covered, so the TOTAL row carries
+        # the count-weighted fallback too (coverage guard, own population).
+        # Replicate the page's arithmetic exactly: per-bucket round(4),
+        # then count-weight the ROUNDED per-bucket values.
+        weights, wrs, mps = [], [], []
+        for lo in (52, 60, 68, 76, 84, 92):
+            m = (cal_fav >= lo / 100) & (cal_fav < (lo + 8) / 100)
+            if lo == 92:
+                m |= (cal_fav == 1.0)
+            assert m.any(), f"fixture must populate bucket {lo}-{lo + 8}%"
+            weights.append(int(m.sum()))
+            wrs.append(round(float(won[m].mean()), 4))
+            mps.append(round(float(cal_fav[m].mean()), 4))
+        exp_tot_wr = sum(w * r for w, r in zip(weights, wrs)) / sum(weights)
+        exp_tot_mp = sum(w * r for w, r in zip(weights, mps)) / sum(weights)
+        tot_row = re.search(
+            r"<tr style='border-top:2px solid #334155[^']*'[^>]*>.*?</tr>",
+            text, re.S)
+        assert tot_row, "TOTAL row missing"
+        assert f"{exp_tot_mp:.3f}" in tot_row.group(0), (
+            "TOTAL row lacks the fallback calibrated prediction")
+        assert f"{exp_tot_wr:.3f}" in tot_row.group(0), (
+            "TOTAL row lacks the fallback calibrated win rate")
+    finally:
+        _remove_artifacts()
+
+
+def test_bucket_bounds_parser_handles_the_label_zoo():
+    """``_bucket_bounds`` must parse every bucket-label shape in the wild:
+    the backends' en-dash form, older fixtures' hyphen form, and the
+    open-top form — and refuse anything else instead of guessing edges."""
+    import moneyline_calibration as mlc
+    assert mlc._bucket_bounds("50–60%") == (0.50, 0.60)
+    assert mlc._bucket_bounds("52%-60%") == (0.52, 0.60)
+    assert mlc._bucket_bounds("70%+") == (0.70, 1.0)
+    assert mlc._bucket_bounds("90–100%") == (0.90, 1.00)
+    assert mlc._bucket_bounds("garbage") is None
+    assert mlc._bucket_bounds("60-50%") is None      # inverted edges
+
+
 def test_header_population_is_the_grading_pool_not_the_slate():
     """2026-10-07 pooled-run parity: the KPI cards are pooled walk-forward
     metrics graded on n_eval games, so the header pill must label them with
