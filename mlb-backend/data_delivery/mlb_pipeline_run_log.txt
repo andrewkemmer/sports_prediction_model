@@ -6,78 +6,77 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📅 2024-01-01 → 2026-10-13
-  WARNING MLB_END_DATE=2026-10-12 is stale (before today) — extended to 2026-10-13 so the daily slate cannot freeze; re-date the notebook pin (or unset it) for a past-window backfill
   ♻️  MLB_FULL_REPULL set — discarding cache and re-pulling full history
   INFO Pulling Statcast: 2024-01-01 → 2026-10-13 (chunk_days=60)
   INFO   Chunk: 2024-01-01 → 2024-02-29 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
   INFO   Chunk: 2024-03-01 → 2024-04-29
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 46/46 [01:00<00:00,  1.32s/it]
+100%|##########| 46/46 [00:36<00:00,  1.25it/s]
   INFO     → 164216 pitches
   INFO   Chunk: 2024-04-30 → 2024-06-28
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:18<00:00,  1.30s/it]
+100%|##########| 60/60 [00:39<00:00,  1.51it/s]
   INFO     → 230719 pitches
   INFO   Chunk: 2024-06-29 → 2024-08-27
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:13<00:00,  1.23s/it]
+100%|##########| 60/60 [00:45<00:00,  1.31it/s]
   INFO     → 222680 pitches
   INFO   Chunk: 2024-08-28 → 2024-10-26
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:49<00:00,  1.22it/s]
+100%|##########| 60/60 [00:30<00:00,  1.99it/s]
   INFO     → 141645 pitches
   INFO   Chunk: 2024-10-27 → 2024-12-25
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 20/20 [00:01<00:00, 10.11it/s]
+100%|##########| 20/20 [00:00<00:00, 33.34it/s]
   INFO     → 989 pitches
   INFO   Chunk: 2024-12-26 → 2025-02-23 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
   INFO   Chunk: 2025-02-24 → 2025-04-24
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 41/41 [00:53<00:00,  1.31s/it]
+100%|##########| 41/41 [00:33<00:00,  1.23it/s]
   INFO     → 154157 pitches
   INFO   Chunk: 2025-04-25 → 2025-06-23
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:21<00:00,  1.36s/it]
+100%|##########| 60/60 [00:44<00:00,  1.34it/s]
   INFO     → 233471 pitches
   INFO   Chunk: 2025-06-24 → 2025-08-22
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:16<00:00,  1.28s/it]
+100%|##########| 60/60 [00:43<00:00,  1.37it/s]
   INFO     → 221858 pitches
   INFO   Chunk: 2025-08-23 → 2025-10-21
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:54<00:00,  1.10it/s]
+100%|##########| 60/60 [00:30<00:00,  1.94it/s]
   INFO     → 158880 pitches
   INFO   Chunk: 2025-10-22 → 2025-12-20
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 25/25 [00:03<00:00,  6.89it/s]
+100%|##########| 25/25 [00:01<00:00, 23.56it/s]
   INFO     → 2429 pitches
   INFO   Chunk: 2025-12-21 → 2026-02-18 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
   INFO   Chunk: 2026-02-19 → 2026-04-19
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 36/36 [00:48<00:00,  1.36s/it]
+100%|##########| 36/36 [00:28<00:00,  1.28it/s]
   INFO     → 136267 pitches
   INFO   Chunk: 2026-04-20 → 2026-06-18
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:18<00:00,  1.31s/it]
+100%|##########| 60/60 [00:52<00:00,  1.15it/s]
   INFO     → 231114 pitches
   INFO   Chunk: 2026-06-19 → 2026-08-17
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:17<00:00,  1.29s/it]
+100%|##########| 60/60 [00:44<00:00,  1.35it/s]
   INFO     → 224816 pitches
   INFO   Chunk: 2026-08-18 → 2026-10-13
 This is a large query, it may take a moment to complete
-100%|##########| 57/57 [00:57<00:00,  1.02s/it]
+100%|##########| 57/57 [00:37<00:00,  1.54it/s]
   INFO     → 170126 pitches
   INFO Total raw pitches: 2293367
   INFO Dropped 117501 non-regular-season pitches (game_type S/E)
   INFO Saved 2175866 pitches → /content/mlb_clean_data/pitches.parquet (219.7 MB)
   ✅ Raw pitches: /content/mlb_clean_data/pitches.parquet
-  WARNING missing-finals guard: frame horizon 2026-10-11 but 1 official final(s) newer than the frame are ABSENT from pitches.parquet: 2026-10-12 LAD@MIL (849812) — Savant posting lag (results are official before pitch data indexes). This run will not resolve them into predictions_history / today's record; the next run's forward top-up + 3-day tail refresh recovers them.
+  WARNING missing-finals guard: frame horizon 2026-10-11 but 2 official final(s) newer than the frame are ABSENT from pitches.parquet: 2026-10-12 LAD@MIL (849812), 2026-10-12 CLE@TB (849820) — Savant posting lag (results are official before pitch data indexes). This run will not resolve them into predictions_history / today's record; the next run's forward top-up + 3-day tail refresh recovers them.
   📁 IL ledgers → /content/mlb_clean_data/il_stints
 transactions 2023-01-01..2026-10-13 (4 season call(s)), cache=/content/mlb_clean_data
   auto-refreshing current-year cache: [2026] (use --offline to pin)
@@ -95,7 +94,7 @@ wrote /content/mlb_clean_data/il_stints/il_stints.parquet (61 KB) + .meta.json
 wrote /content/mlb_clean_data/il_stints/il_stints_pitchers.parquet (6,816 stints, 1,234 pitchers; stats={'stints_raw': 10537, 'reconciled': True, 'pitchers': 1310, 'appearances': 63543, 'stints_reconciled': 10522, 'stints_closed_by_appearance': 15, 'stints_pitchers': 6816, 'open_at_end': 150, 'median_on_il_weekly': 254.0})
 decided games to backfill: 7404
 pending: 0 (complete 7406)
-lineups.parquet now: 7406 games
+lineups.parquet now: 7407 games
   🧾 lineups: 1 posted row(s) captured for 2026-10-13
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -103,8 +102,8 @@ lineups.parquet now: 7406 games
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   INFO === DuckDB Feature Engineering ===
-  INFO [MEM] Start: 725 MB
-  INFO [MEM] After DuckDB load: 2553 MB
+  INFO [MEM] Start: 694 MB
+  INFO [MEM] After DuckDB load: 2530 MB
   INFO Building game-level features (corrected_outs=False)...
   INFO pitcher availability ledger: 6816 stints, 1234 pitchers
   INFO SP staleness gate: 63517 appearance rows, 2400 flagged stale (gap >= 10d overlapping an availability stint)
@@ -119,15 +118,15 @@ lineups.parquet now: 7406 games
   INFO pl_* pool coverage: 100.0% non-NULL across 9 pools (8 served)
   INFO slate pl_* pools: 6 team-games resolved across 2 date(s) (membership tiers {1: 4, 2: 2}; 3 with prior-fallback pools) → pl_slate_20261012.parquet, pl_slate_20261013.parquet
   INFO game_level built: 7404 games
-  INFO [MEM] After game_level: 3554 MB
+  INFO [MEM] After game_level: 3505 MB
   INFO Exported game_level: 9.1 MB
   INFO Building PBP-level features...
   INFO pbp_level built: 2175866 pitches
-  INFO [MEM] After pbp_level: 3023 MB
+  INFO [MEM] After pbp_level: 3004 MB
   INFO Exported pbp_level: 52.4 MB
-  INFO [MEM] After DuckDB close: 704 MB
+  INFO [MEM] After DuckDB close: 684 MB
   INFO Official results applied: 7404 games verified/corrected
-  INFO [MEM] After pandas load: 3743 MB
+  INFO [MEM] After pandas load: 3713 MB
   INFO === Complete: 7404 games, 2175866 pitches ===
   ✅ Game: (7404, 201)
   ✅ PBP:  (2175866, 88)
@@ -342,7 +341,6 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   INFO Run engine OOF: 7033 rows -> run_engine_oof_20261013.csv
   INFO Run engine markets: 7034 rows -> run_engine_markets_20261013.csv (+ meta json)
   INFO Totals history store: 7335 rows (0 added this run, seeded=False) -> run_engine_totals_history.csv
-  INFO Calibration: 28 of 235 prequential Platt fits degenerated to identity in the run-engine block (the WARNING line prints only the first 3)
   INFO Run-engine monitor: 3 winner cards, rolling 45 days -> run_engine_monitor_20261013.json
   INFO Step 6: Explainability
   INFO SHAP stack in tested range (shap (0, 50), xgboost (3, 2))
@@ -431,7 +429,7 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   PHASE 6 — Stale artifact cleanup (final step)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  synced clone to remote tip 5305555b4f (main)
+  synced clone to remote tip 40b0d21d4d (main)
   🛡️  Kept 52 protected file(s) (never deleted)
   📅 Kept 187 artifact(s) within the retention window (anchor 20261013 -10d)
   ✅ No stale files — data_delivery holds exactly this run's artifacts
@@ -443,4 +441,4 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   Games: 7404  |  Pitches: 2,175,866  |  Columns: 290 game + 88 pbp
   Output: /content/mlb_clean_data
   📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
-  synced clone to remote tip 5305555b4f (main)
+  synced clone to remote tip 40b0d21d4d (main)
