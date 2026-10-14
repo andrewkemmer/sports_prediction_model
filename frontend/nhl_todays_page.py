@@ -57,8 +57,11 @@ marked ⟐):
 
 Empty / missing states: no board → the recovery walk, then the shared
 fallback; no games on the selected date → the shared nearest-valid
-fallback; missing goalie record → each goalie box renders '—' quietly
-(never fabricated); missing run-engine slate row → the quiet
+fallback; no live slate artifact → the newest stored board, silently
+(MLB/NBA/NFL parity — no "no current slate" notice and no page title,
+which would render the page header strip the other three sports use as
+their only header); missing goalie record → each goalie box renders '—'
+quietly (never fabricated); missing run-engine slate row → the quiet
 'unavailable' strip.
 """
 
@@ -576,24 +579,31 @@ def run() -> None:
     date_str = st.session_state["selected_date"]
 
     if current_date is None and date_str == today_et:
-        st.markdown(
-            "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
-            "🏒 NHL — Moneyline</div>", unsafe_allow_html=True)
-        st.info(
-            "No confirmed current NHL slate artifact is available. "
-            "Historical predictions are not shown as a live board; choose an "
-            "archive date below when one is available."
-        )
+        # NO notice and NO title here — MLB renders neither in this state
+        # (NFL's rule: "MLB renders no page title — the header strip is the
+        # page header"), and neither do the NBA/NFL boards. A first visit
+        # with no live slate artifact simply resolves to the newest board
+        # the store holds. The 2026-10-13 regression this removes: with the
+        # pipeline's window ending Oct 12 the strict resolver (a past
+        # slate_date is not a live board) returned nothing, and the page
+        # printed "No confirmed current NHL slate artifact is available"
+        # directly above a complete Oct 12 board — a notice no other sport
+        # carries, reading as a fault while the board underneath was fine.
         archive_dates = [d for d in valid if d < today_et]
         if archive_dates:
             # The empty current state has no valid current key.  Seed the
             # first explicitly historical choice; every later selection is an
             # intentional archive action through the shared date controls.
             # ``date_str`` must track the seeded value or the board below
-            # would keep testing TODAY and dead-end on its own warning.
+            # would keep testing TODAY against a date nothing published.
             st.session_state["selected_date"] = archive_dates[0]
             date_str = archive_dates[0]
         else:
+            # Nothing at all to show (no live slate and no archive day):
+            # the honest empty state keeps its title, NFL/NBA parity.
+            st.markdown(
+                "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
+                "🏒 NHL — Moneyline</div>", unsafe_allow_html=True)
             st.session_state["selected_date"] = today_et
             if valid:
                 _render_date_nav(valid, date_str)

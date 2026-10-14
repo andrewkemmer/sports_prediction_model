@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import sys
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +26,12 @@ import nhl_slate_view as nsv  # noqa: E402
 NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 DATE = "20990101"
 DATE_ISO = "2099-01-01"
+# A slate whose date is PAST in ET — the production state the day after a
+# pipeline window ends: the strict current-slate resolver refuses it (a past
+# slate_date is not a live board), so no current artifact resolves while the
+# published family member still serves the archive board.
+ARCHIVE_ISO = (date.today() - timedelta(days=1)).isoformat()
+ARCHIVE_DATE = ARCHIVE_ISO.replace("-", "")
 
 
 def test_price_total_and_spread_renormalize_integer_lines_to_a_coherent_quote():
@@ -121,6 +127,20 @@ def _record(games: list[dict]) -> dict:
     }
 
 
+def _archive_record() -> dict:
+    """A two-game slate dated YESTERDAY — the day-after-a-window-end state."""
+    games = [
+        _game("2800010001", "BOS", "NYR", f"{ARCHIVE_ISO}T00:30:00Z", 0.60),
+        _game("2800010002", "EDM", "VAN", f"{ARCHIVE_ISO}T01:30:00Z", 0.55),
+    ]
+    for g in games:
+        g["game_date"] = ARCHIVE_ISO
+    record = _record(games)
+    record["created_utc"] = f"{ARCHIVE_ISO}T12:00:00Z"
+    record["slate_date"] = ARCHIVE_ISO
+    return record
+
+
 def _five_game_record() -> dict:
     return _record([
         _game("2099010001", "CAR", "FLA", "2099-01-01T21:00:00Z", 0.55),
@@ -159,11 +179,20 @@ def _all_text(app: AppTest) -> str:
 
 @contextmanager
 def _staged_nhl_record():
+    with _stage_family_record(DATE, _five_game_record()):
+        yield
+
+
+@contextmanager
+def _stage_family_record(day: str, record: dict):
+    """Write ``record`` as the ``nhl_moneyline_v1_<day>`` family member and
+    restore the directory on the way out (the fixtures never touch a
+    production artifact that already exists)."""
     NHL_DD.mkdir(parents=True, exist_ok=True)
-    path = NHL_DD / f"nhl_moneyline_v1_{DATE}.json"
+    path = NHL_DD / f"nhl_moneyline_v1_{day}.json"
     existed = path.exists()
     previous = path.read_bytes() if existed else None
-    path.write_text(json.dumps(_five_game_record()), encoding="utf-8")
+    path.write_text(json.dumps(record), encoding="utf-8")
     st.cache_data.clear()
     try:
         yield
@@ -227,3 +256,39 @@ def test_nhl_first_visit_renders_all_rollover_cards():
             assert matchup in text
         assert text.count("7:00 PM ET") >= 1
         assert "No confirmed current NHL slate artifact" not in text
+
+
+def test_nhl_missing_current_slate_renders_the_newest_board_with_no_notice(
+        monkeypatch):
+    """2026-10-13 regression: the pipeline window ended Oct 12, so the
+    strict current-slate resolver returned nothing (a past slate_date is
+    not a live board) and the dashboard printed "No confirmed current NHL
+    slate artifact is available" directly above an otherwise complete
+    Oct 12 board. MLB/NBA/NFL carry no such notice in this state — a first
+    visit with no live artifact just resolves to the newest board the store
+    holds, and the board's own header strip is the page header (no page
+    title either, NFL's documented MLB rule)."""
+    monkeypatch.setattr(utils, "_nhl_current_slate_record",
+                        lambda *args, **kwargs: {})
+    monkeypatch.setattr(utils, "valid_dates",
+                        lambda *args, **kwargs: (ARCHIVE_DATE,))
+    with _stage_family_record(ARCHIVE_DATE, _archive_record()):
+        app = AppTest.from_file(
+            str(FRONTEND_DIR / "todays_games.py"), default_timeout=60
+        )
+        app.session_state["sport"] = "nhl"
+        app.session_state["gh_owner"] = ""
+        app.session_state["gh_repo"] = ""
+        app.session_state["gh_branch"] = "main"
+        app.run()
+
+        assert not list(app.exception)
+        text = _all_text(app)
+        assert "No confirmed current NHL slate artifact" not in text
+        # No page title either — the header strip is the page header.
+        assert "NHL — Moneyline" not in text
+        # The archive board itself still renders, on the seeded date.
+        assert app.session_state["selected_date"] == ARCHIVE_DATE
+        assert "2 of 2 games shown" in text
+        for matchup in ("BOS", "NYR", "EDM", "VAN"):
+            assert matchup in text
