@@ -648,3 +648,187 @@ def test_the_defer_requeue_machinery_is_gone():
     assert "defer_on_429" not in sig.parameters, sig
     sig = inspect.signature(weather._fetch_batch_range)
     assert "defer_on_429" not in sig.parameters, sig
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-13 second pass: MLB structure parity of the Open-Meteo machinery
+#
+# The 16:22 production run was CLEAN (136 batches, zero 429s, 2023/2023
+# eligible games), so this pass compares the SHAPE of the sweep with MLB's:
+# one request per PHYSICAL venue (not per stadium name), every skipped
+# window reported after the sweep, and a starved season named loudly even
+# under a healthy-looking aggregate.
+# ---------------------------------------------------------------------------
+
+def _site_target(game_id: str, kickoff: str, stadium: str,
+                 lat: float, lon: float) -> dict:
+    return {"game_id": game_id, "stadium": stadium, "lat": lat, "lon": lon,
+            "kickoff_utc": pd.Timestamp(kickoff)}
+
+
+def test_rename_duplicate_stadiums_share_one_coordinate_request(
+        monkeypatch, caplog, sleeps):
+    """MLB keys its fetch locations ONE entry per physical venue; the NFL
+    sweep keyed one per stadium NAME, so every rename pair (Heinz Field /
+    Acrisure Stadium is a single coordinate) spent a second copy of quota
+    on coordinates already inside the same batch — the 2026-10-13 run's 50
+    names were 37 physical sites.  Each request must carry every
+    coordinate exactly once, and the series must fan back out to every
+    name so the delivered keys are unchanged."""
+    requests_sent: list[list[tuple[str, float, float]]] = []
+
+    def fake_batch_range(locations, start_date, end_date, *, source, **kw):
+        requests_sent.append(list(locations))
+        out = {}
+        for name, lat, lon in locations:
+            for offset in range((end_date - start_date).days + 1):
+                day = start_date + timedelta(days=offset)
+                # Content depends ONLY on the coordinates: identical sites
+                # must produce identical series whatever they are called.
+                out[(name, day)] = {
+                    "time": [pd.Timestamp(f"{day} 16:00:00Z")],
+                    "temperature_2m": [float(lat)],
+                    "wind_speed_10m": [float(lon)],
+                    "_source": source,
+                    "_fetched_at_utc": pd.Timestamp("2026-10-13T06:00:00Z"),
+                }
+        return out
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    targets = [
+        _site_target("OLD", "2018-09-02T17:00:00Z", "Heinz Field",
+                     40.446667, -80.015833),
+        _site_target("NEW", "2024-09-02T17:00:00Z", "Acrisure Stadium",
+                     40.446667, -80.015833),   # ONE physical site, new name
+        _site_target("NY", "2024-09-03T17:00:00Z", "MetLife Stadium",
+                     40.8135, -74.0744),
+    ]
+    now = datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level(logging.INFO):
+        out = weather._fetch_batched_weather(targets, now)
+
+    assert requests_sent, "the sweep must send requests"
+    for locations in requests_sent:
+        coords = [(lat, lon) for _, lat, lon in locations]
+        assert len(coords) == len(set(coords)), (
+            f"a duplicate coordinate rode inside one batch: {locations}")
+        assert len(locations) == 2, (
+            "3 names are 2 physical sites — exactly one request per site, "
+            f"got {locations}")
+        assert "Acrisure Stadium" not in [name for name, _, _ in locations], (
+            "the rename alias must never ship: its coordinate is already "
+            "in this request")
+
+    def days_for(stadium):
+        return {day for (name, day) in out if name == stadium}
+
+    assert date(2018, 9, 2) in days_for("Heinz Field")
+    assert date(2024, 9, 2) in days_for("Acrisure Stadium"), (
+        "the alias' game day must exist via the coordinate fan-out")
+    assert days_for("Heinz Field") == days_for("Acrisure Stadium"), (
+        "both names must see EXACTLY the days the site was fetched for")
+    sample = date(2018, 9, 2)
+    assert out[("Heinz Field", sample)] == out[("Acrisure Stadium", sample)]
+    assert out[("Heinz Field", sample)] is not out[("Acrisure Stadium", sample)], (
+        "aliased keys must never share one mutable series object")
+    assert any(f"= {len(requests_sent)} request batches" in m
+               for m in caplog.messages), (
+        "the logged batch total must count the deduplicated requests: "
+        f"{caplog.messages}")
+
+
+def test_gameless_window_skips_are_reported_with_mlb_wording(
+        monkeypatch, caplog, sleeps):
+    """MLB's sweep logs what it did NOT request — 'Weather batches: skipped
+    N gameless window(s) (span) — no Open-Meteo requests sent for them'.
+    The NFL log printed only '34 window(s) x 4 batch(es)', leaving the ~28
+    off-season spans invisible and the count looking arbitrary."""
+    archive_calls: list[tuple[date, date]] = []
+
+    def fake_batch_range(locations, start_date, end_date, *, source, **kw):
+        if source == weather.OPEN_METEO_ARCHIVE:
+            archive_calls.append((start_date, end_date))
+        return {}
+
+    monkeypatch.setattr(weather, "_fetch_batch_range", fake_batch_range)
+    now = datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)
+    targets = [
+        _site_target("A", "2026-02-01T17:00:00Z", "Test Stadium",
+                     39.0, -95.0),
+        _site_target("B", "2026-09-20T17:00:00Z", "Test Stadium",
+                     39.0, -95.0),
+    ]
+
+    with caplog.at_level(logging.INFO):
+        weather._fetch_batched_weather(targets, now)
+
+    skips = [m for m in caplog.messages if "gameless window(s)" in m]
+    assert len(skips) == 1, caplog.messages
+    assert "skipped 2 gameless window(s)" in skips[0], skips[0]
+    assert ("gameless window(s) (2026-01-31→2026-09-20 span) — "
+            "no Open-Meteo requests sent for them") in skips[0], skips[0]
+    assert len(archive_calls) == 2, (
+        "only the two windows that hold games may be requested: "
+        f"{archive_calls}")
+
+
+def test_a_starved_season_is_named_even_under_a_healthy_aggregate(
+        monkeypatch, caplog):
+    """MLB prints 'Weather coverage <year>: only N/M games observed — that
+    season's weather features are starving' per calendar year at >= 40
+    games, because a healthy aggregate must not dilute one starved year.
+    NFL had only the aggregate gates: a fully-failed 2017 inside 83%
+    overall would surface only as the gap note's first five IDs."""
+    def fake_fetch(targets, now, **kw):
+        out = {}
+        for t in targets:
+            if not t["game_id"].startswith("G26"):
+                continue
+            day = t["kickoff_utc"].date()
+            out[(t["stadium"], day)] = {
+                "time": [pd.Timestamp(f"{day} 16:00:00Z")],
+                "temperature_2m": [70.0], "wind_speed_10m": [5.0],
+                "precipitation": [0.0], "snowfall": [0.0],
+                "_source": weather.OPEN_METEO_ARCHIVE,
+                "_fetched_at_utc": pd.Timestamp("2026-10-13T06:00:00Z"),
+            }
+        return out
+
+    monkeypatch.setattr(weather, "_fetch_batched_weather", fake_fetch)
+    rows = []
+    for i in range(8):          # season 2017: every game missing
+        rows.append({"game_id": f"G17_{i}", "season": 2017, "week": 1,
+                     "gameday": "2017-09-10", "gametime": "13:00",
+                     "home_team": "A", "away_team": "B",
+                     "home_score": 20.0, "away_score": 10.0,
+                     "game_type": "REG", "roof": "outdoors", "div_game": 0,
+                     "stadium": "MetLife Stadium", "surface": "grass"})
+    for i in range(40):         # season 2026: every game observed
+        rows.append({"game_id": f"G26_{i}", "season": 2026, "week": 1,
+                     "gameday": "2026-09-10", "gametime": "13:00",
+                     "home_team": "A", "away_team": "B",
+                     "home_score": 20.0, "away_score": 10.0,
+                     "game_type": "REG", "roof": "outdoors", "div_game": 0,
+                     "stadium": "Gillette Stadium", "surface": "grass"})
+
+    with caplog.at_level(logging.WARNING), \
+            tempfile.TemporaryDirectory() as tmp, \
+            warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        got = weather.fetch_games_weather(
+            pd.DataFrame(rows), path=Path(tmp) / "w.parquet",
+            now=pd.Timestamp("2026-10-13T06:00:00Z"))
+
+    assert len(got) == 40, f"only the observed games ship: {len(got)}"
+    starving = [m for m in caplog.messages if "starving" in m]
+    assert any("PIT weather coverage 2017: only 0/8 games observed" in m
+               for m in starving), caplog.messages
+    assert not any("2026" in m for m in starving), (
+        f"the healthy season must stay unflagged: {starving}")
+    assert any("8/48 eligible games lack" in m for m in caplog.messages), (
+        "the any-gap note still discloses the hole: "
+        f"{caplog.messages}")
+    assert not any("coverage only" in m for m in caplog.messages), (
+        "83% is above the 80% catastrophic gate — the YEAR gate is the "
+        f"one that must report this hole: {caplog.messages}")

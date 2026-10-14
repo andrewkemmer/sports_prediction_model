@@ -20,6 +20,7 @@ every row at the feature boundary.
 """
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import os
@@ -481,6 +482,31 @@ def _parse_batch_response(
     return out
 
 
+def _fan_out_coord_aliases(
+    result: dict[tuple[str, date], dict[str, list]] | None,
+    aliases: dict[str, list[str]],
+) -> dict[tuple[str, date], dict[str, list]]:
+    """Replicate a site's series under every other name that site carries.
+
+    The sweep requests ONE coordinate per physical stadium site (MLB keys
+    its locations the same way — one entry per venue), so a rename pair
+    ships as a single location keyed by the first name seen.  A game's
+    schedule row may use either name, so each alias receives the identical
+    series here, before the merge: same coordinates, same response grid,
+    byte-identical content (probed against Open-Meteo 2026-10-13: a
+    3-coordinate request with one duplicated coordinate returned 3 items,
+    the duplicate identical to the original).  Copies are deep so no two
+    cache keys ever share one mutable series object.
+    """
+    if not result or not aliases:
+        return result or {}
+    out = dict(result)
+    for (stadium, day), series in result.items():
+        for alias in aliases.get(stadium, ()):
+            out[(alias, day)] = copy.deepcopy(series)
+    return out
+
+
 def _fetch_batch_range(
     locations: list[tuple[str, float, float]],
     start_date: date,
@@ -580,7 +606,22 @@ def _fetch_batched_weather(
     for row in targets:
         locations_map.setdefault(
             row["stadium"], (row["stadium"], row["lat"], row["lon"]))
-    locations = list(locations_map.values())
+    # ONE request per physical site, not per stadium name (2026-10-13 log
+    # review, MLB parity): renames are several names on one coordinate
+    # (Heinz/Acrisure, FedEx/Commanders, ...), and today's 50 names are 37
+    # sites — every extra copy spends quota on coordinates already inside
+    # the same batch and inflates each sweep batch by a third.  Open-Meteo
+    # answers identical coordinates with identical series (probed
+    # 2026-10-13); ``_fan_out_coord_aliases`` restores each name's key
+    # before the merge, so delivered rows are unchanged — only the request
+    # count drops (136 -> 102 on the 2026-10-13 production span).
+    by_coord: dict[tuple[float, float], list[str]] = {}
+    for name, lat, lon in locations_map.values():
+        by_coord.setdefault((lat, lon), []).append(name)
+    aliases = {names[0]: names[1:] for names in by_coord.values()
+               if len(names) > 1}
+    locations = [(names[0], coord[0], coord[1])
+                 for coord, names in by_coord.items()]
     needed_days = {row["kickoff_utc"].date() for row in targets}
     # The prior UTC day is needed for late ET games whose kickoff is just after
     # 00:00 UTC and therefore has no earlier row on its own UTC date.
@@ -589,6 +630,7 @@ def _fetch_batched_weather(
     today = now.date()
 
     archive_end = min(end_date, today - timedelta(days=1))
+    skipped_windows = 0
     if start_date <= archive_end:
         # Build the window list FIRST, applying the same end clamp and the
         # same "contains a needed day" filter the loop used to apply inline.
@@ -604,6 +646,11 @@ def _fetch_batched_weather(
                             archive_end)
             if any(chunk_start <= day <= chunk_end for day in needed_days):
                 windows.append((chunk_start, chunk_end))
+            else:
+                # MLB reports these skips after the sweep; without the line
+                # the logged window count looks arbitrary (34 of ~62 spans
+                # in the 2026-10-13 run) and reads like under-fetching.
+                skipped_windows += 1
         batches_per_window = max(1, -(-len(locations) // _BATCH_SIZE))
         total_batches = len(windows) * batches_per_window
         logger.info("PIT weather archive: %d window(s) x %d batch(es) of %d "
@@ -627,7 +674,8 @@ def _fetch_batched_weather(
                     source=OPEN_METEO_ARCHIVE,
                 )
                 if result:
-                    by_key.update(result)
+                    by_key.update(
+                        _fan_out_coord_aliases(result, aliases))
                 attempted += 1
                 bar.advance()
                 if i + _BATCH_SIZE < len(locations):
@@ -669,7 +717,8 @@ def _fetch_batched_weather(
             # A rate-limited/failed batch yields None (never data), so the
             # phase skips instead of crashing on .items() (2026-10-13
             # review: the 429 path used to raise into the caller here).
-            for key, series in (recent or {}).items():
+            for key, series in _fan_out_coord_aliases(
+                    recent, aliases).items():
                 by_key.setdefault(key, series)
 
     # Today/future forecasts are capped at Open-Meteo's supported horizon.
@@ -682,8 +731,17 @@ def _fetch_batched_weather(
             source=OPEN_METEO_FORECAST,
             forecast=True, past_days=1, forecast_days=forecast_days,
         )
-        for key, series in (future or {}).items():
+        for key, series in _fan_out_coord_aliases(
+                future, aliases).items():
             by_key.setdefault(key, series)
+    if skipped_windows:
+        # MLB's line, structurally verbatim: the sweep's window count only
+        # makes sense next to the count it did NOT send — gameless 60-day
+        # windows (NFL off-seasons) are dropped before any request.
+        logger.info(
+            "PIT weather batches: skipped %d gameless window(s) "
+            "(%s→%s span) — no Open-Meteo requests sent for them",
+            skipped_windows, start_date, archive_end)
     return by_key
 
 
@@ -1015,13 +1073,17 @@ def fetch_games_weather(
         "PIT weather: %d/%d eligible games available from strict pre-kickoff "
         "hourly records", len(result), len(targets),
     )
+    have_ids = set(result["game_id"].astype(str)) if not result.empty \
+        else set()
+    gaps = [t["game_id"] for t in targets
+            if str(t["game_id"]) not in have_ids]
     if coverage < 0.8:
         logger.warning(
             "PIT weather coverage only %d/%d (%.0f%%) — affected weather "
             "features remain NaN; never substitute daily/schedule data",
             len(result), len(targets), 100.0 * coverage,
         )
-    elif len(result) < len(targets):
+    elif gaps:
         # Any hole is visible, not only a catastrophic one (2026-10-09:
         # 1964/2022 = 97.1% sat ABOVE the 80% line, so 58 429-blocked games
         # shipped with a single INFO). The note documents the self-heal:
@@ -1031,14 +1093,29 @@ def fetch_games_weather(
         # the AVAILABLE count — as the number that LACKS records
         # ("1881/2023 eligible games lack ... (142 remain missing)").
         # It is the gap count; the INFO line above owns the available one.
-        have_ids = set(result["game_id"].astype(str)) if not result.empty \
-            else set()
-        gaps = [t["game_id"] for t in targets
-                if str(t["game_id"]) not in have_ids]
         logger.warning(
             "PIT weather: %d/%d eligible games lack strict pre-kickoff "
             "records after the same-run top-up (e.g. %s); their weather "
             "features stay NaN for this run and the next run's full repull "
             "refetches them",
             len(gaps), len(targets), ", ".join(map(str, gaps[:5])))
+    # Season-level starvation gate (MLB parity): a healthy aggregate must
+    # not dilute one starved year — MLB prints "that season's weather
+    # features are starving" per calendar year at >= 40 games, and this
+    # run's 71% aggregate (outdoor-only eligibility) would mask a fully
+    # failed early season exactly the way MLB's could.
+    if len(targets) >= 40:
+        by_year: dict[int, tuple[int, int]] = {}
+        for target in targets:
+            year = target["kickoff_utc"].year
+            tot, good = by_year.get(year, (0, 0))
+            by_year[year] = (
+                tot + 1,
+                good + (1 if str(target["game_id"]) in have_ids else 0))
+        for year, (tot, good) in sorted(by_year.items()):
+            if tot and good < 0.8 * tot:
+                logger.warning(
+                    "PIT weather coverage %d: only %d/%d games observed "
+                    "— that season's weather features are starving",
+                    year, good, tot)
     return result
