@@ -115,11 +115,19 @@ CARD_POPULATION = {
                 "games where P(home cover) > 50% at the home's own fair "
                 "ladder line are counted; no-lean games and whole-line "
                 "pushes are excluded. Actual and Predicted are the SAME "
-                "home-lean population.",
+                "home-lean population. AUC is different: it is a ranking "
+                "metric and is computed over ALL graded rows (n in auc_n), "
+                "because gating it to P > 50% would throw away every pair "
+                "that spans the 50/50 line — exactly where the "
+                "discrimination lives.",
     "derived_ml": "Win rate is W/(W+L) over the HOME-LEAN population: "
                   "only games where P(home win) > 50% are counted; ties "
                   "are dead at ±0.5 and no-lean games are excluded. "
-                  "Actual and Predicted are the SAME home-lean population.",
+                  "Actual and Predicted are the SAME home-lean population. "
+                  "AUC is ranked over ALL non-tie games (n in auc_n), not "
+                  "the lean subset — a lean-gated AUC is range-restricted "
+                  "to (0.5, 1] and understates the model's actual "
+                  "discrimination.",
 }
 _HISTORY_COLUMNS = ["game_date", "away", "home", "home_score", "away_score",
                     "line", "pick", "pick_prob", "winner", "correct"]
@@ -1277,21 +1285,34 @@ def home_side_card_metrics(y: np.ndarray, p: np.ndarray,
     probability, ``win_rate`` = home W/(W+L), and Actual/Predicted over
     the SAME home-lean population. ``n`` counts the graded (home-lean)
     rows — no-lean games make no pick and never enter the card.
+
+    AUC is the one exception (2026-10-13, backend parity): it is a
+    RANKING metric, and gating it to p > 0.5 range-restricts the score to
+    (0.5, 1] — it discards every pair spanning the 50/50 line, which is
+    where the discrimination lives. On the NBA artifact that collapsed
+    derived-ML AUC from 0.7304 (full pool) to 0.6435 (lean-gated), and
+    0.6435 is also the pick-side number — hence the "still pick-side?"
+    misread. So AUC is ranked over every finite row and ``auc_n`` states
+    that population; it must never be read as ``n``.
     """
     ok = np.isfinite(y) & np.isfinite(p)
-    y, p = y[ok].astype(float), np.clip(p[ok].astype(float), 1e-7, 1 - 1e-7)
-    lean = p > 0.5
-    y, p = y[lean], p[lean]
+    y_all = y[ok].astype(float)
+    p_all = np.clip(p[ok].astype(float), 1e-7, 1 - 1e-7)
+    auc_all = _auc(y_all.astype(bool), p_all)
+    auc_n = int(len(y_all))
+    lean = p_all > 0.5
+    y, p = y_all[lean], p_all[lean]
     n = int(len(y))
     if n == 0:
-        return {"n": 0, "win_rate": None, "auc": None, "brier": None,
+        return {"n": 0, "win_rate": None, "auc": auc_all,
+                "auc_n": auc_n, "brier": None,
                 "logloss": None, "ece_raw": None, "ece_calibrated": None,
                 "predicted_mean": None, "actual_win_rate": None}
     pred = p  # Issued probabilities: never recalibrate in the frontend.
     win_rate = round(float(y.mean()), 6)
     return {
         "n": n, "win_rate": win_rate, "actual_win_rate": win_rate,
-        "auc": _auc(y.astype(bool), pred),
+        "auc": auc_all, "auc_n": auc_n,
         "brier": round(float(np.mean((p - y) ** 2)), 6),
         "logloss": round(float(-np.mean(y * np.log(pred)
                                         + (1 - y) * np.log(1 - pred))), 6),

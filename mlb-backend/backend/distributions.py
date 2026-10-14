@@ -1119,9 +1119,11 @@ def compute_winner_cards(markets: pd.DataFrame,
         ou = _winner_card_stats(ou_arr_p, ou_arr_y,
                                 _fold_idx(ou_keys), ou_hold)
         ou["auc"] = _safe_auc(ou_arr_p, ou_arr_y)
+        ou["auc_n"] = int(len(ou_arr_p))
         if ou_hold.any():
             ou.setdefault("holdout", {})["auc"] = _safe_auc(
                 ou_arr_p[ou_hold], ou_arr_y[ou_hold])
+            ou["holdout"]["auc_n"] = int(ou_hold.sum())
 
     # --- run line: HOME cover at -1.5, half-run lines never push ---
     # HOME-SIDE (2026-10-12): only home-lean rows (P(home covers -1.5) >
@@ -1131,13 +1133,22 @@ def compute_winner_cards(markets: pd.DataFrame,
         rp = df["p_home_cover_1_5"].to_numpy(float)
         margin = hs - as_
         home_covers = (margin >= 2).astype(float)
-        ok = np.isfinite(rp) & (rp > 0.5)
+        graded = np.isfinite(rp)
+        ok = graded & (rp > 0.5)
         rl = _winner_card_stats(rp[ok], home_covers[ok], _fold_idx(pks[ok]),
                                 hold_mask[ok], np.ones(int(ok.sum()), bool))
-        rl["auc"] = _safe_auc(rp[ok], home_covers[ok])
-        if hold_mask[ok].any():
+        # AUC ranks the FULL graded pool, not the lean-gated card rows —
+        # conditioning on P > 0.5 range-restricts the score to (0.5, 1] and
+        # discards the pairs spanning the 50/50 line that carry the
+        # discrimination (2026-10-13: NBA 0.7304 full vs 0.6435 gated).
+        # ``auc_n`` states the population so it is never read as ``n``.
+        rl["auc"] = _safe_auc(rp[graded], home_covers[graded])
+        rl["auc_n"] = int(graded.sum())
+        if hold_mask[graded].any():
             rl.setdefault("holdout", {})["auc"] = _safe_auc(
-                rp[ok][hold_mask[ok]], home_covers[ok][hold_mask[ok]])
+                rp[graded][hold_mask[graded]],
+                home_covers[graded][hold_mask[graded]])
+            rl["holdout"]["auc_n"] = int(hold_mask[graded].sum())
     else:
         rl = None
 
@@ -1152,15 +1163,21 @@ def compute_winner_cards(markets: pd.DataFrame,
     ml = None
     if "p_home_win_derived" in df.columns:
         mp = df["p_home_win_derived"].to_numpy(float)
-        ok = np.isfinite(mp) & (mp > 0.5)
+        graded = np.isfinite(mp)
+        ok = graded & (mp > 0.5)
         ml = _winner_card_stats(mp[ok], home_won[ok], _fold_idx(pks[ok]),
                                 hold_mask[ok], np.ones(int(ok.sum()), bool))
         # AUC on the home-side probability vs the home win (the standard
-        # moneyline discrimination), on the same home-lean population.
-        ml["auc"] = _safe_auc(mp[ok], home_won[ok])
-        if hold_mask[ok].any():
+        # moneyline discrimination) over the FULL graded pool. The card's
+        # calibration metrics stay lean-gated; ranking cannot be — see the
+        # run-line note above. ``auc_n`` carries the pool size.
+        ml["auc"] = _safe_auc(mp[graded], home_won[graded])
+        ml["auc_n"] = int(graded.sum())
+        if hold_mask[graded].any():
             ml.setdefault("holdout", {})["auc"] = _safe_auc(
-                mp[ok][hold_mask[ok]], home_won[ok][hold_mask[ok]])
+                mp[graded][hold_mask[graded]],
+                home_won[graded][hold_mask[graded]])
+            ml["holdout"]["auc_n"] = int(hold_mask[graded].sum())
         ml["source"] = "split_skew_mc_p_home_win_derived"
         # distribution_diagnostic: schema-stable record of the distribution model finding
         # (equals the card itself now that the card IS the derived moneyline).

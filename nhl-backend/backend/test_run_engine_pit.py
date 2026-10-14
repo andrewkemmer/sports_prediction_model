@@ -2101,6 +2101,65 @@ def test_markets_winner_cards_are_home_side_run_line_and_ml():
     assert cards["derived_ml"]["actual_win_rate"] == 1.0
 
 
+def test_winner_card_auc_is_ranked_over_the_full_graded_pool():
+    """AUC ranks the FULL graded pool; only calibration stays lean-gated
+    (2026-10-13).
+
+    Gating AUC to P > 0.5 range-restricts the score to (0.5, 1] and
+    discards every pair spanning the 50/50 line — where the
+    discrimination lives. On NBA's 2026-10-13 artifact that read as
+    derived-ML AUC 0.6435 instead of 0.7304, and 0.6435 is also the old
+    PICK-SIDE number, which made it look like the pick side was still in
+    use. The fixtures below are single-class once gated, so a gated AUC
+    would be undefined (None) while the full pool is perfectly rankable
+    — the two populations cannot be confused.
+    """
+    rows = pd.DataFrame([
+        {"fair_spread": 1.0, "margin": 2.0, "derived_ml": 0.62,
+         "p_home_cover_1": 0.60, "p_push_1": 0.20},
+        # The only away-lean / away-winning row: dropped by the gate, and
+        # precisely the pair that carries the ranking signal.
+        {"fair_spread": 2.0, "margin": -3.0, "derived_ml": 0.35,
+         "p_home_cover_2": 0.30, "p_push_2": 0.20},
+        {"fair_spread": 1.0, "margin": 1.0, "derived_ml": 0.55,
+         "p_home_cover_1": 0.55, "p_push_1": 0.10},
+        {"fair_spread": 1.0, "margin": 2.0, "derived_ml": 0.70,
+         "p_home_cover_1": None, "p_push_1": None},
+    ])
+    cards = mon.markets_winner_cards(rows)
+
+    ml_card, rl_card = cards["derived_ml"], cards["run_line"]
+    # Calibration metrics keep their documented gated populations.
+    assert ml_card["n"] == 3 and ml_card["actual_win_rate"] == 1.0
+    assert rl_card["n"] == 1
+    # AUC is ranked over every graded row instead: four non-tie games for
+    # the moneyline, two non-push games for the run line. The lone loss /
+    # non-cover carries the lowest probability, so both pools separate
+    # perfectly — impossible on the gated pools, which are single-class.
+    assert ml_card["auc_n"] == 4 and ml_card["auc"] == 1.0
+    assert rl_card["auc_n"] == 2 and rl_card["auc"] == 1.0
+    # The pool is never smaller than the card it describes.
+    assert ml_card["auc_n"] >= ml_card["n"]
+    assert rl_card["auc_n"] >= rl_card["n"]
+
+
+def test_the_sealed_holdout_auc_uses_the_same_full_pool():
+    """The holdout twin is re-pointed with the pooled figure — a
+    full-pool pooled AUC beside a lean-gated holdout AUC would compare
+    two different populations across the gate."""
+    rows = pd.DataFrame([
+        {"margin": 2.0, "derived_ml": 0.62, "frame_view": "oof"},
+        {"margin": -3.0, "derived_ml": 0.35, "frame_view": "sealed"},
+        {"margin": 1.0, "derived_ml": 0.55, "frame_view": "sealed"},
+    ])
+    card = mon.markets_winner_cards(rows)["derived_ml"]
+    hold = card["holdout"]
+    assert card["auc_n"] == 3 and card["auc"] == 1.0
+    # The sealed window is 0.35 (loss) + 0.55 (win) — both sides present,
+    # and the higher probability wins, so it too is perfectly ranked.
+    assert hold["auc_n"] == 2 and hold["auc"] == 1.0
+
+
 def test_nhl_boxscore_uses_per_goalie_goals_and_shots():
     payload = {
         "id": 2024010001,

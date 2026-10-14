@@ -1072,6 +1072,47 @@ def _pick_side(p_side: np.ndarray, y_side: np.ndarray) -> tuple[np.ndarray, np.n
     return y_pick, p_pick
 
 
+def _attach_full_pool_auc(card: dict, y: np.ndarray, p: np.ndarray,
+                          sealed_ok: np.ndarray) -> None:
+    """Re-point a winner card's AUC at the FULL graded population.
+
+    2026-10-13: the run_line / derived_ml cards grade only home-lean rows
+    (P > 50%) so their calibration metrics describe the population a bet
+    would actually be placed on. But AUC is a RANKING metric, and gating
+    it to P > 0.5 range-restricts the score to (0.5, 1] — it throws away
+    every pair that spans the 50/50 line, which is exactly where the
+    discrimination lives. On the 2026-10-13 NBA artifact that collapsed
+    derived-ML AUC from **0.7304** (full non-tie pool) to **0.6435**
+    (lean-gated) — and 0.6435 is also what the old PICK-SIDE framing
+    scored, which is why it read as "still using the pick side".
+
+    The underlying column is genuinely home-oriented (mean P(home win)
+    0.606 when home won vs 0.475 when home lost); only the reporting
+    population was wrong. So AUC is recomputed here over every finite,
+    non-dead row, and ``auc_n`` states that population so the card never
+    implies the two metrics share one. The pooled and sealed-holdout
+    figures are both re-pointed. No-op when the pool is empty or
+    single-class.
+    """
+    if not card:
+        return
+    ok = np.isfinite(y) & np.isfinite(p)
+    if not ok.any():
+        return
+    y, p = y[ok], p[ok]
+    sealed_ok = sealed_ok[ok]
+    pooled = _markets_card_metrics(y, p)
+    card["auc"] = pooled.get("auc")
+    card["auc_n"] = pooled.get("n")
+    hold = sealed_ok
+    if hold.any():
+        hold_card = _markets_card_metrics(y[hold], p[hold])
+        card.setdefault("holdout", {})
+        if card["holdout"]:
+            card["holdout"]["auc"] = hold_card.get("auc")
+            card["holdout"]["auc_n"] = hold_card.get("n")
+
+
 def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     """The three binary winner cards from the decided OOF market rows —
     MLB ``compute_winner_cards`` field shape on the NBA grids:
@@ -1104,9 +1145,15 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         if "frame_view" in df.columns else np.zeros(n, bool)
 
     def _build(y: np.ndarray, p: np.ndarray,
-               sealed_ok: np.ndarray) -> dict:
+               sealed_ok: np.ndarray,
+               auc_pool: tuple[np.ndarray, np.ndarray, np.ndarray]
+               | None = None) -> dict:
         """Card metrics over the pooled pool + the sealed-holdout twin
-        (``sealed_ok`` is the caller's row mask re-indexed onto y/p)."""
+        (``sealed_ok`` is the caller's row mask re-indexed onto y/p).
+
+        ``auc_pool`` is an optional (y, p, sealed) triple over the FULL
+        graded population when the card itself is graded on a gated subset.
+        """
         keep = np.isfinite(y) & np.isfinite(p)
         if not keep.any():
             return {}
@@ -1115,6 +1162,8 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         card["holdout"] = (_markets_card_metrics(y[hold], p[hold])
                            if hold.any() else {})
         card["source"] = "oof_decided_store"
+        if auc_pool is not None:
+            _attach_full_pool_auc(card, *auc_pool)
         return card
 
     cards: dict[str, dict] = {}
@@ -1149,21 +1198,28 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         ph = _column_at(hc, sg, ft)
         pa = _column_at(ac, sg, ft)
         p2 = _two_way(ph, pa)
-        lean = np.isfinite(p2) & np.isfinite(margin) & np.isfinite(ft) \
-            & (margin != ft) & (p2 > 0.5)
+        graded = np.isfinite(p2) & np.isfinite(margin) & np.isfinite(ft) \
+            & (margin != ft)
+        lean = graded & (p2 > 0.5)
         y_home = (margin > ft).astype(float)
-        cards["run_line"] = _build(y_home[lean], p2[lean], sealed[lean])
+        cards["run_line"] = _build(y_home[lean], p2[lean], sealed[lean],
+                                   auc_pool=(y_home[graded], p2[graded],
+                                             sealed[graded]))
 
     # --- derived moneyline (HOME-side at the +-0.5 dead cut) -------------
     # The run engine's own home win probability: ties (margin == 0) are
-    # dead mass and rows without a home lean are excluded — only the
-    # graded population changes vs the old pick-side card; the fields and
-    # their meanings are unchanged.
+    # dead mass and rows without a home lean are excluded from the card's
+    # calibration metrics — only the graded population changes vs the old
+    # pick-side card; the fields and their meanings are unchanged. AUC is
+    # scored over the FULL non-tie pool (see ``_attach_full_pool_auc``).
     ml = pd.to_numeric(df.get("derived_ml"), errors="coerce").to_numpy(float) \
         if df.get("derived_ml") is not None else np.full(n, np.nan)
-    lean = np.isfinite(ml) & np.isfinite(margin) & (margin != 0) & (ml > 0.5)
+    graded = np.isfinite(ml) & np.isfinite(margin) & (margin != 0)
+    lean = graded & (ml > 0.5)
     y_home = (margin > 0).astype(float)
-    cards["derived_ml"] = _build(y_home[lean], ml[lean], sealed[lean])
+    cards["derived_ml"] = _build(y_home[lean], ml[lean], sealed[lean],
+                                 auc_pool=(y_home[graded], ml[graded],
+                                           sealed[graded]))
     return cards
 
 

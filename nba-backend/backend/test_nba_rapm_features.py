@@ -1499,6 +1499,72 @@ class TestSealedChallengerHoldout:
         assert record["fit"]["family"] == dist.family.FAMILY
 
 
+class TestWinnerCardAucPopulation:
+    """AUC is ranked over the FULL graded pool, not the lean-gated card
+    rows (2026-10-13).
+
+    The run_line / derived_ml cards grade only home-lean rows (P > 50%)
+    so their calibration metrics describe the population a bet lands on.
+    But AUC is a ranking metric: conditioning on P > 0.5 truncates the
+    score to (0.5, 1] and throws away every pair spanning the 50/50 line
+    — where the discrimination lives. On the 2026-10-13 NBA artifact that
+    read as derived-ML AUC 0.6435 instead of 0.7304, and 0.6435 is also
+    what the old PICK-SIDE framing scored, which is why it looked like
+    "the pick side is still in use". The column was always home-oriented
+    (mean P(home win) 0.606 on home wins vs 0.475 on home losses); only
+    the reporting population was wrong.
+
+    These fixtures are built so the two populations cannot be confused:
+    the lean gate leaves a SINGLE class, which makes a gated AUC
+    undefined (None) while the full pool is perfectly rankable.
+    """
+
+    @staticmethod
+    def _rows():
+        import pandas as pd
+        # margin != 0 everywhere so every row is graded for derived_ml;
+        # P(home win) 0.35 sits on the away-lean side and is the only home
+        # loss, so it is also the ONLY row the lean gate would drop.
+        return pd.DataFrame([
+            {"margin": 2.0, "derived_ml": 0.62},
+            {"margin": -3.0, "derived_ml": 0.35},
+            {"margin": 1.0, "derived_ml": 0.55},
+            {"margin": 2.0, "derived_ml": 0.70},
+        ])
+
+    def test_calibration_stays_on_the_lean_population(self):
+        import monitoring as mon
+        card = mon.markets_winner_cards(self._rows())["derived_ml"]
+        # Only the three home-lean rows (0.62, 0.55, 0.70) are graded.
+        assert card["n"] == 3
+        assert card["actual_win_rate"] == 1.0
+        assert card["predicted_mean"] == round((0.62 + 0.55 + 0.70) / 3, 4)
+
+    def test_auc_is_ranked_over_the_full_non_tie_pool(self):
+        import numpy as np
+        import monitoring as mon
+        rows = self._rows()
+        card = mon.markets_winner_cards(rows)["derived_ml"]
+        # All four non-tie rows rank: the lone home loss carries the
+        # lowest P(home win), so the full pool is perfectly separable.
+        assert card["auc_n"] == 4
+        assert card["auc"] == 1.0
+        # Control: the LEAN-GATED pool holds one class only, so ranking it
+        # is undefined — that is exactly the population the old code used.
+        ml = rows["derived_ml"].to_numpy(float)
+        mg = rows["margin"].to_numpy(float)
+        y_home = (mg > 0).astype(float)
+        lean = ml > 0.5
+        assert set(y_home[lean]) == {1.0}
+        assert mon._rank_auc(y_home[lean], ml[lean]) is None
+
+    def test_the_pool_is_never_smaller_than_the_card(self):
+        import monitoring as mon
+        rows = self._rows()
+        rows["frame_view"] = "oof"
+        card = mon.markets_winner_cards(rows)["derived_ml"]
+        assert card["auc_n"] >= card["n"]
+
 
 class TestEloSeasonBoundary:
     """Elo never resets at the season flip; it regresses 1/3 toward 1500.

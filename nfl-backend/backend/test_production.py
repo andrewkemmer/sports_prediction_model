@@ -1274,6 +1274,45 @@ check("run-engine per-line ECE small on the synthetic line",
       f"ece={_mm['ece_raw']} (the swapped-pairs bug read ~0.49)")
 
 # ---------------------------------------------------------------------------
+print("\n== 7c. Winner-card AUC ranks the FULL pool, not the lean gate ==")
+# 2026-10-13: the run_line / derived_ml cards grade only home-lean rows so
+# their calibration metrics describe the population a bet lands on. But AUC
+# is a ranking metric — gating it to P > 0.5 range-restricts the score to
+# (0.5, 1] and throws away every pair spanning the 50/50 line, which is
+# where the discrimination lives. On NBA's 2026-10-13 artifact that read as
+# derived-ML AUC 0.6435 instead of 0.7304, and 0.6435 is ALSO the old
+# PICK-SIDE number — which made it look like the pick side was still wired
+# in. The fixtures below are single-class once gated, so a gated AUC is
+# undefined (None) while the full pool separates perfectly.
+_wc_rows = pd.DataFrame([
+    {"margin": 2.0, "derived_ml": 0.62,
+     "fair_spread": 1.0, "p_home_cover_1": 0.60, "p_push_1": 0.20},
+    # The only away-lean / away-winning row: dropped by the gate, and
+    # precisely the pair that carries the ranking signal.
+    {"margin": -3.0, "derived_ml": 0.35,
+     "fair_spread": 2.0, "p_home_cover_2": 0.30, "p_push_2": 0.20},
+    {"margin": 1.0, "derived_ml": 0.55,
+     "fair_spread": 1.0, "p_home_cover_1": 0.55, "p_push_1": 0.10},
+    {"margin": 2.0, "derived_ml": 0.70,
+     "fair_spread": 1.0, "p_home_cover_1": None, "p_push_1": None},
+])
+_cards = monitoring.markets_winner_cards(_wc_rows)
+_ml_c, _rl_c = _cards["derived_ml"], _cards["run_line"]
+check("winner-card calibration stays on the lean-gated population",
+      _ml_c["n"] == 3 and _ml_c["actual_win_rate"] == 1.0
+      and _rl_c["n"] == 1,
+      f"derived_ml n={_ml_c['n']} run_line n={_rl_c['n']}")
+check("winner-card AUC ranks the full graded pool",
+      _ml_c["auc_n"] == 4 and _ml_c["auc"] == 1.0
+      and _rl_c["auc_n"] == 2 and _rl_c["auc"] == 1.0,
+      f"derived_ml auc={_ml_c['auc']} n={_ml_c['auc_n']} "
+      f"run_line auc={_rl_c['auc']} n={_rl_c['auc_n']}")
+check("the AUC pool is never smaller than the card it describes",
+      _ml_c["auc_n"] >= _ml_c["n"] and _rl_c["auc_n"] >= _rl_c["n"],
+      f"derived_ml {_ml_c['auc_n']}>={_ml_c['n']} "
+      f"run_line {_rl_c['auc_n']}>={_rl_c['n']}")
+
+# ---------------------------------------------------------------------------
 print("\n== 8. Dependency-isolation tests ==")
 src = {p.name: p.read_text(encoding="utf-8") for p in BACKEND_DIR.glob("*.py")}
 obsolete_modules = [

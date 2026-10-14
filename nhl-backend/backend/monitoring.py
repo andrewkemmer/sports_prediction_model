@@ -955,6 +955,37 @@ def _markets_logloss(y: np.ndarray, p: np.ndarray) -> float | None:
     return round(float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))), 4)
 
 
+def _attach_full_pool_auc(card: dict, full: pd.DataFrame,
+                          full_sealed: pd.DataFrame | None = None) -> None:
+    """Re-point a winner card's AUC at the FULL graded population.
+
+    2026-10-13: the run_line / derived_ml cards grade only home-lean rows
+    (P > 50%) so their calibration metrics describe the population a bet
+    would actually be placed on. But AUC is a RANKING metric: gating it to
+    P > 0.5 range-restricts the score to (0.5, 1] and throws away every
+    pair spanning the 50/50 line — exactly where the discrimination lives.
+    On NBA's 2026-10-13 artifact that collapsed derived-ML AUC from 0.7304
+    (full non-tie pool) to 0.6435 (lean-gated), and 0.6435 is also the
+    PICK-SIDE number — which is why it read as "still using the pick side".
+    The column was always home-oriented; only the reporting population was
+    wrong. AUC is therefore recomputed over every graded row and ``auc_n``
+    states that population. No-op when the card or pool is empty.
+    """
+    if not card or full is None or not len(full):
+        return
+    pooled = _markets_card_metrics(full["y"].to_numpy(float),
+                                  full["p"].to_numpy(float))
+    card["auc"] = pooled.get("auc")
+    card["auc_n"] = pooled.get("n")
+    if full_sealed is not None and len(full_sealed):
+        hold_card = _markets_card_metrics(full_sealed["y"].to_numpy(float),
+                                          full_sealed["p"].to_numpy(float))
+        card.setdefault("holdout", {})
+        if card["holdout"]:
+            card["holdout"]["auc"] = hold_card.get("auc")
+            card["holdout"]["auc_n"] = hold_card.get("n")
+
+
 def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     """The three binary winner cards computed from the decided OOF market    rows — the same basis the frontend recomputes for rendering:
     2-way no-push rescale, whole-number pushes excluded, HOME-side framing
@@ -963,7 +994,12 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     run_line (HOME cover at the game's own fair spread), derived_ml (the
     run engine's own HOME win probability at the +-0.5 dead cut).
     """
-    def _pairs(kind: str, df: pd.DataFrame) -> pd.DataFrame:
+    def _pairs(kind: str, df: pd.DataFrame,
+               graded: bool = True) -> pd.DataFrame:
+        """One (p, y) row per graded game. ``graded=False`` skips the
+        home-lean gate and returns the FULL population — the pool AUC must
+        be ranked over (see ``_attach_full_pool_auc``); calibration
+        metrics keep using the gated default."""
         rows: list[dict] = []
         for _, r in df.iterrows():
             if kind == "over_under":
@@ -1031,7 +1067,7 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                 if margin == m:        # whole-line push (home orientation)
                     continue
                 p2 = cov / (cov + away)
-                if p2 <= 0.5:          # no home lean -> no pick
+                if p2 <= 0.5 and graded:   # no home lean -> no pick
                     continue
                 rows.append({"p": p2, "y": float(margin > m)})
             else:  # derived_ml — HOME-side: the run engine's own HOME win
@@ -1047,7 +1083,7 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                     continue
                 if margin == 0:        # tie — dead mass at the +-0.5 cut
                     continue
-                if ml <= 0.5:          # no home lean -> no pick
+                if ml <= 0.5 and graded:  # no home lean -> no pick
                     continue
                 rows.append({"p": ml, "y": float(margin > 0)})
         return pd.DataFrame(rows)
@@ -1066,6 +1102,16 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                                              hv["p"].to_numpy(float))
         card["holdout"] = hold
         card["source"] = "oof_decided_store"
+        if kind != "over_under":
+            # over_under is already pick-side over the full non-push pool;
+            # the two HOME-side cards are lean-gated and need re-pointing.
+            full_hold = pd.DataFrame()
+            if "frame_view" in df.columns \
+                    and (df["frame_view"] == "sealed").any():
+                full_hold = _pairs(
+                    kind, df.loc[df["frame_view"] == "sealed"], graded=False)
+            _attach_full_pool_auc(card, _pairs(kind, df, graded=False),
+                                  full_hold)
         return card
 
     if oof_rows is None or not len(oof_rows):

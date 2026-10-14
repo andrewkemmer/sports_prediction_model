@@ -574,6 +574,35 @@ def _card_metrics(y: np.ndarray, p: np.ndarray) -> dict[str, Any]:
     return out
 
 
+def _attach_full_pool_auc(card: dict[str, Any], full: pd.DataFrame,
+                          full_sealed: pd.DataFrame | None = None) -> None:
+    """Re-point a winner card's AUC at the FULL graded population
+    (backend ``_attach_full_pool_auc`` parity, 2026-10-13).
+
+    run_line / derived_ml grade only home-lean rows so their calibration
+    metrics describe the population a bet lands on. AUC cannot be gated
+    that way: P > 0.5 range-restricts the score to (0.5, 1] and discards
+    every pair spanning the 50/50 line — where the discrimination lives.
+    NBA 2026-10-13: derived-ML AUC 0.7304 full vs 0.6435 lean-gated, and
+    0.6435 also equals the pick-side number — hence the "still using the
+    pick side?" misread. ``auc_n`` states the pool so it is never read as
+    ``n``. No-op when the card or pool is empty.
+    """
+    if not card or full is None or not len(full):
+        return
+    pooled = _card_metrics(full["y"].to_numpy(float),
+                           full["p"].to_numpy(float))
+    card["auc"] = pooled.get("auc")
+    card["auc_n"] = pooled.get("n")
+    if full_sealed is not None and len(full_sealed):
+        hold = _card_metrics(full_sealed["y"].to_numpy(float),
+                             full_sealed["p"].to_numpy(float))
+        card.setdefault("holdout", {})
+        if card["holdout"]:
+            card["holdout"]["auc"] = hold.get("auc")
+            card["holdout"]["auc_n"] = hold.get("n")
+
+
 def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
     """The three binary winner cards (MLB _WINNER_CARDS schema) computed
     from the decided OOF store: pooled = all rows, holdout = sealed
@@ -586,7 +615,11 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
         return _card_metrics(view["y"].to_numpy(float),
                              view["p"].to_numpy(float))
 
-    def _pairs(kind: str, df: pd.DataFrame) -> pd.DataFrame:
+    def _pairs(kind: str, df: pd.DataFrame,
+               graded: bool = True) -> pd.DataFrame:
+        """One (p, y) row per graded game. ``graded=False`` skips the
+        home-lean gate — the FULL pool AUC must be ranked over (see
+        ``_attach_full_pool_auc``); calibration keeps the gated default."""
         rows = []
         for _, r in df.iterrows():
             if kind == "over_under":
@@ -649,7 +682,7 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
                 if margin == m:        # whole-line push (home orientation)
                     continue
                 p2 = cov / (cov + away)
-                if p2 <= 0.5:          # no home lean -> no pick
+                if p2 <= 0.5 and graded:   # no home lean -> no pick
                     continue
                 rows.append({"p": p2, "y": float(margin > m)})
             else:  # derived_ml — HOME-side: the run engine's own HOME win
@@ -662,7 +695,7 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
                     continue
                 if margin == 0:        # tie — dead mass at the +-0.5 cut
                     continue
-                if ml <= 0.5:          # no home lean -> no pick
+                if ml <= 0.5 and graded:  # no home lean -> no pick
                     continue
                 rows.append({"p": ml, "y": float(margin > 0)})
         return pd.DataFrame(rows)
@@ -678,6 +711,16 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
             if len(hv):
                 hold = _split(hv)
         card["holdout"] = hold
+        if kind != "over_under":
+            # over_under is already pick-side over the full non-push pool;
+            # the two HOME-side cards are lean-gated and need re-pointing.
+            full_hold = pd.DataFrame()
+            if "frame_view" in df.columns \
+                    and (df["frame_view"] == "sealed").any():
+                full_hold = _pairs(
+                    kind, df.loc[df["frame_view"] == "sealed"], graded=False)
+            _attach_full_pool_auc(card, _pairs(kind, df, graded=False),
+                                  full_hold)
         return card
 
     if not len(decided):
