@@ -22,6 +22,7 @@ reintroducing a field nobody returns.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1415,6 +1416,10 @@ class TestRefusedHost:
     def test_the_schedule_sweep_stops_instead_of_asking_every_day(
             self, monkeypatch, tmp_path):
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        # One worker, so the count is exact: with the default pool a few days
+        # are already in flight when the breaker trips, which is pinned in
+        # TestParallelSweeps as a bound rather than a count.
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "1")
         calls: list = []
         monkeypatch.setattr(ing.urllib.request, "urlopen",
                             _probe_then_refuse(calls))
@@ -1445,6 +1450,8 @@ class TestRefusedHost:
     def test_the_season_log_pull_stops_after_consecutive_failures(
             self, monkeypatch, tmp_path):
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        # One worker; the parallel bound lives in TestParallelSweeps.
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "1")
         calls: list = []
         monkeypatch.setattr(ing.urllib.request, "urlopen",
                             _probe_then_refuse(calls))
@@ -1460,6 +1467,8 @@ class TestRefusedHost:
         losing it is a thinner model rather than a wrong one. What is not
         acceptable is paying per game to rediscover a refusal."""
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        # One worker; the parallel bound lives in TestParallelSweeps.
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "1")
         calls: list = []
         monkeypatch.setattr(ing.urllib.request, "urlopen",
                             _probe_then_refuse(calls))
@@ -1623,6 +1632,163 @@ class TestRefusedHost:
         _frame, info = ing._fetch_play_by_play(games)
         assert info["requested"] == 0
         assert info["cached"] == 6
+
+
+class TestParallelSweeps:
+    """Workers may change the clock. They may not change the data or the rate.
+
+    The 2026-10-13 remediation: the play-by-play sweep was 38m21s of the
+    54-minute Kaggle run (3,461 games) and the schedule sweep another 4m08s
+    (1,025 days), both loops issuing one request at a time. These pin what
+    made parallelism safe to add - delivered frames and counters identical to
+    the serial sweep's, and a host-side start rate the turnstile sets rather
+    than the pool - plus the knobs, and the refusal bound under workers.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_probes(self):
+        ing._PROBED.clear()
+        yield
+        ing._PROBED.clear()
+
+    @staticmethod
+    def _games(count: int) -> pd.DataFrame:
+        today = date.today()
+        return pd.DataFrame({
+            "nba_game_id": [f"0022400{i:03d}" for i in range(count)],
+            "gameday": [pd.Timestamp(today - timedelta(days=i))
+                        for i in range(count)],
+        })
+
+    def test_workers_come_from_the_env_and_never_below_one(self, monkeypatch):
+        """The knob a deployment reaches for when the measured default is not
+        the right rate for its host - and it must degrade to the default, not
+        to zero workers or to a crash, on junk input."""
+        monkeypatch.delenv(ing.PULL_WORKERS_ENV, raising=False)
+        assert ing._resolve_workers() == ing.PULL_WORKERS
+        assert ing._resolve_workers(1) == 1
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "6")
+        assert ing._resolve_workers() == 6
+        for junk in ("0", "-3", "nonsense", ""):
+            monkeypatch.setenv(ing.PULL_WORKERS_ENV, junk)
+            assert ing._resolve_workers() == ing.PULL_WORKERS
+
+    def test_the_turnstile_caps_the_start_rate_not_the_worker_count(self):
+        """12 gated starts behind 6 workers still take (n-1)*interval: the
+        aggregate rate is the gate's number, so raising NBA_PULL_WORKERS can
+        only overlap latency, never ask the host for more requests per
+        second. Order is the item order, results included."""
+        pace = ing._Pace(0.05)
+        items = list(range(12))
+        started = time.time()
+        out = list(ing._prefetched(items, lambda i: (pace.wait(), i)[1], 6))
+        elapsed = time.time() - started
+        assert [item for item, _result in out] == items
+        assert [result for _item, result in out] == items
+        assert elapsed >= (len(items) - 1) * 0.05
+
+    def test_an_exception_surfaces_at_its_own_item(self):
+        """A sweep that dies must die where the serial one did, on the same
+        message - not wherever the slowest worker happened to be."""
+        def serve(i):
+            if i == 3:
+                raise ing.HostUnavailable("refused")
+            return i
+
+        out = list(ing._prefetched(range(5), serve, 4))
+        assert [item for item, _result in out] == [0, 1, 2, 3, 4]
+        assert out[2][1] == 2
+        assert isinstance(out[3][1], ing.HostUnavailable)
+
+    def test_the_play_by_play_sweep_is_identical_serial_or_parallel(
+            self, monkeypatch, tmp_path):
+        """The guardrail test. Same games, same order, same frame, same
+        counters - the only difference between the two pulls is how long
+        they took."""
+        games = self._games(9)
+
+        def answer(request, timeout=None):
+            gid = request.full_url.split("GameID=")[-1].split("&")[0]
+            action = _pbp_action(1, "Made Shot", desc=f"game {gid}")
+            return _Response(json.dumps(
+                {"game": {"actions": [action]}}).encode())
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path / "serial"))
+        serial_frame, serial_info = ing._fetch_play_by_play(games, workers=1)
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path / "parallel"))
+        parallel_frame, parallel_info = ing._fetch_play_by_play(games, workers=4)
+        pd.testing.assert_frame_equal(serial_frame, parallel_frame)
+        assert parallel_info == serial_info
+
+    def test_the_schedule_sweep_is_identical_serial_or_parallel(
+            self, monkeypatch, tmp_path):
+        ing._PROBED.add("espn")
+        try:
+            def answer(request, timeout=None):
+                day = request.full_url.split("dates=")[-1].split("&")[0]
+                event = _espn_event(event_id=f"4015{day[-4:]}",
+                                    when=f"{day[:4]}-{day[4:6]}-{day[6:8]}T23:00Z")
+                return _Response(json.dumps({"events": [event]}).encode())
+
+            monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+            start, end = date(2024, 1, 1), date(2024, 1, 20)
+            monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path / "serial"))
+            serial = ing._fetch_schedule(start, end, workers=1)
+            monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path / "parallel"))
+            parallel = ing._fetch_schedule(start, end, workers=4)
+            pd.testing.assert_frame_equal(serial, parallel)
+        finally:
+            ing._PROBED.discard("espn")
+
+    def test_a_refused_play_by_play_stays_bounded_with_workers(
+            self, monkeypatch, tmp_path):
+        """The exact-count tests pin the serial sweep; this pins the property
+        that survives parallelism: a refusing host costs a handful of extra
+        requests (the in-flight window), never the window."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen",
+                            _probe_then_refuse(calls))
+        frame, info = ing._fetch_play_by_play(self._games(40))
+        assert info["tripped"] is True
+        assert frame.empty
+        assert len(calls) <= (1 + ing.DEFAULT_PBP_MAX_FAILURES
+                              + ing.PULL_WORKERS)
+
+    def test_a_refused_schedule_sweep_stays_bounded_with_workers(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen",
+                            _probe_then_refuse(calls))
+        with pytest.raises(ing.ScheduleUnavailable):
+            ing._fetch_schedule(date(2024, 1, 1), date(2024, 12, 31))
+        assert len(calls) <= (1 + ing.DEFAULT_SCHEDULE_MAX_FAILURES
+                              + ing.PULL_WORKERS)
+
+    def test_the_host_is_probed_once_even_when_workers_race_it(
+            self, monkeypatch, tmp_path):
+        """"One probe per process" has to survive the pool: two workers
+        arriving at an unprobed host must not both pay for it, and must not
+        both believe a refusal."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "8")
+        monkeypatch.setenv(ing.PBP_PAUSE_SEC_ENV, "0.001")
+        calls: list = []
+
+        def answer(request, timeout=None):
+            calls.append(request.full_url)
+            time.sleep(0.01)
+            action = _pbp_action(1, "Made Shot")
+            return _Response(json.dumps(
+                {"game": {"actions": [action]}}).encode())
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        _frame, info = ing._fetch_play_by_play(self._games(24))
+        assert info["fetched"] == 24
+        probes = [url for url in calls if "LeagueGameLog" in url]
+        assert len(probes) == 1, probes
 
 
 # ---------------------------------------------------------------------------

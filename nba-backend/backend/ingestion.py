@@ -62,10 +62,13 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -96,9 +99,12 @@ SCHEDULE_BUDGET_ENV = "NBA_SCHEDULE_BUDGET_SEC"
 REQUEST_TIMEOUT_ENV = "NBA_REQUEST_TIMEOUT_SEC"
 REQUEST_ATTEMPTS_ENV = "NBA_REQUEST_ATTEMPTS"
 PBP_PAUSE_SEC_ENV = "NBA_PBP_PAUSE_SEC"
+SCHEDULE_PAUSE_SEC_ENV = "NBA_SCHEDULE_PAUSE_SEC"
+SEASON_LOG_PAUSE_SEC_ENV = "NBA_SEASON_LOG_PAUSE_SEC"
 SCHEDULE_MAX_FAILURES_ENV = "NBA_SCHEDULE_MAX_CONSECUTIVE_FAILURES"
 PBP_MAX_FAILURES_ENV = "NBA_PBP_MAX_CONSECUTIVE_FAILURES"
 SLICE_DAYS_ENV = "NBA_SLICE_DAYS"
+PULL_WORKERS_ENV = "NBA_PULL_WORKERS"
 
 #: A single request's ceiling. 90s is deliberately long: a slow answer that
 #: eventually arrives is worth waiting for, while the retry policy below means a
@@ -112,10 +118,34 @@ DEFAULT_ATTEMPTS = 3
 #: transient brownout that 3 attempts (~4.7 min) turned into a dead run on
 #: 2026-09-29. Still bounded: a genuinely dead endpoint costs ~15 min, once.
 SEASON_LOG_ATTEMPTS = 9
-#: Seconds between play-by-play requests. 3,461 games at 0.1s each is six
-#: minutes of transfer; the pause is what keeps the host from deciding an
-#: unusually fast client is a scraper.
+#: Seconds between play-by-play request STARTS, counted across EVERY worker
+#: at once - a turnstile the whole sweep passes through, not a per-thread
+#: sleep. The old per-thread pause let N workers multiply the host-side rate
+#: by N, which is precisely the direction a rate limit objects to; the
+#: turnstile makes the aggregate rate a single number this file chooses.
+#:
+#: 0.25s is a measurement, not a guess (2026-10-13, stats.nba.com
+#: playbyplayv3, 24-48 game waves): 1 worker sustained 2.05-2.12 games/s
+#: with zero non-200, which is the rate the production sweep already runs
+#: at for 38 minutes clean; UNGATED 4- and 8-worker waves answered 10
+#: connection resets / read timeouts out of 48 - the host closes connections
+#: it sees burst - while the SAME 4 workers behind a 0.25s turnstile held
+#: 3.95 games/s with zero non-200, and 0.33s / 0.5s gates held 2.98 / 2.00.
+#: So the gate is what makes concurrency safe, and 0.25s (4 starts/s) is the
+#: highest rate measured clean for a full sweep-length run.
 DEFAULT_PBP_PAUSE_SEC = 0.25
+#: The schedule sweep's turnstile. ESPN measured an order of magnitude more
+#: tolerant than stats.nba.com on the same day: 6.0 / 28.7 / 79.5 days/s at
+#: 1 / 4 / 8 workers, zero non-200 in every wave - the serial sweep already
+#: sustains 4.2 day/s without a pause. 0.1s (10 starts/s) is a small multiple
+#: of the rate that already runs clean every day, and it still caps the
+#: worst case no matter how many workers are configured.
+DEFAULT_SCHEDULE_PAUSE_SEC = 0.1
+#: Season-log pacing. Same host as play-by-play, but each answer is several
+#: megabytes rather than 200 KB, so this sweep keeps a gentler gate (2
+#: starts/s); at 4 workers the responses themselves, not the gate, become
+#: the constraint, and the slice count is small either way.
+DEFAULT_SEASON_LOG_PAUSE_SEC = 0.5
 #: The play-by-play sweep is UNBOUNDED: every game the season log identifies
 #: is requested every run. The retired selection limits (a 1,500-game cap and
 #: a 240-day lookback) were what left 1,962 games of the 2024 band forward-
@@ -312,6 +342,152 @@ def _int_env(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if value > 0 else default
+
+
+# ---------------------------------------------------------------------------
+# Parallel sweeps
+# ---------------------------------------------------------------------------
+#
+# The 2026-10-13 Kaggle run log: the play-by-play sweep was 38m21s of a
+# 54-minute pipeline (3,461 games at 1.50 game/s) and the schedule sweep
+# another 4m08s (1,025 ESPN days at 4.2 day/s). Both loops issued one request
+# at a time, so every second of network latency was a second of wall clock
+# while the CPU idled - parse + parquet write measure 5.5ms per game against
+# ~420ms of network, so there was nothing on the CPU side to reclaim.
+#
+# The shape is NHL's 2026-10-13 fix, ported at the level that matters: a
+# bounded worker pool fetches while the main thread keeps every piece of the
+# serial loop's own logic - accounting, breakers, budgets, bar ticks and log
+# lines - in input order, so the delivered frames and the log a human reads
+# are unchanged. The host-side rate is bounded by a TURNSTILE (``_Pace``)
+# that every worker passes through, never by the worker count: adding workers
+# overlaps latency, it does not open the tap.
+
+#: Workers for a cold sweep. 4 rather than NHL's 8 because the gate and not
+#: the pool is the rate limit here (see DEFAULT_PBP_PAUSE_SEC's measurement),
+#: and 4 is the smallest pool that saturates a 0.25s gate at stats.nba.com's
+#: ~0.42s latency. ``NBA_PULL_WORKERS`` overrides it for a run that wants to
+#: be gentler (or braver) than the measured default.
+PULL_WORKERS = 4
+
+#: One writer at a time. Each sweep writes only its own per-game / per-day /
+#: per-slice cache path, so no two workers ever target one file in practice;
+#: the lock keeps that true by construction (a test - or a future caller -
+#: that maps several ids onto one path cannot race two writers into the same
+#: parquet), and pyarrow's own serialization is not left to chance.
+_CACHE_WRITE_LOCK = threading.Lock()
+
+#: Probing must stay one request per process, and ``_PROBED`` is now read
+#: from workers as well as the main thread. The lock is held across the probe
+#: itself so two workers arriving at an unprobed host cannot both pay for it.
+_PROBE_LOCK = threading.Lock()
+
+
+@dataclass
+class _ServeOutcome:
+    """What one unit of a parallel sweep produced, for the main thread.
+
+    ``kind`` is one of ``cached`` / ``fetched`` / ``empty`` / ``budget`` /
+    ``probe-refused`` / ``failed``; each sweep's main loop maps it onto the
+    exact counters and messages the serial loop used to own. ``extra`` carries
+    the per-unit fact a counter needs (unattributed rebounds), ``error`` the
+    exception a warning should print.
+    """
+
+    kind: str
+    frame: pd.DataFrame = field(default_factory=pd.DataFrame)
+    extra: int = 0
+    error: Exception | None = None
+
+
+def _resolve_workers(workers: int | None = None) -> int:
+    """Worker count for a pull: explicit arg > NBA_PULL_WORKERS > default."""
+    if workers is None:
+        workers = _int_env(PULL_WORKERS_ENV, PULL_WORKERS)
+    try:
+        return max(1, int(workers))
+    except (TypeError, ValueError):
+        return PULL_WORKERS
+
+
+class _Pace:
+    """The rate limit this pipeline imposes on itself, shared by all workers.
+
+    A turnstile: each caller claims the next start slot at least
+    ``min_interval_sec`` after the previous one, then sleeps until its slot.
+    Claiming under the lock and sleeping outside it is what keeps the lock
+    held for microseconds regardless of the interval - the workers queue on
+    the clock, not on the mutex.
+
+    This is the load-bearing safety property of the parallel sweeps: the
+    aggregate request rate is one number this module chooses, independent of
+    the worker count, so a future ``NBA_PULL_WORKERS=32`` can only overlap
+    more latency, never ask the host for more requests per second.
+    """
+
+    def __init__(self, min_interval_sec: float) -> None:
+        self._interval = max(0.0, float(min_interval_sec))
+        self._lock = threading.Lock()
+        self._next_start = 0.0
+
+    def wait(self) -> None:
+        if self._interval <= 0.0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next_start)
+            self._next_start = start + self._interval
+        delay = start - now
+        if delay > 0.0:
+            time.sleep(delay)
+
+
+def _prefetched(items: Iterable[Any], serve, workers: int):
+    """Yield ``(item, result-or-exception)`` in ITEM order, ``workers`` at a time.
+
+    The whole point is the lookahead: ``serve`` starts up to ``workers``
+    items ahead of the item the caller is accounting for, so the network
+    works while the main thread does bookkeeping. Consumption stays strictly
+    in input order, which is what lets every downstream loop - bars, breakers,
+    budgets, concat order - keep its serial behaviour without a single line
+    of re-ordering anywhere.
+
+    A failure inside ``serve`` is yielded as the exception object rather than
+    raised here, so it surfaces at ITS item's turn - a sweep that dies dies in
+    the same place, and on the same message, as the serial one. ``workers=1``
+    runs the serial path with no executor at all.
+    """
+    items = iter(items)
+    if workers <= 1:
+        for item in items:
+            try:
+                yield item, serve(item)
+            except Exception as exc:  # noqa: BLE001 — re-raised in item order
+                yield item, exc
+        return
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        pending: deque = deque()
+
+        def fill() -> None:
+            # Lookahead is capped at ``workers``: a sweep that trips its
+            # breaker or spends its budget stops SUBMITTING at that instant,
+            # so the overshoot on a refusing host is a handful of requests
+            # rather than the whole window.
+            while len(pending) < workers:
+                try:
+                    item = next(items)
+                except StopIteration:
+                    return
+                pending.append((item, executor.submit(serve, item)))
+
+        fill()
+        while pending:
+            item, future = pending.popleft()
+            try:
+                yield item, future.result()
+            except Exception as exc:  # noqa: BLE001 — re-raised in item order
+                yield item, exc
+            fill()
 
 
 def _to_date(value: Any) -> date | None:
@@ -520,38 +696,46 @@ def preflight(hosts: Iterable[str] = ("espn", "stats")) -> dict[str, float]:
         url, headers = _probe_url(host)
         label = HOST_LABELS.get(host, host)
         started = time.time()
-        try:
-            http_json(url, headers, timeout=DEFAULT_PROBE_TIMEOUT_SEC,
-                      attempts=DEFAULT_PROBE_ATTEMPTS)
-        except HostUnavailable as exc:
-            # Recorded before raising so a caller that catches this and retries
-            # in the same process does not pay for the probe twice.
-            _PROBED.add(host)
-            cost = HOST_SWEEP_COST.get(host, "the sweep would only repeat it")
-            if not isinstance(exc.__cause__, urllib.error.HTTPError):
-                # No HTTP answer at all — timeouts and connection failures.
-                # That is slowness or unreachability, NOT the client being
-                # refused, and saying so was how the 2026-10-04 crash log
-                # misdiagnosed a read timeout as a blacklist.
+        # Held across the probe itself: a parallel sweep reaches this from
+        # several workers at once, and "one probe per process" has to stay
+        # true under that - two workers arriving at an unprobed host must not
+        # both pay for it, and must not both believe a refusal.
+        with _PROBE_LOCK:
+            if host in _PROBED:
+                # Another worker settled it while this one waited.
+                continue
+            try:
+                http_json(url, headers, timeout=DEFAULT_PROBE_TIMEOUT_SEC,
+                          attempts=DEFAULT_PROBE_ATTEMPTS)
+            except HostUnavailable as exc:
+                # Recorded before raising so a caller that catches this and retries
+                # in the same process does not pay for the probe twice.
+                _PROBED.add(host)
+                cost = HOST_SWEEP_COST.get(host, "the sweep would only repeat it")
+                if not isinstance(exc.__cause__, urllib.error.HTTPError):
+                    # No HTTP answer at all — timeouts and connection failures.
+                    # That is slowness or unreachability, NOT the client being
+                    # refused, and saying so was how the 2026-10-04 crash log
+                    # misdiagnosed a read timeout as a blacklist.
+                    raise HostUnavailable(
+                        f"{label} did not answer {DEFAULT_PROBE_ATTEMPTS} probe "
+                        f"request(s) made before the pull began: {_short(exc)}. "
+                        f"A host this slow from here repeats that wait across the "
+                        f"whole sweep — {cost} — so the run stops instead of "
+                        f"burning it, but this is a slow or unreachable host, not "
+                        f"a refusal: run where {label} answers, or warm the cache "
+                        f"here and re-run with --skip-pull."
+                    ) from exc
                 raise HostUnavailable(
-                    f"{label} did not answer {DEFAULT_PROBE_ATTEMPTS} probe "
-                    f"request(s) made before the pull began: {_short(exc)}. "
-                    f"A host this slow from here repeats that wait across the "
-                    f"whole sweep — {cost} — so the run stops instead of "
-                    f"burning it, but this is a slow or unreachable host, not "
-                    f"a refusal: run where {label} answers, or warm the cache "
-                    f"here and re-run with --skip-pull."
+                    f"{label} refused a single request made before the pull "
+                    f"began: {_short(exc)}. That is a host refusing this client, "
+                    f"not a malformed request, and no header this pipeline can "
+                    f"send will change the answer; {cost} instead. Run where the "
+                    f"host is reachable, or warm the cache here and re-run with "
+                    f"--skip-pull."
                 ) from exc
-            raise HostUnavailable(
-                f"{label} refused a single request made before the pull "
-                f"began: {_short(exc)}. That is a host refusing this client, "
-                f"not a malformed request, and no header this pipeline can "
-                f"send will change the answer; {cost} instead. Run where the "
-                f"host is reachable, or warm the cache here and re-run with "
-                f"--skip-pull."
-            ) from exc
-        _PROBED.add(host)
-        report[host] = time.time() - started
+            _PROBED.add(host)
+            report[host] = time.time() - started
         logger.info("preflight: %s answered in %.2fs", label, report[host])
     return report
 
@@ -1009,7 +1193,12 @@ def _write_parquet(frame: pd.DataFrame, path) -> None:
         # an older adapter holds different dtypes, and concatenating the two
         # produces a mixed column that ``to_parquet`` refuses with a type error
         # that names neither cause. This makes the cache self-healing.
-        frame.to_parquet(path, index=False)
+        #
+        # One writer at a time (see _CACHE_WRITE_LOCK): parallel sweep workers
+        # each own a distinct cache path, so the lock is never contended in a
+        # real sweep - it is here so that property holds by construction.
+        with _CACHE_WRITE_LOCK:
+            frame.to_parquet(path, index=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning("could not write %s (%s); it will be refetched",
                        path.name, exc)
@@ -1209,7 +1398,8 @@ def _schedule_hit(frame: pd.DataFrame, path) -> bool:
     return _SCHEDULE_PRESENT_COLUMNS.issubset(frame.columns)
 
 
-def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
+def _fetch_schedule(start: date, end: date,
+                    workers: int | None = None) -> pd.DataFrame:
     """Every game in the window, from ESPN, one request per day.
 
     MLB's ``_espn_events_for_et_date`` solves the same problem for baseball by
@@ -1232,6 +1422,13 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     optimization: against a refusing host this sweep does not fail quickly, it
     fails slowly, one burned timeout at a time, and the error it eventually
     raises blames the schedule rather than the host.
+
+    The requests overlap (``workers``, ``NBA_PULL_WORKERS``) but the days are
+    asked for in the same order, counted in the same order and delivered in
+    the same order as the serial sweep this replaced; the aggregate request
+    rate is capped by the ``NBA_SCHEDULE_PAUSE_SEC`` turnstile, not by the
+    worker count. See the parallel-sweeps section for the measurement behind
+    both.
     """
     if _flag(FULL_REPULL_ENV):
         logger.info("%s is set; every schedule day is refetched", FULL_REPULL_ENV)
@@ -1245,8 +1442,59 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     fetched = cached = 0
     consecutive = 0
     last_reason = ""
+    workers = _resolve_workers(workers)
+    pause = _float_env(SCHEDULE_PAUSE_SEC_ENV, DEFAULT_SCHEDULE_PAUSE_SEC)
+    pace = _Pace(pause)
     logger.info("schedule: %d day(s) from %s to %s, one request per day "
-                "(ESPN's scoreboard has no date range)", days, start, end)
+                "(ESPN's scoreboard has no date range); %d worker(s), at most "
+                "one request start every %.2fs", days, start, end, workers,
+                pause)
+
+    def _serve_one(day: date) -> _ServeOutcome:
+        """One day's whole serial body, ready to run on a worker.
+
+        Cache read, budget check, probe, pace, fetch, wrong-day check, cache
+        write - in the serial loop's order, because that order is load-bearing
+        in two places: a warm day must never reach the network, and a day the
+        budget has already spent must not be asked about or counted.
+        """
+        path = _schedule_path(day)
+        existing = (pd.DataFrame() if _flag(FULL_REPULL_ENV)
+                    else _read_parquet(path))
+        if _schedule_hit(existing, path):
+            return _ServeOutcome("cached", existing)
+        if time.time() > deadline:
+            return _ServeOutcome("budget")
+        try:
+            # Deliberately outside the try below: a refusing probe is a fact
+            # about the host rather than about this day, and the serial sweep
+            # let it end the sweep instead of spending the failure breaker on
+            # it once per day.
+            _ensure_probed("espn")
+        except HostUnavailable as exc:
+            return _ServeOutcome("probe-refused", error=exc)
+        pace.wait()
+        try:
+            payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
+                                timeout=25.0, attempts=2)
+            day_frame = sources.espn_schedule_frame(payload.get("events", []))
+            answered = _answered_a_different_day(day_frame, day)
+            if answered is not None:
+                # Raised inside the same handler as a 403 on purpose: a
+                # wrong answer and a refusal are the same operational
+                # fact, and both must trip the breaker rather than be
+                # cached as a day's schedule.
+                raise HostUnavailable(
+                    f"asked ESPN for {day} and every game it returned "
+                    f"came back dated {answered}. Its scoreboard "
+                    f"ignores a date it does not recognise and answers "
+                    f"with whatever slate it currently holds")
+        except HostUnavailable as exc:
+            return _ServeOutcome("failed", error=exc)
+        day_frame = day_frame.assign(_day=day)
+        _write_parquet(day_frame, path)
+        return _ServeOutcome("fetched", day_frame)
+
     with _DayWindows(start, end, _int_env(SLICE_DAYS_ENV, DEFAULT_SLICE_DAYS),
                      desc="schedule", unit="day") as windows:
         # The bar stays as bare as MLB's.  It names no window and carries no
@@ -1255,71 +1503,69 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
         # bar line long enough to wrap turns into a staircase of escape
         # sequences in a captured log - which is the mess the operator is
         # watching, traded for detail that is already on screen twice.
-        for offset in range(days):
-            if time.time() > deadline:
-                logger.warning("schedule sweep hit its budget after %d of %d days; "
-                               "the rest is cached and the next run continues",
-                               offset, days)
-                break
-            day = start + timedelta(days=offset)
-            with windows.day(day).item():
-                path = _schedule_path(day)
-                existing = (pd.DataFrame() if _flag(FULL_REPULL_ENV)
-                            else _read_parquet(path))
-                if _schedule_hit(existing, path):
-                    cached += 1
-                    windows.window_cached += 1
-                    windows.window_games += 0 if existing.empty else len(existing)
-                    frames.append(existing)
-                    continue
-                _ensure_probed("espn")
-                try:
-                    payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
-                                        timeout=25.0, attempts=2)
-                    day_frame = sources.espn_schedule_frame(payload.get("events", []))
-                    answered = _answered_a_different_day(day_frame, day)
-                    if answered is not None:
-                        # Raised inside the same handler as a 403 on purpose: a
-                        # wrong answer and a refusal are the same operational
-                        # fact, and both must trip the breaker rather than be
-                        # cached as a day's schedule.
-                        raise HostUnavailable(
-                            f"asked ESPN for {day} and every game it returned "
-                            f"came back dated {answered}. Its scoreboard "
-                            f"ignores a date it does not recognise and answers "
-                            f"with whatever slate it currently holds")
-                except HostUnavailable as exc:
-                    consecutive += 1
-                    last_reason = _short(exc)
-                    logger.warning(
-                        "ESPN scoreboard unavailable for %s (%d in a row): %s",
-                        day, consecutive, last_reason)
-                    if consecutive >= max_failures:
-                        remaining = days - offset - 1
-                        raise ScheduleUnavailable(
-                            f"ESPN's scoreboard failed {consecutive} days in "
-                            f"a row (last {day}), so the sweep stopped rather "
-                            f"than ask the same question {remaining} more "
-                            f"time(s). It had spent "
-                            f"{time.time() - started:.0f}s of its budget "
-                            f"proving one thing, which is what a host refusing "
-                            f"this client looks like: an instant 403, a "
-                            f"connection that is accepted and then never "
-                            f"answered, or an answer about a different day "
-                            f"entirely. The last one was: {last_reason}. "
-                            f"Nothing this pipeline sends will change any of "
-                            f"them. Run where ESPN is reachable, or warm the "
-                            f"cache here and re-run with --skip-pull."
-                        ) from exc
-                    continue
-                consecutive = 0
-                day_frame = day_frame.assign(_day=day)
-                _write_parquet(day_frame, path)
-                fetched += 1
-                windows.window_fetched += 1
-                if not day_frame.empty:
-                    windows.window_games += len(day_frame)
-                    frames.append(day_frame)
+        #
+        # Consumption is in day order regardless of which worker finished
+        # first, so the window bars, the counters and the failure breaker all
+        # behave exactly as they did when the loop issued one request itself.
+        queue = _prefetched((start + timedelta(days=offset)
+                             for offset in range(days)), _serve_one, workers)
+        try:
+            for offset, (day, outcome) in enumerate(queue):
+                with windows.day(day).item():
+                    if isinstance(outcome, Exception):
+                        # A parse bug, not a host problem: it surfaces here,
+                        # at its own day, where the serial loop would have
+                        # raised it.
+                        raise outcome
+                    if outcome.kind == "budget":
+                        logger.warning(
+                            "schedule sweep hit its budget after %d of %d days; "
+                            "the rest is cached and the next run continues",
+                            offset, days)
+                        break
+                    if outcome.kind == "probe-refused":
+                        raise outcome.error
+                    if outcome.kind == "cached":
+                        cached += 1
+                        windows.window_cached += 1
+                        windows.window_games += (0 if outcome.frame.empty
+                                                 else len(outcome.frame))
+                        frames.append(outcome.frame)
+                        continue
+                    if outcome.kind == "failed":
+                        consecutive += 1
+                        last_reason = _short(outcome.error)
+                        logger.warning(
+                            "ESPN scoreboard unavailable for %s (%d in a row): %s",
+                            day, consecutive, last_reason)
+                        if consecutive >= max_failures:
+                            remaining = days - offset - 1
+                            raise ScheduleUnavailable(
+                                f"ESPN's scoreboard failed {consecutive} days in "
+                                f"a row (last {day}), so the sweep stopped rather "
+                                f"than ask the same question {remaining} more "
+                                f"time(s). It had spent "
+                                f"{time.time() - started:.0f}s of its budget "
+                                f"proving one thing, which is what a host refusing "
+                                f"this client looks like: an instant 403, a "
+                                f"connection that is accepted and then never "
+                                f"answered, or an answer about a different day "
+                                f"entirely. The last one was: {last_reason}. "
+                                f"Nothing this pipeline sends will change any of "
+                                f"them. Run where ESPN is reachable, or warm the "
+                                f"cache here and re-run with --skip-pull."
+                            ) from outcome.error
+                        continue
+                    consecutive = 0
+                    fetched += 1
+                    windows.window_fetched += 1
+                    if not outcome.frame.empty:
+                        windows.window_games += len(outcome.frame)
+                        frames.append(outcome.frame)
+        finally:
+            # Ends the lookahead deterministically: in-flight days finish, and
+            # days never submitted are never requested.
+            queue.close()
     if not frames:
         return pd.DataFrame()
     games = pd.concat([f for f in frames if not f.empty], ignore_index=True)
@@ -1372,7 +1618,8 @@ def _season_log_units(start: date, end: date,
     return units
 
 
-def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
+def _fetch_season_logs(start: date, end: date,
+                      workers: int | None = None) -> pd.DataFrame:
     """Every player line in the window, one request per 60-day slice.
 
     ``LeagueGameLog`` already accepts ``DateFrom``/``DateTo`` - the pull has
@@ -1398,91 +1645,128 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
                             DEFAULT_SEASON_LOG_MAX_FAILURES)
     consecutive = 0
     stopped_early = False
+    workers = _resolve_workers(workers)
+    pace = _Pace(_float_env(SEASON_LOG_PAUSE_SEC_ENV,
+                            DEFAULT_SEASON_LOG_PAUSE_SEC))
     logger.info("season log: %d request(s) of up to %d day(s) over %s..%s "
-                "(%s overrides the width)", len(units), slice_days, start, end,
-                SLICE_DAYS_ENV)
+                "(%s overrides the width); %d worker(s)",
+                len(units), slice_days, start, end, SLICE_DAYS_ENV, workers)
+
+    def _serve_one(unit) -> _ServeOutcome:
+        """One slice's whole serial body, ready to run on a worker.
+
+        There is no budget here (34 requests, not 3,461), so a worker owns
+        exactly one slice: read the cache, and on a miss, pace, fetch, rename
+        and write. The failure breaker stays entirely in the main thread,
+        counted in slice order, which is what keeps "two consecutive failures
+        stop the pull" meaning what it always meant.
+        """
+        label, season_type, game_type, lo, hi = unit
+        path = _season_log_path(label, season_type, lo, hi)
+        if _flag(FULL_REPULL_ENV):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        cached = _read_parquet(path)
+        if path.exists():
+            # ``path.exists()`` rather than ``not cached.empty``: a
+            # window with no games in it is cached as an empty file, and
+            # testing the frame instead would re-ask for that window on
+            # every run forever - which is exactly the "has not started
+            # yet" answer this cache exists to remember.
+            return _ServeOutcome("cached", cached)
+        url = (f"{sources.SEASON_LOG_URL}?"
+               f"{sources.season_log_query(label, season_type, lo, hi)}")
+        _ensure_probed("stats")
+        pace.wait()
+        try:
+            # The season log is the ONE feature source with no
+            # second source (see the raise below), so it gets the
+            # deepest patience in the file. The 2026-09-29 Kaggle
+            # run stopped the whole pipeline because one slice hit
+            # a slow patch: each 90s attempt itself succeeded with
+            # 2026-05-29..2026-07-27 in the previous run and the
+            # neighbors succeeded seconds later, but 3 attempts
+            # with 2s/4s backoff spent ~4.7 minutes and quit. A
+            # slow host is not a dead host; the deadline doubles
+            # and the count triples so a transient brownout costs
+            # minutes instead of the run.
+            payload = http_json(url, STATS_HEADERS, timeout=90.0,
+                                attempts=SEASON_LOG_ATTEMPTS)
+        except HostUnavailable as exc:
+            return _ServeOutcome("failed", error=exc)
+        log = _result_set_to_frame(payload)
+        log = sources.rename_log(log)
+        log = log.assign(game_type=game_type)
+        _write_parquet(log, path)
+        return _ServeOutcome("fetched", log, extra=len(log))
+
     with progress.track(len(units), desc="season log slices",
                         unit="slice") as bar:
-        for number, (label, season_type, game_type, lo, hi) in enumerate(
-                units, start=1):
-            # No postfix on the bar: the ``Chunk:`` line inside this block
-            # already names the window, the season and the type, and a bar that
-            # repeated them would be the longest line in the log.
-            with bar.item():
-                # MLB's chunked pulls announce each window as they take it
-                # (``Chunk: start -> end``). The season and type ride along
-                # because two seasons are in flight at once near an October
-                # boundary, and a bare date range would not say which one.
-                logger.info("  Chunk: %s -> %s  %s %s", lo, hi, label, season_type)
-                path = _season_log_path(label, season_type, lo, hi)
-                if _flag(FULL_REPULL_ENV):
-                    try:
-                        path.unlink()
-                    except OSError:
-                        pass
-                cached = _read_parquet(path)
-                if path.exists():
-                    # ``path.exists()`` rather than ``not cached.empty``: a
-                    # window with no games in it is cached as an empty file, and
-                    # testing the frame instead would re-ask for that window on
-                    # every run forever - which is exactly the "has not started
-                    # yet" answer this cache exists to remember.
-                    if not cached.empty:
-                        logger.info("%s %s %s..%s: %d rows from cache", label,
-                                    season_type, lo, hi, len(cached))
-                        frames.append(cached)
-                    else:
-                        logger.info("%s %s %s..%s: cached, no games in this window",
-                                    label, season_type, lo, hi)
+        queue = _prefetched(iter(units), _serve_one, workers)
+        try:
+            for number, (unit, outcome) in enumerate(queue, start=1):
+                label, season_type, game_type, lo, hi = unit
+                # No postfix on the bar: the ``Chunk:`` line inside this block
+                # already names the window, the season and the type, and a bar
+                # that repeated them would be the longest line in the log.
+                with bar.item():
+                    # MLB's chunked pulls announce each window as they take it
+                    # (``Chunk: start -> end``). The season and type ride along
+                    # because two seasons are in flight at once near an October
+                    # boundary, and a bare date range would not say which one.
+                    # Consumption is in slice order however the workers
+                    # finished, so the Chunk lines, the counters and the
+                    # breaker are the serial sweep's, message for message.
+                    logger.info("  Chunk: %s -> %s  %s %s", lo, hi, label,
+                                season_type)
+                    if isinstance(outcome, Exception):
+                        # A parse bug, not a host problem: it surfaces here,
+                        # at its own slice, where the serial loop raised it.
+                        raise outcome
+                    if outcome.kind == "cached":
+                        if outcome.frame.empty:
+                            logger.info("%s %s %s..%s: cached, no games in this "
+                                        "window", label, season_type, lo, hi)
+                        else:
+                            logger.info("%s %s %s..%s: %d rows from cache", label,
+                                        season_type, lo, hi, len(outcome.frame))
+                            frames.append(outcome.frame)
+                        consecutive = 0
+                        continue
+                    if outcome.kind == "failed":
+                        consecutive += 1
+                        failures.append(f"{label} {season_type} {lo}..{hi}: "
+                                        f"{_short(outcome.error)}")
+                        logger.error("stats.nba.com season log unavailable, %s %s "
+                                     "%s..%s (%d in a row): %s", label, season_type,
+                                     lo, hi, consecutive, _short(outcome.error))
+                        if consecutive >= max_failures:
+                            logger.error("NBA season-log pull stopping after %d "
+                                         "consecutive failures; the endpoint is not "
+                                         "answering, so the remaining %d slice(s) "
+                                         "would only repeat it.", consecutive,
+                                         len(units) - number)
+                            stopped_early = True
+                            break
+                        continue
                     consecutive = 0
-                    continue
-                url = (f"{sources.SEASON_LOG_URL}?"
-                       f"{sources.season_log_query(label, season_type, lo, hi)}")
-                _ensure_probed("stats")
-                try:
-                    # The season log is the ONE feature source with no
-                    # second source (see the raise below), so it gets the
-                    # deepest patience in the file. The 2026-09-29 Kaggle
-                    # run stopped the whole pipeline because one slice hit
-                    # a slow patch: each 90s attempt itself succeeded with
-                    # 2026-05-29..2026-07-27 in the previous run and the
-                    # neighbors succeeded seconds later, but 3 attempts
-                    # with 2s/4s backoff spent ~4.7 minutes and quit. A
-                    # slow host is not a dead host; the deadline doubles
-                    # and the count triples so a transient brownout costs
-                    # minutes instead of the run.
-                    payload = http_json(url, STATS_HEADERS, timeout=90.0,
-                                        attempts=SEASON_LOG_ATTEMPTS)
-                except HostUnavailable as exc:
-                    consecutive += 1
-                    failures.append(f"{label} {season_type} {lo}..{hi}: {_short(exc)}")
-                    logger.error("stats.nba.com season log unavailable, %s %s "
-                                 "%s..%s (%d in a row): %s", label, season_type,
-                                 lo, hi, consecutive, _short(exc))
-                    if consecutive >= max_failures:
-                        logger.error("NBA season-log pull stopping after %d "
-                                     "consecutive failures; the endpoint is not "
-                                     "answering, so the remaining %d slice(s) "
-                                     "would only repeat it.", consecutive,
-                                     len(units) - number)
-                        stopped_early = True
-                        break
-                    continue
-                consecutive = 0
-                log = _result_set_to_frame(payload)
-                if log.empty:
-                    # A window nobody has played in answers with zero rows. That
-                    # is an answer, not a failure, and caching it stops the next
-                    # run asking again.
-                    logger.info("%s %s %s..%s: no rows (no games in this window)",
-                                label, season_type, lo, hi)
-                else:
-                    logger.info("%s %s %s..%s: %d player rows", label, season_type,
-                                lo, hi, len(log))
-                log = sources.rename_log(log)
-                log = log.assign(game_type=game_type)
-                _write_parquet(log, path)
-                frames.append(log)
+                    log = outcome.frame
+                    if log.empty:
+                        # A window nobody has played in answers with zero rows.
+                        # That is an answer, not a failure, and caching it
+                        # stops the next run asking again.
+                        logger.info("%s %s %s..%s: no rows (no games in this "
+                                    "window)", label, season_type, lo, hi)
+                    else:
+                        logger.info("%s %s %s..%s: %d player rows", label,
+                                    season_type, lo, hi, len(log))
+                    frames.append(log)
+        finally:
+            # Ends the lookahead deterministically: in-flight slices finish,
+            # slices never submitted are never requested.
+            queue.close()
     if failures:
         stopped = (" The pull stopped early rather than work through the "
                    "remaining slices, because the endpoint was not answering "
@@ -1643,7 +1927,8 @@ def _absorb_event_rollup_archive(team_events: pd.DataFrame,
     return union, absorbed
 
 
-def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def _fetch_play_by_play(games: pd.DataFrame,
+                       workers: int | None = None) -> tuple[pd.DataFrame, dict]:
     """The action list for the games in the window, one request per game.
 
     Cached per game, and the sweep is UNBOUNDED: every game the season log
@@ -1718,91 +2003,137 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     else:
         logger.info("play-by-play backfill: cache complete, nothing to fill")
     targets = eligible
-    logger.info("play-by-play: %d candidate game(s), sweeping %d",
-                len(eligible), len(targets))
+    workers = _resolve_workers(workers)
+    logger.info("play-by-play: %d candidate game(s), sweeping %d on %d "
+                "worker(s), at most one request start every %.2fs",
+                len(eligible), len(targets), workers,
+                _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC))
 
     with progress.track(len(targets), desc="play-by-play", unit="game") as bar:
         deadline = time.time() + _float_env(PBP_BUDGET_ENV, DEFAULT_PBP_BUDGET_SEC)
         pause = _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC)
+        pace = _Pace(pause)
         max_failures = _int_env(PBP_MAX_FAILURES_ENV, DEFAULT_PBP_MAX_FAILURES)
         consecutive = 0
         frames: list[pd.DataFrame] = []
-        for number, (_, row) in enumerate(targets.iterrows(), start=1):
-            nba_id = str(row.nba_game_id)
-            with bar.item(nba_id):
-                path = _pbp_path(nba_id)
-                existing = _read_parquet(path)
-                if not existing.empty:
-                    info["cached"] += 1
-                    frames.append(existing)
-                    continue
-                if time.time() > deadline:
-                    logger.warning("play-by-play sweep hit its budget at %d of %d "
-                                   "games; the rest is cached and the next run "
-                                   "continues", number - 1, len(targets))
-                    break
-                info["requested"] += 1
-                url = (f"{sources.PLAY_BY_PLAY_URL}?"
-                       f"{sources.play_by_play_query(nba_id)}")
-                try:
-                    _ensure_probed("stats")
-                except HostUnavailable as exc:
-                    # A refusal at the probe is about the host, not about this
-                    # game, and it is not worth re-testing once per game: every
-                    # one of them would fail identically for the same reason.
-                    # Play-by-play is optional - the event features it feeds are
-                    # forward-filled without it - so this ends the sweep and not
-                    # the run.
-                    info["tripped"] = True
-                    logger.error("play-by-play sweep not started: %s", _short(exc))
-                    break
-                try:
-                    # 2026-10-02: a stats.nba.com 502 burst beat two attempts
-                    # and cost three games their sweep, while retries on
-                    # neighbouring games succeeded seconds later - a flaky
-                    # gateway, not a refusal. A third attempt (2s/4s backoff)
-                    # rides that out at near-zero cost; the probe and the
-                    # consecutive-failure trip still bound a dead host, and
-                    # the archive absorbs any gap that survives anyway.
-                    payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=3)
-                except HostUnavailable as exc:
-                    info["failed"] += 1
-                    consecutive += 1
-                    # Log sparsely: a budget-limited sweep can hit thousands of
-                    # these.
-                    if info["failed"] <= 3 or info["failed"] % 50 == 0:
-                        logger.warning("play-by-play unavailable for %s: %s",
-                                       nba_id, _short(exc))
-                    if consecutive >= max_failures:
-                        # Not fatal. Play-by-play feeds a trailing feature that
-                        # is forward-filled across games without it, so a run
-                        # with no play-by-play is a thinner model rather than a
-                        # wrong one. What is not acceptable is spending the
-                        # whole budget rediscovering a refusal once per game, so
-                        # the sweep stops and says why.
-                        info["tripped"] = True
-                        logger.error(
-                            "play-by-play sweep stopping after %d games in a row "
-                            "could not be read; stats.nba.com is refusing this "
-                            "client, and the remaining %d game(s) would only "
-                            "repeat it. The run continues with no play-by-play, "
-                            "so the event features will be absent from the model "
-                            "rather than wrong.",
-                            consecutive, len(targets) - number + 1)
+
+        def _serve_one(item) -> _ServeOutcome:
+            """One game's whole serial body, ready to run on a worker.
+
+            Cache read, budget check, probe, pace, fetch, parse, write - in
+            the serial loop's order, for the two reasons the schedule sweep
+            keeps its own: a warm game must never reach the network, and a
+            game the budget has already spent must not be asked about.
+            """
+            nba_id, gameday = item
+            path = _pbp_path(nba_id)
+            existing = _read_parquet(path)
+            if not existing.empty:
+                return _ServeOutcome("cached", existing)
+            if time.time() > deadline:
+                return _ServeOutcome("budget")
+            url = (f"{sources.PLAY_BY_PLAY_URL}?"
+                   f"{sources.play_by_play_query(nba_id)}")
+            try:
+                # A refusal at the probe is about the host, not about this
+                # game, and it is not worth re-testing once per game: every
+                # one of them would fail identically for the same reason.
+                # Play-by-play is optional - the event features it feeds are
+                # forward-filled without it - so this ends the sweep and not
+                # the run.
+                _ensure_probed("stats")
+            except HostUnavailable as exc:
+                return _ServeOutcome("probe-refused", error=exc)
+            pace.wait()
+            try:
+                # 2026-10-02: a stats.nba.com 502 burst beat two attempts
+                # and cost three games their sweep, while retries on
+                # neighbouring games succeeded seconds later - a flaky
+                # gateway, not a refusal. A third attempt (2s/4s backoff)
+                # rides that out at near-zero cost; the probe and the
+                # consecutive-failure trip still bound a dead host, and
+                # the archive absorbs any gap that survives anyway.
+                payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=3)
+            except HostUnavailable as exc:
+                return _ServeOutcome("failed", error=exc)
+            actions = sources.play_by_play_actions(payload, nba_id, gameday)
+            if actions.empty:
+                return _ServeOutcome("empty")
+            unattributed = sources.unattributed_rebounds(actions)
+            _write_parquet(actions, path)
+            return _ServeOutcome("fetched", actions, extra=unattributed)
+
+        # Consumed in gameday order however the workers finished, so the
+        # counters, the failure breaker and the delivered frame are the
+        # serial sweep's - and the lookahead stops SUBMITTING the moment a
+        # breaker or the budget trips, so a refusing host costs a handful of
+        # extra requests rather than the whole window.
+        queue = _prefetched(((str(row.nba_game_id), row.gameday)
+                             for _, row in targets.iterrows()),
+                            _serve_one, workers)
+        try:
+            for number, ((nba_id, _gameday), outcome) in enumerate(queue,
+                                                                  start=1):
+                with bar.item(nba_id):
+                    if isinstance(outcome, Exception):
+                        # A parse bug, not a host problem: it surfaces here,
+                        # at its own game, where the serial loop raised it.
+                        raise outcome
+                    if outcome.kind == "cached":
+                        info["cached"] += 1
+                        frames.append(outcome.frame)
+                        continue
+                    if outcome.kind == "budget":
+                        logger.warning("play-by-play sweep hit its budget at %d "
+                                       "of %d games; the rest is cached and the "
+                                       "next run continues", number - 1,
+                                       len(targets))
                         break
-                    continue
-                consecutive = 0
-                actions = sources.play_by_play_actions(payload, nba_id, row.gameday)
-                if actions.empty:
-                    logger.warning("play-by-play for %s returned no actions", nba_id)
-                    info["failed"] += 1
-                    continue
-                info["unattributed_rebounds"] += sources.unattributed_rebounds(actions)
-                _write_parquet(actions, path)
-                frames.append(actions)
-                info["fetched"] += 1
-                if pause:
-                    time.sleep(pause)
+                    info["requested"] += 1
+                    if outcome.kind == "probe-refused":
+                        info["tripped"] = True
+                        logger.error("play-by-play sweep not started: %s",
+                                     _short(outcome.error))
+                        break
+                    if outcome.kind == "failed":
+                        info["failed"] += 1
+                        consecutive += 1
+                        # Log sparsely: a budget-limited sweep can hit
+                        # thousands of these.
+                        if info["failed"] <= 3 or info["failed"] % 50 == 0:
+                            logger.warning("play-by-play unavailable for %s: %s",
+                                           nba_id, _short(outcome.error))
+                        if consecutive >= max_failures:
+                            # Not fatal. Play-by-play feeds a trailing feature
+                            # that is forward-filled across games without it, so
+                            # a run with no play-by-play is a thinner model
+                            # rather than a wrong one. What is not acceptable is
+                            # spending the whole budget rediscovering a refusal
+                            # once per game, so the sweep stops and says why.
+                            info["tripped"] = True
+                            logger.error(
+                                "play-by-play sweep stopping after %d games in "
+                                "a row could not be read; stats.nba.com is "
+                                "refusing this client, and the remaining %d "
+                                "game(s) would only repeat it. The run continues "
+                                "with no play-by-play, so the event features "
+                                "will be absent from the model rather than "
+                                "wrong.", consecutive, len(targets) - number + 1)
+                            break
+                        continue
+                    consecutive = 0
+                    if outcome.kind == "empty":
+                        logger.warning("play-by-play for %s returned no actions",
+                                       nba_id)
+                        info["failed"] += 1
+                        continue
+                    info["unattributed_rebounds"] += outcome.extra
+                    frames.append(outcome.frame)
+                    info["fetched"] += 1
+        finally:
+            # Ends the lookahead deterministically: in-flight games finish,
+            # games never submitted are never requested.
+            queue.close()
     logger.info("play-by-play: %d fetched, %d from cache, %d unavailable",
                 info["fetched"], info["cached"], info["failed"])
     if not frames:
