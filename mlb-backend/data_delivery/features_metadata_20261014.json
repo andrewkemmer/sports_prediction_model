@@ -1,5 +1,5 @@
 {
-  "generated_for": "20261003",
+  "generated_for": "20261014",
   "n_features": 109,
   "warnings": [],
   "features": {
@@ -67,11 +67,11 @@
       ],
       "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "sp_era_5g_diff": {
-      "name": "sp_era_5g_diff",
-      "summary": "Home SP recent runs allowed per nine \u2212 away SP (shrunk recent form)",
-      "definition": "Recent rate uses up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career rate with 30 pseudo innings. A strictly prior league rate is the cold-start fallback. This is runs allowed per nine, not official earned-run ERA.",
-      "formula": "shrunk_recent_runs_per_9_home \u2212 shrunk_recent_runs_per_9_away",
+    "sp_xfip_5g_diff": {
+      "name": "sp_xfip_5g_diff",
+      "summary": "Home SP recent xFIP \u2212 away SP (shrunk recent form)",
+      "definition": "Recent expected ERA (xFIP) over up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career xFIP with 30 pseudo innings. xFIP estimates ERA from K/BB/fly-balls with a point-in-time league HR/FB rate, so it strips out the luck-driven home-run-per-fly-ball variance of raw ERA. A strictly prior league xFIP is the cold-start fallback.",
+      "formula": "shrunk_recent_xfip_home \u2212 shrunk_recent_xfip_away",
       "source": "Statcast pitcher appearance aggregates (LAG-shifted)",
       "window": "5 prior appearances + older pitcher history (30 pseudo-IP)",
       "units": "runs / 9 innings",
@@ -81,7 +81,7 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Recent rate uses up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career rate with 30 pseudo innings. A strictly prior league rate is the cold-start fallback. This is runs allowed per nine, not official earned-run ERA.\nFormula: shrunk_recent_runs_per_9_home \u2212 shrunk_recent_runs_per_9_away\nSource: Statcast pitcher appearance aggregates (LAG-shifted)\nWindow: 5 prior appearances + older pitcher history (30 pseudo-IP) \u00b7 Units: runs / 9 innings\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Recent expected ERA (xFIP) over up to five prior pitcher appearances, weighted by innings and blended toward the same pitcher's older, non-overlapping career xFIP with 30 pseudo innings. xFIP estimates ERA from K/BB/fly-balls with a point-in-time league HR/FB rate, so it strips out the luck-driven home-run-per-fly-ball variance of raw ERA. A strictly prior league xFIP is the cold-start fallback.\nFormula: shrunk_recent_xfip_home \u2212 shrunk_recent_xfip_away\nSource: Statcast pitcher appearance aggregates (LAG-shifted)\nWindow: 5 prior appearances + older pitcher history (30 pseudo-IP) \u00b7 Units: runs / 9 innings\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_k9_diff": {
       "name": "sp_k9_diff",
@@ -131,37 +131,37 @@
       ],
       "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "bullpen_whip_10g_diff": {
-      "name": "bullpen_whip_10g_diff",
-      "summary": "Home bullpen 10-game WHIP \u2212 away bullpen (lower = better)",
-      "definition": "Relief corps baserunner allowance over the last 10 games.",
-      "formula": "bullpen_whip_10g_home \u2212 bullpen_whip_10g_away",
+    "bullpen_kbb_10g_diff": {
+      "name": "bullpen_kbb_10g_diff",
+      "summary": "Home bullpen 10-game K-BB% \u2212 away bullpen (higher = better)",
+      "definition": "Relief corps strikeout-minus-walk rate over the last 10 games.",
+      "formula": "bullpen_kbb_10g_home \u2212 bullpen_kbb_10g_away",
       "source": "Statcast relief-pitching aggregates",
       "window": "10g",
-      "units": "WHIP",
-      "direction": "lower = home advantage",
+      "units": "K-BB%",
+      "direction": "higher = home advantage",
       "members": [
         "xgboost",
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Relief corps baserunner allowance over the last 10 games.\nFormula: bullpen_whip_10g_home \u2212 bullpen_whip_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Relief corps strikeout-minus-walk rate over the last 10 games.\nFormula: bullpen_kbb_10g_home \u2212 bullpen_kbb_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: K-BB%\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "bullpen_whip_3g_diff": {
-      "name": "bullpen_whip_3g_diff",
-      "summary": "Home bullpen 3-game WHIP \u2212 away bullpen (short-term form)",
+    "bullpen_kbb_3g_diff": {
+      "name": "bullpen_kbb_3g_diff",
+      "summary": "Home bullpen 3-game K-BB% \u2212 away bullpen (short-term form)",
       "definition": "Very recent bullpen form; noisy but catches slumps fast.",
-      "formula": "bullpen_whip_3g_home \u2212 bullpen_whip_3g_away",
+      "formula": "bullpen_kbb_3g_home \u2212 bullpen_kbb_3g_away",
       "source": "Statcast relief-pitching aggregates",
       "window": "3g",
-      "units": "WHIP",
-      "direction": "lower = home advantage",
+      "units": "K-BB%",
+      "direction": "higher = home advantage",
       "members": [
         "xgboost",
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_whip_3g_home \u2212 bullpen_whip_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_kbb_3g_home \u2212 bullpen_kbb_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: K-BB%\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_pitches_diff": {
       "name": "bullpen_pitches_diff",
@@ -182,7 +182,7 @@
     "team_barrel_diff": {
       "name": "team_barrel_diff",
       "summary": "Home barrel% (15g) \u2212 away barrel% (quality of contact)",
-      "definition": "Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).",
+      "definition": "Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.",
       "formula": "team_barrel_15g_home \u2212 team_barrel_15g_away",
       "source": "Statcast batted-ball data",
       "window": "15g",
@@ -193,7 +193,7 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "team_hardhit_diff": {
       "name": "team_hardhit_diff",
@@ -278,10 +278,10 @@
     "dome_is_neutral": {
       "name": "dome_is_neutral",
       "summary": "1 if home park is a fixed dome/closed roof, 0 if open-air",
-      "definition": "Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.",
-      "formula": "1 if venue in DOMED_VENUES else 0",
-      "source": "Static venue table",
-      "window": "n/a (venue attribute)",
+      "definition": "Weather hallucination gate: indoor games get neutral weather values regardless of outside conditions.",
+      "formula": "1 if this game's roof is closed (or the park is a fixed dome), 0 if open-air \u2014 resolved per game from the StatsAPI roof state for retractable parks, venue type otherwise",
+      "source": "Per-game roof state (StatsAPI) over the static venue table",
+      "window": "n/a (per-game venue attribute)",
       "units": "binary",
       "direction": "n/a (gate flag)",
       "members": [
@@ -289,13 +289,13 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Weather hallucination gate: indoor games get neutral weather values regardless of outside conditions.\nFormula: 1 if this game's roof is closed (or the park is a fixed dome), 0 if open-air \u2014 resolved per game from the StatsAPI roof state for retractable parks, venue type otherwise\nSource: Per-game roof state (StatsAPI) over the static venue table\nWindow: n/a (per-game venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "wind_advantage_flyball_factor": {
       "name": "wind_advantage_flyball_factor",
-      "summary": "Wind direction multiplier \u00d7 SP ERA diff (flyball risk in windy conditions)",
+      "summary": "Wind direction multiplier \u00d7 SP xFIP diff (flyball risk in windy conditions)",
       "definition": "Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).",
-      "formula": "wind_direction_multiplier \u00d7 sp_era_diff",
+      "formula": "wind_direction_multiplier \u00d7 sp_xfip_diff",
       "source": "Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing",
       "window": "per-game (observed)",
       "units": "index",
@@ -305,7 +305,7 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_era_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_xfip_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, logistic"
     },
     "air_density_velocity_boost": {
       "name": "air_density_velocity_boost",
@@ -325,9 +325,9 @@
     },
     "bullpen_meltdown_risk_diff": {
       "name": "bullpen_meltdown_risk_diff",
-      "summary": "Bullpen pitches 3d diff \u00d7 WHIP 10g diff (overworked + low quality = meltdown)",
+      "summary": "Bullpen pitches 3d diff \u00d7 K-BB% 10g diff (overworked + low quality = meltdown)",
       "definition": "Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games \u2014 late-inning blowup potential.",
-      "formula": "bullpen_pitches_diff \u00d7 bullpen_whip_10g_diff",
+      "formula": "bullpen_pitches_diff \u00d7 bullpen_kbb_10g_diff",
       "source": "DuckDB feature engineering: workload \u00d7 form interaction",
       "window": "3d \u00d7 10g",
       "units": "index",
@@ -337,13 +337,13 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_10g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_kbb_10g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_meltdown_risk_home": {
       "name": "bullpen_meltdown_risk_home",
-      "summary": "Home bullpen meltdown risk (3-day pitch count \u00d7 10-game WHIP)",
+      "summary": "Home bullpen meltdown risk (3-day pitch count \u00d7 10-game K-BB%)",
       "definition": "Within-side fatigue \u00d7 quality product for the home pen.",
-      "formula": "bullpen_pitches_3d_home \u00d7 bullpen_whip_10g_home",
+      "formula": "bullpen_pitches_3d_home \u00d7 bullpen_kbb_10g_home",
       "source": "DuckDB feature engineering: workload \u00d7 form interaction",
       "window": "3d \u00d7 10g",
       "units": "index",
@@ -353,13 +353,13 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Within-side fatigue \u00d7 quality product for the home pen.\nFormula: bullpen_pitches_3d_home \u00d7 bullpen_whip_10g_home\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home pen more melt-prone\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Within-side fatigue \u00d7 quality product for the home pen.\nFormula: bullpen_pitches_3d_home \u00d7 bullpen_kbb_10g_home\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = home pen more melt-prone\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_meltdown_risk_away": {
       "name": "bullpen_meltdown_risk_away",
-      "summary": "Away bullpen meltdown risk (3-day pitch count \u00d7 10-game WHIP)",
+      "summary": "Away bullpen meltdown risk (3-day pitch count \u00d7 10-game K-BB%)",
       "definition": "Within-side fatigue \u00d7 quality product for the away pen.",
-      "formula": "bullpen_pitches_3d_away \u00d7 bullpen_whip_10g_away",
+      "formula": "bullpen_pitches_3d_away \u00d7 bullpen_kbb_10g_away",
       "source": "DuckDB feature engineering: workload \u00d7 form interaction",
       "window": "3d \u00d7 10g",
       "units": "index",
@@ -369,13 +369,13 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Within-side fatigue \u00d7 quality product for the away pen.\nFormula: bullpen_pitches_3d_away \u00d7 bullpen_whip_10g_away\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = away pen more melt-prone (home advantage)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Within-side fatigue \u00d7 quality product for the away pen.\nFormula: bullpen_pitches_3d_away \u00d7 bullpen_kbb_10g_away\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 10g \u00b7 Units: index\nDirection: higher = away pen more melt-prone (home advantage)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "pitcher_regression_indicator_diff": {
       "name": "pitcher_regression_indicator_diff",
       "summary": "SP velo diff \u00d7 shrunk recent runs/9 diff (stuff vs results)",
       "definition": "Detects starters whose recent runs allowed outrun their fastball velocity (or vice versa); the recent runs/9 inputs are shrunk toward older pitcher history.",
-      "formula": "sp_fbvelo_diff \u00d7 sp_era_5g_diff",
+      "formula": "sp_fbvelo_diff \u00d7 sp_xfip_5g_diff",
       "source": "DuckDB feature engineering: velo \u00d7 shrunk recent runs/9 interaction",
       "window": "season \u00d7 3g; recent runs/9 uses up to 5 prior appearances",
       "units": "index",
@@ -385,11 +385,11 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Detects starters whose recent runs allowed outrun their fastball velocity (or vice versa); the recent runs/9 inputs are shrunk toward older pitcher history.\nFormula: sp_fbvelo_diff \u00d7 sp_era_5g_diff\nSource: DuckDB feature engineering: velo \u00d7 shrunk recent runs/9 interaction\nWindow: season \u00d7 3g; recent runs/9 uses up to 5 prior appearances \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Detects starters whose recent runs allowed outrun their fastball velocity (or vice versa); the recent runs/9 inputs are shrunk toward older pitcher history.\nFormula: sp_fbvelo_diff \u00d7 sp_xfip_5g_diff\nSource: DuckDB feature engineering: velo \u00d7 shrunk recent runs/9 interaction\nWindow: season \u00d7 3g; recent runs/9 uses up to 5 prior appearances \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "pitcher_regression_indicator_home": {
       "name": "pitcher_regression_indicator_home",
-      "summary": "SP regression indicator (fastball velo \u00d7 ERA, last 5 starts) \u2014 home side",
+      "summary": "SP regression indicator (fastball velo \u00d7 xFIP, last 5 starts) \u2014 home side",
       "definition": "Per-side interaction level: the home club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
       "formula": "pitcher_regression_indicator_home",
       "source": "DuckDB feature engineering: within-side product",
@@ -404,7 +404,7 @@
     },
     "pitcher_regression_indicator_away": {
       "name": "pitcher_regression_indicator_away",
-      "summary": "SP regression indicator (fastball velo \u00d7 ERA, last 5 starts) \u2014 away side",
+      "summary": "SP regression indicator (fastball velo \u00d7 xFIP, last 5 starts) \u2014 away side",
       "definition": "Per-side interaction level: the away club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
       "formula": "pitcher_regression_indicator_away",
       "source": "DuckDB feature engineering: within-side product",
@@ -613,65 +613,65 @@
       ],
       "tooltip": "What: Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
-    "bullpen_whip_10g_home": {
-      "name": "bullpen_whip_10g_home",
-      "summary": "Bullpen walks+hits per inning \u2014 home team",
-      "definition": "Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "bullpen_whip_10g_home",
+    "bullpen_kbb_10g_home": {
+      "name": "bullpen_kbb_10g_home",
+      "summary": "Bullpen K-BB% (K\u2212BB per batter faced) \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen k-bb% (k\u2212bb per batter faced). The corresponding 'bullpen_kbb_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_kbb_10g_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
       "window": "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)",
-      "units": "WHIP",
-      "direction": "lower = better for the home side (level column)",
+      "units": "K-BB%",
+      "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's bullpen k-bb% (k\u2212bb per batter faced). The corresponding 'bullpen_kbb_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_kbb_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: K-BB%\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
-    "bullpen_whip_10g_away": {
-      "name": "bullpen_whip_10g_away",
-      "summary": "Bullpen walks+hits per inning \u2014 away team",
-      "definition": "Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "bullpen_whip_10g_away",
+    "bullpen_kbb_10g_away": {
+      "name": "bullpen_kbb_10g_away",
+      "summary": "Bullpen K-BB% (K\u2212BB per batter faced) \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen k-bb% (k\u2212bb per batter faced). The corresponding 'bullpen_kbb_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_kbb_10g_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
       "window": "10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches)",
-      "units": "WHIP",
-      "direction": "lower = better for the away side (level column)",
+      "units": "K-BB%",
+      "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's bullpen k-bb% (k\u2212bb per batter faced). The corresponding 'bullpen_kbb_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_kbb_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 10 team games (opportunity-shrunk, k = 20% of mean reliever-season pitches) \u00b7 Units: K-BB%\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
-    "bullpen_whip_3g_home": {
-      "name": "bullpen_whip_3g_home",
-      "summary": "Bullpen walks+hits per inning, short form \u2014 home team",
-      "definition": "Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "bullpen_whip_3g_home",
+    "bullpen_kbb_3g_home": {
+      "name": "bullpen_kbb_3g_home",
+      "summary": "Bullpen K-BB% (K\u2212BB per batter faced), short form \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen k-bb% (k\u2212bb per batter faced), short form. The corresponding 'bullpen_kbb_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_kbb_3g_home",
       "source": "Statcast aggregates via DuckDB feature engineering",
       "window": "3 team games (opportunity-shrunk)",
-      "units": "WHIP",
-      "direction": "lower = better for the home side (level column)",
+      "units": "K-BB%",
+      "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's bullpen k-bb% (k\u2212bb per batter faced), short form. The corresponding 'bullpen_kbb_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_kbb_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: K-BB%\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
-    "bullpen_whip_3g_away": {
-      "name": "bullpen_whip_3g_away",
-      "summary": "Bullpen walks+hits per inning, short form \u2014 away team",
-      "definition": "Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
-      "formula": "bullpen_whip_3g_away",
+    "bullpen_kbb_3g_away": {
+      "name": "bullpen_kbb_3g_away",
+      "summary": "Bullpen K-BB% (K\u2212BB per batter faced), short form \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen k-bb% (k\u2212bb per batter faced), short form. The corresponding 'bullpen_kbb_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_kbb_3g_away",
       "source": "Statcast aggregates via DuckDB feature engineering",
       "window": "3 team games (opportunity-shrunk)",
-      "units": "WHIP",
-      "direction": "lower = better for the away side (level column)",
+      "units": "K-BB%",
+      "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's bullpen k-bb% (k\u2212bb per batter faced), short form. The corresponding 'bullpen_kbb_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_kbb_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3 team games (opportunity-shrunk) \u00b7 Units: K-BB%\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_barrel_15g_home": {
       "name": "team_barrel_15g_home",
@@ -923,35 +923,35 @@
       ],
       "tooltip": "What: Per-side level column: the away club's days of rest entering the game. This IS the rest_days_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: rest_days_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: per game (capped 1\u20136) \u00b7 Units: days\nDirection: more rest = fresher club (away side)\nConsumed by: xgboost, lightgbm"
     },
-    "sp_era_5g_home": {
-      "name": "sp_era_5g_home",
-      "summary": "SP recent runs allowed per nine \u2014 home team",
-      "definition": "Per-side level column: the home club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
-      "formula": "sp_era_5g_home",
+    "sp_xfip_5g_home": {
+      "name": "sp_xfip_5g_home",
+      "summary": "SP recent xFIP (expected ERA) \u2014 home team",
+      "definition": "Per-side level column: the home club's sp recent xfip (expected era). This IS the sp_xfip_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_xfip_5g_home",
       "source": "Ingest-layer rolling/team state (same source as the diff)",
       "window": "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP",
-      "units": "runs / 9 innings",
+      "units": "xFIP",
       "direction": "lower = better (home side)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: runs / 9 innings\nDirection: lower = better (home side)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the home club's sp recent xfip (expected era). This IS the sp_xfip_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_xfip_5g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: xFIP\nDirection: lower = better (home side)\nConsumed by: xgboost, lightgbm"
     },
-    "sp_era_5g_away": {
-      "name": "sp_era_5g_away",
-      "summary": "SP recent runs allowed per nine \u2014 away team",
-      "definition": "Per-side level column: the away club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
-      "formula": "sp_era_5g_away",
+    "sp_xfip_5g_away": {
+      "name": "sp_xfip_5g_away",
+      "summary": "SP recent xFIP (expected ERA) \u2014 away team",
+      "definition": "Per-side level column: the away club's sp recent xfip (expected era). This IS the sp_xfip_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_xfip_5g_away",
       "source": "Ingest-layer rolling/team state (same source as the diff)",
       "window": "5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP",
-      "units": "runs / 9 innings",
+      "units": "xFIP",
       "direction": "lower = better (away side)",
       "members": [
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's sp recent runs allowed per nine. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: runs / 9 innings\nDirection: lower = better (away side)\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: Per-side level column: the away club's sp recent xfip (expected era). This IS the sp_xfip_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_xfip_5g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5 prior appearances; shrunk toward older pitcher history with 30 pseudo-IP \u00b7 Units: xFIP\nDirection: lower = better (away side)\nConsumed by: xgboost, lightgbm"
     },
     "sp_fbvelo_3g_home": {
       "name": "sp_fbvelo_3g_home",
@@ -1701,7 +1701,7 @@
     "home_starter_id": {
       "name": "home_starter_id",
       "summary": "Home starting pitcher (MLB player ID) \u2014 native categorical for LGB/XGB",
-      "definition": "The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (ERA/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.",
+      "definition": "The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (xFIP/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.",
       "formula": "home_starter_id \u2192 home_starter_cat_id (dense int category, UNK-safe)",
       "source": "Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id",
       "window": "per game",
@@ -1711,7 +1711,7 @@
         "xgboost",
         "lightgbm"
       ],
-      "tooltip": "What: The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (ERA/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.\nFormula: home_starter_id \u2192 home_starter_cat_id (dense int category, UNK-safe)\nSource: Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id\nWindow: per game \u00b7 Units: categorical\nDirection: context only \u2014 trees learn per-pitcher splits\nConsumed by: xgboost, lightgbm"
+      "tooltip": "What: The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (xFIP/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.\nFormula: home_starter_id \u2192 home_starter_cat_id (dense int category, UNK-safe)\nSource: Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id\nWindow: per game \u00b7 Units: categorical\nDirection: context only \u2014 trees learn per-pitcher splits\nConsumed by: xgboost, lightgbm"
     },
     "away_starter_id": {
       "name": "away_starter_id",
