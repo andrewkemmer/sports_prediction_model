@@ -442,6 +442,53 @@ class _Pace:
             time.sleep(delay)
 
 
+def _gate_note(paced: int, total: int, started: float,
+               interval_sec: float, unit: str) -> str:
+    """``; 3.97 game/s against a 4.00/s gate (99%)`` — which one limited it.
+
+    2026-10-14 run-log review: the play-by-play sweep is 53% of the NBA
+    pipeline and ran at 99.2% of its turnstile ceiling, so no worker count
+    can shorten it — only the interval can, and that is a deliberate
+    politeness choice about a third party rather than a knob to turn
+    blind. The log as shipped says "4 worker(s)" up front and "3.97
+    game/s" at the end and leaves the reader to divide them to discover
+    that the gate, not the pool, is the binding constraint. Naming the
+    ceiling makes that obvious, and it turns a future regression — workers
+    no longer saturating the gate — into a visible number instead of a
+    silent slowdown.
+
+    ``paced`` is the units that actually reached the turnstile, not the
+    units walked: a cache hit is served without a request start, so it must
+    not sit in the numerator. That is also what makes the figure safe to
+    trust -- the turnstile guarantees ``elapsed >= paced * interval_sec``,
+    so this can never exceed its own ceiling. Counting the total instead
+    would print over 100% on any partly-warm sweep (a fully-warm one already
+    returns empty below), which is exactly the false reading that would
+    discredit the number. ``total`` is only used to say how much of the
+    elapsed wall clock the gate did not account for.
+    """
+    # Wall clock, not ``time.monotonic()``: every caller stamps ``started``
+    # with ``time.time()`` because the same value feeds the sweep's budget
+    # deadline. Mixing the two clocks would report an elapsed of decades.
+    # A wall clock can step, so the figure is a log annotation, never a
+    # control-flow input.
+    elapsed = time.time() - started
+    if paced <= 0 or elapsed < 1.0:
+        # A sub-second sweep is a cache hit, not a measured rate: nothing
+        # was paced, so dividing by it would print a nonsense figure (a
+        # fully-warm 3461-game sweep reads back as millions of game/s).
+        # Every sweep that actually paced takes well over a second.
+        return ""
+    achieved = paced / elapsed
+    if interval_sec <= 0.0:
+        return f"; {achieved:.2f} {unit}/s (no rate gate)"
+    ceiling = 1.0 / interval_sec
+    warm = total - paced
+    cached = f"; {warm} of {total} {unit}(s) from cache" if warm > 0 else ""
+    return (f"; {achieved:.2f} {unit}/s against a {ceiling:.2f}/s gate "
+            f"({achieved / ceiling:.0%} of ceiling){cached}")
+
+
 def _prefetched(items: Iterable[Any], serve, workers: int):
     """Yield ``(item, result-or-exception)`` in ITEM order, ``workers`` at a time.
 
@@ -1570,8 +1617,9 @@ def _fetch_schedule(start: date, end: date,
         return pd.DataFrame()
     games = pd.concat([f for f in frames if not f.empty], ignore_index=True)
     games = games.drop_duplicates("game_id", keep="last")
-    logger.info("schedule: %d games over %d days (%d fetched, %d from cache)",
-                len(games), days, fetched, cached)
+    logger.info("schedule: %d games over %d days (%d fetched, %d from cache)%s",
+                len(games), days, fetched, cached,
+                _gate_note(fetched, days, started, pause, "day"))
     return games
 
 
@@ -1645,9 +1693,10 @@ def _fetch_season_logs(start: date, end: date,
                             DEFAULT_SEASON_LOG_MAX_FAILURES)
     consecutive = 0
     stopped_early = False
+    fetched = 0
     workers = _resolve_workers(workers)
-    pace = _Pace(_float_env(SEASON_LOG_PAUSE_SEC_ENV,
-                            DEFAULT_SEASON_LOG_PAUSE_SEC))
+    pause = _float_env(SEASON_LOG_PAUSE_SEC_ENV, DEFAULT_SEASON_LOG_PAUSE_SEC)
+    pace = _Pace(pause)
     logger.info("season log: %d request(s) of up to %d day(s) over %s..%s "
                 "(%s overrides the width); %d worker(s)",
                 len(units), slice_days, start, end, SLICE_DAYS_ENV, workers)
@@ -1704,6 +1753,7 @@ def _fetch_season_logs(start: date, end: date,
 
     with progress.track(len(units), desc="season log slices",
                         unit="slice") as bar:
+        started = time.time()
         queue = _prefetched(iter(units), _serve_one, workers)
         try:
             for number, (unit, outcome) in enumerate(queue, start=1):
@@ -1752,6 +1802,7 @@ def _fetch_season_logs(start: date, end: date,
                             break
                         continue
                     consecutive = 0
+                    fetched += 1
                     log = outcome.frame
                     if log.empty:
                         # A window nobody has played in answers with zero rows.
@@ -1780,6 +1831,9 @@ def _fetch_season_logs(start: date, end: date,
             "where stats.nba.com is reachable, or warm the cache.")
     if not frames:
         return pd.DataFrame()
+    logger.info("season log: %d player row(s) over %d slice(s)%s",
+                sum(len(f) for f in frames), len(units),
+                _gate_note(fetched, len(units), started, pause, "slice"))
     return _dedupe_player_games(
         pd.concat([f for f in frames if not f.empty], ignore_index=True))
 
@@ -2010,7 +2064,8 @@ def _fetch_play_by_play(games: pd.DataFrame,
                 _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC))
 
     with progress.track(len(targets), desc="play-by-play", unit="game") as bar:
-        deadline = time.time() + _float_env(PBP_BUDGET_ENV, DEFAULT_PBP_BUDGET_SEC)
+        started = time.time()
+        deadline = started + _float_env(PBP_BUDGET_ENV, DEFAULT_PBP_BUDGET_SEC)
         pause = _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC)
         pace = _Pace(pause)
         max_failures = _int_env(PBP_MAX_FAILURES_ENV, DEFAULT_PBP_MAX_FAILURES)
@@ -2134,8 +2189,10 @@ def _fetch_play_by_play(games: pd.DataFrame,
             # Ends the lookahead deterministically: in-flight games finish,
             # games never submitted are never requested.
             queue.close()
-    logger.info("play-by-play: %d fetched, %d from cache, %d unavailable",
-                info["fetched"], info["cached"], info["failed"])
+    logger.info("play-by-play: %d fetched, %d from cache, %d unavailable%s",
+                info["fetched"], info["cached"], info["failed"],
+                _gate_note(info["requested"], len(targets), started, pause,
+                           "game"))
     if not frames:
         return pd.DataFrame(), info
     return pd.concat(frames, ignore_index=True), info

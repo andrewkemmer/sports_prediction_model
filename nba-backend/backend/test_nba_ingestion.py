@@ -3036,3 +3036,74 @@ class TestOfficialRosterHistory:
         assert retention_policy.classify_artifact(ing.ROSTER_HISTORY_ARCHIVE,
                                                   set(), set(), set(), set()) == "protected"
 
+
+
+def _ceiling_pct(note: str) -> float:
+    """The "% of ceiling" figure out of a gate note, or 101.0 if absent.
+
+    A regex rather than a split: the note can carry a second parenthetical
+    (the cache share), and the ceiling figure is the one ending in ``% of
+    ceiling``.
+    """
+    import re
+    match = re.search(r"\((\d+(?:\.\d+)?)% of ceiling", note)
+    return float(match.group(1)) if match else 101.0
+
+
+class TestGateCeilingNote:
+    """The sweep log must name the constraint that actually limited it.
+
+    2026-10-14 run-log review: the play-by-play sweep is 53% of the NBA
+    pipeline and ran at 99.2% of its turnstile ceiling. The log said "4
+    worker(s)" up front and "3.97 game/s" at the end, leaving the reader to
+    divide the two to discover that no worker count can shorten the sweep --
+    only the interval can. These pins keep the ceiling stated, and keep it
+    from being stated wrong.
+    """
+
+    def test_a_cold_sweep_reports_its_rate_against_the_ceiling(self):
+        note = ing._gate_note(3461, 3461, time.time() - 872.0, 0.25, "game")
+        assert "3.97 game/s" in note
+        assert "4.00/s gate" in note
+
+    def test_the_rate_never_exceeds_the_ceiling_it_is_measured_against(self):
+        """The bug this shape invites: counting WALKED units, not paced ones.
+
+        A half-warm sweep walks 3461 games but paces only 1700. Those 1700
+        requests at a 4/s gate need >= 425s, so the sweep finishes near 430s.
+        With the WALKED total in the numerator the note reads 8.05 game/s --
+        201% of a ceiling that cannot be exceeded, which is the false
+        reading that would discredit the whole figure. The turnstile itself
+        guarantees ``elapsed >= paced * interval_sec``; this pins that
+        invariant on the note's own output.
+        """
+        note = ing._gate_note(1700, 3461, time.time() - 430.0, 0.25, "game")
+        assert _ceiling_pct(note) <= 100.0, note
+        assert "1761 of 3461 game(s) from cache" in note
+
+    def test_a_fully_cached_sweep_says_nothing_rather_than_a_nonsense_rate(self):
+        # Nothing was paced, so there is no rate. Dividing the walked total
+        # by a microsecond cache-hit sweep reads back as millions/s.
+        assert ing._gate_note(0, 3461, time.time() - 5.0, 0.25, "game") == ""
+
+    def test_workers_not_saturating_the_gate_read_as_a_shortfall(self):
+        # The regression case the note exists to surface: the pool is idle
+        # relative to the gate, so a worker count CAN shorten this sweep.
+        note = ing._gate_note(1000, 1000, time.time() - 500.0, 0.25, "game")
+        assert "50% of ceiling" in note
+
+    def test_an_ungated_sweep_reports_a_rate_without_a_ceiling(self):
+        note = ing._gate_note(500, 500, time.time() - 100.0, 0.0, "day")
+        assert "5.00 day/s" in note and "no rate gate" in note
+
+    def test_the_schedule_sweep_counts_days_it_fetched_not_days_it_walked(self):
+        """A partly-warm schedule sweep is the common case, not the exotic one.
+
+        The note's first argument must be the days that reached ESPN. A sweep
+        that fetched 257 of 1025 days paces >= 25.7s at the 0.1s gate, so it
+        finishes near 26s. With ``days`` (the window width) in that slot the
+        note claims 39 day/s -- 395% of its own gate.
+        """
+        note = ing._gate_note(257, 1025, time.time() - 26.0, 0.1, "day")
+        assert note != ""
+        assert _ceiling_pct(note) <= 100.0, note
