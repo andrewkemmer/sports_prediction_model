@@ -836,23 +836,33 @@ MLP_PARAMS = {
 # Regression members (margin + total point regressions)
 # The score regressors are LightGBM Poisson fits (distributions._build_member);
 # there is no xgboost regressor, so only one params dict belongs here.
-# Optuna-tuned on the 2,672-game/106-fold run-line walk-forward (offline
-# harness tune_run_line.py, the NHL protocol: 32-trial TPE search, objective =
-# pooled per-game Poisson deviance over folds[:-4]): winner dev_mean 4.38158
-# vs 4.49665 for the untuned block. Sealed 4-fold holdout CONFIRMED: deviance
-# 5.48909 vs 5.57441 (+85 bps pooled; home 5.57420 vs 5.56248 ~flat, away
-# 5.40398 vs 5.58634 — the entire gain is the away side, the deeper trees
-# fixing the away regressor's underfit). Record: run_line_tuning_20260927.json.
+# 2026-10-14 NBA-protocol walk-forward tune (scratch/mean_tuning_multisport.
+# py, 2,568 priced OOF rows / 200 folds, judged at seeds 42 AND 44 on fixed-line
+# proper scores + mu RMSE + derived-ML AUC, winner-card as no-regression
+# check): winner shallow_extra_trees = NBA's shipped shallow extra-trees
+# geometry (depth 3 / 85 leaves / mcs 50 / extra_trees / max_bin 500) on
+# NFL's own budget. Every spread line improves at BOTH seeds
+# (-0.0016/-0.0036/-0.0032/-0.0022 logloss at 42; -0.0007/-0.0017/-0.0022/
+# -0.0017 at 44, AUC +0.004..+0.011 on every line); totals 40/48 improve
+# and 44 is flat (+0.0007/+0.0012, inside the seed spread). Derived moneyline
+# AUC 0.6897 -> 0.6990 (0.6991 at seed 44), logloss 0.6353 -> 0.6321;
+# mu_total RMSE 13.6486 -> 13.6311, mu_margin 13.2341 -> 13.2092. Supersedes
+# the 2026-09-27 Optuna run-line tune (run_line_tuning_20260927.json): that
+# search optimized pooled Poisson deviance alone, this one prices the OOF
+# through the production causal_distribution_frame path. Record:
+# scratch/mean_tuning_nfl_report.json (scratch/ is gitignored).
 LIGHTGBM_REG_PARAMS = {
     "n_estimators": 224,
-    "max_depth": 6,
-    "num_leaves": 7,
-    "min_child_samples": 88,
+    "max_depth": 3,
+    "num_leaves": 85,
+    "min_child_samples": 50,
     "min_gain_to_split": 2.497328,
     "learning_rate": 0.0214,
     "subsample": 0.6636,
     "subsample_freq": 1,
     "colsample_bytree": 0.5825,
+    "extra_trees": True,
+    "max_bin": 500,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }

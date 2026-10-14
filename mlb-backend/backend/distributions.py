@@ -214,6 +214,20 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
 MAX_ROUNDS = 1000
 EARLY_STOPPING_ROUNDS = 20  # matches the tuned LightGBM fold convention
 
+# 2026-10-14 NBA-protocol walk-forward tune (scratch/mean_tuning_multisport.
+# py, 7,035 priced OOF rows / 84 folds, judged at seeds 42 AND 44 on
+# fixed-line proper scores + mu RMSE + derived-ML AUC, winner-card as the
+# no-regression check): winner ff05_double_rounds = half-rate feature
+# subsampling (colsample 0.8 -> 0.5 + feature_fraction 0.5) with the fixed
+# 90-round budget doubled (see RUN_FIXED_FIT_ROUNDS). Deep averaging alone
+# UNDERFITS at 90 rounds (deep_average arm: mu_total RMSE 4.4480 -> 4.4613,
+# derived-ML AUC 0.5692 -> 0.5629), which is why the budget moves with the
+# subsampling rather than before it. Every priced line improves at BOTH
+# seeds (totals 8/9/10 logloss -0.0006/-0.0007/-0.0004 and run line 1.5
+# -0.0014 at seed 42; totals -0.0008/-0.0009/-0.0005 and run line 1.5
+# -0.0004 at seed 44), derived moneyline AUC 0.5692 -> 0.5763 (0.5728 at
+# seed 44), logloss 0.6838 -> 0.6824; mu_total RMSE 4.4480 -> 4.4458.
+# Record: scratch/mean_tuning_mlb_report.json (scratch/ is gitignored).
 RUN_LGBM_PARAMS = {
     "objective": "poisson",
     "learning_rate": 0.03,
@@ -222,10 +236,70 @@ RUN_LGBM_PARAMS = {
     "min_gain_to_split": 0.5,
     "subsample": 0.8,
     "subsample_freq": 1,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.5,
+    "feature_fraction": 0.5,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
+
+
+# ---------------------------------------------------------------------------
+# Objective layer (NBA parity, 2026-10-13)
+#
+# NBA's distributions module carries an opt-in analytic CRPS location
+# objective next to the production Poisson path; MLB's run engine now exposes
+# the same surface so all four backends share one objective contract. The
+# default stays Poisson -- the NBA walk of 2026-10-11 underperformed, so
+# nothing here changes production behavior until a caller passes crps=True.
+# ---------------------------------------------------------------------------
+class GaussianCRPSObjective:
+    """Analytic proper-score location objective at a train-only scale.
+
+    Initial score is supplied explicitly to LightGBM and restored at predict.
+    Scale adaptation then uses past OOF via the lattice-CRPS CDF layer.
+    """
+
+    def __init__(self, scale):
+        self.scale = max(float(scale), 1.)
+
+    def __call__(self, y, prediction):
+        from scipy.special import ndtr
+        z = (np.asarray(prediction) - y) / self.scale
+        gradient = 2. * ndtr(z) - 1.
+        hessian = 2. * np.exp(-.5 * z ** 2) / (np.sqrt(2 * np.pi) * self.scale)
+        return gradient, np.maximum(hessian, 1e-5)
+
+
+def _make_reg(scale=12., crps=False, params: Optional[dict] = None):
+    """Side regressor builder: MLB's RUN_LGBM_PARAMS + the objective switch."""
+    from lightgbm import LGBMRegressor
+    built = dict(RUN_LGBM_PARAMS if params is None else params)
+    built["objective"] = GaussianCRPSObjective(scale) if crps else "poisson"
+    return LGBMRegressor(**built)
+
+
+def gaussian_crps(y, location, scale):
+    """Analytic continuous Gaussian CRPS, useful for objective verification."""
+    from scipy.special import ndtr
+    scale = np.asarray(scale, float)
+    if np.any(scale <= 0):
+        raise ValueError("CRPS scale must be positive")
+    z = (np.asarray(y, float) - np.asarray(location, float)) / scale
+    return scale * (z * (2 * ndtr(z) - 1.)
+                    + 2 * np.exp(-.5 * z ** 2) / np.sqrt(2 * np.pi)
+                    - 1. / np.sqrt(np.pi))
+
+
+def _grid_key(prefix: str, value: float | int) -> str:
+    """Same line-column key builder NBA carries. Present so the shared
+    pricing body is complete here too: MLB's own branch spells its columns
+    with rl_col/suffix strings, but the generic branch below resolves through
+    this helper -- an undefined name on the non-MLB path is exactly the kind
+    of structural gap the 2026-10-13 parity audit closed."""
+    s = str(float(value))
+    if s.endswith(".0"):
+        s = s[:-2]
+    return f"{prefix}_{s.replace('-', 'm').replace('.', '_')}"
 
 
 # ---------------------------------------------------------------------------
@@ -361,31 +435,48 @@ def build_side_frame(games: pd.DataFrame, side: str,
 # ---------------------------------------------------------------------------
 # Training / OOF scoring
 # ---------------------------------------------------------------------------
-RUN_FIXED_FIT_ROUNDS = 90
+# 2026-10-14: 90 -> 180, the second half of the RUN_LGBM_PARAMS tune above
+# (ff05_double_rounds). This pin is the side Poisson models' boosting
+# budget; at the incumbent 90 rounds the deep-averaging arm measured
+# UNDERFIT (comment above the params dict), so the winner pairs half-rate
+# feature subsampling with a doubled budget.
+RUN_FIXED_FIT_ROUNDS = 180
 
 
 def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
                     va_frame: pd.DataFrame, y_va: np.ndarray,
-                    fixed_rounds: Optional[int] = None):
+                    fixed_rounds: Optional[int] = None,
+                    crps: bool = False):
     """Fit one side's Poisson model.
 
     fixed_rounds (run-engine OOF + production path): train exactly that many
-    rounds with no eval set — the validation frame never selects fold model
+    rounds with no eval set -- the validation frame never selects fold model
     complexity (db69935 discipline).
 
     fixed_rounds=None (build_oof_margin's caller-supplied-fold path ONLY): the
     validation fold early-stops the iteration count, per that module's
     documented margin-feature contract. Not used by run_engine's own OOF.
+
+    crps (default False): NBA-parity opt-in that swaps the Poisson
+    likelihood for the analytic Gaussian CRPS location objective with an
+    explicit train-mean init score. Production callers never set it.
     """
     from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
     model = LGBMRegressor(**params)
+    crps_scale = max(float(np.std(np.asarray(y_tr, float))), 1.)
+    crps_center = float(np.mean(np.asarray(y_tr, float)))
+    fit_kwargs = {}
+    if crps:
+        model.set_params(objective=GaussianCRPSObjective(crps_scale))
+        fit_kwargs["init_score"] = np.full(len(y_tr), crps_center)
     if fixed_rounds is not None:
         # OOF uses the same fixed-round refit policy as production. The
         # validation frame remains prediction-only; it must not select the
         # model complexity for the fold being scored.
         model.set_params(n_estimators=int(fixed_rounds))
-        model.fit(tr_frame, y_tr, callbacks=[log_evaluation(period=0)])
+        model.fit(tr_frame, y_tr, callbacks=[log_evaluation(period=0)],
+                  **fit_kwargs)
         best = int(fixed_rounds)
     else:
         model.set_params(n_estimators=MAX_ROUNDS)
@@ -394,10 +485,66 @@ def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
             eval_set=[(va_frame, y_va)],
             callbacks=[early_stopping(EARLY_STOPPING_ROUNDS, verbose=False),
                        log_evaluation(period=0)],
+            **fit_kwargs,
         )
         best = int(model.best_iteration_ or MAX_ROUNDS)
     lam = np.clip(model.predict(va_frame, num_iteration=best), 1e-6, None)
+    if crps:
+        lam = np.clip(lam + crps_center, 1e-6, None)
     return model, lam, best
+
+
+def pearson_poisson_adequacy(y: np.ndarray, mu: np.ndarray) -> float:
+    """Pearson chi-square / df. ~=1 -> Poisson variance is adequate; >1 means
+    over-dispersion the Gaussian variance layer learns (MLB run_engine fit probe)."""
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    if len(y) < 2:
+        return float("nan")
+    return float(((y - mu) ** 2 / mu).sum() / len(y))
+
+
+def _poisson_deviance_mean(y: np.ndarray, mu: np.ndarray) -> float:
+    y = np.asarray(y, float)
+    mu = np.clip(np.asarray(mu, float), 1e-9, None)
+    ok = np.isfinite(y) & np.isfinite(mu)
+    y, mu = y[ok], mu[ok]
+    term = np.where(y > 0, y * np.log(np.where(y > 0, y, 1.0) / mu), 0.0)
+    return float(2.0 * np.mean(term - (y - mu)))
+
+
+def run_line_fit_check(oof: pd.DataFrame) -> dict[str, Any]:
+    """Pooled fit diagnostics for the run line (NBA/NHL name for the probe
+    MLB already publishes through ``run_oof``'s summary).
+
+    Reads the mu columns NBA/NHL carry (``mu_h``/``mu_a``) or MLB's own
+    ``home_expected_runs``/``away_expected_runs`` aliases, so the same call
+    works on any sport's OOF frame: Poisson-adequacy per side plus deviance/
+    RMSE of the model's means against the constant train-mean baseline.
+    """
+    out: dict[str, Any] = {}
+    for side, y_col in (("home", "home_score"), ("away", "away_score")):
+        mu_col = "mu_h" if side == "home" else "mu_a"
+        alt = f"{side}_expected_runs"
+        if mu_col not in oof.columns and alt in oof.columns:
+            mu_col = alt
+        y = oof[y_col].to_numpy(float)
+        mu = oof[mu_col].to_numpy(float)
+        ok = np.isfinite(y) & np.isfinite(mu)
+        y, mu = y[ok], mu[ok]
+        base = float(y.mean()) if len(y) else float("nan")
+        out[side] = {
+            "pearson": round(pearson_poisson_adequacy(y, mu), 4),
+            "deviance_model": round(_poisson_deviance_mean(y, mu), 5),
+            "deviance_baseline": round(_poisson_deviance_mean(
+                y, np.full(len(y), base)), 5),
+            "rmse_model": round(float(np.sqrt(np.mean((y - mu) ** 2))), 4),
+            "rmse_baseline": round(float(np.sqrt(np.mean((y - base) ** 2))), 4),
+            "n": int(len(y)),
+        }
+    return out
 
 
 def poisson_deviance(y: np.ndarray, lam: np.ndarray) -> float:
@@ -534,8 +681,8 @@ def run_oof(games: pd.DataFrame,
         "away": RUN_FIXED_FIT_ROUNDS,
     }
     summary["final_fit_rounds_note"] = (
-        "fixed 90-round policy shared by OOF and production refits; "
-        "the validation frame never selects fold model complexity")
+        f"fixed {RUN_FIXED_FIT_ROUNDS}-round policy shared by OOF and production "
+        "refits; the validation frame never selects fold model complexity")
     for side in ("home", "away"):
         summary[f"{side}_model"] = {
             "poisson_deviance" if k == "deviance" else k:

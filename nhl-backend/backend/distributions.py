@@ -27,24 +27,63 @@ MC_DRAWS = family.MC_DRAWS
 MC_SEED = family.MC_SEED
 MC_SE_TARGET = family.MC_SE_TARGET
 
-def _make_reg():
+class GaussianCRPSObjective:
+    """Analytic proper-score location objective at a train-only scale.
+
+    Initial score is supplied explicitly to LightGBM and restored at predict.
+    Scale adaptation then uses past OOF via the lattice-CRPS CDF layer.
+    """
+
+    def __init__(self, scale):
+        self.scale = max(float(scale), 1.)
+
+    def __call__(self, y, prediction):
+        from scipy.special import ndtr
+        z = (np.asarray(prediction) - y) / self.scale
+        gradient = 2. * ndtr(z) - 1.
+        hessian = 2. * np.exp(-.5 * z ** 2) / (np.sqrt(2 * np.pi) * self.scale)
+        return gradient, np.maximum(hessian, 1e-5)
+
+
+def _make_reg(scale=12., crps=False):
     from lightgbm import LGBMRegressor
     params = dict(config.LIGHTGBM_REG_PARAMS)
-    params["objective"] = "poisson"
+    params["objective"] = GaussianCRPSObjective(scale) if crps else "poisson"
     return LGBMRegressor(**params)
 
 
-class ScoreRegressor:
-    """Two same-contract LightGBM Poisson regressors, one per score side."""
+def gaussian_crps(y, location, scale):
+    """Analytic continuous Gaussian CRPS, useful for objective verification."""
+    from scipy.special import ndtr
+    scale = np.asarray(scale, float)
+    if np.any(scale <= 0):
+        raise ValueError("CRPS scale must be positive")
+    z = (np.asarray(y, float) - np.asarray(location, float)) / scale
+    return scale * (z * (2 * ndtr(z) - 1.)
+                    + 2 * np.exp(-.5 * z ** 2) / np.sqrt(2 * np.pi)
+                    - 1. / np.sqrt(np.pi))
 
-    def __init__(self, declare_categoricals: bool = True) -> None:
-        self.home_model = _make_reg()
-        self.away_model = _make_reg()
+
+class ScoreRegressor:
+    """Two same-contract LightGBM Poisson regressors, one per score side.
+
+    ``crps_location`` is the opt-in objective challenger NBA carries (direct
+    CRPS location trees; NOT the production default -- the full 2026-10-11
+    NBA walk underperformed). Default stays Poisson.
+    """
+
+    def __init__(self, declare_categoricals: bool = True,
+                 crps_location: bool = False) -> None:
+        self.crps_location = bool(crps_location)
+        self.home_model = _make_reg(crps=self.crps_location)
+        self.away_model = _make_reg(crps=self.crps_location)
         # Categorical routing MUST match the OOF walk exactly (train/serve
         # skew): the walk passes the team-ID pair via categorical_feature by
         # name, so the production refit declares the same columns by default.
         self._declare_categoricals = bool(declare_categoricals)
         self.feature_columns: list[str] = []
+        self.margin_center = 0.
+        self.total_center = 0.
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # Resolved through the binary moneyline's OWN member_matrix helper —
@@ -61,21 +100,48 @@ class ScoreRegressor:
             self.feature_columns = list(X.columns)
         return X.reindex(columns=self.feature_columns)
 
+    def _fit_kwargs(self, X: pd.DataFrame) -> dict:
+        return ({"categorical_feature": list(config.TREE_CATEGORICAL_COLS)}
+                if self._declare_categoricals
+                and config.TREE_CATEGORICAL_COLS
+                and all(c in X.columns for c in config.TREE_CATEGORICAL_COLS)
+                else {})
+
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
         X = self._matrix(df)
-        fit_kwargs = ({"categorical_feature": list(config.TREE_CATEGORICAL_COLS)}
-                      if self._declare_categoricals
-                      and config.TREE_CATEGORICAL_COLS
-                      and all(c in X.columns for c in config.TREE_CATEGORICAL_COLS)
-                      else {})
-        self.home_model.fit(X, pd.to_numeric(df["home_score"], errors="coerce"),
-                            **fit_kwargs)
-        self.away_model.fit(X, pd.to_numeric(df["away_score"], errors="coerce"),
-                            **fit_kwargs)
+        h = pd.to_numeric(df["home_score"], errors="coerce")
+        a = pd.to_numeric(df["away_score"], errors="coerce")
+        valid = h.notna() & a.notna()
+        if valid.sum() < 2:
+            raise ValueError("score regressor requires at least two settled games")
+        X, h, a = X.loc[valid], h.loc[valid], a.loc[valid]
+        fit_kwargs = self._fit_kwargs(X)
+        if self.crps_location:
+            margin, total = h - a, h + a
+            self.margin_center = float(margin.mean())
+            self.total_center = float(total.mean())
+            self.home_model = _make_reg(max(float(margin.std(ddof=0)), 1.),
+                                        crps=True)
+            self.away_model = _make_reg(max(float(total.std(ddof=0)), 1.),
+                                        crps=True)
+            self.home_model.fit(X, margin,
+                                init_score=np.full(len(X), self.margin_center),
+                                **fit_kwargs)
+            self.away_model.fit(X, total,
+                                init_score=np.full(len(X), self.total_center),
+                                **fit_kwargs)
+        else:
+            self.home_model.fit(X, h, **fit_kwargs)
+            self.away_model.fit(X, a, **fit_kwargs)
         return self
 
     def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         X = self._matrix(df)
+        if self.crps_location:
+            margin = self.margin_center + self.home_model.predict(X)
+            total = self.total_center + self.away_model.predict(X)
+            return (np.clip((total + margin) / 2., 1e-6, None),
+                    np.clip((total - margin) / 2., 1e-6, None))
         return (
             np.clip(self.home_model.predict(X), 1e-6, None),
             np.clip(self.away_model.predict(X), 1e-6, None),
@@ -125,6 +191,62 @@ def run_line_fit_check(oof: pd.DataFrame) -> dict[str, Any]:
             "n": int(len(y)),
         }
     return out
+
+
+def feat_mod_tree(df: pd.DataFrame) -> pd.DataFrame:
+    """The moneyline tree view, without the member wrapper (fallback path)."""
+    return ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df)
+
+
+def run_engine_feature_cols(reg: "ScoreRegressor | None" = None) -> list[str]:
+    """Numeric feature view of the DISTRIBUTION model (Totals & Run Lines).
+
+    The monitoring view is resolved from the FITTED regressor's own
+    ``feature_columns`` -- literally the matrix ``ScoreRegressor`` consumed --
+    falling back to the member-matrix contract it is built from when no model
+    is fitted yet. The team-ID categoricals are excluded: PSI and coverage are
+    numeric-only views (MLB's run-engine view excludes them too -- they carry
+    no weight row of their own). This is what the run-engine drift/coverage
+    artifacts report so the dashboard measures the distribution model instead
+    of the binary moneyline contract.
+    """
+    cols = list(getattr(reg, "feature_columns", None) or [])
+    if not cols:
+        cols = list(config.active_moneyline_feature_cols())
+    return [c for c in cols if c not in config.TREE_CATEGORICAL_COLS]
+
+
+def distribution_feature_weights(
+        reg: "ScoreRegressor | None") -> dict[str, float] | None:
+    """Per-feature MODEL WEIGHT (%) of the distribution model.
+
+    Pooled feature importances of the two per-side Poisson LightGBM fits
+    (home/away), normalized to sum to 100. The team-ID categoricals are
+    excluded from BOTH the map and the denominator (they carry no drift/
+    coverage row, and the panel's caption promises the reported weights sum
+    to 100 across the view it shows). None when the regressor is unfitted or
+    carries no LightGBM importances: the drift column then reports no weight
+    rather than borrowing the binary moneyline blend's numbers.
+    """
+    home = getattr(reg, "home_model", None)
+    away = getattr(reg, "away_model", None)
+    if home is None or away is None:
+        return None
+    try:
+        h = [float(v) for v in home.feature_importances_]
+        a = [float(v) for v in away.feature_importances_]
+    except Exception:  # noqa: BLE001 - any non-importance model degrades honestly
+        return None
+    names = list(getattr(reg, "feature_columns", None) or [])
+    if not names or len(names) != len(h) or len(names) != len(a):
+        return None
+    keep = [(n, hv, av) for n, hv, av in zip(names, h, a)
+            if n not in config.TREE_CATEGORICAL_COLS]
+    total = sum(hv + av for _, hv, av in keep)
+    if not keep or total <= 0:
+        return None
+    return {name: round(100.0 * (hv + av) / total, 6)
+            for name, hv, av in keep}
 
 
 def _grid_key(prefix: str, value: float | int) -> str:

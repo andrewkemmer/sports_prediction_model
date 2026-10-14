@@ -524,14 +524,21 @@ XGBOOST_REG_PARAMS = {
     "random_state": RANDOM_SEED,
     "verbosity": 0,
 }
-# Optuna-tuned on the 2,792-game/46-fold run-line walk-forward (offline
-# harness, MLB-style protocol; 32 trials, objective = pooled per-game Poisson
-# deviance over folds[:-4]): winner dev_mean 1.06797 vs 1.09167 for the
-# untuned block. Sealed 4-fold holdout CONFIRMED: deviance 1.15373 vs
-# 1.17876 (+250 bps) — unlike the moneyline LGBM candidate, this gain
-# survived — and the derived-market logscore on the canonical lines improved
-# on both the holdout (0.64554 vs 0.65778) and the full 46-fold population
-# (0.62842 vs 0.63820; brier 0.21872 vs 0.22256).
+# 2026-10-14 NBA-protocol walk-forward tune (scratch/mean_tuning_multisport.
+# py, 2,686 priced OOF rows / 60 folds, judged at seeds 42 AND 44 on fixed-line
+# proper scores + mu RMSE + derived-ML AUC, winner-card as no-regression
+# check): winner ff05 = half-rate feature subsampling (colsample 0.6315 ->
+# 0.5 plus feature_fraction 0.5, the one direction of NBA's shipped winner
+# that survives here). EVERY priced line improves at BOTH seeds (totals
+# 5/6/7 logloss -0.0005/-0.0007/-0.0009, spreads -0.0006/-0.0006/-0.0006/
+# -0.0001 at seed 42; all seven negative at 44) with AUC up on every line;
+# derived moneyline AUC 0.5897 -> 0.5929 (0.5891 vs 0.5887 at seed 44),
+# logloss 0.6772 -> 0.6766; mu_total RMSE 2.3098 -> 2.3065. NBA's deep-
+# averaging and extra-trees arms both regress NHL's priced lines, so only
+# the subsampling direction transfers. Supersedes the 2026-09 Optuna
+# run-line tune (dev_mean 1.06797), which optimized pooled Poisson deviance
+# alone rather than the priced market. Record:
+# scratch/mean_tuning_nhl_report.json (scratch/ is gitignored).
 LIGHTGBM_REG_PARAMS = {
     "n_estimators": 139,
     "max_depth": 5,
@@ -541,7 +548,8 @@ LIGHTGBM_REG_PARAMS = {
     "learning_rate": 0.0243,
     "subsample": 0.6649,
     "subsample_freq": 1,
-    "colsample_bytree": 0.6315,
+    "colsample_bytree": 0.5,
+    "feature_fraction": 0.5,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
