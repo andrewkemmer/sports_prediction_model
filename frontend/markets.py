@@ -907,8 +907,13 @@ def _render_fit_panel(fit: dict) -> None:
     c1.metric("home variance factor", _fmt(v.get("home_variance"), 4))
     c2.metric("away variance factor", _fmt(v.get("away_variance"), 4))
     c3.metric("residual correlation", _fmt(v.get("correlation"), 4))
+    # NHL totals' odd/even parity alpha rides the variance parameters; older
+    # monitor artifacts predate the key and must render exactly as before.
+    parity = v.get("total_parity_alpha")
     st.caption(f"Family: {rows['family'] or 'unavailable in historical artifact'}; "
-               f"total skew {_fmt(v.get('total_skew'), 4)}, margin skew {_fmt(v.get('margin_skew'), 4)}.")
+               f"total skew {_fmt(v.get('total_skew'), 4)}, margin skew {_fmt(v.get('margin_skew'), 4)}"
+               + (f", odd/even parity alpha {_fmt(parity, 3)}"
+                  if parity is not None else "") + ".")
     if rows["mc_caption"]:
         st.caption(rows["mc_caption"])
 

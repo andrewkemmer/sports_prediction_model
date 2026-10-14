@@ -459,6 +459,14 @@ def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
     for kind in ("total", "margin"):
         support, raw = _distribution_raw_cdf(h, a, kind, maps.get("variance"))
         cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 9))
+        if kind == "total":
+            # NHL odd/even parity rides the VARIANCE parameters (structural,
+            # fitted from strictly-prior finals), never the CRPS admission
+            # gate for the calibration maps: alpha <= 0 (other sports, or
+            # stored bundles predating the key) is a byte-identical no-op.
+            variance = maps.get("variance") or family.defaults(DISTRIBUTION_SPORT)
+            cdf = family.parity_correct(cdf, support,
+                                        variance.get("total_parity_alpha", 0.))
         if kind == "margin":
             cdf = _distribution_no_tie(cdf, support)
         if sampled:

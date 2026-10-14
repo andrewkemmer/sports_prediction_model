@@ -27,7 +27,15 @@ SPORT_PRIORS = {"nba": (220., 1.3, 600), "nfl": (44., 5., 250),
 def defaults(sport):
     _, variance, _ = SPORT_PRIORS[sport]
     return {"home_variance": variance, "away_variance": variance,
-            "correlation": 0., "total_skew": 0., "margin_skew": 0.}
+            "correlation": 0., "total_skew": 0., "margin_skew": 0.,
+            # NHL odd/even parity (see parity_correct): a game tied after
+            # regulation has an EVEN regulation total and is ALWAYS settled
+            # in OT/SO with exactly one extra goal, landing on an ODD final.
+            # Odd finals run ~65% of NHL games, so alpha = P(OT/SO | even
+            # regulation total) = 2*odd_share - 1 ~ 0.30 cold-start prior;
+            # fit_variance refits it from prior OOF finals. Other sports keep
+            # 0.0 (MLB extras and NBA OT do not preserve the parity flip).
+            "total_parity_alpha": .30 if sport == "nhl" else 0.}
 
 
 def design(h, a, sport):
@@ -67,7 +75,54 @@ def fit_variance(h, a, outcomes, sport):
             l = np.sqrt(np.mean(left ** 2))
             r = np.sqrt(np.mean(right ** 2))
             parameters[f"{kind}_skew"] = float(np.clip(.5 * np.log(max(r, 1e-9) / max(l, 1e-9)), -.7, .7))
+    if sport == "nhl" and outcomes.get("total") is not None:
+        # Causal odd/even parity refit from PRIOR OOF finals only (the caller
+        # passes strictly-prior outcomes). Odd share = 0.5 + P(regulation
+        # tie), and every tied (even) regulation total flips to an ODD final,
+        # so alpha = 2*odd_share - 1 recovers P(OT/SO | even regulation
+        # total). Clip to [0, .6]: a parity-flat history disables the
+        # correction instead of inverting it.
+        total = np.round(np.asarray(outcomes["total"], float))
+        if len(total):
+            parameters["total_parity_alpha"] = float(
+                np.clip(2. * ((total % 2.) == 1.).mean() - 1., 0., .6))
     return parameters
+
+
+def parity_correct(cdf, support, alpha):
+    """NHL odd/even parity projection of a calibrated TOTAL CDF.
+
+    The smooth split-skew family plus its monotone calibration map cannot
+    represent the alternation that NHL overtime rules impose on final totals:
+    tied (even) regulation totals resolve in OT/SO to odd finals, so odd
+    totals carry extra mass and even totals less. The CRPS-fit smooth
+    projection absorbs exactly the even/odd DC half of that alternation
+    (measured 2026-10-14 on the decided OOF store: per-line CDF gaps alternate
+    sign with implied alpha 0.25..0.45 against the structural 0.36), leaving a
+    residual +/- (alpha/2)*pmf_j at odd/even line j. This applies that residual
+    AFTER calibration: odd lines rise by (alpha/2)*pmf, even lines fall by the
+    same amount, where alpha = P(OT/SO | even regulation total).
+
+    Totals only (margin lattices keep the no-tie rule and integer spreads do
+    not flip parity). alpha <= 0 is a no-op, which leaves non-NHL sports and
+    pre-parity stored bundles byte-unchanged. The alternating shift can
+    non-monotone-sliver only where a pmf collapses against its neighbour; a
+    running maximum flattens those to zero push mass so the result is always
+    a valid CDF in [0, 1].
+    """
+    alpha = float(alpha)
+    if alpha <= 0. or len(support) < 3 or support[0] < 0:
+        return cdf
+    alpha = min(alpha, .6)
+    mass = np.diff(np.column_stack([np.zeros(len(cdf)), cdf]), axis=1)
+    sign = np.where(np.asarray(support) % 2 == 1, 1., -1.)
+    corrected = np.clip(cdf + .5 * alpha * mass * sign[None, :], 0., 1.)
+    corrected = np.maximum.accumulate(corrected, axis=1)
+    # A saturated CDF point stays saturated: exact-1 mass cannot be lowered
+    # (its pmf is absorbed by the support boundary), and the Monte Carlo
+    # inverse transform must keep u <= cdf[-1] for every draw.
+    corrected[cdf >= 1.] = 1.
+    return corrected
 
 
 def split_cdf(x, mean, sd, skew):
