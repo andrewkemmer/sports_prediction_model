@@ -292,3 +292,84 @@ def test_nhl_missing_current_slate_renders_the_newest_board_with_no_notice(
         assert "2 of 2 games shown" in text
         for matchup in ("BOS", "NYR", "EDM", "VAN"):
             assert matchup in text
+
+
+# ---------------------------------------------------------------------------
+# Totals-law modeled-PMF namespace regressions (2026-10-14).
+#
+# The chart's "modeled" series must read ONLY the totals push family
+# (p_push_total_<k>). The old cross-family fallback fell back to the shared
+# p_push_<k> columns — on current artifacts the MARGIN/run-line push — so the
+# NHL line priced P(margin=1) = 22.5% and P(margin=2) = 12.8% as if they were
+# P(total=1)/P(total=2), the phantom 22%/13% spike at totals 1-2 (and the NFL
+# line the same at 0-14). Same overlap class as the Brier-315 artifact bug
+# nhl_market_diagnostics already documents.
+# ---------------------------------------------------------------------------
+
+def test_shipped_total_pmf_never_reads_the_margin_push_family():
+    import numpy as np
+    import market_diagnostics as diag
+
+    frame = pd.DataFrame({
+        "p_push_1": [0.225, 0.225],        # MARGIN push (must never be read)
+        "p_push_2": [0.128, 0.128],
+        "p_push_total_4": [0.12, 0.12],    # totals push (the real family)
+    })
+    for namespace in ("nhl", "nfl"):
+        values = diag.shipped_total_pmf(frame, [1, 2, 4], namespace)
+        assert np.isnan(values[0]) and np.isnan(values[1]), namespace
+        assert values[2] == pytest.approx(0.12), namespace
+    # MLB reads its own p_push_<k> family — unchanged by the fallback removal.
+    mlb = pd.DataFrame({"p_push_1_0": [0.02, 0.02]})
+    assert diag.shipped_total_pmf(mlb, [1], "mlb")[0] == pytest.approx(0.02)
+
+
+def test_nhl_totals_distribution_gaps_off_grid_and_calls_boundary_tails():
+    """modeled[] gaps where the artifact ships no totals push (0-3, 13-15),
+    and the callouts come from the boundary columns: p_under_5 = P(total<5) =
+    P(total<=4), p_over_9 = P(total>9) = P(total>=10) — never a sum over a
+    gapped series (nan) or the margin family (0.572 / wrong)."""
+    import nhl_market_diagnostics as nd
+
+    n = 4
+    frame = pd.DataFrame({
+        "total": [3, 5, 5, 9],
+        **{f"p_push_total_{k}": [0.10] * n for k in range(4, 13)},
+        "p_under_5": [0.13] * n,
+        "p_over_9": [0.07] * n,
+        "p_push_1": [0.22] * n,   # margin family present but off-limits
+        "p_push_2": [0.13] * n,
+    })
+    dist = nd.total_distribution(frame)
+    assert dist["warning"] is None
+    assert all(v != v for v in dist["modeled"][:4])      # 0-3: NaN gap
+    assert all(v != v for v in dist["modeled"][13:])      # 13-15: NaN gap
+    assert dist["modeled"][4] == pytest.approx(0.10)      # on-grid unchanged
+    c = dist["callouts"]
+    assert c["P(total<=4)"]["modeled"] == pytest.approx(0.13)
+    assert c["P(total>=10)"]["modeled"] == pytest.approx(0.07)
+    assert c["P(total<=4)"]["observed"] == pytest.approx(0.25)  # total=3 only
+
+
+def test_nfl_totals_distribution_ignores_the_spread_push_family():
+    """NFL: p_push_0..14 is the spread/margin family and p_push_15..23 does
+    not exist — the modeled line must gap across 0-23 rather than plot the
+    spread pushes as totals, and the tail callouts read p_under_36/p_over_59."""
+    import nfl_market_diagnostics as nd
+
+    n = 3
+    frame = pd.DataFrame({
+        "total": [41, 44, 47],
+        **{f"p_push_total_{k}": [0.05] * n for k in range(24, 67)},
+        "p_push_1": [0.11] * n,
+        "p_push_2": [0.09] * n,
+        "p_under_36": [0.30] * n,
+        "p_over_59": [0.08] * n,
+    })
+    dist = nd.total_distribution(frame)
+    assert dist["warning"] is None
+    assert all(v != v for v in dist["modeled"][:24])     # 0-23: NaN gap
+    assert dist["modeled"][24] == pytest.approx(0.05)     # on-grid unchanged
+    c = dist["callouts"]
+    assert c["P(total<=35)"]["modeled"] == pytest.approx(0.30)
+    assert c["P(total>=60)"]["modeled"] == pytest.approx(0.08)

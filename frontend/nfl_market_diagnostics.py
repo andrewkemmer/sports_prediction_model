@@ -46,9 +46,9 @@ import utils
 from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 OWN_LINE_EDGES, OWN_LINE_LABELS,
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
-                                calibration_curve, chart_calibration,
-                                chart_distribution, chart_game_total_curve,
-                                shipped_total_pmf)
+                                boundary_mean, calibration_curve,
+                                chart_calibration, chart_distribution,
+                                chart_game_total_curve, shipped_total_pmf)
 
 # Integer-support grids (mirror of the slate engine's TOTAL_INT_LINES /
 # SPREAD_INT_LINES + the extended SPREAD_COVER_MAGS — the artifact's own
@@ -146,11 +146,16 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 66) -> dict[str, Any]:
         "modeled": [round(float(v), 5) for v in modeled],
         "modeled_grid": [round(float(v), 5) for v in modeled_grid],
         "callouts": {
+            # Off-grid modeled tails are BOUNDARY probabilities (p_under_36 =
+            # P(total < 36) = P(total <= 35); p_over_59 = P(total > 59) =
+            # P(total >= 60)) — modeled[] has NaN gaps below the 24 grid line
+            # (and the old cross-family fallback priced the SPREAD push family
+            # there as if it were P(total = k)).
             "P(total<=35)": {"observed": round(float(observed[:36].sum()), 4),
-                             "modeled": round(float(modeled[:36].sum()), 4)},
+                             "modeled": boundary_mean(decided, "p_under_36")},
             "P(total>=60)": {"observed": round(float(observed[60:].sum()), 4),
-                             "modeled": round(float(modeled[60:].sum()), 4)},
-            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF; no surrogate refit.",
+                             "modeled": boundary_mean(decided, "p_over_59")},
+            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF on the shipped totals grid; off-grid modeled tails read the boundary columns (p_under_36 / p_over_59), never another push namespace.",
         },
         "n_games": int(len(decided)),
         "warning": None,

@@ -52,9 +52,9 @@ import utils
 from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 OWN_LINE_EDGES, OWN_LINE_LABELS,
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
-                                calibration_curve, chart_calibration,
-                                chart_distribution, chart_game_total_curve,
-                                shipped_total_pmf)
+                                boundary_mean, calibration_curve,
+                                chart_calibration, chart_distribution,
+                                chart_game_total_curve, shipped_total_pmf)
 
 # Integer-support grids (mirror of config.SPREAD_GRID / config.TOTAL_GRID —
 # the artifact's own column families; NHL-sized, NOT the NFL ranges).
@@ -151,11 +151,17 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
         "modeled": [round(float(v), 5) for v in modeled],
         "modeled_grid": [round(float(v), 5) for v in modeled_grid],
         "callouts": {
+            # Off-grid modeled tails are BOUNDARY probabilities, not sums over
+            # modeled[]: the per-k PMF ships only on the totals grid (4…12),
+            # so modeled[:5]/modeled[10:] contain NaN gaps (→ nan) — or, with
+            # the old cross-family fallback, the MARGIN push family. p_under_5
+            # = P(total < 5) = P(total <= 4); p_over_9 = P(total > 9) =
+            # P(total >= 10): exact shipped mass on both sides of the grid.
             "P(total<=4)": {"observed": round(float(observed[:5].sum()), 4),
-                            "modeled": round(float(modeled[:5].sum()), 4)},
+                            "modeled": boundary_mean(decided, "p_under_5")},
             "P(total>=10)": {"observed": round(float(observed[10:].sum()), 4),
-                             "modeled": round(float(modeled[10:].sum()), 4)},
-            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF; no surrogate refit.",
+                             "modeled": boundary_mean(decided, "p_over_9")},
+            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF on the shipped totals grid; off-grid modeled tails read the boundary columns (p_under_5 / p_over_9), never another push namespace.",
         },
         "n_games": int(len(decided)),
         "warning": None,

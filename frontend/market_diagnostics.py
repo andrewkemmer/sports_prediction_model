@@ -412,16 +412,35 @@ def decided_rows(markets: Optional[pd.DataFrame]) -> pd.DataFrame:
 # Chart 1 — totals distribution fit-check
 # ---------------------------------------------------------------------------
 def shipped_total_pmf(decided, ks, namespace):
-    """Read empirical push mass, preserving undisplayed/missing tail mass."""
+    """Read the shipped totals-push PMF; missing lines stay NaN (a gap).
+
+    Reads ONLY the namespace's own totals family (mlb: ``p_push_<k>``;
+    others: ``p_push_total_<k>``). The pre-split artifacts stored totals
+    pushes under the shared ``p_push_<k>`` name, but on current artifacts
+    that column is the MARGIN/run-line push — the old cross-family fallback
+    returned P(margin = k) as P(total = k), the totals-law line's phantom
+    22%/13% spike at totals 1-2 (the same overlap class as the Brier-315
+    artifact bug documented in nhl_market_diagnostics). A line the artifact
+    does not ship is unavailable, never borrowed from another family."""
     values = []
     for k in ks:
         suffix = str(float(k)).replace('.', '_') if namespace == "mlb" else str(int(k))
         prefix = "p_push_" if namespace == "mlb" else "p_push_total_"
         column = prefix + suffix
-        if column not in decided and namespace != "mlb":
-            column = "p_push_" + suffix
         values.append(float(pd.to_numeric(decided[column], errors="coerce").mean()) if column in decided else float("nan"))
     return np.asarray(values)
+
+
+def boundary_mean(decided, column: str):
+    """Mean of a shipped boundary column (p_under_<U> / p_over_<U>), or None
+    when the artifact does not carry it. Off-grid modeled tails — mass below
+    the grid (p_under at the low line) or above it (p_over at the high line)
+    — are exact boundary probabilities; summing a modeled[] full of NaN gaps
+    can never express them."""
+    if column not in decided.columns:
+        return None
+    value = pd.to_numeric(decided[column], errors="coerce").mean()
+    return round(float(value), 4) if pd.notna(value) else None
 
 
 def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:

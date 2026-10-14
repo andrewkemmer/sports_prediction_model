@@ -151,7 +151,22 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
         return
     utils.show_chart(nd.chart_distribution(dist))
     c = dist["callouts"]
-    st.caption(f"Observed totals vs mean shipped split-skew Gaussian Monte Carlo mass over {dist['n_games']:,} games; no smoothing or refit.")
+    _grid = [k for k, v in zip(dist["ks"], dist["modeled"]) if v == v]
+    _span = f"{min(_grid)}–{max(_grid)}" if _grid else "—"
+
+    def _tail(key: str) -> str:
+        v = c[key]["modeled"]
+        return "--" if v is None else f"{v:.3f}"
+
+    st.caption(
+        f"Observed totals vs mean shipped split-skew Gaussian Monte Carlo mass over "
+        f"{dist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
+        f"artifact's own p_push_total_<k> columns and is drawn only where the totals "
+        f"grid ships them ({_span}) — off-grid modeled mass is never borrowed from "
+        f"another push namespace; it is reported as boundary tails: "
+        f"P(total≤35): observed {c['P(total<=35)']['observed']:.3f} / modeled {_tail('P(total<=35)')} · "
+        f"P(total≥60): observed {c['P(total>=60)']['observed']:.3f} / modeled {_tail('P(total>=60)')}."
+    )
 
 
 def _render_relativized_tab(decided: pd.DataFrame) -> None:
