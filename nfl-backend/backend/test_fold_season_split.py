@@ -233,5 +233,35 @@ class TestGradingSplit:
         assert int(oof.grades_pooled.astype(bool).sum()) == len(oof)
 
 
+class TestBlendObjectivePolicy:
+    """The moneyline blend optimizes POOLED log loss — nothing else (2026-10-14 audit).
+
+    NBA and NHL ``compute_adaptive_weights`` hard-refuse any configured
+    metric other than logloss; the NFL copy had no guard, so a flipped
+    ``ADAPTIVE_WEIGHT_METRIC`` would have silently re-aimed the blend
+    optimizer away from the production objective. Pin the shipped value
+    AND the refusal.
+    """
+    def test_shipped_config_pins_logloss(self):
+        assert config.ADAPTIVE_WEIGHT_METRIC == "logloss"
+
+    def test_non_logloss_metric_is_refused_loudly(self, monkeypatch):
+        monkeypatch.setattr(config, "ADAPTIVE_WEIGHT_METRIC", "auc")
+        y = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=float)
+        with pytest.raises(ValueError, match="logloss"):
+            ml_mod.compute_adaptive_weights(
+                {"elasticnet": [0.2, 0.8, 0.3, 0.7, 0.25, 0.75, 0.35, 0.65],
+                 "lightgbm": [0.1, 0.9, 0.2, 0.8, 0.15, 0.85, 0.25, 0.75]}, y)
+
+    def test_weights_minimize_pooled_logloss_on_the_simplex(self):
+        y = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=float)
+        strong = [0.2, 0.8, 0.3, 0.7, 0.25, 0.75, 0.35, 0.65]
+        weak = [0.5] * 8  # uninformative constant member
+        w = ml_mod.compute_adaptive_weights(
+            {"elasticnet": strong, "lightgbm": weak}, y)
+        assert abs(sum(w.values()) - 1.0) < 1e-9
+        assert w["elasticnet"] > w["lightgbm"]
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

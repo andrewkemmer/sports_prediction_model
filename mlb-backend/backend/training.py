@@ -1279,6 +1279,17 @@ def compute_adaptive_weights(
     y = np.asarray(y_oof, dtype=float)
     if len(y) == 0:
         return {}
+    # Production policy pin (2026-10-14 four-sport audit): the binary
+    # moneyline optimizes POOLED log loss. NBA and NHL hard-REFUSE any
+    # other configured metric; MLB retains the historical "auc" experiment
+    # branch below, so a flipped config would silently re-aim the blend
+    # optimizer. The shipped config is pinned to "logloss" by
+    # test_adaptive_weight_policy.py; breach the policy loudly here.
+    if ADAPTIVE_WEIGHT_METRIC != "logloss":
+        logger.warning(
+            "ADAPTIVE_WEIGHT_METRIC=%r is NOT the production objective "
+            "(pooled logloss); the blend optimizer is running off-policy",
+            ADAPTIVE_WEIGHT_METRIC)
     for name, preds in oof_members.items():
         if not preds or len(preds) != len(y):
             continue

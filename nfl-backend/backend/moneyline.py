@@ -391,6 +391,12 @@ def compute_adaptive_weights(
     mid-history member failure therefore drops it from the blend until
     the next full re-earn.
     """
+    # Production policy pin (2026-10-14 audit, NBA/NHL parity): the binary
+    # moneyline optimizes POOLED log loss and nothing else. NBA and NHL
+    # already refuse any other configured metric; NFL had no guard, so a
+    # flipped config value would have silently re-aimed the blend optimizer.
+    if str(getattr(config, "ADAPTIVE_WEIGHT_METRIC", "logloss")).lower() != "logloss":
+        raise ValueError("NFL production ensemble optimization must use logloss")
     y = np.asarray(y_oof, dtype=float)
     if len(y) == 0:
         return {}

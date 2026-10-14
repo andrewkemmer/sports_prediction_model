@@ -686,6 +686,11 @@ def assert_candidate_manifest_parity() -> list[str]:
 # ---------------------------------------------------------------------------
 # Ensemble members (moneyline) — NFL-specific hyperparameters
 # ---------------------------------------------------------------------------
+# The blend objective is POOLED OOF log loss and nothing else (2026-10-14
+# four-sport audit; declared explicitly now — NFL previously implied it by
+# absence, while NBA/NHL both declare it and hard-refuse any other value).
+# moneyline.compute_adaptive_weights raises if this ever leaves "logloss".
+ADAPTIVE_WEIGHT_METRIC = "logloss"
 ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 
 # Fallback prior weights: fold 0 blends on these (1/3 each); after every
