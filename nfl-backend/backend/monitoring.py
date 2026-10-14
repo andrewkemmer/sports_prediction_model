@@ -1492,7 +1492,26 @@ def write_markets_monitor_json(path, run_date: str,
     iso_date = (f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}"
                 if len(str(run_date)) == 8 and str(run_date).isdigit()
                 else str(run_date))
-    cards = markets_winner_cards(oof_market_rows)
+    # 2026-10-14 run-log review: the caller attaches the FULL distribution
+    # bundle to ``oof_market_rows.attrs`` (200 origins x {maps,
+    # candidate_maps}) before this writer runs, and pandas propagates
+    # ``.attrs`` into EVERY row Series that ``DataFrame.iterrows`` builds.
+    # The card and per-line passes below walk 2,573 rows x 7 lines, so each
+    # walk deep-copied the bundle once per row: the Phase-12 stretch between
+    # "cards history store" and "SHAP" measured 252s on the 2026-10-14 run
+    # (212s on 10-13, 200s on 10-09 — recurring, not a one-off), while every
+    # write in the same phase totals ~2s. Nothing here reads ``.attrs``: the
+    # three bundle keys the fit block publishes are read ONCE, above the
+    # loop, and the frame handed to the row walkers carries no attrs at all.
+    # Output is byte-identical — only the per-row copying is gone.
+    _bundle = (oof_market_rows.attrs.get("challenger_bundle", {})
+               if oof_market_rows is not None else {})
+    if oof_market_rows is not None and len(oof_market_rows.attrs):
+        rows = oof_market_rows.copy(deep=False)
+        rows.attrs = {}
+    else:
+        rows = oof_market_rows
+    cards = markets_winner_cards(rows)
     slate_history: list[dict] = []
     for card_key in ("over_under", "run_line", "derived_ml"):
         c = cards.get(card_key) or {}
@@ -1519,10 +1538,10 @@ def write_markets_monitor_json(path, run_date: str,
         "fit": {**_run_engine_fit_block(oof_market_rows),
                 "distribution": "causal_split_skew_crps_mc",
                 "family": "two_sided_asymmetric_gaussian_split_skew",
-                "variance": oof_market_rows.attrs.get("challenger_bundle", {}).get("maps", {}).get("variance", {}),
-                "monte_carlo": oof_market_rows.attrs.get("challenger_bundle", {}).get("monte_carlo", {}),
-                "holdout": oof_market_rows.attrs.get("challenger_bundle", {}).get("holdout", {})},
-        "market_metrics": _run_engine_market_metrics(oof_market_rows),
+                "variance": _bundle.get("maps", {}).get("variance", {}),
+                "monte_carlo": _bundle.get("monte_carlo", {}),
+                "holdout": _bundle.get("holdout", {})},
+        "market_metrics": _run_engine_market_metrics(rows),
         "config": config_meta or {},
     }
     _dump_json(path, record)

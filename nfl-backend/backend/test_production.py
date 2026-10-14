@@ -5702,6 +5702,107 @@ check("the removed machinery stays gone (no requeue/defer recovery ever "
       and not hasattr(weather_mod, "_rate_limited_out"))
 weather_mod._reset_rate_limiter()  # hermetic: no breaker state leaks past here
 
+# ---------------------------------------------------------------------------
+print("\n== 8b. Monitor writer must not deep-copy the bundle per row ==")
+# 2026-10-14 run-log review: master_pipeline attaches the FULL distribution
+# bundle to oof_market_rows.attrs (200 origins x {maps, candidate_maps})
+# BEFORE write_markets_monitor_json runs. pandas propagates .attrs into every
+# row Series DataFrame.iterrows() builds, so the card pass (2573 rows) and the
+# seven per-line passes each deep-copied the bundle once per row: Phase 12's
+# "cards history store" -> "SHAP" stretch measured 252s (10-14), 212s (10-13)
+# and 200s (10-09) while every write in that phase totals ~2s. Output is
+# unchanged; only the per-row copying goes.
+import monitoring as mon_mod  # noqa: E402
+import tempfile as _tf  # noqa: E402
+import numpy as _np  # noqa: E402
+
+_rng = _np.random.default_rng(7)
+_n = 400
+_mkt = pd.DataFrame({
+    "game_id": [f"G{i}" for i in range(_n)],
+    "total": _rng.integers(30, 60, _n).astype(float),
+    "margin": _rng.integers(-21, 21, _n).astype(float),
+    "p_over_fair": _rng.random(_n), "fair_total": _rng.integers(30, 60, _n).astype(float),
+    "p_cover_fair": _rng.random(_n), "fair_spread": _rng.integers(-14, 14, _n).astype(float),
+    "p_home_win_derived": _rng.random(_n), "home_win": _rng.integers(0, 2, _n),
+    # _run_engine_fit_block reads these four (residual dispersion legs).
+    "home_score": _rng.integers(17, 45, _n).astype(float),
+    "away_score": _rng.integers(17, 45, _n).astype(float),
+    "mu_h": _rng.normal(24, 4, _n), "mu_a": _rng.normal(21, 4, _n),
+    **{f"p_over_{u}": _rng.random(_n) for u in config.RUN_ENGINE_FIXED_TOTALS},
+    **{f"p_push_{u}": _rng.random(_n) / 4 for u in config.RUN_ENGINE_FIXED_TOTALS},
+    **{f"p_home_cover_{str(l).replace('.', '_')}": _rng.random(_n)
+       for l in config.RUN_ENGINE_CANONICAL_SPREADS},
+    "p_push_0": _rng.random(_n) / 4,
+})
+_maps = {"total": [1., 2.], "margin": [0., 1.],
+         "variance": {"home_variance": 3.8, "away_variance": 4.0, "correlation": 0.03}}
+_origins = [{"maps": _maps, "candidate_maps": dict(_maps)} for _ in range(200)]
+_bundle = {"origins": _origins, "maps": _maps,
+           "monte_carlo": {"n_draws": 50000, "seed": 42},
+           "holdout": {"cutoff": "2026-09-20", "n_pre": 300, "n_holdout": 100}}
+
+_with = _mkt.copy(deep=True)
+_with.attrs = {"challenger_bundle": _bundle}
+_without = _mkt.copy(deep=False)
+_without.attrs = {}
+_dir = Path(_tf.mkdtemp())
+_rec_with = mon_mod.write_markets_monitor_json(_dir / "a.json", "20261014", _with, {}, {})
+_rec_without = mon_mod.write_markets_monitor_json(_dir / "b.json", "20261014", _without, {}, {})
+
+# The whole point: the bundle rides into the FIT block but never reaches the
+# row walkers, so the card/metric output cannot depend on its size.
+check("attrs-carrying and attrs-free frames produce IDENTICAL cards+metrics",
+      _rec_with["winner_cards"] == _rec_without["winner_cards"]
+      and _rec_with["market_metrics"] == _rec_without["market_metrics"],
+      f"cards equal={_rec_with['winner_cards'] == _rec_without['winner_cards']} "
+      f"metrics equal={_rec_with['market_metrics'] == _rec_without['market_metrics']}")
+check("the fit block still publishes variance/monte_carlo/holdout from attrs",
+      _rec_with["fit"]["variance"] == _maps["variance"]
+      and _rec_with["fit"]["monte_carlo"] == _bundle["monte_carlo"]
+      and _rec_with["fit"]["holdout"] == _bundle["holdout"],
+      f"variance={_rec_with['fit']['variance']} "
+      f"mc n_draws={_rec_with['fit']['monte_carlo'].get('n_draws')}")
+check("an attrs-free frame still fills the same fit keys (no KeyError path)",
+      _rec_without["fit"]["variance"] == {} and _rec_without["fit"]["monte_carlo"] == {},
+      f"variance={_rec_without['fit']['variance']}")
+check("the caller's frame keeps its attrs (the writer never mutates the caller)",
+      _with.attrs.get("challenger_bundle", {}) is _bundle,
+      f"attrs keys={list(_with.attrs)}")
+
+# The contract pin. Output is identical whether or not the walkers see the
+# attrs (attrs never change a computed value), so equality alone cannot catch
+# the regression — assert on the FRAME the walkers receive instead.
+_orig_cards = mon_mod.markets_winner_cards
+_orig_metrics = mon_mod._run_engine_market_metrics
+_seen: dict = {}
+
+
+def _spy_cards(df):
+    _seen["cards"] = len(df.attrs)
+    return _orig_cards(df)
+
+
+def _spy_metrics(df):
+    _seen["metrics"] = len(df.attrs)
+    return _orig_metrics(df)
+
+
+mon_mod.markets_winner_cards = _spy_cards
+mon_mod._run_engine_market_metrics = _spy_metrics
+try:
+    mon_mod.write_markets_monitor_json(_dir / "c.json", "20261014", _with, {}, {})
+finally:
+    mon_mod.markets_winner_cards = _orig_cards
+    mon_mod._run_engine_market_metrics = _orig_metrics
+
+check("the row walkers receive an ATTRS-FREE frame (the 200-origin bundle "
+      "never reaches iterrows)",
+      _seen.get("cards") == 0 and _seen.get("metrics") == 0,
+      f"attrs seen by cards={_seen.get('cards')} "
+      f"metrics={_seen.get('metrics')} (0 expected; each non-zero row "
+      f"deep-copies the bundle)")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)
