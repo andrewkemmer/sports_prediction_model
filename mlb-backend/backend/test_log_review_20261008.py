@@ -113,6 +113,22 @@ reconciles with the line. Thresholds untouched: ``min_games_per_day=5``
 and ``window_days=30`` remain owner decisions (same boundary as T15:
 judge-floor policy is the owner's, disclosure of what was NOT judged is
 ours).
+
+PLUS (2026-10-14, fourth pass over the 2026-10-13 21:19 run log) the T18
+window-widening + timestamped-log pins: T15/T16 made the blind drift
+LOUD, but ten straight runs (20261004 → 20261013) still judged 0/109
+features — n_current 27 → 11 under the fixed 7-day tail once the
+postseason's ~4 games/day took over. T18 pins
+``explainability.drift_windows``: the tail widens in 7-day steps (cap
+42d) until it holds ``DRIFT_JUDGE_MIN_CURRENT`` rows, the baseline keeps
+the ``tail(max(3*len(current), 250))`` formula over rows strictly before
+the final cutoff, and the dense case returns windows byte-identical to
+the old inline construction — geometry adapts, thresholds never move.
+The same pass added ``RUN_LOG_FORMAT``: the committed log carried NO
+timestamps (``"  %(levelname)s %(message)s"``), so a review could not
+measure a phase or locate a silent window — the exact questions the
+NHL/NFL timestamped logs answered; T18 pins asctime at the front of the
+format, same shape as the sibling leagues' lines.
 """
 from __future__ import annotations
 
@@ -1413,3 +1429,110 @@ def test_rolling_brier_stays_quiet_when_the_series_reaches_the_newest_game(
     assert len(info) == 1, info
     assert "78 of 80 games in-series" in info[0], info[0]
     assert not stale, stale
+
+
+# ── T18 (2026-10-14 log review): drift window widening + log timestamps ────
+
+def _sparse_tail_frame(games_per_day_last_n: int, last_n_days: int,
+                       prior_games: int,
+                       target: str = "2026-10-13") -> pd.DataFrame:
+    """Decided-game frame: a sparse ``last_n_days`` tail ending at
+    ``target``, behind it ``prior_games`` dense rows (15/day) strictly
+    before the tail."""
+    tgt = pd.Timestamp(target)
+    rows: list[dict] = []
+    for d in range(last_n_days):
+        day = tgt - pd.Timedelta(days=d)
+        for g in range(games_per_day_last_n):
+            rows.append({"game_date": day, "v": float(g)})
+    start = tgt - pd.Timedelta(days=last_n_days + 1)
+    for i in range(prior_games):
+        rows.append({"game_date": start - pd.Timedelta(days=i // 15),
+                     "v": float(i % 7)})
+    return pd.DataFrame(rows)
+
+
+def test_drift_windows_dense_tail_is_byte_identical_to_the_old_geometry():
+    """A dense tail (floor reached inside 7 days) must reproduce EXACTLY
+    the pre-2026-10-14 inline windows — same current rows, same baseline
+    rows, width 7 — so no in-season run's drift table changes shape for
+    free."""
+    import explainability
+    df = _sparse_tail_frame(games_per_day_last_n=15, last_n_days=60,
+                            prior_games=600)
+    cur, base, width = explainability.drift_windows(df, "2026-10-13")
+
+    assert width == explainability.DRIFT_CURRENT_WINDOW_DAYS == 7
+    assert len(cur) >= explainability.DRIFT_JUDGE_MIN_CURRENT
+    gd = pd.to_datetime(df["game_date"])
+    cutoff = pd.Timestamp("2026-10-13") - pd.Timedelta(days=7)
+    old_cur = df[gd >= cutoff]
+    old_prior = df[gd < cutoff]
+    old_base = old_prior.tail(max(3 * len(old_cur), 250))
+    pd.testing.assert_frame_equal(cur, old_cur)
+    pd.testing.assert_frame_equal(base, old_base)
+
+
+def test_drift_windows_widen_the_sparse_postseason_tail_to_the_floor():
+    """THE defect: a sub-floor 7-day tail (production ran n_current 11)
+    judged 0/109 for 20261004..20261013. The tail must widen until the
+    floor is met, the baseline stays strictly BEFORE the widened cutoff,
+    and run_daily_pipeline must go through the helper."""
+    import explainability
+    df = _sparse_tail_frame(games_per_day_last_n=3, last_n_days=60,
+                            prior_games=600)
+    seven_day = df[df["game_date"] >= pd.Timestamp("2026-10-13")
+                   - pd.Timedelta(days=7)]
+    assert len(seven_day) == 24, (
+        f"fixture must reproduce the sub-floor 7-day tail: {len(seven_day)}")
+    assert len(seven_day) < explainability.DRIFT_JUDGE_MIN_CURRENT
+
+    cur, base, width = explainability.drift_windows(df, "2026-10-13")
+
+    assert width > explainability.DRIFT_CURRENT_WINDOW_DAYS
+    assert len(cur) >= explainability.DRIFT_JUDGE_MIN_CURRENT, (
+        f"widened window must reach the floor: {len(cur)}")
+    assert len(base) == max(3 * len(cur), 250)
+    assert pd.to_datetime(base["game_date"]).max() \
+        < pd.to_datetime(cur["game_date"]).min(), (
+            "baseline must stay strictly before the widened current window")
+    assert "drift_windows(decided, target_date)" in MASTER_SRC, (
+        "run_daily_pipeline must build its drift windows through the helper")
+
+
+def test_drift_windows_cap_at_the_max_width_and_stay_honest():
+    """When even widening cannot reach the floor (thin frame), the helper
+    stops growing — at the cap OR once the window has swallowed every
+    row — and returns the honest small window: T15's
+    INSUFFICIENT/UNMEASURED disclosure stays the fallback; a fabricated
+    sample is never manufactured to satisfy the floor."""
+    import explainability
+    df = _sparse_tail_frame(games_per_day_last_n=1, last_n_days=20,
+                            prior_games=0)
+    cur, base, width = explainability.drift_windows(df, "2026-10-13")
+
+    assert explainability.DRIFT_CURRENT_WINDOW_DAYS < width \
+        <= explainability.DRIFT_CURRENT_WINDOW_MAX_DAYS
+    assert len(cur) == len(df), "the window swallowed every row"
+    assert len(cur) < explainability.DRIFT_JUDGE_MIN_CURRENT, (
+        "still under the floor → the honest INSUFFICIENT path must remain")
+    assert base.empty
+
+
+def test_run_log_lines_carry_timestamps_like_the_sibling_leagues():
+    """The committed MLB run log carried NO timestamps — a review could
+    not measure a phase duration or locate a silent window, the exact
+    questions the NHL/NFL timestamped logs answered. Pin the format
+    constant, its actual use in basicConfig, and a record rendered with
+    it starting with a parseable timestamp."""
+    import re
+    assert 'RUN_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"' \
+        in MASTER_SRC, "the run log must open every line with a timestamp"
+    assert "format=RUN_LOG_FORMAT" in MASTER_SRC, (
+        "basicConfig must actually apply RUN_LOG_FORMAT")
+    fmt = re.search(r'RUN_LOG_FORMAT = "([^"]+)"', MASTER_SRC).group(1)
+    record = logging.LogRecord("mlb", logging.INFO, __file__, 42,
+                               "phase done", None, None)
+    line = logging.Formatter(fmt).format(record)
+    datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f")  # raises if absent
+    assert line.endswith(" INFO phase done"), line

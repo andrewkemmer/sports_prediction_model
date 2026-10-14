@@ -529,6 +529,64 @@ def classify_drift_retention(gain: float, psi_adjusted: float,
     return bool(gain >= kept_median_gain and psi_adjusted <= noise_floor)
 
 
+# ── Drift window policy (one home for every number the drift tables need) ──
+#: Judge floors: below these row counts PSI is statistically meaningless and
+#: the status is INSUFFICIENT (never WARN/ALERT — a window-size condition
+#: must not page anyone).  POLICY OWNER DECISION, unchanged since 2026-10-08:
+#: this review moved the WINDOW to reach the floor, never the floor itself.
+DRIFT_JUDGE_MIN_BASELINE = 100
+DRIFT_JUDGE_MIN_CURRENT = 30
+#: Preferred trailing width of the current window, and the widen cap for
+#: sparse tails (postseason/offseason): steps of the preferred width.
+DRIFT_CURRENT_WINDOW_DAYS = 7
+DRIFT_CURRENT_WINDOW_MAX_DAYS = 42
+
+
+def drift_windows(
+    decided: pd.DataFrame,
+    target_date,
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    """Trailing current window + its baseline for the drift/coverage tables.
+
+    Prefers the trailing ``DRIFT_CURRENT_WINDOW_DAYS``-day tail, widening
+    backward in week steps until the current window holds at least
+    ``DRIFT_JUDGE_MIN_CURRENT`` rows (cap
+    ``DRIFT_CURRENT_WINDOW_MAX_DAYS``; honest INSUFFICIENT remains the
+    fallback when even the cap cannot reach the floor).
+
+    Why (2026-10-14 log review): a FIXED 7-day tail collapses under the
+    judge floor every October — the postseason plays ~4 games/day, so
+    ``n_current`` ran 27 → 11 across the 2026-10-04 .. 2026-10-13 runs and
+    BOTH drift views judged 0/109 features for TEN consecutive runs
+    (``drift is UNMEASURED, not clean`` at WARNING, while the run itself
+    read healthy).  T15/T16 (2026-10-08) fixed the DISCLOSURE; this fixes
+    the CAUSE.  The floor never moves — only the window grows to reach it,
+    the same geometry-adapts/thresholds-hold rule as the sweep's
+    gameless-window skip.  The baseline formula
+    (``prior.tail(max(3 * len(current), 250))`` over rows strictly before
+    the final cutoff) is unchanged, so in the dense case
+    (``width_days == DRIFT_CURRENT_WINDOW_DAYS``) the returned windows are
+    byte-identical to the pre-2026-10-14 inline construction.
+    """
+    gd = pd.to_datetime(decided["game_date"])
+    width = DRIFT_CURRENT_WINDOW_DAYS
+    cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=width)
+    current = decided[gd >= cutoff]
+    dated = gd.dropna()
+    earliest = dated.min() if not dated.empty else None
+    while (len(current) < DRIFT_JUDGE_MIN_CURRENT
+           and width < DRIFT_CURRENT_WINDOW_MAX_DAYS
+           and (earliest is None or cutoff > earliest)):
+        width = min(width + DRIFT_CURRENT_WINDOW_DAYS,
+                    DRIFT_CURRENT_WINDOW_MAX_DAYS)
+        cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=width)
+        current = decided[gd >= cutoff]
+    prior = decided[gd < cutoff]
+    baseline = (prior.tail(max(3 * len(current), 250))
+                if not prior.empty else prior)
+    return current, baseline, width
+
+
 def compute_feature_drift(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
@@ -657,7 +715,7 @@ def compute_feature_drift(
 
         # Small windows make PSI statistically meaningless — report them as
         # INSUFFICIENT rather than WARN/ALERT so they never page anyone.
-        if n_b < 100 or n_c < 30:
+        if n_b < DRIFT_JUDGE_MIN_BASELINE or n_c < DRIFT_JUDGE_MIN_CURRENT:
             status = "INSUFFICIENT"
         else:
             # Threshold on the NOISE-ADJUSTED PSI: raw PSI between two

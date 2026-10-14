@@ -187,7 +187,12 @@ for mod in list(sys.modules.keys()):
 
 # ── Phase 1: Ingestion ──────────────────────────────────────────────────────
 import logging
-logging.basicConfig(level=logging.INFO, format="  %(levelname)s %(message)s")
+# Timestamped run log (2026-10-14 log review): the bare "  %(levelname)s"
+# format left the committed log with NO timestamps, so a review could not
+# measure phase durations or locate a silent window — exactly what the
+# NHL/NFL timestamped logs answered. Same shape as the sibling leagues.
+RUN_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+logging.basicConfig(level=logging.INFO, format=RUN_LOG_FORMAT)
 # Run-log tee (2026-10-01): capture the whole run into ONE rolling master
 # file in data_delivery/ — Phase 5 pushes it like any artifact and Phase 6
 # never evicts it (protected name), so the latest run's full log is always
@@ -436,12 +441,15 @@ from data_ingestion import (
     filter_prior,
 )
 from explainability import (
+    DRIFT_CURRENT_WINDOW_DAYS,
+    DRIFT_JUDGE_MIN_CURRENT,
     compute_feature_coverage,
     compute_feature_drift,
     compute_rolling_brier,
     compute_run_engine_feature_coverage,
     compute_run_engine_feature_drift,
     compute_shap_per_game,
+    drift_windows,
 )
 from feature_metadata import generate_features_metadata
 
@@ -2635,14 +2643,11 @@ def run_daily_pipeline(
         require_matching_signatures(
             "drift", fold_signature(decided),
             "training", get_last_fold_signature())
-        cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
-        gd = pd.to_datetime(decided["game_date"])
         # Chronological order is required: tail(N) on an unordered frame
         # mixes arbitrary seasons into the baseline window. Kept as-is
         # (including its quicksort tie behavior) so the drift margin
         # build consumes byte-identical row order to every prior run.
         decided = decided.sort_values("game_date")
-        gd = pd.to_datetime(decided["game_date"])
         # run_margin_diff is the shipped moneyline feature that exists ONLY
         # in the margin-enriched training frame -- it never lands in
         # game_level_features.csv, so without enrichment the drift step
@@ -2660,9 +2665,20 @@ def run_daily_pipeline(
         _post_hash = _hb.sha256("|".join(str(p) for p in _post_pks).encode()).hexdigest()[:12]
         logger.info("Drift post-margin frame: %d games, hash=%s",
                     len(decided), _post_hash)
-        current = decided[gd >= cutoff]
-        prior = decided[gd < cutoff]
-        baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
+        # Sparse-tail widening (2026-10-14 log review): the fixed 7-day
+        # current window fell under the PSI judge floor every October
+        # (postseason pace: n_current 27 -> 11) and BOTH drift views judged
+        # 0/109 features for ten consecutive runs — UNMEASURED while the
+        # run still read healthy. drift_windows grows the tail until it
+        # holds DRIFT_JUDGE_MIN_CURRENT rows; the floor itself never moves,
+        # so PSI statistics are unchanged.
+        current, baseline, drift_width = drift_windows(decided, target_date)
+        if drift_width != DRIFT_CURRENT_WINDOW_DAYS:
+            logger.info(
+                "Drift current window widened: %dd → %dd (sparse tail) — "
+                "%d rows meets the judge floor %d; the floor is unchanged",
+                DRIFT_CURRENT_WINDOW_DAYS, drift_width,
+                len(current), DRIFT_JUDGE_MIN_CURRENT)
         if not baseline.empty and not current.empty:
             # PSI over the ACTIVE serving width (adopted RFE subset), not the
             # full universe — the drift table must mirror what the model sees;
