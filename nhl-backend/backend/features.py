@@ -1265,6 +1265,16 @@ def add_player_pool_features(
         stints.attrs["snapshot_history"] = True
         stints.attrs["snapshot_times"] = accepted_snapshot_times
 
+    # The build below is the longest silent stretch left in Phase 3: the
+    # 2026-10-13 log went 195 s with no output between the last injury-source
+    # line and the receipt at the end of this function (473 s on the same
+    # span before the run-time review, which also collapsed a 1,651 s silence
+    # just above it). Work with no line at all is indistinguishable from a
+    # hung kernel, so the side-dates about to be expanded are stated BEFORE
+    # the work starts.
+    logger.info("player pool build: %d side-date(s), %d injury interval(s) "
+                "-> healthy-pool rates", len(grid),
+                0 if stints is None else len(stints))
     pool, audit = injury_stints.team_game_rates(
         player_ratings, stints=stints, games=grid,
         rosters=_load_team_rosters(grid))

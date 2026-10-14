@@ -33,7 +33,11 @@ the engine's honesty depends on:
      never a terminal), and where no bar can be drawn the log line carries a
      fixed-width one of its own. Either way the log records a live position
      and a closing summary, on a seconds floor as well as an item cadence,
-     and partitions cache hits from fetches from dead pages.
+     and partitions cache hits from fetches from dead pages. One bar per
+     PULL carries the PULL's tally (a window's own counts put the last
+     window's number on the finished frame), the sweep states the worker
+     pool it ran on, and the pool build in Phase 3 announces itself before
+     it goes quiet.
 
 Run with: python nhl-backend/backend/test_run_engine_pit.py
 """
@@ -424,6 +428,211 @@ def test_score_pull_draws_ONE_bar_across_every_chunk():
         f"bar must count every date of the pull: {built[0].desc} {built[0].total}"
     assert built[0].updates == len(dates) and built[0].closed == 1, \
         f"updates={built[0].updates} closed={built[0].closed}"
+
+
+def test_the_finished_bar_and_summary_report_the_WHOLE_sweep():
+    """The bar's final frame is the log's durable record of the sweep.
+
+    The 2026-10-13 run — the one that shortened the cold pull — logged
+    ``scores: 679/679 ... cached=0, fetched=43`` and
+    ``boxscores: 2881/2881 ... cached=0, fetched=89``: 43 and 89 are the
+    LAST window's size, because each window drove the shared bar from its
+    own counters. Those frames sit directly above summary lines saying 679
+    and 2881, so the log contradicted itself on exactly the two numbers a
+    reader compares. The bar carries the pull's tally, and the summary
+    names an unavailable page rather than silently under-counting it.
+    """
+    # Four dates over three windows; the LAST window holds two of them, so a
+    # window-scoped postfix would read {cached: 0, fetched: 1} here.
+    dates = ["2024-01-01", "2024-03-15", "2024-06-01", "2024-06-15"]
+    assert len(ing._date_windows(dates, ing.PULL_CHUNK_DAYS)) == 3, (
+        "the fixture must span several windows or the pin proves nothing")
+
+    def _http(url):
+        if url.endswith("2024-06-01"):
+            raise RuntimeError("the API would not serve this page")
+        return {"games": []}
+
+    class _Spy:
+        def __init__(self, total, desc):
+            self.total, self.desc = total, desc
+            self.updates = self.closed = 0
+            self.postfix = None
+
+        def update(self, n=1):
+            self.updates += n
+
+        def set_postfix(self, **kw):
+            self.postfix = kw
+
+        def close(self):
+            self.closed += 1
+
+    built = []
+
+    def _bar(total, desc):
+        spy = _Spy(total, desc)
+        built.append(spy)
+        return spy
+
+    msgs = []
+    with tempfile.TemporaryDirectory() as tmp:
+        # Seed one settled page so the sweep mixes all three outcomes:
+        # hit (2024-01-01), fetch (03-15, 06-15), unavailable (06-01).
+        cached = Path(tmp) / f"score_{ing.SCORE_CACHE_VERSION}_20240101.parquet"
+        pd.DataFrame(columns=ing.SCORE_KEEP).to_parquet(cached, index=False)
+
+        def _drive():
+            with _mock_patch.object(ing, "_http_json", side_effect=_http), \
+                    _mock_patch.object(ing, "_cache_path",
+                                       side_effect=lambda n: Path(tmp) / n), \
+                    _mock_patch.object(ing, "_progress_bar", side_effect=_bar):
+                ing.load_score_dates(dates)
+
+        msgs = _pull_log(_drive)
+
+    assert len(built) == 1, f"one sweep must draw one bar: {len(built)}"
+    assert built[0].postfix == {"cached": 1, "fetched": 2}, (
+        f"the finished bar reports a window, not the sweep: {built[0].postfix}")
+    summary = ("score dates resolved: 4 requested in 3 chunk(s), "
+               "1 cache hits, 2 fetched, 1 unavailable")
+    assert any(m == summary for m in msgs), (
+        f"the summary must account for every requested page: {msgs}")
+
+
+def test_the_finished_boxscore_bar_counts_every_game_of_the_pull():
+    """Same single-bar contract for the boxscore pull.
+
+    The 2026-10-13 capture ended ``boxscores: 2881/2881 ... fetched=89`` —
+    89 being the last chunk's games — a frame that claims completion for
+    2,881 games while counting 89 of them.
+    """
+    base = pd.Timestamp("2024-10-01")
+    ids = [f"{base + pd.Timedelta(days=d):%Y%m%d}_{k}"
+           for d in range(0, 200, 4) for k in range(2)]
+    gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
+    # Several windows, and the last one is far smaller than the pull.
+    chunks = ing._chunk_games(ids, gamedays)
+    assert len(chunks) > 1 and len(chunks[-1][1]) < len(ids)
+
+    def _fake_http(url):
+        gid = url.rsplit("/", 2)[-2]
+        return {"id": gid, "gameState": "OFF", "away": {"abbrev": "AAA", "goals": 1},
+                "home": {"abbrev": "HHH", "goals": 2}}
+
+    class _Spy:
+        def __init__(self, total, desc):
+            self.total, self.desc = total, desc
+            self.updates = self.closed = 0
+            self.postfix = None
+
+        def update(self, n=1):
+            self.updates += n
+
+        def set_postfix(self, **kw):
+            self.postfix = kw
+
+        def close(self):
+            self.closed += 1
+
+    built = []
+
+    def _bar(total, desc):
+        spy = _Spy(total, desc)
+        built.append(spy)
+        return spy
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", side_effect=_bar):
+            out = ing.load_boxscores(ids, use_cache=False,
+                                     gameday_by_id=gamedays)
+
+    assert len(out) == len(ids)
+    assert len(built) == 1
+    assert built[0].postfix == {"cached": 0, "fetched": len(ids)}, (
+        f"the finished bar reports a chunk, not the pull: {built[0].postfix}")
+
+
+def test_the_pull_states_the_worker_pool_it_ran_on():
+    """A log that hides the pool size cannot show why the sweep got faster.
+
+    The 2026-10-13 run-time review moved both cold pulls onto a bounded
+    worker pool (8 by default, ``NHL_PULL_WORKERS`` overrides) and the next
+    run duly printed 5x the rate — with no line anywhere saying how many
+    workers were involved. A reader comparing a serial capture with a
+    parallel one, or trying to reproduce the rate on the lines above it,
+    had nothing to go on.
+    """
+    expected = ing._resolve_workers(None)
+    dates = ["2024-01-01", "2024-03-15"]
+    ids = ["20241001_1", "20241001_2"]
+    gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
+
+    def _fake_http(url):
+        if "/score/" in url:
+            return {"games": []}
+        gid = url.rsplit("/", 2)[-2]
+        return {"id": gid, "gameState": "OFF", "away": {"abbrev": "AAA", "goals": 1},
+                "home": {"abbrev": "HHH", "goals": 2}}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", return_value=None):
+            score_msgs = _pull_log(lambda: ing.load_score_dates(
+                dates, use_cache=False))
+            box_msgs = _pull_log(lambda: ing.load_boxscores(
+                ids, use_cache=False, gameday_by_id=gamedays))
+
+    assert any(m == f"score pull: 2 date(s) in 2 chunk(s) on {expected} worker(s)"
+               for m in score_msgs), score_msgs
+    assert any(m.startswith("boxscore pull: 2 game(s) ")
+               and m.endswith(f"on {expected} worker(s)") for m in box_msgs), \
+        box_msgs
+
+
+def test_the_pool_build_announces_itself_before_its_receipt():
+    """Phase 3's longest silent stretch must say what is running.
+
+    The 2026-10-13 log produced no output for 195 s between the last injury
+    source line and the ``player pool:`` receipt (473 s on the same span
+    before the run-time review) — work with no line is indistinguishable
+    from a hung kernel, which is the exact complaint every run-log review
+    in this repo has remediated elsewhere.
+    """
+    from test_injury_stints import make_ratings
+
+    ratings = make_ratings([
+        ("mp-1", "BOS", "5on5", "C", 0.060, 9000.0, "2026-10-14"),
+        ("mp-2", "TOR", "5on5", "C", 0.030, 9000.0, "2026-10-14"),
+    ])
+    games = pd.DataFrame([{
+        "game_id": "G1", "season": 2026, "game_date": "2026-10-15",
+        "start_time_utc": "2026-10-15T19:00:00Z",
+        "home_team": "BOS", "away_team": "TOR",
+    }])
+    cap = _LogCapture()
+    feat_mod.logger.addHandler(cap)
+    feat_mod.logger.setLevel(logging.INFO)
+    try:
+        with _mock_patch.object(feat_mod.ingestion,
+                                "load_team_roster_snapshot", return_value=None):
+            feat_mod.add_player_pool_features(games, player_ratings=ratings,
+                                              stints=pd.DataFrame())
+    finally:
+        feat_mod.logger.removeHandler(cap)
+
+    build = [m for m in cap.messages if m.startswith("player pool build:")]
+    receipt = [m for m in cap.messages if m.startswith("player pool:")]
+    assert build and receipt, f"no build/receipt pair in {cap.messages}"
+    assert cap.messages.index(build[0]) < cap.messages.index(receipt[0]), (
+        "the receipt must follow the line announcing the work")
+    assert build[0] == ("player pool build: 2 side-date(s), 0 injury "
+                        "interval(s) -> healthy-pool rates"), build[0]
 
 
 def test_score_dates_chunking_covers_every_date_once():

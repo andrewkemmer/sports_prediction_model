@@ -296,6 +296,27 @@ def _bar(fraction: float, width: int = BAR_WIDTH) -> str:
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
+class _PullTally:
+    """Pull-level counts shared by every window of one sweep.
+
+    One shared bar needs one shared counter. Window-scoped counts put the
+    LAST window's number on the bar's finished frame — and that frame is the
+    durable record a captured log keeps: the 2026-10-13 run read
+    ``679/679 ... cached=0, fetched=43`` (43 being the final chunk's size)
+    directly above a summary line saying 679 fetched, and
+    ``2881/2881 ... fetched=89`` for 2,881 boxscores. The tally is also what
+    the pull's ``resolved`` summary reads, so hits + fetched + unavailable
+    always reconcile with what was requested.
+    """
+
+    __slots__ = ("hits", "fetched", "failed")
+
+    def __init__(self) -> None:
+        self.hits = 0
+        self.fetched = 0
+        self.failed = 0
+
+
 class _PullProgress:
     """Durable, terminal-independent progress for a multi-minute pull.
 
@@ -325,15 +346,20 @@ class _PullProgress:
     _NO_BAR = object()
 
     def __init__(self, total: int, desc: str, every: int = 50,
-                 interval: float = 30.0, bar: object = _NO_BAR) -> None:
+                 interval: float = 30.0, bar: object = _NO_BAR,
+                 tally: _PullTally | None = None) -> None:
         self.total = max(0, int(total))
         self.desc = str(desc)
         self.every = max(1, int(every))
         self.interval = max(0.0, float(interval))
         self.done = 0
-        self.hits = 0
-        self.fetched = 0
-        self.failed = 0
+        # ONE tally per PULL, handed in by the sweep so the shared bar can
+        # show the whole sweep; a window driven on its own still gets one.
+        # Where this window entered the tally is latched here: its own log
+        # line reports its own numbers (the delta), the bar reports the pull's.
+        self._tally = tally if tally is not None else _PullTally()
+        self._base = (self._tally.hits, self._tally.fetched,
+                      self._tally.failed)
         self._start = time.monotonic()
         self._last = self._start
         self._reported = False
@@ -351,6 +377,21 @@ class _PullProgress:
         # before it logs the window's result, and the closing line must still
         # know whether a bar DREW for this window.
         self._drew_bar = self._bar is not None
+
+    @property
+    def hits(self) -> int:
+        """Cache hits THIS window served — the pull's tally past its entry."""
+        return self._tally.hits - self._base[0]
+
+    @property
+    def fetched(self) -> int:
+        """Fetches this window served (see :attr:`hits`)."""
+        return self._tally.fetched - self._base[1]
+
+    @property
+    def failed(self) -> int:
+        """Pages the API would not serve, for this window (see :attr:`hits`)."""
+        return self._tally.failed - self._base[2]
 
     @staticmethod
     def _rate(done: int, elapsed: float) -> float:
@@ -403,15 +444,18 @@ class _PullProgress:
         """
         self.done += 1
         if failed:
-            self.failed += 1
+            self._tally.failed += 1
         elif cached:
-            self.hits += 1
+            self._tally.hits += 1
         else:
-            self.fetched += 1
+            self._tally.fetched += 1
         if self._bar is not None:
             try:
                 self._bar.update(1)
-                self._bar.set_postfix(cached=self.hits, fetched=self.fetched)
+                # The PULL's tally, never this window's: the finished bar is
+                # the log's durable record of the sweep (see _PullTally).
+                self._bar.set_postfix(cached=self._tally.hits,
+                                      fetched=self._tally.fetched)
             except Exception:  # noqa: BLE001 — decoration only
                 self._bar = None
         now = time.monotonic()
@@ -613,7 +657,9 @@ def load_score_dates(dates: list[str], use_cache: bool = True,
     # parallel sweep — as_completed yields FINISH order, not input order.
     frames: list[tuple[str, pd.DataFrame]] = []
     today = date.today()
-    fetched = hits = 0
+    # One tally for the WHOLE sweep: it feeds the shared bar's postfix and
+    # the summary line below, so the two can never disagree.
+    tally = _PullTally()
     no_result: list[tuple[str, str]] = []
     windows = _date_windows(dates, PULL_CHUNK_DAYS)
     # Same single-bar contract as the boxscore pull (2026-10-13 log review):
@@ -621,6 +667,8 @@ def load_score_dates(dates: list[str], use_cache: bool = True,
     # per-window ``score chunk n/N`` log lines kept underneath it.
     pull_bar = _progress_bar(len(dates), "scores") if dates else None
     workers = _resolve_workers(workers)
+    logger.info("score pull: %d date(s) in %d chunk(s) on %d worker(s)",
+                len(dates), len(windows), workers)
 
     def _serve_one(d: str) -> tuple[str, pd.DataFrame | None, str, list[str]]:
         """Serve ONE date: (date, frame-or-None, outcome, never-result ids).
@@ -709,7 +757,7 @@ def load_score_dates(dates: list[str], use_cache: bool = True,
                         w, len(windows), wlabel, len(wdates))
             prog = _PullProgress(
                 len(wdates), f"score chunk {w}/{len(windows)} [{wlabel}]",
-                bar=pull_bar)
+                bar=pull_bar, tally=tally)
             if executor is None:
                 completed = (_serve_one(d) for d in wdates)
             else:
@@ -721,13 +769,13 @@ def load_score_dates(dates: list[str], use_cache: bool = True,
                 if frame is not None:
                     frames.append((d, frame))
                 no_result.extend((d, gid) for gid in never)
+                # tick() owns the counting: the window line, the shared bar
+                # and the summary below all read this one tally.
                 if outcome == "cached":
-                    hits += 1
                     prog.tick(cached=True)
                 elif outcome == "failed":
                     prog.tick(failed=True)
                 else:
-                    fetched += 1
                     prog.tick(cached=False)
                 # Progress, so a slow or rate-limited pull is VISIBLE.
                 # Without it the loop between the Phase 2 banner and its
@@ -747,9 +795,13 @@ def load_score_dates(dates: list[str], use_cache: bool = True,
             pull_bar.close()
         except Exception:  # noqa: BLE001 — decoration only
             pass
+    # The three outcomes are named together when any of them happened: a page
+    # that failed is neither a hit nor a fetch, and omitting it made the line
+    # under-report its own ``requested`` count with nothing to explain why.
+    missing = f", {tally.failed} unavailable" if tally.failed else ""
     logger.info("score dates resolved: %d requested in %d chunk(s), "
-                "%d cache hits, %d fetched",
-                len(dates), len(windows), hits, fetched)
+                "%d cache hits, %d fetched%s",
+                len(dates), len(windows), tally.hits, tally.fetched, missing)
     if no_result:
         # Stable sort by DAY only: parallel completion order must not
         # reorder the delivered line, and within one date the ids stay in
@@ -1134,7 +1186,9 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     """
     chunks = _chunk_games(game_ids, gameday_by_id, chunk_days)
     frames: list[pd.DataFrame] = []
-    hits = fetched = 0
+    # One tally for the WHOLE pull (see _PullTally): the shared bar's postfix
+    # and the summary line below read it, so they cannot disagree.
+    tally = _PullTally()
     today = date.today()
     # ONE bar for the WHOLE pull, built before the first window (2026-10-13
     # log review, pinned by test_boxscore_pull_draws_ONE_bar): a bar per
@@ -1144,6 +1198,9 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     # at the end.
     pull_bar = _progress_bar(len(game_ids), "boxscores")
     workers = _resolve_workers(workers)
+    logger.info("boxscore pull: %d game(s) in %d chunk(s) on %d worker(s)%s",
+                len(game_ids), len(chunks), workers,
+                f", {pause_sec:g}s pause between chunks" if pause_sec else "")
 
     def _serve_one(gid: str) -> tuple[pd.DataFrame | None, str]:
         """Serve ONE game: (frame-or-None, outcome), outcome in
@@ -1233,7 +1290,7 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
             # _PullProgress writes the durable log line in both cases.
             prog = _PullProgress(
                 len(chunk_ids), f"boxscore chunk {n}/{len(chunks)} [{label}]",
-                bar=pull_bar)
+                bar=pull_bar, tally=tally)
             if executor is None:
                 completed = (_serve_one(gid) for gid in chunk_ids)
             else:
@@ -1244,13 +1301,13 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
             for frame, outcome in completed:
                 if frame is not None:
                     frames.append(frame)
+                # tick() owns the counting: the window line, the shared bar
+                # and the summary below all read this one tally.
                 if outcome == "cached":
-                    hits += 1
                     prog.tick(cached=True)
                 elif outcome == "failed":
                     prog.tick(failed=True)
                 else:
-                    fetched += 1
                     prog.tick(cached=False)
             prog.close()
             if pause_sec and n < len(chunks):
@@ -1263,9 +1320,14 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
             pull_bar.close()
         except Exception:  # noqa: BLE001 — decoration only
             pass
+    # The three outcomes are named together when any of them happened (see
+    # the score pull's summary): a game that failed is neither a hit nor a
+    # fetch, and leaving it out made the line under-report its own
+    # ``requested`` count with nothing to explain the difference.
+    missing = f", {tally.failed} unavailable" if tally.failed else ""
     logger.info("boxscores resolved: %d requested in %d chunk(s), "
-                "%d cache hits, %d fetched",
-                len(game_ids), len(chunks), hits, fetched)
+                "%d cache hits, %d fetched%s",
+                len(game_ids), len(chunks), tally.hits, tally.fetched, missing)
     frames = [f for f in frames if len(f)]
     if not frames:
         return pd.DataFrame(columns=BOXSCORE_COLS)
