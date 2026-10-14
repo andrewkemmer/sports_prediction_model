@@ -24,10 +24,13 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import sys
 import tempfile
+import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -167,6 +170,34 @@ MONEYPUCK_SITUATIONS = ("5on5", "5on4")
 # is unchanged; raising it is the lever if the API ever rate-limits.
 PULL_CHUNK_DAYS = 60
 PULL_CHUNK_PAUSE_SEC = 0.0
+#: Workers for a COLD pull (2026-10-13 NHL run-log review). Every run
+#: repulls from zero — NHL_FULL_REPULL clears the cache before Phase 2 — so
+#: the serial fetch was ~33 min of boxscores + ~2.5 min of scores at
+#: ~1.4/4.4 pages per second, the single largest runtime block in the run.
+#: Measured against the official API on 2026-10-13: 60-game waves at
+#: 1/4/8/12 workers returned 1.22/3.39/5.63/6.54 games/s with ZERO non-200
+#: responses, so 8 sits just under the knee; ``_http_json`` still backs off
+#: on 429/5xx per request, and ``NHL_PULL_WORKERS`` overrides the default
+#: for a run that needs to be gentler (or faster) than the measured one.
+PULL_WORKERS = 8
+#: One writer at a time: parallel workers fetch concurrently but each writes
+#: only its own per-game/per-date cache file. The lock also keeps a test (or
+#: any caller) that maps several ids onto one cache path from racing two
+#: writers into the same parquet.
+_CACHE_WRITE_LOCK = threading.Lock()
+
+
+def _resolve_workers(workers: int | None) -> int:
+    """Worker count for a pull: explicit arg > NHL_PULL_WORKERS > default."""
+    if workers is None:
+        try:
+            workers = int(os.environ.get("NHL_PULL_WORKERS", "") or PULL_WORKERS)
+        except (TypeError, ValueError):
+            workers = PULL_WORKERS
+    try:
+        return max(1, int(workers))
+    except (TypeError, ValueError):
+        return PULL_WORKERS
 # A score page is treated as settled once its date is older than this many
 # days. Posting lags game completion by hours, so a null score inside the
 # window is provisional; past it the game was cancelled or postponed and the
@@ -287,8 +318,14 @@ class _PullProgress:
     so a run with neither a terminal nor tqdm still reads as progress.
     """
 
+    #: Distinct from ``bar=None``: a caller that passes nothing gets its own
+    #: bar built here, while ``bar=None`` means the caller deliberately runs
+    #: bar-less (the shared-bar pulls below can hold ``None`` when tqdm is
+    #: unavailable).
+    _NO_BAR = object()
+
     def __init__(self, total: int, desc: str, every: int = 50,
-                 interval: float = 30.0) -> None:
+                 interval: float = 30.0, bar: object = _NO_BAR) -> None:
         self.total = max(0, int(total))
         self.desc = str(desc)
         self.every = max(1, int(every))
@@ -300,7 +337,16 @@ class _PullProgress:
         self._start = time.monotonic()
         self._last = self._start
         self._reported = False
-        self._bar = _progress_bar(self.total, self.desc)
+        if bar is _PullProgress._NO_BAR:
+            self._bar = _progress_bar(self.total, self.desc)
+            # A bar this object built, it also closes.
+            self._owns_bar = True
+        else:
+            # One bar for the WHOLE pull: windows share it and never close it
+            # (2026-10-13 log review — eleven finished chunk bars buried the
+            # only number a reader wants, how much of the PULL is done).
+            self._bar = bar  # type: ignore[assignment]
+            self._owns_bar = False
         # Latched at construction, not read live: `close()` clears `self._bar`
         # before it logs the window's result, and the closing line must still
         # know whether a bar DREW for this window.
@@ -377,12 +423,19 @@ class _PullProgress:
             self._reported = self._reported or final
 
     def close(self) -> None:
-        """Close the bar (if any) and log the window's result once."""
+        """Log the window's result once; close the bar only if we own it.
+
+        A shared pull-level bar closes exactly once — where the PULL ends,
+        not at each window boundary — so this only releases windows that
+        built their own bar.
+        """
         if self._bar is not None:
-            try:
-                self._bar.close()
-            except Exception:  # noqa: BLE001 — decoration only
-                pass
+            if self._owns_bar:
+                try:
+                    self._bar.close()
+                except Exception:  # noqa: BLE001 — decoration only
+                    pass
+            # Never a shared bar: the pull closes it after its last window.
             self._bar = None
         if not self.total or not self.done or self._reported:
             return
@@ -535,7 +588,8 @@ def _date_windows(dates: list[str], chunk_days: int) -> list[tuple[str, list[str
     return out
 
 
-def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
+def load_score_dates(dates: list[str], use_cache: bool = True,
+                     workers: int | None = None) -> pd.DataFrame:
     """Fetch /v1/score/{date} for each date and return the combined rows.
 
     Per-date parquet caches keyed by the date (an incremental daily pull is
@@ -554,111 +608,171 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
         so the page stops being re-pulled on every run forever, and account
         for the game by id so a shrunken OOF population is visible.
     """
-    frames: list[pd.DataFrame] = []
+    # (requested date, frame) pairs: the date rides with the frame so the
+    # delivered frame can be restored to the caller's input order after a
+    # parallel sweep — as_completed yields FINISH order, not input order.
+    frames: list[tuple[str, pd.DataFrame]] = []
     today = date.today()
     fetched = hits = 0
     no_result: list[tuple[str, str]] = []
     windows = _date_windows(dates, PULL_CHUNK_DAYS)
-    for w, (wlabel, wdates) in enumerate(windows, 1):
-        logger.info("score chunk %d/%d [%s]: %d dates",
-                    w, len(windows), wlabel, len(wdates))
-        prog = _PullProgress(
-            len(wdates), f"score chunk {w}/{len(windows)} [{wlabel}]")
-        for i, d in enumerate(wdates, 1):
-            path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
-            # Inside SCORE_REFRESH_DAYS a settled page is re-pulled (feed
-            # corrections land there); outside it a cache hit is final.
-            refreshable = (date.fromisoformat(d)
-                           >= today - timedelta(days=SCORE_REFRESH_DAYS))
-            if use_cache and path.exists() and not refreshable:
+    # Same single-bar contract as the boxscore pull (2026-10-13 log review):
+    # one bar walking 0 -> 100% across every date of the sweep, with the
+    # per-window ``score chunk n/N`` log lines kept underneath it.
+    pull_bar = _progress_bar(len(dates), "scores") if dates else None
+    workers = _resolve_workers(workers)
+
+    def _serve_one(d: str) -> tuple[str, pd.DataFrame | None, str, list[str]]:
+        """Serve ONE date: (date, frame-or-None, outcome, never-result ids).
+
+        The date rides OUT with the result: the window loop no longer owns a
+        ``for d in ...`` variable (the pull is hoisted onto workers), so the
+        ``no_result`` ledger below reads it from the tuple.
+
+        Hoisted out of the window loop so a COLD sweep can run it on N
+        workers (2026-10-13 NHL run-log review); the caller maps outcomes
+        onto the shared bar from the main thread, so counting, cadence and
+        every cache/settle rule stay exactly the serial loop's — message for
+        message.
+        """
+        path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
+        # Inside SCORE_REFRESH_DAYS a settled page is re-pulled (feed
+        # corrections land there); outside it a cache hit is final.
+        refreshable = (date.fromisoformat(d)
+                       >= today - timedelta(days=SCORE_REFRESH_DAYS))
+        if use_cache and path.exists() and not refreshable:
+            try:
+                return d, _coerce_score_dtypes(pd.read_parquet(path)), "cached", []
+            except Exception as exc:  # corrupt cache -> re-pull
+                logger.warning("score cache %s unreadable (%s)", path.name, exc)
+        try:
+            payload = _http_json(f"{NHL_API_BASE}/score/{d}")
+        except Exception as exc:  # noqa: BLE001
+            # A failed REFRESH must not drop a recent date the settled
+            # cache already serves - stale-on-network-failure beats a
+            # hole in the decided population.
+            if use_cache and path.exists():
                 try:
-                    frames.append(_coerce_score_dtypes(pd.read_parquet(path)))
+                    frame = _coerce_score_dtypes(pd.read_parquet(path))
+                    logger.warning(
+                        "score page %s unavailable (%s) - settled cache "
+                        "served instead", d, exc)
+                    return d, frame, "cached", []
+                except Exception as cache_exc:  # noqa: BLE001
+                    logger.warning(
+                        "score cache %s unreadable after a failed "
+                        "refresh (%s)", path.name, cache_exc)
+            logger.warning("score page unavailable for %s: %s", d, exc)
+            return d, None, "failed", []
+        rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
+        df = pd.DataFrame(rows, columns=SCORE_KEEP)
+        # Numeric contract BEFORE the concat below (why lives on the
+        # helper): every page - fetched OR cached - must carry float64
+        # score columns, or pandas 2.x warns on the all-NA entry a
+        # cancelled-date page produces.
+        df = _coerce_score_dtypes(df)
+        # RUNNING scores are not results: null them at the door so a
+        # mid-game slate can never enter the decided population.
+        pending = ~df["game_state"].isin(FINAL_GAME_STATES)
+        if pending.any():
+            df.loc[pending, ["home_score", "away_score",
+                             "home_sog", "away_sog"]] = None
+        unplayed = (df[df["home_score"].isna()] if len(df) else df)
+        n_unplayed = int(len(unplayed))
+        game_day = date.fromisoformat(d)
+        # Past the posting-lag window a null score is permanent, so the
+        # page is cacheable and the game is accounted for, not re-pulled.
+        past_grace = game_day < today - timedelta(days=SETTLE_GRACE_DAYS)
+        never: list[str] = []
+        if n_unplayed == 0 or past_grace:
+            with _CACHE_WRITE_LOCK:
+                df.to_parquet(path, index=False)
+            if n_unplayed:
+                never = [str(g) for g in unplayed.get(
+                    "game_id", pd.Series(dtype=str))]
+                logger.info(
+                    "score page %s: %d game(s) never produced a "
+                    "result (cancelled/postponed) - page cached, "
+                    "games excluded from the decided population",
+                    d, n_unplayed)
+        else:
+            logger.info(
+                "score page %s carries %d unplayed or in-progress "
+                "game(s) - not cached, within the %d-day posting lag",
+                d, n_unplayed, SETTLE_GRACE_DAYS)
+        return d, df, "fetched", never
+
+    executor = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+    try:
+        for w, (wlabel, wdates) in enumerate(windows, 1):
+            logger.info("score chunk %d/%d [%s]: %d dates",
+                        w, len(windows), wlabel, len(wdates))
+            prog = _PullProgress(
+                len(wdates), f"score chunk {w}/{len(windows)} [{wlabel}]",
+                bar=pull_bar)
+            if executor is None:
+                completed = (_serve_one(d) for d in wdates)
+            else:
+                # as_completed keeps the bar moving at the pace of the
+                # fastest finisher instead of the slowest predecessor.
+                completed = (fut.result() for fut in as_completed(
+                    [executor.submit(_serve_one, d) for d in wdates]))
+            for d, frame, outcome, never in completed:
+                if frame is not None:
+                    frames.append((d, frame))
+                no_result.extend((d, gid) for gid in never)
+                if outcome == "cached":
                     hits += 1
                     prog.tick(cached=True)
-                    continue
-                except Exception as exc:  # corrupt cache → re-pull
-                    logger.warning("score cache %s unreadable (%s)", path.name, exc)
-            try:
-                payload = _http_json(f"{NHL_API_BASE}/score/{d}")
-            except Exception as exc:  # noqa: BLE001
-                # A failed REFRESH must not drop a recent date the settled
-                # cache already serves — stale-on-network-failure beats a
-                # hole in the decided population.
-                if use_cache and path.exists():
-                    try:
-                        frames.append(
-                            _coerce_score_dtypes(pd.read_parquet(path)))
-                        hits += 1
-                        prog.tick(cached=True)
-                        logger.warning(
-                            "score page %s unavailable (%s) — settled cache "
-                            "served instead", d, exc)
-                        continue
-                    except Exception as cache_exc:  # noqa: BLE001
-                        logger.warning(
-                            "score cache %s unreadable after a failed "
-                            "refresh (%s)", path.name, cache_exc)
-                logger.warning("score page unavailable for %s: %s", d, exc)
-                prog.tick(failed=True)
-                continue
-            fetched += 1
-            prog.tick(cached=False)
-            rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
-            df = pd.DataFrame(rows, columns=SCORE_KEEP)
-            # Numeric contract BEFORE the concat below (why lives on the
-            # helper): every page — fetched OR cached — must carry float64
-            # score columns, or pandas 2.x warns on the all-NA entry a
-            # cancelled-date page produces.
-            df = _coerce_score_dtypes(df)
-            # RUNNING scores are not results: null them at the door so a
-            # mid-game slate can never enter the decided population.
-            pending = ~df["game_state"].isin(FINAL_GAME_STATES)
-            if pending.any():
-                df.loc[pending, ["home_score", "away_score",
-                                 "home_sog", "away_sog"]] = None
-            unplayed = (df[df["home_score"].isna()] if len(df) else df)
-            n_unplayed = int(len(unplayed))
-            game_day = date.fromisoformat(d)
-            # Past the posting-lag window a null score is permanent, so the
-            # page is cacheable and the game is accounted for, not re-pulled.
-            past_grace = game_day < today - timedelta(days=SETTLE_GRACE_DAYS)
-            if n_unplayed == 0 or past_grace:
-                df.to_parquet(path, index=False)
-                if n_unplayed:
-                    for gid in unplayed.get("game_id", pd.Series(dtype=str)):
-                        no_result.append((d, str(gid)))
-                    logger.info("score page %s: %d game(s) never produced a "
-                                "result (cancelled/postponed) — page cached, "
-                                "games excluded from the decided population",
-                                d, n_unplayed)
-            else:
-                logger.info("score page %s carries %d unplayed or in-progress "
-                            "game(s) — not cached, within the %d-day posting lag",
-                            d, n_unplayed, SETTLE_GRACE_DAYS)
-            frames.append(df)
-            # Progress, so a slow or rate-limited pull is VISIBLE. Without it
-            # the loop between the Phase 2 banner and its result line emits
-            # nothing, and a multi-minute network stall is indistinguishable
-            # from a hang. _PullProgress owns that line, on an item AND a
-            # seconds cadence, and it advances on EVERY exit above — the old
-            # counter was skipped by the cache and unavailable-date paths, so
-            # a window that never fetched anything reported no progress at
-            # all.
-        prog.close()
+                elif outcome == "failed":
+                    prog.tick(failed=True)
+                else:
+                    fetched += 1
+                    prog.tick(cached=False)
+                # Progress, so a slow or rate-limited pull is VISIBLE.
+                # Without it the loop between the Phase 2 banner and its
+                # result line emits nothing, and a multi-minute network
+                # stall is indistinguishable from a hang. _PullProgress
+                # owns that line, on an item AND a seconds cadence, and it
+                # advances on EVERY exit above - the old counter was
+                # skipped by the cache and unavailable-date paths, so a
+                # window that never fetched anything reported no progress
+                # at all.
+            prog.close()
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
+    if pull_bar is not None:
+        try:
+            pull_bar.close()
+        except Exception:  # noqa: BLE001 — decoration only
+            pass
     logger.info("score dates resolved: %d requested in %d chunk(s), "
                 "%d cache hits, %d fetched",
                 len(dates), len(windows), hits, fetched)
     if no_result:
+        # Stable sort by DAY only: parallel completion order must not
+        # reorder the delivered line, and within one date the ids stay in
+        # payload order (one worker owns one date).
         logger.info("games with no result (excluded from the decided "
                     "population): %d — %s", len(no_result),
-                    ", ".join(f"{gid}@{day}" for day, gid in no_result[:10]))
+                    ", ".join(f"{gid}@{day}"
+                              for day, gid in sorted(no_result,
+                                                     key=lambda p: p[0])[:10]))
     # Empty frames are dropped before concat: an empty/all-NA entry only
     # degrades the result dtypes (the pandas FutureWarning this exact call
     # raised in every full run) and contributes no rows.
-    frames = [f for f in frames if len(f)]
+    frames = [(day, f) for day, f in frames if len(f)]
     if not frames:
         return pd.DataFrame(columns=SCORE_KEEP)
-    return pd.concat(frames, ignore_index=True)
+    # Restore the serial sweep's order: _date_windows iterates SORTED dates,
+    # so ascending-date rank — not raw caller order — is what a 1-worker pull
+    # delivered (2026-10-13 verification: as_completed left 64% of rows
+    # displaced vs serial). The boxscore pull's id-rank restore is the same
+    # contract; the sort is stable, so games inside one date keep payload order.
+    order = {d: i for i, d in enumerate(sorted(dates))}
+    frames.sort(key=lambda pair: order.get(pair[0], len(order)))
+    return pd.concat([f for _, f in frames], ignore_index=True)
 
 
 def season_dates(season: int) -> list[str]:
@@ -999,7 +1113,8 @@ def _boxscore_refreshable(gid: str, gameday_by_id: dict | None,
 def load_boxscores(game_ids: list[str], use_cache: bool = True,
                    gameday_by_id: dict | None = None,
                    chunk_days: int = PULL_CHUNK_DAYS,
-                   pause_sec: float = PULL_CHUNK_PAUSE_SEC) -> pd.DataFrame:
+                   pause_sec: float = PULL_CHUNK_PAUSE_SEC,
+                   workers: int | None = None) -> pd.DataFrame:
     """Fetch settled boxscore + right-rail team stats for each game.
 
     Only complete corrected team-count rows are cached; a missing right-rail
@@ -1021,97 +1136,133 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     frames: list[pd.DataFrame] = []
     hits = fetched = 0
     today = date.today()
-    for n, (label, chunk_ids) in enumerate(chunks, 1):
-        logger.info("boxscore chunk %d/%d [%s]: %d games",
-                    n, len(chunks), label, len(chunk_ids))
-        # The bar alone was the only progress a chunk had, and it is disabled
-        # whenever stderr is not a terminal - i.e. in every captured run. The
-        # _PullProgress writes the durable log line in both cases.
-        prog = _PullProgress(
-            len(chunk_ids), f"boxscore chunk {n}/{len(chunks)} [{label}]")
-        for gid in chunk_ids:
-            path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
-            # The cached row is HELD, not appended: inside the refresh window
-            # it becomes the fallback for a refresh that fails, and outside
-            # it the cache hit short-circuits exactly as before.
-            cached = None
-            if use_cache and path.exists():
-                try:
-                    cached = _coerce_boxscore_dtypes(pd.read_parquet(path))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
-            if (cached is not None
-                    and not _boxscore_refreshable(gid, gameday_by_id, today)):
-                frames.append(cached)
-                hits += 1
-                prog.tick(cached=True)
-                continue
+    # ONE bar for the WHOLE pull, built before the first window (2026-10-13
+    # log review, pinned by test_boxscore_pull_draws_ONE_bar): a bar per
+    # chunk left the capture with eleven finished bars and no line saying how
+    # much of the PULL was done. The windows below still log their own
+    # ``chunk n/N`` lines; they only share this bar, and it closes once, here
+    # at the end.
+    pull_bar = _progress_bar(len(game_ids), "boxscores")
+    workers = _resolve_workers(workers)
 
-            def serve(reason: str, cached=cached, gid=gid) -> None:
-                """A refresh may never cost what the cache already carries."""
-                nonlocal hits
-                frames.append(cached)
-                hits += 1
-                prog.tick(cached=True)
-                logger.warning("boxscore refresh for game %s %s — cached row "
-                               "served instead", gid, reason)
+    def _serve_one(gid: str) -> tuple[pd.DataFrame | None, str]:
+        """Serve ONE game: (frame-or-None, outcome), outcome in
+        {cached, fetched, failed}.
 
+        Hoisted out of the loop so a COLD pull can run it on N workers; the
+        caller maps outcomes onto the shared progress bar from the main
+        thread, so counting and cadence are untouched. Every fallback rule
+        is the serial loop's: a refresh may never cost what the cache
+        already carries, a non-final / failed / incomplete refresh serves
+        the cached row, and a miss is warned, skipped and never cached.
+        """
+        path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
+        # The cached row is HELD, not appended: inside the refresh window
+        # it becomes the fallback for a refresh that fails, and outside
+        # it the cache hit short-circuits exactly as before.
+        cached = None
+        if use_cache and path.exists():
             try:
-                bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
-                if str(bs.get("gameState") or "") not in FINAL_GAME_STATES:
-                    if cached is not None:
-                        serve("came back %s instead of final"
-                              % str(bs.get("gameState") or "unknown"))
-                        continue
-                    # A mid-game boxscore freezes partial player stats into a
-                    # per-game cache nothing ever invalidates; behave exactly
-                    # like an unavailable one — warned, skipped, uncached —
-                    # and the settled game pulls fresh on a later run.
-                    logger.warning("boxscore for game %s is %s (not final) — "
-                                   "skipped and never cached; it will be "
-                                   "pulled once the game settles",
-                                   gid, str(bs.get("gameState") or "unknown"))
-                    prog.tick(failed=True)
-                    continue
-                try:
-                    team_stats = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/right-rail")
-                except Exception as exc:  # retain observed boxscore facts, not proxies
-                    if cached is not None:
-                        serve("team counts unavailable (%s)" % exc)
-                        continue
-                    logger.warning("team counts unavailable for game %s: %s — "
-                                   "PP/faceoffs stay unknown, row not cached", gid, exc)
-                    team_stats = None
-                row = _parse_boxscore(bs, team_stats)
-                df = pd.DataFrame([row], columns=BOXSCORE_COLS)
-                df = _coerce_boxscore_dtypes(df)
+                cached = _coerce_boxscore_dtypes(pd.read_parquet(path))
             except Exception as exc:  # noqa: BLE001
+                logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
+        if (cached is not None
+                and not _boxscore_refreshable(gid, gameday_by_id, today)):
+            return cached, "cached"
+
+        def serve(reason: str) -> tuple[pd.DataFrame | None, str]:
+            """A refresh may never cost what the cache already carries."""
+            logger.warning("boxscore refresh for game %s %s — cached row "
+                           "served instead", gid, reason)
+            return cached, "cached"
+
+        try:
+            bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
+            if str(bs.get("gameState") or "") not in FINAL_GAME_STATES:
                 if cached is not None:
-                    serve("failed (%s)" % exc)
-                    continue
-                logger.warning("boxscore unavailable for game %s: %s", gid, exc)
-                prog.tick(failed=True)
-                continue
-            count_cols = [f"{side}_{stat}" for side in ("home", "away")
-                          for stat in ("pp_goals", "pp_opportunities", "faceoff_wins",
-                                       "faceoff_attempts")]
-            complete = (not df.empty and df[count_cols].notna().all().all())
-            if not complete and cached is not None:
-                # Observed counts already on disk beat a partial refresh; the
-                # next run inside the window retries.
-                serve("returned incomplete official team counts")
-                continue
-            fetched += 1
-            if complete:
+                    return serve("came back %s instead of final"
+                                 % str(bs.get("gameState") or "unknown"))
+                # A mid-game boxscore freezes partial player stats into a
+                # per-game cache nothing ever invalidates; behave exactly
+                # like an unavailable one — warned, skipped, uncached —
+                # and the settled game pulls fresh on a later run.
+                logger.warning("boxscore for game %s is %s (not final) — "
+                               "skipped and never cached; it will be "
+                               "pulled once the game settles",
+                               gid, str(bs.get("gameState") or "unknown"))
+                return None, "failed"
+            try:
+                team_stats = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/right-rail")
+            except Exception as exc:  # retain observed boxscore facts, not proxies
+                if cached is not None:
+                    return serve("team counts unavailable (%s)" % exc)
+                logger.warning("team counts unavailable for game %s: %s — "
+                               "PP/faceoffs stay unknown, row not cached", gid, exc)
+                team_stats = None
+            row = _parse_boxscore(bs, team_stats)
+            df = pd.DataFrame([row], columns=BOXSCORE_COLS)
+            df = _coerce_boxscore_dtypes(df)
+        except Exception as exc:  # noqa: BLE001
+            if cached is not None:
+                return serve("failed (%s)" % exc)
+            logger.warning("boxscore unavailable for game %s: %s", gid, exc)
+            return None, "failed"
+        count_cols = [f"{side}_{stat}" for side in ("home", "away")
+                      for stat in ("pp_goals", "pp_opportunities", "faceoff_wins",
+                                   "faceoff_attempts")]
+        complete = (not df.empty and df[count_cols].notna().all().all())
+        if not complete and cached is not None:
+            # Observed counts already on disk beat a partial refresh; the
+            # next run inside the window retries.
+            return serve("returned incomplete official team counts")
+        if complete:
+            with _CACHE_WRITE_LOCK:
                 df.to_parquet(path, index=False)
+        else:
+            logger.warning("game %s has incomplete official team counts — "
+                           "not cached; next pull will retry", gid)
+        return df, "fetched"
+
+    executor = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+    try:
+        for n, (label, chunk_ids) in enumerate(chunks, 1):
+            logger.info("boxscore chunk %d/%d [%s]: %d games",
+                        n, len(chunks), label, len(chunk_ids))
+            # The bar alone was the only progress a chunk had, and it is disabled
+            # whenever stderr is not a terminal - i.e. in every captured run. The
+            # _PullProgress writes the durable log line in both cases.
+            prog = _PullProgress(
+                len(chunk_ids), f"boxscore chunk {n}/{len(chunks)} [{label}]",
+                bar=pull_bar)
+            if executor is None:
+                completed = (_serve_one(gid) for gid in chunk_ids)
             else:
-                logger.warning("game %s has incomplete official team counts — "
-                               "not cached; next pull will retry", gid)
-            frames.append(df)
-            prog.tick(cached=False)
-        prog.close()
-        if pause_sec and n < len(chunks):
-            time.sleep(pause_sec)
+                # as_completed keeps the bar moving at the pace of the
+                # fastest finisher instead of the slowest predecessor.
+                completed = (fut.result() for fut in as_completed(
+                    [executor.submit(_serve_one, gid) for gid in chunk_ids]))
+            for frame, outcome in completed:
+                if frame is not None:
+                    frames.append(frame)
+                if outcome == "cached":
+                    hits += 1
+                    prog.tick(cached=True)
+                elif outcome == "failed":
+                    prog.tick(failed=True)
+                else:
+                    fetched += 1
+                    prog.tick(cached=False)
+            prog.close()
+            if pause_sec and n < len(chunks):
+                time.sleep(pause_sec)
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
+    if pull_bar is not None:
+        try:
+            pull_bar.close()
+        except Exception:  # noqa: BLE001 — decoration only
+            pass
     logger.info("boxscores resolved: %d requested in %d chunk(s), "
                 "%d cache hits, %d fetched",
                 len(game_ids), len(chunks), hits, fetched)

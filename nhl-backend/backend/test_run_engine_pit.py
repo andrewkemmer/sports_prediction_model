@@ -44,6 +44,7 @@ import json
 import ast
 import logging
 import tempfile
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -433,6 +434,47 @@ def test_score_dates_chunking_covers_every_date_once():
     assert len(flat) == len(set(flat))
     # 60-day windows over a calendar year -> 7, not 12 (the chunking is real).
     assert 5 <= len(windows) <= 8, [label for label, _ in windows]
+
+
+def test_score_pull_is_identical_serial_or_parallel():
+    """The parallel sweep must deliver the serial sweep's frame, row for row.
+
+    Workers finish in NETWORK order, so without a restore the concat arrives
+    scrambled (2026-10-13 verification: 64% of rows displaced). The folds are
+    row-order sensitive under a fixed seed, so a worker-count knob changing
+    the frame would change the model — same guardrail as the boxscore
+    ``test_boxscore_pull_is_identical_chunked_or_unchunked``, for dates.
+
+    The stub answers LATER dates FASTER, which forces the parallel concat to
+    land out of order if the restore is missing or keys on the wrong order.
+    """
+    dates = [f"2024-{m:02d}-{d:02d}" for m in range(1, 13) for d in (1, 8, 15, 22)]
+
+    def _fake_http(url):
+        day = url.rsplit("/", 1)[-1]
+        # Ascending rank -> descending latency: date[0] is the SLOWEST.
+        rank = dates.index(day)
+        time.sleep(0.002 * (len(dates) - rank))
+        return {"games": [{"id": 1000000000 + rank, "gameDate": day,
+                            "season": 2024, "gameType": 2,
+                            "gameState": "OFF",
+                            "awayTeam": {"id": 1, "abbrev": "AAA", "score": 1},
+                            "homeTeam": {"id": 2, "abbrev": "HHH", "score": 2},
+                            "venue": {"default": "V"}}]}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                _mock_patch.object(ing, "_cache_path",
+                                   side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", return_value=None):
+            serial = ing.load_score_dates(dates, use_cache=False, workers=1)
+            parallel = ing.load_score_dates(dates, use_cache=False, workers=8)
+
+    assert len(serial) == len(parallel) == len(dates)
+    assert serial["game_date"].tolist() == dates, "serial pull is date-ordered"
+    assert parallel["game_date"].tolist() == dates, \
+        "parallel pull must land in the serial sweep's date order"
+    pd.testing.assert_frame_equal(serial, parallel)
 
 
 def test_unplayed_past_game_settles_after_the_posting_lag_grace():

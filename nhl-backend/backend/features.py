@@ -808,23 +808,39 @@ def goalie_state(boxscores: pd.DataFrame | None,
         snap["player_id"] = snap["player_id"].map(_goalie_id)
         roster_snapshots = list(snap.groupby("snapshot_at", sort=True))
 
+    # Per-capture membership, flattened ONCE (2026-10-13 run-log review): the
+    # body below used to run ``rows["player_id"].astype(str) == gid_`` (plus
+    # two more full-column astype passes for the team sets) for every goalie
+    # candidate of every game — pandas work on a frame that never changes
+    # within a run. The dicts are exactly those three expressions, evaluated
+    # once each; capture-time eligibility and every branch are unchanged.
+    _roster_views: list[tuple[pd.Timestamp, dict, frozenset, bool]] = []
+    for _at, _rows in roster_snapshots:
+        _members: dict[str, set] = {}
+        for _pid, _team in zip(_rows["player_id"].astype(str),
+                               _rows["team"].astype(str)):
+            _members.setdefault(_pid, set()).add(_team)
+        _roster_views.append((_at, _members,
+                              frozenset(_rows["team"].astype(str)),
+                              ("complete" in _rows.columns
+                               and bool(_rows["complete"].eq(True).all()))))
+
     def _roster_allows(gid_: str, team: str, decision) -> bool:
         # Capture-time membership: later snapshots cannot rewrite history.
         cut = pd.to_datetime(decision, errors="coerce", utc=True)
         if pd.isna(cut):
             return True  # unknown membership is not proof of an exclusion
-        eligible = [(at, rows) for at, rows in roster_snapshots
-                    if at < cut and cut - at <= pd.Timedelta(hours=ingestion.ROSTER_CACHE_TTL_HOURS)]
+        eligible = [view for view in _roster_views
+                    if view[0] < cut and cut - view[0] <= pd.Timedelta(hours=ingestion.ROSTER_CACHE_TTL_HOURS)]
         if not eligible:
             return True
-        _, rows = eligible[-1]
-        memberships = set(rows.loc[rows["player_id"].astype(str) == gid_, "team"].astype(str))
+        _, members, team_set, complete = eligible[-1]
+        memberships = members.get(gid_, set())
         if memberships:
             return memberships == {team}
         # Incomplete captures support positive knowledge only. Absence is an
         # exclusion only in a complete capture of this team's roster.
-        complete = "complete" in rows and rows["complete"].eq(True).all()
-        return not (complete and team in set(rows["team"].astype(str)))
+        return not (complete and team in team_set)
 
     # ---------------------------------------------------------------------
     # AVAILABILITY GATE — strictly prior, never inferred from appearances.
@@ -841,6 +857,22 @@ def goalie_state(boxscores: pd.DataFrame | None,
     # ---------------------------------------------------------------------
     _ids: list[str] = (list(stints[injury_stints.OUT_PLAYER].astype(str).unique())
                        if stints is not None and len(stints) else [])
+    # One grouping + one name index, reused by every availability probe below
+    # (2026-10-13 run-log review): _goalie_excluded used to re-filter the
+    # whole stints frame for every candidate of every game — hundreds of
+    # pandas scans per call, each deep-copying frame.attrs through
+    # __finalize__ — which is the silent window between "team roster snapshot
+    # applied" and "injury source 'espn': N stints bound" in the run log.
+    # Neither index changes what is looked up; they only stop recomputing it.
+    _by_player = injury_stints.stints_by_player(stints)
+    _names_by_pid: dict[str, list[str]] = {}
+    for _pid in _ids:
+        _rows = _by_player.get(_pid)
+        if _rows is None or "player_name" not in _rows.columns:
+            continue
+        _names = _rows["player_name"].dropna().unique()
+        if len(_names):
+            _names_by_pid[_pid] = [str(x) for x in _names]
 
     def _goalie_excluded(gid_: str, cut, name: str) -> bool:
         """Is THIS goalie known unavailable at ``cut`` (strictly prior)?
@@ -852,8 +884,9 @@ def goalie_state(boxscores: pd.DataFrame | None,
         if stints is None or not len(stints):
             return False
         if gid_ in _ids:
-            return bool(injury_stints.is_unavailable(stints, gid_, pd.Timestamp(cut),
-                                           strict_start=True))
+            return bool(injury_stints.is_unavailable(
+                stints, gid_, pd.Timestamp(cut), strict_start=True,
+                by_player=_by_player))
         nm = name
         if not nm:
             return False
@@ -865,18 +898,18 @@ def goalie_state(boxscores: pd.DataFrame | None,
         # nobody is benched on a guess.
         hits: list[str] = []
         for pid in _ids:
-            rows = stints[stints[injury_stints.OUT_PLAYER] == pid]
-            if (("player_name" not in rows.columns)
-                    or rows["player_name"].dropna().empty):
+            names = _names_by_pid.get(pid)
+            if not names:
                 continue
-            for nm_row in rows["player_name"].dropna().unique():
-                if injury_stints.names_match_player(nm, str(nm_row)):
+            for nm_row in names:
+                if injury_stints.names_match_player(nm, nm_row):
                     hits.append(pid)
                     break
         if len(hits) != 1:
             return False
         return bool(injury_stints.is_unavailable(
-            stints, hits[0], pd.Timestamp(cut), strict_start=True))
+            stints, hits[0], pd.Timestamp(cut), strict_start=True,
+            by_player=_by_player))
 
     def _season_line(gid_: str, seas: float, n_before: int) -> tuple[float, float, float]:
         """(sv_pct, gaa, starts) of ``gid_`` in season ``seas`` over his

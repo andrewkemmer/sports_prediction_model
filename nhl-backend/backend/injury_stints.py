@@ -468,6 +468,38 @@ def combine_stints(*frames: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # The exclusion test
 # ---------------------------------------------------------------------------
+def stints_by_player(stints: Optional[pd.DataFrame]) -> dict:
+    """Group a stints frame by its raw player-id column, once.
+
+    Availability probes (``is_unavailable``) used to re-filter the WHOLE
+    stints frame on every call — ``stints[stints[OUT_PLAYER] == pid]`` — so
+    the player-pool gate and the goalie workload vote each paid an O(stints)
+    pandas scan (plus a deep copy of ``frame.attrs`` per comparison through
+    ``__finalize__``) per row they judged: the 2026-10-13 NHL run spent the
+    bulk of its two silent Phase-3 windows in exactly that loop (run-log
+    review, windows A/B). Grouping once turns each probe into a dict lookup.
+
+    Keys are the column's RAW values, deliberately: the old filter compared
+    the column against ``str(player_id)``, so on a non-string column the old
+    call matched nothing — a raw-keyed lookup queried with ``str(player_id)``
+    reproduces that exactly (a miss yields nothing too), while a string
+    column behaves identically either way.
+
+    Each group carries a shallow copy of the frame's ``attrs`` (the PIT
+    provenance ``snapshot_times`` et al.), because pandas does not propagate
+    attrs through a groupby.
+    """
+    if stints is None or not len(stints) or OUT_PLAYER not in stints.columns:
+        return {}
+    attrs = dict(getattr(stints, "attrs", {}) or {})
+    out: dict = {}
+    for key, rows in stints.groupby(OUT_PLAYER, sort=False):
+        rows = rows.copy()
+        rows.attrs = attrs
+        out[key] = rows
+    return out
+
+
 def is_unavailable(
     stints: pd.DataFrame,
     player_id: str,
@@ -476,6 +508,7 @@ def is_unavailable(
     strict_start: bool = False,
     snapshot_times: Optional[Sequence] = None,
     max_snapshot_lag_days: int = STINT_MAX_LAG_DAYS,
+    by_player: Optional[dict] = None,
 ) -> bool:
     """Does an Out/IR interval cover the game decision timestamp?
 
@@ -485,13 +518,25 @@ def is_unavailable(
     an Out snapshot at puck drop cannot newly exclude the player, while a clear
     snapshot at puck drop cannot erase an earlier known Out state. Legacy
     date-interval callers keep the usual inclusive-start/exclusive-end rule.
+
+    ``by_player`` (from :func:`stints_by_player`) is an optional pre-grouping:
+    when given, the player's rows come from a dict lookup instead of a full
+    frame scan. A miss means no rows, and no rows answer False on every
+    branch below (no prior snapshot -> False, stale snapshot without a
+    durable leave -> False, nothing covering the decision -> False), so the
+    fast path is exactly the old path.
     """
     if stints is None or len(stints) == 0:
         return False
     d = _utc_naive(game_date)
     if pd.isna(d):
         return False
-    mine_all = stints[stints[OUT_PLAYER] == str(player_id)]
+    if by_player is not None:
+        mine_all = by_player.get(str(player_id))
+        if mine_all is None or not len(mine_all):
+            return False
+    else:
+        mine_all = stints[stints[OUT_PLAYER] == str(player_id)]
     if strict_start:
         if snapshot_times is None:
             snapshot_times = stints.attrs.get("snapshot_times", ())
@@ -1026,9 +1071,11 @@ def team_game_rates(
         else:
             at = agg["game_date"] if "game_date" in agg.columns else agg["_cand"]
         snapshot_times = stints.attrs.get("snapshot_times", ())
+        by_player = stints_by_player(stints)
         mask = pd.Series(
             [is_unavailable(stints, p, d, strict_start=strict_start,
-                            snapshot_times=snapshot_times)
+                            snapshot_times=snapshot_times,
+                            by_player=by_player)
              for p, d in zip(agg[OUT_PLAYER], at)],
             index=agg.index)
         audit["dropped_unavailable"] = int(mask.sum())
