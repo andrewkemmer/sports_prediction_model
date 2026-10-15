@@ -914,6 +914,28 @@ def _render_fit_panel(fit: dict) -> None:
                f"total skew {_fmt(v.get('total_skew'), 4)}, margin skew {_fmt(v.get('margin_skew'), 4)}"
                + (f", odd/even parity alpha {_fmt(parity, 3)}"
                   if parity is not None else "") + ".")
+    # Integer-lattice (sawtooth) correction disclosure — the totals and the
+    # margin corrections are fit INDEPENDENTLY from prior OOF finals (their
+    # lattice structures differ: no-tie margin 0-bin, NHL OT/SO parity), so
+    # each target reports its own magnitude and held-out gate verdict.
+    # Artifacts predating the lattice layer carry no key: no caption.
+    lattice_bits = []
+    for target, label in (("totals", "totals"), ("margin", "margin")):
+        spec = (rows.get("lattice") or {}).get(target) or {}
+        if spec.get("significant"):
+            lattice_bits.append(
+                f"{label} δ L1 {_fmt(spec.get('delta_l1'), 4)} "
+                f"(held-out z {_fmt(spec.get('gate_z'), 2)}, pooled residual "
+                f"MAE {_fmt(spec.get('residual_mae_before'), 5)}→"
+                f"{_fmt(spec.get('residual_mae_after'), 5)})")
+        elif spec.get("reason"):
+            lattice_bits.append(f"{label} δ not admitted ({spec['reason']})")
+        share = spec.get("ot_home_share")
+        if share is not None:
+            lattice_bits.append(f"margin OT/SO home-win share {_fmt(share, 3)}")
+    if lattice_bits:
+        st.caption("Lattice correction (integer-bin low-pass fix; totals and "
+                   "margin fit independently): " + "; ".join(lattice_bits) + ".")
     if rows["mc_caption"]:
         st.caption(rows["mc_caption"])
 

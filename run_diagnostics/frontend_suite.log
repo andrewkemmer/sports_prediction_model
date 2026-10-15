@@ -1,0 +1,41 @@
+........................................................................ [ 57%]
+.....................................................                    [100%]
+============================== warnings summary ===============================
+utils.py:3229
+  E:\sports_prediction_model\frontend\utils.py:3229: AltairDeprecationWarning: 
+  Deprecated since `altair=5.5.0`. Use altair.theme instead.
+  Most cases require only the following change:
+  
+      # Deprecated
+      alt.themes.enable('quartz')
+  
+      # Updated
+      alt.theme.enable('quartz')
+  
+  If your code registers a theme, make the following change:
+  
+      # Deprecated
+      def custom_theme():
+          return {'height': 400, 'width': 700}
+      alt.themes.register('theme_name', custom_theme)
+      alt.themes.enable('theme_name')
+  
+      # Updated
+      @alt.theme.register('theme_name', enable=True)
+      def custom_theme():
+          return alt.theme.ThemeConfig(
+              {'height': 400, 'width': 700}
+          )
+  
+  See the updated User Guide for further details:
+      https://altair-viz.github.io/user_guide/api.html#theme
+      https://altair-viz.github.io/user_guide/customization.html#chart-themes
+    alt.themes.register("fb_dark", _fb_theme)
+
+test_nba_markets_page.py::test_both_sports_satisfy_the_same_contract
+test_totals_runlines_parity.py::test_every_sport_satisfies_mlbs_contract
+  E:\sports_prediction_model\frontend\utils.py:1904: DtypeWarning: Columns (0: game_pk) have mixed types. Specify dtype option on import or set low_memory=False.
+    frame = pd.read_csv(io.BytesIO(raw))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+125 passed, 3 warnings in 32.99s

@@ -1,0 +1,179 @@
+{
+ "sport": "mlb",
+ "date": "20261014",
+ "markets": "mlb-backend\\data_delivery\\run_engine_markets_20261014.csv",
+ "rows": {
+  "oof": 7036,
+  "slate": 1
+ },
+ "walk_seconds_baseline": 166.7,
+ "walk_seconds_lattice": 151.9,
+ "distribution_columns": 173,
+ "baseline_vs_delivered_changed_columns": [],
+ "lattice_changed_columns_n": 156,
+ "lattice_changed_columns_sample": [
+  "distribution_mean_margin",
+  "distribution_mean_total",
+  "distribution_sd_margin",
+  "distribution_sd_total",
+  "fair_spread",
+  "fair_total",
+  "p_away_win_derived",
+  "p_cover_fair",
+  "p_home_cover_0_5",
+  "p_home_cover_1_5",
+  "p_home_cover_2_5",
+  "p_home_cover_3_5"
+ ],
+ "isolation_nondist_columns_identical": true,
+ "delivered_nondist_columns_identical": true,
+ "lattice_summary": {
+  "totals": {
+   "target": "totals",
+   "sport": "mlb",
+   "n_fit": 4926,
+   "n_test": 2110,
+   "significant": true,
+   "residual_mae_before": 0.001132824656556427,
+   "residual_mae_after": 0.0005086043631051769,
+   "delta_l1": 0.13761800000000005,
+   "delta_max": 0.013817,
+   "gate_z": 5.333
+  },
+  "margin": {
+   "target": "margin",
+   "sport": "mlb",
+   "n_fit": 4926,
+   "n_test": 2110,
+   "significant": false,
+   "residual_mae_before": 0.0003917816729716862,
+   "residual_mae_after": 0.00042237620907348863,
+   "delta_l1": 0.018401,
+   "delta_max": 0.001343,
+   "gate_z": 0.67,
+   "reason": "held_out_not_significant"
+  }
+ },
+ "metrics": {
+  "baseline": {
+   "totals": {
+    "crps": 2.4614080522376347,
+    "ece_cover": 0.003468163729391689,
+    "brier": 0.2493643587664582,
+    "logloss": 0.6918750876384332,
+    "calibration_in_the_large": -0.00011844229675950224
+   },
+   "run_line": {
+    "crps": 2.4657845754244456,
+    "ece_cover": 0.007299437180216057,
+    "brier": 0.24798864620443434,
+    "logloss": 0.6891157099724339,
+    "calibration_in_the_large": -0.0034146276293348654
+   }
+  },
+  "lattice": {
+   "totals": {
+    "crps": 2.461298216441842,
+    "ece_cover": 0.004105861284820902,
+    "brier": 0.24932021654553727,
+    "logloss": 0.6917868802375493,
+    "calibration_in_the_large": -0.0008007561114269923
+   },
+   "run_line": {
+    "crps": 2.4654396989404774,
+    "ece_cover": 0.011743260375213208,
+    "brier": 0.24770240732581011,
+    "logloss": 0.6885406300240403,
+    "calibration_in_the_large": -0.0004008897100625797
+   }
+  }
+ },
+ "pooled_pmf": {
+  "total": {
+   "mae_baseline": 0.0011340821783707004,
+   "mae_lattice": 0.0006351049755090787,
+   "worst_underpredicted_baseline": {
+    "5": 0.02085,
+    "3": 0.02005,
+    "7": 0.01624,
+    "9": 0.01266
+   },
+   "worst_underpredicted_lattice": {
+    "3": 0.01562,
+    "5": 0.01309,
+    "7": 0.00659,
+    "9": 0.00465
+   },
+   "worst_overpredicted_lattice": {
+    "8": -0.01177,
+    "0": -0.0083,
+    "6": -0.00768,
+    "2": -0.00586
+   }
+  },
+  "margin": {
+   "mae_baseline": 0.00040110520024114454,
+   "mae_lattice": 0.0003712576643752232,
+   "worst_underpredicted_baseline": {
+    "1": 0.0364,
+    "-2": 0.00949,
+    "2": 0.00662,
+    "14": 0.00165
+   },
+   "worst_underpredicted_lattice": {
+    "1": 0.03157,
+    "-2": 0.00948,
+    "2": 0.00644,
+    "14": 0.00166
+   },
+   "worst_overpredicted_lattice": {
+    "-1": -0.01859,
+    "3": -0.00943,
+    "5": -0.00706,
+    "6": -0.00502
+   }
+  }
+ },
+ "diagnostic_bins": {
+  "margin": {
+   "-1": {
+    "residual_baseline": -0.02298,
+    "residual_lattice": -0.01859,
+    "observed": 0.10887
+   },
+   "0": {
+    "residual_baseline": 0.0,
+    "residual_lattice": 0.0,
+    "observed": 0.0
+   },
+   "1": {
+    "residual_baseline": 0.0364,
+    "residual_lattice": 0.03157,
+    "observed": 0.17396
+   }
+  },
+  "total": {
+   "5": {
+    "residual_baseline": 0.02085,
+    "residual_lattice": 0.01309,
+    "observed": 0.09778
+   },
+   "6": {
+    "residual_baseline": -0.01601,
+    "residual_lattice": -0.00768,
+    "observed": 0.07462
+   },
+   "7": {
+    "residual_baseline": 0.01624,
+    "residual_lattice": 0.00659,
+    "observed": 0.11427
+   }
+  }
+ },
+ "push_rates": {},
+ "origins_significant": {
+  "totals": 55,
+  "margin": 0
+ },
+ "origins_total": 84
+}

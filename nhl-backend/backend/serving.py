@@ -468,11 +468,16 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
             [out, pd.DataFrame(np.nan, columns=missing, index=out.index)],
             axis=1)
     out = out[cols]
-    out.to_csv(path, index=False)
+    # lineterminator: delivery artifacts are LF-pinned (see .gitattributes);
+    # never let a platform/csv default rewrite every line ending.
+    out.to_csv(path, index=False, lineterminator="\n")
     meta = {
         "distribution_method": "causal_split_skew_crps_mc",
         "distribution_objective": "discrete_crps",
         "distribution_metrics": oof_rows.attrs.get("distribution_metrics", {}),
+        # Integer-lattice fit disclosure: totals and margin corrections are
+        # fit independently (magnitude + gate verdict; no delta vectors).
+        "lattice": (oof_rows.attrs.get("challenger_bundle") or {}).get("lattice_summary", {}),
         "settlement": 'final_score_no_tie',
 
         "record": "nhl_run_engine_markets",

@@ -5,6 +5,21 @@ and right scales, and mean mode + sqrt(2/pi)*(right-left). We center that
 mean on the score forecast before truncating totals at the zero lattice.
 Sport parameters are fixed cold-start priors; fitted parameters use prior
 OOF outcomes only. Calibration is a single increasing map for all lines.
+
+LOW-PASS ARTIFACT / LATTICE CORRECTION (2026-10-14): any smooth continuous
+distribution integrated over integer bins acts as a low-pass filter — it
+systematically underestimates peaks and overestimates troughs at integer
+score totals and integer margins, leaving a sawtooth/"comb" residual
+r(k) = P_obs(k) - P_model(k) against observed OOF finals in every sport.
+Neither the split-skew family nor the monotone calibration map can express
+that alternation (both are smooth in the CDF). ``lattice_correct`` applies a
+fitted discrete integer-lattice correction AFTER calibration and BEFORE
+Monte Carlo sampling, on the two-sided combined distribution, for BOTH
+targets — totals (home + away) and margin (home - away) — fit
+independently per sport/target because the lattice structures differ (see
+``LATTICE_CONFIG``). Corrections are causal (fit from strictly-prior OOF
+finals only), zero-sum, clamped and renormalized, and a missing/all-zero
+correction is a byte-identical passthrough.
 """
 from __future__ import annotations
 
@@ -28,13 +43,14 @@ def defaults(sport):
     _, variance, _ = SPORT_PRIORS[sport]
     return {"home_variance": variance, "away_variance": variance,
             "correlation": 0., "total_skew": 0., "margin_skew": 0.,
-            # NHL odd/even parity (see parity_correct): a game tied after
-            # regulation has an EVEN regulation total and is ALWAYS settled
-            # in OT/SO with exactly one extra goal, landing on an ODD final.
-            # Odd finals run ~65% of NHL games, so alpha = P(OT/SO | even
-            # regulation total) = 2*odd_share - 1 ~ 0.30 cold-start prior;
-            # fit_variance refits it from prior OOF finals. Other sports keep
-            # 0.0 (MLB extras and NBA OT do not preserve the parity flip).
+            # NHL odd/even parity (see parity_correct / lattice_correct): a
+            # game tied after regulation has an EVEN regulation total and is
+            # ALWAYS settled in OT/SO with exactly one extra goal, landing on
+            # an ODD final. Odd finals run ~65% of NHL games, so alpha =
+            # P(OT/SO | even regulation total) = 2*odd_share - 1 ~ 0.30
+            # cold-start prior; fit_variance refits it from prior OOF finals.
+            # Other sports keep 0.0 (MLB extras and NBA OT do not preserve
+            # the parity flip).
             "total_parity_alpha": .30 if sport == "nhl" else 0.}
 
 
@@ -109,6 +125,12 @@ def parity_correct(cdf, support, alpha):
     non-monotone-sliver only where a pmf collapses against its neighbour; a
     running maximum flattens those to zero push mass so the result is always
     a valid CDF in [0, 1].
+
+    Since 2026-10-14 this is the STRUCTURAL half of the NHL totals lattice
+    correction: ``lattice_correct(..., target="totals")`` re-applies exactly
+    this math (same alpha, same CDF-domain shift) at the totals choke point
+    and adds the generic fitted residual on top. The function is kept for
+    direct callers and must stay byte-stable.
     """
     alpha = float(alpha)
     if alpha <= 0. or len(support) < 3 or support[0] < 0:
@@ -123,6 +145,386 @@ def parity_correct(cdf, support, alpha):
     # inverse transform must keep u <= cdf[-1] for every draw.
     corrected[cdf >= 1.] = 1.
     return corrected
+
+
+# ---------------------------------------------------------------------------
+# Integer-lattice (sawtooth / "comb") correction — sport-aware, BOTH targets
+# ---------------------------------------------------------------------------
+# WHY (2026-10-14): a smooth continuous density integrated over integer bins
+# is a LOW-PASS filter. It underestimates peaks and overestimates troughs of
+# the discrete score lattice, leaving a sawtooth residual
+# r(k) = P_obs(k) - P_model(k) that alternates sign across integer totals and
+# integer margins in every sport. lattice_correct() applies a fitted discrete
+# correction on the calibrated two-sided CDF, per target, before sampling.
+#
+# Totals and margin are fit INDEPENDENTLY (separate residuals, separate
+# coefficients, keyed by sport+target) because their lattice structures
+# differ: the margin lattice carries the no-tie rule (P(M=0)=0 for
+# NHL/MLB/NBA, redistributed to +/-1; NFL keeps valid tie mass) and the NHL
+# totals lattice carries the OT/SO parity flip, while the generic residual
+# captures whatever lattice structure remains (e.g. MLB's empirical
+# walk-off-by-one tilt at M=+1 — deliberately NOT hard-coded).
+LATTICE_TARGETS = ("totals", "margin")
+LATTICE_FOURIER_ORDER = 2       # low-order Fourier modes (a1, a2, ... )
+LATTICE_RIDGE = .02             # ridge shrinkage on the Fourier coefficients
+LATTICE_DELTA_CAP = .03         # |delta(k)| clamp: a lattice fix, not a refit
+LATTICE_DELTA_EPS = 1e-9        # coefficients below this serialize as exact 0
+LATTICE_GATE_Z = 3.0            # held-out significance required to admit delta
+LATTICE_TEST_FRACTION = .3      # time-ordered held-out tail of the evidence
+LATTICE_MIN_TEST = 100          # held-out rows below this: never admit delta
+LATTICE_ROUND = 6               # decimal rounding stored deltas reprice with
+
+# Per-sport, per-target lattice configuration. "structural" names the
+# deterministic lattice rule the target carries BEFORE the generic residual:
+#   nhl totals     -> "ot_parity" (parity_correct alpha from variance params)
+#   nhl margin     -> "ot_no_tie" (P(M=0)=0; mass split +/-1 by causal OT
+#                                  home-win estimate, see fit_ot_home_share)
+#   mlb margin       -> "no_tie"    (P(M=0)=0; the +/-1 split weight is the
+#                                  gated one-goal home-share estimate shared
+#                                  with NHL — MLB's walk-off-by-one tilt is
+#                                  fitted, NOT hard-coded; whatever remains
+#                                  is left to the generic residual, see the
+#                                  M=+1 diagnostic in the fit record)
+#   nba margin       -> "no_tie"    (P(M=0)=0; exact equal split — no
+#                                  one-goal asymmetry is fitted)
+#   nfl margin     -> None        (ties are possible; P(M=0) stays valid)
+# "forbidden_bins" pins the lattice bins the structural rule owns: the fitted
+# residual may never put mass back there.
+LATTICE_CONFIG = {
+    "nhl": {"totals": {"structural": "ot_parity", "forbidden_bins": ()},
+            "margin": {"structural": "ot_no_tie", "forbidden_bins": (0,)}},
+    "mlb": {"totals": {"structural": None, "forbidden_bins": ()},
+            "margin": {"structural": "no_tie", "forbidden_bins": (0,)}},
+    "nba": {"totals": {"structural": None, "forbidden_bins": ()},
+            "margin": {"structural": "no_tie", "forbidden_bins": (0,)}},
+    "nfl": {"totals": {"structural": None, "forbidden_bins": ()},
+            "margin": {"structural": None, "forbidden_bins": ()}},
+}
+
+
+def lattice_config(sport, target):
+    """The lattice config for a sport/target pair, or None when the pair is
+    not configured — an unconfigured pair is a byte-identical passthrough."""
+    if target not in LATTICE_TARGETS:
+        raise ValueError(f"lattice target must be one of {LATTICE_TARGETS}")
+    return LATTICE_CONFIG.get(sport, {}).get(target)
+
+
+def _lattice_delta(correction):
+    """The correction's residual vector as a 1-D float array, or None when
+    absent, malformed, non-finite or all-zero (all of which mean no-op)."""
+    if not correction:
+        return None
+    delta = correction.get("delta")
+    if delta is None:
+        return None
+    delta = np.asarray(delta, float)
+    if delta.ndim != 1 or not len(delta) or not np.isfinite(delta).all():
+        return None
+    return delta if np.any(delta != 0.) else None
+
+
+def lattice_correct(cdf, support, correction, sport, target):
+    """Apply the integer-lattice correction to a calibrated CDF.
+
+    ``correction`` is the fitted per-target spec (see
+    ``fit_lattice_correction``): optional ``alpha`` (NHL totals OT/SO
+    parity — the structural term, applied with ``parity_correct``'s exact
+    CDF-domain math) and optional ``delta`` (the generic residual vector
+    over ``support``). Order: structural parity, then the residual in the
+    PMF domain. Guards, in order: clamp negative probabilities to zero,
+    re-zero the structural forbidden bins (e.g. margin 0 for no-tie
+    sports), renormalize every row to exactly 1, rebuild a monotone CDF by
+    cumulative sum, and re-pin the exact-1 tail so the Monte Carlo inverse
+    transform keeps u <= cdf[-1] for every draw.
+
+    A missing, all-zero or unconfigured correction returns the INPUT OBJECT
+    byte-identical — stored bundles that predate lattice fitting, disabled
+    targets and gate-fitted zeros price exactly as before.
+    """
+    config = lattice_config(sport, target)
+    if config is None:
+        return cdf
+    alpha = float((correction or {}).get("alpha", 0.) or 0.) if target == "totals" and sport == "nhl" else 0.
+    delta = _lattice_delta(correction)
+    if alpha <= 0. and delta is None:
+        return cdf
+    if delta is not None and len(delta) != len(support):
+        raise ValueError("lattice delta must align with the distribution support")
+    values = np.asarray(cdf, float)
+    if alpha > 0.:
+        # NHL OT/SO parity, structural half of the totals lattice correction.
+        values = parity_correct(values, support, alpha)
+    if delta is None:
+        # Structural-only corrections keep parity_correct's exact output.
+        return values
+    mass = np.diff(np.column_stack([np.zeros(len(values)), values]), axis=1)
+    mass = np.clip(mass + delta[None, :], 0., None)
+    for banned in config.get("forbidden_bins", ()):
+        j = int(np.searchsorted(support, banned))
+        if 0 <= j < mass.shape[1]:
+            mass[:, j] = 0.
+    total = mass.sum(axis=1)
+    collapsed = ~np.isfinite(total) | (total <= 0.)
+    if np.any(collapsed):
+        # A row whose corrected mass collapsed cannot be renormalized; keep
+        # its input pmf rather than fabricate a distribution.
+        mass[collapsed] = np.diff(
+            np.column_stack([np.zeros(len(values)), values]), axis=1)[collapsed]
+        total = mass.sum(axis=1)
+    mass = mass / total[:, None]
+    out = np.cumsum(mass, axis=1)
+    out[:, -1] = 1.                       # exact-tail guard
+    # Cumulative sums of nonnegative mass are monotone by construction; the
+    # clip is the defensive CDF-range guard the CRPS/sampler contract needs.
+    return np.clip(out, 0., 1.)
+
+
+def lattice_basis(support):
+    """Low-order Fourier basis on the integer lattice.
+
+    On the integers the prompt's a_m*cos(m*pi*k) collapses to {1, (-1)^k},
+    so the smooth modes live in the scaled coordinate
+    u = (k - center)/half in [-1, 1] and the parity tone (-1)^k carries the
+    odd/even alternation explicitly (the NHL totals comb).
+    """
+    k = np.asarray(support, float)
+    if len(k) < 3:
+        raise ValueError("lattice basis requires at least three support points")
+    center = .5 * (k[0] + k[-1])
+    half = max(.5 * (k[-1] - k[0]), 1.)
+    u = (k - center) / half
+    columns = [np.where(np.asarray(support) % 2 == 1, 1., -1.)]
+    for m in range(1, LATTICE_FOURIER_ORDER + 1):
+        columns.append(np.cos(m * np.pi * u))
+        columns.append(np.sin(m * np.pi * u))
+    return np.column_stack(columns)
+
+
+def fit_ot_home_share(outcomes, pmfs=None, support=None, min_decisions=40):
+    """P(home wins | one-goal final) from PRIOR OOF finals — the no-tie
+    margin lattice's +/-1 split weight — admitted only on held-out evidence.
+
+    Decided finals never tie (NHL/MLB/NBA), so every extra-time game lands
+    on margin +/-1 and one-goal finals are the closest observable proxy
+    for the extra-time decision (NHL OT/SO, MLB walk-off extras;
+    regulation one-goal finals mix in, which is why the estimate is clipped
+    to [.35, .60]). The estimate is then VERIFIED: the +/-1 mass shift it
+    implies is scored on the time-ordered held-out tail of the same prior
+    evidence with the same paired squared-probability loss and gate the
+    generic delta uses (LATTICE_GATE_Z). Home advantage is already carried
+    by the score means, so a raw one-goal home share can double-count it —
+    when the held-out tail does not confirm the shift (or no evidence is
+    supplied), this returns None and the margin lattice keeps the exact
+    equal-split no-op, so a cold-start or unconvinced walk prices
+    byte-identically to before.
+    """
+    if outcomes is None or not len(outcomes):
+        return None
+    margin = np.round(np.asarray(outcomes, float))
+    one = margin[np.abs(margin) == 1.]
+    if len(one) < int(min_decisions):
+        return None
+    share = float(np.clip((one > 0.).mean(), .35, .60))
+    pmfs = np.empty((0, 0)) if pmfs is None else np.asarray(pmfs, float)
+    if support is None or pmfs.ndim != 2 or pmfs.shape[0] != len(margin)             or pmfs.shape[1] != len(np.asarray(support)):
+        return None
+    support = np.asarray(support)
+    j = int(np.searchsorted(support, 1))
+    k = int(np.searchsorted(support, -1))
+    if not (0 <= j < len(support) and 0 <= k < len(support)):
+        return None
+    s = share - .5
+    if s == 0.:
+        return None
+    # TIE-MASS scaling (2026-10-15): moving the split weight from 1/2 to q
+    # moves (q-1/2) of each row's PRE-split tie mass, not (q-1/2) of its
+    # whole probability — scoring the unscaled shift lets the ||delta||^2
+    # term veto every share (measured on MLB: z=-4.5 against a stable
+    # +0.033/-0.024 +/-1 residual). The evidence pmfs are equal-split, so
+    # pre(+1)+pre(-1) is unrecoverable exactly; under the family's own
+    # smoothness assumption pre is near-flat across {-1,0,+1} and the
+    # per-row tie mass is m0 = (pmf(+1)+pmf(-1))/2 (the pmf contrast
+    # pmf(+1)-pmf(-1) is exact — the tie mass cancels). The gate stays
+    # honest: it scores the scaled shift on held-out rows.
+    tie = .5 * (pmfs[:, j] + pmfs[:, k])
+    n_test = int(LATTICE_TEST_FRACTION * len(margin))
+    if n_test < LATTICE_MIN_TEST:
+        return None
+    hold = np.arange(len(margin) - n_test, len(margin))
+    inside = (margin >= support[0]) & (margin <= support[-1])
+    hold = hold[inside[hold]]
+    if len(hold) < LATTICE_MIN_TEST:
+        return None
+    horn = np.zeros(len(support))
+    horn[j], horn[k] = 1., -1.
+    amt = s * tie[hold]
+    d = (-2. * amt * horn[np.searchsorted(support, margin[hold])]
+         + 2. * amt * (pmfs[hold, j] - pmfs[hold, k])
+         + 2. * amt * amt)
+    se = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / se) if se > 0. else 0.
+    return share if (d.mean() < 0. and z >= LATTICE_GATE_Z) else None
+
+
+def lattice_evidence(entries):
+    """Align per-block BASE pmfs onto their union support for lattice fitting.
+
+    ``entries`` are (pmf, outcomes, support) triples the causal walk
+    accumulated from already-priced prior blocks (each block's raw support
+    expands with its own means, so widths differ); returns the stacked
+    {"pmfs", "outcomes", "support"} evidence dict, zero-padding the low and
+    high tails onto the union lattice, or None when empty.
+    """
+    if not entries:
+        return None
+    low = min(int(e[2][0]) for e in entries)
+    high = max(int(e[2][-1]) for e in entries)
+    support = np.arange(low, high + 1)
+    pmfs, outcomes = [], []
+    for pmf, y, sup in entries:
+        wide = np.zeros((len(pmf), len(support)))
+        j0 = int(sup[0]) - low
+        wide[:, j0:j0 + len(sup)] = pmf
+        pmfs.append(wide)
+        outcomes.append(np.asarray(y, float))
+    return {"pmfs": np.vstack(pmfs), "outcomes": np.concatenate(outcomes),
+            "support": support}
+
+
+def fit_lattice_correction(pmfs, outcomes, support, sport, target,
+                           min_history=MIN_HISTORY):
+    """Fit delta(k) = P_obs(k) - P_model(k) for one target from prior OOF.
+
+    ``pmfs`` are the BASE model (post-calibration, post-structural) PMFs of
+    strictly-prior OOF rows and ``outcomes`` their finals — both supplied by
+    the causal walk for rows already priced, never the row being priced. The
+    pooled residual is projected on the low-order Fourier basis under a ridge
+    penalty, forced zero-sum (a lattice fix moves mass, it never creates
+    it), clamped to +-LATTICE_DELTA_CAP and rounded so stored bundles
+    reprice byte-identically. The delta is admitted only when a time-ordered
+    held-out tail of the SAME prior evidence shows a significant paired
+    improvement (the NFL's "only if statistically significant" rule, applied
+    as one uniform policy); otherwise the returned correction carries
+    diagnostics but no delta and prices as a no-op.
+    """
+    out: dict = {"target": target, "sport": sport, "n_fit": 0, "n_test": 0,
+                 "significant": False}
+    if lattice_config(sport, target) is None:
+        out["reason"] = "target_not_configured"
+        return out
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.empty(0) if outcomes is None else np.asarray(outcomes, float)
+    if pmfs.ndim != 2 or pmfs.shape[1] != len(support) or len(pmfs) != len(outcomes):
+        raise ValueError("lattice evidence requires aligned pmfs and outcomes")
+    inside = ((outcomes >= support[0]) & (outcomes <= support[-1])
+              & np.isfinite(outcomes))
+    if inside.sum() < int(min_history):
+        out["reason"] = "insufficient_history"
+        return out
+    n_test = int(LATTICE_TEST_FRACTION * len(outcomes))
+    if n_test < LATTICE_MIN_TEST or len(outcomes) - n_test < int(min_history):
+        out["reason"] = "insufficient_held_out_evidence"
+        return out
+    train = np.flatnonzero(inside[:len(outcomes) - n_test])
+    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    if len(train) < int(min_history) or len(hold) < LATTICE_MIN_TEST:
+        out["reason"] = "insufficient_held_out_evidence"
+        return out
+    indices = np.searchsorted(support, outcomes)
+    basis = lattice_basis(support)
+    # MASS-PROPORTIONAL design: delta(k) = pmf_bar(k) * Fourier(k) — the
+    # low-pass artifact moves mass in proportion to the local model mass
+    # (parity_correct's alpha*pmf is exactly this with one parity tone), and
+    # an additive-only basis would waste its amplitude on empty tail bins
+    # where the model already has no mass (measured on the MLB totals
+    # lattice: additive fits worsened the pooled MAE while looking
+    # significant on the pmf-weighted held-out loss).
+    weight = np.clip(pmfs[inside].mean(axis=0), 0., None)
+    design = weight[:, None] * basis
+
+    def residual(index):
+        obs = np.bincount(indices[index], minlength=len(support)).astype(float)
+        obs /= max(len(index), 1)
+        return obs - pmfs[index].mean(axis=0)
+
+    r_all = residual(np.flatnonzero(inside))
+    r_train = residual(train)
+    # Bin-space ridge: the regression is over the K support bins (pooled
+    # residual), NOT over the n_train rows — dividing by len(train) would
+    # shrink the Gram ~1e-5 and let the ridge swallow every coefficient
+    # (measured 2026-10-15: MLB margin's +0.033/-0.024 +/-1 residual fit to
+    # a 1.5e-05-l1 no-op). Unnormalized, diag(Gram) ~ sum pmf^2 ~ 1e-2..1e-1
+    # so LATTICE_RIDGE = .02 is genuine shrinkage, not a veto.
+    gram = design.T @ design
+    coef = np.linalg.solve(gram + LATTICE_RIDGE * np.eye(design.shape[1]),
+                           design.T @ r_train)
+    delta = weight * (basis @ coef)
+    delta = delta - delta.mean()               # zero-sum: mass moves, none is made
+    for banned in lattice_config(sport, target).get("forbidden_bins", ()):
+        j = int(np.searchsorted(support, banned))
+        if 0 <= j < len(delta):
+            delta[j] = 0.
+    delta = np.clip(delta, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
+    delta = np.round(delta, LATTICE_ROUND)
+    out.update(n_fit=int(len(train)), n_test=int(len(hold)),
+               residual_mae_before=float(np.abs(r_all).mean()),
+               residual_mae_after=float(np.abs(r_all - delta).mean()),
+               delta_l1=float(np.abs(delta).sum()),
+               delta_max=float(np.abs(delta).max()))
+    if not np.any(delta):
+        out["reason"] = "delta_collapsed_to_zero"
+        return out
+    # Held-out paired significance on the per-row squared-probability loss
+    # sum_k (1{y=k} - pmf_k - delta_k)^2 - sum_k (1{y=k} - pmf_k)^2
+    #   = -2*delta_y + 2*sum_k pmf_k*delta_k + sum_k delta_k^2 .
+    d = (-2. * delta[indices[hold]] + 2. * (pmfs[hold] @ delta)
+         + float(delta @ delta))
+    se = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / se) if se > 0. else 0.
+    out["gate_z"] = round(z, 3)
+    if not (d.mean() < 0. and z >= LATTICE_GATE_Z
+            and out["residual_mae_after"] < out["residual_mae_before"]):
+        out["reason"] = "held_out_not_significant"
+        return out
+    out["significant"] = True
+    out["delta"] = [float(v) for v in delta]
+    return out
+
+
+def lattice_diagnostics(support, pmfs, outcomes, correction):
+    """The MLB walk-off (+1) margin diagnostic, kept generic.
+
+    Returns the pooled residual at the diagnostic bins before/after the
+    fitted delta so a reviewer can verify, per sport/target, what the
+    correction moved (e.g. MLB margin M=+1 home walk-off wins in extras
+    showing an elevated positive residual that the fitted delta absorbs).
+    """
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.asarray(outcomes, float)
+    inside = (outcomes >= support[0]) & (outcomes <= support[-1])
+    obs = np.bincount(np.searchsorted(support, outcomes[inside]),
+                      minlength=len(support)).astype(float)
+    obs /= max(int(inside.sum()), 1)
+    before = obs - (pmfs[inside].mean(axis=0) if len(pmfs) else 0.)
+    delta = _lattice_delta(correction)
+    after = before - (delta if delta is not None else 0.)
+    return {int(k): {"observed": float(obs[int(np.searchsorted(support, k))]),
+                     "residual_before": float(before[int(np.searchsorted(support, k))]),
+                     "residual_after": float(after[int(np.searchsorted(support, k))])}
+            for k in (-1, 0, 1) if support[0] <= k <= support[-1]}
+
+
+def lattice_summary(correction):
+    """JSON-safe disclosure of a fitted correction without the delta vector:
+    monitor/meta fit panels disclose magnitude and the gate verdict, not the
+    full support-length residual."""
+    if not correction:
+        return {}
+    return {k: v for k, v in correction.items() if k != "delta"}
 
 
 def split_cdf(x, mean, sd, skew):
@@ -183,14 +585,30 @@ def transform(cdf, x, beta):
     return out
 
 
-def no_tie(cdf, support, sport):
+def no_tie(cdf, support, sport, home_share=None):
+    """Push the model's tie mass off the zero margin (no-tie sports only).
+
+    P(M=0)=0 for the NHL/MLB/NBA margin lattices — those games are always
+    decided. The tie mass is redistributed to -1 (share 1-q) and +1 (share
+    q). q=.5 — the default and the EXACT pre-lattice formula — splits it
+    evenly; the NHL margin lattice instead supplies a causal OT/SO home-win
+    estimate q (see fit_ot_home_share) so the redistribution follows the OT
+    win probabilities estimated from prior OOF. NFL margins keep valid tie
+    mass (ties are possible), so this remains a no-op there.
+    """
     if sport == "nfl" or support[0] >= 0:
         return cdf
     out = cdf.copy()
     j = int(np.searchsorted(support, 0))
-    mid = .5 * (out[:, j - 1] + out[:, j])
-    out[:, j - 1] = mid
-    out[:, j] = mid
+    share = .5 if home_share is None else float(np.clip(home_share, 0., 1.))
+    if share == .5:
+        mid = .5 * (out[:, j - 1] + out[:, j])
+        out[:, j - 1] = mid
+        out[:, j] = mid
+    else:
+        lifted = out[:, j - 1] + (1. - share) * (out[:, j] - out[:, j - 1])
+        out[:, j - 1] = lifted
+        out[:, j] = lifted
     return out
 
 

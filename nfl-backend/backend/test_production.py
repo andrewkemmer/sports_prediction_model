@@ -986,6 +986,19 @@ check("fair lines are half-point medians", gd_["fair_spread"] % 1 == .5 and gd_[
 for U in config.TOTAL_GRID:
     tri = sum(gd_[dist_mod._grid_key(k, U)] for k in ("p_over", "p_push_total", "p_under"))
     check(f"total {U} has coherent Monte Carlo settlement legs", abs(tri - 1.) < 1e-12)
+# Full-support totals PMF (2026-10-14): the diagnostics distribution chart
+# draws P(total = k) only where the artifact ships the totals-push family,
+# and the 24..66 market grid alone left both off-grid bands with NO modeled
+# line (NFL finals <= 23 are 4.7% of the store and >= 67 another 7.3%).
+_pmf_ints = sorted(int(c[len("p_push_total_"):]) for c in gd_
+                   if c.startswith("p_push_total_")
+                   and c[len("p_push_total_"):].isdigit())
+check("totals PMF ships full support beyond the market grid",
+      bool(_pmf_ints) and _pmf_ints[0] < config.TOTAL_GRID[0]
+      and _pmf_ints[-1] > config.TOTAL_GRID[-1],
+      f"span {_pmf_ints[0]}..{_pmf_ints[-1]}" if _pmf_ints else "nothing shipped")
+check("shipped integer totals PMF partitions the support",
+      abs(sum(gd_[dist_mod._grid_key("p_push_total", k)] for k in _pmf_ints) - 1.) < 1e-9)
 check("NFL retains unconditional win/tie/loss mass", abs(gd_["p_home_win_derived"] + gd_["p_tie"] + gd_["p_away_win_derived"] - 1.) < 1e-12 and gd_["p_tie"] > 0.)
 check("split-skew family is the live distribution", dist_mod.family.FAMILY == "two_sided_asymmetric_gaussian_split_skew")
 _meta = {}; dist_mod.apply_distribution(pd.DataFrame({"game_id": ["guard"], "mu_h": [27.], "mu_a": [20.]}), n_draws=200, meta_out=_meta)
@@ -1121,6 +1134,10 @@ need_mk = {"kind", "game_id", "mu_h", "mu_a", "mu_margin", "mu_total",
 check("markets CSV contract columns", need_mk.issubset(mk.columns),
       str(sorted(list(need_mk - set(mk.columns)))[:8]))
 check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
+# 2026-10-15: the writer keeps the market-grid column contract exactly —
+# off-grid integer PMF mass the emitter prices in memory is NOT published
+# to the CSV (no schema expansion alongside the lattice layer), so the
+# contract asserts the grid family only.
 
 # QB contract fields exist in the enrichment module
 import qb_enrichment  # noqa: E402

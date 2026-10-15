@@ -139,13 +139,12 @@ def _load_markets_for_diagnostics() -> tuple[pd.DataFrame, str | None]:
     rows because Today's Games must never attach historical OOF games to a
     live card. This page is the opposite: its Diagnostics and History views
     are historical and the current NHL artifact is commonly OOF-only. Read
-    the same dated family directly here, requiring a real OOF/slate row and
-    the published fair-line grid before accepting it.
+    the same dated family directly here — NEWEST date first — requiring a
+    real OOF/slate row and the published fair-line grid before accepting it,
+    so the diagnostics can never bind an older slate-carrying artifact over
+    a newer OOF store (the shared slate loader would prefer the older file).
+    The shared loader remains the final fallback (board-carried grids).
     """
-    frame, date = utils.load_nhl_run_engine_markets("nhl")
-    if frame is not None and not frame.empty:
-        return frame, date
-
     cfg = utils.get_source_config()
     required = [
         "p_home_cover_m8", "p_push_m8", "p_home_cover_8", "p_push_8",
@@ -169,6 +168,10 @@ def _load_markets_for_diagnostics() -> tuple[pd.DataFrame, str | None]:
         if candidate[required].isna().any().any():
             continue
         return candidate, candidate_date
+    # Fallback: the shared slate-served loader (board-carried grids included).
+    frame, date = utils.load_nhl_run_engine_markets("nhl")
+    if frame is not None and not frame.empty:
+        return frame, date
     return pd.DataFrame(), None
 
 
@@ -221,9 +224,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
     st.caption(
         f"Observed totals vs mean shipped split-skew Gaussian Monte Carlo mass over "
         f"{dist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
-        f"artifact's own p_push_total_<k> columns and is drawn only where the totals "
-        f"grid ships them ({_span}) — off-grid modeled mass is never borrowed from "
-        f"another push namespace; it is reported as boundary tails: "
+        f"artifact's own p_push_total_<k> columns and spans every total the shipped "
+        f"PMF prices ({_span}) — mass is never borrowed from another push namespace; "
+        f"the extreme tails are reported as boundary columns: "
         f"P(total≤4): observed {c['P(total<=4)']['observed']:.3f} / modeled {_tail('P(total<=4)')} · "
         f"P(total≥10): observed {c['P(total>=10)']['observed']:.3f} / modeled {_tail('P(total>=10)')}."
     )

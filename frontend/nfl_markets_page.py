@@ -77,6 +77,8 @@ tests can import the module without a Streamlit page context.
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -141,6 +143,46 @@ def _decided_rows(df: pd.DataFrame | None) -> pd.DataFrame:
     return nd.decided_rows(df)
 
 
+def _load_markets_for_diagnostics() -> tuple[pd.DataFrame, str | None]:
+    """Load the newest NFL grid, including OOF-only snapshots.
+
+    The shared slate loader intentionally accepts only ``kind == 'slate'``
+    rows because Today's Games must never attach historical OOF games to a
+    live card. This page is the opposite: its Diagnostics and History views
+    are historical and the current NFL artifact is commonly OOF-only (the
+    Oct-14 run wrote decided rows for its past slate with zero slate rows).
+    Read the dated family directly here — NEWEST date first — requiring a
+    real OOF/slate row and the published fair-line grid before accepting it,
+    so the diagnostics can never bind an older slate-carrying artifact over
+    a newer OOF store. The shared loader remains the final fallback.
+    """
+    cfg = utils.get_source_config()
+    required = [
+        "p_home_cover_m14", "p_push_m14", "p_home_cover_14", "p_push_14",
+        "p_over_24", "p_under_24", "p_push_total_24",
+        "p_home_win_derived", "p_away_win_derived",
+    ]
+    for candidate_date in utils._run_engine_family_dates("nfl", "markets_csv"):
+        raw, _source = utils._fetch_bytes(
+            f"nfl_run_engine_markets_{candidate_date}.csv", **cfg, sport="nfl")
+        if raw is None:
+            continue
+        try:
+            candidate = pd.read_csv(io.BytesIO(raw))
+        except Exception:
+            continue
+        kinds = candidate.get("kind", pd.Series(dtype=str)).fillna("").astype(str)
+        if not kinds.isin(("oof", "slate")).any():
+            continue
+        if not all(column in candidate.columns for column in required):
+            continue
+        if candidate[required].isna().any().any():
+            continue
+        return candidate, candidate_date
+    # Fallback: the shared slate-served loader (board-carried grids included).
+    return utils.load_nfl_run_engine_markets("nfl")
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics tabs (real data)
 # ---------------------------------------------------------------------------
@@ -161,9 +203,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
     st.caption(
         f"Observed totals vs mean shipped split-skew Gaussian Monte Carlo mass over "
         f"{dist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
-        f"artifact's own p_push_total_<k> columns and is drawn only where the totals "
-        f"grid ships them ({_span}) — off-grid modeled mass is never borrowed from "
-        f"another push namespace; it is reported as boundary tails: "
+        f"artifact's own p_push_total_<k> columns and spans every total the shipped "
+        f"PMF prices ({_span}) — mass is never borrowed from another push namespace; "
+        f"the extreme tails are reported as boundary columns: "
         f"P(total≤35): observed {c['P(total<=35)']['observed']:.3f} / modeled {_tail('P(total<=35)')} · "
         f"P(total≥60): observed {c['P(total>=60)']['observed']:.3f} / modeled {_tail('P(total>=60)')}."
     )
@@ -877,7 +919,7 @@ def run() -> None:
 
     # Always the most recent run (like the MLB markets page / Calibration):
     # never key to the date picked on Today's Games.
-    slate, date = utils.load_nfl_run_engine_markets("nfl")
+    slate, date = _load_markets_for_diagnostics()
     monitor = utils.load_nfl_run_engine_monitor("nfl")
     date_str = date if date else FALLBACK_DATE
 

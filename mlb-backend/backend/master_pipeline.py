@@ -1519,6 +1519,9 @@ def _run_engine_fit_block(block: Optional[dict]) -> dict:
         return {}
     return {"distribution": "causal_split_skew_crps_mc",
             "family": block.get("family"), "variance": block.get("variance", {}),
+            # Integer-lattice correction disclosure (totals + margin fit
+            # independently; magnitude and gate verdict, no delta vectors).
+            "lattice": block.get("lattice", {}),
             "monte_carlo": block.get("mc_meta", {}),
             "holdout": block.get("holdout", {}), "line_grid": block.get("line_grid", {})}
 

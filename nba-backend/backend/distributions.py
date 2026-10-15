@@ -404,8 +404,13 @@ def _distribution_transform(cdf, design, coefficients):
     return family.transform(cdf, design, coefficients)
 
 
-def _distribution_no_tie(cdf, support):
-    return family.no_tie(cdf, support, DISTRIBUTION_SPORT)
+def _distribution_no_tie(cdf, support, home_share=None):
+    # Structural no-tie rule of the margin lattice. The NHL supplies a
+    # causal OT/SO home-win share (maps["lattice"]["margin"]
+    # ["ot_home_share"], estimated from prior OOF one-goal finals) so the
+    # P(M=0) mass is redistributed to +/-1 by OT win probabilities from OOF;
+    # None keeps the exact equal split every pre-lattice bundle used.
+    return family.no_tie(cdf, support, DISTRIBUTION_SPORT, home_share)
 
 
 def lattice_crps(cdf, support, outcome):
@@ -425,11 +430,29 @@ def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
     if sampled and (identity_col not in frame or frame[identity_col].isna().any()):
         raise ValueError("Monte Carlo pricing requires finite game identities")
     out = {}
+    # Integer-lattice corrections ride the maps: totals and margin are fit
+    # INDEPENDENTLY (see gaussian_family.LATTICE_CONFIG) and applied AFTER
+    # the monotone calibration map and the structural rules, BEFORE Monte
+    # Carlo sampling. Stored bundles that predate lattice fitting carry no
+    # "lattice" key and price through the exact pre-lattice path (NHL totals
+    # keep their structural OT/SO parity from the variance parameters).
+    lattice = maps.get("lattice") or {}
     for kind in ("total", "margin"):
+        target = "totals" if kind == "total" else "margin"
         support, raw = _distribution_raw_cdf(h, a, kind, maps.get("variance"))
         cdf = _distribution_transform(raw, design, maps.get(kind, [0.] * 9))
+        spec = dict(lattice.get(target) or {})
+        if kind == "total" and DISTRIBUTION_SPORT == "nhl" and "alpha" not in spec:
+            # NHL odd/even parity rides the VARIANCE parameters (structural,
+            # fitted from strictly-prior finals), never the CRPS admission
+            # gate for the calibration maps: alpha <= 0 (stored bundles
+            # predating the key) is a byte-identical no-op.
+            variance = maps.get("variance") or family.defaults(DISTRIBUTION_SPORT)
+            spec["alpha"] = float(variance.get("total_parity_alpha", 0.))
         if kind == "margin":
-            cdf = _distribution_no_tie(cdf, support)
+            cdf = _distribution_no_tie(cdf, support, spec.get("ot_home_share"))
+        cdf = family.lattice_correct(cdf, support, spec,
+                                     DISTRIBUTION_SPORT, target)
         if sampled:
             cdf, meta = family.sample_cdf(cdf, support, frame[identity_col].astype(str),
                                           kind, DISTRIBUTION_SPORT, n_draws, seed)
@@ -520,11 +543,51 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
     return out
 
 
-def _distribution_fit_maps(h, a, outcomes):
+def _fit_lattice_maps(outcomes, parameters, evidence):
+    """Independent per-target lattice fits — totals AND margin.
+
+    Structural terms ride the VARIANCE parameters (NHL totals OT/SO parity
+    alpha; the no-tie +/-1 split weight — NHL OT/SO home-win share, MLB
+    walk-off home-win share — estimated causally from prior OOF one-goal
+    own BASE-model evidence — pmfs of strictly-prior OOF rows, each priced
+    with its own origin's maps — per target, behind the held-out
+    significance gate. Every value is plain JSON so stored bundles reprice
+    byte-identically.
+    """
+    totals: dict = {}
+    margin: dict = {}
+    if DISTRIBUTION_SPORT == "nhl":
+        alpha = float(parameters.get("total_parity_alpha", 0.))
+        if alpha > 0.:
+            totals["alpha"] = alpha
+    if DISTRIBUTION_SPORT in ("nhl", "mlb"):
+        # The no-tie +/-1 split weight (NHL OT/SO, MLB walk-off extras) is
+        # admitted only when the margin evidence's held-out tail confirms
+        # the shift (see family.fit_ot_home_share); cold starts and
+        # unconfirmed shifts keep the exact equal split.
+        margin_ev = (evidence or {}).get("margin") or {}
+        share = family.fit_ot_home_share(margin_ev.get("outcomes"),
+                                         pmfs=margin_ev.get("pmfs"),
+                                         support=margin_ev.get("support"))
+        if share is not None:
+            margin["ot_home_share"] = share
+    for target, kind in (("totals", "total"), ("margin", "margin")):
+        ev = (evidence or {}).get(kind) or None
+        if ev is None:
+            continue
+        (totals if target == "totals" else margin).update(
+            family.fit_lattice_correction(ev.get("pmfs"), ev.get("outcomes"),
+                                          ev.get("support"), DISTRIBUTION_SPORT,
+                                          target))
+    return {"totals": totals, "margin": margin}
+
+
+def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
     parameters = family.fit_variance(h, a, outcomes, DISTRIBUTION_SPORT)
     return {"variance": parameters,
             **{kind: _fit_distribution_map(h, a, y, kind, parameters)
-               for kind, y in outcomes.items()}}
+               for kind, y in outcomes.items()},
+            "lattice": _fit_lattice_maps(outcomes, parameters, lattice_evidence)}
 
 
 def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
@@ -557,9 +620,29 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     history = np.zeros(len(frame), dtype=bool)
     parts, origins = [], []
     evidence = {"total": [], "margin": []}
+    # BASE-model pmfs (post-calibration + structural rules, PRE-lattice) of
+    # already-priced prior blocks, per target: the causal evidence the next
+    # origin's lattice residual is fit from. Never the row being priced.
+    lattice_prior = {"total": [], "margin": []}
+
+    def _lattice_evidence(include_sealed=False):
+        # The sealed-holdout tail never trains the maps, so it never trains
+        # the lattice fits at in-window origins either; the FINAL serving
+        # fit (include_sealed=True) learns from all now-settled rows — the
+        # same scope the serving variance/calibration maps use.
+        def _select(kind):
+            blocks = []
+            for pmf, y, sup, pre in lattice_prior[kind]:
+                keep = pre if not include_sealed else np.ones(len(pre), dtype=bool)
+                if keep.any():
+                    blocks.append((pmf[keep], y[keep], sup))
+            return family.lattice_evidence(blocks)
+        return {kind: _select(kind) for kind in ("total", "margin")}
+
     for start, end, mask in blocks:
         candidate = _distribution_fit_maps(h[history], a[history],
-                                           {k: y[history] for k, y in outcomes.items()})
+                                           {k: y[history] for k, y in outcomes.items()},
+                                           _lattice_evidence())
         maps = dict(candidate)
         admitted = {}
         for kind in ("total", "margin"):
@@ -574,12 +657,28 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
         baseline = dict(candidate,
                         total=[0.] * len(candidate["total"]),
                         margin=[0.] * len(candidate["margin"]))
+        # The identity baseline prices the BASE family — structural rules
+        # from the variance parameters, no lattice delta — so the admission
+        # gate asks whether the whole candidate (calibration maps + lattice
+        # residual) beats it on prior issued origins.
+        baseline.pop("lattice", None)
         cc, bc = _distribution_cdfs(current, candidate), _distribution_cdfs(current, baseline)
         for kind in ("total", "margin"):
             support, cdf = cc[kind]
             difference = (lattice_crps(cdf, support, outcomes[kind][mask])
                           - lattice_crps(bc[kind][1], support, outcomes[kind][mask]))
             evidence[kind].append(difference[pre_holdout[mask]])
+        # Accumulate this block's BASE-model pmfs for the NEXT origin's
+        # lattice fit (the candidate minus its fitted delta).
+        base_maps = dict(candidate)
+        base_maps.pop("lattice", None)
+        sb = _distribution_cdfs(current, base_maps)
+        for kind in ("total", "margin"):
+            support_b, cdf_b = sb[kind]
+            lattice_prior[kind].append(
+                (np.diff(np.column_stack([np.zeros(len(current)), cdf_b]), axis=1),
+                 outcomes[kind][mask].copy(), support_b,
+                 pre_holdout[mask].copy()))
         part["distribution_fit_n"] = int(history.sum())
         part["distribution_fit_end"] = str(origins[-1]["end"]) if origins else None
         parts.append(part)
@@ -590,7 +689,7 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
         history |= mask & pre_holdout
     # Freeze evaluation learning through the sealed tail; serving can learn
     # from all now-settled past games, but cannot rewrite issued OOF prices.
-    maps = _distribution_fit_maps(h, a, outcomes)
+    maps = _distribution_fit_maps(h, a, outcomes, _lattice_evidence(True))
     for kind in ("total", "margin"):
         difference = np.concatenate(evidence[kind])
         if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:
@@ -598,6 +697,9 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     bundle = {"method": family.METHOD, "family": family.FAMILY, "scope": "whole_cdf",
               "sport": DISTRIBUTION_SPORT, "objective": "discrete_crps",
               "maps": maps, "origins": origins, "fit_n": len(frame),
+              "lattice_summary": {target: family.lattice_summary(
+                  (maps.get("lattice") or {}).get(target) or {})
+                  for target in family.LATTICE_TARGETS},
               "fit_end": str(dates.max().date()),
               "monte_carlo": parts[-1].attrs["mc_meta"],
               "holdout": {"cutoff": str(cutoff.date()), "n_pre": int(pre_holdout.sum()),

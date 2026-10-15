@@ -136,7 +136,13 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 66) -> dict[str, Any]:
     if not len(decided) or "total" not in decided.columns:
         return empty
     total = decided["total"].to_numpy(float)
-    ks = np.arange(0, kmax + 1)
+    # The chart spans every total that actually settled — real finals beyond
+    # the default span (the 105-point KC@LAR 2018 game sits in the store)
+    # are never silently dropped from the fit check, and the modeled line
+    # ships everywhere the artifact prices mass (full-support
+    # p_push_total_<k>, 2026-10-14).
+    _hi = int(np.nanmax(total)) if np.isfinite(total).any() else kmax
+    ks = np.arange(0, max(kmax, _hi) + 1)
     observed = np.array([(total == k).mean() for k in ks])
     modeled_grid = shipped_total_pmf(decided, ks, "nfl")
     modeled = modeled_grid
@@ -155,7 +161,7 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 66) -> dict[str, Any]:
                              "modeled": boundary_mean(decided, "p_under_36")},
             "P(total>=60)": {"observed": round(float(observed[60:].sum()), 4),
                              "modeled": boundary_mean(decided, "p_over_59")},
-            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF on the shipped totals grid; off-grid modeled tails read the boundary columns (p_under_36 / p_over_59), never another push namespace.",
+            "note": "Mean shipped calibrated split-skew Gaussian Monte Carlo PMF across its full priced support (the integer p_push_total_<k> mass the run ships); the boundary columns (p_under_36 / p_over_59) remain the exact tail authority, and mass is never borrowed from another push namespace.",
         },
         "n_games": int(len(decided)),
         "warning": None,

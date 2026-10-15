@@ -1,0 +1,59 @@
+........................................................................ [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+........................................................................ [ 55%]
+........................................................................ [ 66%]
+.............................................F.......................... [ 77%]
+........................................................................ [ 88%]
+........................................................................ [ 99%]
+......                                                                   [100%]
+================================== FAILURES ===================================
+__________ test_markets_writer_publishes_the_full_support_totals_pmf __________
+
+tmp_path = WindowsPath('C:/Users/andre/AppData/Local/Temp/pytest-of-andre/pytest-1403/test_markets_writer_publishes_0')
+
+    def test_markets_writer_publishes_the_full_support_totals_pmf(tmp_path):
+        """write_markets_csv publishes the off-grid integer PMF columns the
+        emitter prices (the diagnostics chart's modeled line reads exactly
+        these) and records the shipped span in meta.grids.total_pmf — the
+        market grid alone leaves the sub-grid band undrawable."""
+        df = _mc_frame(n=6)
+        for c in serving_mod.MARKETS_BASE_COLS:
+            if c not in df:
+                df[c] = np.nan
+        df["kind"] = "oof"
+        csv_p = tmp_path / "nhl_run_engine_markets_test.csv"
+        meta_p = tmp_path / "nhl_run_engine_markets_test.meta.json"
+        serving_mod.write_markets_csv(csv_p, meta_p, df, df.head(0), {"v": 1})
+        out = pd.read_csv(csv_p)
+        off_grid = [c for c in out.columns
+                    if c.startswith("p_push_total_")
+                    and c[len("p_push_total_"):].isdigit()
+                    and int(c[len("p_push_total_"):]) not in config.TOTAL_GRID]
+>       assert off_grid, "off-grid integer totals PMF columns were not published"
+E       AssertionError: off-grid integer totals PMF columns were not published
+E       assert []
+
+test_run_engine_pit.py:1212: AssertionError
+============================== warnings summary ===============================
+test_causal_evaluation.py: 1 warning
+test_run_engine_pit.py: 36 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+test_run_engine_pit.py::test_sealed_holdout_rows_are_stamped_and_scored_separately
+  E:\sports_prediction_model\nhl-backend\backend\test_run_engine_pit.py:2049: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+    calibrated.loc[mdates >= cutoff, "frame_view"] = "sealed"
+
+test_run_engine_pit.py::test_markets_winner_cards_price_fair_lines_with_honest_outcomes
+test_run_engine_pit.py::test_monitor_line_pairs_use_canonical_lines_only
+test_run_engine_pit.py::test_run_engine_line_pairs_return_outcomes_first
+test_run_engine_pit.py::test_run_engine_market_metrics_and_fit_block
+  E:\sports_prediction_model\nhl-backend\backend\test_run_engine_pit.py:2310: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+    out["p_home_win"] = out["p_home_win_derived"]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test_run_engine_pit.py::test_markets_writer_publishes_the_full_support_totals_pmf
+1 failed, 653 passed, 42 warnings in 198.00s (0:03:18)

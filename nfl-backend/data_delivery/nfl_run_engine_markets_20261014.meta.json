@@ -155,7 +155,7 @@
    "total_50.0": {
     "n": 2573,
     "auc": 0.620583853977213,
-    "logloss": 0.6274810917684794,
+    "logloss": 0.6274810917684793,
     "brier": 0.2183586657599689,
     "reliability": [
      {
@@ -377,9 +377,37 @@
    }
   }
  },
+ "lattice": {
+  "totals": {
+   "target": "totals",
+   "sport": "nfl",
+   "n_fit": 1802,
+   "n_test": 771,
+   "significant": false,
+   "residual_mae_before": 0.0009655564838842573,
+   "residual_mae_after": 0.0009679899103131885,
+   "delta_l1": 0.020450000000000003,
+   "delta_max": 0.000743,
+   "gate_z": 1.277,
+   "reason": "held_out_not_significant"
+  },
+  "margin": {
+   "target": "margin",
+   "sport": "nfl",
+   "n_fit": 1802,
+   "n_test": 771,
+   "significant": false,
+   "residual_mae_before": 0.0008566919464539576,
+   "residual_mae_after": 0.0008753204590698705,
+   "delta_l1": 0.05225500000000001,
+   "delta_max": 0.001549,
+   "gate_z": 2.267,
+   "reason": "held_out_not_significant"
+  }
+ },
  "settlement": "three_way_with_ties",
  "record": "nfl_run_engine_markets",
- "written_utc": "2026-10-14T21:47:19.196578+00:00",
+ "written_utc": "2026-10-15T02:48:16.355598+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v9.9-pending-state",
   "warmup_seasons": [

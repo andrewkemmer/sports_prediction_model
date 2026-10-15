@@ -2345,9 +2345,16 @@ def mc_caption(mc: Optional[dict]) -> Optional[str]:
 
 
 def fit_panel_rows(fit: Optional[dict]) -> dict:
-    """Render only actual challenger parameters and draw metadata."""
+    """Render only actual challenger parameters and draw metadata.
+
+    ``lattice`` carries the integer-lattice (sawtooth) correction disclosure
+    — the totals and margin corrections are fit INDEPENDENTLY, so each
+    target reports its own magnitude and held-out gate verdict. Artifacts
+    predating the lattice layer carry no key and render as before.
+    """
     fit = fit or {}
     variance = fit.get("variance") or {}
     return {"family": fit.get("family"), "variance": variance,
+            "lattice": fit.get("lattice") or {},
             "mc_caption": mc_caption(fit.get("monte_carlo") or fit.get("mc_meta")),
             "holdout": fit.get("holdout") or {}}

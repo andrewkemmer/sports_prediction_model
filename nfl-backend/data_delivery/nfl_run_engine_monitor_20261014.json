@@ -107,7 +107,36 @@
    "away_variance": 4.044126319944584,
    "correlation": 0.028617632443637422,
    "total_skew": 0.07116790511999217,
-   "margin_skew": 0.01807214207737835
+   "margin_skew": 0.01807214207737835,
+   "total_parity_alpha": 0.0
+  },
+  "lattice": {
+   "totals": {
+    "target": "totals",
+    "sport": "nfl",
+    "n_fit": 1802,
+    "n_test": 771,
+    "significant": false,
+    "residual_mae_before": 0.0009655564838842573,
+    "residual_mae_after": 0.0009679899103131885,
+    "delta_l1": 0.020450000000000003,
+    "delta_max": 0.000743,
+    "gate_z": 1.277,
+    "reason": "held_out_not_significant"
+   },
+   "margin": {
+    "target": "margin",
+    "sport": "nfl",
+    "n_fit": 1802,
+    "n_test": 771,
+    "significant": false,
+    "residual_mae_before": 0.0008566919464539576,
+    "residual_mae_after": 0.0008753204590698705,
+    "delta_l1": 0.05225500000000001,
+    "delta_max": 0.001549,
+    "gate_z": 2.267,
+    "reason": "held_out_not_significant"
+   }
   },
   "monte_carlo": {
    "method": "inverse_calibrated_cdf_monte_carlo",

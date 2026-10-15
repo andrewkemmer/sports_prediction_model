@@ -1160,6 +1160,62 @@ def test_totals_grid_is_coherent():
         assert ((home + spread_push) <= 1.0 + 1e-9).all()
 
 
+def test_totals_pmf_ships_the_full_priced_support_beyond_the_market_grid():
+    """2026-10-14: the diagnostics distribution chart draws P(total = k)
+    only where the artifact ships the totals-push family, so the market
+    grid alone left the sub-grid band with NO modeled line (NHL finals
+    <= 3 are 13.3% of the store). The emitter now ships
+    p_push_total_<k> over the priced support wherever the model places
+    ANY mass — exact same-CDF mass slices, never a refit — while grid
+    lines keep their priced values and the margin-push family
+    (p_push_<N>) is untouched."""
+    df = _mc_frame()
+    shipped = sorted(int(c[len("p_push_total_"):]) for c in df.columns
+                     if c.startswith("p_push_total_")
+                     and c[len("p_push_total_"):].isdigit())
+    support = dist_mod._distribution_support("total")
+    # The synthetic mu pair (~5.5 expected total) puts real mass below the
+    # grid's 4-line, so the shipped span must extend under it.
+    assert shipped[0] < config.TOTAL_GRID[0], shipped[:5]
+    assert shipped[-1] <= support[-1]
+    for k in shipped:
+        vals = df[dist_mod._grid_key("p_push_total", k)].to_numpy(float)
+        assert np.isfinite(vals).all() and (vals >= 0).all()
+    # The shipped integer mass partitions the MC CDF's support exactly
+    # (grid + off-grid together) — conservation, not a new family.
+    total_mass = sum(df[dist_mod._grid_key("p_push_total", k)].to_numpy(float)
+                     for k in shipped)
+    np.testing.assert_allclose(total_mass, 1.0, atol=1e-9)
+    # The margin/spread push family is never extended into totals tags.
+    assert "p_push_1" in df.columns
+    assert float(df["p_push_1"].to_numpy(float).max()) > 0.0
+
+
+def test_markets_writer_keeps_the_market_grid_column_contract(tmp_path):
+    """2026-10-15: the writer keeps the market-grid column contract exactly
+    — off-grid integer PMF mass the emitter prices in memory is NOT
+    published to the CSV (no schema expansion alongside the lattice layer).
+    The diagnostics chart reads the shipped grid family and gaps honestly
+    where the grid does not ship."""
+    df = _mc_frame(n=6)
+    for c in serving_mod.MARKETS_BASE_COLS:
+        if c not in df:
+            df[c] = np.nan
+    df["kind"] = "oof"
+    csv_p = tmp_path / "nhl_run_engine_markets_test.csv"
+    meta_p = tmp_path / "nhl_run_engine_markets_test.meta.json"
+    serving_mod.write_markets_csv(csv_p, meta_p, df, df.head(0), {"v": 1})
+    out = pd.read_csv(csv_p)
+    off_grid = [c for c in out.columns
+                if c.startswith("p_push_total_")
+                and c[len("p_push_total_"):].isdigit()
+                and int(c[len("p_push_total_"):]) not in config.TOTAL_GRID]
+    assert not off_grid, f"writer expanded the grid contract: {off_grid[:5]}"
+    meta = json.loads(meta_p.read_text())
+    assert "total_pmf" not in meta["grids"]
+    assert meta["columns"] == len(out.columns)
+
+
 def test_fair_line_aliases_pick_the_nearest_half_line():
     frame = _mc_frame()
     assert np.all(np.mod(frame.fair_total, 1.) == .5)

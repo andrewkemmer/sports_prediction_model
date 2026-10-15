@@ -93,6 +93,19 @@ other caches; no blanket cache purge is needed.
   prequential Platt calibration.
 * **Walk-forward**: expanding 7-day folds, MLB-style 30-day warm-up, data
   starting season 2024 (2024-25), `MIN_VAL_FOLD_GAMES = 40`.
+* **Integer-lattice correction (2026-10-14, generalizes the old NHL-only
+  parity fix)**: any smooth continuous density integrated over integer bins
+  is a low-pass filter — it underestimates peaks and overestimates troughs
+  of the integer score lattice, leaving a sawtooth/"comb" residual against
+  observed OOF finals. `gaussian_family.lattice_correct` applies a fitted
+  discrete correction AFTER the monotone calibration map and BEFORE Monte
+  Carlo sampling, independently for the two targets (totals and margin —
+  their lattice structures differ): NHL totals keep the structural OT/SO
+  parity alpha, the margin lattice keeps P(M=0)=0 (tie mass to ±1 by a
+  held-out-gated OT/SO home-win estimate), and a generic Fourier-regularized
+  residual is fit causally from strictly-prior OOF finals per sport/target
+  behind a held-out significance gate. Zero, gated or unconfigured
+  corrections are byte-identical passthroughs.
 
 ## Artifacts (`data_delivery/`)
 

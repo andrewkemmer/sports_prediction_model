@@ -1539,6 +1539,9 @@ def write_markets_monitor_json(path, run_date: str,
                 "distribution": "causal_split_skew_crps_mc",
                 "family": "two_sided_asymmetric_gaussian_split_skew",
                 "variance": _bundle.get("maps", {}).get("variance", {}),
+                # Integer-lattice correction disclosure (totals + margin fit
+                # independently; magnitude and gate verdict, no delta vectors).
+                "lattice": _bundle.get("lattice_summary", {}),
                 "monte_carlo": _bundle.get("monte_carlo", {}),
                 "holdout": _bundle.get("holdout", {})},
         "market_metrics": _run_engine_market_metrics(rows),

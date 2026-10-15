@@ -1357,6 +1357,9 @@ def write_run_engine_monitor(path, date_c: str, markets=None,
                 "family": "two_sided_asymmetric_gaussian_split_skew",
                 "priced_by": "inverse_calibrated_cdf_monte_carlo",
                 "variance": (calibration or {}).get("maps", {}).get("variance", {}),
+                # Integer-lattice correction disclosure (totals + margin fit
+                # independently; magnitude and gate verdict, no delta vectors).
+                "lattice": (calibration or {}).get("lattice_summary", {}),
                 "monte_carlo": (calibration or {}).get("monte_carlo", {}),
                 "spread_grid": [min(config.SPREAD_GRID), max(config.SPREAD_GRID)],
                 "total_grid": [min(config.TOTAL_GRID), max(config.TOTAL_GRID)],

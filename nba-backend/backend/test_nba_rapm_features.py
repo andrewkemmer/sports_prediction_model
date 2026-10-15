@@ -1100,7 +1100,7 @@ class TestRunLineStructuralContract:
         oof = self._oof()
         maps = dist._distribution_fit_maps(oof.mu_h.to_numpy(), oof.mu_a.to_numpy(),
                                           {"total": oof.total.to_numpy(), "margin": oof.margin.to_numpy()})
-        assert set(maps) == {"variance", "total", "margin"}
+        assert set(maps) == {"variance", "total", "margin", "lattice"}
         assert maps["variance"]["home_variance"] > 0
         assert maps["variance"]["away_variance"] > 0
         assert len(maps["total"]) == len(maps["margin"]) == 9

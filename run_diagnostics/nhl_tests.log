@@ -1,0 +1,29 @@
+........................................................................ [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+........................................................................ [ 55%]
+........................................................................ [ 66%]
+........................................................................ [ 77%]
+........................................................................ [ 88%]
+........................................................................ [ 99%]
+......                                                                   [100%]
+============================== warnings summary ===============================
+test_causal_evaluation.py: 1 warning
+test_run_engine_pit.py: 36 warnings
+  C:\Users\andre\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:1403: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', l1_ratio set to a float between 0 and 1 instead of penalty='elasticnet', and C=np.inf instead of penalty=None.
+    warnings.warn(
+
+test_run_engine_pit.py::test_sealed_holdout_rows_are_stamped_and_scored_separately
+  E:\sports_prediction_model\nhl-backend\backend\test_run_engine_pit.py:2049: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+    calibrated.loc[mdates >= cutoff, "frame_view"] = "sealed"
+
+test_run_engine_pit.py::test_markets_winner_cards_price_fair_lines_with_honest_outcomes
+test_run_engine_pit.py::test_monitor_line_pairs_use_canonical_lines_only
+test_run_engine_pit.py::test_run_engine_line_pairs_return_outcomes_first
+test_run_engine_pit.py::test_run_engine_market_metrics_and_fit_block
+  E:\sports_prediction_model\nhl-backend\backend\test_run_engine_pit.py:2310: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+    out["p_home_win"] = out["p_home_win_derived"]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+654 passed, 42 warnings in 161.27s (0:02:41)

@@ -373,3 +373,76 @@ def test_nfl_totals_distribution_ignores_the_spread_push_family():
     c = dist["callouts"]
     assert c["P(total<=35)"]["modeled"] == pytest.approx(0.30)
     assert c["P(total>=60)"]["modeled"] == pytest.approx(0.08)
+
+
+# ---------------------------------------------------------------------------
+# Full-support totals-PMF remediation (2026-10-14): the emitter now ships
+# p_push_total_<k> over the priced support, so the modeled line spans every
+# total that settled — the sub-grid band (NHL finals <= 3 are 13.3% of the
+# store; NFL <= 23 is 4.7% and >= 67 another 7.3%) can no longer be a gap.
+# ---------------------------------------------------------------------------
+
+def test_nhl_totals_distribution_draws_the_shipped_full_support_pmf():
+    """When the artifact ships the integer PMF mass beyond the market grid
+    the modeled line spans it; fixtures shipping only the grid (older
+    artifacts) still gap honestly (tests above)."""
+    import nhl_market_diagnostics as nd
+
+    n = 3
+    frame = pd.DataFrame({
+        "total": [2, 6, 14],
+        **{f"p_push_total_{k}": [0.05] * n for k in range(0, 16)},
+        "p_under_5": [0.10] * n,
+        "p_over_9": [0.06] * n,
+        "p_push_1": [0.22] * n,   # margin family — still off-limits
+    })
+    dist = nd.total_distribution(frame)
+    assert dist["warning"] is None
+    assert all(v == v for v in dist["modeled"]), "full-support line has gaps"
+    assert dist["modeled"][2] == pytest.approx(0.05)     # sub-grid mass drawn
+    assert dist["modeled"][14] == pytest.approx(0.05)    # above-grid mass drawn
+    assert dist["modeled"][5] == pytest.approx(0.05)     # grid unchanged
+    # Boundary callouts stay the exact tail authority.
+    c = dist["callouts"]
+    assert c["P(total<=4)"]["modeled"] == pytest.approx(0.10)
+    assert c["P(total>=10)"]["modeled"] == pytest.approx(0.06)
+
+
+def test_nhl_distribution_chart_spans_every_settled_total():
+    """A real final beyond the default span (the 16-goal game in the store)
+    is never silently dropped from the fit check — the chart's ks extend to
+    the observed maximum."""
+    import nhl_market_diagnostics as nd
+
+    frame = pd.DataFrame({"total": [5, 16], "p_push_total_5": [0.10, 0.10]})
+    dist = nd.total_distribution(frame)
+    assert dist["warning"] is None
+    assert len(dist["ks"]) == 17                      # 0..16
+    assert dist["observed"][16] == pytest.approx(0.5)
+    assert dist["callouts"]["P(total>=10)"]["observed"] == pytest.approx(0.5)
+
+
+def test_nfl_totals_distribution_draws_full_support_and_counts_high_tails():
+    """NFL: the full-support PMF covers both off-grid bands, the 80-point
+    final (beyond the old 66 cap) is on-chart with its bar, and the
+    P(total>=60) observed callout counts it instead of stopping at 66."""
+    import nfl_market_diagnostics as nd
+
+    n = 3
+    frame = pd.DataFrame({
+        "total": [20, 45, 80],
+        **{f"p_push_total_{k}": [0.02] * n for k in range(0, 81)},
+        "p_under_36": [0.30] * n,
+        "p_over_59": [0.10] * n,
+    })
+    dist = nd.total_distribution(frame)
+    assert dist["warning"] is None
+    assert all(v == v for v in dist["modeled"]), "full-support line has gaps"
+    assert dist["modeled"][20] == pytest.approx(0.02)
+    assert dist["modeled"][80] == pytest.approx(0.02)
+    assert len(dist["ks"]) == 81                       # 0..80
+    assert dist["observed"][80] == pytest.approx(1 / 3, abs=1e-5)
+    assert dist["callouts"]["P(total>=60)"]["observed"] == pytest.approx(
+        1 / 3, abs=1e-4)   # callouts round to 4 decimals
+    assert dist["callouts"]["P(total<=35)"]["observed"] == pytest.approx(
+        1 / 3, abs=1e-4)
