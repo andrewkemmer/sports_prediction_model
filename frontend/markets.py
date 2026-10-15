@@ -176,7 +176,10 @@ else:
                     f"P(away wins): observed "
                     f"{sc['P(away wins)']['observed']:.3f} / modeled {_sm('P(away wins)')} · "
                     f"P(tie): observed {sc['P(tie)']['observed']:.3f} / modeled "
-                    f"{_sm('P(tie)')}. The modeled line ships only at the tie plus "
+                    f"{_sm('P(tie)')} · outside ±10: observed "
+                    f"{sc['P(|margin|>10)']['observed']:.3f} "
+                    f"({sc['P(|margin|>10)']['n']:,} games, not plotted). "
+                    "The modeled line ships only at the tie plus "
                     "±1 … ±4 — outside that span it gaps (unavailable, never "
                     "refitted). This is the margin law."
                 )

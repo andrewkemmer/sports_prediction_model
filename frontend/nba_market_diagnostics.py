@@ -495,9 +495,10 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     The modeled series is the per-game mean of the artifact's own margin
     push columns (``p_push_<L>`` = P(margin == L) over −20..20); a line
     the artifact does not ship stays NaN (a gap) — unavailable, never
-    borrowed from another family. The grid spans the shipped ±20 band
-    extended to every margin that actually settled, so real blowouts are
-    never silently dropped from the fit check."""
+    borrowed from another family. The plotted grid is fixed at ±30: wider
+    would squeeze the readable mass into a central sliver (real blowouts
+    reach ±59); margins outside ±30 are disclosed in the ``P(|margin|>30)``
+    callout, never silently dropped."""
     empty = {"ks": list(range(-20, 21)), "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
              "warning": "No decided games with outcomes in the artifact."}
@@ -513,9 +514,8 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     margin = margin[margin.notna()]
     if not len(margin):
         return empty
-    lo = min(-20, int(np.floor(float(margin.min()))))
-    hi = max(20, int(np.ceil(float(margin.max()))))
-    ks = list(range(lo, hi + 1))
+    ks = list(range(-30, 31))
+    n_outside = int((margin.abs() > 30).sum())
     observed = np.array([float((margin == k).mean()) for k in ks])
     # The margin family ships ONLY −20..20: anything outside stays NaN even
     # if a same-named column exists (another family's mass — never borrowed).
@@ -547,6 +547,8 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                                "modeled": tail(modeled, (_arr <= -10) & (_arr >= -20))},
             "P(margin>=10)": {"observed": round(float((margin >= 10).mean()), 4),
                               "modeled": tail(modeled, (_arr >= 10) & (_arr <= 20))},
+            "P(|margin|>30)": {"observed": round(float((margin.abs() > 30).mean()), 4),
+                               "modeled": None, "n": n_outside},
             "note": ("Modeled line = mean shipped calibrated split-skew "
                      "Gaussian Monte Carlo margin PMF; no refit or smoothing "
                      "from outcomes."),

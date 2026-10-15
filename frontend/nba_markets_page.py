@@ -101,7 +101,9 @@ def _render_distribution_tab(decided):
             f"over {sdist['n_games']:,} decided games · P(margin≤−10): observed "
             f"{sc['P(margin<=-10)']['observed']:.3f} / modeled {_sm('P(margin<=-10)')} · "
             f"P(margin≥10): observed "
-            f"{sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')}. "
+            f"{sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')} · "
+            f"outside ±30: observed {sc['P(|margin|>30)']['observed']:.3f} "
+            f"({sc['P(|margin|>30)']['n']:,} games, not plotted). "
             "This is the margin law."
         )
         return

@@ -207,7 +207,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
             f"{sdist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
             f"artifact's own p_push_<±L> columns — mass is never borrowed from another push namespace; "
             f"P(margin≤−10): observed {sc['P(margin<=-10)']['observed']:.3f} / modeled {_sm('P(margin<=-10)')} · "
-            f"P(margin≥10): observed {sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')}."
+            f"P(margin≥10): observed {sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')} · "
+            f"outside ±30: observed {sc['P(|margin|>30)']['observed']:.3f} "
+            f"({sc['P(|margin|>30)']['n']:,} games, not plotted)."
         )
         return
     dist = nd.total_distribution(decided)

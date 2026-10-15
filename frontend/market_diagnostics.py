@@ -474,7 +474,9 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     convention as ``shipped_total_pmf``. The callout masses ARE exact
     shipped boundary probabilities: P(home wins) = P(margin ≥ 1) is
     ``p_home_win_derived`` and P(away wins) = P(margin ≤ −1) is
-    ``p_away_win_derived``."""
+    ``p_away_win_derived``. The plotted grid is fixed at ±10; margins
+    outside it are disclosed in the ``P(|margin|>10)`` callout, never
+    silently dropped."""
     ks = list(range(-10, 11))
     empty = {"ks": ks, "observed": [], "modeled": [], "callouts": {},
              "n_games": 0, "warning": "No decided games with outcomes in the artifact."}
@@ -488,6 +490,7 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     margin = margin[margin.notna()]
     if not len(margin):
         return empty
+    n_outside = int((margin.abs() > 10).sum())
     observed = np.array([float((margin == k).mean()) for k in ks])
     modeled = np.full(len(ks), np.nan)
     for i, k in enumerate(ks):
@@ -518,6 +521,8 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                                           "modeled": _mean("p_away_win_derived")},
                          "P(tie)": {"observed": round(float((margin == 0).mean()), 4),
                                     "modeled": _mean("p_tie")},
+                         "P(|margin|>10)": {"observed": round(float((margin.abs() > 10).mean()), 4),
+                                            "modeled": None, "n": n_outside},
                          "note": ("Modeled line = mean shipped run-line push mass at the tie "
                                   "plus ±1 … ±4 only; outside that span the line gaps — "
                                   "unavailable, not refitted.")}}
