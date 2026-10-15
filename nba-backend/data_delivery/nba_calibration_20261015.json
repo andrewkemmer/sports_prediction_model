@@ -1,0 +1,7721 @@
+{
+ "date": "2026-10-15",
+ "trained_at": "2026-10-15T05:05:57.058392+00:00",
+ "created_utc": "2026-10-15T05:05:57.058409+00:00",
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.9-rapm-dated-rosters",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "moneyline_evaluation": {
+   "headline": "causal_rolling_blend",
+   "retrospective": "diagnostic_only_not_oof",
+   "calibration": "nested_prior_evidence_gate_at_every_origin",
+   "xgb_round_policy": "train_tail_probe_then_all_train_refit"
+  },
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 74449,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 1712728,
+  "event_rows": 6922
+ },
+ "n_games": 2130,
+ "metrics": {
+  "auc": 0.7332709463874763,
+  "brier": 0.20774923966227216,
+  "logloss": 0.6024833655943785,
+  "ece": 0.022728503089833242,
+  "auc_calibrated": 0.7332709463874763,
+  "brier_calibrated": 0.20774923966227216,
+  "logloss_calibrated": 0.6024833655943785,
+  "ece_calibrated": 0.022728503089833242
+ },
+ "calibration": {},
+ "distribution_calibration": {
+  "method": "causal_split_skew_crps_mc",
+  "family": "two_sided_asymmetric_gaussian_split_skew",
+  "scope": "whole_cdf",
+  "sport": "nba",
+  "objective": "discrete_crps",
+  "maps": {
+   "variance": {
+    "home_variance": 1.2774161897720568,
+    "away_variance": 1.25964142768683,
+    "correlation": 0.25736313705009206,
+    "total_skew": 0.024732266782687938,
+    "margin_skew": -0.011732785740085516,
+    "total_parity_alpha": 0.0
+   },
+   "total": [
+    0.011045323236457686,
+    -0.6147099249981539,
+    -0.11667235341945267,
+    0.02787565252336349,
+    0.23847194483614592,
+    0.024106508606871167,
+    -0.008574388370767969,
+    -0.30121671795915295,
+    -0.09677717924912947
+   ],
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "lattice": {
+    "totals": {
+     "target": "totals",
+     "sport": "nba",
+     "n_fit": 1680,
+     "n_test": 720,
+     "significant": false,
+     "residual_mae_before": 0.00024301685839649587,
+     "residual_mae_after": 0.0002493546287791914,
+     "delta_l1": 0.010025000000000001,
+     "delta_max": 0.000196,
+     "gate_z": 0.47,
+     "reason": "held_out_not_significant"
+    },
+    "margin": {
+     "target": "margin",
+     "sport": "nba",
+     "n_fit": 1680,
+     "n_test": 720,
+     "significant": false,
+     "residual_mae_before": 0.0001464963842555185,
+     "residual_mae_after": 0.0001526987156460264,
+     "delta_l1": 0.037749,
+     "delta_max": 0.001361,
+     "gate_z": 2.186,
+     "reason": "held_out_not_significant"
+    }
+   }
+  },
+  "origins": [
+   {
+    "start": "2024-11-22",
+    "end": "2024-11-29",
+    "n_prior": 0,
+    "n_scored": 59,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {},
+      "margin": {}
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {},
+      "margin": {}
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2024-11-30",
+    "end": "2024-12-06",
+    "n_prior": 59,
+    "n_scored": 51,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2024-12-07",
+    "end": "2024-12-13",
+    "n_prior": 110,
+    "n_scored": 35,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2024-12-14",
+    "end": "2024-12-22",
+    "n_prior": 145,
+    "n_scored": 46,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2024-12-23",
+    "end": "2024-12-30",
+    "n_prior": 191,
+    "n_scored": 58,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3,
+      "away_variance": 1.3,
+      "correlation": 0.0,
+      "total_skew": 0.0,
+      "margin_skew": 0.0,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_history"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2024-12-31",
+    "end": "2025-01-06",
+    "n_prior": 249,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3404416908209629,
+      "away_variance": 1.356902935663811,
+      "correlation": 0.3576393093326014,
+      "total_skew": 0.005892192208744705,
+      "margin_skew": -0.021770930370584786,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3404416908209629,
+      "away_variance": 1.356902935663811,
+      "correlation": 0.3576393093326014,
+      "total_skew": 0.005892192208744705,
+      "margin_skew": -0.021770930370584786,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.09866619978166512,
+      -0.5609971270359707,
+      -0.3404865058082757,
+      -0.03782902733939294,
+      0.17065912831706306,
+      0.3192010804433144,
+      0.01306187619006968,
+      -0.29623379458893223,
+      -0.09922874784445768
+     ],
+     "margin": [
+      0.06430623881150416,
+      -0.14647094194737437,
+      -0.2764950110819099,
+      -0.042086729097468766,
+      -0.09636368685489655,
+      0.16001874773932714,
+      0.1377758778213395,
+      -0.1278561642853762,
+      -0.07765721107768501
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-01-07",
+    "end": "2025-01-13",
+    "n_prior": 302,
+    "n_scored": 48,
+    "maps": {
+     "variance": {
+      "home_variance": 1.362302451705967,
+      "away_variance": 1.3166436746250656,
+      "correlation": 0.30004178417770466,
+      "total_skew": 0.014737592091975756,
+      "margin_skew": -0.008065666429754067,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.10842207207727428,
+      -0.5340128027511649,
+      -0.13106077272299577,
+      -0.029262904455034506,
+      0.1508007732548804,
+      0.21617157632006778,
+      0.01770271833536438,
+      -0.2902033661918663,
+      -0.014278249279692214
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.362302451705967,
+      "away_variance": 1.3166436746250656,
+      "correlation": 0.30004178417770466,
+      "total_skew": 0.014737592091975756,
+      "margin_skew": -0.008065666429754067,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.10842207207727428,
+      -0.5340128027511649,
+      -0.13106077272299577,
+      -0.029262904455034506,
+      0.1508007732548804,
+      0.21617157632006778,
+      0.01770271833536438,
+      -0.2902033661918663,
+      -0.014278249279692214
+     ],
+     "margin": [
+      0.04273407971543047,
+      -0.2297556939379513,
+      -0.08986328438638289,
+      -0.009605079675091078,
+      -0.028722706925445877,
+      0.11187176432992514,
+      0.1255389690208651,
+      -0.15882618388336295,
+      0.013382639803216051
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 0,
+       "n_test": 0,
+       "significant": false,
+       "reason": "insufficient_held_out_evidence"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-01-14",
+    "end": "2025-01-20",
+    "n_prior": 350,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.319601201271726,
+      "away_variance": 1.2476768529167426,
+      "correlation": 0.28678320442637034,
+      "total_skew": 0.009180370612123812,
+      "margin_skew": 0.0059087788269295265,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.10820418589126869,
+      -0.5542660240955495,
+      -0.23465873603691587,
+      -0.030577939014463266,
+      0.13901109377723783,
+      0.22356531043566397,
+      0.02021271921040022,
+      -0.2765292459471988,
+      -0.06119612641694077
+     ],
+     "margin": [
+      0.07906337212823897,
+      -0.23507892047593154,
+      -0.04653650602911966,
+      -0.017802184606522723,
+      0.0054966914121590245,
+      0.09640077252702507,
+      0.11961588089737336,
+      -0.14465504601311074,
+      0.0318886755510623
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 245,
+       "n_test": 105,
+       "significant": false,
+       "residual_mae_before": 0.0006376717027316513,
+       "residual_mae_after": 0.0007136183662561674,
+       "delta_l1": 0.101682,
+       "delta_max": 0.001545,
+       "gate_z": 2.16,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 245,
+       "n_test": 105,
+       "significant": false,
+       "residual_mae_before": 0.00035144663319969287,
+       "residual_mae_after": 0.00037790652858101637,
+       "delta_l1": 0.086402,
+       "delta_max": 0.002194,
+       "gate_z": 1.175,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.319601201271726,
+      "away_variance": 1.2476768529167426,
+      "correlation": 0.28678320442637034,
+      "total_skew": 0.009180370612123812,
+      "margin_skew": 0.0059087788269295265,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.10820418589126869,
+      -0.5542660240955495,
+      -0.23465873603691587,
+      -0.030577939014463266,
+      0.13901109377723783,
+      0.22356531043566397,
+      0.02021271921040022,
+      -0.2765292459471988,
+      -0.06119612641694077
+     ],
+     "margin": [
+      0.07906337212823897,
+      -0.23507892047593154,
+      -0.04653650602911966,
+      -0.017802184606522723,
+      0.0054966914121590245,
+      0.09640077252702507,
+      0.11961588089737336,
+      -0.14465504601311074,
+      0.0318886755510623
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 245,
+       "n_test": 105,
+       "significant": false,
+       "residual_mae_before": 0.0006376717027316513,
+       "residual_mae_after": 0.0007136183662561674,
+       "delta_l1": 0.101682,
+       "delta_max": 0.001545,
+       "gate_z": 2.16,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 245,
+       "n_test": 105,
+       "significant": false,
+       "residual_mae_before": 0.00035144663319969287,
+       "residual_mae_after": 0.00037790652858101637,
+       "delta_l1": 0.086402,
+       "delta_max": 0.002194,
+       "gate_z": 1.175,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": true
+    }
+   },
+   {
+    "start": "2025-01-21",
+    "end": "2025-01-27",
+    "n_prior": 403,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.290926152157376,
+      "away_variance": 1.2441850384024775,
+      "correlation": 0.2552990295948838,
+      "total_skew": 0.0037068292902980855,
+      "margin_skew": 0.011961605226262039,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 283,
+       "n_test": 120,
+       "significant": false,
+       "residual_mae_before": 0.0006229645926927368,
+       "residual_mae_after": 0.0006845885527592925,
+       "delta_l1": 0.081996,
+       "delta_max": 0.001054,
+       "gate_z": 2.033,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 283,
+       "n_test": 120,
+       "significant": false,
+       "residual_mae_before": 0.0003127434721234414,
+       "residual_mae_after": 0.00033310395658465785,
+       "delta_l1": 0.076157,
+       "delta_max": 0.001952,
+       "gate_z": 1.385,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.290926152157376,
+      "away_variance": 1.2441850384024775,
+      "correlation": 0.2552990295948838,
+      "total_skew": 0.0037068292902980855,
+      "margin_skew": 0.011961605226262039,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.05805775917734583,
+      -0.4621920638103815,
+      0.08066816831549922,
+      -0.0374608042320749,
+      0.06068555391856831,
+      0.1168760373976307,
+      0.01333420940815777,
+      -0.2645044129688716,
+      0.07473639008859113
+     ],
+     "margin": [
+      0.07854396422690313,
+      -0.09712936743779532,
+      -0.1429776299965842,
+      -0.02158402892963331,
+      -0.0323182017320704,
+      0.12881907057221426,
+      0.09881270740499934,
+      -0.06004130774907585,
+      -0.012588693045107612
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 283,
+       "n_test": 120,
+       "significant": false,
+       "residual_mae_before": 0.0006229645926927368,
+       "residual_mae_after": 0.0006845885527592925,
+       "delta_l1": 0.081996,
+       "delta_max": 0.001054,
+       "gate_z": 2.033,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 283,
+       "n_test": 120,
+       "significant": false,
+       "residual_mae_before": 0.0003127434721234414,
+       "residual_mae_after": 0.00033310395658465785,
+       "delta_l1": 0.076157,
+       "delta_max": 0.001952,
+       "gate_z": 1.385,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-01-28",
+    "end": "2025-02-03",
+    "n_prior": 455,
+    "n_scored": 51,
+    "maps": {
+     "variance": {
+      "home_variance": 1.339678430774928,
+      "away_variance": 1.2486362367343469,
+      "correlation": 0.24807246613531905,
+      "total_skew": -0.0007089652243431283,
+      "margin_skew": 0.011108502685234944,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 319,
+       "n_test": 136,
+       "significant": false,
+       "residual_mae_before": 0.0006019815482610522,
+       "residual_mae_after": 0.0006486920307901704,
+       "delta_l1": 0.061767,
+       "delta_max": 0.000897,
+       "gate_z": 1.676,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 319,
+       "n_test": 136,
+       "significant": false,
+       "residual_mae_before": 0.00028638542789870226,
+       "residual_mae_after": 0.0003021694269840681,
+       "delta_l1": 0.06964100000000001,
+       "delta_max": 0.0018,
+       "gate_z": 1.062,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.339678430774928,
+      "away_variance": 1.2486362367343469,
+      "correlation": 0.24807246613531905,
+      "total_skew": -0.0007089652243431283,
+      "margin_skew": 0.011108502685234944,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.04077377671306867,
+      -0.4619699959971919,
+      0.03931570690424555,
+      -0.04915487734863733,
+      0.08717442306590015,
+      0.09680810408962603,
+      0.011014973106536707,
+      -0.2592668767829542,
+      0.04157324461185547
+     ],
+     "margin": [
+      0.056838470204661075,
+      -0.1663201655630254,
+      -0.14036194308717306,
+      -0.002685149078038131,
+      -0.00900755163058138,
+      0.13733243561585406,
+      0.08451320169066254,
+      -0.09597949499783873,
+      0.03322069156039069
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 319,
+       "n_test": 136,
+       "significant": false,
+       "residual_mae_before": 0.0006019815482610522,
+       "residual_mae_after": 0.0006486920307901704,
+       "delta_l1": 0.061767,
+       "delta_max": 0.000897,
+       "gate_z": 1.676,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 319,
+       "n_test": 136,
+       "significant": false,
+       "residual_mae_before": 0.00028638542789870226,
+       "residual_mae_after": 0.0003021694269840681,
+       "delta_l1": 0.06964100000000001,
+       "delta_max": 0.0018,
+       "gate_z": 1.062,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-02-04",
+    "end": "2025-02-10",
+    "n_prior": 506,
+    "n_scored": 55,
+    "maps": {
+     "variance": {
+      "home_variance": 1.358415250660268,
+      "away_variance": 1.2397674461195038,
+      "correlation": 0.23928514013893862,
+      "total_skew": -0.007923915143427485,
+      "margin_skew": 0.0023242696099141464,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 355,
+       "n_test": 151,
+       "significant": false,
+       "residual_mae_before": 0.0005778108962272306,
+       "residual_mae_after": 0.0006115304400235741,
+       "delta_l1": 0.045714,
+       "delta_max": 0.000611,
+       "gate_z": 2.039,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 355,
+       "n_test": 151,
+       "significant": false,
+       "residual_mae_before": 0.00027274677286935573,
+       "residual_mae_after": 0.0002869161844010416,
+       "delta_l1": 0.056982000000000005,
+       "delta_max": 0.001472,
+       "gate_z": 1.93,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.358415250660268,
+      "away_variance": 1.2397674461195038,
+      "correlation": 0.23928514013893862,
+      "total_skew": -0.007923915143427485,
+      "margin_skew": 0.0023242696099141464,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.014059513303498247,
+      -0.5582415754471821,
+      -0.019950473526584824,
+      -0.037234177213676285,
+      0.14726479420546815,
+      0.10346301737789065,
+      0.005317476559275866,
+      -0.2735421101048883,
+      -0.006658444419557105
+     ],
+     "margin": [
+      0.036257237444417036,
+      -0.19030302963800705,
+      -0.09796296176475021,
+      -0.008575039253415025,
+      0.02873046117992512,
+      0.10045621957392117,
+      0.0736032411108234,
+      -0.08758121593584896,
+      0.04059175784909362
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 355,
+       "n_test": 151,
+       "significant": false,
+       "residual_mae_before": 0.0005778108962272306,
+       "residual_mae_after": 0.0006115304400235741,
+       "delta_l1": 0.045714,
+       "delta_max": 0.000611,
+       "gate_z": 2.039,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 355,
+       "n_test": 151,
+       "significant": false,
+       "residual_mae_before": 0.00027274677286935573,
+       "residual_mae_after": 0.0002869161844010416,
+       "delta_l1": 0.056982000000000005,
+       "delta_max": 0.001472,
+       "gate_z": 1.93,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-02-11",
+    "end": "2025-02-22",
+    "n_prior": 561,
+    "n_scored": 48,
+    "maps": {
+     "variance": {
+      "home_variance": 1.342641483485633,
+      "away_variance": 1.2358545426099572,
+      "correlation": 0.24922581887957054,
+      "total_skew": -0.02093432303473366,
+      "margin_skew": -0.011784114730192972,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 393,
+       "n_test": 168,
+       "significant": false,
+       "residual_mae_before": 0.0005370791953276403,
+       "residual_mae_after": 0.0005677821497805151,
+       "delta_l1": 0.040291,
+       "delta_max": 0.000571,
+       "gate_z": 2.371,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 393,
+       "n_test": 168,
+       "significant": false,
+       "residual_mae_before": 0.0002555423762274677,
+       "residual_mae_after": 0.0002619139026266792,
+       "delta_l1": 0.04578600000000001,
+       "delta_max": 0.001183,
+       "gate_z": 1.321,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.342641483485633,
+      "away_variance": 1.2358545426099572,
+      "correlation": 0.24922581887957054,
+      "total_skew": -0.02093432303473366,
+      "margin_skew": -0.011784114730192972,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.013601108241930804,
+      -0.7268405202428748,
+      -0.05232791284848632,
+      -0.0457956224557227,
+      0.27507166173788766,
+      0.06944753763479071,
+      0.012094974206260455,
+      -0.27815687269459427,
+      -0.046460072316147495
+     ],
+     "margin": [
+      0.01999216441246313,
+      -0.14971401385045524,
+      -0.16150825346203013,
+      -0.019437741639255126,
+      0.007232287459144447,
+      0.0965386683823754,
+      0.08508688317952855,
+      -0.08136234324559695,
+      -0.015999886226214167
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 393,
+       "n_test": 168,
+       "significant": false,
+       "residual_mae_before": 0.0005370791953276403,
+       "residual_mae_after": 0.0005677821497805151,
+       "delta_l1": 0.040291,
+       "delta_max": 0.000571,
+       "gate_z": 2.371,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 393,
+       "n_test": 168,
+       "significant": false,
+       "residual_mae_before": 0.0002555423762274677,
+       "residual_mae_after": 0.0002619139026266792,
+       "delta_l1": 0.04578600000000001,
+       "delta_max": 0.001183,
+       "gate_z": 1.321,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-02-23",
+    "end": "2025-03-01",
+    "n_prior": 609,
+    "n_scored": 55,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3411517821312549,
+      "away_variance": 1.2126450742921269,
+      "correlation": 0.24690860168388776,
+      "total_skew": -0.01257138845177772,
+      "margin_skew": -0.0005281398575543945,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 427,
+       "n_test": 182,
+       "significant": false,
+       "residual_mae_before": 0.0005138273732026842,
+       "residual_mae_after": 0.0005469610559501705,
+       "delta_l1": 0.04250999999999999,
+       "delta_max": 0.000755,
+       "gate_z": 2.201,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 427,
+       "n_test": 182,
+       "significant": false,
+       "residual_mae_before": 0.00026090811617112184,
+       "residual_mae_after": 0.00026621005069612255,
+       "delta_l1": 0.034914,
+       "delta_max": 0.000904,
+       "gate_z": 1.106,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3411517821312549,
+      "away_variance": 1.2126450742921269,
+      "correlation": 0.24690860168388776,
+      "total_skew": -0.01257138845177772,
+      "margin_skew": -0.0005281398575543945,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.006380574162041231,
+      -0.79148409222204,
+      -0.07236244491453493,
+      -0.040079299998515686,
+      0.3464334939956799,
+      0.053420136362187516,
+      0.02072498004892917,
+      -0.2928290158793201,
+      -0.07522036666006267
+     ],
+     "margin": [
+      0.03262705706042873,
+      -0.09907085124869992,
+      -0.07597955075379131,
+      0.004177218183228816,
+      -0.03442552664214827,
+      0.07639346752905504,
+      0.08257908241849782,
+      -0.08382234456812394,
+      0.013531806469316872
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 427,
+       "n_test": 182,
+       "significant": false,
+       "residual_mae_before": 0.0005138273732026842,
+       "residual_mae_after": 0.0005469610559501705,
+       "delta_l1": 0.04250999999999999,
+       "delta_max": 0.000755,
+       "gate_z": 2.201,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 427,
+       "n_test": 182,
+       "significant": false,
+       "residual_mae_before": 0.00026090811617112184,
+       "residual_mae_after": 0.00026621005069612255,
+       "delta_l1": 0.034914,
+       "delta_max": 0.000904,
+       "gate_z": 1.106,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-03-02",
+    "end": "2025-03-08",
+    "n_prior": 664,
+    "n_scored": 55,
+    "maps": {
+     "variance": {
+      "home_variance": 1.324110720650254,
+      "away_variance": 1.251627819761998,
+      "correlation": 0.2613078013738458,
+      "total_skew": -0.0032765241224016637,
+      "margin_skew": -0.0009255087206602218,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 465,
+       "n_test": 199,
+       "significant": false,
+       "residual_mae_before": 0.0004888510650983666,
+       "residual_mae_after": 0.0005116577376209834,
+       "delta_l1": 0.03943,
+       "delta_max": 0.000511,
+       "gate_z": 2.986,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 465,
+       "n_test": 199,
+       "significant": false,
+       "residual_mae_before": 0.00023646920913673351,
+       "residual_mae_after": 0.0002383288384915156,
+       "delta_l1": 0.044291000000000004,
+       "delta_max": 0.001527,
+       "gate_z": 0.798,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.324110720650254,
+      "away_variance": 1.251627819761998,
+      "correlation": 0.2613078013738458,
+      "total_skew": -0.0032765241224016637,
+      "margin_skew": -0.0009255087206602218,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.004696685591874718,
+      -0.7741036056432596,
+      -0.0572160567661393,
+      -0.035267651949312744,
+      0.3424374542685208,
+      0.028892041569561537,
+      0.018163905742757558,
+      -0.29104040669213993,
+      -0.1030650793326282
+     ],
+     "margin": [
+      0.017465102150520287,
+      -0.05348559875217811,
+      -0.07049085129536051,
+      0.008923479605466049,
+      -0.01664270530372259,
+      0.09201186925250802,
+      0.07351372051842044,
+      -0.05000929218727979,
+      0.021573682231727075
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 465,
+       "n_test": 199,
+       "significant": false,
+       "residual_mae_before": 0.0004888510650983666,
+       "residual_mae_after": 0.0005116577376209834,
+       "delta_l1": 0.03943,
+       "delta_max": 0.000511,
+       "gate_z": 2.986,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 465,
+       "n_test": 199,
+       "significant": false,
+       "residual_mae_before": 0.00023646920913673351,
+       "residual_mae_after": 0.0002383288384915156,
+       "delta_l1": 0.044291000000000004,
+       "delta_max": 0.001527,
+       "gate_z": 0.798,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-03-09",
+    "end": "2025-03-15",
+    "n_prior": 719,
+    "n_scored": 56,
+    "maps": {
+     "variance": {
+      "home_variance": 1.3011806792966933,
+      "away_variance": 1.2233025648187479,
+      "correlation": 0.2809680311690547,
+      "total_skew": -4.725377015639939e-05,
+      "margin_skew": -0.0027681387405384616,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 504,
+       "n_test": 215,
+       "significant": false,
+       "residual_mae_before": 0.0004952540793711377,
+       "residual_mae_after": 0.0005168203117199844,
+       "delta_l1": 0.035253999999999994,
+       "delta_max": 0.000463,
+       "gate_z": 2.581,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 504,
+       "n_test": 215,
+       "significant": false,
+       "residual_mae_before": 0.00022568774096560595,
+       "residual_mae_after": 0.00022408581138796418,
+       "delta_l1": 0.047221,
+       "delta_max": 0.001652,
+       "gate_z": 1.104,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.3011806792966933,
+      "away_variance": 1.2233025648187479,
+      "correlation": 0.2809680311690547,
+      "total_skew": -4.725377015639939e-05,
+      "margin_skew": -0.0027681387405384616,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.005715898147224132,
+      -0.7680995110588267,
+      -0.2144372786044479,
+      -0.0266774045801727,
+      0.3326331151263116,
+      0.06802317348062463,
+      0.014541658902413266,
+      -0.31391003865088185,
+      -0.18320956397755464
+     ],
+     "margin": [
+      0.009669038204045695,
+      -0.002367343829912021,
+      -0.09260030475037824,
+      0.00965543449055418,
+      -0.016352199307518148,
+      0.09802020634248179,
+      0.08139888606315646,
+      -0.010993215484783969,
+      0.003350448575301892
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 504,
+       "n_test": 215,
+       "significant": false,
+       "residual_mae_before": 0.0004952540793711377,
+       "residual_mae_after": 0.0005168203117199844,
+       "delta_l1": 0.035253999999999994,
+       "delta_max": 0.000463,
+       "gate_z": 2.581,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 504,
+       "n_test": 215,
+       "significant": false,
+       "residual_mae_before": 0.00022568774096560595,
+       "residual_mae_after": 0.00022408581138796418,
+       "delta_l1": 0.047221,
+       "delta_max": 0.001652,
+       "gate_z": 1.104,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-03-16",
+    "end": "2025-03-22",
+    "n_prior": 775,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.275929504474005,
+      "away_variance": 1.2214535450986692,
+      "correlation": 0.2877931463280417,
+      "total_skew": 0.003918781537123486,
+      "margin_skew": -0.0034418461313086833,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 543,
+       "n_test": 232,
+       "significant": false,
+       "residual_mae_before": 0.0004658297408443158,
+       "residual_mae_after": 0.0004898349586883697,
+       "delta_l1": 0.03343,
+       "delta_max": 0.000601,
+       "gate_z": 2.408,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 543,
+       "n_test": 232,
+       "significant": false,
+       "residual_mae_before": 0.00022600211019667413,
+       "residual_mae_after": 0.00022409876750115727,
+       "delta_l1": 0.037222,
+       "delta_max": 0.001242,
+       "gate_z": 1.363,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.275929504474005,
+      "away_variance": 1.2214535450986692,
+      "correlation": 0.2877931463280417,
+      "total_skew": 0.003918781537123486,
+      "margin_skew": -0.0034418461313086833,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.012019349882841845,
+      -0.7182687558334822,
+      -0.22239347860461123,
+      -0.018549759324464808,
+      0.3200220033643653,
+      0.07808464987966965,
+      0.01401473864520825,
+      -0.3024769896852205,
+      -0.19839290210807592
+     ],
+     "margin": [
+      0.019287477261237144,
+      0.001180443172746225,
+      -0.08719157944152142,
+      0.015071342762068814,
+      -0.0007581085510820798,
+      0.10638543104914465,
+      0.07707452197378474,
+      -0.00851993159867665,
+      0.0024759151763453164
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 543,
+       "n_test": 232,
+       "significant": false,
+       "residual_mae_before": 0.0004658297408443158,
+       "residual_mae_after": 0.0004898349586883697,
+       "delta_l1": 0.03343,
+       "delta_max": 0.000601,
+       "gate_z": 2.408,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 543,
+       "n_test": 232,
+       "significant": false,
+       "residual_mae_before": 0.00022600211019667413,
+       "residual_mae_after": 0.00022409876750115727,
+       "delta_l1": 0.037222,
+       "delta_max": 0.001242,
+       "gate_z": 1.363,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-03-23",
+    "end": "2025-03-29",
+    "n_prior": 828,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2763515548270472,
+      "away_variance": 1.2299346400699278,
+      "correlation": 0.2742313166688869,
+      "total_skew": 0.00813349461260077,
+      "margin_skew": 0.00022069985180661448,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 580,
+       "n_test": 248,
+       "significant": false,
+       "residual_mae_before": 0.00046107973867751464,
+       "residual_mae_after": 0.0004850115042212341,
+       "delta_l1": 0.037146,
+       "delta_max": 0.00054,
+       "gate_z": 3.004,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 580,
+       "n_test": 248,
+       "significant": false,
+       "residual_mae_before": 0.00021852492505287113,
+       "residual_mae_after": 0.000216111365363736,
+       "delta_l1": 0.042539,
+       "delta_max": 0.00148,
+       "gate_z": 1.242,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2763515548270472,
+      "away_variance": 1.2299346400699278,
+      "correlation": 0.2742313166688869,
+      "total_skew": 0.00813349461260077,
+      "margin_skew": 0.00022069985180661448,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.004975082151742317,
+      -0.7063304121971639,
+      -0.17509471810669774,
+      -0.016924550805843198,
+      0.30781800071927906,
+      0.07309481307664446,
+      0.013291648941760078,
+      -0.2888719594211766,
+      -0.17502788713352557
+     ],
+     "margin": [
+      -0.009661079010993459,
+      -0.04206662229422963,
+      -0.10086338941699886,
+      0.011129744773394337,
+      -0.00869747629249501,
+      0.10139445486839171,
+      0.07429803223779854,
+      -0.04010277577965832,
+      -0.014329854319801634
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 580,
+       "n_test": 248,
+       "significant": false,
+       "residual_mae_before": 0.00046107973867751464,
+       "residual_mae_after": 0.0004850115042212341,
+       "delta_l1": 0.037146,
+       "delta_max": 0.00054,
+       "gate_z": 3.004,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 580,
+       "n_test": 248,
+       "significant": false,
+       "residual_mae_before": 0.00021852492505287113,
+       "residual_mae_after": 0.000216111365363736,
+       "delta_l1": 0.042539,
+       "delta_max": 0.00148,
+       "gate_z": 1.242,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-03-30",
+    "end": "2025-04-05",
+    "n_prior": 880,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2565738489927416,
+      "away_variance": 1.2334912157631661,
+      "correlation": 0.2579464156174281,
+      "total_skew": 0.005197509794311929,
+      "margin_skew": -0.0050135802634042,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 616,
+       "n_test": 264,
+       "significant": false,
+       "residual_mae_before": 0.000432541815454931,
+       "residual_mae_after": 0.0004500300112608633,
+       "delta_l1": 0.028308,
+       "delta_max": 0.000417,
+       "gate_z": 2.57,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 616,
+       "n_test": 264,
+       "significant": false,
+       "residual_mae_before": 0.00021216966172850699,
+       "residual_mae_after": 0.0002114428560414076,
+       "delta_l1": 0.042034,
+       "delta_max": 0.001483,
+       "gate_z": 1.316,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2565738489927416,
+      "away_variance": 1.2334912157631661,
+      "correlation": 0.2579464156174281,
+      "total_skew": 0.005197509794311929,
+      "margin_skew": -0.0050135802634042,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.006704818818775034,
+      -0.7099110198724274,
+      -0.1911653715694214,
+      -0.020060806483741214,
+      0.3115010727325425,
+      0.07160512717801192,
+      0.021005861418299222,
+      -0.2850679395416159,
+      -0.18879706123672463
+     ],
+     "margin": [
+      0.014538249999013566,
+      -0.0656479007196614,
+      -0.08398785126394266,
+      0.013365663340782034,
+      0.00562901472879416,
+      0.10059759508949213,
+      0.06792966732391555,
+      -0.03958480187234643,
+      -0.0009123123861370015
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 616,
+       "n_test": 264,
+       "significant": false,
+       "residual_mae_before": 0.000432541815454931,
+       "residual_mae_after": 0.0004500300112608633,
+       "delta_l1": 0.028308,
+       "delta_max": 0.000417,
+       "gate_z": 2.57,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 616,
+       "n_test": 264,
+       "significant": false,
+       "residual_mae_before": 0.00021216966172850699,
+       "residual_mae_after": 0.0002114428560414076,
+       "delta_l1": 0.042034,
+       "delta_max": 0.001483,
+       "gate_z": 1.316,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-04-06",
+    "end": "2025-04-13",
+    "n_prior": 933,
+    "n_scored": 68,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2458439512354071,
+      "away_variance": 1.2407050182583712,
+      "correlation": 0.26072657737114036,
+      "total_skew": 0.009033051619970341,
+      "margin_skew": -0.007927213358902218,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 654,
+       "n_test": 279,
+       "significant": false,
+       "residual_mae_before": 0.00042639047442634664,
+       "residual_mae_after": 0.00044715709158057803,
+       "delta_l1": 0.032148,
+       "delta_max": 0.000405,
+       "gate_z": 2.702,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 654,
+       "n_test": 279,
+       "significant": false,
+       "residual_mae_before": 0.0002008639462696065,
+       "residual_mae_after": 0.00020131874654795225,
+       "delta_l1": 0.044783,
+       "delta_max": 0.001575,
+       "gate_z": 1.286,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2458439512354071,
+      "away_variance": 1.2407050182583712,
+      "correlation": 0.26072657737114036,
+      "total_skew": 0.009033051619970341,
+      "margin_skew": -0.007927213358902218,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.0007554866535755044,
+      -0.6803973106578708,
+      -0.14211155818659693,
+      -0.016018845874601124,
+      0.3014496245674393,
+      0.05045604971778095,
+      0.013782456741614327,
+      -0.3019226701403066,
+      -0.15970570056132466
+     ],
+     "margin": [
+      0.025220850638746864,
+      -0.13338550453609105,
+      -0.13652097656148354,
+      0.008216114665822522,
+      0.035106825419207746,
+      0.11312526341155914,
+      0.0698720122450645,
+      -0.06650848253583941,
+      -0.020455929349085186
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 654,
+       "n_test": 279,
+       "significant": false,
+       "residual_mae_before": 0.00042639047442634664,
+       "residual_mae_after": 0.00044715709158057803,
+       "delta_l1": 0.032148,
+       "delta_max": 0.000405,
+       "gate_z": 2.702,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 654,
+       "n_test": 279,
+       "significant": false,
+       "residual_mae_before": 0.0002008639462696065,
+       "residual_mae_after": 0.00020131874654795225,
+       "delta_l1": 0.044783,
+       "delta_max": 0.001575,
+       "gate_z": 1.286,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-04-19",
+    "end": "2025-04-25",
+    "n_prior": 1001,
+    "n_scored": 22,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2370029960776785,
+      "away_variance": 1.265322392786409,
+      "correlation": 0.2597413750817684,
+      "total_skew": 0.0056718510706076745,
+      "margin_skew": -0.009113512498276582,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 701,
+       "n_test": 300,
+       "significant": false,
+       "residual_mae_before": 0.00040789997870687995,
+       "residual_mae_after": 0.00042708134309955875,
+       "delta_l1": 0.028423999999999998,
+       "delta_max": 0.000435,
+       "gate_z": 2.134,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 701,
+       "n_test": 300,
+       "significant": false,
+       "residual_mae_before": 0.0002003470920380562,
+       "residual_mae_after": 0.00019986381851428922,
+       "delta_l1": 0.050148,
+       "delta_max": 0.001677,
+       "gate_z": 1.471,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2370029960776785,
+      "away_variance": 1.265322392786409,
+      "correlation": 0.2597413750817684,
+      "total_skew": 0.0056718510706076745,
+      "margin_skew": -0.009113512498276582,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.0078813958376311,
+      -0.6520441899534645,
+      -0.06589251910783973,
+      -0.016535000744319163,
+      0.30170349387836637,
+      0.023229766218562743,
+      0.01858886532386332,
+      -0.29452224863184173,
+      -0.1263968705342593
+     ],
+     "margin": [
+      0.03063316467782387,
+      -0.11166181376898376,
+      -0.1045132047059628,
+      0.010868359442021917,
+      0.03538609992002419,
+      0.0847806388810295,
+      0.06038391397937161,
+      -0.042647312428533056,
+      -0.019542614727079514
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 701,
+       "n_test": 300,
+       "significant": false,
+       "residual_mae_before": 0.00040789997870687995,
+       "residual_mae_after": 0.00042708134309955875,
+       "delta_l1": 0.028423999999999998,
+       "delta_max": 0.000435,
+       "gate_z": 2.134,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 701,
+       "n_test": 300,
+       "significant": false,
+       "residual_mae_before": 0.0002003470920380562,
+       "residual_mae_after": 0.00019986381851428922,
+       "delta_l1": 0.050148,
+       "delta_max": 0.001677,
+       "gate_z": 1.471,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-04-26",
+    "end": "2025-05-02",
+    "n_prior": 1023,
+    "n_scored": 19,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2324930179838824,
+      "away_variance": 1.288374952273422,
+      "correlation": 0.26407845882946135,
+      "total_skew": 0.006302263703895649,
+      "margin_skew": -0.00589704052599143,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 717,
+       "n_test": 306,
+       "significant": false,
+       "residual_mae_before": 0.00041111457057609475,
+       "residual_mae_after": 0.00042966151550290714,
+       "delta_l1": 0.027582,
+       "delta_max": 0.000424,
+       "gate_z": 2.0,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 717,
+       "n_test": 306,
+       "significant": false,
+       "residual_mae_before": 0.00020159153112148332,
+       "residual_mae_after": 0.00020386686613513576,
+       "delta_l1": 0.054655,
+       "delta_max": 0.001614,
+       "gate_z": 1.34,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2324930179838824,
+      "away_variance": 1.288374952273422,
+      "correlation": 0.26407845882946135,
+      "total_skew": 0.006302263703895649,
+      "margin_skew": -0.00589704052599143,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.019645689161663378,
+      -0.6263516988387988,
+      -0.08139442475620717,
+      -0.0228413073112644,
+      0.30619140165609965,
+      0.03883869972220119,
+      0.023091132822739217,
+      -0.2768945104916622,
+      -0.12615316914475366
+     ],
+     "margin": [
+      0.008583011742366746,
+      -0.12484526449608432,
+      -0.10724178065040532,
+      0.00889262221488508,
+      0.040400196344265615,
+      0.08315349355383997,
+      0.06522558096493776,
+      -0.056466898127640025,
+      -0.019524042743259633
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 717,
+       "n_test": 306,
+       "significant": false,
+       "residual_mae_before": 0.00041111457057609475,
+       "residual_mae_after": 0.00042966151550290714,
+       "delta_l1": 0.027582,
+       "delta_max": 0.000424,
+       "gate_z": 2.0,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 717,
+       "n_test": 306,
+       "significant": false,
+       "residual_mae_before": 0.00020159153112148332,
+       "residual_mae_after": 0.00020386686613513576,
+       "delta_l1": 0.054655,
+       "delta_max": 0.001614,
+       "gate_z": 1.34,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-05-03",
+    "end": "2025-05-09",
+    "n_prior": 1042,
+    "n_scored": 12,
+    "maps": {
+     "variance": {
+      "home_variance": 1.238639392278318,
+      "away_variance": 1.281186803045738,
+      "correlation": 0.25816100986783863,
+      "total_skew": 0.007552510650180585,
+      "margin_skew": -0.011891423520764319,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 730,
+       "n_test": 312,
+       "significant": false,
+       "residual_mae_before": 0.0003989738066111821,
+       "residual_mae_after": 0.0004169887883725705,
+       "delta_l1": 0.025998,
+       "delta_max": 0.000367,
+       "gate_z": 2.212,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 730,
+       "n_test": 312,
+       "significant": false,
+       "residual_mae_before": 0.0002031051928177109,
+       "residual_mae_after": 0.00020616673427661692,
+       "delta_l1": 0.052677999999999996,
+       "delta_max": 0.001443,
+       "gate_z": 1.463,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.238639392278318,
+      "away_variance": 1.281186803045738,
+      "correlation": 0.25816100986783863,
+      "total_skew": 0.007552510650180585,
+      "margin_skew": -0.011891423520764319,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.02838816701357846,
+      -0.6565406590433609,
+      -0.07537778995181212,
+      -0.02078135357686972,
+      0.3081899832557384,
+      0.04536964445271119,
+      0.022474338560579978,
+      -0.28384985891082504,
+      -0.11588982324244411
+     ],
+     "margin": [
+      0.0209369239263572,
+      -0.12123108629473531,
+      -0.10922126276117788,
+      0.017196838207769728,
+      0.027135438018638228,
+      0.08336882573513484,
+      0.06472488712005935,
+      -0.05154086787870827,
+      -0.021709397521252078
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 730,
+       "n_test": 312,
+       "significant": false,
+       "residual_mae_before": 0.0003989738066111821,
+       "residual_mae_after": 0.0004169887883725705,
+       "delta_l1": 0.025998,
+       "delta_max": 0.000367,
+       "gate_z": 2.212,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 730,
+       "n_test": 312,
+       "significant": false,
+       "residual_mae_before": 0.0002031051928177109,
+       "residual_mae_after": 0.00020616673427661692,
+       "delta_l1": 0.052677999999999996,
+       "delta_max": 0.001443,
+       "gate_z": 1.463,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-05-10",
+    "end": "2025-05-16",
+    "n_prior": 1054,
+    "n_scored": 12,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2483779289488546,
+      "away_variance": 1.2782848337608197,
+      "correlation": 0.2562354304052045,
+      "total_skew": 0.007197271166123461,
+      "margin_skew": -0.007536172479301297,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 738,
+       "n_test": 316,
+       "significant": false,
+       "residual_mae_before": 0.0003975117631339687,
+       "residual_mae_after": 0.0004200955656695703,
+       "delta_l1": 0.028124,
+       "delta_max": 0.000406,
+       "gate_z": 1.97,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 738,
+       "n_test": 316,
+       "significant": false,
+       "residual_mae_before": 0.0002014024351440344,
+       "residual_mae_after": 0.00020662426763109866,
+       "delta_l1": 0.054131,
+       "delta_max": 0.00144,
+       "gate_z": 1.438,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2483779289488546,
+      "away_variance": 1.2782848337608197,
+      "correlation": 0.2562354304052045,
+      "total_skew": 0.007197271166123461,
+      "margin_skew": -0.007536172479301297,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.034912024099290215,
+      -0.7032084349594637,
+      -0.09295989024492964,
+      -0.024090779924859872,
+      0.34380748316220744,
+      0.04813495625035344,
+      0.02455355086858051,
+      -0.29176696669674296,
+      -0.12328370616370195
+     ],
+     "margin": [
+      0.02863790624625244,
+      -0.13534557562282,
+      -0.10228605449580565,
+      0.017860909461484508,
+      0.0346229500511498,
+      0.08376929637405006,
+      0.056247241740396026,
+      -0.049593688420985126,
+      -0.019408731970953146
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 738,
+       "n_test": 316,
+       "significant": false,
+       "residual_mae_before": 0.0003975117631339687,
+       "residual_mae_after": 0.0004200955656695703,
+       "delta_l1": 0.028124,
+       "delta_max": 0.000406,
+       "gate_z": 1.97,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 738,
+       "n_test": 316,
+       "significant": false,
+       "residual_mae_before": 0.0002014024351440344,
+       "residual_mae_after": 0.00020662426763109866,
+       "delta_l1": 0.054131,
+       "delta_max": 0.00144,
+       "gate_z": 1.438,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-05-18",
+    "end": "2025-05-25",
+    "n_prior": 1066,
+    "n_scored": 7,
+    "maps": {
+     "variance": {
+      "home_variance": 1.25176813779289,
+      "away_variance": 1.2792171691838778,
+      "correlation": 0.2533442537749888,
+      "total_skew": 0.005944727043103999,
+      "margin_skew": -0.0018840199897943203,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 747,
+       "n_test": 319,
+       "significant": false,
+       "residual_mae_before": 0.00039393887841538485,
+       "residual_mae_after": 0.0004134199941971943,
+       "delta_l1": 0.024187,
+       "delta_max": 0.000292,
+       "gate_z": 2.107,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 747,
+       "n_test": 319,
+       "significant": false,
+       "residual_mae_before": 0.0001975854551209606,
+       "residual_mae_after": 0.0002018372500746609,
+       "delta_l1": 0.050495,
+       "delta_max": 0.001338,
+       "gate_z": 1.537,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.25176813779289,
+      "away_variance": 1.2792171691838778,
+      "correlation": 0.2533442537749888,
+      "total_skew": 0.005944727043103999,
+      "margin_skew": -0.0018840199897943203,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.03453832897368258,
+      -0.6767764333657847,
+      -0.08998139938206422,
+      -0.02421706467392999,
+      0.33160243419830515,
+      0.04922068173851206,
+      0.027082648463586854,
+      -0.28389717126041064,
+      -0.12160294076545404
+     ],
+     "margin": [
+      0.022461402243781816,
+      -0.11627532288638637,
+      -0.09764966143851901,
+      0.020421425579740405,
+      0.028402016479425755,
+      0.0852335162766167,
+      0.054268563561493614,
+      -0.03626147169732695,
+      -0.013685313137005066
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 747,
+       "n_test": 319,
+       "significant": false,
+       "residual_mae_before": 0.00039393887841538485,
+       "residual_mae_after": 0.0004134199941971943,
+       "delta_l1": 0.024187,
+       "delta_max": 0.000292,
+       "gate_z": 2.107,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 747,
+       "n_test": 319,
+       "significant": false,
+       "residual_mae_before": 0.0001975854551209606,
+       "residual_mae_after": 0.0002018372500746609,
+       "delta_l1": 0.050495,
+       "delta_max": 0.001338,
+       "gate_z": 1.537,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-05-26",
+    "end": "2025-06-08",
+    "n_prior": 1073,
+    "n_scored": 7,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2598854209826826,
+      "away_variance": 1.2831930107179275,
+      "correlation": 0.2522153786512868,
+      "total_skew": 0.009067033899941583,
+      "margin_skew": 0.0036259001515946874,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 752,
+       "n_test": 321,
+       "significant": false,
+       "residual_mae_before": 0.0003961917971787071,
+       "residual_mae_after": 0.00041476227703555167,
+       "delta_l1": 0.022973,
+       "delta_max": 0.000297,
+       "gate_z": 2.072,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 752,
+       "n_test": 321,
+       "significant": false,
+       "residual_mae_before": 0.0001978039164824479,
+       "residual_mae_after": 0.00020295115096890916,
+       "delta_l1": 0.049898,
+       "delta_max": 0.001319,
+       "gate_z": 1.594,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2598854209826826,
+      "away_variance": 1.2831930107179275,
+      "correlation": 0.2522153786512868,
+      "total_skew": 0.009067033899941583,
+      "margin_skew": 0.0036259001515946874,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.03473237770173459,
+      -0.6614344595919552,
+      -0.0686965672009049,
+      -0.02033527213532883,
+      0.3241074301630232,
+      0.0454865791164153,
+      0.02460670457176449,
+      -0.2721528194678045,
+      -0.10641593344355421
+     ],
+     "margin": [
+      0.018272808739846803,
+      -0.09575788755016587,
+      -0.10805322936819708,
+      0.024149681447068548,
+      0.021734361344694326,
+      0.08682890426658527,
+      0.05246130035317456,
+      -0.019552222466697765,
+      -0.016699022663691304
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 752,
+       "n_test": 321,
+       "significant": false,
+       "residual_mae_before": 0.0003961917971787071,
+       "residual_mae_after": 0.00041476227703555167,
+       "delta_l1": 0.022973,
+       "delta_max": 0.000297,
+       "gate_z": 2.072,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 752,
+       "n_test": 321,
+       "significant": false,
+       "residual_mae_before": 0.0001978039164824479,
+       "residual_mae_after": 0.00020295115096890916,
+       "delta_l1": 0.049898,
+       "delta_max": 0.001319,
+       "gate_z": 1.594,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-06-11",
+    "end": "2025-10-22",
+    "n_prior": 1080,
+    "n_scored": 19,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2575609896031528,
+      "away_variance": 1.2833331327949355,
+      "correlation": 0.2529531740243075,
+      "total_skew": 0.008788450599357739,
+      "margin_skew": 0.003580849118180704,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 756,
+       "n_test": 324,
+       "significant": false,
+       "residual_mae_before": 0.00038883865543936074,
+       "residual_mae_after": 0.00040740276907137756,
+       "delta_l1": 0.021959,
+       "delta_max": 0.000295,
+       "gate_z": 2.153,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 756,
+       "n_test": 324,
+       "significant": false,
+       "residual_mae_before": 0.0001950619071389835,
+       "residual_mae_after": 0.00020058073046288151,
+       "delta_l1": 0.052294999999999994,
+       "delta_max": 0.001374,
+       "gate_z": 1.65,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2575609896031528,
+      "away_variance": 1.2833331327949355,
+      "correlation": 0.2529531740243075,
+      "total_skew": 0.008788450599357739,
+      "margin_skew": 0.003580849118180704,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.03344393666889807,
+      -0.6401692177954885,
+      -0.06330712693377519,
+      -0.01814806991646469,
+      0.31726479080696013,
+      0.05058040843325135,
+      0.021065663157152845,
+      -0.25973632235975946,
+      -0.09611030919143758
+     ],
+     "margin": [
+      0.012613567425654185,
+      -0.08569517743511704,
+      -0.10494605668707556,
+      0.023656914525475845,
+      0.016895363412088176,
+      0.08497051893177278,
+      0.051864411227934414,
+      -0.015889505101738467,
+      -0.015774112409323877
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 756,
+       "n_test": 324,
+       "significant": false,
+       "residual_mae_before": 0.00038883865543936074,
+       "residual_mae_after": 0.00040740276907137756,
+       "delta_l1": 0.021959,
+       "delta_max": 0.000295,
+       "gate_z": 2.153,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 756,
+       "n_test": 324,
+       "significant": false,
+       "residual_mae_before": 0.0001950619071389835,
+       "residual_mae_after": 0.00020058073046288151,
+       "delta_l1": 0.052294999999999994,
+       "delta_max": 0.001374,
+       "gate_z": 1.65,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-10-23",
+    "end": "2025-10-29",
+    "n_prior": 1099,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.259354333844273,
+      "away_variance": 1.2798974597873283,
+      "correlation": 0.2532788241290485,
+      "total_skew": 0.006221312347832304,
+      "margin_skew": 0.0026985316085222683,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 770,
+       "n_test": 329,
+       "significant": false,
+       "residual_mae_before": 0.0003745653733430426,
+       "residual_mae_after": 0.0003910040570669816,
+       "delta_l1": 0.021344999999999996,
+       "delta_max": 0.0003,
+       "gate_z": 2.013,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 770,
+       "n_test": 329,
+       "significant": false,
+       "residual_mae_before": 0.00018954711439974424,
+       "residual_mae_after": 0.00019336895109893816,
+       "delta_l1": 0.05172099999999999,
+       "delta_max": 0.001368,
+       "gate_z": 1.64,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.259354333844273,
+      "away_variance": 1.2798974597873283,
+      "correlation": 0.2532788241290485,
+      "total_skew": 0.006221312347832304,
+      "margin_skew": 0.0026985316085222683,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.02116401646502658,
+      -0.5903266783537989,
+      -0.05254168071965494,
+      -0.018750358462415715,
+      0.3060571150428406,
+      0.04042929621187674,
+      0.018059553435926214,
+      -0.22719303773035374,
+      -0.08956562278008422
+     ],
+     "margin": [
+      0.00888518760368852,
+      -0.07150594802532403,
+      -0.10265835369375301,
+      0.024505353857711555,
+      -0.0003972604737580509,
+      0.08871464454172746,
+      0.05195853185100369,
+      -0.01473666760851277,
+      -0.017273454971430492
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 770,
+       "n_test": 329,
+       "significant": false,
+       "residual_mae_before": 0.0003745653733430426,
+       "residual_mae_after": 0.0003910040570669816,
+       "delta_l1": 0.021344999999999996,
+       "delta_max": 0.0003,
+       "gate_z": 2.013,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 770,
+       "n_test": 329,
+       "significant": false,
+       "residual_mae_before": 0.00018954711439974424,
+       "residual_mae_after": 0.00019336895109893816,
+       "delta_l1": 0.05172099999999999,
+       "delta_max": 0.001368,
+       "gate_z": 1.64,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-10-30",
+    "end": "2025-11-05",
+    "n_prior": 1153,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2791709347445002,
+      "away_variance": 1.2925189106054853,
+      "correlation": 0.26521800255073,
+      "total_skew": 0.010338683935360962,
+      "margin_skew": -0.0028435531187312904,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 808,
+       "n_test": 345,
+       "significant": false,
+       "residual_mae_before": 0.00034739285053948777,
+       "residual_mae_after": 0.0003665130458678678,
+       "delta_l1": 0.022195999999999997,
+       "delta_max": 0.000386,
+       "gate_z": 1.106,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 808,
+       "n_test": 345,
+       "significant": false,
+       "residual_mae_before": 0.00018343151394645778,
+       "residual_mae_after": 0.0001840993091149901,
+       "delta_l1": 0.050964999999999996,
+       "delta_max": 0.001484,
+       "gate_z": 1.193,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2791709347445002,
+      "away_variance": 1.2925189106054853,
+      "correlation": 0.26521800255073,
+      "total_skew": 0.010338683935360962,
+      "margin_skew": -0.0028435531187312904,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.00010574356709066736,
+      -0.5381602978634816,
+      0.025471614792810085,
+      -0.0028943465552103715,
+      0.2881383456111169,
+      0.009989294501358855,
+      0.0038653300328449674,
+      -0.19437942140211345,
+      -0.036399525123862304
+     ],
+     "margin": [
+      -0.005622674032603176,
+      -0.06503702987191892,
+      -0.09592707348897825,
+      0.02457475297186728,
+      0.015022692733837339,
+      0.08602582882159655,
+      0.05030345739356943,
+      -0.0002650285793907491,
+      -0.017029586256427316
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 808,
+       "n_test": 345,
+       "significant": false,
+       "residual_mae_before": 0.00034739285053948777,
+       "residual_mae_after": 0.0003665130458678678,
+       "delta_l1": 0.022195999999999997,
+       "delta_max": 0.000386,
+       "gate_z": 1.106,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 808,
+       "n_test": 345,
+       "significant": false,
+       "residual_mae_before": 0.00018343151394645778,
+       "residual_mae_after": 0.0001840993091149901,
+       "delta_l1": 0.050964999999999996,
+       "delta_max": 0.001484,
+       "gate_z": 1.193,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-11-06",
+    "end": "2025-11-12",
+    "n_prior": 1205,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2639461379170205,
+      "away_variance": 1.2702835836059567,
+      "correlation": 0.2597356250126727,
+      "total_skew": 0.008748171180132651,
+      "margin_skew": -0.005745425052743357,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 844,
+       "n_test": 361,
+       "significant": false,
+       "residual_mae_before": 0.0003501986110249661,
+       "residual_mae_after": 0.00036396233814643035,
+       "delta_l1": 0.0184,
+       "delta_max": 0.000294,
+       "gate_z": 1.362,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 844,
+       "n_test": 361,
+       "significant": false,
+       "residual_mae_before": 0.00017520202489566998,
+       "residual_mae_after": 0.0001730982405644588,
+       "delta_l1": 0.049765000000000004,
+       "delta_max": 0.001698,
+       "gate_z": 1.153,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2639461379170205,
+      "away_variance": 1.2702835836059567,
+      "correlation": 0.2597356250126727,
+      "total_skew": 0.008748171180132651,
+      "margin_skew": -0.005745425052743357,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.006293423230446321,
+      -0.46944841663376286,
+      0.007771753578451363,
+      0.0009960135067686605,
+      0.2757852040340316,
+      -0.0019477521887853722,
+      0.0035891082739436682,
+      -0.15888367799556308,
+      -0.06655637939868667
+     ],
+     "margin": [
+      -0.011666122240145939,
+      -0.11478254734235364,
+      -0.06776242838771321,
+      0.016142623333950838,
+      0.038687802544772734,
+      0.08106142882885628,
+      0.052705731726169526,
+      -0.015898146111747516,
+      -0.005728763504791475
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 844,
+       "n_test": 361,
+       "significant": false,
+       "residual_mae_before": 0.0003501986110249661,
+       "residual_mae_after": 0.00036396233814643035,
+       "delta_l1": 0.0184,
+       "delta_max": 0.000294,
+       "gate_z": 1.362,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 844,
+       "n_test": 361,
+       "significant": false,
+       "residual_mae_before": 0.00017520202489566998,
+       "residual_mae_after": 0.0001730982405644588,
+       "delta_l1": 0.049765000000000004,
+       "delta_max": 0.001698,
+       "gate_z": 1.153,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-11-13",
+    "end": "2025-11-19",
+    "n_prior": 1259,
+    "n_scored": 48,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2525849270812648,
+      "away_variance": 1.2720602400045127,
+      "correlation": 0.2575886824042458,
+      "total_skew": 0.009401071721326284,
+      "margin_skew": -0.005453912402418998,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 882,
+       "n_test": 377,
+       "significant": false,
+       "residual_mae_before": 0.00033594638991768397,
+       "residual_mae_after": 0.0003492676914502855,
+       "delta_l1": 0.014997,
+       "delta_max": 0.000198,
+       "gate_z": 1.841,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 882,
+       "n_test": 377,
+       "significant": false,
+       "residual_mae_before": 0.0001770785337102928,
+       "residual_mae_after": 0.00017521262207815315,
+       "delta_l1": 0.04434500000000001,
+       "delta_max": 0.001587,
+       "gate_z": 0.885,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2525849270812648,
+      "away_variance": 1.2720602400045127,
+      "correlation": 0.2575886824042458,
+      "total_skew": 0.009401071721326284,
+      "margin_skew": -0.005453912402418998,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.009888523245439982,
+      -0.46090368516181457,
+      -0.025761211347716945,
+      0.0086933283646439,
+      0.2814402980007132,
+      0.005505604086845639,
+      0.002221720283452246,
+      -0.1540761494291928,
+      -0.08303469669445147
+     ],
+     "margin": [
+      -0.018256856011731937,
+      -0.10395156144623943,
+      -0.06604035477542078,
+      0.019162924648159753,
+      0.02805636552236003,
+      0.0707855957253761,
+      0.045336491588032046,
+      -0.015833358261025474,
+      -0.014332092641035889
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 882,
+       "n_test": 377,
+       "significant": false,
+       "residual_mae_before": 0.00033594638991768397,
+       "residual_mae_after": 0.0003492676914502855,
+       "delta_l1": 0.014997,
+       "delta_max": 0.000198,
+       "gate_z": 1.841,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 882,
+       "n_test": 377,
+       "significant": false,
+       "residual_mae_before": 0.0001770785337102928,
+       "residual_mae_after": 0.00017521262207815315,
+       "delta_l1": 0.04434500000000001,
+       "delta_max": 0.001587,
+       "gate_z": 0.885,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-11-20",
+    "end": "2025-11-26",
+    "n_prior": 1307,
+    "n_scored": 50,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2506351421649284,
+      "away_variance": 1.2607625426452485,
+      "correlation": 0.26902689961746723,
+      "total_skew": 0.016400055653603935,
+      "margin_skew": -0.003375164119613113,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 915,
+       "n_test": 392,
+       "significant": false,
+       "residual_mae_before": 0.00033896085922038497,
+       "residual_mae_after": 0.00035376078016677103,
+       "delta_l1": 0.018145,
+       "delta_max": 0.000283,
+       "gate_z": 1.258,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 915,
+       "n_test": 392,
+       "significant": false,
+       "residual_mae_before": 0.00017827579555778646,
+       "residual_mae_after": 0.0001794831788216406,
+       "delta_l1": 0.050505999999999995,
+       "delta_max": 0.001802,
+       "gate_z": 0.967,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2506351421649284,
+      "away_variance": 1.2607625426452485,
+      "correlation": 0.26902689961746723,
+      "total_skew": 0.016400055653603935,
+      "margin_skew": -0.003375164119613113,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.01624500321265834,
+      -0.4476890651958184,
+      0.01600729412576793,
+      0.014736813325014864,
+      0.270687204745172,
+      -0.012974973937561871,
+      0.003101965860981123,
+      -0.16255334206031566,
+      -0.06806096957227518
+     ],
+     "margin": [
+      -0.007248813256801157,
+      -0.09389888766697503,
+      -0.07173440228869245,
+      0.024852050716287155,
+      0.03955243278262407,
+      0.0913854351865778,
+      0.04649243492881905,
+      0.00837185209004594,
+      -0.003291094732290063
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 915,
+       "n_test": 392,
+       "significant": false,
+       "residual_mae_before": 0.00033896085922038497,
+       "residual_mae_after": 0.00035376078016677103,
+       "delta_l1": 0.018145,
+       "delta_max": 0.000283,
+       "gate_z": 1.258,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 915,
+       "n_test": 392,
+       "significant": false,
+       "residual_mae_before": 0.00017827579555778646,
+       "residual_mae_after": 0.0001794831788216406,
+       "delta_l1": 0.050505999999999995,
+       "delta_max": 0.001802,
+       "gate_z": 0.967,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-11-28",
+    "end": "2025-12-04",
+    "n_prior": 1357,
+    "n_scored": 56,
+    "maps": {
+     "variance": {
+      "home_variance": 1.253802557814261,
+      "away_variance": 1.2558298787553936,
+      "correlation": 0.2687192935085831,
+      "total_skew": 0.014519567585042834,
+      "margin_skew": 0.0005932219067283329,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 950,
+       "n_test": 407,
+       "significant": false,
+       "residual_mae_before": 0.00033732981296417534,
+       "residual_mae_after": 0.0003474146715332269,
+       "delta_l1": 0.012145,
+       "delta_max": 0.000225,
+       "gate_z": 0.763,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 950,
+       "n_test": 407,
+       "significant": false,
+       "residual_mae_before": 0.0001719452672226439,
+       "residual_mae_after": 0.00017583481354366848,
+       "delta_l1": 0.05228699999999999,
+       "delta_max": 0.001873,
+       "gate_z": 0.961,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.253802557814261,
+      "away_variance": 1.2558298787553936,
+      "correlation": 0.2687192935085831,
+      "total_skew": 0.014519567585042834,
+      "margin_skew": 0.0005932219067283329,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.01799778695170254,
+      -0.4205955130291875,
+      0.034768570028066714,
+      0.011481558194912244,
+      0.2461473307177408,
+      -0.016687673805017074,
+      -0.000493195741300737,
+      -0.1545548534464742,
+      -0.047852901119657607
+     ],
+     "margin": [
+      0.0022855720849760423,
+      -0.07654698594726662,
+      -0.06603313545615357,
+      0.026370522179842485,
+      0.034031965926149016,
+      0.09171309761217854,
+      0.04751422051714065,
+      0.013549649442160394,
+      -0.004807380796061319
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 950,
+       "n_test": 407,
+       "significant": false,
+       "residual_mae_before": 0.00033732981296417534,
+       "residual_mae_after": 0.0003474146715332269,
+       "delta_l1": 0.012145,
+       "delta_max": 0.000225,
+       "gate_z": 0.763,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 950,
+       "n_test": 407,
+       "significant": false,
+       "residual_mae_before": 0.0001719452672226439,
+       "residual_mae_after": 0.00017583481354366848,
+       "delta_l1": 0.05228699999999999,
+       "delta_max": 0.001873,
+       "gate_z": 0.961,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-12-05",
+    "end": "2025-12-11",
+    "n_prior": 1413,
+    "n_scored": 37,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2483054965981761,
+      "away_variance": 1.2612497042905455,
+      "correlation": 0.2754745643212608,
+      "total_skew": 0.016317406115106563,
+      "margin_skew": 0.0007850148593066372,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 990,
+       "n_test": 423,
+       "significant": false,
+       "residual_mae_before": 0.0003260532628233219,
+       "residual_mae_after": 0.00033551915300635015,
+       "delta_l1": 0.013513,
+       "delta_max": 0.000307,
+       "gate_z": 0.252,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 990,
+       "n_test": 423,
+       "significant": false,
+       "residual_mae_before": 0.0001707137123626349,
+       "residual_mae_after": 0.0001767739717990814,
+       "delta_l1": 0.05693,
+       "delta_max": 0.002041,
+       "gate_z": 0.87,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2483054965981761,
+      "away_variance": 1.2612497042905455,
+      "correlation": 0.2754745643212608,
+      "total_skew": 0.016317406115106563,
+      "margin_skew": 0.0007850148593066372,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.032910646880568654,
+      -0.431614730599828,
+      -0.0007538261353594867,
+      0.012383901304999658,
+      0.2243216912429889,
+      -0.0036269105563359366,
+      0.0038855684141620426,
+      -0.17833203202971054,
+      -0.06775634822619188
+     ],
+     "margin": [
+      0.008798930606662909,
+      -0.05777612909784917,
+      -0.0438022105573414,
+      0.028867144682141965,
+      0.03257847518423956,
+      0.07291114856622816,
+      0.045743048463169414,
+      0.022925709658153912,
+      -0.00040786114549025995
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 990,
+       "n_test": 423,
+       "significant": false,
+       "residual_mae_before": 0.0003260532628233219,
+       "residual_mae_after": 0.00033551915300635015,
+       "delta_l1": 0.013513,
+       "delta_max": 0.000307,
+       "gate_z": 0.252,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 990,
+       "n_test": 423,
+       "significant": false,
+       "residual_mae_before": 0.0001707137123626349,
+       "residual_mae_after": 0.0001767739717990814,
+       "delta_l1": 0.05693,
+       "delta_max": 0.002041,
+       "gate_z": 0.87,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-12-12",
+    "end": "2025-12-19",
+    "n_prior": 1450,
+    "n_scored": 41,
+    "maps": {
+     "variance": {
+      "home_variance": 1.254662282213581,
+      "away_variance": 1.2517960191363917,
+      "correlation": 0.2696617517130757,
+      "total_skew": 0.015363374433689935,
+      "margin_skew": 0.0011485576452082843,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1015,
+       "n_test": 435,
+       "significant": false,
+       "residual_mae_before": 0.00031311183406606587,
+       "residual_mae_after": 0.00032522497882480126,
+       "delta_l1": 0.014266000000000001,
+       "delta_max": 0.000227,
+       "gate_z": 1.09,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1015,
+       "n_test": 435,
+       "significant": false,
+       "residual_mae_before": 0.00016781013867730923,
+       "residual_mae_after": 0.0001750899478179427,
+       "delta_l1": 0.051913,
+       "delta_max": 0.001898,
+       "gate_z": 0.678,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.254662282213581,
+      "away_variance": 1.2517960191363917,
+      "correlation": 0.2696617517130757,
+      "total_skew": 0.015363374433689935,
+      "margin_skew": 0.0011485576452082843,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.02276478592513683,
+      -0.4435457035665906,
+      -0.016435756193488412,
+      0.013818687780634093,
+      0.22447080753674456,
+      0.007369369834800019,
+      0.0009397443416244151,
+      -0.19283507242403128,
+      -0.061976105478088385
+     ],
+     "margin": [
+      0.008714755074986737,
+      -0.05626980966235464,
+      -0.041224809609397714,
+      0.02762046120573024,
+      0.024422718291272842,
+      0.06472299930346669,
+      0.04454218035636289,
+      0.017785047131469802,
+      -0.00703002913409461
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1015,
+       "n_test": 435,
+       "significant": false,
+       "residual_mae_before": 0.00031311183406606587,
+       "residual_mae_after": 0.00032522497882480126,
+       "delta_l1": 0.014266000000000001,
+       "delta_max": 0.000227,
+       "gate_z": 1.09,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1015,
+       "n_test": 435,
+       "significant": false,
+       "residual_mae_before": 0.00016781013867730923,
+       "residual_mae_after": 0.0001750899478179427,
+       "delta_l1": 0.051913,
+       "delta_max": 0.001898,
+       "gate_z": 0.678,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-12-20",
+    "end": "2025-12-27",
+    "n_prior": 1491,
+    "n_scored": 60,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2628117629593436,
+      "away_variance": 1.2481197540873852,
+      "correlation": 0.2718243226276025,
+      "total_skew": 0.02136552522843531,
+      "margin_skew": 0.0017156653110021493,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.025113130383811782,
+      -0.48717033489123324,
+      0.00867119326971596,
+      0.01650677792421493,
+      0.2321202248895776,
+      0.0036326564545892366,
+      -0.006654512876500455,
+      -0.23290194957620883,
+      -0.044920728042178164
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1044,
+       "n_test": 447,
+       "significant": false,
+       "residual_mae_before": 0.0002989889987777439,
+       "residual_mae_after": 0.0003106878340522863,
+       "delta_l1": 0.014084999999999999,
+       "delta_max": 0.000201,
+       "gate_z": 1.56,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1044,
+       "n_test": 447,
+       "significant": false,
+       "residual_mae_before": 0.00016726367481219483,
+       "residual_mae_after": 0.00017288938066150163,
+       "delta_l1": 0.050570000000000004,
+       "delta_max": 0.001838,
+       "gate_z": 1.038,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2628117629593436,
+      "away_variance": 1.2481197540873852,
+      "correlation": 0.2718243226276025,
+      "total_skew": 0.02136552522843531,
+      "margin_skew": 0.0017156653110021493,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.025113130383811782,
+      -0.48717033489123324,
+      0.00867119326971596,
+      0.01650677792421493,
+      0.2321202248895776,
+      0.0036326564545892366,
+      -0.006654512876500455,
+      -0.23290194957620883,
+      -0.044920728042178164
+     ],
+     "margin": [
+      0.007974217627032867,
+      -0.054583145405047995,
+      -0.04183330074639716,
+      0.02465161379448066,
+      0.01845464431297388,
+      0.0543583192742529,
+      0.04946400667026242,
+      0.017299087759087183,
+      -0.010192627987478832
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1044,
+       "n_test": 447,
+       "significant": false,
+       "residual_mae_before": 0.0002989889987777439,
+       "residual_mae_after": 0.0003106878340522863,
+       "delta_l1": 0.014084999999999999,
+       "delta_max": 0.000201,
+       "gate_z": 1.56,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1044,
+       "n_test": 447,
+       "significant": false,
+       "residual_mae_before": 0.00016726367481219483,
+       "residual_mae_after": 0.00017288938066150163,
+       "delta_l1": 0.050570000000000004,
+       "delta_max": 0.001838,
+       "gate_z": 1.038,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2025-12-28",
+    "end": "2026-01-03",
+    "n_prior": 1551,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2785611958047602,
+      "away_variance": 1.251235176723322,
+      "correlation": 0.2793697869246389,
+      "total_skew": 0.019856916112026474,
+      "margin_skew": 0.0020864360254848704,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.024999298943143757,
+      -0.5492711782308753,
+      -0.03328061217991112,
+      0.018205426033638766,
+      0.2519843319173092,
+      0.007905867726618282,
+      -0.008328988046750991,
+      -0.2611541815734188,
+      -0.06589320377326381
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1086,
+       "n_test": 465,
+       "significant": false,
+       "residual_mae_before": 0.0002979988431852848,
+       "residual_mae_after": 0.0003081156771432249,
+       "delta_l1": 0.014056,
+       "delta_max": 0.000208,
+       "gate_z": 1.605,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1086,
+       "n_test": 465,
+       "significant": false,
+       "residual_mae_before": 0.00016152571763027905,
+       "residual_mae_after": 0.00016959334257208068,
+       "delta_l1": 0.042574,
+       "delta_max": 0.001563,
+       "gate_z": 1.474,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2785611958047602,
+      "away_variance": 1.251235176723322,
+      "correlation": 0.2793697869246389,
+      "total_skew": 0.019856916112026474,
+      "margin_skew": 0.0020864360254848704,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.024999298943143757,
+      -0.5492711782308753,
+      -0.03328061217991112,
+      0.018205426033638766,
+      0.2519843319173092,
+      0.007905867726618282,
+      -0.008328988046750991,
+      -0.2611541815734188,
+      -0.06589320377326381
+     ],
+     "margin": [
+      0.001104626750433543,
+      -0.08302113280928362,
+      -0.03151290231702505,
+      0.01716470163382825,
+      0.047127410607609325,
+      0.04605234216809952,
+      0.04668676954243336,
+      0.03384591934770818,
+      -0.0019549145566769574
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1086,
+       "n_test": 465,
+       "significant": false,
+       "residual_mae_before": 0.0002979988431852848,
+       "residual_mae_after": 0.0003081156771432249,
+       "delta_l1": 0.014056,
+       "delta_max": 0.000208,
+       "gate_z": 1.605,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1086,
+       "n_test": 465,
+       "significant": false,
+       "residual_mae_before": 0.00016152571763027905,
+       "residual_mae_after": 0.00016959334257208068,
+       "delta_l1": 0.042574,
+       "delta_max": 0.001563,
+       "gate_z": 1.474,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-01-04",
+    "end": "2026-01-10",
+    "n_prior": 1604,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2762961356353355,
+      "away_variance": 1.2474319104210194,
+      "correlation": 0.27491700571151495,
+      "total_skew": 0.021628851861559474,
+      "margin_skew": 0.0021946833648097343,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.027218453507286827,
+      -0.5218957720459624,
+      -0.011677026795439896,
+      0.025950721588449244,
+      0.2380054751513007,
+      0.006061569634937747,
+      -0.014109493792876538,
+      -0.25344771339345934,
+      -0.050545976301227584
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1123,
+       "n_test": 481,
+       "significant": false,
+       "residual_mae_before": 0.0002838514567060536,
+       "residual_mae_after": 0.00029314096675682076,
+       "delta_l1": 0.012389,
+       "delta_max": 0.000199,
+       "gate_z": 1.519,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1123,
+       "n_test": 481,
+       "significant": false,
+       "residual_mae_before": 0.00015989779448856998,
+       "residual_mae_after": 0.00016714245128342099,
+       "delta_l1": 0.049835,
+       "delta_max": 0.001815,
+       "gate_z": 1.333,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2762961356353355,
+      "away_variance": 1.2474319104210194,
+      "correlation": 0.27491700571151495,
+      "total_skew": 0.021628851861559474,
+      "margin_skew": 0.0021946833648097343,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.027218453507286827,
+      -0.5218957720459624,
+      -0.011677026795439896,
+      0.025950721588449244,
+      0.2380054751513007,
+      0.006061569634937747,
+      -0.014109493792876538,
+      -0.25344771339345934,
+      -0.050545976301227584
+     ],
+     "margin": [
+      0.002419446080730408,
+      -0.07208199700090522,
+      -0.04663379024746484,
+      0.014129091402469646,
+      0.041881811409053796,
+      0.05607767771943776,
+      0.04313569223881593,
+      0.03830137908501707,
+      -0.009810033315010418
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1123,
+       "n_test": 481,
+       "significant": false,
+       "residual_mae_before": 0.0002838514567060536,
+       "residual_mae_after": 0.00029314096675682076,
+       "delta_l1": 0.012389,
+       "delta_max": 0.000199,
+       "gate_z": 1.519,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1123,
+       "n_test": 481,
+       "significant": false,
+       "residual_mae_before": 0.00015989779448856998,
+       "residual_mae_after": 0.00016714245128342099,
+       "delta_l1": 0.049835,
+       "delta_max": 0.001815,
+       "gate_z": 1.333,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-01-11",
+    "end": "2026-01-17",
+    "n_prior": 1657,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.284811322695753,
+      "away_variance": 1.2529340730158782,
+      "correlation": 0.27638142888042655,
+      "total_skew": 0.022628040021799658,
+      "margin_skew": -0.005721454152464214,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1160,
+       "n_test": 497,
+       "significant": false,
+       "residual_mae_before": 0.0002693470362993201,
+       "residual_mae_after": 0.000280692017845653,
+       "delta_l1": 0.01487,
+       "delta_max": 0.000233,
+       "gate_z": 1.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1160,
+       "n_test": 497,
+       "significant": false,
+       "residual_mae_before": 0.00015025604446990511,
+       "residual_mae_after": 0.00015702690435666927,
+       "delta_l1": 0.049282000000000006,
+       "delta_max": 0.001796,
+       "gate_z": 1.517,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.284811322695753,
+      "away_variance": 1.2529340730158782,
+      "correlation": 0.27638142888042655,
+      "total_skew": 0.022628040021799658,
+      "margin_skew": -0.005721454152464214,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.009969349511868765,
+      -0.4496998324398893,
+      -0.044008059344484686,
+      0.019233814816003128,
+      0.2065775105475007,
+      0.017949957493094148,
+      -0.013537177004285791,
+      -0.22919289661168124,
+      -0.06318477428980424
+     ],
+     "margin": [
+      -0.0032374682068915276,
+      -0.09923343090478799,
+      -0.0418884824300634,
+      0.015111759405627706,
+      0.04114425404638297,
+      0.04659924308447811,
+      0.04998508414636284,
+      0.027039004417206813,
+      -0.012859194145805853
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1160,
+       "n_test": 497,
+       "significant": false,
+       "residual_mae_before": 0.0002693470362993201,
+       "residual_mae_after": 0.000280692017845653,
+       "delta_l1": 0.01487,
+       "delta_max": 0.000233,
+       "gate_z": 1.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1160,
+       "n_test": 497,
+       "significant": false,
+       "residual_mae_before": 0.00015025604446990511,
+       "residual_mae_after": 0.00015702690435666927,
+       "delta_l1": 0.049282000000000006,
+       "delta_max": 0.001796,
+       "gate_z": 1.517,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-01-18",
+    "end": "2026-01-24",
+    "n_prior": 1711,
+    "n_scored": 51,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2731549938796467,
+      "away_variance": 1.2445542409340928,
+      "correlation": 0.27457373246900735,
+      "total_skew": 0.01952809421663061,
+      "margin_skew": -0.00887340067654477,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1198,
+       "n_test": 513,
+       "significant": false,
+       "residual_mae_before": 0.00026525613564485983,
+       "residual_mae_after": 0.0002725277074450421,
+       "delta_l1": 0.009396000000000002,
+       "delta_max": 0.000177,
+       "gate_z": 1.214,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1198,
+       "n_test": 513,
+       "significant": false,
+       "residual_mae_before": 0.00014627540555661714,
+       "residual_mae_after": 0.00015286412716474648,
+       "delta_l1": 0.053250000000000006,
+       "delta_max": 0.001944,
+       "gate_z": 1.607,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2731549938796467,
+      "away_variance": 1.2445542409340928,
+      "correlation": 0.27457373246900735,
+      "total_skew": 0.01952809421663061,
+      "margin_skew": -0.00887340067654477,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.015168585793988967,
+      -0.4598387006658518,
+      -0.02839271810904997,
+      0.015235198871682674,
+      0.20526754606447264,
+      0.009056756731780415,
+      -0.011452421603825267,
+      -0.23299406906847997,
+      -0.05358098834801067
+     ],
+     "margin": [
+      -0.014613762988721177,
+      -0.07331201673944503,
+      -0.05250833104708688,
+      0.011617629778571082,
+      0.025106967327044035,
+      0.05207708978137378,
+      0.0533501778610532,
+      0.03473910684447102,
+      -0.019183208090514742
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1198,
+       "n_test": 513,
+       "significant": false,
+       "residual_mae_before": 0.00026525613564485983,
+       "residual_mae_after": 0.0002725277074450421,
+       "delta_l1": 0.009396000000000002,
+       "delta_max": 0.000177,
+       "gate_z": 1.214,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1198,
+       "n_test": 513,
+       "significant": false,
+       "residual_mae_before": 0.00014627540555661714,
+       "residual_mae_after": 0.00015286412716474648,
+       "delta_l1": 0.053250000000000006,
+       "delta_max": 0.001944,
+       "gate_z": 1.607,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-01-25",
+    "end": "2026-01-31",
+    "n_prior": 1762,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2688556623356033,
+      "away_variance": 1.247318446453763,
+      "correlation": 0.2725883094383445,
+      "total_skew": 0.02073215476920019,
+      "margin_skew": -0.004911011375578109,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1234,
+       "n_test": 528,
+       "significant": false,
+       "residual_mae_before": 0.0002645483327061884,
+       "residual_mae_after": 0.00027007412305560605,
+       "delta_l1": 0.007857,
+       "delta_max": 0.000175,
+       "gate_z": 0.565,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1234,
+       "n_test": 528,
+       "significant": false,
+       "residual_mae_before": 0.00014780137535888417,
+       "residual_mae_after": 0.00015815335264869813,
+       "delta_l1": 0.057603,
+       "delta_max": 0.002089,
+       "gate_z": 1.294,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2688556623356033,
+      "away_variance": 1.247318446453763,
+      "correlation": 0.2725883094383445,
+      "total_skew": 0.02073215476920019,
+      "margin_skew": -0.004911011375578109,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.012341870565115933,
+      -0.4425135348099091,
+      -0.04509600197786753,
+      0.0168073930334457,
+      0.1993286953887447,
+      0.01721695405298438,
+      -0.009306004790692742,
+      -0.21137334149994524,
+      -0.05777141021879954
+     ],
+     "margin": [
+      -0.008395244142142409,
+      -0.05312389190901667,
+      -0.0441301676031548,
+      0.01383436706979218,
+      0.011252300580801301,
+      0.048056204772014235,
+      0.05409814505974418,
+      0.03683439881901368,
+      -0.010703017938654935
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1234,
+       "n_test": 528,
+       "significant": false,
+       "residual_mae_before": 0.0002645483327061884,
+       "residual_mae_after": 0.00027007412305560605,
+       "delta_l1": 0.007857,
+       "delta_max": 0.000175,
+       "gate_z": 0.565,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1234,
+       "n_test": 528,
+       "significant": false,
+       "residual_mae_before": 0.00014780137535888417,
+       "residual_mae_after": 0.00015815335264869813,
+       "delta_l1": 0.057603,
+       "delta_max": 0.002089,
+       "gate_z": 1.294,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-02-01",
+    "end": "2026-02-07",
+    "n_prior": 1814,
+    "n_scored": 55,
+    "maps": {
+     "variance": {
+      "home_variance": 1.277682342822836,
+      "away_variance": 1.2469431690793538,
+      "correlation": 0.27344894334067243,
+      "total_skew": 0.022648661714957,
+      "margin_skew": -0.0031954035740692954,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1270,
+       "n_test": 544,
+       "significant": false,
+       "residual_mae_before": 0.0002588771468301162,
+       "residual_mae_after": 0.0002643912504738951,
+       "delta_l1": 0.007587999999999999,
+       "delta_max": 0.000156,
+       "gate_z": 0.581,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1270,
+       "n_test": 544,
+       "significant": false,
+       "residual_mae_before": 0.00014862320996707884,
+       "residual_mae_after": 0.00016042601893635547,
+       "delta_l1": 0.059246,
+       "delta_max": 0.002153,
+       "gate_z": 1.134,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.277682342822836,
+      "away_variance": 1.2469431690793538,
+      "correlation": 0.27344894334067243,
+      "total_skew": 0.022648661714957,
+      "margin_skew": -0.0031954035740692954,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0011461330617697186,
+      -0.43556433049752974,
+      -0.009823777581434498,
+      0.015953703850003227,
+      0.18665208257225768,
+      -0.005630034520054009,
+      -0.013809917285007212,
+      -0.20651151906244986,
+      -0.049888728692139866
+     ],
+     "margin": [
+      -0.0077633313533072125,
+      -0.017067737116540676,
+      -0.022053097679868745,
+      0.01441578910641813,
+      0.0016863226479662268,
+      0.045147172189671535,
+      0.04733356547437647,
+      0.05880722466100468,
+      0.006310276526838754
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1270,
+       "n_test": 544,
+       "significant": false,
+       "residual_mae_before": 0.0002588771468301162,
+       "residual_mae_after": 0.0002643912504738951,
+       "delta_l1": 0.007587999999999999,
+       "delta_max": 0.000156,
+       "gate_z": 0.581,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1270,
+       "n_test": 544,
+       "significant": false,
+       "residual_mae_before": 0.00014862320996707884,
+       "residual_mae_after": 0.00016042601893635547,
+       "delta_l1": 0.059246,
+       "delta_max": 0.002153,
+       "gate_z": 1.134,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-02-08",
+    "end": "2026-02-20",
+    "n_prior": 1869,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2764571425396798,
+      "away_variance": 1.2559793630974188,
+      "correlation": 0.2723864899935088,
+      "total_skew": 0.02153800091788693,
+      "margin_skew": 0.0005298583149033876,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1309,
+       "n_test": 560,
+       "significant": false,
+       "residual_mae_before": 0.00025873321265349803,
+       "residual_mae_after": 0.0002624003716166847,
+       "delta_l1": 0.006735,
+       "delta_max": 0.000148,
+       "gate_z": 0.119,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1309,
+       "n_test": 560,
+       "significant": false,
+       "residual_mae_before": 0.00015067501492473844,
+       "residual_mae_after": 0.00015868168775292284,
+       "delta_l1": 0.057968,
+       "delta_max": 0.00213,
+       "gate_z": 1.258,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2764571425396798,
+      "away_variance": 1.2559793630974188,
+      "correlation": 0.2723864899935088,
+      "total_skew": 0.02153800091788693,
+      "margin_skew": 0.0005298583149033876,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      7.959861231106148e-05,
+      -0.4753328326755869,
+      -0.008078738720932415,
+      0.013428005086475082,
+      0.19791930226812227,
+      -0.008562777235250106,
+      -0.015551431458747518,
+      -0.2158758763592275,
+      -0.046677961579408574
+     ],
+     "margin": [
+      -0.00185670205625914,
+      -0.03447128270550541,
+      -0.021474939844695878,
+      0.017639000485334167,
+      0.011564320662966783,
+      0.0424322765849894,
+      0.04777705725002894,
+      0.04984427728308368,
+      0.003286734956830508
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1309,
+       "n_test": 560,
+       "significant": false,
+       "residual_mae_before": 0.00025873321265349803,
+       "residual_mae_after": 0.0002624003716166847,
+       "delta_l1": 0.006735,
+       "delta_max": 0.000148,
+       "gate_z": 0.119,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1309,
+       "n_test": 560,
+       "significant": false,
+       "residual_mae_before": 0.00015067501492473844,
+       "residual_mae_after": 0.00015868168775292284,
+       "delta_l1": 0.057968,
+       "delta_max": 0.00213,
+       "gate_z": 1.258,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-02-21",
+    "end": "2026-02-27",
+    "n_prior": 1923,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.270168172941227,
+      "away_variance": 1.260833547131488,
+      "correlation": 0.262037019801365,
+      "total_skew": 0.02255623878958928,
+      "margin_skew": -0.003424797218594131,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1347,
+       "n_test": 576,
+       "significant": false,
+       "residual_mae_before": 0.00025884480156843065,
+       "residual_mae_after": 0.0002621692608030397,
+       "delta_l1": 0.005,
+       "delta_max": 8e-05,
+       "gate_z": 1.612,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1347,
+       "n_test": 576,
+       "significant": false,
+       "residual_mae_before": 0.00014836329087074252,
+       "residual_mae_after": 0.00015583406932478518,
+       "delta_l1": 0.053309999999999996,
+       "delta_max": 0.001939,
+       "gate_z": 1.395,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.270168172941227,
+      "away_variance": 1.260833547131488,
+      "correlation": 0.262037019801365,
+      "total_skew": 0.02255623878958928,
+      "margin_skew": -0.003424797218594131,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.002465694845508743,
+      -0.4919001806400636,
+      0.021160026425448102,
+      0.014333712568047142,
+      0.21251377167126193,
+      -0.027522754700344848,
+      -0.015856193187978502,
+      -0.21619969539532408,
+      -0.038379286752229756
+     ],
+     "margin": [
+      0.00932488805953699,
+      -0.05656257839463974,
+      -0.046686991200742274,
+      0.014391621238409239,
+      0.015513125294025813,
+      0.056813022659944014,
+      0.05211952888237155,
+      0.033058798376174425,
+      -0.0007429638494257932
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1347,
+       "n_test": 576,
+       "significant": false,
+       "residual_mae_before": 0.00025884480156843065,
+       "residual_mae_after": 0.0002621692608030397,
+       "delta_l1": 0.005,
+       "delta_max": 8e-05,
+       "gate_z": 1.612,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1347,
+       "n_test": 576,
+       "significant": false,
+       "residual_mae_before": 0.00014836329087074252,
+       "residual_mae_after": 0.00015583406932478518,
+       "delta_l1": 0.053309999999999996,
+       "delta_max": 0.001939,
+       "gate_z": 1.395,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-02-28",
+    "end": "2026-03-06",
+    "n_prior": 1975,
+    "n_scored": 52,
+    "maps": {
+     "variance": {
+      "home_variance": 1.271773661773308,
+      "away_variance": 1.2574768059080095,
+      "correlation": 0.263007316355109,
+      "total_skew": 0.017337689213518994,
+      "margin_skew": -0.007580030556986341,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1383,
+       "n_test": 592,
+       "significant": false,
+       "residual_mae_before": 0.00025742820127098824,
+       "residual_mae_after": 0.0002609659184145185,
+       "delta_l1": 0.005376000000000001,
+       "delta_max": 0.000105,
+       "gate_z": 1.187,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1383,
+       "n_test": 592,
+       "significant": false,
+       "residual_mae_before": 0.00014557704736457006,
+       "residual_mae_after": 0.00015262773088745482,
+       "delta_l1": 0.051818,
+       "delta_max": 0.001912,
+       "gate_z": 1.498,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.271773661773308,
+      "away_variance": 1.2574768059080095,
+      "correlation": 0.263007316355109,
+      "total_skew": 0.017337689213518994,
+      "margin_skew": -0.007580030556986341,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.002071043704360974,
+      -0.5084276006056796,
+      -0.00710639266061021,
+      0.011090058852913797,
+      0.22325032634699427,
+      -0.01861007308517891,
+      -0.0060853775509122745,
+      -0.2118471743680445,
+      -0.05806891729011781
+     ],
+     "margin": [
+      0.01592202725029461,
+      -0.03973874033610327,
+      -0.055712102055155525,
+      0.01271692667693097,
+      0.004695895817092819,
+      0.05310279198528615,
+      0.05131181488877463,
+      0.037247799349887006,
+      -0.011677565968929242
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1383,
+       "n_test": 592,
+       "significant": false,
+       "residual_mae_before": 0.00025742820127098824,
+       "residual_mae_after": 0.0002609659184145185,
+       "delta_l1": 0.005376000000000001,
+       "delta_max": 0.000105,
+       "gate_z": 1.187,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1383,
+       "n_test": 592,
+       "significant": false,
+       "residual_mae_before": 0.00014557704736457006,
+       "residual_mae_after": 0.00015262773088745482,
+       "delta_l1": 0.051818,
+       "delta_max": 0.001912,
+       "gate_z": 1.498,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-03-07",
+    "end": "2026-03-13",
+    "n_prior": 2027,
+    "n_scored": 55,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2668584966223755,
+      "away_variance": 1.253200249450538,
+      "correlation": 0.2604671518010713,
+      "total_skew": 0.01859438226896837,
+      "margin_skew": -0.009334548531661525,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1419,
+       "n_test": 608,
+       "significant": false,
+       "residual_mae_before": 0.0002674936315402888,
+       "residual_mae_after": 0.0002723455450178263,
+       "delta_l1": 0.0070539999999999995,
+       "delta_max": 9.5e-05,
+       "gate_z": 1.845,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1419,
+       "n_test": 608,
+       "significant": false,
+       "residual_mae_before": 0.00014678238795316642,
+       "residual_mae_after": 0.0001524969778898355,
+       "delta_l1": 0.047310000000000005,
+       "delta_max": 0.001732,
+       "gate_z": 1.555,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2668584966223755,
+      "away_variance": 1.253200249450538,
+      "correlation": 0.2604671518010713,
+      "total_skew": 0.01859438226896837,
+      "margin_skew": -0.009334548531661525,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007970794711712071,
+      -0.4967066841741649,
+      -0.010956003145710254,
+      0.009720538870982615,
+      0.2223277345141371,
+      -0.020059848540792236,
+      -0.005442648391434093,
+      -0.20541101630732925,
+      -0.05487013814485168
+     ],
+     "margin": [
+      0.019671428752382897,
+      -0.03753620840735701,
+      -0.08284376044120274,
+      0.013135477527564129,
+      0.014246918539257643,
+      0.07100035935510117,
+      0.052165839388068326,
+      0.03865747716601224,
+      -0.01006069973570752
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1419,
+       "n_test": 608,
+       "significant": false,
+       "residual_mae_before": 0.0002674936315402888,
+       "residual_mae_after": 0.0002723455450178263,
+       "delta_l1": 0.0070539999999999995,
+       "delta_max": 9.5e-05,
+       "gate_z": 1.845,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1419,
+       "n_test": 608,
+       "significant": false,
+       "residual_mae_before": 0.00014678238795316642,
+       "residual_mae_after": 0.0001524969778898355,
+       "delta_l1": 0.047310000000000005,
+       "delta_max": 0.001732,
+       "gate_z": 1.555,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-03-14",
+    "end": "2026-03-20",
+    "n_prior": 2082,
+    "n_scored": 53,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2710284103017329,
+      "away_variance": 1.253093500135357,
+      "correlation": 0.26434606668915606,
+      "total_skew": 0.020717271792795373,
+      "margin_skew": -0.010859029941505187,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1458,
+       "n_test": 624,
+       "significant": false,
+       "residual_mae_before": 0.0002694341266508319,
+       "residual_mae_after": 0.00027301981716663893,
+       "delta_l1": 0.006373,
+       "delta_max": 0.000107,
+       "gate_z": 1.757,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1458,
+       "n_test": 624,
+       "significant": false,
+       "residual_mae_before": 0.00014907289317451212,
+       "residual_mae_after": 0.00015643234443518022,
+       "delta_l1": 0.046825000000000006,
+       "delta_max": 0.001731,
+       "gate_z": 1.629,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2710284103017329,
+      "away_variance": 1.253093500135357,
+      "correlation": 0.26434606668915606,
+      "total_skew": 0.020717271792795373,
+      "margin_skew": -0.010859029941505187,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.002407184154844683,
+      -0.5080401821162835,
+      -0.021934551548775355,
+      0.014998755737149407,
+      0.2226398229568706,
+      -0.022194173266768567,
+      -0.009195856424533,
+      -0.20734233839013427,
+      -0.07102869238168506
+     ],
+     "margin": [
+      0.007991837579036943,
+      -0.03714074649943675,
+      -0.05979150511421811,
+      0.00971243300959582,
+      0.02255501827461947,
+      0.06748797044410063,
+      0.05555176673571551,
+      0.043165890255569904,
+      0.005207356825531892
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1458,
+       "n_test": 624,
+       "significant": false,
+       "residual_mae_before": 0.0002694341266508319,
+       "residual_mae_after": 0.00027301981716663893,
+       "delta_l1": 0.006373,
+       "delta_max": 0.000107,
+       "gate_z": 1.757,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1458,
+       "n_test": 624,
+       "significant": false,
+       "residual_mae_before": 0.00014907289317451212,
+       "residual_mae_after": 0.00015643234443518022,
+       "delta_l1": 0.046825000000000006,
+       "delta_max": 0.001731,
+       "gate_z": 1.629,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-03-21",
+    "end": "2026-03-27",
+    "n_prior": 2135,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2642406586971655,
+      "away_variance": 1.248531988601779,
+      "correlation": 0.26236122433225795,
+      "total_skew": 0.019216393018867007,
+      "margin_skew": -0.010125705588068228,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1495,
+       "n_test": 640,
+       "significant": false,
+       "residual_mae_before": 0.0002612686691669415,
+       "residual_mae_after": 0.0002651633926625123,
+       "delta_l1": 0.0072180000000000005,
+       "delta_max": 0.000119,
+       "gate_z": 1.477,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1495,
+       "n_test": 640,
+       "significant": false,
+       "residual_mae_before": 0.00014783750173810538,
+       "residual_mae_after": 0.00015524096168465323,
+       "delta_l1": 0.042883000000000004,
+       "delta_max": 0.001581,
+       "gate_z": 1.859,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2642406586971655,
+      "away_variance": 1.248531988601779,
+      "correlation": 0.26236122433225795,
+      "total_skew": 0.019216393018867007,
+      "margin_skew": -0.010125705588068228,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.002189234801183369,
+      -0.5119339337522478,
+      -0.006777529358845758,
+      0.013536844837178295,
+      0.22771607927030402,
+      -0.02763328683074987,
+      -0.00972805295283461,
+      -0.20145249710452232,
+      -0.06427940395133469
+     ],
+     "margin": [
+      -0.0019351451960404923,
+      -0.04192712061292532,
+      -0.03252497885633997,
+      0.00901191977133701,
+      0.022294393509968334,
+      0.053699000897157734,
+      0.054472184852381325,
+      0.039380013470758646,
+      0.019293762053124275
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1495,
+       "n_test": 640,
+       "significant": false,
+       "residual_mae_before": 0.0002612686691669415,
+       "residual_mae_after": 0.0002651633926625123,
+       "delta_l1": 0.0072180000000000005,
+       "delta_max": 0.000119,
+       "gate_z": 1.477,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1495,
+       "n_test": 640,
+       "significant": false,
+       "residual_mae_before": 0.00014783750173810538,
+       "residual_mae_after": 0.00015524096168465323,
+       "delta_l1": 0.042883000000000004,
+       "delta_max": 0.001581,
+       "gate_z": 1.859,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": false,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-03-28",
+    "end": "2026-04-03",
+    "n_prior": 2189,
+    "n_scored": 54,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2731816439779198,
+      "away_variance": 1.2487206998365614,
+      "correlation": 0.26707048124551863,
+      "total_skew": 0.02149411169618604,
+      "margin_skew": -0.008234363071285064,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.006774868557958589,
+      -0.554805681178185,
+      -0.04435067813808225,
+      0.019889603855583117,
+      0.22683213877304734,
+      -0.015754677685405612,
+      -0.012479771768508487,
+      -0.2438903485400884,
+      -0.08027466473925061
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1533,
+       "n_test": 656,
+       "significant": false,
+       "residual_mae_before": 0.0002625775844121279,
+       "residual_mae_after": 0.00026968740138384175,
+       "delta_l1": 0.012287000000000001,
+       "delta_max": 0.000195,
+       "gate_z": 1.456,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1533,
+       "n_test": 656,
+       "significant": false,
+       "residual_mae_before": 0.00014337282524723633,
+       "residual_mae_after": 0.00015120130505356978,
+       "delta_l1": 0.040469,
+       "delta_max": 0.001463,
+       "gate_z": 1.666,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2731816439779198,
+      "away_variance": 1.2487206998365614,
+      "correlation": 0.26707048124551863,
+      "total_skew": 0.02149411169618604,
+      "margin_skew": -0.008234363071285064,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.006774868557958589,
+      -0.554805681178185,
+      -0.04435067813808225,
+      0.019889603855583117,
+      0.22683213877304734,
+      -0.015754677685405612,
+      -0.012479771768508487,
+      -0.2438903485400884,
+      -0.08027466473925061
+     ],
+     "margin": [
+      -0.0039007523374330728,
+      -0.011714441395827545,
+      -0.0390405040645551,
+      0.014348171433745342,
+      0.014712117286386873,
+      0.05665034417488723,
+      0.047903816296125556,
+      0.05568672168017836,
+      0.012080413248368895
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1533,
+       "n_test": 656,
+       "significant": false,
+       "residual_mae_before": 0.0002625775844121279,
+       "residual_mae_after": 0.00026968740138384175,
+       "delta_l1": 0.012287000000000001,
+       "delta_max": 0.000195,
+       "gate_z": 1.456,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1533,
+       "n_test": 656,
+       "significant": false,
+       "residual_mae_before": 0.00014337282524723633,
+       "residual_mae_after": 0.00015120130505356978,
+       "delta_l1": 0.040469,
+       "delta_max": 0.001463,
+       "gate_z": 1.666,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-04-04",
+    "end": "2026-04-10",
+    "n_prior": 2243,
+    "n_scored": 57,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2678628460990484,
+      "away_variance": 1.2517994857045864,
+      "correlation": 0.2596829896949367,
+      "total_skew": 0.021893424185895377,
+      "margin_skew": -0.006977934059197401,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.007584849010298101,
+      -0.5552794886343255,
+      -0.06248335568036394,
+      0.022687239094814318,
+      0.22779579885588305,
+      -0.005215439072393282,
+      -0.010589066354075907,
+      -0.2446359461464976,
+      -0.07450116287437342
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1571,
+       "n_test": 672,
+       "significant": false,
+       "residual_mae_before": 0.0002636323554638186,
+       "residual_mae_after": 0.0002709294394128947,
+       "delta_l1": 0.012356,
+       "delta_max": 0.000228,
+       "gate_z": 1.248,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1571,
+       "n_test": 672,
+       "significant": false,
+       "residual_mae_before": 0.00013886526931477882,
+       "residual_mae_after": 0.00014709742087174368,
+       "delta_l1": 0.038280999999999996,
+       "delta_max": 0.001396,
+       "gate_z": 1.704,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2678628460990484,
+      "away_variance": 1.2517994857045864,
+      "correlation": 0.2596829896949367,
+      "total_skew": 0.021893424185895377,
+      "margin_skew": -0.006977934059197401,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.007584849010298101,
+      -0.5552794886343255,
+      -0.06248335568036394,
+      0.022687239094814318,
+      0.22779579885588305,
+      -0.005215439072393282,
+      -0.010589066354075907,
+      -0.2446359461464976,
+      -0.07450116287437342
+     ],
+     "margin": [
+      -0.004881273300883888,
+      -0.022635941452848647,
+      -0.025008638605961298,
+      0.009894510003589586,
+      0.018837477055620572,
+      0.051243090369995935,
+      0.048091983084829974,
+      0.05286291061517506,
+      0.01512927802561917
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1571,
+       "n_test": 672,
+       "significant": false,
+       "residual_mae_before": 0.0002636323554638186,
+       "residual_mae_after": 0.0002709294394128947,
+       "delta_l1": 0.012356,
+       "delta_max": 0.000228,
+       "gate_z": 1.248,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1571,
+       "n_test": 672,
+       "significant": false,
+       "residual_mae_before": 0.00013886526931477882,
+       "residual_mae_after": 0.00014709742087174368,
+       "delta_l1": 0.038280999999999996,
+       "delta_max": 0.001396,
+       "gate_z": 1.704,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-04-12",
+    "end": "2026-04-23",
+    "n_prior": 2300,
+    "n_scored": 34,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2781624071741724,
+      "away_variance": 1.255151410331294,
+      "correlation": 0.2631084779654607,
+      "total_skew": 0.024875800577285032,
+      "margin_skew": -0.007414469241440957,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.002002028087872452,
+      -0.5604613710674855,
+      -0.119584263471293,
+      0.030223521057157823,
+      0.22603558465811627,
+      0.009602056396632114,
+      -0.013979598923895711,
+      -0.2644139442771651,
+      -0.11382402126958861
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1610,
+       "n_test": 690,
+       "significant": false,
+       "residual_mae_before": 0.00025803700521463463,
+       "residual_mae_after": 0.0002632128432425612,
+       "delta_l1": 0.010094,
+       "delta_max": 0.00023,
+       "gate_z": 0.57,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1610,
+       "n_test": 690,
+       "significant": false,
+       "residual_mae_before": 0.00014320079220013404,
+       "residual_mae_after": 0.00015108954246157732,
+       "delta_l1": 0.038567000000000004,
+       "delta_max": 0.001394,
+       "gate_z": 1.965,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2781624071741724,
+      "away_variance": 1.255151410331294,
+      "correlation": 0.2631084779654607,
+      "total_skew": 0.024875800577285032,
+      "margin_skew": -0.007414469241440957,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      -0.002002028087872452,
+      -0.5604613710674855,
+      -0.119584263471293,
+      0.030223521057157823,
+      0.22603558465811627,
+      0.009602056396632114,
+      -0.013979598923895711,
+      -0.2644139442771651,
+      -0.11382402126958861
+     ],
+     "margin": [
+      -0.012673047092530872,
+      -0.02567333006878873,
+      -0.034614690931295766,
+      0.006322942736116191,
+      0.02047686614970627,
+      0.060947223030974274,
+      0.05000344164978399,
+      0.04770803830919889,
+      0.02092970958659415
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1610,
+       "n_test": 690,
+       "significant": false,
+       "residual_mae_before": 0.00025803700521463463,
+       "residual_mae_after": 0.0002632128432425612,
+       "delta_l1": 0.010094,
+       "delta_max": 0.00023,
+       "gate_z": 0.57,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1610,
+       "n_test": 690,
+       "significant": false,
+       "residual_mae_before": 0.00014320079220013404,
+       "residual_mae_after": 0.00015108954246157732,
+       "delta_l1": 0.038567000000000004,
+       "delta_max": 0.001394,
+       "gate_z": 1.965,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-04-24",
+    "end": "2026-04-30",
+    "n_prior": 2334,
+    "n_scored": 23,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2780256005020711,
+      "away_variance": 1.2537380538266034,
+      "correlation": 0.2614997696465319,
+      "total_skew": 0.025368051093808307,
+      "margin_skew": -0.008911862058190643,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.003436374093809668,
+      -0.589554343653263,
+      -0.11120265353838955,
+      0.029004712446727737,
+      0.23549729211273976,
+      0.01249312733395723,
+      -0.013254582631974383,
+      -0.27875732783342627,
+      -0.09774130167939606
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1634,
+       "n_test": 700,
+       "significant": false,
+       "residual_mae_before": 0.00025232111562126865,
+       "residual_mae_after": 0.00025875286688802946,
+       "delta_l1": 0.010319,
+       "delta_max": 0.000219,
+       "gate_z": 0.446,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1634,
+       "n_test": 700,
+       "significant": false,
+       "residual_mae_before": 0.0001445645026920336,
+       "residual_mae_after": 0.0001507873315620748,
+       "delta_l1": 0.035994,
+       "delta_max": 0.001332,
+       "gate_z": 2.078,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2780256005020711,
+      "away_variance": 1.2537380538266034,
+      "correlation": 0.2614997696465319,
+      "total_skew": 0.025368051093808307,
+      "margin_skew": -0.008911862058190643,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.003436374093809668,
+      -0.589554343653263,
+      -0.11120265353838955,
+      0.029004712446727737,
+      0.23549729211273976,
+      0.01249312733395723,
+      -0.013254582631974383,
+      -0.27875732783342627,
+      -0.09774130167939606
+     ],
+     "margin": [
+      -0.016270978691039138,
+      -0.032783783569134715,
+      -0.023713156458689048,
+      0.006213997712480054,
+      0.025055481419848247,
+      0.055857642848783376,
+      0.049611903477117913,
+      0.04231728634091598,
+      0.02570340403906649
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1634,
+       "n_test": 700,
+       "significant": false,
+       "residual_mae_before": 0.00025232111562126865,
+       "residual_mae_after": 0.00025875286688802946,
+       "delta_l1": 0.010319,
+       "delta_max": 0.000219,
+       "gate_z": 0.446,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1634,
+       "n_test": 700,
+       "significant": false,
+       "residual_mae_before": 0.0001445645026920336,
+       "residual_mae_after": 0.0001507873315620748,
+       "delta_l1": 0.035994,
+       "delta_max": 0.001332,
+       "gate_z": 2.078,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-05-01",
+    "end": "2026-05-07",
+    "n_prior": 2357,
+    "n_scored": 14,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2776511404666937,
+      "away_variance": 1.2569275671784723,
+      "correlation": 0.2602996873717665,
+      "total_skew": 0.02571632302331918,
+      "margin_skew": -0.010228748017709519,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007700512804254906,
+      -0.602584280057755,
+      -0.1176882529968681,
+      0.027800959353320113,
+      0.2368413999971652,
+      0.018986649774440072,
+      -0.01135985969950321,
+      -0.28893182368811504,
+      -0.09869331177593514
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1650,
+       "n_test": 707,
+       "significant": false,
+       "residual_mae_before": 0.00025244764152454875,
+       "residual_mae_after": 0.0002580181062802301,
+       "delta_l1": 0.009548999999999998,
+       "delta_max": 0.000208,
+       "gate_z": 0.394,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1650,
+       "n_test": 707,
+       "significant": false,
+       "residual_mae_before": 0.0001453782578901506,
+       "residual_mae_after": 0.0001512685228524901,
+       "delta_l1": 0.035975,
+       "delta_max": 0.001312,
+       "gate_z": 2.105,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2776511404666937,
+      "away_variance": 1.2569275671784723,
+      "correlation": 0.2602996873717665,
+      "total_skew": 0.02571632302331918,
+      "margin_skew": -0.010228748017709519,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007700512804254906,
+      -0.602584280057755,
+      -0.1176882529968681,
+      0.027800959353320113,
+      0.2368413999971652,
+      0.018986649774440072,
+      -0.01135985969950321,
+      -0.28893182368811504,
+      -0.09869331177593514
+     ],
+     "margin": [
+      -0.01446371071227646,
+      -0.054609743778878554,
+      -0.027120747152449925,
+      0.004829861143329764,
+      0.03948777110308068,
+      0.05541483425327964,
+      0.052828213858294774,
+      0.03579418274422951,
+      0.02275024760948949
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1650,
+       "n_test": 707,
+       "significant": false,
+       "residual_mae_before": 0.00025244764152454875,
+       "residual_mae_after": 0.0002580181062802301,
+       "delta_l1": 0.009548999999999998,
+       "delta_max": 0.000208,
+       "gate_z": 0.394,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1650,
+       "n_test": 707,
+       "significant": false,
+       "residual_mae_before": 0.0001453782578901506,
+       "residual_mae_after": 0.0001512685228524901,
+       "delta_l1": 0.035975,
+       "delta_max": 0.001312,
+       "gate_z": 2.105,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-05-08",
+    "end": "2026-05-15",
+    "n_prior": 2371,
+    "n_scored": 12,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2834389774271435,
+      "away_variance": 1.2538435071370928,
+      "correlation": 0.2602706108254163,
+      "total_skew": 0.02541138571306418,
+      "margin_skew": -0.01035404653757329,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.013907024768100532,
+      -0.6337351763607796,
+      -0.11351088918244938,
+      0.027808003720722948,
+      0.25165146456094717,
+      0.021300897165659097,
+      -0.010528204892873582,
+      -0.30012933308003165,
+      -0.09525473879303589
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1660,
+       "n_test": 711,
+       "significant": false,
+       "residual_mae_before": 0.00024829737696652746,
+       "residual_mae_after": 0.0002550324383793267,
+       "delta_l1": 0.010966,
+       "delta_max": 0.000214,
+       "gate_z": 0.537,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1660,
+       "n_test": 711,
+       "significant": false,
+       "residual_mae_before": 0.0001440758161142756,
+       "residual_mae_after": 0.0001494875821097282,
+       "delta_l1": 0.03656199999999999,
+       "delta_max": 0.001327,
+       "gate_z": 2.251,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2834389774271435,
+      "away_variance": 1.2538435071370928,
+      "correlation": 0.2602706108254163,
+      "total_skew": 0.02541138571306418,
+      "margin_skew": -0.01035404653757329,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.013907024768100532,
+      -0.6337351763607796,
+      -0.11351088918244938,
+      0.027808003720722948,
+      0.25165146456094717,
+      0.021300897165659097,
+      -0.010528204892873582,
+      -0.30012933308003165,
+      -0.09525473879303589
+     ],
+     "margin": [
+      -0.014928718717484293,
+      -0.051651196753808644,
+      -0.033585555977887614,
+      0.004420742176289901,
+      0.04334236697990292,
+      0.05794616811714977,
+      0.05243955194141981,
+      0.0396536403369026,
+      0.01907889835026959
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1660,
+       "n_test": 711,
+       "significant": false,
+       "residual_mae_before": 0.00024829737696652746,
+       "residual_mae_after": 0.0002550324383793267,
+       "delta_l1": 0.010966,
+       "delta_max": 0.000214,
+       "gate_z": 0.537,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1660,
+       "n_test": 711,
+       "significant": false,
+       "residual_mae_before": 0.0001440758161142756,
+       "residual_mae_after": 0.0001494875821097282,
+       "delta_l1": 0.03656199999999999,
+       "delta_max": 0.001327,
+       "gate_z": 2.251,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-05-17",
+    "end": "2026-05-23",
+    "n_prior": 2383,
+    "n_scored": 7,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2794827801673634,
+      "away_variance": 1.2573563470775002,
+      "correlation": 0.2592848986476214,
+      "total_skew": 0.025400121077987895,
+      "margin_skew": -0.010062551878097086,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.010088182335934807,
+      -0.6044584496378226,
+      -0.10814155357246409,
+      0.02999603645527846,
+      0.23609030191805305,
+      0.017703075071141824,
+      -0.011281391388778728,
+      -0.28909772408871737,
+      -0.09431041832598543
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1669,
+       "n_test": 714,
+       "significant": false,
+       "residual_mae_before": 0.000248051703724044,
+       "residual_mae_after": 0.0002549185922431788,
+       "delta_l1": 0.011140999999999998,
+       "delta_max": 0.000232,
+       "gate_z": 0.398,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1669,
+       "n_test": 714,
+       "significant": false,
+       "residual_mae_before": 0.00014478038559918735,
+       "residual_mae_after": 0.00015001378542151824,
+       "delta_l1": 0.03478099999999999,
+       "delta_max": 0.001279,
+       "gate_z": 2.264,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2794827801673634,
+      "away_variance": 1.2573563470775002,
+      "correlation": 0.2592848986476214,
+      "total_skew": 0.025400121077987895,
+      "margin_skew": -0.010062551878097086,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.010088182335934807,
+      -0.6044584496378226,
+      -0.10814155357246409,
+      0.02999603645527846,
+      0.23609030191805305,
+      0.017703075071141824,
+      -0.011281391388778728,
+      -0.28909772408871737,
+      -0.09431041832598543
+     ],
+     "margin": [
+      -0.011968169684314993,
+      -0.07944384914478259,
+      -0.03991639823306345,
+      0.0007027748356614393,
+      0.061528238995224104,
+      0.061535605597006174,
+      0.05437432407574168,
+      0.029452312662611106,
+      0.014536030368195741
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1669,
+       "n_test": 714,
+       "significant": false,
+       "residual_mae_before": 0.000248051703724044,
+       "residual_mae_after": 0.0002549185922431788,
+       "delta_l1": 0.011140999999999998,
+       "delta_max": 0.000232,
+       "gate_z": 0.398,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1669,
+       "n_test": 714,
+       "significant": false,
+       "residual_mae_before": 0.00014478038559918735,
+       "residual_mae_after": 0.00015001378542151824,
+       "delta_l1": 0.03478099999999999,
+       "delta_max": 0.001279,
+       "gate_z": 2.264,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-05-24",
+    "end": "2026-06-05",
+    "n_prior": 2389,
+    "n_scored": 7,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2779369498170559,
+      "away_variance": 1.2578057011059198,
+      "correlation": 0.25774103706804063,
+      "total_skew": 0.025137391017803074,
+      "margin_skew": -0.012296894414952636,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007915982511321676,
+      -0.6004034271560318,
+      -0.10748735137571745,
+      0.02936251312619622,
+      0.23065089933841537,
+      0.01767710382958064,
+      -0.009771503163215017,
+      -0.2931799908247627,
+      -0.09386427814460825
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.00024519864086757463,
+       "residual_mae_after": 0.00025147817497739165,
+       "delta_l1": 0.010204000000000001,
+       "delta_max": 0.000209,
+       "gate_z": 0.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.0001463687766384183,
+       "residual_mae_after": 0.00015163438862842669,
+       "delta_l1": 0.035632,
+       "delta_max": 0.001304,
+       "gate_z": 2.141,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2779369498170559,
+      "away_variance": 1.2578057011059198,
+      "correlation": 0.25774103706804063,
+      "total_skew": 0.025137391017803074,
+      "margin_skew": -0.012296894414952636,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007915982511321676,
+      -0.6004034271560318,
+      -0.10748735137571745,
+      0.02936251312619622,
+      0.23065089933841537,
+      0.01767710382958064,
+      -0.009771503163215017,
+      -0.2931799908247627,
+      -0.09386427814460825
+     ],
+     "margin": [
+      -0.009597912249736636,
+      -0.08741758418804668,
+      -0.04022076615807534,
+      9.605874127301786e-05,
+      0.0692488478479114,
+      0.06129009573999069,
+      0.05582536048041745,
+      0.024929543669689087,
+      0.01511811447312242
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.00024519864086757463,
+       "residual_mae_after": 0.00025147817497739165,
+       "delta_l1": 0.010204000000000001,
+       "delta_max": 0.000209,
+       "gate_z": 0.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.0001463687766384183,
+       "residual_mae_after": 0.00015163438862842669,
+       "delta_l1": 0.035632,
+       "delta_max": 0.001304,
+       "gate_z": 2.141,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   },
+   {
+    "start": "2026-06-08",
+    "end": "2026-06-13",
+    "n_prior": 2389,
+    "n_scored": 3,
+    "maps": {
+     "variance": {
+      "home_variance": 1.2779369498170559,
+      "away_variance": 1.2578057011059198,
+      "correlation": 0.25774103706804063,
+      "total_skew": 0.025137391017803074,
+      "margin_skew": -0.012296894414952636,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007915982511321676,
+      -0.6004034271560318,
+      -0.10748735137571745,
+      0.02936251312619622,
+      0.23065089933841537,
+      0.01767710382958064,
+      -0.009771503163215017,
+      -0.2931799908247627,
+      -0.09386427814460825
+     ],
+     "margin": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.00024519864086757463,
+       "residual_mae_after": 0.00025147817497739165,
+       "delta_l1": 0.010204000000000001,
+       "delta_max": 0.000209,
+       "gate_z": 0.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.0001463687766384183,
+       "residual_mae_after": 0.00015163438862842669,
+       "delta_l1": 0.035632,
+       "delta_max": 0.001304,
+       "gate_z": 2.141,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "candidate_maps": {
+     "variance": {
+      "home_variance": 1.2779369498170559,
+      "away_variance": 1.2578057011059198,
+      "correlation": 0.25774103706804063,
+      "total_skew": 0.025137391017803074,
+      "margin_skew": -0.012296894414952636,
+      "total_parity_alpha": 0.0
+     },
+     "total": [
+      0.007915982511321676,
+      -0.6004034271560318,
+      -0.10748735137571745,
+      0.02936251312619622,
+      0.23065089933841537,
+      0.01767710382958064,
+      -0.009771503163215017,
+      -0.2931799908247627,
+      -0.09386427814460825
+     ],
+     "margin": [
+      -0.009597912249736636,
+      -0.08741758418804668,
+      -0.04022076615807534,
+      9.605874127301786e-05,
+      0.0692488478479114,
+      0.06129009573999069,
+      0.05582536048041745,
+      0.024929543669689087,
+      0.01511811447312242
+     ],
+     "lattice": {
+      "totals": {
+       "target": "totals",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.00024519864086757463,
+       "residual_mae_after": 0.00025147817497739165,
+       "delta_l1": 0.010204000000000001,
+       "delta_max": 0.000209,
+       "gate_z": 0.506,
+       "reason": "held_out_not_significant"
+      },
+      "margin": {
+       "target": "margin",
+       "sport": "nba",
+       "n_fit": 1673,
+       "n_test": 716,
+       "significant": false,
+       "residual_mae_before": 0.0001463687766384183,
+       "residual_mae_after": 0.00015163438862842669,
+       "delta_l1": 0.035632,
+       "delta_max": 0.001304,
+       "gate_z": 2.141,
+       "reason": "held_out_not_significant"
+      }
+     }
+    },
+    "calibration_admitted": {
+     "total": true,
+     "margin": false
+    }
+   }
+  ],
+  "fit_n": 2400,
+  "lattice_summary": {
+   "totals": {
+    "target": "totals",
+    "sport": "nba",
+    "n_fit": 1680,
+    "n_test": 720,
+    "significant": false,
+    "residual_mae_before": 0.00024301685839649587,
+    "residual_mae_after": 0.0002493546287791914,
+    "delta_l1": 0.010025000000000001,
+    "delta_max": 0.000196,
+    "gate_z": 0.47,
+    "reason": "held_out_not_significant"
+   },
+   "margin": {
+    "target": "margin",
+    "sport": "nba",
+    "n_fit": 1680,
+    "n_test": 720,
+    "significant": false,
+    "residual_mae_before": 0.0001464963842555185,
+    "residual_mae_after": 0.0001526987156460264,
+    "delta_l1": 0.037749,
+    "delta_max": 0.001361,
+    "gate_z": 2.186,
+    "reason": "held_out_not_significant"
+   }
+  },
+  "fit_end": "2026-06-13",
+  "monte_carlo": {
+   "method": "inverse_calibrated_cdf_monte_carlo",
+   "family": "two_sided_asymmetric_gaussian_split_skew",
+   "n_draws": 50000,
+   "requested_draws": 50000,
+   "seed": 42,
+   "mc_se_totals_max": 0.00223606797749979,
+   "reason": "requested",
+   "memory_policy": "one_game_at_a_time"
+  },
+  "holdout": {
+   "cutoff": "2026-05-23",
+   "n_pre": 2389,
+   "n_holdout": 11,
+   "holdout_days": 21,
+   "fitted_on": "strictly prior pre-holdout origins"
+  },
+  "serving_fit_scope": "all_settled_prior_oof_only",
+  "admission": "negative_mean_paired_crps_on_prior_issued_origins",
+  "oof_metrics": {
+   "method": "causal_split_skew_crps_mc",
+   "roi_verified": false,
+   "totals": {
+    "n": 2400,
+    "n_pushes": 0,
+    "crps": 10.761707423316166,
+    "auc": 0.5061955388784657,
+    "logloss": 0.693099606523714,
+    "logscore": 0.693099606523714,
+    "brier": 0.24997620512583335,
+    "predicted_mean": 0.4999080249999999,
+    "actual_win_rate": 0.5125,
+    "ece_cover": 0.012591974999999986,
+    "reliability": [
+     {
+      "n": 1220,
+      "predicted": 0.4947860655737705,
+      "actual": 0.49918032786885247,
+      "gap": -0.0043942622950819965
+     },
+     {
+      "n": 1180,
+      "predicted": 0.5052036101694916,
+      "actual": 0.5262711864406779,
+      "gap": -0.021067576271186383
+     }
+    ],
+    "calibration_in_the_large": -0.012591975000000033,
+    "threshold_policy": "closest_half_point_to_model_50_percent"
+   },
+   "run_line": {
+    "n": 2400,
+    "n_pushes": 0,
+    "crps": 8.221265836128001,
+    "auc": 0.522655723154515,
+    "logloss": 0.6926576927002394,
+    "logscore": 0.6926576927002394,
+    "brier": 0.24975527984366663,
+    "predicted_mean": 0.5000850499999999,
+    "actual_win_rate": 0.49541666666666667,
+    "ece_cover": 0.010234800000000065,
+    "reliability": [
+     {
+      "n": 1175,
+      "predicted": 0.49266708085106387,
+      "actual": 0.4774468085106383,
+      "gap": 0.015220272340425556
+     },
+     {
+      "n": 1225,
+      "predicted": 0.5072002448979591,
+      "actual": 0.5126530612244898,
+      "gap": -0.005452816326530718
+     }
+    ],
+    "calibration_in_the_large": 0.004668383333333248,
+    "threshold_policy": "closest_half_point_to_model_50_percent"
+   },
+   "derived_moneyline": {
+    "n": 2400,
+    "n_ties": 0,
+    "auc": 0.7304219450338139,
+    "logloss": 0.6078917021415754,
+    "brier": 0.2097583465786667,
+    "settlement": "final_score_no_tie"
+   },
+   "fixed_thresholds": {
+    "total_210.0": {
+     "n": 2400,
+     "auc": 0.6681292293740675,
+     "logloss": 0.443791314307918,
+     "brier": 0.13874734508166667,
+     "reliability": [
+      {
+       "n": 4,
+       "predicted": 0.587915,
+       "actual": 0.25
+      },
+      {
+       "n": 106,
+       "predicted": 0.6605081132075471,
+       "actual": 0.5094339622641509
+      },
+      {
+       "n": 685,
+       "predicted": 0.7638534014598539,
+       "actual": 0.7576642335766424
+      },
+      {
+       "n": 1436,
+       "predicted": 0.84625143454039,
+       "actual": 0.8649025069637883
+      },
+      {
+       "n": 169,
+       "predicted": 0.9141465088757398,
+       "actual": 0.9289940828402367
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "total_220.0": {
+     "n": 2400,
+     "auc": 0.6472789201734264,
+     "logloss": 0.6161386648801493,
+     "brier": 0.21342212163050003,
+     "reliability": [
+      {
+       "n": 13,
+       "predicted": 0.3878876923076924,
+       "actual": 0.38461538461538464
+      },
+      {
+       "n": 104,
+       "predicted": 0.4592661538461539,
+       "actual": 0.34615384615384615
+      },
+      {
+       "n": 491,
+       "predicted": 0.5611764562118127,
+       "actual": 0.5193482688391039
+      },
+      {
+       "n": 1059,
+       "predicted": 0.6511635127478753,
+       "actual": 0.6619452313503305
+      },
+      {
+       "n": 667,
+       "predicted": 0.7409620389805097,
+       "actual": 0.7691154422788605
+      },
+      {
+       "n": 66,
+       "predicted": 0.8242600000000001,
+       "actual": 0.8939393939393939
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "total_230.0": {
+     "n": 2400,
+     "auc": 0.6502685232096997,
+     "logloss": 0.6581949763521366,
+     "brier": 0.23305699988133333,
+     "reliability": [
+      {
+       "n": 3,
+       "predicted": 0.1933466666666667,
+       "actual": 0.3333333333333333
+      },
+      {
+       "n": 125,
+       "predicted": 0.26141487999999996,
+       "actual": 0.168
+      },
+      {
+       "n": 571,
+       "predicted": 0.36052714535901925,
+       "actual": 0.329246935201401
+      },
+      {
+       "n": 983,
+       "predicted": 0.44908518819938964,
+       "actual": 0.46185147507629704
+      },
+      {
+       "n": 589,
+       "predicted": 0.5434255008488965,
+       "actual": 0.6044142614601019
+      },
+      {
+       "n": 123,
+       "predicted": 0.6305671544715447,
+       "actual": 0.6422764227642277
+      },
+      {
+       "n": 6,
+       "predicted": 0.71767,
+       "actual": 1.0
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "total_240.0": {
+     "n": 2400,
+     "auc": 0.651611901454837,
+     "logloss": 0.5497245189800691,
+     "brier": 0.18364444340266664,
+     "reliability": [
+      {
+       "n": 21,
+       "predicted": 0.09136571428571431,
+       "actual": 0.09523809523809523
+      },
+      {
+       "n": 481,
+       "predicted": 0.16456798336798337,
+       "actual": 0.14137214137214138
+      },
+      {
+       "n": 1163,
+       "predicted": 0.24823731728288911,
+       "actual": 0.235597592433362
+      },
+      {
+       "n": 618,
+       "predicted": 0.3416489644012945,
+       "actual": 0.36893203883495146
+      },
+      {
+       "n": 110,
+       "predicted": 0.4303052727272728,
+       "actual": 0.5
+      },
+      {
+       "n": 7,
+       "predicted": 0.5187771428571429,
+       "actual": 0.7142857142857143
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_-5.5": {
+     "n": 2400,
+     "auc": 0.7275301720190577,
+     "logloss": 0.5643943140462843,
+     "brier": 0.19147778551216665,
+     "reliability": [
+      {
+       "n": 1,
+       "predicted": 0.29844000000000004,
+       "actual": 0.0
+      },
+      {
+       "n": 81,
+       "predicted": 0.36756320987654323,
+       "actual": 0.2962962962962963
+      },
+      {
+       "n": 252,
+       "predicted": 0.4533303174603175,
+       "actual": 0.38492063492063494
+      },
+      {
+       "n": 439,
+       "predicted": 0.552333895216401,
+       "actual": 0.5193621867881549
+      },
+      {
+       "n": 515,
+       "predicted": 0.6517203495145631,
+       "actual": 0.6621359223300971
+      },
+      {
+       "n": 510,
+       "predicted": 0.7518382352941176,
+       "actual": 0.7529411764705882
+      },
+      {
+       "n": 524,
+       "predicted": 0.8493049236641222,
+       "actual": 0.8683206106870229
+      },
+      {
+       "n": 78,
+       "predicted": 0.9145476923076924,
+       "actual": 0.9487179487179487
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_0.5": {
+     "n": 2400,
+     "auc": 0.7304219450338139,
+     "logloss": 0.6078917021415754,
+     "brier": 0.2097583465786667,
+     "reliability": [
+      {
+       "n": 4,
+       "predicted": 0.19092000000000003,
+       "actual": 0.0
+      },
+      {
+       "n": 171,
+       "predicted": 0.26370350877192983,
+       "actual": 0.16374269005847952
+      },
+      {
+       "n": 349,
+       "predicted": 0.35590361031518625,
+       "actual": 0.2979942693409742
+      },
+      {
+       "n": 466,
+       "predicted": 0.45056042918454936,
+       "actual": 0.45278969957081544
+      },
+      {
+       "n": 463,
+       "predicted": 0.5486742548596112,
+       "actual": 0.5529157667386609
+      },
+      {
+       "n": 419,
+       "predicted": 0.6498214319809069,
+       "actual": 0.6730310262529833
+      },
+      {
+       "n": 397,
+       "predicted": 0.7487382367758186,
+       "actual": 0.801007556675063
+      },
+      {
+       "n": 131,
+       "predicted": 0.826911603053435,
+       "actual": 0.8244274809160306
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    },
+    "margin_5.5": {
+     "n": 2400,
+     "auc": 0.722055839741403,
+     "logloss": 0.6077628035650116,
+     "brier": 0.21003776214283332,
+     "reliability": [
+      {
+       "n": 1,
+       "predicted": 0.09784000000000004,
+       "actual": 0.0
+      },
+      {
+       "n": 221,
+       "predicted": 0.16367438914027146,
+       "actual": 0.12669683257918551
+      },
+      {
+       "n": 484,
+       "predicted": 0.25351161157024793,
+       "actual": 0.24173553719008264
+      },
+      {
+       "n": 518,
+       "predicted": 0.3493265250965251,
+       "actual": 0.3667953667953668
+      },
+      {
+       "n": 408,
+       "predicted": 0.44933191176470594,
+       "actual": 0.47058823529411764
+      },
+      {
+       "n": 374,
+       "predicted": 0.5470164171122995,
+       "actual": 0.56951871657754
+      },
+      {
+       "n": 314,
+       "predicted": 0.6460078343949044,
+       "actual": 0.7038216560509554
+      },
+      {
+       "n": 80,
+       "predicted": 0.7299659999999999,
+       "actual": 0.825
+      }
+     ],
+     "event": "strict_exceedance_including_push_as_nonwin"
+    }
+   },
+   "conditional_crps": {
+    "season_2024.0": {
+     "n": 1085,
+     "total": 10.753203056878156,
+     "margin": 8.222091505642398
+    },
+    "season_2025.0": {
+     "n": 1315,
+     "total": 10.768724334027377,
+     "margin": 8.220584580292927
+    },
+    "is_playoffs_False": {
+     "n": 2231,
+     "total": 10.76277716533178,
+     "margin": 8.165113093894398
+    },
+    "is_playoffs_True": {
+     "n": 169,
+     "total": 10.747585562743197,
+     "margin": 8.962548486560946
+    },
+    "provisional_False": {
+     "n": 2130,
+     "total": 10.81719753041615,
+     "margin": 8.147874180898967
+    },
+    "provisional_True": {
+     "n": 270,
+     "total": 10.323952133971853,
+     "margin": 8.80024444960148
+    }
+   }
+  }
+ },
+ "calibration_buckets": [
+  {
+   "bucket": "50\u201360%",
+   "mean_predicted": 0.548,
+   "mean_actual": 0.5378,
+   "count": 768,
+   "gap": 0.0103
+  },
+  {
+   "bucket": "60\u201370%",
+   "mean_predicted": 0.65,
+   "mean_actual": 0.6517,
+   "count": 600,
+   "gap": -0.0016
+  },
+  {
+   "bucket": "70\u201380%",
+   "mean_predicted": 0.7491,
+   "mean_actual": 0.7868,
+   "count": 516,
+   "gap": -0.0377
+  },
+  {
+   "bucket": "80\u201390%",
+   "mean_predicted": 0.8376,
+   "mean_actual": 0.8634,
+   "count": 227,
+   "gap": -0.0258
+  },
+  {
+   "bucket": "90\u2013100%",
+   "mean_predicted": 0.9201,
+   "mean_actual": 0.8947,
+   "count": 19,
+   "gap": 0.0254
+  }
+ ],
+ "daily": []
+}
