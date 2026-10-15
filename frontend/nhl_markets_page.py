@@ -208,6 +208,29 @@ def _p2(v) -> str:
 # Diagnostics tabs (real data)
 # ---------------------------------------------------------------------------
 def _render_distribution_tab(decided: pd.DataFrame) -> None:
+    _view = st.radio("Distribution view", ("Total", "Spread"),
+                     horizontal=True, key="nhl_dist_view")
+    if _view == "Spread":
+        sdist = nd.spread_distribution(decided)
+        if sdist["warning"]:
+            st.warning(sdist["warning"])
+            return
+        utils.show_chart(nd.chart_distribution(
+            sdist, x_title="Margin (home − away)",
+            y_title="P(margin = k)"))
+        sc = sdist["callouts"]
+
+        def _sm(key: str) -> str:
+            v = sc[key]["modeled"]
+            return "--" if v is None else f"{v:.3f}"
+        st.caption(
+            f"Observed margins vs mean shipped split-skew Gaussian Monte Carlo margin mass over "
+            f"{sdist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
+            f"artifact's own p_push_<±L> columns — mass is never borrowed from another push namespace; "
+            f"P(margin≤−4): observed {sc['P(margin<=-4)']['observed']:.3f} / modeled {_sm('P(margin<=-4)')} · "
+            f"P(margin≥4): observed {sc['P(margin>=4)']['observed']:.3f} / modeled {_sm('P(margin>=4)')}."
+        )
+        return
     dist = nd.total_distribution(decided)
     if dist["warning"]:
         st.warning(dist["warning"])

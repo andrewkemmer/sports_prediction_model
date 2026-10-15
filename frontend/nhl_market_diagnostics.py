@@ -173,6 +173,75 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
     }
 
 
+def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
+    """Observed margins (home − away) versus the shipped margin PMF.
+
+    The modeled series is the per-game mean of the artifact's own margin
+    push columns (``p_push_<±L>`` = P(margin == L) over −8…+8); a line
+    the artifact does not ship stays NaN (a gap) — unavailable, never
+    borrowed from another family (the totals/margin overlap rule: totals
+    mass is read EXCLUSIVELY from ``p_push_total``). The grid spans the
+    shipped ±8 band extended to every margin that actually settled, so a
+    real blowout is never silently dropped from the fit check."""
+    empty = {"ks": list(SPREAD_GRID), "observed": [], "modeled": [],
+             "callouts": {}, "n_games": 0,
+             "warning": "No decided games with outcomes in the artifact."}
+    if not len(decided):
+        return empty
+    if "margin" in decided.columns:
+        margin = pd.to_numeric(decided["margin"], errors="coerce")
+    elif {"home_score", "away_score"}.issubset(decided.columns):
+        margin = (pd.to_numeric(decided["home_score"], errors="coerce")
+                  - pd.to_numeric(decided["away_score"], errors="coerce"))
+    else:
+        return empty
+    margin = margin[margin.notna()]
+    if not len(margin):
+        return empty
+    lo = min(SPREAD_GRID[0], int(np.floor(float(margin.min()))))
+    hi = max(SPREAD_GRID[-1], int(np.ceil(float(margin.max()))))
+    ks = list(range(lo, hi + 1))
+    observed = np.array([float((margin == k).mean()) for k in ks])
+    # The margin family ships ONLY SPREAD_GRID (−8…+8): anything outside
+    # stays NaN even if a same-named p_push_<k> column exists (the totals
+    # overlap — another family's mass, never borrowed).
+    modeled = []
+    for k in ks:
+        if k not in SPREAD_GRID:
+            modeled.append(float("nan"))
+            continue
+        col = _col("p_push", float(k))
+        if col in decided.columns:
+            modeled.append(float(pd.to_numeric(decided[col], errors="coerce").mean()))
+        else:
+            modeled.append(float("nan"))
+    modeled = np.asarray(modeled)
+
+    def tail(series, mask):
+        return (round(float(series[mask].sum()), 4)
+                if np.isfinite(series[mask]).all() else None)
+    _arr = np.asarray(ks)
+    return {
+        "ks": ks,
+        "observed": [round(float(v), 5) for v in observed],
+        "modeled": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                    for v in modeled],
+        "modeled_grid": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                         for v in modeled],
+        "callouts": {
+            "P(margin<=-4)": {"observed": round(float((margin <= -4).mean()), 4),
+                              "modeled": tail(modeled, (_arr <= -4) & (_arr >= -8))},
+            "P(margin>=4)": {"observed": round(float((margin >= 4).mean()), 4),
+                             "modeled": tail(modeled, (_arr >= 4) & (_arr <= 8))},
+            "note": ("Modeled line = mean shipped calibrated split-skew "
+                     "Gaussian Monte Carlo margin PMF across its full priced "
+                     "support; mass is never borrowed from another push namespace."),
+        },
+        "n_games": int(len(margin)),
+        "warning": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Charts 2–4 — calibration curves
 # ---------------------------------------------------------------------------

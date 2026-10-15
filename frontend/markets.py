@@ -153,22 +153,49 @@ if decided.empty:
 else:
     _tabs = st.tabs(diag.DIAG_TABS)
 
-    with _tabs[0]:   # 1 — totals distribution fit-check
-        dist = diag.total_distribution(decided)
-        if dist["warning"]:
-            st.warning(dist["warning"])
+    with _tabs[0]:   # 1 — totals / spread distribution fit-check
+        _dist_view = st.radio("Distribution view", ("Total", "Spread"),
+                              horizontal=True, key="mlb_dist_view")
+        if _dist_view == "Spread":
+            sdist = diag.spread_distribution(decided)
+            if sdist["warning"]:
+                st.warning(sdist["warning"])
+            else:
+                utils.show_chart(diag.chart_distribution(
+                    sdist, x_title="Margin (home − away)",
+                    y_title="P(margin = k)"))
+                sc = sdist["callouts"]
+
+                def _sm(key):
+                    v = sc[key]["modeled"]
+                    return "--" if v is None else format(v, ".3f")
+                st.caption(
+                    f"Observed bars vs mean shipped run-line push mass over "
+                    f"{sdist['n_games']:,} decided games · P(home wins): observed "
+                    f"{sc['P(home wins)']['observed']:.3f} / modeled {_sm('P(home wins)')} · "
+                    f"P(away wins): observed "
+                    f"{sc['P(away wins)']['observed']:.3f} / modeled {_sm('P(away wins)')} · "
+                    f"P(tie): observed {sc['P(tie)']['observed']:.3f} / modeled "
+                    f"{_sm('P(tie)')}. The modeled line ships only at the tie plus "
+                    "±1 … ±4 — outside that span it gaps (unavailable, never "
+                    "refitted). This is the margin law."
+                )
         else:
-            utils.show_chart(diag.chart_distribution(dist))
-            c = dist["callouts"]
-            st.caption(
-                f"Observed bars vs modeled mean shipped split-skew Monte Carlo mass over "
-                f"{dist['n_games']:,} decided games · P(total≤1): observed "
-                f"{c['P(total<=1)']['observed']:.3f} / modeled "
-                f"{('--' if c['P(total<=1)']['modeled'] is None else format(c['P(total<=1)']['modeled'], '.3f'))} · P(total≥10): observed "
-                f"{c['P(total>=10)']['observed']:.3f} / modeled "
-                f"{('--' if c['P(total>=10)']['modeled'] is None else format(c['P(total>=10)']['modeled'], '.3f'))}. Per-TEAM tail checks are "
-                "the fit-check table above — this is the totals law."
-            )
+            dist = diag.total_distribution(decided)
+            if dist["warning"]:
+                st.warning(dist["warning"])
+            else:
+                utils.show_chart(diag.chart_distribution(dist))
+                c = dist["callouts"]
+                st.caption(
+                    f"Observed bars vs modeled mean shipped split-skew Monte Carlo mass over "
+                    f"{dist['n_games']:,} decided games · P(total≤1): observed "
+                    f"{c['P(total<=1)']['observed']:.3f} / modeled "
+                    f"{('--' if c['P(total<=1)']['modeled'] is None else format(c['P(total<=1)']['modeled'], '.3f'))} · P(total≥10): observed "
+                    f"{c['P(total>=10)']['observed']:.3f} / modeled "
+                    f"{('--' if c['P(total>=10)']['modeled'] is None else format(c['P(total>=10)']['modeled'], '.3f'))}. Per-TEAM tail checks are "
+                    "the fit-check table above — this is the totals law."
+                )
 
     with _tabs[1]:   # 2 — relativized-offset calibration (primary curve)
         pairs = diag.relativized_pairs(decided)

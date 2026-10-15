@@ -80,6 +80,31 @@ def _decided_rows(frame):
 
 def _render_distribution_tab(decided):
     """Tab 1 — observed bars vs modeled mean marginal, with tail callouts."""
+    _view = st.radio("Distribution view", ("Total", "Spread"),
+                     horizontal=True, key="nba_dist_view")
+    if _view == "Spread":
+        sdist = nd.spread_distribution(decided)
+        if sdist["warning"]:
+            st.warning(sdist["warning"])
+            return
+        utils.show_chart(nd.chart_distribution(
+            sdist, x_title="Margin (home − away)",
+            y_title="P(margin = k)"))
+        sc = sdist["callouts"]
+
+        def _sm(key):
+            v = sc[key]["modeled"]
+            return "--" if v is None else format(v, ".3f")
+        st.caption(
+            f"Observed bars vs mean shipped calibrated split-skew Gaussian "
+            f"Monte Carlo margin PMF, without a replacement plotting model, "
+            f"over {sdist['n_games']:,} decided games · P(margin≤−10): observed "
+            f"{sc['P(margin<=-10)']['observed']:.3f} / modeled {_sm('P(margin<=-10)')} · "
+            f"P(margin≥10): observed "
+            f"{sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')}. "
+            "This is the margin law."
+        )
+        return
     dist = nd.total_distribution(decided)
     if dist["warning"]:
         st.warning(dist["warning"])

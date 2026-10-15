@@ -463,6 +463,66 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
                          "note": "Mean shipped Monte Carlo PMF; missing historical off-grid mass is unavailable, not refitted."}}
 
 
+def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
+    """Observed margins (home − away) and the shipped Monte Carlo margin mass.
+
+    The artifact ships margin mass ONLY at the tie plus ±1 … ±4: P(margin
+    == 0) is ``p_tie``; P(margin == +m) is ``p_rl_<m>_push`` and
+    P(margin == −m) is ``p_rl_<m>_away_push`` (whole m = 1 … 4 — the
+    backend prices the away-tail push under the away_push name). Every
+    other k stays NaN (a gap) — unavailable, never refitted, the same
+    convention as ``shipped_total_pmf``. The callout masses ARE exact
+    shipped boundary probabilities: P(home wins) = P(margin ≥ 1) is
+    ``p_home_win_derived`` and P(away wins) = P(margin ≤ −1) is
+    ``p_away_win_derived``."""
+    ks = list(range(-10, 11))
+    empty = {"ks": ks, "observed": [], "modeled": [], "callouts": {},
+             "n_games": 0, "warning": "No decided games with outcomes in the artifact."}
+    if not len(decided):
+        return empty
+    if {"home_score", "away_score"}.difference(decided.columns):
+        empty["warning"] = "Missing score columns (need home_score/away_score)."
+        return empty
+    margin = (pd.to_numeric(decided["home_score"], errors="coerce")
+              - pd.to_numeric(decided["away_score"], errors="coerce"))
+    margin = margin[margin.notna()]
+    if not len(margin):
+        return empty
+    observed = np.array([float((margin == k).mean()) for k in ks])
+    modeled = np.full(len(ks), np.nan)
+    for i, k in enumerate(ks):
+        col = None
+        if k == 0:
+            col = "p_tie"
+        elif k > 0:
+            col = f"p_rl_{k}_0_push"
+        else:
+            col = f"p_rl_{abs(k)}_0_away_push"
+        if col in decided.columns:
+            modeled[i] = float(pd.to_numeric(decided[col], errors="coerce").mean())
+
+    def _mean(col):
+        if col not in decided.columns:
+            return None
+        v = pd.to_numeric(decided[col], errors="coerce").mean()
+        return round(float(v), 4) if pd.notna(v) else None
+    return {"ks": ks, "observed": [round(float(v), 5) for v in observed],
+            "modeled": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                        for v in modeled],
+            "modeled_grid": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                             for v in modeled],
+            "n_games": int(len(margin)), "warning": None,
+            "callouts": {"P(home wins)": {"observed": round(float((margin >= 1).mean()), 4),
+                                          "modeled": _mean("p_home_win_derived")},
+                         "P(away wins)": {"observed": round(float((margin <= -1).mean()), 4),
+                                          "modeled": _mean("p_away_win_derived")},
+                         "P(tie)": {"observed": round(float((margin == 0).mean()), 4),
+                                    "modeled": _mean("p_tie")},
+                         "note": ("Modeled line = mean shipped run-line push mass at the tie "
+                                  "plus ±1 … ±4 only; outside that span the line gaps — "
+                                  "unavailable, not refitted.")}}
+
+
 def _logit(p: np.ndarray | float) -> np.ndarray | float:
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     out = np.log(p / (1 - p))
@@ -2190,7 +2250,13 @@ def run_engine_card_bits(game_id: str,
 # ---------------------------------------------------------------------------
 # Altair builders (import-safe: pure functions of their data)
 # ---------------------------------------------------------------------------
-def chart_distribution(dist: dict) -> alt.Chart:
+def chart_distribution(dist: dict, x_title: str = "Total runs (home + away)",
+                       y_title: str = "P(total = k)") -> alt.Chart:
+    """Observed bars vs modeled line over the distribution grid.
+
+    ``x_title`` / ``y_title`` relabel the axes for the spread view
+    ("Margin (home − away)" / "P(margin = k)"); the defaults keep the
+    totals view byte-identical."""
     df = pd.DataFrame({
         "k": dist["ks"] * 2,
         "series": ["observed"] * len(dist["ks"]) + ["modeled"] * len(dist["ks"]),
@@ -2198,8 +2264,8 @@ def chart_distribution(dist: dict) -> alt.Chart:
     })
     bars = alt.Chart(df[df.series == "observed"]).mark_bar(
         color="#3B82F6", opacity=0.65).encode(
-        x=alt.X("k:Q", title="Total runs (home + away)"),
-        y=alt.Y("p:Q", title="P(total = k)", axis=alt.Axis(format="%")),
+        x=alt.X("k:Q", title=x_title),
+        y=alt.Y("p:Q", title=y_title, axis=alt.Axis(format="%")),
     )
     line = alt.Chart(df[df.series == "modeled"]).mark_line(
         color="#F59E0B", strokeWidth=2.5, point=True).encode(

@@ -489,6 +489,73 @@ def total_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
+    """Observed margins (home − away) versus the shipped margin PMF.
+
+    The modeled series is the per-game mean of the artifact's own margin
+    push columns (``p_push_<L>`` = P(margin == L) over −20..20); a line
+    the artifact does not ship stays NaN (a gap) — unavailable, never
+    borrowed from another family. The grid spans the shipped ±20 band
+    extended to every margin that actually settled, so real blowouts are
+    never silently dropped from the fit check."""
+    empty = {"ks": list(range(-20, 21)), "observed": [], "modeled": [],
+             "callouts": {}, "n_games": 0,
+             "warning": "No decided games with outcomes in the artifact."}
+    if not len(decided):
+        return empty
+    if "margin" in decided.columns:
+        margin = pd.to_numeric(decided["margin"], errors="coerce")
+    elif {"home_score", "away_score"}.issubset(decided.columns):
+        margin = (pd.to_numeric(decided["home_score"], errors="coerce")
+                  - pd.to_numeric(decided["away_score"], errors="coerce"))
+    else:
+        return empty
+    margin = margin[margin.notna()]
+    if not len(margin):
+        return empty
+    lo = min(-20, int(np.floor(float(margin.min()))))
+    hi = max(20, int(np.ceil(float(margin.max()))))
+    ks = list(range(lo, hi + 1))
+    observed = np.array([float((margin == k).mean()) for k in ks])
+    # The margin family ships ONLY −20..20: anything outside stays NaN even
+    # if a same-named column exists (another family's mass — never borrowed).
+    modeled = []
+    for k in ks:
+        if k < -20 or k > 20:
+            modeled.append(float("nan"))
+            continue
+        col = f"p_push_{_label(float(k))}"
+        if col in decided.columns:
+            modeled.append(float(pd.to_numeric(decided[col], errors="coerce").mean()))
+        else:
+            modeled.append(float("nan"))
+    modeled = np.asarray(modeled)
+
+    def tail(series, mask):
+        return (round(float(series[mask].sum()), 4)
+                if np.isfinite(series[mask]).all() else None)
+    _arr = np.asarray(ks)
+    return {
+        "ks": ks,
+        "observed": [round(float(v), 5) for v in observed],
+        "modeled": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                    for v in modeled],
+        "modeled_grid": [round(float(v), 5) if np.isfinite(v) else float("nan")
+                         for v in modeled],
+        "callouts": {
+            "P(margin<=-10)": {"observed": round(float((margin <= -10).mean()), 4),
+                               "modeled": tail(modeled, (_arr <= -10) & (_arr >= -20))},
+            "P(margin>=10)": {"observed": round(float((margin >= 10).mean()), 4),
+                              "modeled": tail(modeled, (_arr >= 10) & (_arr <= 20))},
+            "note": ("Modeled line = mean shipped calibrated split-skew "
+                     "Gaussian Monte Carlo margin PMF; no refit or smoothing "
+                     "from outcomes."),
+        },
+        "n_games": int(len(margin)),
+        "warning": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics 2-3 — relativized + pooled calibration pairs
 # ---------------------------------------------------------------------------
@@ -803,8 +870,13 @@ def run_line_calibration(decided: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 
-def chart_distribution(dist: dict) -> alt.Chart:
-    """Observed bars vs modeled line over the totals grid."""
+def chart_distribution(dist: dict, x_title: str = "Total points (home + away)",
+                       y_title: str = "P(total = k)") -> alt.Chart:
+    """Observed bars vs modeled line over the totals grid.
+
+    ``x_title`` / ``y_title`` relabel the axes for the spread view
+    ("Margin (home − away)" / "P(margin = k)"); the defaults keep the
+    totals view byte-identical."""
     df = pd.DataFrame({
         "k": dist["ks"] * 2,
         "series": ["observed"] * len(dist["ks"]) + ["modeled"] * len(dist["ks"]),
@@ -812,8 +884,8 @@ def chart_distribution(dist: dict) -> alt.Chart:
     })
     bars = alt.Chart(df[df.series == "observed"]).mark_bar(
         color="#3B82F6", opacity=0.65).encode(
-        x=alt.X("k:Q", title="Total points (home + away)"),
-        y=alt.Y("p:Q", title="P(total = k)", axis=alt.Axis(format="%")),
+        x=alt.X("k:Q", title=x_title),
+        y=alt.Y("p:Q", title=y_title, axis=alt.Axis(format="%")),
     )
     line = alt.Chart(df[df.series == "modeled"]).mark_line(
         color="#F59E0B", strokeWidth=2.5, point=True).encode(
