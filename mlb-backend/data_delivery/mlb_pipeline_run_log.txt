@@ -427,3 +427,36 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
 2026-10-15 05:07:43,121 WARNING Error lines received while fetching: error: failed to push some refs to 'https://github.com/andrewkemmer/sports_prediction_model.git'
   ⚠️  Push rejected (attempt 1/3) — re-syncing to the current remote tip and replaying this run
   synced clone to remote tip dde2a98ee9 (main)
+  ✅ Pushed and remotely verified 30 files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 6 — Stale artifact cleanup (final step)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  synced clone to remote tip 1ffcacb9d9 (main)
+  🛡️  Kept 54 protected file(s) (never deleted)
+  📅 Kept 191 artifact(s) within the retention window (anchor 20261015 -10d)
+  🧹 Removing 13 stale files:
+    mlb-backend/data_delivery/calibration_20261004.json
+    mlb-backend/data_delivery/feature_coverage_20261004.csv
+    mlb-backend/data_delivery/feature_drift_20261004.csv
+    mlb-backend/data_delivery/features_metadata_20261004.json
+    mlb-backend/data_delivery/model_monitor_20261004.json
+    mlb-backend/data_delivery/pbp_defense_20261004.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261004.parquet
+    mlb-backend/data_delivery/pl_slate_20261004.parquet
+    mlb-backend/data_delivery/power_rankings_20261004.csv
+    mlb-backend/data_delivery/rolling_brier_20261004.json
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261004.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261004.csv
+    mlb-backend/data_delivery/todays_games_20261004.csv
+  ✅ Removed 13 stale files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DONE ✅ — 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Games: 7407  |  Pitches: 2,176,703  |  Columns: 290 game + 88 pbp
+  Output: /content/mlb_clean_data
+  📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
+  synced clone to remote tip fcf4da09cc (main)
