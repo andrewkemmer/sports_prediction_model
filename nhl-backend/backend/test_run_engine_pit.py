@@ -1191,12 +1191,15 @@ def test_totals_pmf_ships_the_full_priced_support_beyond_the_market_grid():
     assert float(df["p_push_1"].to_numpy(float).max()) > 0.0
 
 
-def test_markets_writer_keeps_the_market_grid_column_contract(tmp_path):
-    """2026-10-15: the writer keeps the market-grid column contract exactly
-    — off-grid integer PMF mass the emitter prices in memory is NOT
-    published to the CSV (no schema expansion alongside the lattice layer).
-    The diagnostics chart reads the shipped grid family and gaps honestly
-    where the grid does not ship."""
+def test_markets_writer_publishes_the_full_support_totals_pmf(tmp_path):
+    """2026-10-14: the writer publishes the emitter's full-support integer
+    totals-PMF (not just the 4…12 priced grid). The diagnostics distribution
+    chart draws P(total = k) only where the artifact ships the totals-push
+    family, so the grid-only publish list left the modeled line a NaN gap
+    outside the grid (NHL finals <= 3 are 13.3% of the store — the missing
+    early distribution the dashboard review flagged). Every integer
+    totals-push column the rows carry ships, k-sorted after the priced grid,
+    and meta.grids.total_pmf records the span actually published."""
     df = _mc_frame(n=6)
     for c in serving_mod.MARKETS_BASE_COLS:
         if c not in df:
@@ -1210,9 +1213,12 @@ def test_markets_writer_keeps_the_market_grid_column_contract(tmp_path):
                 if c.startswith("p_push_total_")
                 and c[len("p_push_total_"):].isdigit()
                 and int(c[len("p_push_total_"):]) not in config.TOTAL_GRID]
-    assert not off_grid, f"writer expanded the grid contract: {off_grid[:5]}"
+    assert off_grid, "writer dropped the emitter's off-grid totals-PMF mass"
+    # Sub-grid mass (the early distribution) ships and spans the grid.
+    assert "p_push_total_0" in out.columns
     meta = json.loads(meta_p.read_text())
-    assert "total_pmf" not in meta["grids"]
+    lo, hi = meta["grids"]["total_pmf"]
+    assert lo < config.TOTAL_GRID[0] and hi >= config.TOTAL_GRID[-1]
     assert meta["columns"] == len(out.columns)
 
 

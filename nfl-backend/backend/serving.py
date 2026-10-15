@@ -549,6 +549,22 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
                     out[push_c] = out[push_s]
                 else:
                     out[push_c] = out[push_c].where(out[push_c].notna(), out[push_s])
+    # Full-support totals PMF (2026-10-14): the emitter prices the integer
+    # totals-push family over the ENTIRE priced support (distributions'
+    # p_push_total_<k> setdefault pass — same sampled CDF the grid columns
+    # come from), because the diagnostics distribution chart draws
+    # P(total = k) only where the artifact ships that family. The grid-only
+    # list above would silently drop the off-grid mass and leave the modeled
+    # line a NaN gap outside 24…66 (NFL finals <= 23 are 4.7% of the store
+    # and >= 67 another 7.3% — the missing tail distribution the dashboard
+    # review flagged). Publish every integer totals-push column the rows
+    # carry, k-sorted, appended after the priced grid.
+    off_grid_pmf = sorted(
+        (c for c in out.columns
+         if c.startswith("p_push_total_") and c[len("p_push_total_"):].isdigit()),
+        key=lambda c: int(c[len("p_push_total_"):]))
+    cols = cols + [c for c in off_grid_pmf if c not in cols]
+
     # Missing grid columns materialize in ONE bulk concat — the per-column
     # ``out[c] = np.nan`` loop fragmented the frame (>100 inserts) and
     # flooded the run log with pandas PerformanceWarnings.
@@ -581,6 +597,12 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         "grids": {"spread": [-14, 14], "total": [24, 66],
                   "half_stops": config.HALF_STOP_LINES},
     }
+    # The span actually shipped (k min..max across every integer
+    # totals-push column), not just the priced grid — the diagnostics
+    # caption renders it so the reader can see the line's true extent.
+    if off_grid_pmf:
+        meta["grids"]["total_pmf"] = [int(off_grid_pmf[0][len("p_push_total_"):]),
+                                       int(off_grid_pmf[-1][len("p_push_total_"):])]
     meta_path.write_text(json.dumps(meta, indent=1))
     return out
 

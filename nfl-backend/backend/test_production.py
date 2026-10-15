@@ -1134,10 +1134,26 @@ need_mk = {"kind", "game_id", "mu_h", "mu_a", "mu_margin", "mu_total",
 check("markets CSV contract columns", need_mk.issubset(mk.columns),
       str(sorted(list(need_mk - set(mk.columns)))[:8]))
 check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
-# 2026-10-15: the writer keeps the market-grid column contract exactly —
-# off-grid integer PMF mass the emitter prices in memory is NOT published
-# to the CSV (no schema expansion alongside the lattice layer), so the
-# contract asserts the grid family only.
+# Full-support totals PMF publication (2026-10-14): the writer publishes the
+# emitter's off-grid integer PMF mass so the diagnostics distribution chart
+# spans the full priced support (the 24..66 grid alone left both off-grid
+# bands with NO modeled line — NFL finals <= 23 are 4.7% of the store and
+# >= 67 another 7.3%). The sub-grid mass (the early distribution) ships,
+# k-sorted after the priced grid, and meta.grids.total_pmf records the span.
+_pmf_pub = sorted(int(c[len("p_push_total_"):]) for c in mk.columns
+                  if c.startswith("p_push_total_")
+                  and c[len("p_push_total_"):].isdigit())
+check("markets CSV publishes off-grid full-support totals PMF",
+      bool(_pmf_pub) and _pmf_pub[0] < config.TOTAL_GRID[0]
+      and _pmf_pub[-1] > config.TOTAL_GRID[-1],
+      f"span {_pmf_pub[0]}..{_pmf_pub[-1]}" if _pmf_pub else "nothing shipped")
+check("p_push_total_0 published to the CSV", "p_push_total_0" in mk.columns)
+_meta_pub = json.loads(meta_path.read_text())
+check("meta.grids.total_pmf spans the published support",
+      bool(_meta_pub["grids"].get("total_pmf"))
+      and _meta_pub["grids"]["total_pmf"][0] < config.TOTAL_GRID[0])
+check("meta columns count matches the published grid",
+      _meta_pub["columns"] == len(mk.columns))
 
 # QB contract fields exist in the enrichment module
 import qb_enrichment  # noqa: E402
