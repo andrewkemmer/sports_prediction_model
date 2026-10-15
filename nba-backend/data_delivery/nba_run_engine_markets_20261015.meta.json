@@ -378,33 +378,52 @@
     "n": 1315,
     "total": 10.76825831649886,
     "margin": 8.219669728008212
-   },
-   "is_playoffs_False": {
-    "n": 2231,
-    "total": 10.762805943923622,
-    "margin": 8.16453516866087
-   },
-   "is_playoffs_True": {
-    "n": 169,
-    "total": 10.752502963576331,
-    "margin": 8.961787606584615
-   },
-   "provisional_False": {
-    "n": 2130,
-    "total": 10.81731626616845,
-    "margin": 8.147352048000753
-   },
-   "provisional_True": {
-    "n": 270,
-    "total": 10.326331165922962,
-    "margin": 8.799111868717038
    }
   }
  },
- "lattice": {},
+ "lattice": {
+  "totals": {
+   "target": "totals",
+   "sport": "nba",
+   "n_fit": 1680,
+   "n_test": 720,
+   "significant": true,
+   "basis": "localized_per_bin_shrinkage",
+   "residual_mae_before": 0.00024301685839649595,
+   "residual_mae_after": 0.00021499717112093283,
+   "delta_l1": 0.022320000000000003,
+   "delta_max": 0.001211,
+   "collateral_max_excess": 0.0,
+   "collateral_ok": true,
+   "gate_z": 3.003,
+   "support": [
+    0,
+    600
+   ]
+  },
+  "margin": {
+   "target": "margin",
+   "sport": "nba",
+   "n_fit": 1680,
+   "n_test": 720,
+   "significant": true,
+   "basis": "localized_per_bin_shrinkage",
+   "residual_mae_before": 0.00014649638425551855,
+   "residual_mae_after": 0.0001174650494563129,
+   "delta_l1": 0.038419999999999996,
+   "delta_max": 0.006633,
+   "collateral_max_excess": 0.0,
+   "collateral_ok": true,
+   "gate_z": 4.857,
+   "support": [
+    -600,
+    600
+   ]
+  }
+ },
  "settlement": "final_score_no_tie",
  "record": "nba_run_engine_markets",
- "written_utc": "2026-10-15T20:58:15.227214+00:00",
+ "written_utc": "2026-10-15T22:07:43.597326+00:00",
  "config": {
   "sport": "nba",
   "feature_set_version": "nba-prod-v2.9-rapm-dated-rosters",

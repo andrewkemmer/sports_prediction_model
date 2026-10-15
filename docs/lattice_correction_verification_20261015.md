@@ -1,4 +1,139 @@
-# Integer-lattice (sawtooth) correction — verification report (2026-10-15)
+# Integer-lattice (sawtooth) correction — verification report (2026-10-15, localized-basis re-gate 2026-10-16)
+
+> 2026-10-16 addendum — the localized-basis re-gate (this file's 10-15 body
+> below is the preserved Fourier-basis record; the verdicts it reports are
+> superseded by the table in §A3). Commit 5a244bfd retired the global
+> Fourier basis for per-bin SE-aware shrinkage (`lattice_local_deltas`), a
+> per-bin collateral guard, the pre-registration table
+> (`LATTICE_PREREGISTERED`), the hierarchically pooled share estimator, and
+> the NFL key-number spike fitter + composer. This session wired the spikes
+> into the NFL margin choke point, added the fitted-lattice support-
+> realignment (§A1), fixed the audit's distribution-column classifier
+> (§A2), re-gated all eight sport × target pairs, regenerated MLB/NBA/NFL
+> artifacts, and byte-verified NHL. Standing rules held throughout: no
+> forced admissions, no gate changes (generic z ≥ 3.0 two-sided;
+> pre-registered structural z ≥ 2.5 one-sided), pre-register before fitting,
+> byte-safety (pinned stacks, `float_precision='round_trip'`,
+> `lineterminator="\n"`), MLB totals spec frozen.
+>
+> ## A1. Support-drift realignment (2026-10-16, the NFL re-gate crash)
+>
+> The first NFL re-gate walk died mid-walk in `lattice_correct`: `lattice
+> delta must align with the distribution support`. Root cause: dynamic
+> Gaussian supports expand per-block with fitted skew/scale (NFL totals
+> union lattice `0..250`, 251 bins, vs a later block's `0..251`, 252
+> bins). A fitted delta is meaningless positionally across different
+> supports, and refusing to price is not an option in production. The fix
+> (all four `gaussian_family.py` copies, byte-identical): admitted
+> corrections now store their fitted-lattice bounds (`spec["support"] =
+> [lo, hi]`); on a length mismatch `lattice_correct` realigns by integer
+> bin value (fitted bins keep their value, unseen bins get exact 0 — the
+> shrinkage-consistent choice, since the fit's own prior scale is
+> mass-proportional), then clips/renormalizes as before. An admitted delta
+> with unknown fitted lattice still raises — silently dropping a fitted
+> correction would be worse than refusing to price it. Lengths that
+> already match skip the branch, so every previously pricing bundle is
+> untouched. The NFL composer attaches the same bounds for composed
+> (spike + generic) deltas. Four new unit tests per backend: wider
+> pricing support (exact renormalized expectation asserted), narrower
+> pricing support (clean truncation), unknown provenance (still raises),
+> bounds disclosure on admission.
+>
+> ## A2. Audit classifier fix (2026-10-16, false isolation alarms)
+>
+> The re-gate's first NFL record reported
+> `isolation_nondist_columns_identical: false`. No leakage: the
+> full-support totals-PMF block writes `p_push_total_<int-bin>` only where
+> the priced frame places mass (`setdefault` over `mass.any`), so the
+> two-row mini-frame instrumentation in `regenerate_lattice_artifacts.py`
+> did not cover 39 shipped NFL tail bins and they were misclassified as
+> non-distribution. The classifier now unions the mini-instrumented set
+> with the `p_push_total_<digits>` integer namespace (the offered-line
+> column `p_push_total_offered` stays non-distribution). After the fix the
+> NFL record reads true/true with 469 lattice columns, all
+> distribution-owned. Remaining classifier output names any future
+> non-distribution diff explicitly (`isolation_nondist_diffs`) instead of
+> a bare boolean.
+>
+> ## A3. Full re-gate verdicts — all eight sport × target pairs (localized basis, FINAL serving fits)
+>
+> | sport | target | verdict | gate z (bar) | pooled resid MAE before → after | Δ L1 / max | origins |
+> |---|---|---|---|---|---|---|
+> | NHL | totals | rejected | 0.83 (3.0) | 0.000787 → 0.000421 | 0.048 / 0.0069 | 0/61 |
+> | NHL | margin | rejected | 2.71 (3.0) | 0.000791 → 0.000315 | 0.099 / 0.0257 | 0/61 |
+> | MLB | totals | **admitted** | **5.54** (3.0) | **0.001133 → 0.000319 (−72%)** | 0.133 / 0.0191 | 68/84 |
+> | MLB | margin generic | rejected | 2.22 (3.0) | 0.000392 → 0.000139 | — | 0/84 |
+> | MLB | margin walk-off split | **admitted (structural)** | **2.97** (2.5 one-sided, q>½) | q̂ = 0.600, blocks 0.599/0.611/0.643/0.630 | 56/84 origins share | — |
+> | NBA | totals | **admitted** | **3.00** (3.0) | **0.000243 → 0.000215 (−12%)** | 0.022 / 0.0012 | 48/56 |
+> | NBA | margin | **admitted** | **4.86** (3.0) | **0.000146 → 0.000117 (−20%)** | 0.038 / 0.0066 | 49/56 |
+> | NFL | totals | **admitted** | **6.26** (3.0) | **0.000966 → 0.000722 (−25%)** | 0.064 / 0.0056 | 174/200 |
+> | NFL | margin spikes | **3 (z=5.30, +0.0174) and 7 (z=2.73, +0.0062) admitted (structural)**; 1/4 refused direction (amp ≤ 0); 6/10/17 insignificant; 14 (z=2.20) below the 2.5 bar | — | — | — |
+> | NFL | margin composed | **admitted** | **8.29** (3.0 generic on spike-adjusted) | **0.000793 → 0.000578 (−27%)** | 0.143 / 0.030 (cap) | 174/200 |
+>
+> Honesty notes. (1) NBA totals z = 3.003 clears the bar by 0.003 — admitted
+> under the rules (no gate changes), magnitude small (Δ max 0.0012), but
+> 48/56 origins admit independently, which argues against a fluke; flagged
+> here so a reader need not discover the marginality themselves. (2) NFL
+> totals admitted at z = 6.26 where the pre-registration expected a no-op:
+> the prior was written under the old global basis, which could not
+> localize; the localized fit found held-out-confirmed structure (worst
+> bins 51/37/40/44 improve, e.g. 51: +0.0169 → +0.0135). A prior is not a
+> constraint — the gate is. (3) NFL margin Δ max hits the ±0.03 clamp cap
+> (bin 3: spike +0.0174 plus generic residual). The cap is part of the
+> admitted post-pipeline, collateral stays clean, and the end-to-end
+> pooled margin MAE (0.000856 → 0.000701 through actually-issued per-origin
+> CDFs) confirms the composed vector prices better, not just the
+> components. (4) NHL margin z = 2.71 < 3.0 stays rejected: the empty-net
+> ±2/±3 shape (+0.036 at +3, +0.029 at −3) was never pre-registered as a
+> structural parameter, so the generic bar applies — documented
+> follow-up candidate with more seasons, not a silent tweak. NBA's 1–6
+> end-game fouling region, by contrast, is absorbed inside an admitted
+> generic (worst bins −1: −0.0148 → −0.0122; +1: −0.0185 → −0.0140).
+> (5) NFL totals CRPS moves 7.6346 → 7.6366 (+0.03%, noise-scale) while
+> Brier/logloss and pooled MAE all improve — reported, not hidden.
+>
+> ## A4. §8 validation tables (from the final re-gate records)
+>
+> MLB margin ±1: M=+1 +0.0372 → +0.0302 (obs 0.1740); M=−1 −0.0226 →
+> −0.0169 (obs 0.1089); M=0 exact 0 both sides (no-tie). Moneyline two-way
+> max |dev| = 0.0 lattice and baseline (no-tie → exact). Three-way
+> (home/tie/away) max |dev| = 1.1e−16 NFL, 0.0 NBA/NHL on delivered
+> artifacts (tie mass exact by construction).
+> NFL margin key numbers (model push-mass vs observed frequency, n=2573):
+> M=3: 0.029 → **0.050** vs 0.0777; M=7: 0.027 → **0.031** vs 0.0431;
+> M=0 (ties): 0.029 → 0.024 vs 0.0035 (model overpredicts ties ~7× —
+> pre-existing shape, lattice improves the direction); half-lines
+> 1.5/2.5/3.5/6.5/7.5 exactly 0.000 both sides (no spike leakage).
+> NHL margin ±1/±2/±3 (rejected — both columns identical): −3 +0.0295, −2
+> −0.0097, −1 −0.0133, +1 −0.0087, +2 −0.0245, +3 +0.0363; totals pushes
+> 5.0: 0.218 vs 0.230; 6.0: 0.113 vs 0.110; 7.0: 0.195 vs 0.199.
+> Target isolation: regen serving-maps proof passes in all four sports
+> (overlap empty — NFL 152 margin-only / 300 totals-only; MLB 15/97; NBA
+> and NHL per record) and `verify_target_isolation.py` passes per sport
+> (MLB on stored maps: 109 totals-only, 0 margin-only; shared sports via
+> the serving-maps proof since their metas store the summary only).
+> Full suites green at sign-off: MLB 441, NBA 676, NFL 100, NHL 665+1 flake
+> (see §A5), frontend 128; `test_distribution_objective_parity.py`
+> untouched and passing everywhere.
+>
+> ## A5. Test-hygiene incident (2026-10-16, owned and repaired)
+>
+> The background full-suite run left far-future-dated fixture files
+> (`*20990101*`, `*209912*`) in three backends' `data_delivery/` (frontend
+> staging fixtures back up and restore, but a failed run can leave them;
+> backend tests likewise write dated files beside real artifacts) and —
+> worse — `nba_run_engine_markets_20260929.csv` was found truncated to 0
+> bytes. The committed file was restored (`git checkout`), the litter
+> removed, and the rerun frontend suite passes 128/128 (the 8 mid-day
+> frontend failures were the litter confusing newest-artifact globs, not
+> the noise-band edits — verified by the clean rerun). The truncation
+> source was not identified with certainty; the final sign-off reruns
+> re-check the file size. Lesson recorded: suite runs should be followed
+> by `git status` on `data_delivery/` before any artifact step.
+>
+> WIP label: no in-repo WIP/experimental marker exists on this work (only
+> unrelated historical hits) — if the WIP is the PR label, it is yours to
+> drop; the work itself is complete per the deliverable below.
 
 ## What changed and why
 

@@ -182,6 +182,9 @@ else:
                     "The modeled line ships only at the tie plus "
                     "±1 … ±4 — outside that span it gaps (unavailable, never "
                     "refitted). This is the margin law."
+                    f" Shaded band = 95% binomial interval around the modeled line "
+                    f"(per-bin p-hat ± 1.96·SE, n={sdist['n_games']:,} games) — teeth "
+                    "inside the band are noise-level."
                 )
         else:
             dist = diag.total_distribution(decided)
@@ -198,6 +201,9 @@ else:
                     f"{c['P(total>=10)']['observed']:.3f} / modeled "
                     f"{('--' if c['P(total>=10)']['modeled'] is None else format(c['P(total>=10)']['modeled'], '.3f'))}. Per-TEAM tail checks are "
                     "the fit-check table above — this is the totals law."
+                    f" Shaded band = 95% binomial interval around the modeled line "
+                    f"(per-bin p-hat ± 1.96·SE, n={dist['n_games']:,} games) — teeth "
+                    "inside the band are noise-level."
                 )
 
     with _tabs[1]:   # 2 — relativized-offset calibration (primary curve)
@@ -963,6 +969,25 @@ def _render_fit_panel(fit: dict) -> None:
         share = spec.get("ot_home_share")
         if share is not None:
             lattice_bits.append(f"margin OT/SO home-win share {_fmt(share, 3)}")
+        rep = spec.get("split_share_report") or {}
+        if share is not None and rep:
+            src = ("pre-registered structural bar" if rep.get("structural")
+                   else "generic bar")
+            lattice_bits.append(
+                f"margin walk-off split q-hat {_fmt(share, 3)} (held-out z "
+                f"{_fmt(rep.get('z'), 2)}, {src} {rep.get('bar')}, "
+                f"{rep.get('estimator')})")
+        spikes = (spec.get("spike_report") or {}).get("spikes") or []
+        admitted = [s for s in spikes if s.get("admitted")]
+        if admitted:
+            lattice_bits.append(
+                "margin key-number spikes " + ", ".join(
+                    f"{s['bin']} (+{_fmt(s.get('amplitude'), 4)}, z "
+                    f"{_fmt(s.get('z'), 2)})" for s in admitted))
+        elif spikes:
+            lattice_bits.append(
+                f"margin key-number spikes rejected ({len(spikes)} candidates "
+                "gated, none admitted)")
     if lattice_bits:
         st.caption("Lattice correction (integer-bin low-pass fix; totals and "
                    "margin fit independently): " + "; ".join(lattice_bits) + ".")

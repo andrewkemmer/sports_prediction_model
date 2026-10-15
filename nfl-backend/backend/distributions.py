@@ -601,14 +601,57 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
                                          support=margin_ev.get("support"))
         if share is not None:
             margin["ot_home_share"] = share
+    # Pre-registered key-number spikes (family.LATTICE_PREREGISTERED): fitted
+    # on the margin evidence first, each spike individually gated one-sided
+    # (amplitude > 0, z >= structural bar); the localized generic residual
+    # then runs on spike-adjusted pmfs and is admitted only on its own
+    # generic gate. Both components price as one composed delta; the spike
+    # verdicts ride margin["spike_report"]. Ties stay valid (no no-tie rule).
+    fit_evidence = dict(evidence or {})
+    spike_delta = None
+    margin_ev = (evidence or {}).get("margin") or {}
+    if margin_ev.get("pmfs") is not None:
+        spike_delta, spike_report = family.fit_margin_spikes(
+            margin_ev.get("pmfs"), margin_ev.get("outcomes"),
+            margin_ev.get("support"), DISTRIBUTION_SPORT)
+        if spike_delta is not None:
+            margin["spike_report"] = spike_report
+            adjusted = np.clip(np.asarray(margin_ev["pmfs"], float)
+                               + np.asarray(spike_delta, float)[None, :], 0., None)
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            collapsed = ~np.isfinite(row_total[:, 0]) | (row_total[:, 0] <= 0.)
+            adjusted[collapsed] = np.asarray(margin_ev["pmfs"], float)[collapsed]
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            fit_evidence["margin"] = dict(margin_ev,
+                                          pmfs=adjusted / row_total)
+        elif spike_report.get("spikes"):
+            margin["spike_report"] = spike_report
     for target, kind in (("totals", "total"), ("margin", "margin")):
-        ev = (evidence or {}).get(kind) or None
+        ev = fit_evidence.get(kind) or None
         if ev is None:
             continue
         (totals if target == "totals" else margin).update(
             family.fit_lattice_correction(ev.get("pmfs"), ev.get("outcomes"),
                                           ev.get("support"), DISTRIBUTION_SPORT,
                                           target))
+    if spike_delta is not None:
+        # Compose structural spikes + generic residual into the single stored
+        # delta (same post pipeline each fit applies alone). Generic-only
+        # metrics stay as fitted; delta_l1/delta_max describe the COMPOSED
+        # vector that prices.
+        parts = [spike_delta]
+        if "delta" in margin:
+            parts.append(margin["delta"])
+        weight = np.clip(np.asarray(margin_ev["pmfs"], float).mean(axis=0),
+                         0., None)
+        margin["delta"] = family.compose_lattice_deltas(parts, weight)
+        margin["delta_l1"] = round(float(np.abs(margin["delta"]).sum()), 6)
+        margin["delta_max"] = round(float(np.abs(margin["delta"]).max()), 6)
+        margin["significant"] = True
+        # Fitted-lattice bounds for the composed delta (same union lattice
+        # both components were fitted on) — see family._realign_lattice_delta.
+        _msup = margin_ev.get("support")
+        margin["support"] = [int(_msup[0]), int(_msup[-1])]
     return {"totals": totals, "margin": margin}
 
 

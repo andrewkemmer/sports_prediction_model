@@ -446,3 +446,59 @@ def test_nfl_totals_distribution_draws_full_support_and_counts_high_tails():
         1 / 3, abs=1e-4)   # callouts round to 4 decimals
     assert dist["callouts"]["P(total<=35)"]["observed"] == pytest.approx(
         1 / 3, abs=1e-4)
+
+
+def test_distribution_noise_band_math_gaps_and_spec():
+    """The Distribution tab shades a 95% binomial band around the modeled
+    line: per-bin p-hat ± 1.96·SE over the plotted game count; NaN-gap
+    bins (unshipped mass) carry no band; the chart layers area+bar+line."""
+    import numpy as np
+    import market_diagnostics as diag
+
+    dist = {"ks": [4, 5, 6], "observed": [0.2, 0.5, 0.3],
+            "modeled": [0.25, float("nan"), 0.09],
+            "callouts": {}, "n_games": 100, "warning": None}
+    band = diag.distribution_noise_band(dist)
+    assert list(band.columns) == ["k", "lo", "hi"]
+    assert list(band["k"]) == [4, 6]          # NaN bin skipped
+    se = (0.25 * 0.75 / 100) ** 0.5
+    assert band["lo"].iloc[0] == pytest.approx(max(0., 0.25 - 1.96 * se))
+    assert band["hi"].iloc[0] == pytest.approx(min(1., 0.25 + 1.96 * se))
+    assert (band["lo"] <= band["hi"]).all()
+    # Degenerate inputs carry no band but never crash the builder.
+    assert diag.distribution_noise_band({**dist, "n_games": 0}).empty
+    assert diag.distribution_noise_band({}).empty
+    spec = json.loads(diag.chart_distribution(dist).to_json())
+    marks = [layer["mark"]["type"] for layer in spec["layer"]]
+    assert marks == ["area", "bar", "line"]
+    area = spec["layer"][0]
+    assert set(area["encoding"]) == {"x", "y", "y2"}
+
+
+def test_nfl_nhl_spread_dicts_feed_the_shared_noise_band():
+    """The NFL/NHL Distribution tabs reuse the shared chart builder: their
+    spread dicts (NaN gaps outside the shipped push family) must produce a
+    band with rows exactly at the shipped bins, and an area+bar+line spec."""
+    import numpy as np
+    import market_diagnostics as diag
+    import nfl_market_diagnostics as nfl
+    import nhl_market_diagnostics as nhl
+
+    rng = np.random.default_rng(0)
+    margins = rng.integers(-20, 21, size=400).astype(float)
+    for mod, lo, hi in ((nfl, -14, 14), (nhl, -8, 8)):
+        cols = {}
+        for k in range(lo, hi + 1):
+            tag = f"p_push_m{-k}" if k < 0 else f"p_push_{k}"
+            cols[tag] = np.full(400, 0.03)
+        frame = pd.DataFrame({"margin": margins, **cols})
+        dist = mod.spread_distribution(frame)
+        assert dist["warning"] is None and dist["n_games"] == 400
+        finite = {k for k, v in zip(dist["ks"], dist["modeled"]) if v == v}
+        assert finite == set(range(lo, hi + 1))
+        band = diag.distribution_noise_band(dist)
+        assert list(band["k"]) == sorted(finite)
+        assert ((band["lo"] <= 0.03) & (0.03 <= band["hi"])).all()
+        spec = json.loads(diag.chart_distribution(dist).to_json())
+        assert [layer["mark"]["type"]
+                for layer in spec["layer"]] == ["area", "bar", "line"]

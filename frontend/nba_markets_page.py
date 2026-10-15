@@ -105,6 +105,9 @@ def _render_distribution_tab(decided):
             f"outside ±30: observed {sc['P(|margin|>30)']['observed']:.3f} "
             f"({sc['P(|margin|>30)']['n']:,} games, not plotted). "
             "This is the margin law."
+            f" Shaded band = 95% binomial interval around the modeled line "
+            f"(per-bin p-hat ± 1.96·SE, n={sdist['n_games']:,} games) — teeth "
+            "inside the band are noise-level."
         )
         return
     dist = nd.total_distribution(decided)
@@ -121,6 +124,9 @@ def _render_distribution_tab(decided):
         f"{c['P(total<=190)']['modeled']:.3f} · P(total≥270): observed "
         f"{c['P(total>=270)']['observed']:.3f} / modeled "
         f"{c['P(total>=270)']['modeled']:.3f}. This is the totals law."
+        f" Shaded band = 95% binomial interval around the modeled line "
+        f"(per-bin p-hat ± 1.96·SE, n={dist['n_games']:,} games) — teeth "
+        "inside the band are noise-level."
     )
 
 

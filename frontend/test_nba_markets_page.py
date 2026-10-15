@@ -791,3 +791,21 @@ def test_coverage_ships_mlbs_header_and_worst_first_caption():
     assert html.index("z_low") < html.index("a_ok")
     assert "worst-first" in html
     assert "default-zero" in html
+
+
+def test_nba_distribution_chart_shades_noise_band():
+    """NBA's distribution chart mirrors MLB's: a 95% binomial band behind
+    bars + modeled line, with NaN-gap bins excluded from the band."""
+    import json
+    import math
+
+    dist = {"ks": [220, 221, 222], "observed": [0.3, 0.4, 0.3],
+            "modeled": [0.28, 0.35, float("nan")],
+            "callouts": {}, "n_games": 400, "warning": None}
+    band = nd.distribution_noise_band(dist)
+    assert list(band["k"]) == [220, 221]
+    se = math.sqrt(0.28 * 0.72 / 400)
+    assert band["lo"].iloc[0] == pytest.approx(0.28 - 1.96 * se)
+    assert band["hi"].iloc[0] == pytest.approx(0.28 + 1.96 * se)
+    spec = json.loads(nd.chart_distribution(dist).to_json())
+    assert [layer["mark"]["type"] for layer in spec["layer"]] == ["area", "bar", "line"]

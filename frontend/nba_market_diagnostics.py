@@ -878,12 +878,20 @@ def chart_distribution(dist: dict, x_title: str = "Total points (home + away)",
 
     ``x_title`` / ``y_title`` relabel the axes for the spread view
     ("Margin (home − away)" / "P(margin = k)"); the defaults keep the
-    totals view byte-identical."""
+    totals view byte-identical. A 95% binomial band
+    (distribution_noise_band) shades behind the modeled line so
+    noise-level teeth read as noise."""
     df = pd.DataFrame({
         "k": dist["ks"] * 2,
         "series": ["observed"] * len(dist["ks"]) + ["modeled"] * len(dist["ks"]),
         "p": dist["observed"] + dist["modeled"],
     })
+    layers = []
+    band_df = distribution_noise_band(dist)
+    if not band_df.empty:
+        layers.append(alt.Chart(band_df).mark_area(
+            color="#F59E0B", opacity=0.15).encode(
+            x="k:Q", y="lo:Q", y2="hi:Q"))
     bars = alt.Chart(df[df.series == "observed"]).mark_bar(
         color="#3B82F6", opacity=0.65).encode(
         x=alt.X("k:Q", title=x_title),
@@ -892,7 +900,23 @@ def chart_distribution(dist: dict, x_title: str = "Total points (home + away)",
     line = alt.Chart(df[df.series == "modeled"]).mark_line(
         color="#F59E0B", strokeWidth=2.5, point=True).encode(
         x="k:Q", y="p:Q")
-    return (bars + line).properties(height=300)
+    return alt.layer(*layers, bars, line).properties(height=300)
+
+
+def distribution_noise_band(dist: dict) -> pd.DataFrame:
+    """95% binomial band around the modeled distribution line (MLB's
+    distribution_noise_band mirror: per-bin p-hat ± 1.96·SE over the
+    plotted game count; NaN-gap bins carry no band)."""
+    n = dist.get("n_games") or 0
+    rows = []
+    if n > 0:
+        for k, p in zip(dist.get("ks") or [], dist.get("modeled") or []):
+            if p is None or not np.isfinite(p):
+                continue
+            se = math.sqrt(p * (1. - p) / n)
+            rows.append({"k": k, "lo": max(0., p - 1.96 * se),
+                         "hi": min(1., p + 1.96 * se)})
+    return pd.DataFrame(rows, columns=["k", "lo", "hi"])
 
 
 def chart_calibration(curve: dict, title: str,

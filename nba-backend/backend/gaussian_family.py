@@ -271,6 +271,38 @@ def _lattice_delta(correction):
     return delta if np.any(delta != 0.) else None
 
 
+def _realign_lattice_delta(delta, fit_bounds, support):
+    """Map a fitted per-bin delta onto the pricing support by integer bin value.
+
+    Dynamic Gaussian supports expand per-block with fitted skew/scale, so a
+    delta fitted on the evidence-union lattice can be one bin narrower than
+    the block being priced (measured 2026-10: NFL totals union 0..250 vs a
+    later block's 0..251). Bins the fit saw keep their fitted value; bins
+    outside the fitted lattice get exact 0 (the shrinkage-consistent choice
+    — the fit's own prior scale is mass-proportional, so unseen tail bins
+    would shrink to ~0 anyway). Returns None when the fitted lattice is
+    unknown (no ``support`` bounds stored — pre-realignment bundles carry
+    no delta, so this never fires for them) or not a contiguous unit
+    integer lattice, leaving the caller to raise as before rather than
+    guess. An all-zero mapping is likewise None (passthrough, not a fit).
+    """
+    if fit_bounds is None or len(fit_bounds) != 2:
+        return None
+    lo, hi = int(fit_bounds[0]), int(fit_bounds[1])
+    fit = np.asarray(delta, float)
+    support = np.asarray(support, float)
+    if hi - lo + 1 != len(fit):
+        return None
+    if (not np.all(np.isfinite(support)) or not len(support)
+            or not np.all(support == np.round(support))):
+        return None
+    out = np.zeros(len(support))
+    idx = np.round(support).astype(int) - lo
+    ok = (idx >= 0) & (idx < len(fit))
+    out[ok] = fit[idx[ok]]
+    return out if np.any(out != 0.) else None
+
+
 def lattice_correct(cdf, support, correction, sport, target):
     """Apply the integer-lattice correction to a calibrated CDF.
 
@@ -294,6 +326,17 @@ def lattice_correct(cdf, support, correction, sport, target):
         return cdf
     alpha = float((correction or {}).get("alpha", 0.) or 0.) if target == "totals" and sport == "nhl" else 0.
     delta = _lattice_delta(correction)
+    if delta is not None and len(delta) != len(support):
+        # Support-width drift (see _realign_lattice_delta): realign by bin
+        # value instead of refusing to price. Lengths that already match
+        # skip this branch, so all previously pricing bundles are untouched.
+        # An admitted delta that cannot be placed (unknown fitted lattice)
+        # still raises — silently dropping a fitted correction would be
+        # worse than refusing to price it.
+        delta = _realign_lattice_delta(delta, (correction or {}).get("support"),
+                                       support)
+        if delta is None:
+            raise ValueError("lattice delta must align with the distribution support")
     if alpha <= 0. and delta is None:
         return cdf
     if delta is not None and len(delta) != len(support):
@@ -770,8 +813,7 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     n_all = max(int(inside.sum()), 1)
     pmod_all = np.clip(pmfs[inside].mean(axis=0), 0., 1.)
     se_pool = np.sqrt(pmod_all * (1. - pmod_all) / n_all)
-    worsen = np.abs(r_all - delta) - np.abs(r_all)
-    excess = worsen - se_pool
+    excess = _collateral_excess(r_all, delta, se_pool)
     out["collateral_max_excess"] = round(float(excess.max()), 6)
     out["collateral_ok"] = bool((excess <= 0.).all())
     if not np.any(delta):
@@ -794,6 +836,10 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
         return out
     out["significant"] = True
     out["delta"] = [float(v) for v in delta]
+    # Fitted-lattice bounds for support-drift realignment at pricing time
+    # (see _realign_lattice_delta): the delta's bins are support[0]..support[-1]
+    # unit-spaced. Disclosure-safe (two ints) and round-trips through JSON.
+    out["support"] = [int(support[0]), int(support[-1])]
     return out
 
 
@@ -821,6 +867,21 @@ def lattice_diagnostics(support, pmfs, outcomes, correction):
             for k in (-1, 0, 1) if support[0] <= k <= support[-1]}
 
 
+def _collateral_excess(resid_pooled, delta, se_pool):
+    """Per-bin collateral excess over the 1-sigma noise floor.
+
+    excess_k = (|r_k - delta_k| - |r_k|) - SE_k: how much more the fitted
+    delta worsens bin k's absolute residual than binomial sampling noise
+    alone explains. Non-positive everywhere means the fit damages no bin
+    beyond its own noise floor. Exposed for unit testing; the generic gate
+    vetoes on any positive excess (reason ``collateral_violation``).
+    """
+    r = np.asarray(resid_pooled, float)
+    d = np.asarray(delta, float)
+    se = np.asarray(se_pool, float)
+    return (np.abs(r - d) - np.abs(r)) - se
+
+
 def compose_lattice_deltas(deltas, weight=None):
     """Compose admitted delta components into one stored vector.
 
@@ -830,6 +891,8 @@ def compose_lattice_deltas(deltas, weight=None):
     pipeline each fit applies alone, so a composed delta obeys the same
     contract. Components stay disclosed in their own report keys.
     """
+    if any(part is None for part in deltas):
+        raise ValueError("compose_lattice_deltas requires admitted (non-None) components")
     total = np.zeros_like(np.asarray(deltas[0], float))
     for part in deltas:
         total = total + np.asarray(part, float)

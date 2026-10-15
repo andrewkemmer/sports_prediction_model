@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -101,8 +102,17 @@ def distribution_columns(dist, frame, maps, cfg) -> set[str]:
             "home_score", "away_score"]
     mini = frame[[c for c in cols if c in frame]].head(2).copy()
     priced = dist._distribution_price(mini, maps, n_draws=200)
-    return (set(priced.columns) - set(mini.columns)
-            | {"distribution_fit_n", "distribution_fit_end"})
+    out = (set(priced.columns) - set(mini.columns)
+           | {"distribution_fit_n", "distribution_fit_end"})
+    # The full-support totals-PMF block writes p_push_total_<int-bin> only
+    # where the priced frame places mass (setdefault over mass.any), so the
+    # two-row mini need not cover every shipped tail bin (measured: 39 NFL
+    # bins). Those bins are walk output by construction (the _grid_key
+    # integer namespace); the offered-line column p_push_total_offered is
+    # an input and stays non-distribution.
+    out |= {c for c in frame.columns
+            if re.fullmatch(r"p_push_total_\d[\d_]*", c)}
+    return out
 
 
 def pooled_pmf(dist, family, frame, bundle):
@@ -177,17 +187,26 @@ def main() -> None:
     record["rows"] = {"oof": int(len(oof)), "slate": int(len(slate))}
 
     # ---- 1. baseline (lattice disabled) = pre-lattice behavior -----------
+    # Every admitting fit path must be neutralized here (generic, legacy
+    # share, pooled share, spikes) or the baseline silently includes the
+    # correction it is supposed to exclude.
     real_fit, real_share = family.fit_lattice_correction, family.fit_ot_home_share
+    real_pooled = family.fit_pooled_home_share
+    real_spikes = family.fit_margin_spikes
     family.fit_lattice_correction = lambda *a, **k: {
         "significant": False, "reason": "baseline_lattice_disabled"}
     family.fit_ot_home_share = lambda *a, **k: None
+    family.fit_pooled_home_share = lambda *a, **k: (None, {"reason": "baseline_disabled"})
+    family.fit_margin_spikes = lambda *a, **k: (None, {"reason": "baseline_disabled"})
     t0 = time.time()
     if cfg["style"] == "mlb":
         priced_base, bundle_base = dist.calibrate_market_frame(oof)
     else:
         priced_base, bundle_base = dist.calibrate_market_frame(oof)
     record["walk_seconds_baseline"] = round(time.time() - t0, 1)
-    family.fit_lattice_correction, family.fit_ot_home_share = real_fit, real_share
+    (family.fit_lattice_correction, family.fit_ot_home_share,
+     family.fit_pooled_home_share,
+     family.fit_margin_spikes) = real_fit, real_share, real_pooled, real_spikes
 
     # ---- 2. lattice run ---------------------------------------------------
     t0 = time.time()
@@ -211,6 +230,12 @@ def main() -> None:
     record["lattice_changed_columns_sample"] = lat_diffs[:12]
     record["isolation_nondist_columns_identical"] = bool(nd_ok)
     record["delivered_nondist_columns_identical"] = bool(nd_ok_delivered)
+    if not nd_ok:
+        record["isolation_nondist_diffs"] = [
+            c for c in nondist if not _same(priced_base[c], priced_lat[c]).all()]
+    if not nd_ok_delivered:
+        record["delivered_nondist_diffs"] = [
+            c for c in nondist if not _same(oof[c], priced_lat[c]).all()]
 
     # ---- 4. metrics -------------------------------------------------------
     record["lattice_summary"] = bundle_lat.get("lattice_summary", {})
@@ -253,7 +278,8 @@ def main() -> None:
     pushes = {}
     push_lines = {"total": [5.0, 6.0, 7.0] if args.sport == "nhl"
                   else [8.0, 9.0] if args.sport == "mlb" else [],
-                  "margin": [0.0]}
+                  "margin": ([0.0] if args.sport != "nfl"
+                              else [0.0, 1.5, 2.5, 3.0, 3.5, 6.5, 7.0, 7.5])}
     for kind, lines in push_lines.items():
         for line in lines:
             for label, priced in (("baseline", priced_base), ("lattice", priced_lat)):
@@ -263,12 +289,80 @@ def main() -> None:
                            else f"p_push_{str(line).replace('.', '_')}")
                 elif args.sport == "mlb":
                     key = f"p_rl_{line:.1f}".replace(".", "_") + "_push"
+                elif args.sport == "nfl":
+                    # Same _grid_key("p_push", line) encoding the writer uses.
+                    s = str(float(line))
+                    if s.endswith(".0"):
+                        s = s[:-2]
+                    key = f"p_push_{s.replace('-', 'm').replace('.', '_')}"
                 else:
                     key = "p_push_0"
                 stat = line_stats(priced, key, "total" if kind == "total" else "margin", line)
                 if stat:
                     pushes[f"{kind}_{line}_{label}"] = stat
     record["push_rates"] = pushes
+    # Margin per-bin residual table (-3..3) for the validation report.
+    margin_bins = {}
+    for k in (-3, -2, -1, 0, 1, 2, 3):
+        b, l = pmf_base["margin"], pmf_lat["margin"]
+        if b["support"][0] <= k <= b["support"][-1]:
+            j = int(np.searchsorted(b["support"], k))
+            margin_bins[str(k)] = {
+                "residual_baseline": round(float(b["residual"][j]), 5),
+                "residual_lattice": round(float(l["residual"][j]), 5),
+                "observed": round(float(b["observed"][j]), 5)}
+    record["margin_bins"] = margin_bins
+    # Moneyline two-way completeness on the lattice-priced OOF.
+    ml = {}
+    for col_h, col_a in (("p_home_win_derived", "p_away_win_derived"),):
+        if col_h in priced_lat.columns and col_a in priced_lat.columns:
+            dev = (pd.to_numeric(priced_lat[col_h], errors="coerce")
+                   + pd.to_numeric(priced_lat[col_a], errors="coerce")) - 1.
+            ml["two_way_max_abs_dev_lattice"] = round(float(np.nanmax(np.abs(dev))), 8)
+            if col_h in priced_base.columns and col_a in priced_base.columns:
+                dev_b = (pd.to_numeric(priced_base[col_h], errors="coerce")
+                         + pd.to_numeric(priced_base[col_a], errors="coerce")) - 1.
+                ml["two_way_max_abs_dev_baseline"] = round(float(np.nanmax(np.abs(dev_b))), 8)
+    record["moneyline"] = ml
+    # Serving-maps target isolation: price a small OOF mini-frame with the
+    # FINAL serving maps under both/single-target-disabled specs. Columns
+    # that need the totals correction and columns that need the margin
+    # correction must be disjoint (separate code paths, see
+    # run_diagnostics/verify_target_isolation.py for the artifact-level twin).
+    try:
+        iso_cols = dict.fromkeys((cfg["identity"], "game_pk",
+                                  "game_date", "gameday", "home_expected_runs",
+                                  "away_expected_runs", "mu_h", "mu_a",
+                                  "home_score", "away_score"))
+        iso_mini = oof[[c for c in iso_cols if c in oof.columns]].head(6).copy()
+        serving_maps = bundle_lat["maps"]
+        p_both = dist._distribution_price(iso_mini, serving_maps, n_draws=500)
+        no_t = json.loads(json.dumps(serving_maps))
+        (no_t.setdefault("lattice", {}))["totals"] = {}
+        no_m = json.loads(json.dumps(serving_maps))
+        (no_m.setdefault("lattice", {}))["margin"] = {}
+        p_toff = dist._distribution_price(iso_mini, no_t, n_draws=500)
+        p_moff = dist._distribution_price(iso_mini, no_m, n_draws=500)
+
+        def _moved(a, b):
+            return {c for c in a.columns
+                    if c in b.columns and not _same(a[c], b[c]).all()}
+        need_totals = _moved(p_both, p_toff)
+        need_margin = _moved(p_both, p_moff)
+        overlap = sorted(need_margin & need_totals)
+        record["serving_isolation"] = {
+            "margin_only_columns_n": len(need_margin),
+            "totals_only_columns_n": len(need_totals),
+            "overlap_forbidden": overlap,
+            "pass": len(overlap) == 0,
+            "margin_sample": sorted(need_margin)[:8],
+            "totals_sample": sorted(need_totals)[:8],
+        }
+    except Exception as exc:  # noqa: BLE001 - record, don't fail the walk
+        import traceback as _tb
+        record["serving_isolation"] = {
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback_tail": _tb.format_exc()[-1200:]}
 
     origins = bundle_lat["origins"]
     record["origins_significant"] = {

@@ -210,6 +210,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
             f"P(margin≥10): observed {sc['P(margin>=10)']['observed']:.3f} / modeled {_sm('P(margin>=10)')} · "
             f"outside ±30: observed {sc['P(|margin|>30)']['observed']:.3f} "
             f"({sc['P(|margin|>30)']['n']:,} games, not plotted)."
+            f" Shaded band = 95% binomial interval around the modeled line "
+            f"(per-bin p-hat ± 1.96·SE, n={sdist['n_games']:,} games) — teeth "
+            "inside the band are noise-level."
         )
         return
     dist = nd.total_distribution(decided)
@@ -233,6 +236,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
         f"the extreme tails are reported as boundary columns: "
         f"P(total≤35): observed {c['P(total<=35)']['observed']:.3f} / modeled {_tail('P(total<=35)')} · "
         f"P(total≥60): observed {c['P(total>=60)']['observed']:.3f} / modeled {_tail('P(total>=60)')}."
+        f" Shaded band = 95% binomial interval around the modeled line "
+        f"(per-bin p-hat ± 1.96·SE, n={dist['n_games']:,} games) — teeth "
+        "inside the band are noise-level."
     )
 
 
@@ -766,6 +772,32 @@ def _render_fit_panel(fit: dict) -> None:
         f"{(fit.get('monte_carlo') or {}).get('n_draws', '—')} draws, seed "
         f"{(fit.get('monte_carlo') or {}).get('seed', '—')}."
     )
+    # Integer-lattice correction disclosure (mirrors MLB's fit panel):
+    # pre-registered key-number spikes with per-spike verdicts plus the
+    # generic residual's gate verdict. Absent keys = pre-lattice artifact.
+    lattice_bits = []
+    for target, label in (("totals", "totals"), ("margin", "margin")):
+        spec = (fit.get("lattice") or {}).get(target) or {}
+        if spec.get("significant"):
+            lattice_bits.append(
+                f"{label} δ L1 {_fmt(spec.get('delta_l1'), 4)} "
+                f"(held-out z {_fmt(spec.get('gate_z'), 2)})")
+        elif spec.get("reason"):
+            lattice_bits.append(f"{label} δ not admitted ({spec['reason']})")
+        spikes = (spec.get("spike_report") or {}).get("spikes") or []
+        admitted = [s for s in spikes if s.get("admitted")]
+        if admitted:
+            lattice_bits.append(
+                "margin key-number spikes " + ", ".join(
+                    f"{s['bin']} (+{_fmt(s.get('amplitude'), 4)}, z "
+                    f"{_fmt(s.get('z'), 2)})" for s in admitted))
+        elif spikes:
+            lattice_bits.append(
+                f"margin key-number spikes rejected ({len(spikes)} candidates "
+                "gated, none admitted)")
+    if lattice_bits:
+        st.caption("Lattice correction (integer-bin low-pass fix; totals and "
+                   "margin fit independently): " + "; ".join(lattice_bits) + ".")
 
 
 

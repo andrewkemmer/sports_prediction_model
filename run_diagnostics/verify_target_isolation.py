@@ -34,11 +34,33 @@ if not bundle.get("maps", {}).get("lattice"):
     clean = all("delta" not in (summ.get(t) or {})
                 and (summ.get(t) or {}).get("ot_home_share") is None
                 for t in ("totals", "margin"))
+    admitted = [t for t in ("totals", "margin")
+                if (summ.get(t) or {}).get("significant")]
+    if clean and not admitted:
+        print(json.dumps({"sport": sport, "maps_stored": False,
+                          "final_specs_clean": True,
+                          "pass": True,
+                          "note": "no-op sport: nothing admitted, nothing to isolate"}))
+        raise SystemExit(0)
+    # Admissions exist but the artifact stores no maps to re-price: the
+    # operative proof is the serving-maps isolation in the sport's re-gate
+    # record (same final maps the writers persisted, priced both/single-off).
+    reg = Path(__file__).resolve().parent / f"{sport}_regate.json"
+    rec = {}
+    try:
+        rec = json.loads(reg.read_text()).get("serving_isolation") or {}
+    except (OSError, ValueError):
+        rec = {}
+    ok = rec.get("pass") is True and not rec.get("overlap_forbidden")
     print(json.dumps({"sport": sport, "maps_stored": False,
                       "final_specs_clean": bool(clean),
-                      "pass": bool(clean),
-                      "note": "no-op sport: nothing admitted, nothing to isolate"}))
-    raise SystemExit(0 if clean else 1)
+                      "admitted": admitted,
+                      "serving_isolation": rec,
+                      "pass": bool(ok),
+                      "note": ("shared-sport meta stores the summary only; "
+                               "isolation proved on the serving maps in "
+                               f"{reg.name}")}))
+    raise SystemExit(0 if ok else 1)
 
 markets = delivery / pattern.replace("20*", date)
 frame = pd.read_csv(markets, float_precision="round_trip")

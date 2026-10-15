@@ -229,6 +229,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
             f"artifact's own p_push_<±L> columns — mass is never borrowed from another push namespace; "
             f"P(margin≤−4): observed {sc['P(margin<=-4)']['observed']:.3f} / modeled {_sm('P(margin<=-4)')} · "
             f"P(margin≥4): observed {sc['P(margin>=4)']['observed']:.3f} / modeled {_sm('P(margin>=4)')}."
+            f" Shaded band = 95% binomial interval around the modeled line "
+            f"(per-bin p-hat ± 1.96·SE, n={sdist['n_games']:,} games) — teeth "
+            "inside the band are noise-level."
         )
         return
     dist = nd.total_distribution(decided)
@@ -252,6 +255,9 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
         f"the extreme tails are reported as boundary columns: "
         f"P(total≤4): observed {c['P(total<=4)']['observed']:.3f} / modeled {_tail('P(total<=4)')} · "
         f"P(total≥10): observed {c['P(total>=10)']['observed']:.3f} / modeled {_tail('P(total>=10)')}."
+        f" Shaded band = 95% binomial interval around the modeled line "
+        f"(per-bin p-hat ± 1.96·SE, n={dist['n_games']:,} games) — teeth "
+        "inside the band are noise-level."
     )
 
 

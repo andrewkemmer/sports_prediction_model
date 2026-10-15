@@ -14,6 +14,7 @@ in the maps.
 Run: ``python -m pytest test_lattice_correction.py -q``
 """
 from pathlib import Path
+import copy
 import sys
 
 import numpy as np
@@ -239,6 +240,10 @@ def test_pre_lattice_bundles_price_identically(monkeypatch):
     monkeypatch.setattr(fam, "fit_lattice_correction",
                         lambda *a, **k: {"significant": False})
     monkeypatch.setattr(fam, "fit_ot_home_share", lambda *a, **k: None)
+    monkeypatch.setattr(fam, "fit_pooled_home_share",
+                        lambda *a, **k: (None, {}))
+    monkeypatch.setattr(fam, "fit_margin_spikes",
+                        lambda *a, **k: (None, {"spikes": []}))
     frame = _walk_frame()
     _, bundle = dist.causal_distribution_frame(frame, n_draws=500)
     maps = dict(bundle["maps"])
@@ -247,3 +252,306 @@ def test_pre_lattice_bundles_price_identically(monkeypatch):
     b = dist._distribution_cdfs(frame, legacy, sampled=False)
     for kind in ("total", "margin"):
         np.testing.assert_array_equal(a[kind][1], b[kind][1])
+
+
+def test_shared_gaussian_family_copies_are_byte_identical():
+    """Drift guard: gaussian_family.py is shared infrastructure mirrored in
+    all four backends — the copies must be byte-identical (sha256 equality).
+    A one-copy edit silently forking behavior per sport already occurred
+    once; it is a test failure now, not a smoke-time discovery."""
+    import hashlib
+    root = Path(__file__).resolve().parents[2]
+    copies = [root / f"{sport}-backend" / "backend" / "gaussian_family.py"
+              for sport in ("mlb", "nba", "nfl", "nhl")]
+    missing = [str(p) for p in copies if not p.is_file()]
+    assert not missing, f"missing shared copies: {missing}"
+    digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in copies]
+    assert all(d == digests[0] for d in digests), \
+        "gaussian_family.py copies drifted: " + ", ".join(
+            f"{p.parent.parent.name}={d[:12]}" for p, d in zip(copies, digests))
+
+
+# ---------------------------------------------------------------------------
+# Section 9 extensions: structural spikes, pooled share, collateral guard,
+# compose contract (2026-10-16). This file ships in all four backends with
+# SPORT bound per copy; spike/share mechanics are sport-agnostic math, so
+# every backend pins the same contract.
+# ---------------------------------------------------------------------------
+
+def _spike_evidence(amplitude=.04, n=2500, seed=7):
+    rng = np.random.default_rng(seed)
+    support = np.arange(-30, 31)
+    base = np.exp(-.5 * ((support - 1.5) / 13.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    truth[support == 3] += amplitude
+    truth[support == 7] += amplitude
+    truth = truth / truth.sum()
+    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+
+def test_structural_spikes_admit_primaries_individually_and_compose():
+    pmfs, outcomes, support = _spike_evidence()
+    delta, rep = fam.fit_margin_spikes(pmfs, outcomes, support, SPORT)
+    assert rep["estimator"] == "key_number_spikes"
+    assert rep.get("significant") and delta is not None
+    by_bin = {s["bin"]: s for s in rep["spikes"]}
+    assert by_bin[3]["admitted"] and by_bin[7]["admitted"]
+    assert by_bin[3]["z"] >= fam.LATTICE_STRUCTURAL_Z
+    # Bin 7's evidence sits between the bars -- exactly the structural
+    # bar's jurisdiction: admitted here, rejected under the generic bar.
+    assert fam.LATTICE_STRUCTURAL_Z <= by_bin[7]["z"] < fam.LATTICE_GATE_Z
+    # Secondary key numbers carry no excess here: each gated individually,
+    # each rejected with its own verdict row.
+    for v in (1, 4, 6, 10, 14, 17):
+        assert not by_bin[v]["admitted"] and "reason" in by_bin[v]
+    for row in rep["spikes"]:
+        assert {"bin", "admitted", "amplitude"} <= set(row)
+        assert ("z" in row) if row["admitted"] else ("reason" in row)
+    d = np.asarray(delta, float)
+    assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
+    assert (np.abs(d) <= fam.LATTICE_DELTA_CAP + 1e-12).all()  # clamp
+    assert d[support == 3] > 0. and d[support == 7] > 0.    # spike direction
+    assert (d == np.round(d, fam.LATTICE_ROUND)).all()        # stored rounding
+    # Compose keeps the contract: spike delta + zero generic residual gives
+    # the spike vector back up to the stored rounding, still zero-sum.
+    combo = np.asarray(fam.compose_lattice_deltas(
+        [delta, [0.] * len(d)]), float)
+    np.testing.assert_allclose(combo, d, atol=1e-6)
+    assert abs(combo.sum()) <= len(combo) * 5e-7 + 1e-9
+    with pytest.raises(ValueError):
+        fam.compose_lattice_deltas([delta, None])
+
+
+def test_spike_fit_rejects_pure_noise_with_verdicts():
+    rng = np.random.default_rng(11)
+    support = np.arange(-30, 31)
+    base = np.exp(-.5 * ((support - 1.5) / 13.) ** 2)
+    base = base / base.sum()
+    outcomes = rng.choice(support, size=1500, p=base)
+    delta, rep = fam.fit_margin_spikes(np.tile(base, (1500, 1)), outcomes,
+                                       support, SPORT)
+    assert delta is None and rep["reason"] == "no_spike_admitted"
+    assert len(rep["spikes"]) == 8
+    assert not any(s.get("admitted") for s in rep["spikes"])
+
+
+def _share_evidence(tilt=.15, n=900, seed=2):
+    rng = np.random.default_rng(seed)
+    support = np.arange(-20, 21)
+    base = np.exp(-.5 * (support / 6.) ** 2)
+    base = base / base.sum()
+    p = np.clip(base + np.where(support == 1, tilt,
+                                np.where(support == -1, -tilt, 0.)), 0., None)
+    p = p / p.sum()
+    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=p), support
+
+
+def test_pooled_share_admits_home_tilt_with_report():
+    pmfs, outcomes, support = _share_evidence()
+    share, rep = fam.fit_pooled_home_share(outcomes, pmfs=pmfs,
+                                           support=support)
+    assert share is not None and .35 <= share <= .60 and share > .5
+    assert rep["estimator"] == "hierarchical_pooled"
+    assert rep["structural"] is False and rep["bar"] == fam.LATTICE_GATE_Z
+    assert rep["z"] >= fam.LATTICE_GATE_Z
+    assert len(rep["blocks"]) >= 2 and "fallback" not in rep
+
+
+def test_structural_bar_admits_what_generic_rejects_and_enforces_direction():
+    pmfs, outcomes, support = _share_evidence(tilt=.03, n=500, seed=4)
+    generic, rep_g = fam.fit_pooled_home_share(outcomes, pmfs=pmfs,
+                                               support=support)
+    assert generic is None
+    assert rep_g["reason"] == "held_out_not_significant"
+    assert fam.LATTICE_STRUCTURAL_Z <= rep_g["z"] < fam.LATTICE_GATE_Z
+    structural, rep_s = fam.fit_pooled_home_share(
+        outcomes, pmfs=pmfs, support=support,
+        bar=fam.LATTICE_STRUCTURAL_Z, structural=True)
+    assert structural is not None and structural > .5
+    assert rep_s["structural"] is True and rep_s["bar"] == 2.5
+    # Pre-registered direction enforced BEFORE the test: an away tilt is a
+    # structural no-op, never a two-sided retry.
+    pmfs_a, outcomes_a, _ = _share_evidence(tilt=-.15, n=900, seed=2)
+    refused, rep_r = fam.fit_pooled_home_share(
+        outcomes_a, pmfs=pmfs_a, support=support,
+        bar=fam.LATTICE_STRUCTURAL_Z, structural=True)
+    assert refused is None
+    assert rep_r["reason"] == "structural_direction_failed"
+    # The generic bar is two-sided by design: the same away tilt admits
+    # below one-half (documents the generic/structural distinction).
+    admitted, _ = fam.fit_pooled_home_share(outcomes_a, pmfs=pmfs_a,
+                                            support=support)
+    assert admitted is not None and admitted < .5
+
+
+def test_pooled_share_partial_pooling_sanity_and_fallback():
+    support = np.arange(-20, 21)
+    base = np.exp(-.5 * (support / 6.) ** 2)
+    base = base / base.sum()
+
+    def _draws(tilt, n, seed):
+        r = np.random.default_rng(seed)
+        p = np.clip(base + np.where(support == 1, tilt,
+                                    np.where(support == -1, -tilt, 0.)),
+                    0., None)
+        return r.choice(support, size=n, p=p / p.sum())
+    # Nonstationary truth (strong tilt, then neutral): the pooled estimate
+    # never extrapolates beyond the per-block extremes, even though the
+    # held-out gate rightly refuses to admit it.
+    out = np.concatenate([_draws(.15, 450, 5), _draws(0., 450, 6)])
+    _, rep = fam.fit_pooled_home_share(out, pmfs=np.tile(base, (900, 1)),
+                                      support=support)
+    assert rep["reason"] == "held_out_not_significant"
+    assert min(rep["blocks"]) <= rep["share"] <= max(rep["blocks"])
+    # Thin evidence (<2 qualifying blocks): reported fallback to the raw
+    # pooled train share -- never hidden, never admitted on noise.
+    rng = np.random.default_rng(0)
+    out = rng.choice(support, size=335, p=base)
+    _, rep = fam.fit_pooled_home_share(out, pmfs=np.tile(base, (335, 1)),
+                                      support=support)
+    assert rep.get("fallback") == "raw_pooled_train_share"
+    assert len(rep["blocks"]) < 2
+
+
+def test_collateral_guard_measures_excess_over_the_noise_floor():
+    r = np.array([.01, -.02, .005])
+    d = np.array([.008, -.015, .02])
+    se = np.array([.002, .002, .002])
+    excess = fam._collateral_excess(r, d, se)
+    assert (excess[:2] < 0.).all()            # improving bins: negative excess
+    assert excess[2] == pytest.approx(.008)   # damaged bin: excess over floor
+    np.testing.assert_allclose(               # zero delta: exactly -se
+        fam._collateral_excess(r, np.zeros(3), se), -se)
+    # The admitted comb fit stores a clean collateral verdict with the delta.
+    pmfs, outcomes, support = _comb_evidence(.02)
+    fitted = fam.fit_lattice_correction(pmfs, outcomes, support, SPORT,
+                                        "totals")
+    assert fitted["significant"] and "delta" in fitted
+    assert fitted["collateral_ok"] and fitted["collateral_max_excess"] <= 0.
+
+
+def test_lattice_targets_price_independently_both_directions():
+    """Synthetic admitted deltas per target move disjoint priced-column
+    sets (both directions non-vacuous), and enabling both moves exactly
+    the union -- the pricing-path mirror of
+    run_diagnostics/verify_target_isolation.py."""
+    frame = _walk_frame()
+    _, bundle = dist.causal_distribution_frame(frame, n_draws=200)
+    maps0 = bundle["maps"]
+
+    def _synth(kind):
+        sup = fam.support_for("total" if kind == "totals" else "margin",
+                              SPORT)
+        dd = np.where(np.arange(len(sup)) % 2 == 0, .03, -.03)
+        return {"significant": True, "delta": [float(v) for v in dd]}
+    outs = {}
+    for t, m in ((False, False), (True, False),
+                 (False, True), (True, True)):
+        maps = copy.deepcopy(maps0)
+        maps["lattice"]["totals"] = _synth("totals") if t \
+            else {"significant": False}
+        maps["lattice"]["margin"] = _synth("margin") if m \
+            else {"significant": False}
+        outs[(t, m)] = dist._distribution_price(frame, maps, n_draws=200)
+    cols = sorted(set().union(*[set(o.columns) for o in outs.values()]))
+
+    def _vec(key, col):
+        o = outs[key]
+        if col not in o.columns:
+            return np.full(len(o), np.nan)
+        s = o[col]
+        if pd.api.types.is_numeric_dtype(s):
+            return np.asarray(s, float)
+        return np.asarray(s, dtype=object)
+
+    def _changed(key):
+        out = []
+        for col in cols:
+            x, y = _vec((False, False), col), _vec(key, col)
+            try:
+                same = np.array_equal(np.nan_to_num(x, nan=-999.),
+                                      np.nan_to_num(y, nan=-999.))
+            except (TypeError, ValueError):
+                same = np.array_equal(x, y)
+            if not same:
+                out.append(col)
+        return out
+    changed_t = _changed((True, False))
+    changed_m = _changed((False, True))
+    assert changed_t and changed_m                     # both non-vacuous
+    assert not (set(changed_t) & set(changed_m))       # disjoint ownership
+    assert sorted(_changed((True, True))) == sorted(set(changed_t)
+                                                    | set(changed_m))
+
+
+def test_support_drift_realigns_by_bin_value():
+    # Dynamic Gaussian supports expand per-block with fitted skew/scale: a
+    # delta fitted on the evidence-union lattice (here totals 0..250) must
+    # still price a block whose support grew by one bin (0..251) instead of
+    # raising. Bins the fit saw keep their value; the unseen bin gets 0.
+    fit_support = np.arange(0, 251)
+    delta = np.zeros(251)
+    delta[100] = 0.004
+    delta[50] = -0.001
+    spec = {"target": "totals", "sport": SPORT, "significant": True,
+            "delta": [float(v) for v in delta],
+            "support": [int(fit_support[0]), int(fit_support[-1])]}
+    wide = np.arange(0, 252)
+    cdf = _smooth_cdf(wide, 44., 7., rows=2)
+    out = fam.lattice_correct(cdf, wide, spec, SPORT, "totals")
+    assert out.shape == cdf.shape
+    assert np.all(out[:, -1] == 1.) and np.all(np.diff(out, axis=1) >= -1e-12)
+    # Exact expectation: fitted bins keep their value, unseen bin 251 gets
+    # 0, then the usual clip + renormalize (totals has no forbidden bins).
+    base = np.diff(np.column_stack([np.zeros(2), cdf]), axis=1)
+    got = np.diff(np.column_stack([np.zeros(2), out]), axis=1)
+    realigned = np.zeros(252)
+    realigned[:251] = delta
+    expected = np.clip(base + realigned[None, :], 0., None)
+    expected /= expected.sum(axis=1, keepdims=True)
+    assert np.abs(got - expected).max() < 1e-12
+    assert expected[0, -1] == base[0, -1]  # unseen bin uncorrected pre-norm
+
+
+def test_support_drift_narrower_pricing_truncates_cleanly():
+    # Pricing support narrower than the fitted lattice (union wider than the
+    # current block): out-of-range fitted bins are dropped, pricing stays a
+    # valid CDF.
+    fit_support = np.arange(-250, 251)
+    delta = np.zeros(501)
+    delta[250] = 0.003
+    spec = {"target": "margin", "sport": SPORT, "significant": True,
+            "delta": [float(v) for v in delta],
+            "support": [int(fit_support[0]), int(fit_support[-1])]}
+    narrow = np.arange(-240, 241)
+    cdf = _smooth_cdf(narrow, 0., 7., rows=2)
+    out = fam.lattice_correct(cdf, narrow, spec, SPORT, "margin")
+    assert out.shape == cdf.shape and np.all(out[:, -1] == 1.)
+
+
+def test_support_drift_unknown_provenance_still_raises():
+    # No stored fitted-lattice bounds: the strict alignment error stands
+    # (never silently positional — margin lattices are symmetric, so a
+    # positional map would shift bins).
+    spec = {"target": "margin", "sport": SPORT, "significant": True,
+            "delta": [0.001] * 11}
+    cdf = _smooth_cdf(np.arange(-6, 7), 0., 3., rows=2)
+    with pytest.raises(ValueError):
+        fam.lattice_correct(cdf, np.arange(-6, 7), spec, SPORT, "margin")
+
+
+def test_fitted_delta_stores_its_lattice_bounds():
+    # Admitted corrections disclose the lattice they were fitted on, so
+    # pricing-time realignment is by bin value, never by position.
+    rng = np.random.default_rng(11)
+    support = np.arange(0, 60)
+    pmf = np.exp(-.5 * ((support - 30.) / 6.) ** 2)
+    pmf /= pmf.sum()
+    pmfs = np.tile(pmf, (700, 1))
+    outcomes = np.repeat(np.arange(0, 60), 12)[:700].astype(float)
+    # Inject a one-bin excess the generic gate can see.
+    outcomes[:40] = 30.
+    out = fam.fit_lattice_correction(pmfs, outcomes, support, SPORT, "totals")
+    if out.get("delta") is not None:
+        assert out["support"] == [int(support[0]), int(support[-1])]
