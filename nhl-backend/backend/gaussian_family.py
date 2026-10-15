@@ -165,14 +165,61 @@ def parity_correct(cdf, support, alpha):
 # captures whatever lattice structure remains (e.g. MLB's empirical
 # walk-off-by-one tilt at M=+1 — deliberately NOT hard-coded).
 LATTICE_TARGETS = ("totals", "margin")
-LATTICE_FOURIER_ORDER = 2       # low-order Fourier modes (a1, a2, ... )
-LATTICE_RIDGE = .02             # ridge shrinkage on the Fourier coefficients
+# Localized per-bin shrinkage basis (2026-10-16; retires the global Fourier
+# basis — see lattice_local_deltas). The prior signal scale is a fraction
+# of the LOCAL model mass, so peak bins keep signal while empty tail bins
+# shrink to zero; per-bin binomial SEs supply the noise floor.
+LATTICE_PRIOR_FRAC = .1         # prior signal scale = frac * local model mass
 LATTICE_DELTA_CAP = .03         # |delta(k)| clamp: a lattice fix, not a refit
 LATTICE_DELTA_EPS = 1e-9        # coefficients below this serialize as exact 0
-LATTICE_GATE_Z = 3.0            # held-out significance required to admit delta
+LATTICE_GATE_Z = 3.0            # generic bar: held-out, two-sided, + MAE + collateral
+LATTICE_STRUCTURAL_Z = 2.5      # preregistered one-sided bar (rule-derived
+                                # mechanisms only — never a generic fallback)
 LATTICE_TEST_FRACTION = .3      # time-ordered held-out tail of the evidence
 LATTICE_MIN_TEST = 100          # held-out rows below this: never admit delta
 LATTICE_ROUND = 6               # decimal rounding stored deltas reprice with
+LATTICE_SHARE_BLOCKS = 4        # time blocks for the hierarchical share pool
+LATTICE_SHARE_TAU = .05         # between-block SD prior for share pooling
+LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
+
+# Pre-registered structural mechanisms (2026-10-16). A structural parameter
+# is rule-derived with a DIRECTIONAL prior declared here BEFORE any fitting:
+# the code enforces the direction (one-sided test) and the structural bar
+# (LATTICE_STRUCTURAL_Z); the generic bar (LATTICE_GATE_Z, two-sided) still
+# applies first wherever both paths exist. This table is the disclosure
+# record — a mechanism not listed here cannot take the structural bar.
+#   mlb margin walkoff_split: extras walk-off tilt — the home team wins a
+#     larger share of +/-1 finals than the equal split (Manfred runner +
+#     home bats last), shifting tie-mass-scaled (q-1/2)*m0 to M=+1.
+#   nfl margin spikes: scoring rules pile margin mass at 3 (field goal) and
+#     7 (touchdown + XP); secondary mass at 1, 4, 6, 10, 14, 17.
+LATTICE_PREREGISTERED = {
+    ("mlb", "margin", "walkoff_split"): {
+        "mechanism": ("extras walk-off tilt: the home team wins a larger share "
+                        "of +/-1 finals than the equal split"),
+        "direction": "q > 1/2", "test": "one-sided",
+        "generic_bar": LATTICE_GATE_Z, "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_3"): {
+        "mechanism": "field-goal key number: excess margin mass at exactly 3",
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_7"): {
+        "mechanism": "touchdown+XP key number: excess margin mass at exactly 7",
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_secondary"): {
+        "mechanism": ("secondary scoring key numbers (1, 4, 6, 10, 14, 17) "
+                        "with stronger shrinkage, individually gated"),
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+}
+
+
+def lattice_preregistered(sport, target):
+    """Pre-registered structural mechanisms for a sport/target pair ({} when
+    none) — the disclosure record the structural bar enforces."""
+    return {name: spec for (s, t, name), spec in LATTICE_PREREGISTERED.items()
+            if s == sport and t == target}
 
 # Per-sport, per-target lattice configuration. "structural" names the
 # deterministic lattice rule the target carries BEFORE the generic residual:
@@ -280,25 +327,52 @@ def lattice_correct(cdf, support, correction, sport, target):
     return np.clip(out, 0., 1.)
 
 
-def lattice_basis(support):
-    """Low-order Fourier basis on the integer lattice.
+def lattice_local_deltas(weight, resid, se, shrink_mult=1.):
+    """Localized per-bin SE-aware shrunk residual (2026-10-16; the retired
+    global Fourier basis's replacement — one generic basis, one code path,
+    parameterized only by the sport/target's own weight and noise floor).
 
-    On the integers the prompt's a_m*cos(m*pi*k) collapses to {1, (-1)^k},
-    so the smooth modes live in the scaled coordinate
-    u = (k - center)/half in [-1, 1] and the parity tone (-1)^k carries the
-    odd/even alternation explicitly (the NHL totals comb).
+    WHY LOCALIZED: the admitted mechanisms are single-bin phenomena (MLB
+    walk-off tilt at M=+1, NFL key-number spikes at 3/7, NHL odd/even
+    teeth). A global smooth basis cannot move mass at one bin without
+    collateral damage elsewhere — the measured failure mode (NFL margin
+    z=2.27 with WORSE pooled MAE). Per-bin fitting with binomial-SE
+    shrinkage admits only bins whose residual exceeds their own noise
+    floor; the per-bin collateral guard then has teeth.
+
+    delta_k = r_k * tau_k^2 / (tau_k^2 + SE_k^2) with prior scale
+    tau_k = LATTICE_PRIOR_FRAC * w_k (mass-proportional: the low-pass
+    artifact moves mass in proportion to local model mass — parity_correct's
+    alpha*pmf is exactly this with one parity tone). Peak bins keep ~all
+    signal; empty tail bins shrink to exact 0. ``shrink_mult`` > 1
+    strengthens shrinkage (secondary key numbers). Bins with no model
+    mass stay exact 0.
     """
-    k = np.asarray(support, float)
-    if len(k) < 3:
-        raise ValueError("lattice basis requires at least three support points")
-    center = .5 * (k[0] + k[-1])
-    half = max(.5 * (k[-1] - k[0]), 1.)
-    u = (k - center) / half
-    columns = [np.where(np.asarray(support) % 2 == 1, 1., -1.)]
-    for m in range(1, LATTICE_FOURIER_ORDER + 1):
-        columns.append(np.cos(m * np.pi * u))
-        columns.append(np.sin(m * np.pi * u))
-    return np.column_stack(columns)
+    weight = np.clip(np.asarray(weight, float), 0., None)
+    resid = np.asarray(resid, float)
+    se = np.asarray(se, float)
+    tau = LATTICE_PRIOR_FRAC * weight / max(float(shrink_mult), 1e-12)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shrink = np.where(tau > 0., tau * tau / (tau * tau + se * se), 0.)
+    return resid * shrink
+
+
+def _zero_sum_mass_proportional(delta, weight):
+    """Zero-sum a delta by removing its total proportionally to model mass.
+
+    Uniform mean-subtraction smears a flat offset onto near-zero-mass tail
+    bins, where ANY offset exceeds their tiny 1-sigma floor — self-inflicted
+    collateral (measured: a z=17 comb vetoed by 1.6e-3 of mean-subtraction
+    at bins 0/40). Proportional removal puts the sink where the mass is,
+    the same principle as the spike sink and parity_correct's alpha*pmf.
+    """
+    delta = np.asarray(delta, float).copy()
+    w = np.clip(np.asarray(weight, float), 0., None)
+    if w.sum() > 0.:
+        delta -= delta.sum() * (w / w.sum())
+    else:
+        delta -= delta.mean()
+    return delta
 
 
 def fit_ot_home_share(outcomes, pmfs=None, support=None, min_decisions=40):
@@ -367,6 +441,228 @@ def fit_ot_home_share(outcomes, pmfs=None, support=None, min_decisions=40):
     return share if (d.mean() < 0. and z >= LATTICE_GATE_Z) else None
 
 
+def _share_gate(outcomes, pmfs, support, share, bar):
+    """Held-out paired gate for a +/-1 split share (shared by the legacy and
+    pooled estimators): the tie-mass-scaled shift scored with the same
+    squared-probability loss. Returns (admitted, z, n_test)."""
+    margin = np.round(np.asarray(outcomes, float))
+    support = np.asarray(support)
+    j = int(np.searchsorted(support, 1))
+    k = int(np.searchsorted(support, -1))
+    tie = .5 * (np.asarray(pmfs, float)[:, j] + np.asarray(pmfs, float)[:, k])
+    n_test = int(LATTICE_TEST_FRACTION * len(margin))
+    hold = np.arange(len(margin) - n_test, len(margin))
+    inside = (margin >= support[0]) & (margin <= support[-1])
+    hold = hold[inside[hold]]
+    s = float(share) - .5
+    horn = np.zeros(len(support))
+    horn[j], horn[k] = 1., -1.
+    amt = s * tie[hold]
+    d = (-2. * amt * horn[np.searchsorted(support, margin[hold])]
+         + 2. * amt * (np.asarray(pmfs, float)[hold, j]
+                        - np.asarray(pmfs, float)[hold, k])
+         + 2. * amt * amt)
+    se = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / se) if se > 0. else 0.
+    return bool(d.mean() < 0. and z >= bar), round(z, 3), int(len(hold))
+
+
+def fit_pooled_home_share(outcomes, pmfs=None, support=None, min_decisions=40,
+                          bar=LATTICE_GATE_Z, structural=False):
+    """Hierarchically pooled P(home wins | one-goal final) — the strengthened
+    +/-1 split-weight estimator (2026-10-16).
+
+    The legacy estimator's raw pooled share is efficient but its single
+    number hides across-time instability; partial pooling across
+    time-blocks shrinks erratic blocks toward the grand mean and yields a
+    lower-variance estimate on the SAME evidence. Train (pre-holdout)
+    evidence is split into LATTICE_SHARE_BLOCKS contiguous blocks; per-block
+    shares combine by precision weights w_b = 1/(sigma_b^2 + TAU^2) with
+    between-block prior SD LATTICE_SHARE_TAU (random-effects pooling toward
+    the grand mean — never toward 1/2 directly, so a real tilt survives).
+    Under two valid blocks the estimate falls back to the raw pooled train
+    share (reported, not hidden). The pooled share is then gated on the
+    held-out tail with the same tie-mass-scaled paired scoring: ``bar`` is
+    the generic LATTICE_GATE_Z by default; ``structural=True`` applies the
+    pre-registered one-sided structural bar (direction q > 1/2 enforced)
+    for rule-derived mechanisms only (see LATTICE_PREREGISTERED).
+
+    Returns (share | None, report) — the report carries the per-block
+    shares, the pooled value, z and the bar applied, so the disclosure
+    shows exactly what was admitted and how.
+    """
+    report: dict = {"estimator": "hierarchical_pooled", "structural": bool(structural),
+                     "bar": float(bar)}
+    if outcomes is None or not len(outcomes):
+        report["reason"] = "no_evidence"
+        return None, report
+    margin = np.round(np.asarray(outcomes, float))
+    one = margin[np.abs(margin) == 1.]
+    if len(one) < int(min_decisions):
+        report["reason"] = "insufficient_history"
+        return None, report
+    pmfs = np.empty((0, 0)) if pmfs is None else np.asarray(pmfs, float)
+    if support is None or pmfs.ndim != 2 or pmfs.shape[0] != len(margin) \
+            or pmfs.shape[1] != len(np.asarray(support)):
+        report["reason"] = "misaligned_evidence"
+        return None, report
+    support = np.asarray(support)
+    j = int(np.searchsorted(support, 1))
+    k = int(np.searchsorted(support, -1))
+    if not (0 <= j < len(support) and 0 <= k < len(support)):
+        report["reason"] = "support_lacks_pm1"
+        return None, report
+    n_test = int(LATTICE_TEST_FRACTION * len(margin))
+    if n_test < LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    n_train = len(margin) - n_test
+    edges = np.linspace(0, n_train, LATTICE_SHARE_BLOCKS + 1).astype(int)
+    block_q, block_n = [], []
+    for b in range(LATTICE_SHARE_BLOCKS):
+        idx = np.arange(edges[b], edges[b + 1])
+        blk = margin[idx][np.abs(margin[idx]) == 1.]
+        if len(blk) >= 10:
+            block_q.append(float((blk > 0.).mean()))
+            block_n.append(int(len(blk)))
+    grand = float((margin[:n_train][np.abs(margin[:n_train]) == 1.] > 0.).mean())
+    if len(block_q) >= 2:
+        var = np.array([grand * (1. - grand) / n for n in block_n])
+        w = 1. / (var + LATTICE_SHARE_TAU ** 2)
+        pooled = float(np.sum(w * np.asarray(block_q)) / np.sum(w))
+        report["blocks"] = [round(v, 4) for v in block_q]
+        report["block_n"] = block_n
+    else:
+        pooled = grand
+        report["blocks"] = [round(v, 4) for v in block_q]
+        report["block_n"] = block_n
+        report["fallback"] = "raw_pooled_train_share"
+    share = float(np.clip(pooled, .35, .60))
+    report["share"] = round(share, 4)
+    if share == .5:
+        report["reason"] = "share_is_exact_half"
+        return None, report
+    if structural and not share > .5:
+        # Pre-registered direction enforced BEFORE the test: a structural
+        # walk-off claim with q <= 1/2 is a no-op, never a two-sided retry.
+        report["reason"] = "structural_direction_failed"
+        return None, report
+    admitted, z, n_hold = _share_gate(margin, pmfs, support, share, bar)
+    report["z"] = z
+    report["n_test"] = n_hold
+    if n_hold < LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    if not admitted:
+        report["reason"] = "held_out_not_significant"
+        return None, report
+    report["significant"] = True
+    return share, report
+
+
+def fit_margin_spikes(pmfs, outcomes, support, sport,
+                      primary=(3, 7), secondary=(1, 4, 6, 10, 14, 17),
+                      bar=LATTICE_STRUCTURAL_Z, min_history=MIN_HISTORY):
+    """Pre-registered key-number spike parameters for a margin lattice.
+
+    Rule-derived mass piles (NFL: 3 = field goal, 7 = touchdown + XP) are
+    single-bin excesses the generic residual would have to re-discover;
+    fitting them as structural parameters with the mass-proportional
+    zero-sum removal (+a at the spike bin, mass removed proportionally to
+    model mass from non-candidate bins) keeps the correction honest and
+    localized. Each candidate is gated INDIVIDUALLY, one-sided
+    (amplitude > 0, z >= bar — the pre-registered structural bar; see
+    LATTICE_PREREGISTERED), with secondary key numbers under stronger
+    shrinkage (LATTICE_SPIKE_SECONDARY_SHRINK). Unadmitted candidates
+    contribute exact 0 — never a partial spike.
+
+    Returns (delta | None, report): the combined spike delta (zero-sum,
+    clamped, rounded — same post pipeline as the generic fit) or None
+    when no spike admits, plus the per-spike verdict table for disclosure.
+    """
+    report: dict = {"estimator": "key_number_spikes", "sport": sport,
+                     "bar": float(bar), "spikes": []}
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.empty(0) if outcomes is None else np.asarray(outcomes, float)
+    if pmfs.ndim != 2 or pmfs.shape[1] != len(support) or len(pmfs) != len(outcomes):
+        raise ValueError("spike evidence requires aligned pmfs and outcomes")
+    inside = ((outcomes >= support[0]) & (outcomes <= support[-1])
+              & np.isfinite(outcomes))
+    if inside.sum() < int(min_history):
+        report["reason"] = "insufficient_history"
+        return None, report
+    n_test = int(LATTICE_TEST_FRACTION * len(outcomes))
+    if n_test < LATTICE_MIN_TEST or len(outcomes) - n_test < int(min_history):
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    train = np.flatnonzero(inside[:len(outcomes) - n_test])
+    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    if len(train) < int(min_history) or len(hold) < LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    candidates = [(int(v), False) for v in primary] + [(int(v), True) for v in secondary]
+    candidates = [(v, sec) for v, sec in candidates if support[0] <= v <= support[-1]]
+    n_train = max(int(len(train)), 1)
+    pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
+    se = np.sqrt(pbar * (1. - pbar) / n_train)
+    obs = np.bincount(np.searchsorted(support, outcomes[train]),
+                      minlength=len(support)).astype(float)
+    obs /= max(int(len(train)), 1)
+    resid = obs - pmfs[train].mean(axis=0)
+    sink = np.array([i for i in range(len(support))
+                     if int(support[i]) not in [v for v, _ in candidates]])
+    sink_mass = float(pbar[sink].sum()) if len(sink) else 0.
+    if sink_mass <= 0.:
+        report["reason"] = "no_sink_mass"
+        return None, report
+    indices_hold = np.searchsorted(support, outcomes[hold])
+    spikes = []
+    for value, secondary_flag in candidates:
+        i = int(np.searchsorted(support, value))
+        mult = LATTICE_SPIKE_SECONDARY_SHRINK if secondary_flag else 1.
+        amp = float(lattice_local_deltas(pbar[i:i + 1], resid[i:i + 1],
+                                         se[i:i + 1], shrink_mult=mult)[0])
+        row = {"bin": value, "secondary": bool(secondary_flag),
+               "amplitude": round(amp, 6)}
+        if not amp > 0.:
+            # Pre-registered direction: key numbers carry EXCESS mass. A
+            # non-positive amplitude is a no-op, never a two-sided retry.
+            row["admitted"] = False
+            row["reason"] = "amplitude_not_positive"
+            report["spikes"].append(row)
+            continue
+        trial = np.zeros(len(support))
+        trial[i] = amp
+        trial[sink] = -amp * pbar[sink] / sink_mass
+        d = (-2. * trial[indices_hold] + 2. * (pmfs[hold] @ trial)
+             + float(trial @ trial))
+        tse = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+        z = float(-d.mean() / tse) if tse > 0. else 0.
+        row["z"] = round(z, 3)
+        if d.mean() < 0. and z >= bar:
+            row["admitted"] = True
+            spikes.append((i, amp))
+        else:
+            row["admitted"] = False
+            row["reason"] = "held_out_not_significant"
+        report["spikes"].append(row)
+    if not spikes:
+        report["reason"] = "no_spike_admitted"
+        return None, report
+    delta = np.zeros(len(support))
+    for i, amp in spikes:
+        delta[i] += amp
+        delta[sink] -= amp * pbar[sink] / sink_mass
+    delta = _zero_sum_mass_proportional(delta, pbar)
+    delta = np.clip(delta, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
+    delta = np.round(delta, LATTICE_ROUND)
+    report["significant"] = True
+    report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
+    return [float(v) for v in delta], report
+
+
 def lattice_evidence(entries):
     """Align per-block BASE pmfs onto their union support for lattice fitting.
 
@@ -433,16 +729,14 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
         out["reason"] = "insufficient_held_out_evidence"
         return out
     indices = np.searchsorted(support, outcomes)
-    basis = lattice_basis(support)
-    # MASS-PROPORTIONAL design: delta(k) = pmf_bar(k) * Fourier(k) — the
-    # low-pass artifact moves mass in proportion to the local model mass
-    # (parity_correct's alpha*pmf is exactly this with one parity tone), and
-    # an additive-only basis would waste its amplitude on empty tail bins
-    # where the model already has no mass (measured on the MLB totals
-    # lattice: additive fits worsened the pooled MAE while looking
-    # significant on the pmf-weighted held-out loss).
+    # LOCALIZED SE-aware design (2026-10-16): per-bin shrunk residual — the
+    # mass-proportional principle is preserved (prior scale = a fraction of
+    # local model mass, so empty tail bins get exact 0 instead of wasted
+    # amplitude), but each bin's amplitude is decided by ITS OWN residual
+    # against ITS OWN binomial noise floor. A global smooth basis moves mass
+    # at every bin to fix one (measured 2026-10-15: NFL margin z=2.27 with
+    # pooled MAE WORSE after the fit — a localization failure).
     weight = np.clip(pmfs[inside].mean(axis=0), 0., None)
-    design = weight[:, None] * basis
 
     def residual(index):
         obs = np.bincount(indices[index], minlength=len(support)).astype(float)
@@ -451,17 +745,11 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
 
     r_all = residual(np.flatnonzero(inside))
     r_train = residual(train)
-    # Bin-space ridge: the regression is over the K support bins (pooled
-    # residual), NOT over the n_train rows — dividing by len(train) would
-    # shrink the Gram ~1e-5 and let the ridge swallow every coefficient
-    # (measured 2026-10-15: MLB margin's +0.033/-0.024 +/-1 residual fit to
-    # a 1.5e-05-l1 no-op). Unnormalized, diag(Gram) ~ sum pmf^2 ~ 1e-2..1e-1
-    # so LATTICE_RIDGE = .02 is genuine shrinkage, not a veto.
-    gram = design.T @ design
-    coef = np.linalg.solve(gram + LATTICE_RIDGE * np.eye(design.shape[1]),
-                           design.T @ r_train)
-    delta = weight * (basis @ coef)
-    delta = delta - delta.mean()               # zero-sum: mass moves, none is made
+    n_train = max(int(len(train)), 1)
+    pbar_train = np.clip(pmfs[train].mean(axis=0), 0., 1.)
+    se_train = np.sqrt(pbar_train * (1. - pbar_train) / n_train)
+    delta = lattice_local_deltas(weight, r_train, se_train)
+    delta = _zero_sum_mass_proportional(delta, weight)  # mass moves, none is made
     for banned in lattice_config(sport, target).get("forbidden_bins", ()):
         j = int(np.searchsorted(support, banned))
         if 0 <= j < len(delta):
@@ -470,10 +758,22 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, LATTICE_ROUND)
     out.update(n_fit=int(len(train)), n_test=int(len(hold)),
+               basis="localized_per_bin_shrinkage",
                residual_mae_before=float(np.abs(r_all).mean()),
                residual_mae_after=float(np.abs(r_all - delta).mean()),
                delta_l1=float(np.abs(delta).sum()),
                delta_max=float(np.abs(delta).max()))
+    # Per-bin collateral guard: no single bin's |residual| may worsen by
+    # more than its own 1-sigma binomial noise floor (pooled model mass
+    # over all inside rows). Pooled MAE can improve while one bin takes
+    # real damage — the guard vetoes that trade.
+    n_all = max(int(inside.sum()), 1)
+    pmod_all = np.clip(pmfs[inside].mean(axis=0), 0., 1.)
+    se_pool = np.sqrt(pmod_all * (1. - pmod_all) / n_all)
+    worsen = np.abs(r_all - delta) - np.abs(r_all)
+    excess = worsen - se_pool
+    out["collateral_max_excess"] = round(float(excess.max()), 6)
+    out["collateral_ok"] = bool((excess <= 0.).all())
     if not np.any(delta):
         out["reason"] = "delta_collapsed_to_zero"
         return out
@@ -485,6 +785,9 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     se = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
     z = float(-d.mean() / se) if se > 0. else 0.
     out["gate_z"] = round(z, 3)
+    if not out["collateral_ok"]:
+        out["reason"] = "collateral_violation"
+        return out
     if not (d.mean() < 0. and z >= LATTICE_GATE_Z
             and out["residual_mae_after"] < out["residual_mae_before"]):
         out["reason"] = "held_out_not_significant"
@@ -516,6 +819,26 @@ def lattice_diagnostics(support, pmfs, outcomes, correction):
                      "residual_before": float(before[int(np.searchsorted(support, k))]),
                      "residual_after": float(after[int(np.searchsorted(support, k))])}
             for k in (-1, 0, 1) if support[0] <= k <= support[-1]}
+
+
+def compose_lattice_deltas(deltas, weight=None):
+    """Compose admitted delta components into one stored vector.
+
+    Used where a structural component (NFL key-number spikes) and the
+    generic residual are admitted separately and price as one delta: sum,
+    mass-proportional zero-sum, clamp, eps-zero, round — the same post
+    pipeline each fit applies alone, so a composed delta obeys the same
+    contract. Components stay disclosed in their own report keys.
+    """
+    total = np.zeros_like(np.asarray(deltas[0], float))
+    for part in deltas:
+        total = total + np.asarray(part, float)
+    w = (np.clip(np.asarray(weight, float), 0., None) if weight is not None
+         else np.ones_like(total))
+    total = _zero_sum_mass_proportional(total, w)
+    total = np.clip(total, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    total[np.abs(total) < LATTICE_DELTA_EPS] = 0.
+    return [float(v) for v in np.round(total, LATTICE_ROUND)]
 
 
 def lattice_summary(correction):

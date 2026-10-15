@@ -2241,10 +2241,28 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
         alpha = float(parameters.get("total_parity_alpha", 0.))
         if alpha > 0.:
             totals["alpha"] = alpha
-    if DISTRIBUTION_SPORT in ("nhl", "mlb"):
-        # The no-tie +/-1 split weight (NHL OT/SO, MLB walk-off extras) is
-        # admitted only when the margin evidence's held-out tail confirms
-        # the shift (see family.fit_ot_home_share); cold starts and
+    if DISTRIBUTION_SPORT == "mlb":
+        # Pre-registered walk-off split (family.LATTICE_PREREGISTERED): the
+        # hierarchically pooled share is gated at the generic bar first; only
+        # on rejection does the pre-registered one-sided structural bar apply
+        # (direction q > 1/2 enforced inside). Disclosure rides the margin
+        # spec; unconfirmed shifts keep the exact equal split.
+        margin_ev = (evidence or {}).get("margin") or {}
+        share, share_rep = family.fit_pooled_home_share(
+            margin_ev.get("outcomes"), pmfs=margin_ev.get("pmfs"),
+            support=margin_ev.get("support"))
+        if share is None:
+            share, share_rep = family.fit_pooled_home_share(
+                margin_ev.get("outcomes"), pmfs=margin_ev.get("pmfs"),
+                support=margin_ev.get("support"),
+                bar=family.LATTICE_STRUCTURAL_Z, structural=True)
+        if share is not None:
+            margin["ot_home_share"] = share
+            margin["split_share_report"] = share_rep
+    if DISTRIBUTION_SPORT == "nhl":
+        # The no-tie +/-1 split weight (NHL OT/SO) keeps the legacy gated
+        # one-goal home-share estimate byte-stable (pinned by
+        # test_distribution_objective_parity); cold starts and
         # unconfirmed shifts keep the exact equal split.
         margin_ev = (evidence or {}).get("margin") or {}
         share = family.fit_ot_home_share(margin_ev.get("outcomes"),
