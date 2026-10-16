@@ -502,3 +502,73 @@ def test_nfl_nhl_spread_dicts_feed_the_shared_noise_band():
         spec = json.loads(diag.chart_distribution(dist).to_json())
         assert [layer["mark"]["type"]
                 for layer in spec["layer"]] == ["area", "bar", "line"]
+
+
+# ---------------------------------------------------------------------------
+# NFL like-with-like spread tails (2026-10-16): the ±10 modeled callouts
+# are the exact shipped cover+push composites over FULL support — P(≥10) =
+# mean(p_home_cover_10 + p_push_10), P(≤−10) = 1 − mean(p_home_cover_m10)
+# — against the full-tail observed rates (blowouts beyond ±14 count on
+# both sides). Absent columns render None (the caption shows '--').
+# ---------------------------------------------------------------------------
+
+def test_nfl_spread_tail_callouts_use_cover_push_composites():
+    import nfl_market_diagnostics as nd
+
+    n = 5
+    frame = pd.DataFrame({
+        "margin": [-20, -10, 0, 10, 25],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.03] * n
+           for k in range(-14, 15)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dist = nd.spread_distribution(frame)
+    assert dist["warning"] is None
+    c = dist["callouts"]
+    # Observed full tails count the blowouts beyond ±14.
+    assert c["P(margin<=-10)"]["observed"] == pytest.approx(0.4)
+    assert c["P(margin>=10)"]["observed"] == pytest.approx(0.4)
+    # Modeled tails are the composites — not a slice of the ±14 line.
+    assert c["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
+    assert c["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
+    # The per-bin line still reads the margin push family.
+    assert dist["modeled"][dist["ks"].index(10)] == pytest.approx(0.02)
+    # Absent cover/push columns degrade to None, never a crash.
+    bare = pd.DataFrame({
+        "margin": [-20, -10, 0, 10, 25],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.03] * n
+           for k in range(-14, 15)},
+    })
+    bare_c = nd.spread_distribution(bare)["callouts"]
+    assert bare_c["P(margin<=-10)"]["modeled"] is None
+    assert bare_c["P(margin>=10)"]["modeled"] is None
+    assert bare_c["P(margin<=-10)"]["observed"] == pytest.approx(0.4)
+
+
+def test_nfl_spread_never_reads_totals_mass_in_the_margin_namespace():
+    """Writer-hygiene mirror: even a legacy artifact carrying totals mass
+    as p_push_24..66 (the pre-split dup) cannot move the spread chart —
+    only SPREAD_GRID bins are finite and the tails stay cover+push."""
+    import nfl_market_diagnostics as nd
+
+    n = 4
+    frame = pd.DataFrame({
+        "margin": [-11, -3, 7, 18],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.03] * n
+           for k in range(-14, 15)},
+        **{f"p_push_{u}": [0.99] * n for u in range(24, 67)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dist = nd.spread_distribution(frame)
+    assert dist["warning"] is None
+    finite = {k for k, v in zip(dist["ks"], dist["modeled"]) if v == v}
+    assert finite == set(range(-14, 15))
+    assert dist["modeled"][dist["ks"].index(24)] != \
+        dist["modeled"][dist["ks"].index(24)]  # NaN: dup unread
+    c = dist["callouts"]
+    assert c["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
+    assert c["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)

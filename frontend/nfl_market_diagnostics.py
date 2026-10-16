@@ -211,10 +211,28 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
             modeled.append(float("nan"))
     modeled = np.asarray(modeled)
 
-    def tail(series, mask):
-        return (round(float(series[mask].sum()), 4)
-                if np.isfinite(series[mask]).all() else None)
-    _arr = np.asarray(ks)
+    def _tail_composite() -> tuple:
+        """Exact full-tail modeled masses from shipped cover+push columns.
+
+        The per-bin modeled line ships only SPREAD_GRID (−14…+14), but the
+        tail callouts need full-support mass: P(margin ≥ 10) =
+        P(margin > 10) + P(margin == 10) is ``p_home_cover_10`` +
+        ``p_push_10``; P(margin ≤ −10) = 1 − P(margin > −10) is
+        1 − ``p_home_cover_m10``. Same sampled CDF as the grid columns,
+        never borrowed, never refitted — like-with-like against the
+        full-tail observed rates. None when the columns are absent."""
+        def _mean(col):
+            if col not in decided.columns:
+                return None
+            v = pd.to_numeric(decided[col], errors="coerce").mean()
+            return float(v) if pd.notna(v) else None
+        hi = _mean("p_home_cover_10")
+        hp = _mean("p_push_10")
+        hm = _mean("p_home_cover_m10")
+        ge = round(hi + hp, 4) if hi is not None and hp is not None else None
+        le = round(1. - hm, 4) if hm is not None else None
+        return ge, le
+    _tail_ge, _tail_le = _tail_composite()
     return {
         "ks": ks,
         "observed": [round(float(v), 5) for v in observed],
@@ -224,9 +242,9 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                          for v in modeled],
         "callouts": {
             "P(margin<=-10)": {"observed": round(float((margin <= -10).mean()), 4),
-                               "modeled": tail(modeled, (_arr <= -10) & (_arr >= -14))},
+                               "modeled": _tail_le},
             "P(margin>=10)": {"observed": round(float((margin >= 10).mean()), 4),
-                              "modeled": tail(modeled, (_arr >= 10) & (_arr <= 14))},
+                              "modeled": _tail_ge},
             "P(|margin|>30)": {"observed": round(float((margin.abs() > 30).mean()), 4),
                                "modeled": None, "n": n_outside},
             "note": ("Modeled line = mean shipped calibrated split-skew "

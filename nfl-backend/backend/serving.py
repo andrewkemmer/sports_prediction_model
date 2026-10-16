@@ -513,7 +513,10 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
     for L in config.HALF_STOP_LINES:
         cols.append(f"p_home_cover_{str(L).replace('.', '_').replace('-', 'm')}")
     for U in config.TOTAL_GRID:
-        cols += [f"p_over_{U}", f"p_under_{U}", f"p_push_{U}"]
+        # The push leg ships ONLY in the totals-push namespace
+        # (p_push_total_<U>, next block) — never p_push_<U>, which is the
+        # margin family's namespace.
+        cols += [f"p_over_{U}", f"p_under_{U}"]
 
     # Additive half-point prices and separate totals push namespace. Existing
     # integer columns remain available to older frontend readers.

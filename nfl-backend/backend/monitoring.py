@@ -1059,7 +1059,7 @@ def _dump_json(path, record: dict) -> None:
 def _grid_col(base: str, x: float) -> str:
     """Artifact grid column tag (mirror of the frontend's ``_col``):
     '-' -> 'm', '.' -> '_', and an integral line drops its trailing
-    '.0'. ``p_push_m3`` = P(margin == -3); ``p_push_42`` = P(total == 42)."""
+    '.0'. ``p_push_m3`` = P(margin == -3); ``p_push_total_42`` = P(total == 42)."""
     s = str(float(x))
     if s.endswith(".0"):
         s = s[:-2]
@@ -1210,7 +1210,10 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                         continue
                 if not np.isfinite(po):
                     continue
-                pp = r.get(_grid_col("p_push", u_int))
+                # Canonical totals-push namespace first; pre-split
+                # artifacts carry the same mass as p_push_<U> (legacy dup).
+                pp = r.get(_grid_col("p_push_total", u_int),
+                           r.get(_grid_col("p_push", u_int)))
                 try:
                     pp = float(pp)
                 except (TypeError, ValueError):
@@ -1392,7 +1395,10 @@ def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
         if line_kind == "over":
             tot = r.get("total")
             po = r.get(_grid_col("p_over", line))
-            pp = r.get(_grid_col("p_push", line))
+            # Canonical totals-push namespace first; pre-split artifacts
+            # carry the same mass as p_push_<U> (legacy dup).
+            pp = r.get(_grid_col("p_push_total", line),
+                       r.get(_grid_col("p_push", line)))
             try:
                 tot, po, pp = float(tot), float(po), float(pp)
             except (TypeError, ValueError):

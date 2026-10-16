@@ -999,6 +999,12 @@ check("totals PMF ships full support beyond the market grid",
       f"span {_pmf_ints[0]}..{_pmf_ints[-1]}" if _pmf_ints else "nothing shipped")
 check("shipped integer totals PMF partitions the support",
       abs(sum(gd_[dist_mod._grid_key("p_push_total", k)] for k in _pmf_ints) - 1.) < 1e-9)
+# Writer hygiene (2026-10-16): totals pushes ship ONLY in the totals-push
+# namespace — the margin push namespace (p_push_<±L>) is margin-only, so no
+# totals mass can leak into margin reads.
+check("writer emits no totals mass in the margin push namespace",
+      not any(dist_mod._grid_key("p_push", U) in gd_
+                 for U in config.TOTAL_GRID))
 check("NFL retains unconditional win/tie/loss mass", abs(gd_["p_home_win_derived"] + gd_["p_tie"] + gd_["p_away_win_derived"] - 1.) < 1e-12 and gd_["p_tie"] > 0.)
 check("split-skew family is the live distribution", dist_mod.family.FAMILY == "two_sided_asymmetric_gaussian_split_skew")
 _meta = {}; dist_mod.apply_distribution(pd.DataFrame({"game_id": ["guard"], "mu_h": [27.], "mu_a": [20.]}), n_draws=200, meta_out=_meta)
@@ -1130,9 +1136,11 @@ need_mk = {"kind", "game_id", "mu_h", "mu_a", "mu_margin", "mu_total",
     | {f"p_push_{_mk_label(L)}" for L in config.SPREAD_GRID} \
     | {f"p_over_{U}" for U in config.TOTAL_GRID} \
     | {f"p_under_{U}" for U in config.TOTAL_GRID} \
-    | {f"p_push_{U}" for U in config.TOTAL_GRID}
+    | {f"p_push_total_{U}" for U in config.TOTAL_GRID}
 check("markets CSV contract columns", need_mk.issubset(mk.columns),
       str(sorted(list(need_mk - set(mk.columns)))[:8]))
+check("markets CSV ships no totals mass in the margin push namespace",
+      not any(f"p_push_{U}" in mk.columns for U in config.TOTAL_GRID))
 check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
 # Full-support totals PMF publication (2026-10-14): the writer publishes the
 # emitter's off-grid integer PMF mass so the diagnostics distribution chart

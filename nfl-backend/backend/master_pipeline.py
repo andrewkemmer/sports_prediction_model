@@ -1692,7 +1692,7 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
         ok = True
         for U in config.TOTAL_GRID:
             o, u, pu = (mk.get(f"p_over_{U}"), mk.get(f"p_under_{U}"),
-                        mk.get(f"p_push_{U}"))
+                        mk.get(f"p_push_total_{U}"))
             if o is None or u is None or pu is None:
                 ok = False
                 break

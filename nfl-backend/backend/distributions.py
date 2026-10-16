@@ -527,8 +527,10 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
                 pp = "p_push_total" if kind == "total" else "p_push"
                 updates[_grid_key(prefix, line)] = over
                 updates[_grid_key(pp, line)] = push
-                if kind == "total":
-                    updates[_grid_key("p_push", line)] = push
+                # The margin push namespace (p_push_<±L>) is margin-only:
+                # totals pushes ship ONLY as p_push_total_<line> (plus the
+                # full-support PMF below) — never p_push_<U>. Totals mass
+                # in the margin namespace broke like-with-like reads.
                 updates[_grid_key("p_under" if kind == "total" else "p_away_cover", line)] = under
         if kind == "total" and DISTRIBUTION_SPORT != "mlb":
             # Full-support totals PMF (2026-10-14): the diagnostics
