@@ -186,15 +186,19 @@ def _load_markets_for_diagnostics() -> tuple[pd.DataFrame, str | None]:
 # ---------------------------------------------------------------------------
 # Diagnostics tabs (real data)
 # ---------------------------------------------------------------------------
-def _render_team_score_distribution(decided: pd.DataFrame, side: str) -> None:
+def _render_team_score_distribution(decided: pd.DataFrame, side: str,
+                                   variance: dict | None = None) -> None:
     """Distribution view — Home / Away: the per-side scoring law (points).
 
-    Observed finals only (2026-10-16): the artifact ships totals and
-    margin push PMFs, never a per-team score PMF, so the modeled line and
-    noise band are unavailable here (NaN gaps) — never derived or refitted
-    from a substitute family, same no-fabrication rule as Total/Spread.
+    The modeled line is the model's OWN per-side Gaussian (the bivariate
+    scoring core's marginal for one side), drawn from shipped parameters
+    only — the side mean split from the calibrated
+    ``distribution_mean_total`` / ``distribution_mean_margin`` and the
+    monitor's ``fit.variance`` factor. No outcome is read, nothing is
+    refitted; without a usable ``variance`` block the line stays the NaN
+    gap it always was.
     """
-    tdist = nd.team_score_distribution(decided, side)
+    tdist = nd.team_score_distribution(decided, side, variance=variance)
     if tdist["warning"]:
         st.warning(tdist["warning"])
         return
@@ -210,26 +214,35 @@ def _render_team_score_distribution(decided: pd.DataFrame, side: str) -> None:
     st.caption(
         f"Observed bars = final {label.lower()}-team points per decided "
         f"game over {tdist['n_games']:,} decided games · mean "
-        f"{c['mean']['observed']:.1f} pts · "
-        f"P({side} = 0 pts): {_f(c[f'P({side} == 0)']['observed'])} · "
-        f"P({side} wins): {_f(c[f'P({side} wins)']['observed'])} (tied "
+        f"{c['mean']['observed']:.1f} pts / modeled {_f(c['mean']['modeled'], '.1f')} · "
+        f"P({side} = 0 pts): observed {_f(c[f'P({side} == 0)']['observed'])} / "
+        f"modeled {_f(c[f'P({side} == 0)']['modeled'])} · "
+        f"P({side} wins): observed {_f(c[f'P({side} wins)']['observed'])} / "
+        f"modeled {_f(c[f'P({side} wins)']['modeled'])} (tied "
         "finals count for neither side). This is the per-side scoring law. "
-        "The artifact ships totals and margin push PMFs only — no per-team "
-        "score PMF — so the modeled line, band and tail authorities are "
-        "unavailable here and are never derived or refitted from another "
-        "family. Compare with the Total and Spread views."
+        "The artifact ships no per-team score PMF column, so the orange "
+        "line is the model's own per-side Gaussian — the marginal of the "
+        "bivariate scoring core — built from shipped parameters only (side "
+        "mean split from the calibrated total/margin means, variance = the "
+        "monitor's fit.variance factor × that mean), never refitted. Its "
+        "off-grid mass (sub-zero and beyond the top bin) is disclosed in "
+        "the note, never renormalized away. Compare with the Total and "
+        "Spread views."
     )
 
 
-def _render_distribution_tab(decided: pd.DataFrame) -> None:
+def _render_distribution_tab(decided: pd.DataFrame,
+                             variance: dict | None = None) -> None:
     """Tab 1 — totals / margin / per-side distribution fit-check. The
     Distribution view radio sits below the tab headers at FULL width (an
-    inline tabs-row placement shrank the charts — reverted 2026-10-16)."""
+    inline tabs-row placement shrank the charts — reverted 2026-10-16).
+    ``variance`` carries the monitor's shipped ``fit.variance`` block for
+    the Home / Away views' per-side Gaussian line."""
     _view = st.radio("Distribution view",
                      ("Total", "Spread", "Home", "Away"),
                      horizontal=True, key="nfl_dist_view")
     if _view in ("Home", "Away"):
-        _render_team_score_distribution(decided, _view.lower())
+        _render_team_score_distribution(decided, _view.lower(), variance)
         return
     if _view == "Spread":
         sdist = nd.spread_distribution(decided)
@@ -1075,7 +1088,10 @@ def run() -> None:
     else:
         _tabs = st.tabs(DIAG_TABS)
         with _tabs[0]:
-            _render_distribution_tab(decided)
+            _render_distribution_tab(
+                decided,
+                variance=(((monitor or {}).get("fit") or {}).get("variance")
+                          or {}))
         with _tabs[1]:
             _render_relativized_tab(decided)
         with _tabs[2]:

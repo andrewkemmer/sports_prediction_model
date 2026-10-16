@@ -892,29 +892,56 @@ def test_nba_distribution_chart_shades_noise_band():
 # ---------------------------------------------------------------------------
 # Home / Away distribution toggles (2026-10-16): the per-side points law.
 #
-# The Distribution view now toggles Total / Spread / Home / Away. The Home
-# and Away views plot OBSERVED per-side finals only: the NBA artifact ships
-# the totals PMF (p_push_total_<k>) and the margin PMF (p_push_<±L>) and
-# never a per-team score PMF, so the modeled line stays all-gap (NaN) and
-# the callout note discloses it — never derived or refitted from another
-# family (the no-fabrication rule the totals/margin views already follow).
+# The Distribution view toggles Total / Spread / Home / Away. The Home and
+# Away views plot the observed per-side finals PLUS the model's OWN
+# per-side Gaussian as the modeled line: the artifact ships no per-team
+# score PMF column, but the bivariate scoring core the backend prices from
+# has a plain Gaussian marginal per side, so the line is DERIVED from
+# shipped parameters only (side mean split from the calibrated
+# distribution_mean_total / distribution_mean_margin, variance = the
+# monitor's fit.variance factor × that mean). Without a usable fit block it
+# falls back to the all-gap line — never borrowed from another push
+# namespace, never refitted on outcomes.
 # ---------------------------------------------------------------------------
 
-def test_team_score_distribution_is_observed_only_and_never_refits():
+# The monitor's shipped fit.variance block, verbatim in shape.
+FIT_VARIANCE = {"home_variance": 1.25, "away_variance": 1.35,
+                "correlation": 0.25, "total_skew": 0.024,
+                "margin_skew": -0.012}
+
+
+def _calibrated(frame: pd.DataFrame) -> pd.DataFrame:
+    """SIMPLE plus the calibrated mean columns the artifact actually ships.
+
+    distribution_mean_total / distribution_mean_margin are the post-
+    calibration MC means, so the per-side mean split out of them
+    (home = (total + margin) / 2) IS the calibrated model's side mean.
+    """
+    out = frame.copy()
+    out["distribution_mean_total"] = out["total"].astype(float)
+    out["distribution_mean_margin"] = out["margin"].astype(float)
+    return out
+
+
+CALIBRATED = _calibrated(SIMPLE)
+# home = (230+10)/2, (210+0)/2, (225-1)/2, (228+2)/2 -> 120, 105, 112, 115
+# away = (230-10)/2, (210-0)/2, (225+1)/2, (228-2)/2 -> 110, 105, 113, 113
+CAL_HOME_MEANS = [120.0, 105.0, 112.0, 115.0]
+CAL_AWAY_MEANS = [110.0, 105.0, 113.0, 113.0]
+
+
+def test_team_score_distribution_grid_and_observed_stay_exactly_as_before():
     dist = nd.team_score_distribution(SIMPLE, "home")
     assert dist["warning"] is None
     # Home points settle 105..120 — the span starts at the lowest points
     # total that settled (NBA sides never approach 0: no 0..104 padding).
     assert dist["ks"][0] == 105 and dist["ks"][-1] == 120
     assert dist["observed"][120 - 105] == pytest.approx(0.25)
-    assert all(v != v for v in dist["modeled"])          # all gaps, never borrowed
     c = dist["callouts"]
     assert c["mean"]["observed"] == pytest.approx(113.0)  # (120+105+112+115)/4
     assert c["P(home == 0)"]["observed"] == pytest.approx(0.0)
     # margins are +10, 0, -1, +2 -> home wins 2 of 4 (the tie is no win)
     assert c["P(home wins)"]["observed"] == pytest.approx(0.5)
-    assert c["mean"]["modeled"] is None
-    assert "never derived or refitted" in c["note"]
     # The Away toggle flips the side: away points settle 105..113.
     away = nd.team_score_distribution(SIMPLE, "away")
     assert away["ks"][0] == 105 and away["ks"][-1] == 113
@@ -926,14 +953,112 @@ def test_team_score_distribution_is_observed_only_and_never_refits():
         nd.team_score_distribution(SIMPLE, "margin")
 
 
+def test_team_score_distribution_keeps_the_all_gap_fallback():
+    """No usable fit.variance block -> the modeled line stays the all-gap
+    line it always was, with the disclosure note and no band."""
+    for variance in (None, {}, {"correlation": 0.25},          # missing block
+                     {"home_variance": 0.0},                    # unusable
+                     {"home_variance": float("nan")}):
+        dist = nd.team_score_distribution(CALIBRATED, "home",
+                                          variance=variance)
+        assert all(v != v for v in dist["modeled"]), variance
+        c = dist["callouts"]
+        assert c["mean"]["modeled"] is None
+        assert c["P(home == 0)"]["modeled"] is None
+        assert c["P(home wins)"]["modeled"] is None
+        assert c["off_grid"]["modeled"] is None
+        assert "never derived or refitted" in c["note"]
+        assert nd.distribution_noise_band(dist).empty
+
+
+def test_team_score_distribution_draws_the_models_own_side_gaussian():
+    """With the monitor's shipped fit block the orange line is the model's
+    own per-side Gaussian: side mean = the calibrated split, variance =
+    the shipped factor × that mean, lattice mass NOT renormalized."""
+    dist = nd.team_score_distribution(CALIBRATED, "home",
+                                      variance=FIT_VARIANCE)
+    assert dist["warning"] is None
+    line = dist["modeled"]
+    assert len(line) == len(dist["ks"])
+    assert all(np.isfinite(line)) and all(v >= 0. for v in line)
+    c = dist["callouts"]
+    # side mean = the shipped calibrated split (total + margin) / 2
+    assert c["mean"]["modeled"] == pytest.approx(np.mean(CAL_HOME_MEANS), abs=1e-9)
+    # P(side wins) stays the EXACT shipped margin authority, not a
+    # Gaussian tail re-derived here.
+    assert c["P(home wins)"]["modeled"] == pytest.approx(0.55)
+    # A points-scale side never puts mass below 0, and the plotted grid
+    # window is disclosed rather than silently summed over.
+    assert c["off_grid"]["modeled"] == pytest.approx(
+        1.0 - sum(line), abs=1e-3)
+    assert "never refitted" in c["note"]
+    # the line peaks at the bin nearest the modeled mean, not at an edge
+    assert dist["ks"][int(np.argmax(line))] == pytest.approx(
+        round(c["mean"]["modeled"]), abs=1)
+
+
+def test_side_line_means_sum_back_to_the_calibrated_total_mean():
+    """home + away modeled means == the artifact's own calibrated total
+    mean — the two side views are the same model as the Total view, split.
+    This is why the lattice mass is not renormalized at 0."""
+    home = nd.team_score_distribution(CALIBRATED, "home",
+                                      variance=FIT_VARIANCE)
+    away = nd.team_score_distribution(CALIBRATED, "away",
+                                      variance=FIT_VARIANCE)
+    assert (home["callouts"]["mean"]["modeled"]
+            + away["callouts"]["mean"]["modeled"]) == pytest.approx(
+                float(CALIBRATED["distribution_mean_total"].mean()), abs=2e-3)
+    assert away["callouts"]["mean"]["modeled"] == pytest.approx(
+        np.mean(CAL_AWAY_MEANS), abs=1e-9)
+    # away picks up the away_variance factor, not the home one
+    assert away["callouts"]["mean"]["modeled"] != home["callouts"]["mean"]["modeled"]
+
+
+def test_side_line_is_derived_never_fitted_on_outcomes():
+    """Changing the finals must NOT move the modeled line: it comes from
+    shipped parameters, so it cannot be a refit on outcomes."""
+    base = nd.team_score_distribution(CALIBRATED, "home",
+                                      variance=FIT_VARIANCE)
+    flipped = CALIBRATED.copy()
+    flipped["home_score"] = [40, 40, 40, 40]      # absurd blowout finals
+    flipped["away_score"] = [40, 40, 40, 40]
+    moved = nd.team_score_distribution(flipped, "home", variance=FIT_VARIANCE)
+    assert (moved["callouts"]["mean"]["modeled"]
+            == base["callouts"]["mean"]["modeled"])
+    shared = dict(zip(base["ks"], base["modeled"]))
+    for k, p in zip(moved["ks"], moved["modeled"]):
+        if k in shared:
+            assert p == pytest.approx(shared[k], abs=1e-12), k
+    # The shipped variance factor IS the width knob: a wider fit spreads
+    # the same mass without moving the mean.
+    wide = nd.team_score_distribution(CALIBRATED, "home",
+                                      variance={**FIT_VARIANCE,
+                                                "home_variance": 5.0})
+    assert (wide["callouts"]["mean"]["modeled"]
+            == pytest.approx(base["callouts"]["mean"]["modeled"]))
+    assert max(wide["modeled"]) < max(base["modeled"])
+
+
 def test_team_score_distribution_renders_through_the_chart_grammar():
-    """The all-NaN modeled line must layer cleanly (bars only, no band)
-    so the Home/Away chart renders exactly like the Total/Spread charts."""
+    """The gap-only line layers as bars + line with no band; a real line
+    adds the 95% band, so the Home/Away chart renders exactly like the
+    Total/Spread charts in both states."""
     import json
 
-    dist = nd.team_score_distribution(SIMPLE, "away")
+    gap = nd.team_score_distribution(SIMPLE, "away")
     spec = json.loads(nd.chart_distribution(
-        dist, x_title="Away team points scored",
+        gap, x_title="Away team points scored",
         y_title="P(away points = k)").to_json())
     assert [layer["mark"]["type"] for layer in spec["layer"]] == ["bar", "line"]
-    assert nd.distribution_noise_band(dist).empty   # no modeled line, no band
+    assert nd.distribution_noise_band(gap).empty   # no modeled line, no band
+
+    lined = nd.team_score_distribution(CALIBRATED, "away",
+                                       variance=FIT_VARIANCE)
+    spec = json.loads(nd.chart_distribution(
+        lined, x_title="Away team points scored",
+        y_title="P(away points = k)").to_json())
+    assert [layer["mark"]["type"] for layer in spec["layer"]] == \
+        ["area", "bar", "line"]
+    band = nd.distribution_noise_band(lined)
+    assert len(band) == len(lined["ks"])
+    assert ((band["hi"] > band["lo"]).all())
