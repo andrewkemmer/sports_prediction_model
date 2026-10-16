@@ -96,6 +96,21 @@ active lattice work (probes in flight), not this review.
   (no old-headline assertions anywhere — grep-verified; neither file
   touches `feature_drift`).
 
+## Production verification — fix confirmed live (03:10 UTC run, `ab9c5b68`/`3dd55f0d`)
+
+A fresh full-repull run started 03:10:55 UTC — four minutes after the
+remediation push — cloned the fix and printed, on both views:
+
+```
+Feature drift [moneyline]: 70 features, 68 evaluated, 2 STRUCTURAL, 0 INSUFFICIENT, 0 warnings, 2 alerts, 2 seasonal (…)
+```
+
+against the same CSV (64 OK + 2 OK-SEASONAL + 2 STRUCTURAL + 2 ALERT):
+68 + 2 + 0 = 70, exact. The run is otherwise deterministic (2573 OOF,
+1704 grading, weights 42.4/21.0/36.6, auc 0.69968…, same 4 WARNINGs,
+`DONE — 223 artifacts`), 0 ERROR. No further remediation — the finding
+is closed by its own production evidence.
+
 ## Deliberately not changed
 
 - PSI floors, WARN/ALERT thresholds, the season-seam re-check, STRUCTURAL
