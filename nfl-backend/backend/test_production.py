@@ -1001,10 +1001,13 @@ check("shipped integer totals PMF partitions the support",
       abs(sum(gd_[dist_mod._grid_key("p_push_total", k)] for k in _pmf_ints) - 1.) < 1e-9)
 # Writer hygiene (2026-10-16): totals pushes ship ONLY in the totals-push
 # namespace — the margin push namespace (p_push_<±L>) is margin-only, so no
-# totals mass can leak into margin reads.
+# totals mass can leak into margin reads. Since the 2026-10-16 margin-push
+# extension, p_push_24..30 are legitimate MARGIN mass (the extension's
+# overlap with the totals grid); only 31..66 would be a totals dup.
 check("writer emits no totals mass in the margin push namespace",
       not any(dist_mod._grid_key("p_push", U) in gd_
-                 for U in config.TOTAL_GRID))
+                 for U in config.TOTAL_GRID
+                 if U not in config.MARGIN_PUSH_EXTENSION))
 check("NFL retains unconditional win/tie/loss mass", abs(gd_["p_home_win_derived"] + gd_["p_tie"] + gd_["p_away_win_derived"] - 1.) < 1e-12 and gd_["p_tie"] > 0.)
 check("split-skew family is the live distribution", dist_mod.family.FAMILY == "two_sided_asymmetric_gaussian_split_skew")
 _meta = {}; dist_mod.apply_distribution(pd.DataFrame({"game_id": ["guard"], "mu_h": [27.], "mu_a": [20.]}), n_draws=200, meta_out=_meta)
@@ -1139,8 +1142,12 @@ need_mk = {"kind", "game_id", "mu_h", "mu_a", "mu_margin", "mu_total",
     | {f"p_push_total_{U}" for U in config.TOTAL_GRID}
 check("markets CSV contract columns", need_mk.issubset(mk.columns),
       str(sorted(list(need_mk - set(mk.columns)))[:8]))
+# Since the 2026-10-16 margin-push extension, p_push_24..30 are legitimate
+# margin mass (see the writer-hygiene check above); only 31..66 would be
+# a totals dup.
 check("markets CSV ships no totals mass in the margin push namespace",
-      not any(f"p_push_{U}" in mk.columns for U in config.TOTAL_GRID))
+      not any(f"p_push_{U}" in mk.columns for U in config.TOTAL_GRID
+                 if U not in config.MARGIN_PUSH_EXTENSION))
 check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
 # Full-support totals PMF publication (2026-10-14): the writer publishes the
 # emitter's off-grid integer PMF mass so the diagnostics distribution chart

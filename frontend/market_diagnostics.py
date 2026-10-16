@@ -466,12 +466,14 @@ def total_distribution(decided: pd.DataFrame, kmax: int = 15) -> dict[str, Any]:
 def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     """Observed margins (home − away) and the shipped Monte Carlo margin mass.
 
-    The artifact ships margin mass ONLY at the tie plus ±1 … ±4: P(margin
+    The artifact ships margin mass at the tie plus whole ±1 … ±10: P(margin
     == 0) is ``p_tie``; P(margin == +m) is ``p_rl_<m>_push`` and
-    P(margin == −m) is ``p_rl_<m>_away_push`` (whole m = 1 … 4 — the
-    backend prices the away-tail push under the away_push name). Every
-    other k stays NaN (a gap) — unavailable, never refitted, the same
-    convention as ``shipped_total_pmf``. The callout masses ARE exact
+    P(margin == −m) is ``p_rl_<m>_away_push`` (the traded ±1 … ±4 plus the
+    diagnostic push-only extension to ±10 — the backend prices the
+    away-tail push under the away_push name). Every other k stays NaN (a
+    gap) — unavailable, never refitted, the same convention as
+    ``shipped_total_pmf``. Artifacts predating the extension keep their
+    gaps beyond ±4. The callout masses ARE exact
     shipped boundary probabilities: P(home wins) = P(margin ≥ 1) is
     ``p_home_win_derived`` and P(away wins) = P(margin ≤ −1) is
     ``p_away_win_derived``. The plotted grid is fixed at ±10; margins
@@ -535,8 +537,9 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                          "P(home|one-run)": {"observed": one_obs,
                                              "modeled": one_mod, "n": int(len(one))},
                          "note": ("Modeled line = mean shipped run-line push mass at the tie "
-                                  "plus ±1 … ±4 only; outside that span the line gaps — "
-                                  "unavailable, not refitted.")}}
+                                  "plus whole ±1 … ±10 (traded grid plus the push-only "
+                                  "extension); outside ±10 the line gaps — unavailable, "
+                                  "not refitted.")}}
 
 
 def _logit(p: np.ndarray | float) -> np.ndarray | float:
