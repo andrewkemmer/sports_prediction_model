@@ -542,18 +542,105 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                                   "not refitted.")}}
 
 
+# Standard normal CDF over a numpy array. The frontend carries no scipy, so
+# math.erfc (exact to ~1e-16) is dispatched element-wise — np.vectorize only
+# loops it, it adds no approximation of its own.
+_NDTR = np.vectorize(lambda x: 0.5 * math.erfc(-x / math.sqrt(2.0)),
+                     otypes=[float])
+
+
+def gaussian_side_line(decided: pd.DataFrame, side: str, ks,
+                       variance: Optional[dict]) -> Optional[dict]:
+    """Mean per-side Gaussian PMF on the score lattice, shipped parameters only.
+
+    The scoring core the backend prices from is a bivariate Gaussian over
+    (home, away) — variances ``home_variance * E[home]`` and
+    ``away_variance * E[away]`` with the fitted ``correlation`` — and that is
+    the exact object ``raw_cdf`` turns into the totals and margin laws. The
+    core's MARGINAL for one side is therefore a plain Gaussian: the only
+    per-team distribution the model actually has. The backend just never
+    emits it as a PMF column, so the Home / Away views draw it here from
+    shipped parameters and nothing else:
+
+      * side mean — split out of the calibrated per-game means the artifact
+        does ship: ``E[home] = (distribution_mean_total +
+        distribution_mean_margin) / 2`` and ``E[away] = (total − margin) /
+        2``. Splitting the CALIBRATED means (not the raw pre-calibration
+        expectations) keeps the two side lines summing back to the totals
+        law the Total view already plots.
+      * side variance — the monitor's shipped ``fit.variance`` factor for
+        that side times that mean, exactly ``raw_cdf``'s scaling.
+
+    No outcome is read and no parameter is re-estimated — this derives, it
+    never fits. The lattice mass ``p(k) = Φ((k+½−μ)/σ) − Φ((k−½−μ)/σ)``
+    discretizes the Gaussian the same way the backend discretizes the totals
+    law, and it is deliberately NOT renormalized: mass the Gaussian puts
+    below 0 stays off-grid and is returned in ``off_grid`` for disclosure,
+    the same unavailable-never-refitted rule the totals view applies to
+    off-grid tails. Renormalizing would instead lift each side's line mean
+    above the calibrated model's (by ~0.35 runs on MLB) and break the
+    home + away = calibrated total identity.
+
+    Returns ``None`` when the artifact carries no usable variance factor or
+    no calibrated mean columns — the caller keeps its NaN gaps.
+    """
+    if side not in ("home", "away") or not variance:
+        return None
+    try:
+        factor = float(variance.get("home_variance" if side == "home"
+                                    else "away_variance"))
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(factor) or factor <= 0.:
+        return None
+    if {"distribution_mean_total",
+            "distribution_mean_margin"}.difference(decided.columns):
+        return None
+    total = pd.to_numeric(decided["distribution_mean_total"],
+                          errors="coerce").to_numpy(float)
+    margin = pd.to_numeric(decided["distribution_mean_margin"],
+                           errors="coerce").to_numpy(float)
+    mu = ((total + margin) / 2. if side == "home"
+          else (total - margin) / 2.)
+    var = factor * mu
+    good = np.isfinite(mu) & np.isfinite(var) & (mu > 0.) & (var > 0.)
+    if not good.any():
+        return None
+    mu, var = mu[good], var[good]
+    sd = np.sqrt(var)
+    grid = np.asarray(ks, float)
+    p = np.clip(_NDTR((grid[None, :] + .5 - mu[:, None]) / sd[:, None])
+                - _NDTR((grid[None, :] - .5 - mu[:, None]) / sd[:, None]),
+                0., 1.)
+    # Everything the lattice does not plot is DISCLOSED, never silently
+    # dropped and never renormalized back in: mass below the first bin
+    # (which, for a 0-anchored grid, IS the sub-zero mass) plus the top
+    # tail beyond the last bin.
+    left = _NDTR((grid[0] - .5 - mu) / sd)
+    above = 1. - _NDTR((grid[-1] + .5 - mu) / sd)
+    return {"modeled": p.mean(axis=0),
+            "mean": float(mu.mean()),
+            "p_zero": (float(p[:, 0].mean()) if len(grid) and grid[0] == 0.
+                       else None),
+            "below_zero": float(_NDTR((-.5 - mu) / sd).mean()),
+            "off_grid": float((left + above).mean()),
+            "n_games": int(good.sum())}
+
+
 def team_score_distribution(decided: pd.DataFrame, side: str = "home",
-                            kmax: int = 15) -> dict[str, Any]:
+                            kmax: int = 15,
+                            variance: Optional[dict] = None) -> dict[str, Any]:
     """Observed per-side scoring distribution — the home/away score law.
 
-    Added 2026-10-16 for the Distribution view's Home / Away toggles. The
-    artifact ships the totals PMF (``p_push_<k>``) and the margin PMF
-    (``p_rl_<m>_push``) ONLY: there is no per-team score PMF to plot, so
-    ``modeled`` / ``modeled_grid`` are all-gap (NaN) and the callout note
-    says so explicitly. Observed finals only — the modeled line, the
-    noise band and the tail authorities are UNAVAILABLE here and are
-    never derived or refitted from a substitute family (the same
-    no-fabrication rule the totals and margin views follow). The grid
+    Added 2026-10-16 for the Distribution view's Home / Away toggles, and
+    given its modeled line the same day. The artifact ships the totals PMF
+    (``p_push_<k>``) and the margin PMF (``p_rl_<m>_push``) ONLY — never a
+    per-team score PMF column — but the monitor's ``fit.variance`` block
+    plus the artifact's calibrated mean columns are enough to draw the
+    model's OWN per-side Gaussian (``gaussian_side_line``): the orange line
+    and the 95% band render whenever ``variance`` is supplied and stay NaN
+    gaps when it is not. Nothing is fitted or refitted either way — the
+    line is derived from shipped parameters, never from outcomes. The grid
     spans every side score that actually settled: it anchors at 0 when a
     blank/near-blank side (0–2 runs/goals) is real mass (extended to at
     least ``kmax``), and a sport whose sides never approach 0 starts at
@@ -603,25 +690,51 @@ def team_score_distribution(decided: pd.DataFrame, side: str = "home",
     # slot, so home + away win shares can sum to < 1).
     both = np.isfinite(vals) & np.isfinite(opp_vals)
     win_rate = float((vals[both] > opp_vals[both]).mean()) if both.any() else None
-    nan_line = [float("nan")] * len(ks)
+    # The model's own per-side Gaussian, over the SAME games as the bars
+    # (decided.loc[keep]); None keeps the all-gap line the artifact-only
+    # artifacts render.
+    line = gaussian_side_line(decided.loc[keep], side, ks, variance)
+    if line is None:
+        modeled = [float("nan")] * len(ks)
+        mean_mod = zero_mod = off_mod = win_mod = None
+        note = ("Observed finals only: the monitor's fit.variance block or "
+                "the artifact's calibrated mean columns are unavailable "
+                "here, so the modeled line, band and tail authorities stay "
+                "gaps — never derived or refitted from another family.")
+    else:
+        modeled = [round(float(v), 5) for v in line["modeled"]]
+        mean_mod = round(line["mean"], 3)
+        zero_mod = (round(line["p_zero"], 4)
+                    if line["p_zero"] is not None else None)
+        off_mod = round(line["off_grid"], 4)
+        # P(side wins) is an exact shipped authority (the margin family's
+        # boundary column), not a derived Gaussian tail.
+        win_mod = boundary_mean(
+            decided.loc[keep],
+            "p_home_win_derived" if side == "home" else "p_away_win_derived")
+        note = ("Modeled line = the model's own per-side Gaussian: side "
+                "mean split from the calibrated distribution_mean_total / "
+                "distribution_mean_margin, variance = the shipped "
+                "fit.variance factor × that mean — shipped parameters "
+                "only, never refitted. "
+                f"{off_mod:.1%} of that Gaussian sits outside the plotted "
+                "grid (sub-zero mass and/or the top tail) — unavailable, "
+                "not refitted, and never renormalized back in.")
     return {
         "ks": ks.tolist(),
         "observed": [round(float(v), 5) for v in observed],
-        "modeled": nan_line,
-        "modeled_grid": list(nan_line),
+        "modeled": modeled,
+        "modeled_grid": list(modeled),
         "callouts": {
             "mean": {"observed": round(float(vals.mean()), 3),
-                     "modeled": None},
+                     "modeled": mean_mod},
             f"P({side} == 0)": {"observed": round(float((vals == 0).mean()), 4),
-                                "modeled": None},
+                                "modeled": zero_mod},
             f"P({side} wins)": {"observed": (round(win_rate, 4)
                                               if win_rate is not None else None),
-                                "modeled": None},
-            "note": ("Observed finals only: the artifact ships the totals "
-                     "and margin push PMFs and never a per-team score PMF, "
-                     "so the modeled line, band and tail authorities are "
-                     "unavailable here — never derived or refitted from "
-                     "another push namespace."),
+                                "modeled": win_mod},
+            "off_grid": {"observed": None, "modeled": off_mod},
+            "note": note,
         },
         "n_games": int(len(vals)),
         "warning": None,

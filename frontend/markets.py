@@ -142,6 +142,42 @@ else:
 # ---------------------------------------------------------------------------
 import market_diagnostics as diag  # noqa: E402  (page module, imported late)
 
+
+def _load_run_engine_monitor(ds: str) -> dict | None:
+    """Load run_engine_monitor_YYYYMMDD.json from data_delivery.
+
+    Defined (and first called) ABOVE the diagnostics block: the Home / Away
+    distribution views need the monitor's fit.variance block to draw the
+    model's per-side Gaussian, and the monitor section further down reuses
+    this same value instead of fetching the artifact twice.
+    """
+    import logging as _lg
+    _log = _lg.getLogger("markets")
+    fname = f"run_engine_monitor_{ds}.json"
+    cfg = utils.get_source_config()
+    try:
+        raw, src = utils._fetch_bytes(fname, **cfg)
+    except Exception as exc:
+        url = utils._raw_url(fname, **cfg)
+        _log.error("Monitor fetch exception for %s (%s): %s", fname, url, exc)
+        st.warning(f"Fetch error for {fname} -- see log.")
+        return None
+    if raw is None:
+        url = utils._raw_url(fname, **cfg)
+        _log.warning("Monitor artifact not found: %s (URL: %s, source: %s)",
+                     fname, url, src)
+        return None
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        _log.error("Monitor JSON parse failed for %s: %s", fname, exc)
+        return None
+
+
+# Loaded once per page run: the diagnostics Home/Away views read its
+# fit.variance block and the monitor section below renders the same dict.
+monitor = _load_run_engine_monitor(date_str)
+
 decided = diag.decided_rows(markets)
 st.markdown("### Diagnostics")
 if decided.empty:
@@ -163,12 +199,19 @@ else:
                               horizontal=True, key="mlb_dist_view")
         if _dist_view in ("Home", "Away"):
             # Home / Away (2026-10-16): the per-side scoring law — final
-            # home-team (or away-team) runs per decided game. Observed
-            # finals only: the artifact ships totals and margin push PMFs,
-            # never a per-team score PMF, so the modeled line / band are
-            # unavailable here (NaN gaps) — never derived or refitted.
+            # home-team (or away-team) runs per decided game. The modeled
+            # line is the model's OWN per-side Gaussian (the bivariate
+            # scoring core's marginal for one side), drawn from shipped
+            # parameters only: the side mean split from the calibrated
+            # distribution_mean_total / distribution_mean_margin and the
+            # monitor's fit.variance factor. No outcome is read, nothing is
+            # refitted; when the monitor's fit block is unreachable the line
+            # falls back to NaN gaps.
             _side = _dist_view.lower()
-            tdist = diag.team_score_distribution(decided, _side)
+            tdist = diag.team_score_distribution(
+                decided, _side,
+                variance=(((monitor or {}).get("fit") or {}).get("variance")
+                          or {}))
             if tdist["warning"]:
                 st.warning(tdist["warning"])
             else:
@@ -183,15 +226,24 @@ else:
                 st.caption(
                     f"Observed bars = final {_side}-team runs per decided "
                     f"game over {tdist['n_games']:,} decided games · mean "
-                    f"{_tc['mean']['observed']:.2f} runs · "
-                    f"P({_side} = 0 runs): {_tf(_tc[f'P({_side} == 0)']['observed'])} · "
-                    f"P({_side} wins): {_tf(_tc[f'P({_side} wins)']['observed'])}. "
-                    "This is the per-side scoring law. The artifact ships "
-                    "totals and margin push PMFs only — no per-team score "
-                    "PMF — so the modeled line, band and tail authorities "
-                    "are unavailable here and are never derived or refitted "
-                    "from another family. Compare with the Total and Spread "
-                    "views."
+                    f"{_tc['mean']['observed']:.2f} runs / modeled "
+                    f"{_tf(_tc['mean']['modeled'], '.2f')} · "
+                    f"P({_side} = 0 runs): observed "
+                    f"{_tf(_tc[f'P({_side} == 0)']['observed'])} / modeled "
+                    f"{_tf(_tc[f'P({_side} == 0)']['modeled'])} · "
+                    f"P({_side} wins): observed "
+                    f"{_tf(_tc[f'P({_side} wins)']['observed'])} / modeled "
+                    f"{_tf(_tc[f'P({_side} wins)']['modeled'])}. "
+                    "This is the per-side scoring law. The artifact ships no "
+                    "per-team score PMF column, so the orange line is the "
+                    "model's own per-side Gaussian — the marginal of the "
+                    "bivariate scoring core — built from shipped parameters "
+                    "only (side mean split from the calibrated total/margin "
+                    "means, variance = the monitor's fit.variance factor × "
+                    "that mean), never refitted. Its off-grid mass "
+                    "(sub-zero and beyond the top bin) is disclosed in the "
+                    "note, never renormalized away. Compare with the Total "
+                    "and Spread views."
                 )
         elif _dist_view == "Spread":
             sdist = diag.spread_distribution(decided)
@@ -777,31 +829,6 @@ _WINNER_CARDS = (
      "Home team if P(home win) > 50% (±0.5 dead cut) — split-skew Gaussian Monte Carlo "
      "derived ML; distinct from the moneyline ensemble"),
 )
-
-
-def _load_run_engine_monitor(ds: str) -> dict | None:
-    """Load run_engine_monitor_YYYYMMDD.json from data_delivery."""
-    import logging as _lg
-    _log = _lg.getLogger("markets")
-    fname = f"run_engine_monitor_{ds}.json"
-    cfg = utils.get_source_config()
-    try:
-        raw, src = utils._fetch_bytes(fname, **cfg)
-    except Exception as exc:
-        url = utils._raw_url(fname, **cfg)
-        _log.error("Monitor fetch exception for %s (%s): %s", fname, url, exc)
-        st.warning(f"Fetch error for {fname} -- see log.")
-        return None
-    if raw is None:
-        url = utils._raw_url(fname, **cfg)
-        _log.warning("Monitor artifact not found: %s (URL: %s, source: %s)",
-                     fname, url, src)
-        return None
-    try:
-        return json.loads(raw)
-    except Exception as exc:
-        _log.error("Monitor JSON parse failed for %s: %s", fname, exc)
-        return None
 
 
 def _fmt(v, nd=3, pct=False) -> str:
@@ -1439,7 +1466,6 @@ st.caption(
     "weaker than the moneyline monitor's.  This is the actual calibration "
     "quality; no styling hides it.")
 
-monitor = _load_run_engine_monitor(date_str)
 if monitor is None:
     url = utils._raw_url(
         f"run_engine_monitor_{date_str}.json", **utils.get_source_config())

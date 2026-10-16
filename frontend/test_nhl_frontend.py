@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 import streamlit as st
@@ -728,15 +729,22 @@ def test_nfl_spread_reads_the_push_extension_to_the_blowout_tails():
 # ---------------------------------------------------------------------------
 # Home / Away distribution toggles (2026-10-16): the per-side scoring law.
 #
-# The Distribution view now toggles Total / Spread / Home / Away on all
-# four sports. The Home / Away views plot OBSERVED per-side finals only:
-# the artifacts ship totals and margin push PMFs and never a per-team
-# score PMF, so the modeled line stays all-gap (NaN) and the callout note
-# discloses it — never derived or refitted from another family (the same
-# no-fabrication rule the totals/margin views follow).
+# The Distribution view toggles Total / Spread / Home / Away on all four
+# sports. The Home / Away views plot the observed per-side finals PLUS the
+# model's OWN per-side Gaussian as the modeled line: the artifacts ship no
+# per-team score PMF column, but the bivariate scoring core the backend
+# prices from has a plain Gaussian marginal per side, so the line is
+# DERIVED from shipped parameters only (side mean split from the calibrated
+# distribution_mean_total / distribution_mean_margin, variance = the
+# monitor's fit.variance factor × that mean). Without a usable fit block it
+# falls back to the all-gap line — never borrowed from another push
+# namespace, never refitted on outcomes.
 # ---------------------------------------------------------------------------
 
-def test_team_score_distribution_is_observed_only_and_never_refits():
+def test_team_score_distribution_without_a_fit_block_stays_observed_only():
+    """No calibrated mean columns and no fit.variance block -> the line
+    stays the all-gap line: unavailable, never borrowed from another push
+    namespace."""
     import market_diagnostics as diag
 
     frame = pd.DataFrame({
@@ -791,3 +799,131 @@ def test_team_score_distribution_grid_spans_the_settled_scores():
         # every modeled bin is a gap — no totals/margin mass is ever
         # borrowed to fabricate a per-team PMF line.
         assert all(v != v for v in home["modeled"])
+
+
+# --- The per-side modeled line (the model's own Gaussian marginal) --------
+
+# The monitor's shipped fit.variance block, verbatim in shape.
+SIDE_FIT_VARIANCE = {"home_variance": 1.0, "away_variance": 1.0,
+                     "correlation": -0.01, "total_skew": 0.07,
+                     "margin_skew": -0.04}
+
+
+def _side_frame() -> pd.DataFrame:
+    """A decided frame with the calibrated mean columns the artifact ships.
+    total = 7 and margin = 1 on every row -> side means home 4, away 3."""
+    return pd.DataFrame({
+        "home_score": [5, 0, 3, 9],
+        "away_score": [2, 4, 3, 1],
+        "distribution_mean_total": [7.0, 7.0, 7.0, 7.0],
+        "distribution_mean_margin": [1.0, 1.0, 1.0, 1.0],
+        "p_home_win_derived": [0.55] * 4,
+        "p_away_win_derived": [0.45] * 4,
+    })
+
+
+def test_side_line_is_the_models_own_gaussian_from_shipped_parameters():
+    """With the monitor's fit block the orange line is the model's own
+    per-side Gaussian: side mean = the calibrated split (total ± margin)/2,
+    variance = the shipped factor × that mean. The lattice mass is NOT
+    renormalized — sub-zero mass stays off-grid and is disclosed, which is
+    what keeps home + away = the calibrated total mean."""
+    import market_diagnostics as diag
+
+    frame = _side_frame()
+    home = diag.team_score_distribution(frame, "home",
+                                        variance=SIDE_FIT_VARIANCE)
+    away = diag.team_score_distribution(frame, "away",
+                                        variance=SIDE_FIT_VARIANCE)
+    assert home["warning"] is None and away["warning"] is None
+    assert home["ks"] == list(range(16))
+    line = home["modeled"]
+    assert all(v == v for v in line) and all(v >= 0. for v in line)
+    hc, ac = home["callouts"], away["callouts"]
+    # side means are the shipped calibrated splits: (7+1)/2 and (7-1)/2
+    assert hc["mean"]["modeled"] == pytest.approx(4.0, abs=1e-9)
+    assert ac["mean"]["modeled"] == pytest.approx(3.0, abs=1e-9)
+    # the identity that the non-renormalized lattice preserves exactly
+    assert (hc["mean"]["modeled"] + ac["mean"]["modeled"]) == pytest.approx(
+        float(frame["distribution_mean_total"].mean()), abs=1e-9)
+    # P(side wins) stays the EXACT shipped margin authority, not a
+    # Gaussian tail re-derived in the frontend.
+    assert hc["P(home wins)"]["modeled"] == pytest.approx(0.55)
+    assert ac["P(away wins)"]["modeled"] == pytest.approx(0.45)
+    # Sub-zero mass is disclosed and left off-grid (not renormalized away):
+    # plotted mass + off-grid mass = 1 for a grid that reaches the tail.
+    off = hc["off_grid"]["modeled"]
+    assert 0.010 < off < 0.015            # mean 4, sd 2 -> Phi(-2.25)
+    assert sum(line) + off == pytest.approx(1.0, abs=1e-3)
+    assert "never refitted" in hc["note"]
+
+
+def test_side_line_is_derived_never_fitted_on_outcomes():
+    """Changing the finals must NOT move the modeled line — it comes from
+    shipped parameters, so it cannot be a refit on outcomes."""
+    import market_diagnostics as diag
+
+    frame = _side_frame()
+    base = diag.team_score_distribution(frame, "home",
+                                        variance=SIDE_FIT_VARIANCE)
+    flipped = frame.copy()
+    flipped["home_score"] = [0, 0, 0, 0]     # absurd shutout finals
+    flipped["away_score"] = [12, 12, 12, 12]
+    moved = diag.team_score_distribution(flipped, "home",
+                                         variance=SIDE_FIT_VARIANCE)
+    assert (moved["callouts"]["mean"]["modeled"]
+            == base["callouts"]["mean"]["modeled"])
+    shared = dict(zip(base["ks"], base["modeled"]))
+    for k, p in zip(moved["ks"], moved["modeled"]):
+        if k in shared:
+            assert p == pytest.approx(shared[k], abs=1e-12), k
+    # The shipped variance factor IS the width knob.
+    wide = diag.team_score_distribution(frame, "home",
+                                        variance={**SIDE_FIT_VARIANCE,
+                                                  "home_variance": 4.0})
+    assert max(wide["modeled"]) < max(base["modeled"])
+    assert (wide["callouts"]["mean"]["modeled"]
+            == pytest.approx(base["callouts"]["mean"]["modeled"]))
+
+
+def test_side_line_is_shared_by_the_nfl_and_nhl_re_exports():
+    """NFL/NHL re-export MLB's helper, so the modeled line — and the
+    all-gap fallback without a fit block — is identical on all three."""
+    import market_diagnostics as diag
+    import nfl_market_diagnostics as nfl
+    import nhl_market_diagnostics as nhl
+
+    frame = _side_frame()
+    ref = diag.team_score_distribution(frame, "home",
+                                       variance=SIDE_FIT_VARIANCE)
+    for mod in (nfl, nhl):
+        got = mod.team_score_distribution(frame, "home",
+                                          variance=SIDE_FIT_VARIANCE)
+        assert got["modeled"] == ref["modeled"], mod.__name__
+        assert got["callouts"]["mean"] == ref["callouts"]["mean"]
+        assert not diag.distribution_noise_band(got).empty, mod.__name__
+        # no fit block -> the all-gap fallback, band suppressed
+        gap = mod.team_score_distribution(frame, "home")
+        assert all(v != v for v in gap["modeled"]), mod.__name__
+        assert diag.distribution_noise_band(gap).empty, mod.__name__
+
+
+def test_side_line_chart_layers_the_band_behind_the_line():
+    """With a real modeled line the Home/Away chart layers exactly like the
+    Total/Spread charts: band, bars, line."""
+    import market_diagnostics as diag
+
+    dist = diag.team_score_distribution(_side_frame(), "away",
+                                        variance=SIDE_FIT_VARIANCE)
+    spec = json.loads(diag.chart_distribution(
+        dist, x_title="Away runs scored",
+        y_title="P(away runs = k)").to_json())
+    assert [layer["mark"]["type"] for layer in spec["layer"]] == \
+        ["area", "bar", "line"]
+    band = diag.distribution_noise_band(dist)
+    assert len(band) == len(dist["ks"])
+    assert (band["hi"] >= band["lo"]).all()
+    # a real (non-degenerate) interval at the peak of the line
+    peak = int(np.argmax(dist["modeled"]))
+    row = band.iloc[peak]
+    assert row["hi"] > row["lo"]
