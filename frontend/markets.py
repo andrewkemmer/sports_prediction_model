@@ -151,12 +151,18 @@ if decided.empty:
         "decided games; nothing is fabricated in the meantime."
     )
 else:
-    _tabs = st.tabs(diag.DIAG_TABS)
-
-    with _tabs[0]:   # 1 — totals / spread / per-side distribution fit-check
+    # The Distribution view toggle rides the TABS ROW (2026-10-16): the tab
+    # strip takes the wide column and the radio the narrow right one, so
+    # the control sits inline with the tab headers instead of below them.
+    _tab_row = st.columns([6, 3])
+    with _tab_row[0]:
+        _tabs = st.tabs(diag.DIAG_TABS)
+    with _tab_row[1]:
         _dist_view = st.radio("Distribution view",
                               ("Total", "Spread", "Home", "Away"),
                               horizontal=True, key="mlb_dist_view")
+
+    with _tabs[0]:   # 1 — totals / spread / per-side distribution fit-check
         if _dist_view in ("Home", "Away"):
             # Home / Away (2026-10-16): the per-side scoring law — final
             # home-team (or away-team) runs per decided game. Observed
@@ -492,8 +498,11 @@ def _result_cell(correct) -> str:
 
 
 def _score_cell(row) -> str:
+    # SCORE renders HOME–AWAY (2026-10-16): the home side leads the cell,
+    # matching the H–A header (the old A–H order read backwards on a card
+    # whose MATCHUP lists the away team first).
     if pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")):
-        return f"{int(row['away_score'])}–{int(row['home_score'])}"
+        return f"{int(row['home_score'])}–{int(row['away_score'])}"
     return "—"
 
 
@@ -504,7 +513,7 @@ def _date_str(raw) -> str:
 
 def _render_totals_history(tot: pd.DataFrame, teams: dict,
                            start_d, end_d, cal_note: str) -> None:
-    """Game-totals prediction history: DATE | MATCHUP | SCORE (A–H) |
+    """Game-totals prediction history: DATE | MATCHUP | SCORE (H–A) |
     LINE (O/U X.5) | MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT.
     Most recent first in a fixed-height scroll container; header win rate
     recomputes from the filtered rows; pushes excluded from the win rate
@@ -556,8 +565,7 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
-            <table class="fb-table">
-              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+            <table class="fb-table">              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
@@ -569,10 +577,11 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
     )
 
 
+
 def _render_runline_history(rl: pd.DataFrame, teams: dict,
                             start_d, end_d, cal_note: str) -> None:
     """Run-line (−1.5/+1.5) prediction history: DATE | MATCHUP |
-    SCORE (A–H) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
+    SCORE (H–A) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
     WINNER | RESULT. Half-run lines never push, so every decided game
     counts toward the win rate (noted in the caption)."""
     view = diag.filter_history_frame(rl, start_d, end_d)
@@ -613,7 +622,7 @@ def _render_runline_history(rl: pd.DataFrame, teams: dict,
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
             <table class="fb-table">
-              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
@@ -628,7 +637,7 @@ def _render_runline_history(rl: pd.DataFrame, teams: dict,
 def _render_runline_cut_history(rl: pd.DataFrame, teams: dict,
                                 start_d, end_d, cal_note: str) -> None:
     """Run-line prediction history — the CUT line (favored side at its
-    deepest line with cover >= 50%). DATE | MATCHUP | SCORE (A–H) |
+    deepest line with cover >= 50%). DATE | MATCHUP | SCORE (H–A) |
     LINE (favored side's cut, e.g. −1.5/+1.5) | MODEL PICK | WINNER |
     RESULT. Whole-line pushes resolved 3-way: push rows render '—' and are
     excluded from the W/(W+L) win rate (unified convention).
@@ -678,7 +687,7 @@ def _render_runline_cut_history(rl: pd.DataFrame, teams: dict,
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
             <table class="fb-table">
-              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
