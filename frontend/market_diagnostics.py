@@ -509,6 +509,15 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
             return None
         v = pd.to_numeric(decided[col], errors="coerce").mean()
         return round(float(v), 4) if pd.notna(v) else None
+    # One-run split: the walk-off fit's footprint. Observed home share of
+    # one-run finals vs the shipped post-split PMF means (P(+1) and P(-1)
+    # are exact shipped columns, so this needs no refit and no new grid).
+    one = margin[margin.abs() == 1]
+    one_obs = round(float((one > 0).mean()), 4) if len(one) else None
+    one_mod = None
+    p1, m1 = _mean("p_rl_1_0_push"), _mean("p_rl_1_0_away_push")
+    if p1 is not None and m1 is not None and (p1 + m1) > 0:
+        one_mod = round(p1 / (p1 + m1), 4)
     return {"ks": ks, "observed": [round(float(v), 5) for v in observed],
             "modeled": [round(float(v), 5) if np.isfinite(v) else float("nan")
                         for v in modeled],
@@ -523,6 +532,8 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                                     "modeled": _mean("p_tie")},
                          "P(|margin|>10)": {"observed": round(float((margin.abs() > 10).mean()), 4),
                                             "modeled": None, "n": n_outside},
+                         "P(home|one-run)": {"observed": one_obs,
+                                             "modeled": one_mod, "n": int(len(one))},
                          "note": ("Modeled line = mean shipped run-line push mass at the tie "
                                   "plus ±1 … ±4 only; outside that span the line gaps — "
                                   "unavailable, not refitted.")}}

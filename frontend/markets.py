@@ -169,6 +169,10 @@ else:
                 def _sm(key):
                     v = sc[key]["modeled"]
                     return "--" if v is None else format(v, ".3f")
+
+                def _sm_obs(key):
+                    v = sc[key]["observed"]
+                    return "--" if v is None else format(v, ".3f")
                 st.caption(
                     f"Observed bars vs mean shipped run-line push mass over "
                     f"{sdist['n_games']:,} decided games · P(home wins): observed "
@@ -181,7 +185,9 @@ else:
                     f"({sc['P(|margin|>10)']['n']:,} games, not plotted). "
                     "The modeled line ships only at the tie plus "
                     "±1 … ±4 — outside that span it gaps (unavailable, never "
-                    "refitted). This is the margin law."
+                    "refitted). This is the margin law. One-run split: observed "
+                    f"home share {_sm_obs('P(home|one-run)')} / modeled "
+                    f"{_sm('P(home|one-run)')} (n={sc['P(home|one-run)']['n']:,} one-run finals)."
                     f" Shaded band = 95% binomial interval around the modeled line "
                     f"(per-bin p-hat ± 1.96·SE, n={sdist['n_games']:,} games) — teeth "
                     "inside the band are noise-level."
