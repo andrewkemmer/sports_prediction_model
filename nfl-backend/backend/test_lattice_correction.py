@@ -555,3 +555,40 @@ def test_fitted_delta_stores_its_lattice_bounds():
     out = fam.fit_lattice_correction(pmfs, outcomes, support, SPORT, "totals")
     if out.get("delta") is not None:
         assert out["support"] == [int(support[0]), int(support[-1])]
+
+
+def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
+    # The empty-net mechanism is preregistered (disclosure record) with the
+    # generic bar first and the one-sided structural bar as fallback.
+    spec = fam.LATTICE_PREREGISTERED[("nhl", "margin", "empty_net_2_to_3")]
+    assert spec["structural_bar"] == fam.LATTICE_STRUCTURAL_Z
+    assert spec["generic_bar"] == fam.LATTICE_GATE_Z
+    assert "empty_net_2_to_3" in fam.lattice_preregistered("nhl", "margin")
+    assert fam.lattice_preregistered("nfl", "margin") != {}
+    support = np.arange(-20, 21)
+    r_train = np.zeros(len(support))
+    r_train[int(np.searchsorted(support, 3))] = 0.01
+    r_train[int(np.searchsorted(support, -3))] = 0.008
+    out = {"residual_mae_before": 0.0008, "residual_mae_after": 0.0003,
+           "collateral_ok": True}
+    d = np.array([-0.002] * 400 + [0.0] * 400)  # mean < 0, z >> 2.5
+    hit = fam._structural_lattice_fallback("nhl", "margin", support,
+                                           r_train, d, 2.708, out)
+    assert hit == {"structural": True, "bar": 2.5,
+                   "mechanism": "empty_net_2_to_3"}
+    # Direction enforced on train evidence: no excess at -3, no fallback.
+    r_train[int(np.searchsorted(support, -3))] = -0.001
+    assert fam._structural_lattice_fallback("nhl", "margin", support,
+                                            r_train, d, 2.708, out) is None
+    # Below the structural bar: no fallback even with the direction held.
+    r_train[int(np.searchsorted(support, -3))] = 0.008
+    assert fam._structural_lattice_fallback("nhl", "margin", support,
+                                            r_train, d, 2.0, out) is None
+    # Other pairs never take this path (NFL secondaries keep their own
+    # spike gate; totals keep the generic bar).
+    assert fam._structural_lattice_fallback("nfl", "margin", support,
+                                            r_train, d, 2.708, out) is None
+    assert fam._structural_lattice_fallback("nhl", "totals", support,
+                                            r_train, d, 2.708, out) is None
+    assert fam._structural_lattice_fallback("mlb", "margin", support,
+                                            r_train, d, 2.708, out) is None

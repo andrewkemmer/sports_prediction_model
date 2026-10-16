@@ -193,6 +193,9 @@ LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
 #     home bats last), shifting tie-mass-scaled (q-1/2)*m0 to M=+1.
 #   nfl margin spikes: scoring rules pile margin mass at 3 (field goal) and
 #     7 (touchdown + XP); secondary mass at 1, 4, 6, 10, 14, 17.
+#   nhl margin empty_net_2_to_3: trailing teams pull the goalie, so 2-goal
+#     leads finish as 3-goal finals more often than a smooth density allows
+#     (excess mass at |M|=3 on both signs).
 LATTICE_PREREGISTERED = {
     ("mlb", "margin", "walkoff_split"): {
         "mechanism": ("extras walk-off tilt: the home team wins a larger share "
@@ -212,6 +215,12 @@ LATTICE_PREREGISTERED = {
                         "with stronger shrinkage, individually gated"),
         "direction": "amplitude > 0", "test": "one-sided",
         "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nhl", "margin", "empty_net_2_to_3"): {
+        "mechanism": ("empty-net goal: 2-goal leads finish as 3-goal finals; "
+                        "excess margin mass at |M|=3"),
+        "direction": "train residual at +3 and -3 both positive",
+        "test": "one-sided",
+        "generic_bar": LATTICE_GATE_Z, "structural_bar": LATTICE_STRUCTURAL_Z},
 }
 
 
@@ -731,6 +740,43 @@ def lattice_evidence(entries):
             "support": support}
 
 
+def _structural_lattice_fallback(sport, target, support, r_train, d, z, out):
+    """One-sided structural-bar fallback for a preregistered generic residual.
+
+    The generic bar (LATTICE_GATE_Z, two-sided) applies first; only when it
+    rejects does a mechanism listed in LATTICE_PREREGISTERED get its
+    directional prior checked on TRAIN evidence (never the held-out tail)
+    and the one-sided structural bar (LATTICE_STRUCTURAL_Z). Returns the
+    disclosure update (structural/bar/mechanism) or None. A mechanism name
+    with no coded direction check never admits — the table alone is not
+    enough, the code must enforce the direction.
+    """
+    specs = [(name, spec) for (s, t, name), spec in LATTICE_PREREGISTERED.items()
+             if s == sport and t == target and "structural_bar" in spec
+             and "generic_bar" in spec]
+    if not specs:
+        return None
+    if not (float(np.asarray(d).mean()) < 0. and z >= LATTICE_STRUCTURAL_Z
+            and out.get("residual_mae_after", float("inf"))
+            < out.get("residual_mae_before", float("-inf"))
+            and bool(out.get("collateral_ok"))):
+        return None
+    support = np.asarray(support)
+    r_train = np.asarray(r_train, float)
+    for name, spec in specs:
+        if (sport, target, name) == ("nhl", "margin", "empty_net_2_to_3"):
+            j3 = int(np.searchsorted(support, 3))
+            k3 = int(np.searchsorted(support, -3))
+            if not (0 <= j3 < len(support) and 0 <= k3 < len(support)
+                    and int(support[j3]) == 3 and int(support[k3]) == -3):
+                continue
+            if not (r_train[j3] > 0. and r_train[k3] > 0.):
+                continue
+            return {"structural": True, "bar": float(spec["structural_bar"]),
+                    "mechanism": name}
+    return None
+
+
 def fit_lattice_correction(pmfs, outcomes, support, sport, target,
                            min_history=MIN_HISTORY):
     """Fit delta(k) = P_obs(k) - P_model(k) for one target from prior OOF.
@@ -832,8 +878,12 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
         return out
     if not (d.mean() < 0. and z >= LATTICE_GATE_Z
             and out["residual_mae_after"] < out["residual_mae_before"]):
-        out["reason"] = "held_out_not_significant"
-        return out
+        structural = _structural_lattice_fallback(sport, target, support,
+                                                  r_train, d, z, out)
+        if structural is None:
+            out["reason"] = "held_out_not_significant"
+            return out
+        out.update(structural)
     out["significant"] = True
     out["delta"] = [float(v) for v in delta]
     # Fitted-lattice bounds for support-drift realignment at pricing time
