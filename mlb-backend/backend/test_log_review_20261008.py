@@ -1536,3 +1536,54 @@ def test_run_log_lines_carry_timestamps_like_the_sibling_leagues():
     line = logging.Formatter(fmt).format(record)
     datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f")  # raises if absent
     assert line.endswith(" INFO phase done"), line
+
+
+# ── T19 (2026-10-15 log review): slate board must reconcile post vs pre ────
+
+def test_guard_no_longer_claims_todays_record_wont_resolve(tmp_path, monkeypatch, caplog):
+    """The 2026-10-15 22:24 delivered log contradicted its own artifact: the
+guard said the missing TB@CLE final 'will not resolve into
+predictions_history / today\'s record' while todays_games_20261015.csv
+carries it post/Final (3-2) via the official-results overlay, and the
+slate line said 'No completed games' while the board is 1 post + 1 pre.
+The guard must scope the gap to predictions_history (pitch features
+absent) and name the overlay path for today's board."""
+    path = _frame(tmp_path)
+    _official([
+        {"game_pk": 849818, "game_date": "2026-10-07", "is_final": True,
+         "home_score": 3.0, "away_score": 2.0, "home_win": 1.0,
+         "home_team": "CLE", "away_team": "TB"},
+    ], monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="ingestion"):
+        rows = warn_missing_finals(path, date(2026, 10, 8))
+    assert len(rows) == 1
+    text = caplog.text
+    assert "will not resolve them into predictions_history" in text, text
+    assert "today's board may still carry the official final" in text, text
+    assert "recovers them into history" in text, text
+    assert "predictions_history / today's record" not in text, (
+        "the overclaim that today's record cannot resolve must be gone")
+
+
+def test_slate_pre_overlay_line_names_pitch_frame_and_overlay():
+    """The pre-overlay slate line must say WHAT is empty (the pitch frame)
+and WHAT follows (the overlay) so a later post/Final row does not read
+as a contradiction."""
+    assert "No completed games in the pitch frame" in MASTER_SRC, (
+        "slate line must scope 'no completed' to the pitch frame")
+    assert "official-results overlay follows" in MASTER_SRC, (
+        "slate line must disclose the overlay that can still add finals")
+
+
+def test_board_post_results_disclosure_reconciles_with_csv():
+    """After the overlay on today's board the log must publish post/pre
+counts that reconcile with todays_games CSV (2026-10-15: 1 post + 1
+pre), wired immediately after the slate overlay."""
+    assert "Today's board post-results:" in MASTER_SRC, (
+        "a post-overlay board census must exist")
+    assert "post/Final" in MASTER_SRC and "pre/Scheduled" in MASTER_SRC
+    assert "reconciles with " in MASTER_SRC and "todays_games CSV" in MASTER_SRC
+    anchor = 'target_games = apply_official_results(target_games, _res)'
+    assert anchor in MASTER_SRC
+    assert MASTER_SRC.index("Today's board post-results:") > MASTER_SRC.index(anchor), (
+        "the census must fire after the slate overlay, not before")

@@ -2401,8 +2401,10 @@ def run_daily_pipeline(
             slate = build_upcoming_slate(games, target_date, pbp_df=pbp_df)
             if not slate.empty:
                 logger.info(
-                    "No completed games on %s -- built %d-game upcoming slate "
-                    "(pre-game PIT features)", target_date_str, len(slate),
+                    "No completed games in the pitch frame on %s -- built "
+                    "%d-game upcoming slate (pre-game PIT features; "
+                    "official-results overlay follows)", target_date_str,
+                    len(slate),
                 )
                 # Fetch point-in-time weather for the slate, then compute diff features
                 weather = {}
@@ -2495,6 +2497,22 @@ def run_daily_pipeline(
                     target_games = apply_official_results(target_games, _res)
                     if all_predictions is not None and len(all_predictions):
                         all_predictions = apply_official_results(all_predictions, _res)
+                    try:
+                        if "game_state" in target_games.columns:
+                            _n_post = int((target_games["game_state"] == "post").sum())
+                        elif "home_win" in target_games.columns:
+                            _n_post = int(target_games["home_win"].notna().sum())
+                        else:
+                            _n_post = 0
+                        _n_pre = len(target_games) - _n_post
+                        logger.info(
+                            "Today's board post-results: %d post/Final + %d "
+                            "pre/Scheduled (%d rows) -- reconciles with "
+                            "todays_games CSV",
+                            _n_post, _n_pre, len(target_games),
+                        )
+                    except Exception:
+                        pass
         except Exception as exc:
             logger.warning("Official results overlay failed on slate: %s", exc)
 

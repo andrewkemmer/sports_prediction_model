@@ -601,9 +601,10 @@ def warn_missing_finals(
         "missing-finals guard: frame horizon %s but %d official final(s) "
         "newer than the frame are ABSENT from pitches.parquet: %s — Savant "
         "posting lag (results are official before pitch data indexes). This "
-        "run will not resolve them into predictions_history / today's "
-        "record; the next run's forward top-up + %d-day tail refresh "
-        "recovers them.",
+        "run will not resolve them into predictions_history (pitch features "
+        "absent; today's board may still carry the official final via the "
+        "results overlay); the next run's forward top-up + %d-day tail "
+        "refresh recovers them into history.",
         horizon, len(rows), desc, REFRESH_TAIL_DAYS)
     return rows
 
