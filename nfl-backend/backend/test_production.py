@@ -2104,6 +2104,50 @@ check("every Phase-13 window consumer receives the full decided pool "
 check("the run-engine artifact writer emits view='run-engine' rows",
       'view="run-engine"' in mon_src
       and "phase_frame=phase_frame" in mon_src)
+# 2026-10-15 log review (MLB T15 / NHL+NFL parity): the summary advertised
+# only warnings/alerts/seasonal while the CSV held 2 STRUCTURAL rows
+# (is_snow/is_home, constant in both windows) — 0+2+2 against 70. The
+# counts must reconcile with the CSV; STRUCTURAL alone must never page.
+_sd2 = np.random.default_rng(21)
+_sdf = pd.DataFrame({
+    "is_home": np.ones(130),
+    "rest_days_home": _sd2.normal(7.0, 2.0, 130),
+})
+_sdr = pd.DataFrame({
+    "is_home": np.ones(45),
+    "rest_days_home": _sd2.normal(7.0, 2.0, 45),
+})
+with mock.patch.object(monitoring_mod.logger, "info") as _sslog, \
+        mock.patch.object(monitoring_mod.logger, "warning") as _swlog:
+    _srows = {(r["feature"]): r["status"]
+              for r in monitoring_mod.feature_drift(_sdf, _sdr, view="moneyline")}
+_sline = [c for c in _sslog.call_args_list
+          if c.args and str(c.args[0]).startswith("Feature drift [")]
+check("drift summary publishes evaluated/STRUCTURAL/INSUFFICIENT counts",
+      _srows.get("is_home") == "STRUCTURAL"
+      and len(_sline) == 1
+      and "evaluated" in _sline[0].args[0]
+      and "STRUCTURAL" in _sline[0].args[0]
+      and "INSUFFICIENT" in _sline[0].args[0]
+      and _sline[0].args[3] + _sline[0].args[4] + _sline[0].args[5] == _sline[0].args[2],
+      f"rows={_srows}")
+check("a STRUCTURAL-only unjudged row never pages UNMEASURED",
+      not [c for c in _swlog.call_args_list
+           if c.args and "UNMEASURED" in str(c.args[0])])
+_sif = pd.DataFrame({
+    "is_home": np.ones(130),
+    "rest_days_home": _sd2.normal(7.0, 2.0, 130),
+})
+_sir = pd.DataFrame({
+    "is_home": np.ones(10),
+    "rest_days_home": _sd2.normal(7.0, 2.0, 10),
+})
+with mock.patch.object(monitoring_mod.logger, "info"), \
+        mock.patch.object(monitoring_mod.logger, "warning") as _siwlog:
+    monitoring_mod.feature_drift(_sif, _sir, view="moneyline")
+check("an all-INSUFFICIENT window pages drift UNMEASURED, not clean",
+      sum(1 for c in _siwlog.call_args_list
+          if c.args and "UNMEASURED, not clean" in str(c.args[0])) == 1)
 
 # ---- Missing-final score warning (MLB 2d58210e parity) ----
 ing_mod = __import__("ingestion")

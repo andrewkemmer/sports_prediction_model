@@ -623,16 +623,36 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         # The label is how a log reader tells the moneyline monitor apart
         # from the run-engine CSV writer, which runs this same function on
         # the same windows.
+        #
+        # 2026-10-15 log review (MLB T15 / NHL 2026-10-11 / NBA 2026-10-15
+        # parity): the line advertised only warnings/alerts/seasonal, so
+        # STRUCTURAL rows (is_snow/is_home, constant in both windows) and
+        # any INSUFFICIENT rows were invisible — 0+2+2 against 70 left a
+        # reader assuming the other 64 were OK. Publish evaluated plus
+        # both unjudged classes so the line always sums to the CSV. An
+        # inert monitor still must never read healthy: when inability to
+        # judge (not stability) leaves nothing evaluated, page UNMEASURED.
+        # STRUCTURAL alone never pages — a stable constant is a verdict.
+        n_structural = sum(r["status"] == "STRUCTURAL" for r in rows)
+        n_insufficient = sum(r["status"] == "INSUFFICIENT" for r in rows)
+        n_evaluated = len(rows) - n_structural - n_insufficient
         logger.info(
-            "Feature drift [%s]: %d features, %d warnings, %d alerts, %d "
-            "seasonal (statuses on noise-adjusted PSI; "
-            "mean noise floor %.3f)",
-            view, len(rows),
+            "Feature drift [%s]: %d features, %d evaluated, %d STRUCTURAL, "
+            "%d INSUFFICIENT, %d warnings, %d alerts, %d seasonal "
+            "(statuses on noise-adjusted PSI; mean noise floor %.3f)",
+            view, len(rows), n_evaluated, n_structural, n_insufficient,
             sum(r["status"] == "WARN" for r in rows),
             sum(r["status"] == "ALERT" for r in rows),
             sum(r["status"] == "OK-SEASONAL" for r in rows),
             float(np.mean([r["noise_floor"] for r in rows])),
         )
+        if n_evaluated == 0 and n_insufficient:
+            logger.warning(
+                "Feature drift [%s]: 0 of %d features evaluable this run "
+                "(%d STRUCTURAL stable constants, %d INSUFFICIENT under "
+                "the PSI sample floor) — drift is UNMEASURED, not clean",
+                view, len(rows), n_structural, n_insufficient,
+            )
     return rows
 
 
