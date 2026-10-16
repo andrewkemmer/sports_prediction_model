@@ -652,3 +652,53 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
                                             r_train, d, 2.708, out) is None
     assert fam._structural_lattice_fallback("mlb", "margin", support,
                                             r_train, d, 2.708, out) is None
+
+
+def test_margin_push_extension_ships_push_only_mass_to_pm10():
+    """Diagnostic margin-push extension (2026-10-16): the traded whole
+    ±1..±4 push legs plus push-only ±5..10 from the same sampled CDF —
+    the home-side push leg plus the away-side push leg the spread reader
+    resolves, no home/away/cover legs outside the grid, and the shipped
+    mass stays a sub-probability."""
+    assert list(dist.MARGIN_PUSH_EXTENSION) == [5., 6., 7., 8., 9., 10.]
+    frame = _walk_frame()
+    priced, _ = dist.causal_distribution_frame(frame, n_draws=500)
+    for m in dist.MARGIN_PUSH_EXTENSION:
+        for side in ("push", "away_push"):
+            col = dist.rl_col(m, side)
+            assert col in priced.columns, col
+            vals = priced[col].to_numpy(float)
+            assert np.isfinite(vals).all() and (vals >= 0).all()
+        for side in ("home", "away", "away_favorite", "home_dog"):
+            assert dist.rl_col(m, side) not in priced.columns
+    traded = [dist.rl_col(float(m), "push") for m in (1, 2, 3, 4)]
+    ext = [dist.rl_col(m, "push") for m in dist.MARGIN_PUSH_EXTENSION]
+    seam = priced[[*traded, *ext]].to_numpy(float)
+    assert (seam.sum(axis=1) <= 1.0 + 1e-9).all()
+    assert (seam.sum(axis=1) >= priced[traded].to_numpy(float).sum(axis=1) - 1e-12).all()
+
+
+def test_persist_carries_the_margin_push_extension(tmp_path):
+    frame = _walk_frame()
+    priced, _ = dist.causal_distribution_frame(frame, n_draws=200)
+    mk = priced.copy()
+    mk["kind"] = "slate"
+    for c in dist.MARKET_COLUMNS_V3:
+        if c not in mk.columns:
+            if c in ("game_id", "home_team", "away_team"):
+                mk[c] = "x"
+            elif c == "agreement_conflict":
+                mk[c] = False
+            else:
+                mk[c] = 0.0
+    # A non-extension p_rl_ leg must NOT ride along (per-game median halves
+    # would make the shipped schema data-dependent).
+    mk["p_rl_0_5_push"] = 0.01
+    out_path = dist.persist_markets(mk, "20990101",
+                                    {"artifact_contract": {"test": True}},
+                                    out_dir=tmp_path)
+    persisted = pd.read_csv(out_path)
+    for m in dist.MARGIN_PUSH_EXTENSION:
+        assert dist.rl_col(m, "push") in persisted.columns
+        assert dist.rl_col(m, "away_push") in persisted.columns
+    assert "p_rl_0_5_push" not in persisted.columns

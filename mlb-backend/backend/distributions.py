@@ -851,6 +851,12 @@ TOTAL_LINE_GRID = [round(6.5 + .5 * i, 1) for i in range(13)]
 RUN_LINE_GRID = [.5, 1.5, 2.5, 3.5]
 RUN_LINE_GRID_FULL = [1., 1.5, 2., 2.5, 3., 3.5, 4.]
 RUN_LINE_GRID_WHOLE = [1., 2., 3., 4.]
+# Diagnostic margin-push extension (2026-10-16): whole-run margins whose
+# push mass ships for the Distribution tab only (+-5..10, push legs, no
+# home/away/cover legs — the traded run-line grid is unchanged). Blowouts
+# reach +-15 while the traded whole-margin grid stops at +-4; the tab
+# plots to +-10.
+MARGIN_PUSH_EXTENSION = [5., 6., 7., 8., 9., 10.]
 TOTAL_REF_LINES = (7.5, 8.5, 9.5)
 RUN_REF_LINES = (1.5, 2.5)
 
@@ -956,7 +962,17 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
     missing = [c for c in MARKET_COLUMNS_V3 if c not in markets.columns]
     if missing:
         raise ValueError(f"markets frame missing required columns: {missing}")
-    extra = [c for c in markets if c.startswith(("p_over_", "p_push_", "p_under_")) and c not in MARKET_COLUMNS_V3]
+    # The diagnostic margin-push extension rides along too: exactly its
+    # whole-margin push legs (MARGIN_PUSH_EXTENSION, same sampled CDF, never
+    # refitted) — not every p_rl_ column the pricer emits (per-game median
+    # halves would make the schema data-dependent), like the totals
+    # off-grid extras above.
+    extension_rl = {rl_col(m, side) for m in MARGIN_PUSH_EXTENSION
+                    for side in ("push", "away_push")}
+    extra = [c for c in markets
+             if (c.startswith(("p_over_", "p_push_", "p_under_"))
+                 or c in extension_rl)
+             and c not in MARKET_COLUMNS_V3]
     frame = markets[[*MARKET_COLUMNS_V3, *extra]].copy()
     # OOF identity fields are part of the shipped join contract. Older direct
     # callers may not provide them; derive game_id from the stable key, while
@@ -2196,6 +2212,21 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
                 updates[_grid_key(prefix, line)] = over
                 updates[_grid_key(pp, line)] = push
                 updates[_grid_key("p_under" if kind == "total" else "p_away_cover", line)] = under
+        if kind == "margin" and DISTRIBUTION_SPORT == "mlb":
+            # Diagnostic margin-push extension (2026-10-16,
+            # MARGIN_PUSH_EXTENSION): push-only mass for whole margins +-5..10
+            # from the SAME sampled CDF (never refitted) so the Distribution
+            # tab's modeled line is gapless to +-10. Push-only: the home-side
+            # push leg plus the away-side push leg the spread reader resolves
+            # — no home/away/cover/favorite/dog legs outside the market grid.
+            # Additive setdefault: a future grid change that prices these
+            # lines owns them instead.
+            for m in MARGIN_PUSH_EXTENSION:
+                upper, lower = at(m), at(np.ceil(m) - 1.)
+                updates.setdefault(rl_col(m, "push"),
+                                   np.maximum(upper - lower, 0.))
+                updates.setdefault(rl_col(m, "away_push"),
+                                   at(-m) - at(np.ceil(-m) - 1.))
         if kind == "margin":
             updates["p_home_win_derived"] = 1. - at(0.)
             updates["p_tie"] = at(0.) - at(-1.)

@@ -468,12 +468,15 @@ def _write_mlb(sport, cfg, dist, family, delivery, frame, oof, slate,
     """MLB: overlay the distribution columns onto the delivered frame and
     persist through distributions.persist_markets; refresh the monitor's
     fit/winner-card/market-metric blocks through the same helpers the daily
-    pipeline uses."""
+    pipeline uses. Genuinely-new walk outputs (columns the pricer emits
+    that the delivered frame predates — e.g. the margin-push extension)
+    join the overlay: intersect with the PRICED columns, not the delivered
+    ones, so the writer persists them (assignment creates the column)."""
     dist_cols = distribution_columns(dist, oof, bundle_lat["maps"], cfg)
     combined = frame.copy()
     priced_lat = priced_lat.reindex(oof.index)
     row_mask = combined["kind"].eq("oof").to_numpy()
-    for col in sorted(set(dist_cols) & set(combined.columns)):
+    for col in sorted(set(dist_cols) & set(priced_lat.columns)):
         values = priced_lat[col].reindex(combined.index[row_mask]).to_numpy()
         combined.loc[row_mask, col] = values
     # slate rows: same final serving maps (deliverable mu pair fixed)
@@ -483,7 +486,7 @@ def _write_mlb(sport, cfg, dist, family, delivery, frame, oof, slate,
             n_draws=bundle_lat["monte_carlo"].get("requested_draws", dist.MC_DRAWS),
             seed=bundle_lat["monte_carlo"].get("seed", dist.MC_SEED))
         slate_mask = combined["kind"].eq("slate").to_numpy()
-        for col in sorted(set(dist_cols) & set(combined.columns) & set(priced_slate.columns)):
+        for col in sorted(set(dist_cols) & set(priced_slate.columns)):
             values = priced_slate[col].reindex(combined.index[slate_mask]).to_numpy()
             combined.loc[slate_mask, col] = values
     old_meta = json.loads(meta_path.read_text())
