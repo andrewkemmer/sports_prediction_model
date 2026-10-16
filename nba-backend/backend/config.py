@@ -609,8 +609,10 @@ SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
 # XGBoost regression leg, starting point (tune under the noise-floor-first,
 # two-gate protocol before changing): shallow, regularized, subsampled —
 # the classifier geometry that survived tuning, moved to count:poisson.
+# max_depth 3 -> 2 adopted from the 2026-10-16 XGB tune (depth2: member gain
+# +0.0270 vs 0.0081 noise floor, all 5 seeds, tail +0.0496); see scratch/nba_xgb_tune.json.
 SCORE_XGBOOST_PARAMS = {
-    "objective": "count:poisson", "max_depth": 3, "min_child_weight": 14,
+    "objective": "count:poisson", "max_depth": 2, "min_child_weight": 14,
     "subsample": 0.8, "colsample_bytree": 0.8,
     "learning_rate": 0.05, "reg_lambda": 1.0, "reg_alpha": 0.0,
     "n_estimators": 500,

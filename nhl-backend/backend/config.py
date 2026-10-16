@@ -554,6 +554,40 @@ LIGHTGBM_REG_PARAMS = {
     "verbose": -1,
 }
 
+# Distribution score ensemble (elasticnet + xgboost + lightgbm for the
+# per-side score means mu_h/mu_a), structured on the binary moneyline:
+# same member matrices and train-fold-only preprocessing, same causal
+# expanding OOF, but the blending objective is pooled Poisson deviance
+# (the count-data logloss) in log space. Weights start equal and are
+# earned per fold on strictly-prior OOF; the simplex is plain (no
+# caps/floors). NBA structural port: production ScoreRegressor stays the
+# served path until the ablation admits the blend (tune under the
+# noise-floor-first, two-gate protocol before changing).
+SCORE_ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
+SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
+                          "elasticnet": 0.3334}
+# XGBoost regression leg, starting point: the moneyline classifier geometry
+# that survived tuning (depth 5, min_child_weight 3, subsampled), moved to
+# count:poisson with a regression-rate learning_rate and a 500-tree budget
+# (NBA precedent: classifier geometry -> poisson, tune before changing).
+# nthread=1 keeps the NHL machine-stable regime (deterministic walk).
+# max_depth 5 -> 3 adopted from the 2026-10-16 XGB tune (depth3: member gain
+# +0.0436 vs 0.0079 noise floor, all 5 seeds, tail +0.0443); see scratch/nhl_xgb_tune.json.
+SCORE_XGBOOST_PARAMS = {
+    "objective": "count:poisson", "max_depth": 3, "min_child_weight": 3,
+    "subsample": 0.5404961775466538, "colsample_bytree": 0.2523419543290211,
+    "learning_rate": 0.05, "reg_lambda": 1.8112200716183435,
+    "reg_alpha": 0.7554847263809663,
+    "n_estimators": 500, "nthread": 1,
+    "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
+    "enable_categorical": True, "tree_method": "hist",
+}
+# Elastic-net regression leg (standardized features, raw-count target).
+SCORE_ELASTICNET_PARAMS = {
+    "alpha": 1.0, "l1_ratio": 0.5,
+    "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
+}
+
 # ---------------------------------------------------------------------------
 # Goal / total distribution grids (run-line model)
 # ---------------------------------------------------------------------------

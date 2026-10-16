@@ -867,6 +867,39 @@ LIGHTGBM_REG_PARAMS = {
     "verbose": -1,
 }
 
+# Distribution score ensemble (elasticnet + xgboost + lightgbm for the
+# per-side score means mu_h/mu_a), structured on the binary moneyline:
+# same member matrices and train-fold-only preprocessing, same causal
+# expanding OOF, but the blending objective is pooled Poisson deviance
+# (the count-data logloss) in log space. Weights start equal and are
+# earned per fold on strictly-prior OOF; the simplex is plain (no
+# caps/floors). NBA structural port: production ScoreRegressor stays the
+# served path until the ablation admits the blend (tune under the
+# noise-floor-first, two-gate protocol before changing).
+SCORE_ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
+SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
+                          "elasticnet": 0.3334}
+# XGBoost regression leg, starting point: the moneyline classifier geometry
+# that survived tuning (depth 2, min_child_weight 24, subsampled), moved to
+# count:poisson with a regression-rate learning_rate and a 500-tree budget
+# (NBA precedent: classifier geometry -> poisson, tune before changing).
+# max_depth 2 -> 1 adopted from the 2026-10-16 XGB tune (depth1: member gain
+# +0.1004 vs 0.0133 noise floor, all 5 seeds, tail +0.0304); see scratch/nfl_xgb_tune.json.
+SCORE_XGBOOST_PARAMS = {
+    "objective": "count:poisson", "max_depth": 1, "min_child_weight": 24,
+    "subsample": 0.8362063939495796, "colsample_bytree": 0.5776054924033233,
+    "learning_rate": 0.05, "reg_lambda": 2.724319750551711,
+    "reg_alpha": 0.0011200063571888054,
+    "n_estimators": 500,
+    "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
+    "enable_categorical": True, "tree_method": "hist",
+}
+# Elastic-net regression leg (standardized features, raw-count target).
+SCORE_ELASTICNET_PARAMS = {
+    "alpha": 1.0, "l1_ratio": 0.5,
+    "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
+}
+
 # ---------------------------------------------------------------------------
 # Margin / total distribution grids (spec sections 21/23)
 # ---------------------------------------------------------------------------

@@ -330,6 +330,785 @@ def fit_final(game_df: pd.DataFrame) -> ScoreRegressor:
     return ScoreRegressor().fit(game_df)
 
 
+# ---------------------------------------------------------------------------
+# Score ensemble (elasticnet + xgboost + lightgbm per side), structured on
+# the binary moneyline (moneyline.py): the same member matrices and
+# train-fold-only preprocessing (ml_mod.member_matrix / member_fit_input /
+# TrainFoldPreprocessor), the same causal expanding OOF with prior-fold
+# weights — but the blending objective is pooled Poisson deviance (the
+# count-data logloss) in log space instead of logloss in logit space. One
+# weight vector serves both sides (home+away pooled as independent Poisson
+# observations). Strictly point-in-time: fold k is blended with weights
+# earned on folds strictly before k, and no member fit ever sees val rows.
+# ---------------------------------------------------------------------------
+
+
+def _make_score_member(name: str):
+    """Construct one score-regression member (twin of moneyline._make_member)."""
+    if name == "xgboost":
+        from xgboost import XGBRegressor
+        return XGBRegressor(**config.SCORE_XGBOOST_PARAMS)
+    if name == "lightgbm":
+        from lightgbm import LGBMRegressor
+        params = dict(config.LIGHTGBM_REG_PARAMS)
+        params["objective"] = "poisson"
+        return LGBMRegressor(**params)
+    if name == "elasticnet":
+        from sklearn.linear_model import ElasticNet
+        return ElasticNet(**config.SCORE_ELASTICNET_PARAMS)
+    raise KeyError(f"unknown score ensemble member {name!r}")
+
+
+def poisson_deviance(y, mu) -> float:
+    """Mean Poisson deviance (2 * mean(y log(y/mu) - (y - mu)))."""
+    y = np.asarray(y, dtype=float)
+    mu = np.clip(np.asarray(mu, dtype=float), 1e-6, None)
+    ok = np.isfinite(y) & np.isfinite(mu) & (y >= 0)
+    if not ok.any():
+        return float("nan")
+    y, mu = y[ok], mu[ok]
+    term = np.empty_like(y)
+    pos = y > 0
+    term[pos] = y[pos] * np.log(y[pos] / mu[pos]) - (y[pos] - mu[pos])
+    term[~pos] = mu[~pos]  # limit of y*log(y/mu) at y=0 is 0
+    return float(2.0 * term.mean())
+
+
+def _log_blend_mus(P: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Geometric blend with per-row NaN-member skipping.
+
+    Log-space twin of moneyline._logit_blend_matrix: positivity-preserving
+    for score means, renormalized over the finite members of each row.
+    """
+    P = np.asarray(P, dtype=float)
+    W = np.asarray(weights, dtype=float)
+    if P.ndim != 2 or P.shape[1] != len(W):
+        return np.full(len(P), np.nan)
+    mask = np.isfinite(P) & (P > 0)
+    active = (W > 0)[None, :] & mask
+    logs = np.log(np.where(mask, P, 1.0))
+    weighted = np.where(active, W[None, :], 0.0)
+    denom = weighted.sum(axis=1)
+    z = np.divide((logs * weighted).sum(axis=1), denom,
+                  out=np.full(len(P), np.nan), where=denom > 0)
+    return np.where(denom > 0, np.exp(z), np.nan)
+
+
+def compute_score_weights(
+    oof_members: dict[str, list[float]],
+    y_oof,
+) -> dict[str, float]:
+    """Earn a deterministic simplex blend by pooled Poisson deviance.
+
+    Regression twin of moneyline.compute_adaptive_weights: the objective is
+    evaluated in log space with SLSQP over pooled home+away OOF pairs. A
+    member missing on a row is skipped there; the remaining finite members
+    are renormalized for that row.
+    """
+    y = np.asarray(y_oof, dtype=float)
+    if y.size == 0:
+        return {}
+    labeled = np.isfinite(y) & (y >= 0)
+    if labeled.sum() < 2:
+        return {}
+    arrays: dict[str, np.ndarray] = {}
+    for name, values in oof_members.items():
+        if values is None:
+            continue
+        p = np.asarray(values, dtype=float)
+        if p.ndim != 1 or len(p) != len(y):
+            continue
+        arrays[name] = np.where(np.isfinite(p) & (p > 0), p, np.nan)
+    names = sorted(name for name, p in arrays.items()
+                   if np.isfinite(p[labeled]).sum() >= 2)
+    if not names:
+        return {}
+    yy = y[labeled]
+    P = np.column_stack([arrays[name][labeled] for name in names])
+    finite_any = np.isfinite(P).any(axis=1)
+    if finite_any.sum() < 2:
+        return {}
+    P = P[finite_any]
+    yy = yy[finite_any]
+    Z = np.log(np.clip(P, 1e-6, None))
+
+    def blend(w: np.ndarray) -> np.ndarray:
+        active = np.isfinite(P) & (w[None, :] > 0)
+        weights = np.where(active, w[None, :], 0.0)
+        denom = weights.sum(axis=1)
+        z = np.divide((np.where(active, Z, 0.0) * weights).sum(axis=1),
+                      denom, out=np.full(len(P), np.nan), where=denom > 0)
+        return np.exp(z)
+
+    def objective(w: np.ndarray) -> float:
+        return poisson_deviance(yy, blend(w))
+
+    w0 = np.full(len(names), 1.0 / len(names))
+    if len(names) == 1:
+        return {names[0]: 1.0}
+    solo = {name: poisson_deviance(yy, P[:, i])
+            for i, name in enumerate(names)}
+    best = min(solo, key=solo.get)
+
+    from scipy.optimize import minimize
+    result = minimize(
+        objective,
+        w0,
+        method="SLSQP",
+        bounds=[(0.0, 1.0)] * len(names),
+        constraints=({"type": "eq",
+                      "fun": lambda w: float(w.sum() - 1.0)},),
+        options={"maxiter": 300, "ftol": 1e-9},
+    )
+    if not result.success or not np.all(np.isfinite(result.x)):
+        return {name: float(name == best) for name in names}
+    weights = np.clip(np.asarray(result.x, dtype=float), 0.0, None)
+    weights = weights / weights.sum() if weights.sum() else w0
+    if solo[best] < objective(weights) - 1e-12:
+        return {name: float(name == best) for name in names}
+    rounded = {name: round(float(value), 4)
+               for name, value in zip(names, weights)}
+    drift = round(1.0 - sum(rounded.values()), 4)
+    if drift:
+        top = max(names, key=rounded.get)
+        rounded[top] = round(rounded[top] + drift, 4)
+    return rounded
+
+
+def _check_score_xgb_categories(model, X: pd.DataFrame) -> None:
+    """XGBoost team columns must stay categorical (twin of the moneyline check)."""
+    booster = model.get_booster()
+    types = dict(zip(booster.feature_names, booster.feature_types))
+    if any(types.get(c) != "c" for c in config.TREE_CATEGORICAL_COLS if c in X):
+        raise RuntimeError("XGBoost team columns must remain categorical")
+
+
+class ScoreEnsembleRegressor:
+    """PIT per-side score-mean ensemble; blend weights set from prior OOF."""
+
+    SIDES = ("home_score", "away_score")
+
+    def __init__(self) -> None:
+        self.members: dict[str, dict[str, tuple[Any, Any]]] = {}
+        self.columns: dict[str, list[str]] = {}
+        self.weights: dict[str, float] = dict(config.SCORE_ENSEMBLE_WEIGHTS)
+
+    def set_weights(self, weights: dict[str, float]) -> "ScoreEnsembleRegressor":
+        self.weights = dict(weights)
+        return self
+
+    def _matrix(self, name: str, df: pd.DataFrame) -> pd.DataFrame:
+        # Same matrices the binary moneyline members consume (structural
+        # property, not convention): tree views keep the categorical team-ID
+        # pair, the elastic net takes the linear view.
+        X = ml_mod.member_matrix(name, df)
+        if name not in self.columns:
+            self.columns[name] = list(X.columns)
+        return X.reindex(columns=self.columns[name])
+
+    def fit(self, df: pd.DataFrame) -> "ScoreEnsembleRegressor":
+        df = folds_mod.canonical_sort(df)
+        for side in self.SIDES:
+            y = pd.to_numeric(df[side], errors="coerce")
+            valid = y.notna() & (y >= 0)
+            if valid.sum() < 2:
+                raise ValueError("score ensemble requires settled scores")
+            frame = df.loc[valid]
+            y = y.loc[valid].to_numpy(dtype=float)
+            fitted: dict[str, tuple[Any, Any]] = {}
+            for name in config.SCORE_ENSEMBLE_MEMBERS:
+                X = self._matrix(name, frame)
+                pre = (ml_mod.TrainFoldPreprocessor().fit(X)
+                       if name in ml_mod.LINEAR_MEMBERS else None)
+                model = _make_score_member(name)
+                X_fit = ml_mod.member_fit_input(name, X, pre)
+                fit_kwargs: dict[str, Any] = {}
+                if name == "lightgbm":
+                    categorical = [c for c in config.TREE_CATEGORICAL_COLS
+                                   if c in getattr(X_fit, "columns", [])]
+                    if categorical:
+                        fit_kwargs["categorical_feature"] = categorical
+                model.fit(X_fit, y, **fit_kwargs)
+                if name == "xgboost":
+                    _check_score_xgb_categories(model, X)
+                fitted[name] = (model, pre)
+            self.members[side] = fitted
+        return self
+
+    def predict_member(self, df: pd.DataFrame, name: str,
+                       side: str) -> np.ndarray:
+        model, pre = self.members[side][name]
+        X = ml_mod.member_fit_input(name, self._matrix(name, df), pre)
+        return np.clip(np.asarray(model.predict(X), dtype=float), 1e-6, None)
+
+    def predict(self, df: pd.DataFrame,
+                weights: dict[str, float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        if not self.members:
+            raise RuntimeError("score ensemble is not fitted")
+        weights = self.weights if weights is None else weights
+        out = []
+        for side in self.SIDES:
+            cols = []
+            for name in config.SCORE_ENSEMBLE_MEMBERS:
+                try:
+                    cols.append(self.predict_member(df, name, side))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("score ensemble member %s/%s failed: %s",
+                                   name, side, exc)
+                    cols.append(np.full(len(df), np.nan))
+            P = np.column_stack(cols)
+            w = np.asarray([weights.get(name, 0.0)
+                            for name in config.SCORE_ENSEMBLE_MEMBERS],
+                           dtype=float)
+            out.append(_log_blend_mus(P, w))
+        return out[0], out[1]
+
+
+def walk_forward_oof_ensemble(game_df: pd.DataFrame, date_col: str = "gameday",
+                              fold_list=None, progress_every: int = 25) -> dict:
+    """Causal expanding score-ensemble OOF with prior-fold deviance weights.
+
+    Twin of walk_forward_oof above and moneyline.walk_forward_oof: fold k is
+    blended with weights earned on folds strictly before k (pooled prior
+    home+away OOF vs outcomes, Poisson deviance, plain simplex). Only
+    regular-season rows from non-provisional folds grade the blender — the
+    moneyline grading policy, so postseason/provisional rows are scored but
+    never evidence for the model.
+    """
+    df = folds_mod.canonical_sort(game_df, date_col)
+    folds = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col)
+    parts: list[pd.DataFrame] = []
+    fold_rows: list[dict] = []
+    prior_weights = dict(config.SCORE_ENSEMBLE_WEIGHTS)
+    pooled: dict[str, list[float]] = {name: []
+                                      for name in config.SCORE_ENSEMBLE_MEMBERS}
+    pooled_y: list[float] = []
+
+    for fold in folds:
+        train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
+        train_dates = pd.to_datetime(train[date_col], errors="raise").dt.normalize()
+        val_dates = pd.to_datetime(val[date_col], errors="raise").dt.normalize()
+        if train_dates.max() >= val_dates.min():
+            raise ValueError("distribution training must precede validation dates")
+        fold_weights = dict(prior_weights)
+        if (pd.to_numeric(train["home_score"], errors="coerce").notna()
+                .sum() < 2):
+            logger.warning("skipping score-ensemble fold %s: insufficient labels",
+                           fold.fold_id)
+            continue
+        try:
+            ens = ScoreEnsembleRegressor().fit(train)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("score-ensemble fold %s failed: %s", fold.fold_id, exc)
+            continue
+
+        member_mu: dict[str, dict[str, np.ndarray]] = {}
+        for name in config.SCORE_ENSEMBLE_MEMBERS:
+            member_mu[name] = {}
+            for side in ScoreEnsembleRegressor.SIDES:
+                try:
+                    member_mu[name][side] = ens.predict_member(val, name, side)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("score-ensemble fold %s member %s/%s failed: %s",
+                                   fold.fold_id, name, side, exc)
+                    member_mu[name][side] = np.full(len(val), np.nan)
+        w = np.asarray([prior_weights.get(name, 0.0)
+                        for name in config.SCORE_ENSEMBLE_MEMBERS], dtype=float)
+        mu_h = _log_blend_mus(
+            np.column_stack([member_mu[name]["home_score"]
+                             for name in config.SCORE_ENSEMBLE_MEMBERS]), w)
+        mu_a = _log_blend_mus(
+            np.column_stack([member_mu[name]["away_score"]
+                             for name in config.SCORE_ENSEMBLE_MEMBERS]), w)
+
+        y_h = pd.to_numeric(val["home_score"], errors="coerce")
+        y_a = pd.to_numeric(val["away_score"], errors="coerce")
+        row = pd.DataFrame({
+            "game_id": val.game_id.to_numpy(),
+            "gameday": pd.to_datetime(val[date_col]).to_numpy(),
+            "season": val.season.to_numpy() if "season" in val else np.nan,
+            "fold_id": fold.fold_id, "mu_h": mu_h, "mu_a": mu_a,
+            "home_score": y_h.to_numpy(float),
+            "away_score": y_a.to_numpy(float),
+        })
+        for name in config.SCORE_ENSEMBLE_MEMBERS:
+            row[f"mu_h_{name}"] = member_mu[name]["home_score"]
+            row[f"mu_a_{name}"] = member_mu[name]["away_score"]
+            row[f"weight_{name}"] = fold_weights.get(name, 0.0)
+
+        is_post = (folds_mod.postseason_flag(val["game_type"]).to_numpy()
+                   if "game_type" in val
+                   else (pd.to_numeric(val["is_playoffs"], errors="coerce")
+                         .fillna(0).gt(0.5).to_numpy()
+                         if "is_playoffs" in val
+                         else np.zeros(len(val), dtype=bool)))
+        fold_provisional = bool(getattr(fold, "provisional", False))
+        grades = np.zeros(len(val), dtype=bool) if fold_provisional else ~is_post
+        row["grades_blend"] = grades
+
+        # Pooled prior-fold evidence only after this fold is fixed.
+        for name in config.SCORE_ENSEMBLE_MEMBERS:
+            pooled[name].extend(row[f"mu_h_{name}"].to_numpy(float)[grades].tolist())
+            pooled[name].extend(row[f"mu_a_{name}"].to_numpy(float)[grades].tolist())
+        pooled_y.extend(row.home_score.to_numpy(float)[grades].tolist())
+        pooled_y.extend(row.away_score.to_numpy(float)[grades].tolist())
+        earned = compute_score_weights(pooled, np.asarray(pooled_y, dtype=float))
+        if earned:
+            prior_weights = earned
+
+        fold_rows.append({"fold_id": fold.fold_id,
+                         "val_start": str(fold.val_start.date()),
+                         "val_end": str(fold.val_end.date()),
+                         "n_train": int(len(train)), "n_val": int(len(val)),
+                         "n_grading": int(grades.sum()),
+                         "weights": fold_weights})
+        parts.append(row)
+        if progress_every and (fold.fold_id + 1) % progress_every == 0:
+            logger.info("score-ensemble OOF fold %d/%d", fold.fold_id + 1, len(folds))
+
+    oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(oof):
+        oof["margin"] = oof.home_score - oof.away_score
+        oof["total"] = oof.home_score + oof.away_score
+    return {"oof": oof, "member_weights": prior_weights,
+            "fold_table": pd.DataFrame(fold_rows)}
+
+
+def fit_final_ensemble(game_df: pd.DataFrame) -> dict[str, dict[str, tuple[Any, Any]]]:
+    """Fit all score members on every settled game for production serving.
+
+    Twin of moneyline.fit_final_models: blend weights are NOT fitted here —
+    the caller serves the walk's member_weights (OOF evidence), never an
+    in-sample optimum.
+    """
+    frame = folds_mod.canonical_sort(game_df)
+    ens = ScoreEnsembleRegressor().fit(frame)
+    return dict(ens.members)
+
+
+def predict_ensemble_slate(models: dict, slate_df: pd.DataFrame,
+                           weights: dict[str, float]) -> tuple[np.ndarray, np.ndarray]:
+    """Blend a pending slate's per-side means with the deployed OOF weights."""
+    mus = []
+    for side in ScoreEnsembleRegressor.SIDES:
+        cols = []
+        for name in config.SCORE_ENSEMBLE_MEMBERS:
+            entry = (models.get(side) or {}).get(name)
+            if not entry:
+                continue
+            model, pre = entry
+            try:
+                X = ml_mod.member_fit_input(
+                    name, ml_mod.member_matrix(name, slate_df), pre)
+                cols.append((name, np.clip(np.asarray(model.predict(X),
+                                                     dtype=float), 1e-6, None)))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("serving score member %s/%s failed: %s",
+                               name, side, exc)
+        if not cols:
+            mus.append(np.full(len(slate_df), np.nan))
+            continue
+        P = np.column_stack([c for _, c in cols])
+        w = np.asarray([weights.get(name, 0.0) for name, _ in cols],
+                       dtype=float)
+        mus.append(_log_blend_mus(P, w))
+    return mus[0], mus[1]
+
+
+# ---------------------------------------------------------------------------
+# Level-2 mixture (Option B): each member's mus price their OWN CDF through
+# an origin's fitted maps (variance + calibration + lattice, all fitted on
+# strictly-prior evidence exactly as production fits them), and the served
+# predictive CDF is the per-row mixture of the member CDFs with weights
+# earned on prior-fold OOF CRPS. A mixture of CDFs IS a CDF (monotone,
+# [0, 1]), so Monte Carlo sampling and every downstream leg apply
+# UNCHANGED — no replumbing below this layer. Member supports can differ
+# (the lattice expands with each member's means), so mixture aligns member
+# PMFs onto their union integer lattice with zero-padding, the same rule
+# family.lattice_evidence uses. Strictly point-in-time: fold k mixes with
+# weights earned on folds strictly before k.
+# ---------------------------------------------------------------------------
+
+
+def _pmf_from_cdf(cdf: np.ndarray) -> np.ndarray:
+    cdf = np.asarray(cdf, dtype=float)
+    return np.diff(np.column_stack([np.zeros(len(cdf)), cdf]), axis=1)
+
+
+def _align_pmfs_to_union(pmfs: list[np.ndarray],
+                         supports: list[np.ndarray]):
+    """Zero-pad member PMFs onto their union integer lattice."""
+    lo = min(int(s[0]) for s in supports)
+    hi = max(int(s[-1]) for s in supports)
+    union = np.arange(lo, hi + 1)
+    out = []
+    for pmf, sup in zip(pmfs, supports):
+        wide = np.zeros((len(pmf), len(union)))
+        j0 = int(sup[0]) - lo
+        wide[:, j0:j0 + len(sup)] = pmf
+        out.append(wide)
+    return out, union
+
+
+def mixture_cdf(member_cdfs: dict[str, tuple[np.ndarray, np.ndarray]],
+                weights: dict[str, float]) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row CDF mixture over available members, renormalized per row.
+
+    member_cdfs maps name -> (support, cdf) with matching row counts; rows
+    that are NaN for a member are skipped for that member. Returns
+    (union_support, cdf) with NaN rows where no member prices. The output
+    is a valid CDF wherever any member prices (convex combination of
+    nondecreasing [0, 1] functions).
+    """
+    names = [n for n in member_cdfs if (weights.get(n, 0.0) or 0.0) > 0]
+    if not names:
+        raise ValueError("mixture needs at least one positively weighted member")
+    n_rows = len(member_cdfs[names[0]][1])
+    if any(len(member_cdfs[n][1]) != n_rows for n in names):
+        raise ValueError("mixture members must share row order and count")
+    pmfs, supports, avail = [], [], []
+    for name in names:
+        sup, cdf = member_cdfs[name]
+        ok = np.isfinite(cdf).all(axis=1)
+        avail.append(ok)
+        pmfs.append(_pmf_from_cdf(np.where(ok[:, None], cdf, 0.0)))
+        supports.append(np.asarray(sup))
+    aligned, union = _align_pmfs_to_union(pmfs, supports)
+    w = np.asarray([float(weights[n]) for n in names], dtype=float)
+    pmf_mix = np.zeros((n_rows, len(union)))
+    mass = np.zeros(n_rows)
+    for wi, pmf, ok in zip(w, aligned, avail):
+        pmf_mix[ok] += wi * pmf[ok]
+        mass[ok] += wi
+    none = mass <= 0
+    pmf_mix[~none] /= mass[~none, None]
+    cdf_mix = np.cumsum(pmf_mix, axis=1)
+    cdf_mix = np.clip(cdf_mix, 0.0, 1.0)
+    cdf_mix[none] = np.nan
+    return union, cdf_mix
+
+
+def compute_mixture_weights(blocks) -> dict[str, float]:
+    """Earn a deterministic simplex blend by pooled CRPS.
+
+    Distribution twin of compute_score_weights: ``blocks`` are
+    (member_cdfs, y) pairs with member_cdfs mapping name to
+    (support, cdf) sharing that block's row order, supports possibly
+    differing block to block. Only rows where y is finite and EVERY
+    candidate member prices are comparable evidence (complete-case per
+    block); a member missing wholesale (< 2 finite pooled rows) cannot
+    earn weight and is dropped from candidacy first. Objective is pooled
+    mean CRPS of the mixture, SLSQP simplex, one-hot fallback to the
+    solo-best member. (No y >= 0 filter: margin outcomes go negative.)
+    """
+    per_member: dict[str, list] = {}
+    for member_cdfs, y in blocks:
+        y = np.asarray(y, dtype=float)
+        for name, (support, cdf) in member_cdfs.items():
+            cdf = np.asarray(cdf, dtype=float)
+            if len(cdf) != len(y):
+                raise ValueError("mixture evidence members must share row order")
+            ok = np.isfinite(cdf).all(axis=1) & np.isfinite(y)
+            per_member.setdefault(name, []).append(
+                (cdf[ok], np.asarray(support), y[ok]))
+    names = sorted(name for name, parts in per_member.items()
+                   if sum(len(p[0]) for p in parts) >= 2)
+    if not names:
+        return {}
+    # Complete-case rows per block: every candidate prices, so the pooled
+    # mixture, every solo score, and the one-hot guard share one row set.
+    pooled: dict[str, list] = {name: [] for name in names}
+    for member_cdfs, y in blocks:
+        y = np.asarray(y, dtype=float)
+        ok = np.isfinite(y)
+        for name in names:
+            _, cdf = member_cdfs.get(name, (None, None))
+            if cdf is None:
+                ok = np.zeros(len(y), dtype=bool)
+                break
+            cdf = np.asarray(cdf, dtype=float)
+            if len(cdf) != len(y):
+                raise ValueError("mixture evidence members must share row order")
+            ok = ok & np.isfinite(cdf).all(axis=1)
+        if ok.sum() < 1:
+            continue
+        for name in names:
+            support, cdf = member_cdfs[name]
+            pooled[name].append((np.asarray(cdf, dtype=float)[ok],
+                                 np.asarray(support), y[ok]))
+    total = sum(len(p[0]) for p in pooled[names[0]])
+    if total < 2:
+        return {}
+    union = np.arange(
+        min(int(p[1][0]) for parts in pooled.values() for p in parts),
+        max(int(p[1][-1]) for parts in pooled.values() for p in parts) + 1)
+    stacked, yy = [], []
+    for name in names:
+        parts = pooled[name]
+        wide = np.zeros((sum(len(p[0]) for p in parts), len(union)))
+        ys = []
+        r = 0
+        for cdf, support, y in parts:
+            pmf = _pmf_from_cdf(cdf)
+            j0 = int(support[0]) - int(union[0])
+            wide[r:r + len(pmf), j0:j0 + len(support)] = pmf
+            ys.append(y)
+            r += len(pmf)
+        stacked.append(np.cumsum(wide, axis=1))
+        yy.append(np.concatenate(ys))
+    P = np.stack(stacked)  # (member, row, bin)
+    yy = yy[0]
+
+    def objective(w: np.ndarray) -> float:
+        # Renormalize inside the objective: SLSQP's finite-difference
+        # probes leave the simplex (negative / summing past 1), which can
+        # push mixture CDF values outside [0, 1] and trip the CRPS range
+        # validation. Pricing renormalizes per row the same way, so the
+        # optimum is unaffected — only the probes become valid CDFs.
+        w = np.clip(np.asarray(w, dtype=float), 0.0, None)
+        total_w = w.sum()
+        if total_w <= 0:
+            return float(np.mean(family.crps(P.mean(axis=0), union, yy)))
+        mix = np.tensordot(w / total_w, P, axes=([0], [0]))
+        # Same 1-ulp clip the pricing path (mixture_cdf) applies: the
+        # convex combination of saturating CDF tails can round to
+        # 1 + 1ulp, which trips the CRPS range validation.
+        mix = np.clip(mix, 0.0, 1.0)
+        return float(np.mean(family.crps(mix, union, yy)))
+
+    w0 = np.full(len(names), 1.0 / len(names))
+    if len(names) == 1:
+        return {names[0]: 1.0}
+    solo = {}
+    for i, name in enumerate(names):
+        try:
+            solo[name] = float(np.mean(family.crps(P[i], union, yy)))
+        except ValueError:
+            solo[name] = float("inf")
+    best = min(solo, key=solo.get)
+
+    from scipy.optimize import minimize
+    result = minimize(
+        objective,
+        w0,
+        method="SLSQP",
+        bounds=[(0.0, 1.0)] * len(names),
+        constraints=({"type": "eq",
+                      "fun": lambda w: float(w.sum() - 1.0)},),
+        options={"maxiter": 300, "ftol": 1e-9},
+    )
+    if not result.success or not np.all(np.isfinite(result.x)):
+        return {name: float(name == best) for name in names}
+    weights = np.clip(np.asarray(result.x, dtype=float), 0.0, None)
+    weights = weights / weights.sum() if weights.sum() else w0
+    if solo[best] < objective(weights) - 1e-12:
+        return {name: float(name == best) for name in names}
+    rounded = {name: round(float(value), 4)
+               for name, value in zip(names, weights)}
+    drift = round(1.0 - sum(rounded.values()), 4)
+    if drift:
+        top = max(names, key=rounded.get)
+        rounded[top] = round(rounded[top] + drift, 4)
+    return rounded
+
+
+def price_member_cdfs(frame: pd.DataFrame, mus: dict[str, tuple[np.ndarray, np.ndarray]],
+                      maps: dict) -> dict[str, dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Price each member's mus through fitted origin maps, per kind.
+
+    mus maps member name -> (mu_h, mu_a). Rows where a member's mus are
+    non-finite/non-positive are skipped for that member (NaN CDF there).
+    Returns {kind: {name: (support, cdf)}} with full row counts.
+    """
+    out: dict[str, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
+    for name, (mu_h, mu_a) in mus.items():
+        mu_h = np.asarray(mu_h, dtype=float)
+        mu_a = np.asarray(mu_a, dtype=float)
+        ok = (np.isfinite(mu_h) & np.isfinite(mu_a)
+              & (mu_h > 0) & (mu_a > 0))
+        if not ok.any():
+            continue
+        part = frame.iloc[np.flatnonzero(ok)].copy()
+        part["mu_h"] = mu_h[ok]
+        part["mu_a"] = mu_a[ok]
+        cdfs = _distribution_cdfs(part, maps, sampled=False)
+        for kind, (support, cdf) in cdfs.items():
+            full = np.full((len(frame), len(support)), np.nan)
+            full[np.flatnonzero(ok)] = cdf
+            out.setdefault(kind, {})[name] = (np.asarray(support), full)
+    return out
+
+
+def walk_forward_mixture(oof: pd.DataFrame, bundle: dict,
+                         kinds: tuple[str, ...] = ("total", "margin"),
+                         progress_every: int = 25) -> dict:
+    """Causal per-origin CDF mixture over ensemble member mus.
+
+    Twin of distribution_score_report's loop: for each origin in the causal
+    bundle, price every member's OOF mus through that origin's fitted maps,
+    mix the member CDFs with weights earned on strictly-prior OOF CRPS
+    (same pooled simplex discipline as the level-1 blender, per kind), and
+    score the mixture against the blended-single-mus CDF. Only
+    grading rows (oof["grades_blend"] when present, else all finite rows)
+    are weight evidence — never the row being scored.
+    """
+    members = list(config.SCORE_ENSEMBLE_MEMBERS)
+    have = [m for m in members
+            if f"mu_h_{m}" in oof.columns and f"mu_a_{m}" in oof.columns]
+    if not have:
+        raise ValueError("mixture walk needs per-member OOF mus columns")
+    if "mu_h" not in oof.columns or "mu_a" not in oof.columns:
+        raise ValueError("mixture walk needs blended-single OOF mus columns")
+    frame = oof.reset_index(drop=True)
+    grades_all = (frame["grades_blend"].to_numpy(bool)
+                  if "grades_blend" in frame.columns
+                  else np.ones(len(frame), dtype=bool))
+    pooled: dict[str, list] = {k: [] for k in kinds}
+    pooled_n = {k: 0 for k in kinds}
+    prior_weights = {k: {m: 1.0 / len(have) for m in have} for k in kinds}
+    parts: list[pd.DataFrame] = []
+    weight_rows: list[dict] = []
+    origins = bundle.get("origins") or []
+    blocks = _distribution_blocks(frame)
+    if len(blocks) != len(origins):
+        raise ValueError("mixture walk needs one bundle origin per OOF block")
+    for bi, ((_, _, mask), origin) in enumerate(zip(blocks, origins)):
+        idx = np.flatnonzero(mask)
+        part = frame.iloc[idx]
+        maps = origin["maps"]
+        mus = {m: (part[f"mu_h_{m}"].to_numpy(float),
+                   part[f"mu_a_{m}"].to_numpy(float)) for m in have}
+        # Blended-single baseline through the same maps.
+        single = {}
+        ok_single = (np.isfinite(part["mu_h"].to_numpy(float))
+                       & np.isfinite(part["mu_a"].to_numpy(float)))
+        part_y_total = (part.home_score + part.away_score).to_numpy(float) \
+            if "home_score" in part.columns else np.full(len(part), np.nan)
+        part_y_margin = (part.home_score - part.away_score).to_numpy(float) \
+            if "home_score" in part.columns else np.full(len(part), np.nan)
+        if ok_single.any():
+            single = _distribution_cdfs(part.iloc[np.flatnonzero(ok_single)],
+                                        maps, sampled=False)
+        priced = price_member_cdfs(part.reset_index(drop=True), mus, maps)
+        row = pd.DataFrame({"game_id": part.game_id.to_numpy(),
+                            "fold_id": (part.fold_id.to_numpy()
+                                         if "fold_id" in part.columns else bi)})
+        mix_weights = {k: dict(prior_weights[k]) for k in kinds}
+        for kind in kinds:
+            y = part_y_total if kind == "total" else part_y_margin
+            row[f"crps_single_{kind}"] = np.nan
+            row[f"crps_mix_{kind}"] = np.nan
+            for name in have:
+                row[f"weight_mix_{kind}_{name}"] = mix_weights[kind].get(name, 0.0)
+            if kind in single:
+                sup_s, cdf_s = single[kind]
+                sub = np.flatnonzero(ok_single)
+                keep = np.isfinite(y[sub])
+                if keep.any():
+                    full_s = np.full(len(part), np.nan)
+                    full_s[sub[keep]] = lattice_crps(
+                        cdf_s[keep], sup_s, y[sub[keep]])
+                    row[f"crps_single_{kind}"] = full_s
+            if kind not in priced:
+                continue
+            try:
+                union, cdf_mix = mixture_cdf(priced[kind], prior_weights[kind])
+            except ValueError:
+                continue
+            finite = np.isfinite(cdf_mix).all(axis=1) & np.isfinite(y)
+            if finite.any():
+                full_m = np.full(len(part), np.nan)
+                full_m[np.flatnonzero(finite)] = lattice_crps(
+                    cdf_mix[finite], union, y[finite])
+                row[f"crps_mix_{kind}"] = full_m
+            # Pool this block's grading rows AFTER scoring it (row-aligned
+            # across members; complete-case comparability is enforced at
+            # earn time, never by dropping rows here).
+            g = grades_all[idx] & np.isfinite(y)
+            if g.any() and kind in priced:
+                keep = np.flatnonzero(g)
+                pooled[kind].append(
+                    ({name: (sup, cdf[keep])
+                      for name, (sup, cdf) in priced[kind].items()
+                      if name in have}, y[g]))
+            pooled_n[kind] += int(g.sum())
+        # Earn next block's weights from strictly-prior pooled evidence.
+        for kind in kinds:
+            if pooled_n[kind] < 2:
+                continue
+            earned = compute_mixture_weights(pooled[kind])
+            if earned:
+                prior_weights[kind] = earned
+        weight_rows.append({"block": bi,
+                           "used": {k: dict(mix_weights[k]) for k in kinds},
+                           "next": {k: dict(prior_weights[k])
+                                    for k in kinds}})
+        parts.append(row)
+        if progress_every and (bi + 1) % progress_every == 0:
+            logger.info("mixture OOF block %d/%d", bi + 1, len(blocks))
+    mix_oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    summary = {}
+    for kind in kinds:
+        s = mix_oof[f"crps_single_{kind}"].to_numpy(float)
+        m = mix_oof[f"crps_mix_{kind}"].to_numpy(float)
+        ok = np.isfinite(s) & np.isfinite(m)
+        summary[kind] = {
+            "n": int(ok.sum()),
+            "crps_single": round(float(s[ok].mean()), 6) if ok.any() else None,
+            "crps_mix": round(float(m[ok].mean()), 6) if ok.any() else None,
+            "paired_gain": (round(float((s[ok] - m[ok]).mean()), 6)
+                             if ok.any() else None),
+            "final_weights": dict(prior_weights[kind]),
+        }
+    return {"oof": mix_oof, "weights": prior_weights,
+            "weight_history": weight_rows, "summary": summary}
+
+
+def predict_mixture_slate(models: dict, slate_df: pd.DataFrame,
+                          serving_maps: dict,
+                          weights_l2: dict[str, dict[str, float]],
+                          kinds: tuple[str, ...] = ("total", "margin")
+                          ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Blend a pending slate's per-member CDFs with deployed OOF weights.
+
+    Each member's own mus price their own CDF through the serving maps;
+    weights_l2 (per kind, from the mixture walk) mixes the CDFs. Returns
+    {kind: (support, cdf)} for the caller to sample exactly like
+    _distribution_cdfs output.
+    """
+    mus = {}
+    for side in ScoreEnsembleRegressor.SIDES:
+        for name in config.SCORE_ENSEMBLE_MEMBERS:
+            entry = (models.get(side) or {}).get(name)
+            if not entry:
+                continue
+            model, pre = entry
+            try:
+                X = ml_mod.member_fit_input(
+                    name, ml_mod.member_matrix(name, slate_df), pre)
+                mus.setdefault(name, {})[side] = np.clip(
+                    np.asarray(model.predict(X), dtype=float), 1e-6, None)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("serving mixture member %s/%s failed: %s",
+                               name, side, exc)
+    per_member = {}
+    for name, sides in mus.items():
+        if set(sides) != {"home_score", "away_score"}:
+            continue
+        per_member[name] = (sides["home_score"], sides["away_score"])
+    priced = price_member_cdfs(slate_df.reset_index(drop=True),
+                               per_member, serving_maps)
+    out = {}
+    for kind in kinds:
+        if kind not in priced:
+            continue
+        try:
+            out[kind] = mixture_cdf(priced[kind], weights_l2.get(kind, {}))
+        except ValueError:
+            continue
+    return out
+
+
 def calibrate_market_frame(df, n_draws=MC_DRAWS, seed=MC_SEED):
     """Dated OOF only: fit split-skew calibration on strictly prior origins."""
     priced, bundle = causal_distribution_frame(df, n_draws=n_draws, seed=seed)

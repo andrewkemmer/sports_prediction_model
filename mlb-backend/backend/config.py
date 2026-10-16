@@ -405,6 +405,39 @@ XGBOOST_PARAMS = {
     "tree_method": "hist",
     "n_jobs": -1,
 }
+# Distribution score ensemble (elasticnet + xgboost + lightgbm for the
+# per-side expected runs home_expected_runs/away_expected_runs),
+# structured on the binary moneyline: same strict-active-moneyline side
+# view, same causal expanding OOF, but the blending objective is pooled
+# Poisson deviance (the count-data logloss) in log space. Weights start
+# equal and are earned per fold on strictly-prior OOF; the simplex is
+# plain (no caps/floors). NBA structural port: production run_oof stays
+# the served path until the ablation admits the blend (tune under the
+# noise-floor-first, two-gate protocol before changing).
+SCORE_ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
+SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
+                          "elasticnet": 0.3334}
+# XGBoost regression leg, starting point: the moneyline classifier geometry
+# that survived tuning (depth 2, min_child_weight 12, subsampled, L2 5.0),
+# moved to count:poisson with a regression-rate learning_rate and a
+# 500-tree budget (NBA precedent: classifier geometry -> poisson, tune
+# before changing).
+# learning_rate 0.05 -> 0.03 + subsample/colsample -> 0.7 adopted from the
+# 2026-10-16 XGB tune pass 2 (lr003_sub07: member gain +0.0197 vs 0.0045 noise
+# floor, all 5 seeds, tail +0.0024, blend +0.0007); see scratch/mlb_xgb_tune_pass2.json.
+SCORE_XGBOOST_PARAMS = {
+    "objective": "count:poisson", "max_depth": 2, "min_child_weight": 12,
+    "subsample": 0.7, "colsample_bytree": 0.7,
+    "learning_rate": 0.03, "reg_lambda": 5.0, "reg_alpha": 0.0,
+    "n_estimators": 500,
+    "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
+    "enable_categorical": True, "tree_method": "hist", "n_jobs": -1,
+}
+# Elastic-net regression leg (standardized features, raw-count target).
+SCORE_ELASTICNET_PARAMS = {
+    "alpha": 1.0, "l1_ratio": 0.5,
+    "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
+}
 # RETUNE 2026-09-30 (max_depth 3 -> 1) — adopted, then PROVENANCE-
 # CORRECTED 2026-09-30 after the first production run under the new
 # regime zero-weighted the member (ensemble AUC 0.585 -> 0.561):
