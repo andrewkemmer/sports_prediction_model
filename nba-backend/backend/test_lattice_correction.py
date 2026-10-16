@@ -115,6 +115,19 @@ def test_default_no_tie_is_byte_identical_and_weighted_split_conserves():
     np.testing.assert_allclose(pmf.sum(axis=1), 1., atol=1e-12)
     base = np.diff(np.column_stack([np.zeros(len(cdf)), cdf]), axis=1)
     t = base[:, j]
+    if SPORT == "nba":
+        # NBA's rule-derived transfer: the forbidden center mass is moved
+        # PROPORTIONAL TO MODEL MASS (family.no_tie's nba branch) — not
+        # split onto +/-1. Declared in LATTICE_CONFIG before fitting.
+        w = base.copy()
+        w[:, j] = 0.
+        share = w / w.sum(axis=1, keepdims=True)
+        np.testing.assert_allclose(pmf, w + t[:, None] * share,
+                                   rtol=0, atol=1e-15)
+        # The one-point bins receive far less than the equal split's t/2.
+        assert (np.abs(pmf[:, j - 1] - base[:, j - 1]) < .5 * t).all()
+        assert (np.abs(pmf[:, j + 1] - base[:, j + 1]) < .5 * t).all()
+        return
     np.testing.assert_allclose(pmf[:, j + 1], base[:, j + 1] + .55 * t)
     np.testing.assert_allclose(pmf[:, j - 1], base[:, j - 1] + .45 * t)
 
@@ -658,8 +671,19 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
 # Registered high-mass shrinkage relief (2026-10-16): (nba, margin) only.
 # Gated by run_diagnostics/nba_shrinkage_experiment.py on causal-walk BASE
 # evidence (boost 2 at mass-q75: gate z 4.31, MAE 0.000120 -> 0.000089,
-# collateral clean). Relief only changes the proposed amplitude — gates,
-# collateral, cap and zero-sum are untouched.
+# collateral clean). A deeper boost 5 was tested end-to-end at the walk and
+# REJECTED as a regression: per-origin admissions fell 49 -> 38 (the
+# boosted fit's train-only +3 residual overshoots the pooled residual past
+# its noise floor at origins 37..42, which the collateral guard rightly
+# vetoes), shipping +/-1 z -2.32/-2.46 vs -2.23/-2.09 at boost 3
+# (run_diagnostics/nba_walk_boost_eval*.log). Boost 3 — the deepest
+# amplitude whose admissions hold — is what ships. With the NBA no_tie
+# mass transfer (family.no_tie) owning the +/-1 structural artifact, the
+# residual layer no longer needs depth. Relief only changes the proposed
+# amplitude — gates, collateral, cap and zero-sum are untouched. Totals
+# relief was tested and held-out REJECTED (z 2.37..2.76 < 3.0), so the
+# registry deliberately stays margin-only — registering totals would
+# revoke the admitted shallow totals fit instead of improving it.
 # ---------------------------------------------------------------------------
 
 def _pm1_piled_evidence(amplitude=.015, n=2500, seed=11):
@@ -694,7 +718,9 @@ def test_relief_registered_only_for_nba_margin():
 
 def test_relief_matches_experiment_wrapper_math():
     """The production relief path is exactly the gated experiment's wrapper:
-    tau boosted where clipped mass sits at/above its own quantile."""
+    tau boosted where clipped mass sits at/above its quantile over the
+    MASS-BEARING bins (the padded-union-lattice fix — a plain quantile over
+    exact-zero padding collapsed to 0 and made relief silently global)."""
     rng = np.random.default_rng(5)
     w = np.clip(rng.random(61) ** 2, 0., None)
     r = rng.normal(0, .005, 61)
@@ -702,7 +728,8 @@ def test_relief_matches_experiment_wrapper_math():
     got = fam.lattice_local_deltas(w, r, se, relief_boost=2.,
                                    relief_quantile=.75)
     tau = fam.LATTICE_PRIOR_FRAC * w
-    q = float(np.quantile(w, .75))
+    positive = w[w > 0.]
+    q = float(np.quantile(positive if len(positive) else w, .75))
     tau = np.where(w >= q, tau * 2., tau)
     shrink = tau * tau / (tau * tau + se * se)
     np.testing.assert_allclose(got, r * shrink, rtol=0, atol=0)

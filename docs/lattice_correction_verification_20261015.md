@@ -134,6 +134,93 @@
 > WIP label: no in-repo WIP/experimental marker exists on this work (only
 > unrelated historical hits) — if the WIP is the PR label, it is yours to
 > drop; the work itself is complete per the deliverable below.
+>
+> ## A6. NBA ±1 over-confidence remediation — no-tie center-mass transfer (2026-10-16)
+>
+> **Complaint.** The dashboard's Spread view still showed ±1 outside its
+> own 95% band (20261016 artifact at HEAD: k=−1 0.02935 vs observed
+> 0.02167, z −2.23; k=+1 0.02499 vs 0.01833, z −2.09), and totals teeth
+> outside theirs (3/101: k=273 +2.70, 197 +2.35, 181 +2.16).
+>
+> **Review: amplitude was exhausted; the residual was structural.**
+>
+> - The causal-walk ladder (run_diagnostics/nba_walk_boost_eval*.log)
+>   never reached the band: boost 3 shipped z −2.23/−2.09 (49/56 origins),
+>   boost 3.25 ≈ tie (46 admissions), **boost 5 was a regression**
+>   (−2.32/−2.46 — admissions collapse 49 → 38 because the boosted fit's
+>   train-only +3 residual overshoots the pooled residual past its noise
+>   floor at origins 37..42 and the per-origin collateral guard rightly
+>   vetoes), boost 8 no better. Shrinkage at ±1 was already ≈0.99. No legal
+>   amplitude cleared ±1.
+> - Decomposition (raw split-skew with the shipped variance params,
+>   reproducing the delivered baseline to ±0.0002): smooth ±1 mass
+>   0.02436/0.02474 plus center-bin **P(0) = 0.02459**. The no-tie equal
+>   split moves half the center mass onto EACH ±1 bin (+0.01230 per side)
+>   — 83% of the −1 residual and 67% of the +1 residual is that one
+>   structural transfer, sitting on top of an already-full smooth ±1. The
+>   residual lattice had been asked to undo a structural allocation with
+>   capped amplitude and capped admissions.
+>
+> **Remediation (rule-derived, declared before fitting).**
+>
+> 1. `family.no_tie` NBA branch: the forbidden center mass is
+>    redistributed **proportional to model mass** over the legal support —
+>    the same neutral, mass-conserving rule
+>    `_zero_sum_mass_proportional` uses for its sink — instead of the
+>    nearest-neighbor split. The NBA has no tie process, so P_model(0) is a
+>    continuous-representation artifact, not evidence about one-point
+>    finals; the proportional sink also re-fills exactly the under-predicted
+>    shoulders (±3..15 sit ~0.002/bin light while ±1 sat heavy). Direction
+>    declared here before fitting: **±1 residual decreases** (−0.0117/side
+>    measured). NHL/MLB/NFL paths are byte-identical — their
+>    fitted/nearest-neighbor splits keep their own evidence.
+> 2. `fit_map`'s CRPS objective gained the **exact adjoint** of that
+>    transfer for the NBA margin (the transfer simplifies to
+>    A_m = (c_m − 1{j≤m}·t)/(1−t); the equal-split two-bin error averaging
+>    is the wrong derivative for it and drove L-BFGS to ABNORMAL on the
+>    structural-contract test). Verified against central finite
+>    differences: max |analytic − numeric| = 1.9e-8. Non-NBA gradients
+>    untouched.
+> 3. Relief boost reverted 5 → 3 (walk-level regression above; boost 3 is
+>    the deepest amplitude whose admissions hold). Registry entry
+>    (nba, margin) unchanged; totals deliberately stays unregistered —
+>    deeper totals variants remain held-out rejected (z 2.37..2.76 < 3.0)
+>    and registering would revoke the admitted shallow fit instead.
+>
+> **After (regenerated 20261016 artifact, n = 2400 decided, dashboard's
+> own band formula).**
+>
+> | scan | HEAD | final |
+> |---|---|---|
+> | margin bins outside 95% | 2 | **0** |
+> | k=−1 mod / obs / z | 0.02935 / 0.02167 / −2.23 | **0.02432 / 0.02167 / −0.84** |
+> | k=+1 mod / obs / z | 0.02499 / 0.01833 / −2.09 | **0.02248 / 0.01833 / −1.37** |
+> | worst margin bin | −2.23 | −1.54 (k=−20) |
+> | totals bins outside 95% | 3 (273/197/181) | 3 (unchanged by design) |
+>
+> Final fits (meta.lattice): **totals** significant, gate z 3.003, δmax
+> 0.001211 (the admitted shallow fit; the ≥270 tail deficit remains a
+> variance/skew-layer item, and 3/101 teeth outside is within band
+> multiplicity — ~5 expected); **margin** significant, gate z 3.254, δmax
+> 0.004930, L1 0.0870, collateral clean. Walk admissions: totals 48/56,
+> margin 35/56 (fewer margin admissions is the honest consequence of the
+> structural step consuming the ±1 residual the delta no longer has to
+> chase).
+>
+> **Non-distribution audit (cell-level, old vs new):** zero changes to
+> mu_*, scores, ids, kind, offered lines; all 552,134 changed cells are
+> distribution-derived (p_*, distribution_mean/sd_margin, fair_spread,
+> fair_total, derived_ml, y_cover_fair). All 413 total-side columns
+> (distribution_mean/sd_total, p_push_total_*, p_over_*) are byte-identical
+> to HEAD.
+>
+> **Tests:** NBA 701 passed / 2 skipped (lattice 31/2; the structural
+> contract regression above is fixed, not skipped), NFL 117 / 1, MLB 451 /
+> 3, NHL 680 / 1, frontend 142. Evidence logs:
+> run_diagnostics/nba_walk_boost_eval_structural.log,
+> nba_remediate_regenerate.log, nba_remediate_regenerate2.log — the probe
+> programs themselves stay uncommitted by design (task guardrail: no new
+> programs committed).
 
 ## What changed and why
 

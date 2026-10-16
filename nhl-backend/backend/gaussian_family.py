@@ -188,16 +188,35 @@ LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
 # of the fitted support; every other target keeps exact current behavior.
 # Gates, collateral, cap and zero-sum are untouched — relief only changes
 # the proposed amplitude. Gated in production (see nba_shrinkage_experiment).
-LATTICE_RELIEF_BOOST = 3.      # high-mass tau multiplier where registered
-                                # (2026-10-16: 2 kept ~1/3 of the NBA margin +/-1
-                                # residual — shipped 3.08%/2.71% vs observed
-                                # 2.17%/1.83%; boost 3 deepens +/-1, clears every
-                                # bar with lower MAE — see
-                                # run_diagnostics/nba_shrinkage_experiment.json
-                                # verdict (gate 4.011, collateral ok))
-LATTICE_RELIEF_QUANTILE = .75  # mass bins at/above this quantile get relief
+# The quantile is taken over MASS-BEARING bins only (2026-10-16 re-review):
+# union lattices pad the support with hundreds of exact-zero bins, so a
+# plain quantile collapsed to 0 and "targeted" relief silently applied to
+# every bin (boost 3 was byte-for-byte global frac 0.3 on the 20261016
+# evidence — see run_diagnostics/nba_pm1_totals_relief_probe2.json
+# quantile_diag).
+LATTICE_RELIEF_BOOST = 3.      # tau multiplier on mass bins >= the quantile
+                                # (2026-10-16 walk ladder: boost 5 measured a
+                                # REGRESSION at the dashboard band — per-origin
+                                # admissions 49 -> 38 as the boosted fit's train-only
+                                # +3 overshoot trips the collateral guard at origins
+                                # 37..42, shipped +/-1 z -2.32/-2.46 vs -2.23/-2.09
+                                # at boost 3; boost 8 no better). Boost 3 is the
+                                # deepest amplitude whose admissions hold; with the
+                                # no_tie mass transfer owning the +/-1 artifact the
+                                # residual layer no longer needs depth. Evidence:
+                                # run_diagnostics/nba_walk_boost_eval*.log)
+LATTICE_RELIEF_QUANTILE = .75  # mass-bearing bins at/above this quantile get relief
 LATTICE_RELIEF = {("nba", "margin"): {"boost": LATTICE_RELIEF_BOOST,
                                       "quantile": LATTICE_RELIEF_QUANTILE}}
+# Totals relief was tested and REJECTED on the same evidence (2026-10-16):
+# every deeper totals variant — global frac 0.2/0.3/0.5 and mass-targeted
+# boost 2/3/5 — fails the held-out bar (gate z 2.37..2.76 < 3.0), so
+# registering ("nba", "totals") would only REVOKE the admitted shallow fit
+# (gate 3.077). Remaining totals teeth sit within band multiplicity (3 of
+# 101 plotted bins outside 95% vs ~5 expected); the >=270 tail deficit
+# (obs 0.0258 vs 0.0183, persistent across artifacts) belongs to the
+# variance/skew layer — the mass-proportional prior moves no tail mass by
+# design. No totals entry here is deliberate.
 
 # Pre-registered structural mechanisms (2026-10-16). A structural parameter
 # is rule-derived with a DIRECTIONAL prior declared here BEFORE any fitting:
@@ -277,8 +296,22 @@ def lattice_preregistered(sport, target):
 #                                  fitted, NOT hard-coded; whatever remains
 #                                  is left to the generic residual, see the
 #                                  M=+1 diagnostic in the fit record)
-#   nba margin       -> "no_tie"    (P(M=0)=0; exact equal split — no
-#                                  one-goal asymmetry is fitted)
+#   nba margin       -> "no_tie"    (P(M=0)=0; the smooth center-bin mass
+#                                  is a continuous-representation ARTIFACT —
+#                                  the NBA has no tie process — so it is
+#                                  redistributed PROPORTIONAL TO MODEL MASS
+#                                  over legal bins (no_tie's nba branch),
+#                                  NOT split onto +/-1. Direction declared
+#                                  2026-10-16 before fitting: +/-1 residual
+#                                  decreases; measured shipped band state
+#                                  in run_diagnostics/nba_pm1_totals_
+#                                  relief_probe2.json. Nearest-neighbor
+#                                  splitting was measured inflating both
+#                                  one-point bins by +0.0123 (center mass
+#                                  0.0246/2) beyond their full smooth mass,
+#                                  a systematic z -2.2/-2.1 over-confidence
+#                                  the residual lattice could not remove
+#                                  (amplitude and admissions both capped).)
 #   nfl margin     -> None        (ties are possible; P(M=0) stays valid)
 # "forbidden_bins" pins the lattice bins the structural rule owns: the fitted
 # residual may never put mass back there.
@@ -437,15 +470,21 @@ def lattice_local_deltas(weight, resid, se, shrink_mult=1., relief_boost=1.,
     strengthens shrinkage (secondary key numbers). Bins with no model
     mass stay exact 0. Registered (sport, target) relief (``relief_boost``
     > 1 with ``relief_quantile`` set) multiplies tau where local model
-    mass sits at/above that quantile — relief exactly where the prior
-    over-shrinks; ``None`` keeps current behavior.
+    mass sits at/above that quantile OF THE MASS-BEARING BINS — relief
+    exactly where the prior over-shrinks; ``None`` keeps current behavior.
     """
     weight = np.clip(np.asarray(weight, float), 0., None)
     resid = np.asarray(resid, float)
     se = np.asarray(se, float)
     tau = LATTICE_PRIOR_FRAC * weight / max(float(shrink_mult), 1e-12)
     if relief_quantile is not None and len(weight):
-        q = float(np.quantile(weight, relief_quantile))
+        # Quantile over MASS-BEARING bins: union lattices pad the support
+        # with exact-zero bins, and a plain quantile over them collapses to
+        # 0 — the "targeted" boost silently becomes a global one. Bins with
+        # no model mass keep tau = 0 under either rule.
+        positive = weight[weight > 0.]
+        q = float(np.quantile(positive if len(positive) else weight,
+                              relief_quantile))
         tau = np.where(weight >= q, tau * float(relief_boost), tau)
     with np.errstate(divide="ignore", invalid="ignore"):
         shrink = np.where(tau > 0., tau * tau / (tau * tau + se * se), 0.)
@@ -1079,11 +1118,43 @@ def no_tie(cdf, support, sport, home_share=None):
     estimate q (see fit_ot_home_share) so the redistribution follows the OT
     win probabilities estimated from prior OOF. NFL margins keep valid tie
     mass (ties are possible), so this remains a no-op there.
+
+    NBA uses a DIFFERENT, rule-derived transfer (2026-10-16, declared in
+    LATTICE_CONFIG before fitting): the NBA has no tie process at all, so
+    the center-bin mass of the smooth continuous density (which cannot
+    express P(M=0)=0 — measured 0.0246 of model mass on the 20261016
+    artifact) is a BINNING ARTIFACT, not evidence about one-point finals.
+    Dumping it onto +/-1 (the nearest-neighbor split) inflates both
+    one-point bins by +0.0123 each on top of their own already-full smooth
+    mass — the systematic +/-1 over-confidence the lattice then could not
+    remove (shrinkage and collateral admissions are both capped; shipped
+    z -2.23/-2.09 against the dashboard's own 95% band). The artifact mass
+    is instead redistributed PROPORTIONAL TO MODEL MASS over the legal
+    support — the same neutral, mass-conserving rule
+    _zero_sum_mass_proportional uses for its sink: the mass goes where the
+    model already puts mass, which is also where the observed deficit sits
+    (the +/-3..15 shoulders under-predict by ~0.002/bin while +/-1 sits
+    over-predicted). Direction declared before fitting: +/-1 residual
+    DECREASES. NHL/MLB keep their fitted/nearest-neighbor split unchanged
+    (their measured +/-1 evidence supports it or lacks direction).
     """
     if sport == "nfl" or support[0] >= 0:
         return cdf
     out = cdf.copy()
     j = int(np.searchsorted(support, 0))
+    if sport == "nba":
+        base = np.diff(np.column_stack([np.zeros(len(out)), out]), axis=1)
+        tie = base[:, j]                       # P(M=0) the rule must clear
+        w = base.copy()
+        w[:, j] = 0.                           # legal bins only
+        wsum = w.sum(axis=1, keepdims=True)
+        legal = wsum > 0.
+        share = np.divide(w, np.where(legal, wsum, 1.),
+                          out=np.full_like(w, 1. / max(len(support) - 1, 1)),
+                          where=legal)         # degenerate rows: uniform
+        pmf = w + tie[:, None] * share         # sums to 1 (tie re-added)
+        # clip: cumsum can land 1 ulp past 1 and crps validates range
+        return np.clip(np.cumsum(pmf, axis=1), 0., 1.)
     share = .5 if home_share is None else float(np.clip(home_share, 0., 1.))
     if share == .5:
         mid = .5 * (out[:, j - 1] + out[:, j])
@@ -1121,13 +1192,39 @@ def fit_map(h, a, y, kind, sport, parameters):
         cdf = expit(logits * slope + (x @ beta[:3])[:, None])
         cdf[raw <= 0.] = 0.; cdf[raw >= 1.] = 1.
         derivative = cdf * (1. - cdf)
+        base_cdf = np.diff(np.column_stack([np.zeros(len(cdf)), cdf]), axis=1)
         adjusted = no_tie(cdf, support, sport) if kind == "margin" else cdf
         error = adjusted - target
         loss = np.square(error).sum(axis=1).mean()
-        if kind == "margin" and sport != "nfl":
+        if kind == "margin" and sport == "nba":
+            # Exact adjoint of no_tie's mass-proportional transfer (the
+            # equal-split two-bin averaging below is the WRONG derivative
+            # for it and drove L-BFGS to ABNORMAL termination). The nba
+            # transfer simplifies to A_m = (c_m - 1{j<=m}*t)/(1 - t) with
+            # t = b_j the center mass and c_K == 1, so dL/dc_q = dA_q/(1-t)
+            # for q outside {j-1, j}, and the t-path (every A_m, m >= j,
+            # carries -t in the numerator, m < j the denominator) lands on
+            # c_j / c_{j-1} through t = c_j - c_{j-1}. A_last == 1 by
+            # construction carries no gradient (clipped/cumsum identity).
             j = int(np.searchsorted(support, 0))
-            error[:, j - 1] = error[:, j] = .5 * (error[:, j - 1] + error[:, j])
-        g = 2. * error * derivative / len(y)
+            dA = 2. * error / len(y)
+            dA[:, -1] = 0.
+            t = base_cdf[:, j]
+            W = np.maximum(1. - t, 1e-12)
+            gc = dA / W[:, None]
+            dLdt = ((dA[:, j:] * (cdf[:, j:] - 1.)
+                     / (W[:, None] ** 2)).sum(axis=1)
+                    + (dA[:, :j] * adjusted[:, :j]
+                       / W[:, None]).sum(axis=1))
+            gc[:, j] += dLdt
+            gc[:, j - 1] -= dLdt
+            gc[:, -1] = 0.
+            g = gc * derivative
+        else:
+            if kind == "margin" and sport != "nfl":
+                j = int(np.searchsorted(support, 0))
+                error[:, j - 1] = error[:, j] = .5 * (error[:, j - 1] + error[:, j])
+            g = 2. * error * derivative / len(y)
         width = g * logits * slope
         gradient = np.r_[x.T @ g.sum(axis=1),
                          x.T @ np.where(left, width, 0.).sum(axis=1),
