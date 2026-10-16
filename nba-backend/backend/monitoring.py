@@ -283,8 +283,8 @@ def _composition_matched_baseline(baseline: pd.DataFrame, prior: pd.DataFrame,
 _LAST_LOGGED_DRIFT: tuple | None = None
 
 
-def _log_feature_drift(n_features: int, n_warns: int, n_alerts: int,
-                       detail: str) -> None:
+def _log_feature_drift(n_features: int, n_evaluated: int, n_insufficient: int,
+                       n_warns: int, n_alerts: int, detail: str) -> None:
     """Log the drift headline once per DISTINCT verdict, not per call.
 
     ``write_run_engine_feature_artifacts`` (feature report phase) and the
@@ -293,17 +293,35 @@ def _log_feature_drift(n_features: int, n_warns: int, n_alerts: int,
     rendered an identical line in the 2026-10-05 run. The first verdict of a
     given content logs at INFO; an identical repeat drops to DEBUG; a
     verdict that changed logs at INFO again.
+
+    2026-10-15 log review (MLB T15 / NHL 2026-10-11 parity): the headline
+    advertised only warnings/alerts, so INSUFFICIENT rows were invisible —
+    a future small-window run would read "71 features, 0 warning(s), 0
+    alert(s)" while judging nothing. The counts now always sum to the
+    CSV, and the all-unevaluated case pages UNMEASURED instead of reading
+    healthy. INSUFFICIENT alone still never warns (a window-size
+    statement, not a defect).
     """
     global _LAST_LOGGED_DRIFT
-    key = (int(n_features), int(n_warns), int(n_alerts), detail)
+    key = (int(n_features), int(n_evaluated), int(n_insufficient),
+           int(n_warns), int(n_alerts), detail)
     if key == _LAST_LOGGED_DRIFT:
-        logger.debug("feature drift unchanged: %d features, %d warning(s), "
-                     "%d alert(s)", n_features, n_warns, n_alerts)
+        logger.debug("feature drift unchanged: %d features, %d evaluated, "
+                     "%d INSUFFICIENT, %d warning(s), %d alert(s)",
+                     n_features, n_evaluated, n_insufficient,
+                     n_warns, n_alerts)
         return
-    logger.info("feature drift: %d features, %d warning(s), %d alert(s); "
-                "statuses on noise-adjusted PSI with a location gate%s",
-                n_features, n_warns, n_alerts, detail)
+    logger.info("feature drift: %d features, %d evaluated, %d INSUFFICIENT, "
+                "%d warning(s), %d alert(s); statuses on noise-adjusted "
+                "PSI with a location gate%s",
+                n_features, n_evaluated, n_insufficient,
+                n_warns, n_alerts, detail)
     _LAST_LOGGED_DRIFT = key
+    if n_features and n_evaluated == 0:
+        logger.warning("feature drift: 0 of %d features evaluable this run "
+                       "(every row INSUFFICIENT — current/baseline windows "
+                       "under the PSI sample floor) — drift is UNMEASURED, "
+                       "not clean", n_features)
 
 
 def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
@@ -406,7 +424,9 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
             _shown += f" (+{len(_names) - 25} more)"
         _named.append(f"{_label}: {_shown}")
     _detail = f" [{'; '.join(_named)}]" if _named else ""
-    _log_feature_drift(len(out), n_warns, n_alerts, _detail)
+    _n_insufficient = sum(r["status"] == "INSUFFICIENT" for r in out)
+    _log_feature_drift(len(out), len(out) - _n_insufficient, _n_insufficient,
+                        n_warns, n_alerts, _detail)
     return out
 
 

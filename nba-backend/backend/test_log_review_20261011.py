@@ -102,6 +102,50 @@ def test_staleness_boundary_is_exactly_the_floor(stale_logs):
     assert len(stale) == 1, messages
 
 
+def test_drift_headline_publishes_evaluated_and_insufficient_counts(caplog):
+    """2026-10-15 log review (MLB T15 / NHL 2026-10-11 parity): the headline
+    read ``71 features, 0 warning(s), 10 alert(s)`` with no evaluated or
+    INSUFFICIENT slot — the status enum HAS an INSUFFICIENT state, so a
+    future small-window run would print 0 warnings/alerts while judging
+    nothing and read clean. Counts must reconcile with the CSV; a judged
+    window must NOT page."""
+    import numpy as np
+    mon._LAST_LOGGED_DRIFT = None
+    rng = np.random.default_rng(7)
+    cols = ["elo_diff", "win_pct_diff"]
+    baseline = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    current = pd.DataFrame(rng.normal(0.0, 1.0, (40, len(cols))), columns=cols)
+    current["win_pct_diff"] = np.nan  # no current-window data → INSUFFICIENT
+    with caplog.at_level(logging.INFO, logger=mon.logger.name):
+        rows = mon.feature_drift(baseline, current, feature_cols=cols)
+    assert [r["status"] for r in rows].count("INSUFFICIENT") == 1
+    summary = [m for m in caplog.messages if m.startswith("feature drift:")]
+    assert len(summary) == 1, caplog.messages
+    assert "2 features, 1 evaluated, 1 INSUFFICIENT" in summary[0], summary[0]
+    assert not [m for m in caplog.messages if "UNMEASURED" in m], (
+        "a judged window must not page — INSUFFICIENT alone never warns")
+
+
+def test_drift_headline_pages_when_nothing_was_judged(caplog):
+    """The inert-monitor case: a current window under the 30-row floor
+    leaves EVERY row INSUFFICIENT, and the headline must say drift is
+    UNMEASURED at WARNING — an inert monitor must never read healthy."""
+    import numpy as np
+    mon._LAST_LOGGED_DRIFT = None
+    rng = np.random.default_rng(9)
+    cols = ["elo_diff", "win_pct_diff"]
+    baseline = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    current = pd.DataFrame(rng.normal(0.0, 1.0, (10, len(cols))), columns=cols)
+    with caplog.at_level(logging.INFO, logger=mon.logger.name):
+        mon.feature_drift(baseline, current, feature_cols=cols)
+    summary = [m for m in caplog.messages if m.startswith("feature drift:")
+               and "INSUFFICIENT," in m]
+    assert len(summary) == 1, caplog.messages
+    assert "2 features, 0 evaluated, 2 INSUFFICIENT" in summary[0], summary[0]
+    paged = [m for m in caplog.messages if "UNMEASURED, not clean" in m]
+    assert len(paged) == 1, caplog.messages
+
+
 def test_default_as_of_is_the_wall_clock(stale_logs, monkeypatch):
     """Callers that pass no as_of judge staleness against now()."""
     frozen = pd.Timestamp("2026-10-11 09:00")
