@@ -613,9 +613,18 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     spike_delta = None
     margin_ev = (evidence or {}).get("margin") or {}
     if margin_ev.get("pmfs") is not None:
+        spike_kw = {}
+        if DISTRIBUTION_SPORT == "nfl":
+            # Symmetric key-number table: away-win piles mirror home-win
+            # piles (scoring symmetry, preregistered as spike_m3/spike_m7/
+            # spike_secondary_mirror). Each bin is individually gated at the
+            # structural bar, so only evidenced mirrors admit.
+            spike_kw = {"primary": (3, 7, -3, -7),
+                        "secondary": (1, 4, 6, 10, 14, 17,
+                                      -1, -4, -6, -10, -14, -17)}
         spike_delta, spike_report = family.fit_margin_spikes(
             margin_ev.get("pmfs"), margin_ev.get("outcomes"),
-            margin_ev.get("support"), DISTRIBUTION_SPORT)
+            margin_ev.get("support"), DISTRIBUTION_SPORT, **spike_kw)
         if spike_delta is not None:
             margin["spike_report"] = spike_report
             adjusted = np.clip(np.asarray(margin_ev["pmfs"], float)

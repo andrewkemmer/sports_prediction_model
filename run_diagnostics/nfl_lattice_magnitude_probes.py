@@ -103,8 +103,11 @@ def main() -> int:
     dec = load_decided(path)
 
     out: dict = {"artifact": path.name, "n_decided": int(len(dec)),
-                 "cap_reported": CAP, "note": "post-lattice residuals; "
-                 "a definitive cap sweep needs causal-walk evidence"}
+                 "cap_reported": CAP, "note": "post-lattice residuals on "
+                 "vintage-mixed rows; superseded for causal claims by the "
+                 "causal-walk cap sweep in nfl_lattice_experiments.json "
+                 "(generic fit tops out at .0175 — leftover is a "
+                 "missing-term story, not a cap story)"}
 
     # (a) cap leftover on margin.
     y, pmf, sup = pmf_frame(dec, "margin")
@@ -118,10 +121,13 @@ def main() -> int:
                       "z": round(float(m["z"][i]), 3)} for i in order],
         "max_abs_leftover": round(float(np.abs(m["resid"]).max()), 5),
         "bins_beyond_2se": int((np.abs(m["resid"]) > 2 * m["se"]).sum()),
-        "reading": ("cap-constrained leftover EXISTS" if
-                    (np.abs(m["resid"]) > 2 * m["se"]).any() else
-                    "no leftover beyond noise — cap is non-binding "
-                    "everywhere it matters")}
+        "reading": ("post-lattice leftover EXISTS (vintage-mixed); see "
+                    "nfl_lattice_experiments.json: the causal-walk sweep "
+                    "shows caps .02-.08 fit identically (generic tops at "
+                    ".0175), so this leftover marks missing structural "
+                    "terms (-3/-7 mirrors), not a binding cap"
+                    if (np.abs(m["resid"]) > 2 * m["se"]).any() else
+                    "no leftover beyond noise")}
 
     # (b) tie-hole: the M=0 bin and the +/-1 split.
     j0 = m["support"].index(0)

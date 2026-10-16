@@ -336,6 +336,66 @@ def test_spike_fit_rejects_pure_noise_with_verdicts():
     assert not any(s.get("admitted") for s in rep["spikes"])
 
 
+def _mirror_spike_evidence(amplitude=.04, n=2500, seed=9):
+    rng = np.random.default_rng(seed)
+    support = np.arange(-30, 31)
+    base = np.exp(-.5 * ((support + 1.5) / 13.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    truth[support == -3] += amplitude
+    truth[support == -7] += amplitude
+    truth = truth / truth.sum()
+    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+
+def test_structural_spikes_admit_mirror_bins_when_piled():
+    """Away-side mirrors gate exactly like the home-side table: explicit
+    candidates, one-sided structural bar, individually admitted, zero-sum
+    composed. Pins the scoring-symmetry extension (spike_m3/spike_m7)."""
+    pmfs, outcomes, support = _mirror_spike_evidence()
+    delta, rep = fam.fit_margin_spikes(
+        pmfs, outcomes, support, SPORT,
+        primary=(3, 7, -3, -7),
+        secondary=(1, 4, 6, 10, 14, 17, -1, -4, -6, -10, -14, -17))
+    assert rep["estimator"] == "key_number_spikes"
+    assert rep.get("significant") and delta is not None
+    by_bin = {s["bin"]: s for s in rep["spikes"]}
+    assert len(rep["spikes"]) == 16
+    assert by_bin[-3]["admitted"] and by_bin[-7]["admitted"]
+    assert by_bin[-3]["z"] >= fam.LATTICE_STRUCTURAL_Z
+    assert by_bin[-7]["z"] >= fam.LATTICE_STRUCTURAL_Z
+    d = np.asarray(delta, float)
+    assert d[support == -3] > 0. and d[support == -7] > 0.  # spike direction
+    assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
+    assert (np.abs(d) <= fam.LATTICE_DELTA_CAP + 1e-12).all()  # clamp
+
+
+def test_preregistered_table_covers_nfl_mirror_spikes():
+    """The disclosure record lists the away-side mirrors as rule-derived,
+    one-sided, structural-bar mechanisms — a mechanism not listed here
+    cannot take the structural bar."""
+    for name in ("spike_m3", "spike_m7", "spike_secondary_mirror"):
+        spec = fam.LATTICE_PREREGISTERED[("nfl", "margin", name)]
+        assert spec["test"] == "one-sided"
+        assert spec["direction"] == "amplitude > 0"
+        assert spec["structural_bar"] == fam.LATTICE_STRUCTURAL_Z
+
+
+def test_nfl_lattice_fit_passes_mirror_candidates_to_spikes():
+    """Wiring: _fit_lattice_maps fits NFL margin spikes over the symmetric
+    table, so piled -3/-7 evidence admits mirrors in the spike_report."""
+    if SPORT != "nfl":
+        pytest.skip("mirror candidates are an NFL-caller extension; "
+                    "elsewhere the default 8-candidate table applies")
+    pmfs, outcomes, support = _mirror_spike_evidence()
+    maps = dist._fit_lattice_maps(
+        {}, {}, {"margin": {"pmfs": pmfs, "outcomes": outcomes,
+                             "support": support}})
+    by_bin = {s["bin"]: s
+                for s in maps["margin"]["spike_report"]["spikes"]}
+    assert by_bin[-3]["admitted"] and by_bin[-7]["admitted"]
+
+
 def _share_evidence(tilt=.15, n=900, seed=2):
     rng = np.random.default_rng(seed)
     support = np.arange(-20, 21)

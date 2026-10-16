@@ -192,7 +192,10 @@ LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
 #     larger share of +/-1 finals than the equal split (Manfred runner +
 #     home bats last), shifting tie-mass-scaled (q-1/2)*m0 to M=+1.
 #   nfl margin spikes: scoring rules pile margin mass at 3 (field goal) and
-#     7 (touchdown + XP); secondary mass at 1, 4, 6, 10, 14, 17.
+#     7 (touchdown + XP); secondary mass at 1, 4, 6, 10, 14, 17 — each with
+#     its away-side mirror (-3/-7 primary; -1/-4/-6/-10/-14/-17 secondary),
+#     individually gated: scoring symmetry is rule-derived, so mirrors take
+#     the same one-sided structural bar.
 #   nhl margin empty_net_2_to_3: trailing teams pull the goalie, so 2-goal
 #     leads finish as 3-goal finals more often than a smooth density allows
 #     (excess mass at |M|=3 on both signs).
@@ -213,6 +216,22 @@ LATTICE_PREREGISTERED = {
     ("nfl", "margin", "spike_secondary"): {
         "mechanism": ("secondary scoring key numbers (1, 4, 6, 10, 14, 17) "
                         "with stronger shrinkage, individually gated"),
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_m3"): {
+        "mechanism": ("field-goal key number, away side: excess margin mass "
+                        "at exactly -3 (scoring symmetry with spike_3)"),
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_m7"): {
+        "mechanism": ("touchdown+XP key number, away side: excess margin "
+                        "mass at exactly -7 (scoring symmetry with spike_7)"),
+        "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "spike_secondary_mirror"): {
+        "mechanism": ("secondary scoring key numbers, away side "
+                        "(-1, -4, -6, -10, -14, -17) with stronger shrinkage, "
+                        "individually gated"),
         "direction": "amplitude > 0", "test": "one-sided",
         "structural_bar": LATTICE_STRUCTURAL_Z},
     ("nhl", "margin", "empty_net_2_to_3"): {
@@ -617,7 +636,8 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
                       bar=LATTICE_STRUCTURAL_Z, min_history=MIN_HISTORY):
     """Pre-registered key-number spike parameters for a margin lattice.
 
-    Rule-derived mass piles (NFL: 3 = field goal, 7 = touchdown + XP) are
+    Rule-derived mass piles (NFL: 3 = field goal, 7 = touchdown + XP, plus
+    the symmetric away-side mirrors the NFL caller passes) are
     single-bin excesses the generic residual would have to re-discover;
     fitting them as structural parameters with the mass-proportional
     zero-sum removal (+a at the spike bin, mass removed proportionally to
