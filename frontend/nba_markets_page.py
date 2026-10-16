@@ -17,7 +17,7 @@ import nba_market_diagnostics as nd
 import utils
 
 DIAG_TABS = nd.DIAG_TABS
-HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th><th>LINE</th>"
+HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th><th>LINE</th>"
                    "</th><th>MODEL PICK</th><th>WINNER</th><th>RESULT</th>")
 FALLBACK_DATE = "20260924"
 PRIMARY, RED = utils.PRIMARY, utils.RED
@@ -39,9 +39,12 @@ def _date_str(raw) -> str:
 
 
 def _score_cell(row) -> str:
+    # SCORE renders HOME–AWAY (2026-10-16): the home side leads the cell,
+    # matching the H–A header (the old A–H order read backwards on a card
+    # whose MATCHUP lists the away team first).
     h, a = row.get("home_score"), row.get("away_score")
     if pd.notna(h) and pd.notna(a):
-        return f"{int(a)}–{int(h)}"
+        return f"{int(h)}–{int(a)}"
     return "—"
 
 
@@ -113,16 +116,15 @@ def _render_team_score_distribution(decided, side):
     )
 
 
-def _render_distribution_tab(decided):
+def _render_distribution_tab(decided, _view):
     """Tab 1 — observed bars vs modeled mean marginal, with tail callouts.
 
     The Distribution view toggles Total / Spread / Home / Away (2026-10-16):
     Home and Away show the per-side scoring law (points scored by the home
-    or the away team) over the same decided rows.
+    or the away team) over the same decided rows. The radio itself lives on
+    the TABS ROW (inline with the tab headers) and is passed in by the
+    caller.
     """
-    _view = st.radio("Distribution view",
-                     ("Total", "Spread", "Home", "Away"),
-                     horizontal=True, key="nba_dist_view")
     if _view in ("Home", "Away"):
         _render_team_score_distribution(decided, _view.lower())
         return
@@ -359,7 +361,7 @@ def _cal_note(monitor: dict | None) -> str:
 
 
 def _render_totals_history(decided, monitor, start_d, end_d) -> None:
-    """Game-totals history: DATE | MATCHUP | SCORE (A–H) | LINE (O/U X.5) |
+    """Game-totals history: DATE | MATCHUP | SCORE (H–A) | LINE (O/U X.5) |
     MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT — MLB's anatomy.
 
     The LINE is the game's own fair line on the 0.5 ladder
@@ -742,9 +744,19 @@ def run() -> None:
             "No decided OOF rows in nba_run_engine_markets for this date — "
             "diagnostics need outcomes; nothing is fabricated.")
     else:
-        tabs = st.tabs(DIAG_TABS)
+        # The Distribution view toggle rides the TABS ROW (2026-10-16): the
+        # tab strip takes the wide column, the radio the narrow right one,
+        # so the control sits inline with the tab headers instead of below
+        # them.
+        _tab_row = st.columns([6, 3])
+        with _tab_row[0]:
+            tabs = st.tabs(DIAG_TABS)
+        with _tab_row[1]:
+            _dist_view = st.radio("Distribution view",
+                                  ("Total", "Spread", "Home", "Away"),
+                                  horizontal=True, key="nba_dist_view")
         with tabs[0]:
-            _render_distribution_tab(decided)
+            _render_distribution_tab(decided, _dist_view)
         with tabs[1]:
             _render_relativized_tab(decided)
         with tabs[2]:

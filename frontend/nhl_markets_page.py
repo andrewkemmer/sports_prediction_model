@@ -26,7 +26,7 @@ parity tests pin the same order/labels/wording/table schemas):
      honesty caption beyond −6. No research-pinned stand-in tabs.
   4. "### Prediction History — Totals & Run Lines" — empty → MLB's wording
      info; decided rows → the same date-range + side-filter widgets and
-     the same fb-table schema (DATE | MATCHUP | SCORE (A–H) | LINE |
+     the same fb-table schema (DATE | MATCHUP | SCORE (H–A) | LINE |
      MODEL PICK | WINNER | RESULT) over the NHL columns.
   5. "---" + "### Run-Line & Totals Monitor" + the honesty caption →
      winner cards (computed from the decided OOF store, the NHL monitor's
@@ -86,7 +86,7 @@ DIAG_TABS = nd.DIAG_TABS
 FALLBACK_DATE = "20260924"
 
 # The history table schema (byte-identical to the MLB fb-table header).
-HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th><th>LINE"
+HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th><th>LINE"
                    "</th><th>MODEL PICK</th><th>WINNER</th><th>RESULT")
 
 # The three winner cards (MLB _WINNER_CARDS structure, NHL rules).
@@ -243,10 +243,10 @@ def _render_team_score_distribution(decided: pd.DataFrame, side: str) -> None:
     )
 
 
-def _render_distribution_tab(decided: pd.DataFrame) -> None:
-    _view = st.radio("Distribution view",
-                     ("Total", "Spread", "Home", "Away"),
-                     horizontal=True, key="nhl_dist_view")
+def _render_distribution_tab(decided: pd.DataFrame, _view: str) -> None:
+    """Tab 1 — totals / margin / per-side distribution fit-check. The
+    Distribution view radio lives on the TABS ROW (inline with the tab
+    headers; 2026-10-16) and is passed in by the caller."""
     if _view in ("Home", "Away"):
         _render_team_score_distribution(decided, _view.lower())
         return
@@ -546,8 +546,9 @@ def _totals_row(r) -> dict | None:
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
+    # SCORE renders HOME–AWAY (2026-10-16), matching the H–A header.
     score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
-             else f"{int(a_s)}–{int(h_s)}")
+             else f"{int(h_s)}–{int(a_s)}")
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
@@ -593,8 +594,9 @@ def _runline_row(r) -> dict | None:
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
+    # SCORE renders HOME–AWAY (2026-10-16), matching the H–A header.
     score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
-             else f"{int(a_s)}–{int(h_s)}")
+             else f"{int(h_s)}–{int(a_s)}")
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
@@ -1079,9 +1081,19 @@ def run() -> None:
             "decided games; nothing is fabricated in the meantime."
         )
     else:
-        _tabs = st.tabs(DIAG_TABS)
+        # The Distribution view toggle rides the TABS ROW (2026-10-16): the
+        # tab strip takes the wide column, the radio the narrow right one,
+        # so the control sits inline with the tab headers instead of below
+        # them.
+        _tab_row = st.columns([6, 3])
+        with _tab_row[0]:
+            _tabs = st.tabs(DIAG_TABS)
+        with _tab_row[1]:
+            _dist_view = st.radio("Distribution view",
+                                  ("Total", "Spread", "Home", "Away"),
+                                  horizontal=True, key="nhl_dist_view")
         with _tabs[0]:
-            _render_distribution_tab(decided)
+            _render_distribution_tab(decided, _dist_view)
         with _tabs[1]:
             _render_relativized_tab(decided)
         with _tabs[2]:
