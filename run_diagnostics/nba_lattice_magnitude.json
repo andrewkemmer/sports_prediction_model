@@ -1,0 +1,209 @@
+{
+ "artifact": "nba_run_engine_markets_20261015.csv",
+ "n_decided": 2400,
+ "regate": {
+  "margin_gate_z": 4.857,
+  "delta_max": 0.006633,
+  "delta_l1": 0.038419999999999996
+ },
+ "pm1_anatomy": {
+  "bins": [
+   {
+    "k": -3,
+    "observed": 0.02536,
+    "model_mass": 0.02501,
+    "resid": 0.00035,
+    "se": 0.00665,
+    "z": 0.053,
+    "applied_regate": 0.00104,
+    "prescribed": 0.000105,
+    "shrink_factor": 0.3012,
+    "zero_sum_takeback": 0.001502,
+    "cap_headroom": 0.02989,
+    "collateral_excess": -0.006752
+   },
+   {
+    "k": -2,
+    "observed": 0.0308,
+    "model_mass": 0.02567,
+    "resid": 0.00513,
+    "se": 0.00673,
+    "z": 0.762,
+    "applied_regate": 0.00059,
+    "prescribed": 0.001574,
+    "shrink_factor": 0.3068,
+    "zero_sum_takeback": 0.001542,
+    "cap_headroom": 0.02843,
+    "collateral_excess": -0.008305
+   },
+   {
+    "k": -1,
+    "observed": 0.01449,
+    "model_mass": 0.03322,
+    "resid": -0.01873,
+    "se": 0.00763,
+    "z": -2.455,
+    "applied_regate": -0.00253,
+    "prescribed": -0.006854,
+    "shrink_factor": 0.366,
+    "zero_sum_takeback": 0.001995,
+    "cap_headroom": 0.02315,
+    "collateral_excess": -0.014482
+   },
+   {
+    "k": 1,
+    "observed": 0.0163,
+    "model_mass": 0.0298,
+    "resid": -0.0135,
+    "se": 0.00724,
+    "z": -1.865,
+    "applied_regate": -0.00447,
+    "prescribed": -0.004594,
+    "shrink_factor": 0.3404,
+    "zero_sum_takeback": 0.00179,
+    "cap_headroom": 0.02541,
+    "collateral_excess": -0.011831
+   },
+   {
+    "k": 2,
+    "observed": 0.02536,
+    "model_mass": 0.02555,
+    "resid": -0.00019,
+    "se": 0.00672,
+    "z": -0.028,
+    "applied_regate": 9e-05,
+    "prescribed": -5.8e-05,
+    "shrink_factor": 0.3058,
+    "zero_sum_takeback": 0.001535,
+    "cap_headroom": 0.02994,
+    "collateral_excess": -0.006774
+   },
+   {
+    "k": 3,
+    "observed": 0.03261,
+    "model_mass": 0.02363,
+    "resid": 0.00898,
+    "se": 0.00647,
+    "z": 1.388,
+    "applied_regate": -0.00092,
+    "prescribed": 0.002595,
+    "shrink_factor": 0.2891,
+    "zero_sum_takeback": 0.001419,
+    "cap_headroom": 0.02741,
+    "collateral_excess": -0.00906
+   }
+  ],
+  "takeback_total": 0.048,
+  "binder_reading": "shrinkage (prescribed << residual at +/-1: the mass-proportional prior over-shrinks high-mass bins)",
+  "note": "prescribed deltas recomputed from shipped (post-lattice, vintage-mixed) PMFs with train-size SE \u2014 directional decomposition, not the causal-walk fit"
+ },
+ "pm1_split": {
+  "pm1_home_share": 0.5294,
+  "pm1_n": 17,
+  "reading": "a share re-splits +/-1 mass and cannot move the +/-1 total \u2014 the leftover is a level problem (share-fitting out)"
+ },
+ "even_odd_scan": {
+  "n_hold": 552,
+  "even_mean_resid": 0.005535,
+  "odd_mean_resid": 0.004507,
+  "even_mean_z": 0.962,
+  "odd_mean_z": 0.808,
+  "max_abs_z_even": 3.329,
+  "max_abs_z_odd": 2.992,
+  "worst_bins": [
+   {
+    "k": 16,
+    "resid": 0.01863,
+    "z": 3.329
+   },
+   {
+    "k": 11,
+    "resid": 0.01897,
+    "z": 2.992
+   },
+   {
+    "k": -9,
+    "resid": 0.01783,
+    "z": 2.977
+   },
+   {
+    "k": -1,
+    "resid": -0.01873,
+    "z": -2.455
+   },
+   {
+    "k": 7,
+    "resid": 0.01537,
+    "z": 2.336
+   },
+   {
+    "k": -10,
+    "resid": 0.01334,
+    "z": 2.281
+   }
+  ],
+  "reading": "no systematic parity tooth beyond noise \u2014 generic path owns the +/-1 leftover; parity preregistration not supported)"
+ },
+ "cap_leftover_margin": {
+  "n_hold": 552,
+  "cap_reported": 0.03,
+  "cap_binding": false,
+  "top_bins": [
+   {
+    "k": 11,
+    "resid_after": 0.01897,
+    "se": 0.00634,
+    "z": 2.992
+   },
+   {
+    "k": -1,
+    "resid_after": -0.01873,
+    "se": 0.00763,
+    "z": -2.455
+   },
+   {
+    "k": 16,
+    "resid_after": 0.01863,
+    "se": 0.0056,
+    "z": 3.329
+   },
+   {
+    "k": -9,
+    "resid_after": 0.01783,
+    "se": 0.00599,
+    "z": 2.977
+   },
+   {
+    "k": 7,
+    "resid_after": 0.01537,
+    "se": 0.00658,
+    "z": 2.336
+   },
+   {
+    "k": -4,
+    "resid_after": 0.01393,
+    "se": 0.00653,
+    "z": 2.133
+   }
+  ],
+  "max_abs_leftover": 0.01897,
+  "bins_beyond_2se": 11,
+  "reading": "cap NON-binding (delta_max 0.0066 << 0.03): leftover is a missing-term/shrinkage story, not a cap story"
+ },
+ "totals_spike_scan": {
+  "n_hold": 710,
+  "support_span": [
+   180,
+   280
+  ],
+  "candidates": [
+   {
+    "k": 277,
+    "resid": 0.00321,
+    "z": 2.689
+   }
+  ],
+  "max_z": 2.689,
+  "reading": "bins clear bar+mass but none has a rule-derived mechanism \u2014 NO preregistration candidate; leftover belongs to the generic path"
+ }
+}

@@ -652,3 +652,84 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
                                             r_train, d, 2.708, out) is None
     assert fam._structural_lattice_fallback("mlb", "margin", support,
                                             r_train, d, 2.708, out) is None
+
+
+# ---------------------------------------------------------------------------
+# Registered high-mass shrinkage relief (2026-10-16): (nba, margin) only.
+# Gated by run_diagnostics/nba_shrinkage_experiment.py on causal-walk BASE
+# evidence (boost 2 at mass-q75: gate z 4.31, MAE 0.000120 -> 0.000089,
+# collateral clean). Relief only changes the proposed amplitude — gates,
+# collateral, cap and zero-sum are untouched.
+# ---------------------------------------------------------------------------
+
+def _pm1_piled_evidence(amplitude=.015, n=2500, seed=11):
+    """Smooth base the truth undercuts exactly at +/-1 (the NBA shape:
+    overpredicted ones from the no-tie 50/50 split)."""
+    rng = np.random.default_rng(seed)
+    support = np.arange(-30, 31)
+    base = np.exp(-.5 * (support / 13.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    truth[support == -1] -= amplitude
+    truth[support == 1] -= amplitude
+    truth = np.clip(truth, 0., None)
+    truth = truth / truth.sum()
+    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+
+def test_relief_registered_only_for_nba_margin():
+    """The map holds exactly one pair; defaults reproduce unrelieved math."""
+    assert set(fam.LATTICE_RELIEF) == {("nba", "margin")}
+    spec = fam.LATTICE_RELIEF[("nba", "margin")]
+    assert spec == {"boost": fam.LATTICE_RELIEF_BOOST,
+                    "quantile": fam.LATTICE_RELIEF_QUANTILE}
+    assert (fam.LATTICE_RELIEF_BOOST, fam.LATTICE_RELIEF_QUANTILE) == (2., .75)
+    rng = np.random.default_rng(4)
+    w, r, se = rng.random(41), rng.normal(0, .005, 41), np.full(41, .004)
+    np.testing.assert_array_equal(
+        fam.lattice_local_deltas(w, r, se),
+        fam.lattice_local_deltas(w, r, se, relief_boost=1.,
+                                 relief_quantile=None))
+
+
+def test_relief_matches_experiment_wrapper_math():
+    """The production relief path is exactly the gated experiment's wrapper:
+    tau boosted where clipped mass sits at/above its own quantile."""
+    rng = np.random.default_rng(5)
+    w = np.clip(rng.random(61) ** 2, 0., None)
+    r = rng.normal(0, .005, 61)
+    se = np.full(61, .004)
+    got = fam.lattice_local_deltas(w, r, se, relief_boost=2.,
+                                   relief_quantile=.75)
+    tau = fam.LATTICE_PRIOR_FRAC * w
+    q = float(np.quantile(w, .75))
+    tau = np.where(w >= q, tau * 2., tau)
+    shrink = tau * tau / (tau * tau + se * se)
+    np.testing.assert_allclose(got, r * shrink, rtol=0, atol=0)
+    # Relief only ever increases amplitudes toward the residual.
+    plain = fam.lattice_local_deltas(w, r, se)
+    assert (np.abs(got) >= np.abs(plain)).all()
+
+
+def test_relief_deepens_pm1_on_piled_margin_evidence():
+    """End to end on +/-1-piled evidence: relief deepens the admitted +/-1
+    correction vs the unrelieved map, both gates clean, basis disclosed."""
+    pmfs, outcomes, support = _pm1_piled_evidence()
+    relieved = fam.fit_lattice_correction(pmfs, outcomes, support,
+                                          "nba", "margin")
+    assert relieved["significant"] and relieved["collateral_ok"]
+    assert relieved["basis"] == "localized_per_bin_shrinkage+relief"
+    saved, fam.LATTICE_RELIEF = fam.LATTICE_RELIEF, {}
+    try:
+        plain = fam.fit_lattice_correction(pmfs, outcomes, support,
+                                           "nba", "margin")
+    finally:
+        fam.LATTICE_RELIEF = saved
+    assert plain["basis"] == "localized_per_bin_shrinkage"
+    d_rel = np.asarray(relieved["delta"])
+    d_pl = np.asarray(plain["delta"])
+    for k in (-1, 1):
+        i = int(np.searchsorted(support, k))
+        assert d_rel[i] < 0. and d_pl[i] < 0.  # undercut direction held
+        assert abs(d_rel[i]) > abs(d_pl[i])    # relief deepens
+    assert relieved["residual_mae_after"] <= plain["residual_mae_after"]

@@ -494,6 +494,82 @@ def test_distribution_models_the_shipped_pmf_without_smoothing():
     np.testing.assert_array_equal(dist["modeled"], without_means["modeled"])
 
 
+# ---------------------------------------------------------------------------
+# NBA like-with-like spread tails (2026-10-16): the ±10 modeled callouts
+# are the exact shipped cover+push composites over FULL support — P(≥10) =
+# mean(p_home_cover_10 + p_push_10), P(≤−10) = 1 − mean(p_home_cover_m10)
+# — against the full-tail observed rates (blowouts beyond ±30 count on
+# both sides). Absent columns render None. The per-bin line reads traded
+# pushes plus the push-only extension to ±30; anything beyond stays a gap.
+# ---------------------------------------------------------------------------
+
+def test_nba_spread_tail_callouts_use_cover_push_composites():
+    margins = [-35, -10, 0, 10, 40]
+    n = len(margins)
+    frame = pd.DataFrame({
+        "margin": margins,
+        **{f"p_push_{nd._label(float(k))}": [0.02] * n
+           for k in range(-30, 31)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dist = nd.spread_distribution(frame)
+    assert dist["warning"] is None
+    c = dist["callouts"]
+    # Observed full tails count the blowouts beyond ±30.
+    assert c["P(margin<=-10)"]["observed"] == pytest.approx(0.4)
+    assert c["P(margin>=10)"]["observed"] == pytest.approx(0.4)
+    # Modeled tails are the composites — not a slice of the per-bin line.
+    assert c["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
+    assert c["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
+    # The per-bin line still reads the margin push family.
+    assert dist["modeled"][dist["ks"].index(10)] == pytest.approx(0.02)
+    # Absent cover/push columns degrade to None, never a crash.
+    bare = pd.DataFrame({
+        "margin": margins,
+        **{f"p_push_{nd._label(float(k))}": [0.02] * n
+           for k in range(-30, 31)},
+    })
+    bare_c = nd.spread_distribution(bare)["callouts"]
+    assert bare_c["P(margin<=-10)"]["modeled"] is None
+    assert bare_c["P(margin>=10)"]["modeled"] is None
+    assert bare_c["P(margin<=-10)"]["observed"] == pytest.approx(0.4)
+
+
+def test_nba_spread_reads_the_push_extension_and_gaps_beyond():
+    """Current artifacts fill the modeled line to ±30; pre-extension
+    artifacts keep their gaps there — while the tail composites hold in
+    both vintages (never a slice of the per-bin line)."""
+    n = 3
+    full = pd.DataFrame({
+        "margin": [0, 25, -25],
+        **{f"p_push_{nd._label(float(k))}": [0.02] * n
+           for k in range(-30, 31)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dist = nd.spread_distribution(full)
+    assert dist["warning"] is None
+    assert dist["modeled"][dist["ks"].index(25)] == pytest.approx(0.02)
+    assert dist["modeled"][dist["ks"].index(-25)] == pytest.approx(0.02)
+    legacy = pd.DataFrame({
+        "margin": [0, 25, -25],
+        **{f"p_push_{nd._label(float(k))}": [0.02] * n
+           for k in range(-20, 21)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    old = nd.spread_distribution(legacy)
+    assert old["modeled"][old["ks"].index(10)] == pytest.approx(0.02)
+    assert old["modeled"][old["ks"].index(25)] != \
+        old["modeled"][old["ks"].index(25)]  # NaN: legacy gap kept
+    assert old["callouts"]["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
+    assert old["callouts"]["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
+
+
 def test_relativized_pairs_drop_pushes():
     frame = SIMPLE.head(1).copy()          # BOS: total 230, fair line 225
     stripped = frame[[c for c in frame.columns if c not in ("mu_h", "mu_a")]]

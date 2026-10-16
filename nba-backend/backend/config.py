@@ -595,12 +595,45 @@ LIGHTGBM_REG_PARAMS = {
     "random_state": RANDOM_SEED, "verbose": -1,
 }
 
+# Distribution score ensemble (elasticnet + xgboost + lightgbm for the
+# per-side score means mu_h/mu_a), structured on the binary moneyline:
+# same member matrices and train-fold-only preprocessing, same causal
+# expanding OOF, but the blending objective is pooled Poisson deviance
+# (the count-data logloss) in log space. Weights start equal and are
+# earned per fold on strictly-prior OOF; the simplex is plain (no
+# caps/floors — the moneyline's dormant box machinery is not duplicated
+# until a policy is evidenced).
+SCORE_ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
+SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
+                          "elasticnet": 0.3334}
+# XGBoost regression leg, starting point (tune under the noise-floor-first,
+# two-gate protocol before changing): shallow, regularized, subsampled —
+# the classifier geometry that survived tuning, moved to count:poisson.
+SCORE_XGBOOST_PARAMS = {
+    "objective": "count:poisson", "max_depth": 3, "min_child_weight": 14,
+    "subsample": 0.8, "colsample_bytree": 0.8,
+    "learning_rate": 0.05, "reg_lambda": 1.0, "reg_alpha": 0.0,
+    "n_estimators": 500,
+    "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
+    "enable_categorical": True, "tree_method": "hist",
+}
+# Elastic-net regression leg (standardized features, raw-count target).
+SCORE_ELASTICNET_PARAMS = {
+    "alpha": 1.0, "l1_ratio": 0.5,
+    "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
+}
+
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the
 # dedicated p_push_total_<U> namespace to avoid any spread collision.
 SPREAD_GRID = list(range(-20, 21))
 TOTAL_GRID = list(range(180, 281))
 HALF_STOP_LINES = [-0.5, 0.5]
+# Diagnostic margin-push extension (2026-10-16): integer margins whose push
+# mass ships for the Distribution tab only (+-21..30, push legs, no cover/
+# away legs — the traded spread grid SPREAD_GRID is unchanged). Blowouts
+# reach +-59 while the traded grid stops at +-20; the tab plots to +-30.
+MARGIN_PUSH_EXTENSION = [*range(-30, -20), *range(21, 31)]
 RUN_ENGINE_FIXED_TOTALS = (220, 225, 230)
 RUN_ENGINE_CANONICAL_SPREADS = (2, 5)
 

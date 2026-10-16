@@ -515,6 +515,18 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
                 updates[_grid_key(prefix, line)] = over
                 updates[_grid_key(pp, line)] = push
                 updates[_grid_key("p_under" if kind == "total" else "p_away_cover", line)] = under
+        if kind == "margin" and DISTRIBUTION_SPORT == "nba":
+            # Diagnostic margin-push extension (2026-10-16, config.
+            # MARGIN_PUSH_EXTENSION): push-only mass for +-21..30 from the
+            # SAME sampled CDF (never refitted) so the Distribution tab's
+            # modeled line is gapless to +-30. Push-only, like the totals
+            # full-support PMF: no cover/away legs outside the market grid.
+            # Additive setdefault: a future grid change that prices these
+            # lines owns them instead.
+            for k in config.MARGIN_PUSH_EXTENSION:
+                upper, lower = at(float(k)), at(np.ceil(float(k)) - 1.)
+                updates.setdefault(_grid_key("p_push", float(k)),
+                                   np.maximum(upper - lower, 0.))
         if kind == "margin":
             updates["p_home_win_derived"] = 1. - at(0.)
             updates["p_tie"] = at(0.) - at(-1.)

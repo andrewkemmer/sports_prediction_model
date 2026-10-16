@@ -1160,6 +1160,46 @@ class TestRunLineStructuralContract:
         assert bundle["scope"] == "whole_cdf"
         assert bundle["monte_carlo"]["n_draws"] > 0
 
+    def test_margin_push_extension_ships_push_only_mass_to_pm30(self):
+        """Diagnostic push-only extension (2026-10-16): +-21..30 price from
+        the same CDF as the traded grid — finite, nonnegative, push legs
+        only (no cover/away legs outside the market grid), and the seam
+        stays a sub-probability (extension can only add shipped mass)."""
+        import config
+        import distributions as dist
+        assert config.MARGIN_PUSH_EXTENSION[0] == -30
+        assert config.MARGIN_PUSH_EXTENSION[-1] == 30
+        assert len(config.MARGIN_PUSH_EXTENSION) == 20
+        frame = self._oof(n=24)
+        frame["gameday"] = pd.date_range("2025-01-01", periods=len(frame))
+        priced, _ = dist.calibrate_market_frame(frame)
+        for k in config.MARGIN_PUSH_EXTENSION:
+            col = dist._grid_key("p_push", float(k))
+            assert col in priced.columns, col
+            vals = priced[col].to_numpy(float)
+            assert np.isfinite(vals).all() and (vals >= 0).all()
+            assert dist._grid_key("p_home_cover", float(k)) not in priced.columns
+            assert dist._grid_key("p_away_cover", float(k)) not in priced.columns
+        traded = [dist._grid_key("p_push", float(k)) for k in range(-20, 21)]
+        ext = [dist._grid_key("p_push", float(k))
+               for k in config.MARGIN_PUSH_EXTENSION]
+        seam = priced[[*traded, *ext]].to_numpy(float)
+        assert (seam.sum(axis=1) <= 1.0 + 1e-9).all()
+        assert (seam.sum(axis=1) >= priced[traded].to_numpy(float).sum(axis=1) - 1e-12).all()
+
+    def test_writer_persists_the_margin_push_extension(self, tmp_path):
+        import config
+        import serving
+        oof = self._oof(n=8)
+        oof["kind"] = "oof"
+        oof["fold_id"] = 0
+        slate = oof.head(2).copy()
+        slate["kind"] = "slate"
+        out = serving.write_markets_csv(
+            tmp_path / "markets.csv", tmp_path / "meta.json", oof, slate)
+        for k in config.MARGIN_PUSH_EXTENSION:
+            assert f"p_push_{serving._label(k)}" in out.columns, k
+
 
 
 class TestMemberTuningNoiseFloor:

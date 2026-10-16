@@ -181,6 +181,17 @@ LATTICE_ROUND = 6               # decimal rounding stored deltas reprice with
 LATTICE_SHARE_BLOCKS = 4        # time blocks for the hierarchical share pool
 LATTICE_SHARE_TAU = .05         # between-block SD prior for share pooling
 LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
+# Registered high-mass shrinkage relief (2026-10-16): the mass-proportional
+# prior (tau = PRIOR_FRAC * w) over-shrinks high-mass bins (measured: NBA
+# margin keeps ~1/3 of the +/-1 residual). Registered (sport, target) pairs
+# boost tau by ``boost`` where local model mass sits at/above ``quantile``
+# of the fitted support; every other target keeps exact current behavior.
+# Gates, collateral, cap and zero-sum are untouched — relief only changes
+# the proposed amplitude. Gated in production (see nba_shrinkage_experiment).
+LATTICE_RELIEF_BOOST = 2.      # high-mass tau multiplier where registered
+LATTICE_RELIEF_QUANTILE = .75  # mass bins at/above this quantile get relief
+LATTICE_RELIEF = {("nba", "margin"): {"boost": LATTICE_RELIEF_BOOST,
+                                      "quantile": LATTICE_RELIEF_QUANTILE}}
 
 # Pre-registered structural mechanisms (2026-10-16). A structural parameter
 # is rule-derived with a DIRECTIONAL prior declared here BEFORE any fitting:
@@ -398,7 +409,8 @@ def lattice_correct(cdf, support, correction, sport, target):
     return np.clip(out, 0., 1.)
 
 
-def lattice_local_deltas(weight, resid, se, shrink_mult=1.):
+def lattice_local_deltas(weight, resid, se, shrink_mult=1., relief_boost=1.,
+                         relief_quantile=None):
     """Localized per-bin SE-aware shrunk residual (2026-10-16; the retired
     global Fourier basis's replacement — one generic basis, one code path,
     parameterized only by the sport/target's own weight and noise floor).
@@ -417,12 +429,18 @@ def lattice_local_deltas(weight, resid, se, shrink_mult=1.):
     alpha*pmf is exactly this with one parity tone). Peak bins keep ~all
     signal; empty tail bins shrink to exact 0. ``shrink_mult`` > 1
     strengthens shrinkage (secondary key numbers). Bins with no model
-    mass stay exact 0.
+    mass stay exact 0. Registered (sport, target) relief (``relief_boost``
+    > 1 with ``relief_quantile`` set) multiplies tau where local model
+    mass sits at/above that quantile — relief exactly where the prior
+    over-shrinks; ``None`` keeps current behavior.
     """
     weight = np.clip(np.asarray(weight, float), 0., None)
     resid = np.asarray(resid, float)
     se = np.asarray(se, float)
     tau = LATTICE_PRIOR_FRAC * weight / max(float(shrink_mult), 1e-12)
+    if relief_quantile is not None and len(weight):
+        q = float(np.quantile(weight, relief_quantile))
+        tau = np.where(weight >= q, tau * float(relief_boost), tau)
     with np.errstate(divide="ignore", invalid="ignore"):
         shrink = np.where(tau > 0., tau * tau / (tau * tau + se * se), 0.)
     return resid * shrink
@@ -857,7 +875,10 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     n_train = max(int(len(train)), 1)
     pbar_train = np.clip(pmfs[train].mean(axis=0), 0., 1.)
     se_train = np.sqrt(pbar_train * (1. - pbar_train) / n_train)
-    delta = lattice_local_deltas(weight, r_train, se_train)
+    rel = LATTICE_RELIEF.get((sport, target), {})
+    delta = lattice_local_deltas(weight, r_train, se_train,
+                                 relief_boost=rel.get("boost", 1.),
+                                 relief_quantile=rel.get("quantile"))
     delta = _zero_sum_mass_proportional(delta, weight)  # mass moves, none is made
     for banned in lattice_config(sport, target).get("forbidden_bins", ()):
         j = int(np.searchsorted(support, banned))
@@ -867,7 +888,8 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, LATTICE_ROUND)
     out.update(n_fit=int(len(train)), n_test=int(len(hold)),
-               basis="localized_per_bin_shrinkage",
+               basis=("localized_per_bin_shrinkage+relief"
+                      if rel else "localized_per_bin_shrinkage"),
                residual_mae_before=float(np.abs(r_all).mean()),
                residual_mae_after=float(np.abs(r_all - delta).mean()),
                delta_l1=float(np.abs(delta).sum()),

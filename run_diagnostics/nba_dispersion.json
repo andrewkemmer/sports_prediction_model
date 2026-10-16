@@ -1,0 +1,133 @@
+{
+ "artifact": "nba_run_engine_markets_20261015.csv",
+ "n_decided": 2400,
+ "n_holdout": 720,
+ "full_sample": {
+  "home": {
+   "n": 2400,
+   "mean": 0.2402,
+   "std": 12.1252,
+   "var": 147.0203,
+   "var_se": 4.245
+  },
+  "away": {
+   "n": 2400,
+   "mean": 0.4227,
+   "std": 11.9403,
+   "var": 142.5697,
+   "var_se": 4.1165
+  },
+  "std_ratio_h_a": 1.0155,
+  "var_diff_z": 0.753,
+  "signal": false,
+  "reading": "no side-specific dispersion signal \u2014 shared variance stands"
+ },
+ "held_out_tail": {
+  "home": {
+   "n": 720,
+   "mean": 0.0245,
+   "std": 12.1091,
+   "var": 146.6307,
+   "var_se": 7.7335
+  },
+  "away": {
+   "n": 720,
+   "mean": 0.3928,
+   "std": 12.035,
+   "var": 144.8423,
+   "var_se": 7.6392
+  },
+  "std_ratio_h_a": 1.0062,
+  "var_diff_z": 0.165,
+  "signal": false,
+  "reading": "no side-specific dispersion signal \u2014 shared variance stands"
+ },
+ "held_out_rule": "time-ordered tail 30%; signal bar z>=3 (two-sided, same strictness as LATTICE_GATE_Z)",
+ "full_sample_tails": {
+  "observed": {
+   "p_10_14": 0.20083,
+   "p_ge_10": 0.32167,
+   "p_le_m10": 0.24167,
+   "p_gt_20": 0.20417,
+   "p_gt_30": 0.06958
+  },
+  "shipped": {
+   "p_10_14": 0.18947,
+   "p_ge_10": 0.32075,
+   "p_le_m10": 0.24063
+  }
+ },
+ "one_sided_crosscheck": {
+  "modeled_positive_side_only_10_14": 0.10706,
+  "observed_two_sided_10_14": 0.19306,
+  "note": "mismatched sidedness reads ~half by construction"
+ },
+ "margin_scale": {
+  "observed_sd": 17.4349,
+  "mean_shipped_sd": 14.5377,
+  "sd_ratio": 1.1993,
+  "resid_sd": 15.1163,
+  "observed_tails": {
+   "p_10_14": 0.19306,
+   "p_ge_10": 0.34444,
+   "p_le_m10": 0.25694,
+   "p_gt_20": 0.23333,
+   "p_gt_30": 0.08611
+  },
+  "shipped_tails": {
+   "p_10_14": 0.19178,
+   "p_ge_10": 0.32704,
+   "p_le_m10": 0.23249
+  },
+  "reading": "moment comparison on the held-out tail; the scan below shows which inflation closes P(10..14)"
+ },
+ "scale_scan_gaussian_approx": {
+  "rows": [
+   {
+    "lambda": 1.0,
+    "p_10_14": 0.18712,
+    "p_ge_10": 0.324,
+    "p_le_m10": 0.23353,
+    "p_pm1": 0.04914
+   },
+   {
+    "lambda": 1.05,
+    "p_10_14": 0.18361,
+    "p_ge_10": 0.33048,
+    "p_le_m10": 0.24239,
+    "p_pm1": 0.04725
+   },
+   {
+    "lambda": 1.11,
+    "p_10_14": 0.17927,
+    "p_ge_10": 0.33775,
+    "p_le_m10": 0.25243,
+    "p_pm1": 0.04514
+   },
+   {
+    "lambda": 1.15,
+    "p_10_14": 0.17634,
+    "p_ge_10": 0.3423,
+    "p_le_m10": 0.25879,
+    "p_pm1": 0.04383
+   },
+   {
+    "lambda": 1.2,
+    "p_10_14": 0.17267,
+    "p_ge_10": 0.34768,
+    "p_le_m10": 0.26638,
+    "p_pm1": 0.04228
+   }
+  ],
+  "observed": {
+   "p_10_14": 0.19306,
+   "p_ge_10": 0.34444,
+   "p_le_m10": 0.25694,
+   "p_gt_20": 0.23333,
+   "p_gt_30": 0.08611,
+   "p_pm1": 0.02361
+  },
+  "best_lambda_for_p_10_14": 1.0,
+  "note": "APPROXIMATION: per-game Gaussian(mu_margin, lambda*sd_margin); the shipped PMF is split-skew, so lambda is directional, not a fitted parameter. Any refit goes through the variance path behind the held-out gate."
+ }
+}

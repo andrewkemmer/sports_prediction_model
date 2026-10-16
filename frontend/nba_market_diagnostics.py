@@ -493,12 +493,17 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     """Observed margins (home − away) versus the shipped margin PMF.
 
     The modeled series is the per-game mean of the artifact's own margin
-    push columns (``p_push_<L>`` = P(margin == L) over −20..20); a line
-    the artifact does not ship stays NaN (a gap) — unavailable, never
-    borrowed from another family. The plotted grid is fixed at ±30: wider
-    would squeeze the readable mass into a central sliver (real blowouts
-    reach ±59); margins outside ±30 are disclosed in the ``P(|margin|>30)``
-    callout, never silently dropped."""
+    push columns (``p_push_<L>`` = P(margin == L) over the traded −20..20
+    plus the diagnostic push-only extension to −30..30); a line the
+    artifact does not ship stays NaN (a gap) — unavailable, never borrowed
+    from another family. The plotted grid is fixed at ±30: wider would
+    squeeze the readable mass into a central sliver (real blowouts reach
+    ±59); margins outside ±30 are disclosed in the ``P(|margin|>30)``
+    callout, never silently dropped. The ±10 tail callouts are the exact
+    shipped cover+push composites over FULL support — P(≥10) =
+    ``p_home_cover_10`` + ``p_push_10``, P(≤−10) = 1 −
+    ``p_home_cover_m10`` — like-with-like against the full-tail observed
+    rates, never a slice of the per-bin line."""
     empty = {"ks": list(range(-20, 21)), "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
              "warning": "No decided games with outcomes in the artifact."}
@@ -517,13 +522,12 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     ks = list(range(-30, 31))
     n_outside = int((margin.abs() > 30).sum())
     observed = np.array([float((margin == k).mean()) for k in ks])
-    # The margin family ships ONLY −20..20: anything outside stays NaN even
-    # if a same-named column exists (another family's mass — never borrowed).
+    # The traded margin family ships −20..20 plus the diagnostic push-only
+    # extension to −30..30 (config.MARGIN_PUSH_EXTENSION): anything outside
+    # stays NaN even if a same-named column exists (another family's mass —
+    # never borrowed). Artifacts predating the extension keep their gaps.
     modeled = []
     for k in ks:
-        if k < -20 or k > 20:
-            modeled.append(float("nan"))
-            continue
         col = f"p_push_{_label(float(k))}"
         if col in decided.columns:
             modeled.append(float(pd.to_numeric(decided[col], errors="coerce").mean()))
@@ -531,10 +535,28 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
             modeled.append(float("nan"))
     modeled = np.asarray(modeled)
 
-    def tail(series, mask):
-        return (round(float(series[mask].sum()), 4)
-                if np.isfinite(series[mask]).all() else None)
-    _arr = np.asarray(ks)
+    def _tail_composite() -> tuple:
+        """Exact full-tail modeled masses from shipped cover+push columns.
+
+        The per-bin modeled line is gapless only to ±30, but the tail
+        callouts need full-support mass: P(margin ≥ 10) = P(margin > 10) +
+        P(margin == 10) is ``p_home_cover_10`` + ``p_push_10``; P(margin ≤
+        −10) = 1 − P(margin > −10) is 1 − ``p_home_cover_m10``. Same
+        sampled CDF as the grid columns, never borrowed, never refitted —
+        like-with-like against the full-tail observed rates. None when the
+        columns are absent."""
+        def _mean(col):
+            if col not in decided.columns:
+                return None
+            v = pd.to_numeric(decided[col], errors="coerce").mean()
+            return float(v) if pd.notna(v) else None
+        hi = _mean("p_home_cover_10")
+        hp = _mean("p_push_10")
+        hm = _mean("p_home_cover_m10")
+        ge = round(hi + hp, 4) if hi is not None and hp is not None else None
+        le = round(1. - hm, 4) if hm is not None else None
+        return ge, le
+    _tail_ge, _tail_le = _tail_composite()
     return {
         "ks": ks,
         "observed": [round(float(v), 5) for v in observed],
@@ -544,13 +566,16 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                          for v in modeled],
         "callouts": {
             "P(margin<=-10)": {"observed": round(float((margin <= -10).mean()), 4),
-                               "modeled": tail(modeled, (_arr <= -10) & (_arr >= -20))},
+                               "modeled": _tail_le},
             "P(margin>=10)": {"observed": round(float((margin >= 10).mean()), 4),
-                              "modeled": tail(modeled, (_arr >= 10) & (_arr <= 20))},
+                              "modeled": _tail_ge},
             "P(|margin|>30)": {"observed": round(float((margin.abs() > 30).mean()), 4),
                                "modeled": None, "n": n_outside},
             "note": ("Modeled line = mean shipped calibrated split-skew "
-                     "Gaussian Monte Carlo margin PMF; no refit or smoothing "
+                     "Gaussian Monte Carlo margin PMF across its priced "
+                     "support (traded grid plus the push-only extension); "
+                     "tail callouts are the exact shipped cover+push "
+                     "composites over full support. No refit or smoothing "
                      "from outcomes."),
         },
         "n_games": int(len(margin)),

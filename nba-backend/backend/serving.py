@@ -277,6 +277,9 @@ def _grid_columns() -> list[str]:
             + [f"p_home_cover_{_label(x)}" for x in half]
             + [f"p_away_cover_{_label(x)}" for x in half]
             + [f"p_push_{_label(x)}" for x in half]
+            # Diagnostic margin-push extension (config.MARGIN_PUSH_EXTENSION):
+            # push-only mass for +-21..30, persisted like the traded pushes.
+            + [f"p_push_{_label(x)}" for x in config.MARGIN_PUSH_EXTENSION]
             + [f"p_over_{_label(x)}" for x in totals]
             + [f"p_push_total_{_label(x)}" for x in totals]
             + [f"p_under_{_label(x)}" for x in totals])
