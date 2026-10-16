@@ -116,15 +116,18 @@ def _render_team_score_distribution(decided, side):
     )
 
 
-def _render_distribution_tab(decided, _view):
+def _render_distribution_tab(decided):
     """Tab 1 — observed bars vs modeled mean marginal, with tail callouts.
 
     The Distribution view toggles Total / Spread / Home / Away (2026-10-16):
     Home and Away show the per-side scoring law (points scored by the home
-    or the away team) over the same decided rows. The radio itself lives on
-    the TABS ROW (inline with the tab headers) and is passed in by the
-    caller.
+    or the away team) over the same decided rows. The radio sits below the
+    tab headers at FULL width (an inline tabs-row placement shrank the
+    charts — reverted the same day).
     """
+    _view = st.radio("Distribution view",
+                     ("Total", "Spread", "Home", "Away"),
+                     horizontal=True, key="nba_dist_view")
     if _view in ("Home", "Away"):
         _render_team_score_distribution(decided, _view.lower())
         return
@@ -744,19 +747,9 @@ def run() -> None:
             "No decided OOF rows in nba_run_engine_markets for this date — "
             "diagnostics need outcomes; nothing is fabricated.")
     else:
-        # The Distribution view toggle rides the TABS ROW (2026-10-16): the
-        # tab strip takes the wide column, the radio the narrow right one,
-        # so the control sits inline with the tab headers instead of below
-        # them.
-        _tab_row = st.columns([6, 3])
-        with _tab_row[0]:
-            tabs = st.tabs(DIAG_TABS)
-        with _tab_row[1]:
-            _dist_view = st.radio("Distribution view",
-                                  ("Total", "Spread", "Home", "Away"),
-                                  horizontal=True, key="nba_dist_view")
+        tabs = st.tabs(DIAG_TABS)
         with tabs[0]:
-            _render_distribution_tab(decided, _dist_view)
+            _render_distribution_tab(decided)
         with tabs[1]:
             _render_relativized_tab(decided)
         with tabs[2]:

@@ -221,10 +221,13 @@ def _render_team_score_distribution(decided: pd.DataFrame, side: str) -> None:
     )
 
 
-def _render_distribution_tab(decided: pd.DataFrame, _view: str) -> None:
+def _render_distribution_tab(decided: pd.DataFrame) -> None:
     """Tab 1 — totals / margin / per-side distribution fit-check. The
-    Distribution view radio lives on the TABS ROW (inline with the tab
-    headers; 2026-10-16) and is passed in by the caller."""
+    Distribution view radio sits below the tab headers at FULL width (an
+    inline tabs-row placement shrank the charts — reverted 2026-10-16)."""
+    _view = st.radio("Distribution view",
+                     ("Total", "Spread", "Home", "Away"),
+                     horizontal=True, key="nfl_dist_view")
     if _view in ("Home", "Away"):
         _render_team_score_distribution(decided, _view.lower())
         return
@@ -1070,19 +1073,9 @@ def run() -> None:
             "decided games; nothing is fabricated in the meantime."
         )
     else:
-        # The Distribution view toggle rides the TABS ROW (2026-10-16): the
-        # tab strip takes the wide column, the radio the narrow right one,
-        # so the control sits inline with the tab headers instead of below
-        # them.
-        _tab_row = st.columns([6, 3])
-        with _tab_row[0]:
-            _tabs = st.tabs(DIAG_TABS)
-        with _tab_row[1]:
-            _dist_view = st.radio("Distribution view",
-                                  ("Total", "Spread", "Home", "Away"),
-                                  horizontal=True, key="nfl_dist_view")
+        _tabs = st.tabs(DIAG_TABS)
         with _tabs[0]:
-            _render_distribution_tab(decided, _dist_view)
+            _render_distribution_tab(decided)
         with _tabs[1]:
             _render_relativized_tab(decided)
         with _tabs[2]:
