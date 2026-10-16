@@ -213,10 +213,17 @@ LATTICE_RELIEF = {("nba", "margin"): {"boost": LATTICE_RELIEF_BOOST,
 # boost 2/3/5 — fails the held-out bar (gate z 2.37..2.76 < 3.0), so
 # registering ("nba", "totals") would only REVOKE the admitted shallow fit
 # (gate 3.077). Remaining totals teeth sit within band multiplicity (3 of
-# 101 plotted bins outside 95% vs ~5 expected); the >=270 tail deficit
-# (obs 0.0258 vs 0.0183, persistent across artifacts) belongs to the
-# variance/skew layer — the mass-proportional prior moves no tail mass by
-# design. No totals entry here is deliberate.
+# 101 plotted bins outside 95% vs ~5 expected). The >=270 tail deficit
+# (honest authority P(total>=270): obs 0.0242 vs modeled 0.0162, z +3.74)
+# was A/B-tested on the variance/skew layer and REJECTED there too
+# (2026-10-16, doc A7): skew boost +0.03..+0.25 moves the tail
+# monotonically with zero collateral but the CRPS map absorbs it - even
+# ~10x the fitted skew lands z +2.01, still outside band; symmetric scale
+# x1.10 has margin collateral and opens a new tooth. It is a family-shape
+# limit (Gaussian right tail decays too fast), fixable only by a
+# heavier-tailed component under separate preregistration. The
+# mass-proportional prior moves no tail mass by design. No totals entry
+# here is deliberate.
 
 # Pre-registered structural mechanisms (2026-10-16). A structural parameter
 # is rule-derived with a DIRECTIONAL prior declared here BEFORE any fitting:

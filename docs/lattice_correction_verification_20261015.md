@@ -403,3 +403,44 @@ own gate, not totals leakage (plus the inert-spec byte-identity test in
   schema expansion it covered (the replacement pins the grid contract).
 - `test_distribution_objective_parity.py` untouched and passing (NHL
   `parity_correct` byte-stable — the structural half is unchanged math).
+
+## A7. NBA >=270 totals-tail deficit — variance/skew A/B, REJECTED (2026-10-16)
+
+The A6 work measured a persistent right-tail totals deficit (honest boundary
+authority: P(total>=270) observed 0.0242 vs modeled 0.0162, z +3.74 over
+2,400 decided OOF games) and pointed at the variance/skew layer. That layer
+was A/B-tested under the causal walk (per-origin refit of every parameter,
+calibration map included) and BOTH arms are rejected:
+
+Skew arm (additive boost to the CRPS-fitted total_skew; obs 0.0242, honest
+p_over_270 metric):
+
+| boost | modeled | z | margin +/-1 z | band outside | admissions |
+|---|---|---|---|---|---|
+| 0 (baseline) | 0.01620 | +3.74 | -0.845/-1.37 | [181,197,273] | 48/56 |
+| +0.03 | 0.01710 | +3.30 | -0.845/-1.37 | unchanged | 48/56 |
+| +0.06 | 0.01799 | +2.89 | -0.845/-1.37 | unchanged | 49/56 |
+| +0.10 | 0.01871 | +2.58 | -0.845/-1.37 | unchanged | 49/56 |
+| +0.25 | 0.02008 | +2.01 | -0.845/-1.37 | unchanged | 49/56 |
+
+Collateral is spotless (margin columns byte-identical, no new band teeth,
+totals fit gate 3.003 -> 3.054, derived ML AUC/logloss unchanged) and the
+direction is monotone — but the response FLATTENS: the CRPS calibration
+map (body-weighted objective) absorbs most of the injected skew, so even
++0.25 (~10x the ~0.025 causal fit at origin) stays outside the band at
+z +2.01. In-band would require a hand constant of 12x+ fighting the
+causal fit at every origin — not a parameterization, an override.
+
+Variance arm (uniform side-scale x1.05/x1.10): weaker tail slope per unit
+collateral (z +2.40/+2.30), margin +/-1 drifts the WRONG way (-1.075,
+-1.199) and x1.10 opens a NEW band violation at 217. Dominated by the
+skew arm at every level.
+
+Verdict: the deficit is a FAMILY-SHAPE limitation of the two-piece
+Gaussian (right tail decays too fast), not a parameter misfit — no
+plausible setting of the existing layer's knobs reaches the band. The
+dashboard disclosure (observed 0.024 / modeled 0.016) stands; fixing the
+tail requires a heavier-tailed family component, which is a separate
+change needing its own preregistration and gates. Probes and logs:
+run_diagnostics/nba_tail_skew_ab.py/.log, nba_tail_variance_ab.log,
+nba_tail_skew_ceiling_honest.log (untracked).
