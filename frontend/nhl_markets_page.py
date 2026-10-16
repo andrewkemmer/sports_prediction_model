@@ -790,6 +790,25 @@ def _render_fit_panel(fit: dict) -> None:
         f"{(fit.get('monte_carlo') or {}).get('n_draws', '—')} draws, seed "
         f"{(fit.get('monte_carlo') or {}).get('seed', '—')}."
     )
+    # Integer-lattice correction disclosure (mirrors the NFL fit panel):
+    # generic residual gate verdicts per target, plus the pre-registered
+    # structural bar/mechanism when a correction admitted through it.
+    # Absent keys = pre-lattice artifact (renders nothing, as before).
+    lattice_bits = []
+    for target, label in (("totals", "totals"), ("margin", "margin")):
+        spec = (fit.get("lattice") or {}).get(target) or {}
+        if spec.get("significant"):
+            bit = (f"{label} δ L1 {_fmt(spec.get('delta_l1'), 4)} "
+                   f"(held-out z {_fmt(spec.get('gate_z'), 2)})")
+            if spec.get("structural"):
+                bit += (" [pre-registered structural bar "
+                        f"{spec.get('bar')}: {spec.get('mechanism')}] ".rstrip())
+            lattice_bits.append(bit)
+        elif spec.get("reason"):
+            lattice_bits.append(f"{label} δ not admitted ({spec['reason']})")
+    if lattice_bits:
+        st.caption("Lattice correction (integer-bin low-pass fix; totals and "
+                   "margin fit independently): " + "; ".join(lattice_bits) + ".")
 
 
 
