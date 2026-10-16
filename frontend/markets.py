@@ -151,18 +151,16 @@ if decided.empty:
         "decided games; nothing is fabricated in the meantime."
     )
 else:
-    # The Distribution view toggle rides the TABS ROW (2026-10-16): the tab
-    # strip takes the wide column and the radio the narrow right one, so
-    # the control sits inline with the tab headers instead of below them.
-    _tab_row = st.columns([6, 3])
-    with _tab_row[0]:
-        _tabs = st.tabs(diag.DIAG_TABS)
-    with _tab_row[1]:
+    _tabs = st.tabs(diag.DIAG_TABS)
+
+    with _tabs[0]:   # 1 — totals / spread / per-side distribution fit-check
+        # The Distribution view radio sits below the tab headers at FULL
+        # width (2026-10-16: an inline tabs-row placement squeezed the
+        # charts into a narrower column — reverted; the toggle itself
+        # stays Total / Spread / Home / Away).
         _dist_view = st.radio("Distribution view",
                               ("Total", "Spread", "Home", "Away"),
                               horizontal=True, key="mlb_dist_view")
-
-    with _tabs[0]:   # 1 — totals / spread / per-side distribution fit-check
         if _dist_view in ("Home", "Away"):
             # Home / Away (2026-10-16): the per-side scoring law — final
             # home-team (or away-team) runs per decided game. Observed
