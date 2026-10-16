@@ -542,6 +542,92 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
                                   "not refitted.")}}
 
 
+def team_score_distribution(decided: pd.DataFrame, side: str = "home",
+                            kmax: int = 15) -> dict[str, Any]:
+    """Observed per-side scoring distribution — the home/away score law.
+
+    Added 2026-10-16 for the Distribution view's Home / Away toggles. The
+    artifact ships the totals PMF (``p_push_<k>``) and the margin PMF
+    (``p_rl_<m>_push``) ONLY: there is no per-team score PMF to plot, so
+    ``modeled`` / ``modeled_grid`` are all-gap (NaN) and the callout note
+    says so explicitly. Observed finals only — the modeled line, the
+    noise band and the tail authorities are UNAVAILABLE here and are
+    never derived or refitted from a substitute family (the same
+    no-fabrication rule the totals and margin views follow). The grid
+    spans every side score that actually settled: it anchors at 0 when a
+    blank/near-blank side (0–2 runs/goals) is real mass (extended to at
+    least ``kmax``), and a sport whose sides never approach 0 starts at
+    its lowest settled score instead — never padded with empty leading
+    bins, never dropping a blowout top score.
+    """
+    if side not in ("home", "away"):
+        raise ValueError(f"side must be 'home' or 'away', got {side!r}")
+    col = f"{side}_score"
+    other_col = f"{'away' if side == 'home' else 'home'}_score"
+    empty = {"ks": list(range(kmax + 1)), "observed": [], "modeled": [],
+             "modeled_grid": [], "callouts": {}, "n_games": 0,
+             "warning": "No decided games with outcomes in the artifact."}
+    if not len(decided) or col not in decided.columns:
+        if len(decided) and col not in decided.columns:
+            empty["warning"] = f"Missing score column (need {col})."
+        return empty
+    if other_col not in decided.columns:
+        empty["warning"] = f"Missing score column (need {other_col})."
+        return empty
+    scores = pd.to_numeric(decided[col], errors="coerce")
+    keep = scores.notna()
+    scores = scores[keep]
+    opp = pd.to_numeric(decided.loc[keep, other_col], errors="coerce")
+    if not len(scores):
+        return empty
+    vals = scores.to_numpy(float)
+    if not np.isfinite(vals).any():
+        return empty
+    # The grid spans every side score that actually settled. A blank or
+    # near-blank side (0–2 runs/goals) is real mass, so the span anchors
+    # at 0 there; a sport whose sides never approach 0 (NBA point totals)
+    # is not padded with dozens of empty leading bins — the span starts at
+    # the lowest score that settled instead.
+    lo = (0 if float(np.nanmin(vals)) <= 2
+          else int(np.floor(float(np.nanmin(vals)))))
+    hi = int(np.ceil(float(np.nanmax(vals))))
+    if hi - lo < 3:
+        hi = lo + 3
+    if lo == 0:
+        hi = max(hi, kmax)
+    ks = np.arange(lo, hi + 1)
+    observed = np.array([(vals == k).mean() for k in ks])
+    opp_vals = opp.to_numpy(float)
+    # Observed win share for the side (a tied NFL/NHL final is a win for
+    # neither side: it falls out of the numerator but keeps its denominator
+    # slot, so home + away win shares can sum to < 1).
+    both = np.isfinite(vals) & np.isfinite(opp_vals)
+    win_rate = float((vals[both] > opp_vals[both]).mean()) if both.any() else None
+    nan_line = [float("nan")] * len(ks)
+    return {
+        "ks": ks.tolist(),
+        "observed": [round(float(v), 5) for v in observed],
+        "modeled": nan_line,
+        "modeled_grid": list(nan_line),
+        "callouts": {
+            "mean": {"observed": round(float(vals.mean()), 3),
+                     "modeled": None},
+            f"P({side} == 0)": {"observed": round(float((vals == 0).mean()), 4),
+                                "modeled": None},
+            f"P({side} wins)": {"observed": (round(win_rate, 4)
+                                              if win_rate is not None else None),
+                                "modeled": None},
+            "note": ("Observed finals only: the artifact ships the totals "
+                     "and margin push PMFs and never a per-team score PMF, "
+                     "so the modeled line, band and tail authorities are "
+                     "unavailable here — never derived or refitted from "
+                     "another push namespace."),
+        },
+        "n_games": int(len(vals)),
+        "warning": None,
+    }
+
+
 def _logit(p: np.ndarray | float) -> np.ndarray | float:
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     out = np.log(p / (1 - p))

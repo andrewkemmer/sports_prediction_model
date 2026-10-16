@@ -145,6 +145,20 @@ def skeleton(app) -> list[str]:
 
 
 def render(sport: str) -> list[str]:
+    """Render one sport's page file AS ITS OWN SCRIPT (2026-10-16 note).
+
+    Each sport's page is a real page entry: markets.py dispatches at module
+    scope on the session sport, and the three challenger pages end with
+    ``if __name__ == "__main__": run()`` — ``AppTest.from_file`` runs the
+    file as ``__main__``, so the page body EXECUTES down its own path and
+    the skeleton is the real element tree. Never ``exec`` a page source
+    into harness globals instead: a function-defining module would only
+    DEFINE ``run()`` and never render (returning an empty tree whose
+    skeleton then "passes" every structural check), and harness names
+    (``ast``, ``os``, ``re`` …) would leak into page code — an ``ast``
+    reference inside a page would then resolve at harness level instead
+    of failing loudly.
+    """
     from streamlit.testing.v1 import AppTest
     import streamlit as st
     st.cache_data.clear()

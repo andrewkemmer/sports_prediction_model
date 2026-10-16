@@ -48,7 +48,9 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 boundary_mean, calibration_curve,
                                 chart_calibration, chart_distribution,
-                                chart_game_total_curve, shipped_total_pmf)
+                                chart_game_total_curve,
+                                shipped_total_pmf,
+                                team_score_distribution)
 
 # Integer-support grids (mirror of the slate engine's TOTAL_INT_LINES /
 # SPREAD_INT_LINES + the extended SPREAD_COVER_MAGS — the artifact's own

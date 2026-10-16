@@ -78,10 +78,54 @@ def _decided_rows(frame):
 # --- Diagnostics tabs (the same five as MLB, same renderers) ---------------
 
 
+def _render_team_score_distribution(decided, side):
+    """Distribution view — Home / Away: the per-side scoring law (points).
+
+    Observed finals only (2026-10-16): the artifact ships totals and
+    margin push PMFs, never a per-team score PMF, so the modeled line and
+    noise band are unavailable here (NaN gaps) — never derived or refitted
+    from a substitute family, same no-fabrication rule as Total/Spread.
+    """
+    tdist = nd.team_score_distribution(decided, side)
+    if tdist["warning"]:
+        st.warning(tdist["warning"])
+        return
+    label = "Home" if side == "home" else "Away"
+    utils.show_chart(nd.chart_distribution(
+        tdist,
+        x_title=f"{label} team points scored",
+        y_title=f"P({side} points = k)"))
+    c = tdist["callouts"]
+
+    def _f(v, spec=".3f"):
+        return "--" if v is None else format(v, spec)
+    st.caption(
+        f"Observed bars = final {label.lower()}-team points per decided "
+        f"game over {tdist['n_games']:,} decided games · mean "
+        f"{c['mean']['observed']:.1f} pts · "
+        f"P({side} = 0 pts): {_f(c[f'P({side} == 0)']['observed'])} · "
+        f"P({side} wins): {_f(c[f'P({side} wins)']['observed'])}. "
+        "This is the per-side scoring law. The artifact ships totals and "
+        "margin push PMFs only — no per-team score PMF — so the modeled "
+        "line, band and tail authorities are unavailable here and are "
+        "never derived or refitted from another family. Compare with the "
+        "Total and Spread views."
+    )
+
+
 def _render_distribution_tab(decided):
-    """Tab 1 — observed bars vs modeled mean marginal, with tail callouts."""
-    _view = st.radio("Distribution view", ("Total", "Spread"),
+    """Tab 1 — observed bars vs modeled mean marginal, with tail callouts.
+
+    The Distribution view toggles Total / Spread / Home / Away (2026-10-16):
+    Home and Away show the per-side scoring law (points scored by the home
+    or the away team) over the same decided rows.
+    """
+    _view = st.radio("Distribution view",
+                     ("Total", "Spread", "Home", "Away"),
                      horizontal=True, key="nba_dist_view")
+    if _view in ("Home", "Away"):
+        _render_team_score_distribution(decided, _view.lower())
+        return
     if _view == "Spread":
         sdist = nd.spread_distribution(decided)
         if sdist["warning"]:

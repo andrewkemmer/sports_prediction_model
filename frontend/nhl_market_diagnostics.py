@@ -54,7 +54,9 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 boundary_mean, calibration_curve,
                                 chart_calibration, chart_distribution,
-                                chart_game_total_curve, shipped_total_pmf)
+                                chart_game_total_curve,
+                                shipped_total_pmf,
+                                team_score_distribution)
 
 # Integer-support grids (mirror of config.SPREAD_GRID / config.TOTAL_GRID —
 # the artifact's own column families; NHL-sized, NOT the NFL ranges).

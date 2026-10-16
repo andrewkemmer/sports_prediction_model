@@ -20,8 +20,8 @@ REPO_ROOT = FRONTEND_DIR.parent
 if str(FRONTEND_DIR) not in sys.path:
     sys.path.insert(0, str(FRONTEND_DIR))
 
-import utils  # noqa: E402
 import nhl_slate_view as nsv  # noqa: E402
+import utils  # noqa: E402
 
 NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 DATE = "20990101"
@@ -80,6 +80,7 @@ def test_card_spans_quote_the_2way_push_folded_basis_with_a_push_note():
     html = nsv.runengine_html(row, "CAR", "FLA", total_line=5.0,
                               home_spread=-1.0)
     import re as _re
+
     # O/U: 2-way over = 0.42/(0.42+0.35) = 54.5% -> 55%; under = 45%.
     m_ou = _re.search(r"O/U 5: Over (\d+)% / Under (\d+)%", html)
     assert m_ou, html
@@ -308,6 +309,7 @@ def test_nhl_missing_current_slate_renders_the_newest_board_with_no_notice(
 
 def test_shipped_total_pmf_never_reads_the_margin_push_family():
     import numpy as np
+
     import market_diagnostics as diag
 
     frame = pd.DataFrame({
@@ -453,6 +455,7 @@ def test_distribution_noise_band_math_gaps_and_spec():
     line: per-bin p-hat ± 1.96·SE over the plotted game count; NaN-gap
     bins (unshipped mass) carry no band; the chart layers area+bar+line."""
     import numpy as np
+
     import market_diagnostics as diag
 
     dist = {"ks": [4, 5, 6], "observed": [0.2, 0.5, 0.3],
@@ -480,6 +483,7 @@ def test_nfl_nhl_spread_dicts_feed_the_shared_noise_band():
     spread dicts (NaN gaps outside the shipped push family) must produce a
     band with rows exactly at the shipped bins, and an area+bar+line spec."""
     import numpy as np
+
     import market_diagnostics as diag
     import nfl_market_diagnostics as nfl
     import nhl_market_diagnostics as nhl
@@ -623,6 +627,7 @@ def test_nfl_slate_gate_resolves_the_totals_push_namespace():
     every post-split NFL artifact unusable — while still preferring the
     canonical column over a legacy dup that rides the same rows."""
     import pandas as pd
+
     import utils
 
     def frame(totals_push: str | None) -> pd.DataFrame:
@@ -718,3 +723,71 @@ def test_nfl_spread_reads_the_push_extension_to_the_blowout_tails():
     dup_dist = nd.spread_distribution(dup)
     assert dup_dist["modeled"][dup_dist["ks"].index(25)] != \
         dup_dist["modeled"][dup_dist["ks"].index(25)]  # NaN: dup unread
+
+
+# ---------------------------------------------------------------------------
+# Home / Away distribution toggles (2026-10-16): the per-side scoring law.
+#
+# The Distribution view now toggles Total / Spread / Home / Away on all
+# four sports. The Home / Away views plot OBSERVED per-side finals only:
+# the artifacts ship totals and margin push PMFs and never a per-team
+# score PMF, so the modeled line stays all-gap (NaN) and the callout note
+# discloses it — never derived or refitted from another family (the same
+# no-fabrication rule the totals/margin views follow).
+# ---------------------------------------------------------------------------
+
+def test_team_score_distribution_is_observed_only_and_never_refits():
+    import market_diagnostics as diag
+
+    frame = pd.DataFrame({
+        "home_score": [5, 0, 3, 9],
+        "away_score": [2, 4, 3, 1],
+    })
+    dist = diag.team_score_distribution(frame, "home")
+    assert dist["warning"] is None
+    # A blank home side (0 runs) is real mass, so the span anchors at 0;
+    # the kmax floor (15) keeps the totals-view span shape.
+    assert dist["ks"][0] == 0 and dist["ks"][-1] == 15
+    assert dist["observed"][0] == pytest.approx(0.25)   # one 0-run home side
+    assert dist["observed"][5] == pytest.approx(0.25)
+    assert dist["observed"][9] == pytest.approx(0.25)
+    assert all(v != v for v in dist["modeled"])         # all gaps, never borrowed
+    c = dist["callouts"]
+    assert c["mean"]["observed"] == pytest.approx(4.25)  # (5+0+3+9)/4
+    assert c["P(home == 0)"]["observed"] == pytest.approx(0.25)
+    # margins are +3, -4, 0, +8 -> home wins 2 of 4 (the tie is no win)
+    assert c["P(home wins)"]["observed"] == pytest.approx(0.5)
+    assert c["mean"]["modeled"] is None
+    assert "never derived or refitted" in c["note"]
+    away = diag.team_score_distribution(frame, "away")
+    assert away["callouts"]["P(away wins)"]["observed"] == pytest.approx(0.25)
+    # A missing score column warns loudly, never fabricates.
+    bare = pd.DataFrame({"home_score": [5, 0]})
+    assert "away_score" in diag.team_score_distribution(bare, "home")["warning"]
+    with pytest.raises(ValueError):
+        diag.team_score_distribution(frame, "total")
+
+
+def test_team_score_distribution_grid_spans_the_settled_scores():
+    """The Home/Away grid spans every side score that actually settled —
+    and does NOT pad leading zeros when a sport's sides never approach 0
+    (NHL goals 3..6 start at 3, the NBA points span starts at its floor).
+    NFL/NHL re-export MLB's helper, so the behavior is shared."""
+    import nfl_market_diagnostics as nfl
+    import nhl_market_diagnostics as nhl
+
+    frame = pd.DataFrame({"home_score": [3, 4, 6], "away_score": [3, 4, 4]})
+    for mod in (nhl, nfl):
+        home = mod.team_score_distribution(frame, "home")
+        assert home["warning"] is None
+        assert home["ks"] == [3, 4, 5, 6], mod.__name__
+        assert home["observed"][home["ks"].index(6)] == \
+            pytest.approx(1 / 3, abs=1e-5)   # series rounds to 5 decimals
+        # tied finals (3-3, 4-4) count as a win for neither side
+        assert home["callouts"]["P(home wins)"]["observed"] == \
+            pytest.approx(1 / 3, abs=1e-4)   # callouts round to 4
+        away = mod.team_score_distribution(frame, "away")
+        assert away["callouts"]["P(away wins)"]["observed"] == pytest.approx(0.0)
+        # every modeled bin is a gap — no totals/margin mass is ever
+        # borrowed to fabricate a per-team PMF line.
+        assert all(v != v for v in home["modeled"])

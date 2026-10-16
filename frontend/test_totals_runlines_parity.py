@@ -62,19 +62,77 @@ def test_rolling_ece_history_panel_renders_with_rows(rendered):
             f"{sport}: rolling history table did not render rows"
 
 
+def _cal_note_expression(source: str, page: str):
+    """Compile the page's real ``_cal_note`` value expression.
+
+    The note lives on the page's PRIMARY render path: the first top-level
+    ``def run()`` for the challenger pages (nba/nhl/nfl — markets.py's
+    module-scope dispatch calls exactly that), or, for MLB's markets.py
+    (module-scope page, no ``run()``), its top-level module body. An
+    unrestricted ``ast.walk`` of the whole file could bind an assignment
+    from an unrelated helper instead: NBA defines a module-level
+    ``def _cal_note(monitor)`` whose BODY's assignment reads ``fit`` — not
+    ``monitor`` — so evaluating it with the monitor fixture raised
+    NameError, and under ``pytest -x`` that teardown crash aborted the
+    run before the real assertion ran.
+    """
+    tree = ast.parse(source)
+    run_fn = next((n for n in tree.body
+                   if isinstance(n, ast.FunctionDef) and n.name == "run"), None)
+    if run_fn is not None:
+        nodes = [n for n in ast.walk(run_fn) if isinstance(n, ast.Assign)]
+    else:
+        # Module-scope page (markets.py): every assignment on the module's
+        # own execution path — including ones nested in if/else branches
+        # (the diagnostics section is an else-block) — but NEVER inside a
+        # def/class (the NBA ``def _cal_note`` trap).
+        def _module_assignments(stmts):
+            found = []
+            for stmt in stmts:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef)):
+                    continue
+                if isinstance(stmt, ast.Assign):
+                    found.append(stmt)
+                found.extend(_module_assignments(                    list(getattr(stmt, "body", []))
+                    + list(getattr(stmt, "orelse", []))
+                    + list(getattr(stmt, "finalbody", []))))
+            return found
+        nodes = _module_assignments(tree.body)
+    node = next((n for n in nodes
+                 if any(isinstance(t, ast.Name) and t.id == "_cal_note"
+                        for t in n.targets)), None)
+    assert node is not None, \
+        f"{page}: no _cal_note assignment on the primary render path"
+    return compile(ast.Expression(node.value), "<history-note>", "eval")
+
+
 @pytest.mark.parametrize("sport", ["nfl", "nhl"])
 def test_history_note_identifies_issued_challenger_prices(sport):
     # Execute the page's real note assignment without fetching stale artifacts.
     source = (ctd.FRONTEND / ctd.PAGE_FILE[sport]).read_text(encoding="utf-8")
-    node = next(n for n in ast.walk(ast.parse(source))
-                if isinstance(n, ast.Assign)
-                and any(isinstance(t, ast.Name) and t.id == "_cal_note" for t in n.targets))
-    expression = compile(ast.Expression(node.value), "<history-note>", "eval")
+    expression = _cal_note_expression(source, sport)
     monitor = {"fit": {"family": "two_sided_asymmetric_gaussian_split_skew"}}
     note = eval(expression, {"monitor": monitor})
     assert "whole-CDF-calibrated" in note and "Monte Carlo" in note
     assert "RAW" not in note and "Platt" not in note
     assert "predates" in eval(expression, {"monitor": {}})
+
+
+def test_history_note_extractor_binds_mlbs_module_scope_reference():
+    """markets.py renders at module scope (no ``run()``): the extractor must
+    bind its top-level ``_cal_note`` assignment — the one calling
+    ``_market_prob_note`` — and never wander into a helper def the way an
+    unrestricted tree walk could."""
+    source = (ctd.FRONTEND / "markets.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assert not [n for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "run"], \
+        "markets.py is the module-scope reference page (no run())"
+    expression = _cal_note_expression(source, "mlb")
+    # The module-scope assignment is ``_market_prob_note(date_str)``: the
+    # compiled expression can only name the note function + its date arg.
+    assert expression.co_names == ("_market_prob_note", "date_str")
 
 
 def test_mlb_probability_note_reads_challenger_family_metadata():
@@ -93,3 +151,15 @@ def test_mlb_probability_note_reads_challenger_family_metadata():
     assert "RAW" not in note and "Platt" not in note
     meta.clear()
     assert "predates" in namespace["_market_prob_note"]("20261012")
+
+
+def test_distribution_view_toggles_home_and_away_on_every_sport(rendered):
+    """2026-10-16: the Distribution view toggles Total / Spread / Home /
+    Away on ALL FOUR sports — Home and Away render the per-side scoring
+    law (home/away runs, points or goals) next to totals and spreads."""
+    for sport in SPORTS:
+        radios = [l for l in rendered[sport]
+                  if l.startswith("radio") and "Distribution view" in l]
+        assert radios, f"{sport}: no Distribution view radio rendered"
+        assert all("opts=['Total', 'Spread', 'Home', 'Away']" in l
+                   for l in radios), f"{sport}: {radios}"

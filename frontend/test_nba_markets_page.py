@@ -209,8 +209,9 @@ def test_history_table_renders_half_step_lines_and_fifty_plus_odds():
     """The rendered cells, not just the frame: O/U 225.5 and a pick cell
     whose percentage reads >= 50% at one decimal (a whole percent would
     round every NBA pick to exactly 50%)."""
-    from streamlit.testing.v1 import AppTest
     import datetime as dt
+
+    from streamlit.testing.v1 import AppTest
     frame = _ladder_frame()
     # repr() of a NaN column would inject a bare `nan` name into the
     # generated script — hand it None instead.
@@ -324,8 +325,9 @@ def test_run_line_pushes_only_at_whole_thresholds():
 def test_run_line_history_table_renders_half_step_lines():
     """The rendered cells, not just the frame: ±4.5 in the line cell and a
     one-decimal percentage ≥ 50% in the pick cell."""
-    from streamlit.testing.v1 import AppTest
     import datetime as dt
+
+    from streamlit.testing.v1 import AppTest
     frame = _spread_ladder_frame()
     payload = {col: [None if isinstance(v, float) and pd.isna(v) else v
                      for v in values]
@@ -885,3 +887,53 @@ def test_nba_distribution_chart_shades_noise_band():
     assert band["hi"].iloc[0] == pytest.approx(0.28 + 1.96 * se)
     spec = json.loads(nd.chart_distribution(dist).to_json())
     assert [layer["mark"]["type"] for layer in spec["layer"]] == ["area", "bar", "line"]
+
+
+# ---------------------------------------------------------------------------
+# Home / Away distribution toggles (2026-10-16): the per-side points law.
+#
+# The Distribution view now toggles Total / Spread / Home / Away. The Home
+# and Away views plot OBSERVED per-side finals only: the NBA artifact ships
+# the totals PMF (p_push_total_<k>) and the margin PMF (p_push_<±L>) and
+# never a per-team score PMF, so the modeled line stays all-gap (NaN) and
+# the callout note discloses it — never derived or refitted from another
+# family (the no-fabrication rule the totals/margin views already follow).
+# ---------------------------------------------------------------------------
+
+def test_team_score_distribution_is_observed_only_and_never_refits():
+    dist = nd.team_score_distribution(SIMPLE, "home")
+    assert dist["warning"] is None
+    # Home points settle 105..120 — the span starts at the lowest points
+    # total that settled (NBA sides never approach 0: no 0..104 padding).
+    assert dist["ks"][0] == 105 and dist["ks"][-1] == 120
+    assert dist["observed"][120 - 105] == pytest.approx(0.25)
+    assert all(v != v for v in dist["modeled"])          # all gaps, never borrowed
+    c = dist["callouts"]
+    assert c["mean"]["observed"] == pytest.approx(113.0)  # (120+105+112+115)/4
+    assert c["P(home == 0)"]["observed"] == pytest.approx(0.0)
+    # margins are +10, 0, -1, +2 -> home wins 2 of 4 (the tie is no win)
+    assert c["P(home wins)"]["observed"] == pytest.approx(0.5)
+    assert c["mean"]["modeled"] is None
+    assert "never derived or refitted" in c["note"]
+    # The Away toggle flips the side: away points settle 105..113.
+    away = nd.team_score_distribution(SIMPLE, "away")
+    assert away["ks"][0] == 105 and away["ks"][-1] == 113
+    assert away["callouts"]["P(away wins)"]["observed"] == pytest.approx(0.25)
+    # A missing score column warns loudly, never fabricates.
+    bare = pd.DataFrame({"home_score": [110, 100]})
+    assert "away_score" in nd.team_score_distribution(bare, "home")["warning"]
+    with pytest.raises(ValueError):
+        nd.team_score_distribution(SIMPLE, "margin")
+
+
+def test_team_score_distribution_renders_through_the_chart_grammar():
+    """The all-NaN modeled line must layer cleanly (bars only, no band)
+    so the Home/Away chart renders exactly like the Total/Spread charts."""
+    import json
+
+    dist = nd.team_score_distribution(SIMPLE, "away")
+    spec = json.loads(nd.chart_distribution(
+        dist, x_title="Away team points scored",
+        y_title="P(away points = k)").to_json())
+    assert [layer["mark"]["type"] for layer in spec["layer"]] == ["bar", "line"]
+    assert nd.distribution_noise_band(dist).empty   # no modeled line, no band

@@ -153,10 +153,43 @@ if decided.empty:
 else:
     _tabs = st.tabs(diag.DIAG_TABS)
 
-    with _tabs[0]:   # 1 — totals / spread distribution fit-check
-        _dist_view = st.radio("Distribution view", ("Total", "Spread"),
+    with _tabs[0]:   # 1 — totals / spread / per-side distribution fit-check
+        _dist_view = st.radio("Distribution view",
+                              ("Total", "Spread", "Home", "Away"),
                               horizontal=True, key="mlb_dist_view")
-        if _dist_view == "Spread":
+        if _dist_view in ("Home", "Away"):
+            # Home / Away (2026-10-16): the per-side scoring law — final
+            # home-team (or away-team) runs per decided game. Observed
+            # finals only: the artifact ships totals and margin push PMFs,
+            # never a per-team score PMF, so the modeled line / band are
+            # unavailable here (NaN gaps) — never derived or refitted.
+            _side = _dist_view.lower()
+            tdist = diag.team_score_distribution(decided, _side)
+            if tdist["warning"]:
+                st.warning(tdist["warning"])
+            else:
+                utils.show_chart(diag.chart_distribution(
+                    tdist,
+                    x_title=f"{'Home' if _side == 'home' else 'Away'} runs scored",
+                    y_title=f"P({_side} runs = k)"))
+                _tc = tdist["callouts"]
+
+                def _tf(v, spec=".3f"):
+                    return "--" if v is None else format(v, spec)
+                st.caption(
+                    f"Observed bars = final {_side}-team runs per decided "
+                    f"game over {tdist['n_games']:,} decided games · mean "
+                    f"{_tc['mean']['observed']:.2f} runs · "
+                    f"P({_side} = 0 runs): {_tf(_tc[f'P({_side} == 0)']['observed'])} · "
+                    f"P({_side} wins): {_tf(_tc[f'P({_side} wins)']['observed'])}. "
+                    "This is the per-side scoring law. The artifact ships "
+                    "totals and margin push PMFs only — no per-team score "
+                    "PMF — so the modeled line, band and tail authorities "
+                    "are unavailable here and are never derived or refitted "
+                    "from another family. Compare with the Total and Spread "
+                    "views."
+                )
+        elif _dist_view == "Spread":
             sdist = diag.spread_distribution(decided)
             if sdist["warning"]:
                 st.warning(sdist["warning"])
