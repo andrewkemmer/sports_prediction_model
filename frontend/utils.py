@@ -2005,8 +2005,17 @@ def _run_engine_grid_usable(frame: pd.DataFrame, sport_key: str) -> bool:
                 label = f"m{-line}" if line < 0 else str(line)
                 required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
             for line in range(24, 67):
-                required.extend([f"p_over_{line}", f"p_under_{line}",
-                                 f"p_push_{line}"])
+                # Totals pushes ride the totals namespace. Requiring the
+                # legacy ``p_push_<U>`` name here marked every post-split NFL
+                # artifact unusable (the writer stopped shipping
+                # p_push_31..66), and on the +24..+30 overlap that shared
+                # name is the MARGIN family's. Resolve the canonical name
+                # whenever the artifact ships it filled; keep the legacy dup
+                # as the pre-split vintage alias.
+                push = f"p_push_total_{line}"
+                if push not in slate.columns or slate[push].isna().all():
+                    push = f"p_push_{line}"
+                required.extend([f"p_over_{line}", f"p_under_{line}", push])
         return bool(len(slate)
                     and all(c in slate.columns for c in required)
                     and not slate[required].isna().any().any())

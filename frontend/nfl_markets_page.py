@@ -205,7 +205,7 @@ def _render_distribution_tab(decided: pd.DataFrame) -> None:
         st.caption(
             f"Observed margins vs mean shipped split-skew Gaussian Monte Carlo margin mass over "
             f"{sdist['n_games']:,} games; no smoothing or refit. The modeled line reads the "
-            f"artifact's own p_push_<±L> columns (traded ±14 plus the push-only extension over −30..+23; the +24..+30 bins are the totals grid's own names, so they stay gaps) — mass is never borrowed from another push namespace; "
+            f"artifact's own p_push_<±L> columns (traded ±14 plus the push-only extension over −30..+30; the +24..+30 bins share a name with totals lines, whose own push is read from p_push_total_<U>, so a totals read can never answer with margin mass) — mass is never borrowed from another push namespace; "
             f"the ±10 tail callouts use the exact shipped cover+push composites "
             f"(P(≥10) = p_home_cover_10 + p_push_10; P(≤−10) = 1 − p_home_cover_m10 — full support, never refitted); "
             f"P(margin≤−10): observed {sc['P(margin<=-10)']['observed']:.3f} / modeled {_sm('P(margin<=-10)')} · "

@@ -356,6 +356,10 @@ def _run_engine_rows() -> pd.DataFrame:
     for line in range(24, 67):
         grid[f"p_over_{line}"] = 0.48
         grid[f"p_under_{line}"] = 0.48
+        # Totals pushes ride the totals namespace (the artifact's own
+        # contract); the legacy p_push_<line> dup rides along so the fixture
+        # also proves the gate's canonical preference.
+        grid[f"p_push_total_{line}"] = 0.04
         grid[f"p_push_{line}"] = 0.04
     base = {
         "gameday": _YDAY.isoformat(), "season": 2026, "week": 5,
@@ -434,7 +438,10 @@ def _fold_checks() -> list[str]:
     problems: list[str] = []
     base = {
         "mu_h": 28.8, "mu_a": 18.3, "fair_total": 46.0, "fair_spread": 10.0,
-        "p_over_46": 0.49, "p_under_46": 0.47, "p_push_46": 0.04,
+        # The totals push rides the TOTALS namespace (p_push_total_<U>): the
+        # shared p_push_<U> name is the margin family's on the 24..30
+        # overlap, so a totals line must never resolve it.
+        "p_over_46": 0.49, "p_under_46": 0.47, "p_push_total_46": 0.04,
         "p_home_cover_10": 0.52, "p_push_10": 0.03,
         "p_home_cover_0": 0.45, "p_push_0": 0.10,
         "p_home_win_derived": 0.50, "p_away_win_derived": 0.50,

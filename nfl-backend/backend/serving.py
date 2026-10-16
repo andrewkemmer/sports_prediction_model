@@ -528,9 +528,10 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         cols += [f"p_over_{label}", f"p_under_{label}", f"p_push_total_{label}"]
     cols += [f"p_push_total_{U}" for U in config.TOTAL_GRID]
     # Diagnostic margin-push extension (config.MARGIN_PUSH_EXTENSION):
-    # push-only mass over -30..+23, persisted like the traded pushes. The
-    # positive arm stops below TOTAL_GRID[0] so no margin column can carry a
-    # totals line's legacy name (see config).
+    # push-only mass over -30..+30, persisted like the traded pushes.
+    # p_push_24..30 therefore ship ALONGSIDE the totals family's own
+    # p_push_total_<U> columns — two namespaces, distinct meanings, and every
+    # totals read resolves the totals name first (see config).
     for k in config.MARGIN_PUSH_EXTENSION:
         cols.append(f"p_push_{f'm{-k}' if k < 0 else str(k)}")
     cols = list(dict.fromkeys(cols))

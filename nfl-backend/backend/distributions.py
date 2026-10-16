@@ -549,13 +549,14 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
                                    mass[:, idx])
         if kind == "margin" and DISTRIBUTION_SPORT == "nfl":
             # Diagnostic margin-push extension (2026-10-16, config.
-            # MARGIN_PUSH_EXTENSION): push-only mass over -30..+23 from the
+            # MARGIN_PUSH_EXTENSION): push-only mass over -30..+30 from the
             # SAME sampled CDF (never refitted) so the Distribution tab's
             # modeled line reaches the blowout tails. Push-only, like the
             # totals full-support PMF: no cover/away legs outside the market
-            # grid. The positive arm stops at +23 because +24..+30 are
-            # TOTAL_GRID lines whose push the artifact resolves as
-            # p_push_<U> — margin mass there would answer a totals read.
+            # grid. The positive arm overlaps TOTAL_GRID at +24..+30: that is
+            # MARGIN mass under the shared p_push_<L> name, safe because a
+            # totals line resolves its own p_push_total_<U> namespace first
+            # everywhere it is read (see config.MARGIN_PUSH_EXTENSION).
             # Additive setdefault: a future grid change that prices these
             # lines owns them instead.
             for k in config.MARGIN_PUSH_EXTENSION:

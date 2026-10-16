@@ -1003,7 +1003,9 @@ check("shipped integer totals PMF partitions the support",
 # namespace — the margin push namespace (p_push_<±L>) is margin-only, so no
 # totals mass can leak into margin reads. Since the 2026-10-16 margin-push
 # extension, p_push_24..30 are legitimate MARGIN mass (the extension's
-# overlap with the totals grid); only 31..66 would be a totals dup.
+# overlap with the totals grid); only 31..66 would be a totals dup. The
+# overlap is safe because every totals READ resolves p_push_total_<U>
+# first (the CSV contract below requires it for every totals line).
 check("writer emits no totals mass in the margin push namespace",
       not any(dist_mod._grid_key("p_push", U) in gd_
                  for U in config.TOTAL_GRID
@@ -1148,6 +1150,12 @@ check("markets CSV contract columns", need_mk.issubset(mk.columns),
 check("markets CSV ships no totals mass in the margin push namespace",
       not any(f"p_push_{U}" in mk.columns for U in config.TOTAL_GRID
                  if U not in config.MARGIN_PUSH_EXTENSION))
+check("margin-push extension overlap ships BOTH namespaces",
+      all(f"p_push_{U}" in mk.columns and f"p_push_total_{U}" in mk.columns
+          for U in config.MARGIN_PUSH_EXTENSION
+          if U in config.TOTAL_GRID),
+      "24..30 must carry the margin extension column AND the totals column, "
+      "so a totals read can never answer with margin mass")
 check("markets kind values", set(mk["kind"].unique()) <= {"oof", "slate"})
 # Full-support totals PMF publication (2026-10-14): the writer publishes the
 # emitter's off-grid integer PMF mass so the diagnostics distribution chart

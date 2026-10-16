@@ -656,16 +656,18 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
 
 def test_margin_push_extension_ships_push_only_mass_to_the_blowout_tails():
     """Diagnostic margin-push extension (2026-10-16): the traded ±14 push
-    legs plus push-only −30..+23 from the same sampled CDF — no cover/away
+    legs plus push-only −30..+30 from the same sampled CDF — no cover/away
     legs outside the grid, and the shipped mass stays a sub-probability
-    (the extension can only add shipped mass). The positive arm stops below
-    TOTAL_GRID[0]: +24..+30 are totals lines whose push a reader resolves
-    as ``p_push_<U>``, so margin mass must never occupy those names."""
+    (the extension can only add shipped mass). The positive arm overlaps
+    TOTAL_GRID at +24..+30 by design: those names carry MARGIN mass while a
+    totals line resolves its own ``p_push_total_<U>`` namespace (asserted
+    below), so the two families stay distinct columns."""
     import config
     assert config.MARGIN_PUSH_EXTENSION[0] == -30
-    assert config.MARGIN_PUSH_EXTENSION[-1] == 23
-    assert len(config.MARGIN_PUSH_EXTENSION) == 25
-    assert not set(config.MARGIN_PUSH_EXTENSION) & set(config.TOTAL_GRID)
+    assert config.MARGIN_PUSH_EXTENSION[-1] == 30
+    assert len(config.MARGIN_PUSH_EXTENSION) == 32   # 16 + 16 (both arms)
+    assert set(config.MARGIN_PUSH_EXTENSION) & set(config.TOTAL_GRID) == \
+        set(range(24, 31))
     frame = _walk_frame()
     priced, _ = dist.causal_distribution_frame(frame, n_draws=500)
     for k in config.MARGIN_PUSH_EXTENSION:
@@ -675,10 +677,17 @@ def test_margin_push_extension_ships_push_only_mass_to_the_blowout_tails():
         assert np.isfinite(vals).all() and (vals >= 0).all()
         assert dist._grid_key("p_home_cover", float(k)) not in priced.columns
         assert dist._grid_key("p_away_cover", float(k)) not in priced.columns
-    # Writer hygiene (test_production.py's gate, asserted at the source):
-    # no totals line may resolve under the margin push namespace.
+    # Writer hygiene (test_production.py's gate, asserted at the source): a
+    # totals line owns its namespace. Outside the extension's overlap the
+    # margin name must not exist at all; inside it BOTH columns ship and
+    # carry different families, so a totals read resolving
+    # ``p_push_total_<U>`` can never answer with margin mass.
     for U in config.TOTAL_GRID:
-        assert dist._grid_key("p_push", float(U)) not in priced.columns, U
+        if U in config.MARGIN_PUSH_EXTENSION:
+            assert dist._grid_key("p_push", float(U)) in priced.columns, U
+            assert dist._grid_key("p_push_total", float(U)) in priced.columns, U
+        else:
+            assert dist._grid_key("p_push", float(U)) not in priced.columns, U
     traded = [dist._grid_key("p_push", float(k)) for k in range(-14, 15)]
     ext = [dist._grid_key("p_push", float(k))
            for k in config.MARGIN_PUSH_EXTENSION]
@@ -701,6 +710,47 @@ def test_writer_persists_the_margin_push_extension(tmp_path):
     for k in config.MARGIN_PUSH_EXTENSION:
         label = f"m{-k}" if k < 0 else str(k)
         assert f"p_push_{label}" in out.columns, k
+def test_margin_push_extension_mirrors_the_frontend_list():
+    """The frontend keeps its own copy of the extension (the Distribution
+    tab's modeled span). A one-sided edit would either hide shipped bins or
+    plot bins the artifact never carries — the drift the shared-core guard
+    above catches for the walk, caught here for the extension itself."""
+    import ast
+    import config
+
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "frontend" / "nfl_market_diagnostics.py").read_text(
+        encoding="utf-8")
+    found = None
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "MARGIN_PUSH_EXTENSION"
+                for t in node.targets):
+            found = ast.get_source_segment(src, node)
+    assert found, "frontend copy of MARGIN_PUSH_EXTENSION not found"
+    assert " ".join(found.split()) == \
+        "MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 31)]", found
+
+
+def test_margin_push_extension_overlap_reads_the_totals_namespace():
+    """Over the +24..+30 overlap the artifact ships BOTH families: the
+    margin extension's push leg and the totals line's own push. The values
+    must differ (different sampled masses) and the totals family is the one
+    a totals read resolves — the mirror of the frontend's preference."""
+    import config
+    frame = _walk_frame()
+    priced, _ = dist.causal_distribution_frame(frame, n_draws=500)
+    seen_difference = False
+    for U in range(24, 31):
+        margin_p = priced[dist._grid_key("p_push", float(U))].to_numpy(float)
+        totals_p = priced[dist._grid_key("p_push_total", float(U))].to_numpy(float)
+        assert np.isfinite(margin_p).all() and np.isfinite(totals_p).all()
+        assert (margin_p >= 0).all() and (totals_p >= 0).all()
+        seen_difference = seen_difference or bool(
+            np.abs(margin_p - totals_p).max() > 1e-9)
+    assert seen_difference, "the two families shipped identical mass"
+
+
 # ---------------------------------------------------------------------------
 # Section 10: point-in-time core (2026-10-16). The distribution walk is ONE
 # shared causal engine mirrored in all four backends. These guards pin (a)

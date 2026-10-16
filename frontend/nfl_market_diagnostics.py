@@ -58,12 +58,16 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
 TOTAL_GRID = list(range(24, 67))          # 24 … 66 (points totals)
 SPREAD_GRID = list(range(-14, 15))        # −14 … +14 (margin thresholds)
 # Diagnostic margin-push extension (mirror of the backend's
-# config.MARGIN_PUSH_EXTENSION): push-only P(margin == k) for −30..+23 —
-# the Distribution tab's near-gapless span. The traded spread grid is
-# unchanged. The POSITIVE arm stops at +23 because TOTAL_GRID starts at 24
-# and a totals line's push resolves as ``p_push_<U>`` (legacy name): margins
-# +24..+30 would read as totals mass for those lines, so they stay gaps.
-MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 24)]
+# config.MARGIN_PUSH_EXTENSION — test_lattice_correction asserts the two
+# literals stay byte-identical): push-only P(margin == k) for −30..+30, the
+# Distribution tab's gapless span. The traded spread grid is unchanged. The
+# positive arm crosses TOTAL_GRID (24..66) at +24..+30; that overlap is safe
+# because a totals line's push resolves in its OWN namespace
+# (``p_push_total_<U>``) everywhere it is read — total_distribution,
+# totals_monitor_stats, nfl_slate_view.total_columns and the shared grid
+# gate — so the shared ``p_push_<U>`` name is never consulted for totals
+# mass and the overlap answers only the margin read.
+MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 31)]
 # Favorite-side line choices for the Spread Lines tab + the run-line
 # calibration card: favorite-anchored NEGATIVE values, 0.5 steps, -0.5 …
 # -24.0 (48 lines — the NFL equivalent of MLB's -0.5 … -4.0 at the
@@ -211,14 +215,23 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     n_outside = int((margin.abs() > 30).sum())
     observed = np.array([float((margin == k).mean()) for k in ks])
     # The traded margin family ships SPREAD_GRID (−14…+14) plus the
-    # diagnostic push-only extension over −30..+23 (config.
+    # diagnostic push-only extension over −30..+30 (config.
     # MARGIN_PUSH_EXTENSION): anything outside stays NaN even if a
     # same-named column exists (another family's mass — never borrowed).
     # Artifacts predating the extension keep their gaps.
     _ext = "p_push_15" in decided.columns and "p_push_m15" in decided.columns
+    # The +24..+30 overlap is margin mass ONLY on a split-vintage artifact —
+    # one that also ships the totals namespace for those lines. A pre-split
+    # artifact's p_push_24..30 are its totals dup (mass from another family),
+    # so the overlap is read as margin only when the split marker is present.
+    _ext_overlap = _ext and all(f"p_push_total_{k}" in decided.columns
+                                for k in range(TOTAL_GRID[0], 31))
     modeled = []
     for k in ks:
-        if k not in SPREAD_GRID and not (_ext and k in MARGIN_PUSH_EXTENSION):
+        ext_ok = _ext and k in MARGIN_PUSH_EXTENSION
+        if 24 <= k <= 30:
+            ext_ok = ext_ok and _ext_overlap
+        if k not in SPREAD_GRID and not ext_ok:
             modeled.append(float("nan"))
             continue
         col = _col("p_push", float(k))
@@ -231,7 +244,7 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     def _tail_composite() -> tuple:
         """Exact full-tail modeled masses from shipped cover+push columns.
 
-        The per-bin modeled line is gapless only over −30..+23, but the
+        The per-bin modeled line is gapless over −30..+30, but the
         tail callouts need full-support mass: P(margin ≥ 10) =
         P(margin > 10) + P(margin == 10) is ``p_home_cover_10`` +
         ``p_push_10``; P(margin ≤ −10) = 1 − P(margin > −10) is

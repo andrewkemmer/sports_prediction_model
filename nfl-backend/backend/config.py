@@ -906,15 +906,20 @@ HALF_STOP_LINES = [-0.5, 0.5]
 # the traded spread grid SPREAD_GRID is unchanged). Blowouts reach +-50 while
 # the traded grid stops at +-14; the tab plots to +-30.
 #
-# The POSITIVE arm stops at +23 by construction: TOTAL_GRID starts at 24 and
-# the artifact resolves a totals line's push as ``p_push_<U>`` under the
-# legacy name, so margins +24..+30 would publish MARGIN mass under a totals
-# line's own column name -- the cross-family read the writer-hygiene gate
-# forbids (test_production.py: "no totals mass in the margin push
-# namespace", and its mirror). The away-side ``p_push_m24..m30`` names
-# collide with nothing (totals lines are positive), so the away arm ships to
-# -30. Same reason the ``p_push_total_<U>`` namespace exists at all.
-MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 24)]
+# BOTH arms ship to +-30. The positive arm crosses TOTAL_GRID (24..66) at
+# +24..+30; that overlap is safe because the totals push family lives in its
+# own ``p_push_total_<U>`` namespace and every totals reader resolves that
+# name FIRST -- frontend utils._run_engine_grid_usable (the slate/board grid
+# gate), nfl_slate_view.total_columns, the diagnostics' 3-way legs and
+# monitor stats, backend monitoring._run_engine_line_pairs, and
+# master_pipeline's per-line coherence gate. The legacy ``p_push_<U>``
+# totals dup is an artifact-vintage alias, never the live read, so a totals
+# line still resolves its own mass while the shared name answers only the
+# margin read. The writer-hygiene gate (test_production.py, "no totals mass
+# in the margin push namespace") exempts exactly this overlap by
+# construction, and test_lattice_correction pins that both namespaces ship,
+# are distinct columns, and stay mirrors of the frontend's list.
+MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 31)]
 
 # Distribution model: side residual variance/correlation and asymmetric
 # Gaussian widths learned on prior OOF; causal CRPS CDF calibration and

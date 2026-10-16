@@ -617,13 +617,54 @@ def test_nfl_slate_totals_read_the_totals_push_namespace_never_the_margin_one():
     assert sv.price_total(legacy_only, 44) == (0.46, 0.51, None)
 
 
-def test_nfl_spread_reads_the_push_extension_and_gaps_beyond():
-    """Current artifacts fill the modeled line over −30..+23 via the
-    push-only extension; pre-extension artifacts keep their gaps there —
-    while the tail composites hold in both vintages (never a slice of the
-    per-bin line). The +24..+30 bins are the TOTALS grid's own names, so
-    they stay gaps even when an artifact ships p_push_24..30 (the legacy
-    totals dup), never read as margin mass."""
+def test_nfl_slate_gate_resolves_the_totals_push_namespace():
+    """The shared grid gate (utils._run_engine_grid_usable) must accept the
+    canonical totals namespace — requiring the legacy p_push_<U> name marked
+    every post-split NFL artifact unusable — while still preferring the
+    canonical column over a legacy dup that rides the same rows."""
+    import pandas as pd
+    import utils
+
+    def frame(totals_push: str | None) -> pd.DataFrame:
+        grid = {}
+        for line in range(-14, 15):
+            label = f"m{-line}" if line < 0 else str(line)
+            grid[f"p_home_cover_{label}"] = 0.48
+            grid[f"p_push_{label}"] = 0.02
+        for line in range(24, 67):
+            grid[f"p_over_{line}"] = 0.48
+            grid[f"p_under_{line}"] = 0.48
+            grid[f"p_push_total_{line}"] = 0.04
+            if totals_push == "legacy":
+                grid[f"p_push_{line}"] = 0.99
+        if totals_push == "none":
+            grid = {k: v for k, v in grid.items()
+                    if not k.startswith("p_push_total_")}
+        return pd.DataFrame([dict(grid, kind="slate",
+                                  gameday="2026-10-15", game_id="g1")])
+
+    assert utils._run_engine_grid_usable(frame("canonical"), "nfl") is True
+    # A legacy dup on the same rows cannot out-vote the canonical column.
+    assert utils._run_engine_grid_usable(frame("legacy"), "nfl") is True
+    # Pre-split artifacts (no totals namespace at all) keep their dup read.
+    no_ns = frame("none")
+    assert utils._run_engine_grid_usable(no_ns, "nfl") is False
+    legacy_only = frame("none")
+    for line in range(24, 67):
+        legacy_only[f"p_push_{line}"] = 0.04
+    assert utils._run_engine_grid_usable(legacy_only, "nfl") is True
+    # A totals line the artifact does not price at all stays unusable.
+    missing = frame("canonical")
+    missing["p_over_44"] = None
+    assert utils._run_engine_grid_usable(missing, "nfl") is False
+
+
+def test_nfl_spread_reads_the_push_extension_to_the_blowout_tails():
+    """Current artifacts fill the modeled line over −30..+30 via the
+    push-only extension (the +24..+30 overlap is margin mass under the name
+    it shares with the totals grid, which reads its own p_push_total_<U>);
+    pre-extension artifacts keep their gaps there — while the tail
+    composites hold in both vintages (never a slice of the per-bin line)."""
     import nfl_market_diagnostics as nd
 
     n = 3
@@ -631,6 +672,7 @@ def test_nfl_spread_reads_the_push_extension_and_gaps_beyond():
         "margin": [0, 25, -25],
         **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
            for k in range(-30, 31)},
+        **{f"p_push_total_{k}": [0.05] * n for k in range(24, 31)},
         "p_home_cover_10": [0.10] * n,
         "p_push_10": [0.02] * n,
         "p_home_cover_m10": [0.80] * n,
@@ -639,11 +681,15 @@ def test_nfl_spread_reads_the_push_extension_and_gaps_beyond():
     assert dist["warning"] is None
     assert dist["modeled"][dist["ks"].index(23)] == pytest.approx(0.02)
     assert dist["modeled"][dist["ks"].index(-25)] == pytest.approx(0.02)
-    # The positive arm stops below TOTAL_GRID[0]: 24..30 are totals-line
-    # names, so a same-named margin column can never be plotted there.
+    # The positive arm ships THROUGH the totals grid: 24..30 plot the
+    # extension's own mass, never the totals family's 0.05.
     for k in range(24, 31):
-        v = dist["modeled"][dist["ks"].index(k)]
-        assert v != v, k          # NaN gap, never margin mass
+        assert dist["modeled"][dist["ks"].index(k)] == pytest.approx(0.02), k
+    # ...and the totals family stays the only thing a totals read resolves.
+    over = {"total": [30.0], "fair_total": [24.0], "p_over_fair": [0.5],
+            "p_over_24": [0.5], "p_under_24": [0.45],
+            "p_push_24": [0.02], "p_push_total_24": [0.05]}
+    assert nd.totals_monitor_stats(pd.DataFrame(over))["n"] == 1
     legacy = pd.DataFrame({
         "margin": [0, 25, -25],
         **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
@@ -658,7 +704,8 @@ def test_nfl_spread_reads_the_push_extension_and_gaps_beyond():
         old["modeled"][old["ks"].index(25)]  # NaN: legacy gap kept
     assert old["callouts"]["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
     assert old["callouts"]["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
-    # Legacy totals dup without the extension edge: 24..30 stay gaps.
+    # Legacy totals dup without the extension edge (pre-split vintage): its
+    # p_push_24..30 are totals mass, so the overlap stays gaps.
     dup = pd.DataFrame({
         "margin": [0, 25, -25],
         **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
