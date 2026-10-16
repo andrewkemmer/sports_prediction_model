@@ -443,6 +443,27 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                 "PSI sample floor) — drift is UNMEASURED, not clean",
                 view, len(rows),
             )
+        # 2026-10-15 log review: the summary counted "2 alerts" without
+        # naming them — the delivered CSV held goalie_starts_home/away at
+        # psi_adjusted ~11 vs a 0.09 noise floor, and a reader reconciling
+        # the line against the CSV had to open the file to learn which
+        # rows paged (the coverage ledger in the same phase names its
+        # features). Name paged rows so the line reconciles on its own.
+        # Thresholds untouched; INSUFFICIENT still never pages. Capped so
+        # a mass shift cannot flood the pushed log.
+        paged = [r for r in rows if r["status"] in ("WARN", "ALERT")]
+        if paged:
+            shown = paged[:20]
+            desc = ", ".join(
+                f"{r['feature']}:{r['status']} "
+                f"(psi_adj {r['psi_adjusted']:.3f} vs floor "
+                f"{r['noise_floor']:.3f})" for r in shown)
+            if len(paged) > len(shown):
+                desc += f", +{len(paged) - len(shown)} more"
+            logger.info(
+                "Feature drift [%s]: %d paged row(s) — %s",
+                view, len(paged), desc,
+            )
     return rows
 
 

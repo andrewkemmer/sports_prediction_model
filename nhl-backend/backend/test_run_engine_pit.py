@@ -5490,6 +5490,45 @@ def test_drift_summary_pages_when_nothing_was_judged():
         msgs)
 
 
+def test_drift_summary_names_paged_alert_rows():
+    """2026-10-15 log review: the delivered summary read ``68 features, 64
+evaluated, 4 INSUFFICIENT, 0 warnings, 2 alerts, 2 seasonal`` while the
+CSV beside it held goalie_starts_home/away at psi_adjusted ~11 vs a 0.09
+noise floor — a reader reconciling the line against the CSV had to open
+the file to learn WHICH rows paged (the coverage ledger in the same
+phase names its features). Paged WARN/ALERT rows must be named on the
+follow-up line with their adjusted PSI vs the noise floor."""
+    rng = np.random.default_rng(7)
+    cols = ["rest_days_home", "win_pct_home"]
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    recent = pd.DataFrame(rng.normal(0.0, 1.0, (40, len(cols))), columns=cols)
+    recent["rest_days_home"] = recent["rest_days_home"] + 50.0  # ALERT
+
+    records = _capture_drift_records(
+        lambda: mon.feature_drift(full, recent, feature_cols=cols))
+    named = [r.getMessage() for r in records
+             if r.levelno == logging.INFO and "paged row(s)" in r.getMessage()]
+    assert len(named) == 1, [r.getMessage() for r in records]
+    assert "rest_days_home:ALERT" in named[0], named[0]
+    assert "psi_adj" in named[0] and "floor" in named[0], named[0]
+    assert "win_pct_home" not in named[0], (
+        "unpaged rows must not be named", named[0])
+
+
+def test_drift_summary_silent_on_names_when_nothing_paged():
+    """A clean judged window emits the counts summary with no follow-up
+naming line — the census must not add noise when nothing paged."""
+    rng = np.random.default_rng(11)
+    cols = ["rest_days_home", "win_pct_home"]
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (300, len(cols))), columns=cols)
+    recent = pd.DataFrame(rng.normal(0.0, 1.0, (40, len(cols))), columns=cols)
+
+    records = _capture_drift_records(
+        lambda: mon.feature_drift(full, recent, feature_cols=cols))
+    assert not [r.getMessage() for r in records if "paged row(s)" in r.getMessage()], (
+        "no WARN/ALERT rows means no naming line")
+
+
 def test_drift_calls_receive_the_full_pool_as_season_seam_phase_source():
     """Both master's drift surfaces must be handed the FULL decided pool
     as ``phase_frame`` — the trailing baseline holds no prior-season
