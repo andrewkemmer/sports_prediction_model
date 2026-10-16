@@ -901,6 +901,20 @@ RUN_ENGINE_FIXED_TOTALS = (38, 42, 46, 50, 54)
 RUN_ENGINE_CANONICAL_SPREADS = (3,)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
+# Diagnostic margin-push extension (2026-10-16): integer margins whose push
+# mass ships for the Distribution tab only (push legs, no cover/away legs —
+# the traded spread grid SPREAD_GRID is unchanged). Blowouts reach +-50 while
+# the traded grid stops at +-14; the tab plots to +-30.
+#
+# The POSITIVE arm stops at +23 by construction: TOTAL_GRID starts at 24 and
+# the artifact resolves a totals line's push as ``p_push_<U>`` under the
+# legacy name, so margins +24..+30 would publish MARGIN mass under a totals
+# line's own column name -- the cross-family read the writer-hygiene gate
+# forbids (test_production.py: "no totals mass in the margin push
+# namespace", and its mirror). The away-side ``p_push_m24..m30`` names
+# collide with nothing (totals lines are positive), so the away arm ships to
+# -30. Same reason the ``p_push_total_<U>`` namespace exists at all.
+MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 24)]
 
 # Distribution model: side residual variance/correlation and asymmetric
 # Gaussian widths learned on prior OOF; causal CRPS CDF calibration and

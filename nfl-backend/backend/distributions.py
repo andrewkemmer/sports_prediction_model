@@ -547,6 +547,21 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
             for idx in np.flatnonzero(mass.any(axis=0)):
                 updates.setdefault(_grid_key("p_push_total", int(support[idx])),
                                    mass[:, idx])
+        if kind == "margin" and DISTRIBUTION_SPORT == "nfl":
+            # Diagnostic margin-push extension (2026-10-16, config.
+            # MARGIN_PUSH_EXTENSION): push-only mass over -30..+23 from the
+            # SAME sampled CDF (never refitted) so the Distribution tab's
+            # modeled line reaches the blowout tails. Push-only, like the
+            # totals full-support PMF: no cover/away legs outside the market
+            # grid. The positive arm stops at +23 because +24..+30 are
+            # TOTAL_GRID lines whose push the artifact resolves as
+            # p_push_<U> — margin mass there would answer a totals read.
+            # Additive setdefault: a future grid change that prices these
+            # lines owns them instead.
+            for k in config.MARGIN_PUSH_EXTENSION:
+                upper, lower = at(float(k)), at(np.ceil(float(k)) - 1.)
+                updates.setdefault(_grid_key("p_push", float(k)),
+                                   np.maximum(upper - lower, 0.))
         if kind == "margin":
             updates["p_home_win_derived"] = 1. - at(0.)
             updates["p_tie"] = at(0.) - at(-1.)

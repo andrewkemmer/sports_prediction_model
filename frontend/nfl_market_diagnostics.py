@@ -57,6 +57,13 @@ from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
 # selector prices ANY magnitude in SPREAD_LINE_CHOICES below.
 TOTAL_GRID = list(range(24, 67))          # 24 … 66 (points totals)
 SPREAD_GRID = list(range(-14, 15))        # −14 … +14 (margin thresholds)
+# Diagnostic margin-push extension (mirror of the backend's
+# config.MARGIN_PUSH_EXTENSION): push-only P(margin == k) for −30..+23 —
+# the Distribution tab's near-gapless span. The traded spread grid is
+# unchanged. The POSITIVE arm stops at +23 because TOTAL_GRID starts at 24
+# and a totals line's push resolves as ``p_push_<U>`` (legacy name): margins
+# +24..+30 would read as totals mass for those lines, so they stay gaps.
+MARGIN_PUSH_EXTENSION = [*range(-30, -14), *range(15, 24)]
 # Favorite-side line choices for the Spread Lines tab + the run-line
 # calibration card: favorite-anchored NEGATIVE values, 0.5 steps, -0.5 …
 # -24.0 (48 lines — the NFL equivalent of MLB's -0.5 … -4.0 at the
@@ -172,12 +179,19 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     """Observed margins (home − away) versus the shipped margin PMF.
 
     The modeled series is the per-game mean of the artifact's own margin
-    push columns (``p_push_<±L>`` = P(margin == L) over −14…+14); a line
-    the artifact does not ship stays NaN (a gap) — unavailable, never
-    borrowed from another family. The plotted grid is fixed at ±30: wider
-    would squeeze the readable mass into a central sliver (real blowouts
-    reach ±50); margins outside ±30 are disclosed in the ``P(|margin|>30)``
-    callout, never silently dropped."""
+    push columns (``p_push_<L>`` = P(margin == L) over the traded −14..14
+    plus the diagnostic push-only extension over −30..+23); a line the
+    artifact does not ship stays NaN (a gap) — unavailable, never borrowed
+    from another family. The extension engages only on artifacts that ship
+    its inner edge (``p_push_15``/``p_push_m15`` — the legacy totals dup
+    never occupied 15..23), so pre-extension artifacts keep their gaps and
+    legacy ``p_push_24..66`` totals mass can never read as margin mass.
+    The +24..+30 bins are gaps on purpose: those names are the totals
+    grid's own ``p_push_<U>`` columns, so shipping margin mass there would
+    publish one family's mass under the other's name. The plotted grid is
+    fixed at ±30: wider would squeeze the readable mass into a central
+    sliver (real blowouts reach ±50); margins outside ±30 are disclosed in
+    the ``P(|margin|>30)`` callout, never silently dropped."""
     empty = {"ks": list(SPREAD_GRID), "observed": [], "modeled": [],
              "callouts": {}, "n_games": 0,
              "warning": "No decided games with outcomes in the artifact."}
@@ -196,12 +210,15 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     ks = list(range(-30, 31))
     n_outside = int((margin.abs() > 30).sum())
     observed = np.array([float((margin == k).mean()) for k in ks])
-    # The margin family ships ONLY SPREAD_GRID (−14…+14): anything outside
-    # stays NaN even if a same-named p_push_<k> column exists (the totals
-    # overlap — another family's mass, never borrowed).
+    # The traded margin family ships SPREAD_GRID (−14…+14) plus the
+    # diagnostic push-only extension over −30..+23 (config.
+    # MARGIN_PUSH_EXTENSION): anything outside stays NaN even if a
+    # same-named column exists (another family's mass — never borrowed).
+    # Artifacts predating the extension keep their gaps.
+    _ext = "p_push_15" in decided.columns and "p_push_m15" in decided.columns
     modeled = []
     for k in ks:
-        if k not in SPREAD_GRID:
+        if k not in SPREAD_GRID and not (_ext and k in MARGIN_PUSH_EXTENSION):
             modeled.append(float("nan"))
             continue
         col = _col("p_push", float(k))
@@ -214,7 +231,7 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
     def _tail_composite() -> tuple:
         """Exact full-tail modeled masses from shipped cover+push columns.
 
-        The per-bin modeled line ships only SPREAD_GRID (−14…+14), but the
+        The per-bin modeled line is gapless only over −30..+23, but the
         tail callouts need full-support mass: P(margin ≥ 10) =
         P(margin > 10) + P(margin == 10) is ``p_home_cover_10`` +
         ``p_push_10``; P(margin ≤ −10) = 1 − P(margin > −10) is
@@ -248,8 +265,11 @@ def spread_distribution(decided: pd.DataFrame) -> dict[str, Any]:
             "P(|margin|>30)": {"observed": round(float((margin.abs() > 30).mean()), 4),
                                "modeled": None, "n": n_outside},
             "note": ("Modeled line = mean shipped calibrated split-skew "
-                     "Gaussian Monte Carlo margin PMF across its full priced "
-                     "support; mass is never borrowed from another push namespace."),
+                     "Gaussian Monte Carlo margin PMF across its priced "
+                     "support (traded grid plus the push-only extension); "
+                     "tail callouts are the exact shipped cover+push "
+                     "composites over full support. No refit or smoothing "
+                     "from outcomes."),
         },
         "n_games": int(len(margin)),
         "warning": None,
@@ -720,12 +740,16 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
             if kind == "over_under":
                 # Raw 3-way legs at the fair line: p_over_fair is P(total
                 # > U) and the artifact carries NO p_under_fair — the
-                # under leg is 1 - over - push (push read from the integer
-                # grid's p_push_<U> column). 2-way no-push re-scale.
-                # Pre-grid artifacts ship p_over_fair as all-null: fall
-                # back to the SAME integer grid column (p_over_<U>) —
-                # fair_total IS the integer median, so p_over_<U> IS the
-                # fair-line over leg exactly, no approximation.
+                # under leg is 1 - over - push, push read from the TOTALS
+                # namespace (p_push_total_<U>). The shared p_push_<U> name
+                # is the MARGIN family (and the pre-split totals dup):
+                # borrowing it would read P(margin = U) as P(total = U) for
+                # the low totals where the two grids overlap. 2-way
+                # no-push re-scale. Pre-grid artifacts ship p_over_fair as
+                # all-null: fall back to the SAME integer grid column
+                # (p_over_<U>) — fair_total IS the integer median, so
+                # p_over_<U> IS the fair-line over leg exactly, no
+                # approximation.
                 po = _fnum(r, "p_over_fair")
                 U = _fnum(r, "fair_total")
                 tot = _fnum(r, "total")
@@ -736,8 +760,7 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
                     po = _fnum(r, _col("p_over", u_int))
                 if not np.isfinite(po):
                     continue
-                pp_col = _col("p_push", u_int)
-                pp = (_fnum(r, pp_col) if pp_col in r else float("nan"))
+                pp = _fnum(r, _col("p_push_total", u_int))
                 pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
                 if po + pu <= 0:
                     continue
@@ -840,7 +863,9 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
         # Raw 3-way legs at the fair line (see winner_cards): p_over_fair
         # when the artifact ships it, else the SAME integer grid column
         # p_over_<U> (fair_total IS the integer median — exact, not an
-        # approximation); under = 1 - over - push from the grid.
+        # approximation); under = 1 - over - push, push read from the TOTALS
+        # namespace p_push_total_<U> (the shared p_push_<U> name is the
+        # MARGIN family's — see winner_cards).
         po = _fnum(r, "p_over_fair")
         U = _fnum(r, "fair_total")
         tot = _fnum(r, "total")
@@ -851,8 +876,7 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
             po = _fnum(r, _col("p_over", u_int))
         if not np.isfinite(po):
             continue
-        pp_col = _col("p_push", u_int)
-        pp = (_fnum(r, pp_col) if pp_col in r else float("nan"))
+        pp = _fnum(r, _col("p_push_total", u_int))
         pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
         if po + pu <= 0:
             continue

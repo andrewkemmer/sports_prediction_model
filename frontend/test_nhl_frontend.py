@@ -572,3 +572,102 @@ def test_nfl_spread_never_reads_totals_mass_in_the_margin_namespace():
     c = dist["callouts"]
     assert c["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
     assert c["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
+
+
+def test_nfl_totals_cards_read_the_totals_push_namespace_never_the_margin_one():
+    """The totals 3-way push leg resolves ``p_push_total_<U>``. The shared
+    ``p_push_<U>`` name is the MARGIN family's (and the pre-split totals
+    dup's), so margin mass at a totals line can never move a totals card —
+    the cross-family read the writer-hygiene gate exists to prevent."""
+    import nfl_market_diagnostics as nd
+
+    def frame(margin_mass: float, totals_mass: float) -> pd.DataFrame:
+        return pd.DataFrame({
+            "total": [27.0, 30.0], "fair_total": [24.0, 27.0],
+            "p_over_fair": [0.48, 0.48],
+            "p_push_24": [margin_mass, 0.02],
+            "p_push_27": [0.02, margin_mass],
+            "p_push_total_24": [totals_mass, 0.02],
+            "p_push_total_27": [0.02, totals_mass],
+        })
+
+    under = nd.totals_monitor_stats(frame(0.02, 0.02))
+    assert under["n"] == 2
+    # Margin-namespace mass at a totals line is unread: a wrong read would
+    # flip both picks to Over (0.02 -> 0.45 turns p2 0.49 into 0.87).
+    assert nd.totals_monitor_stats(frame(0.45, 0.02)) == under
+    # The totals namespace IS the leg the card reads.
+    assert nd.totals_monitor_stats(frame(0.02, 0.30)) != under
+
+
+def test_nfl_slate_totals_read_the_totals_push_namespace_never_the_margin_one():
+    """The slate box's totals push band resolves ``p_push_total_<U>``: the
+    shared ``p_push_<U>`` name is the MARGIN family's, so margin mass at a
+    totals line can never be served as the totals push (and a line the
+    artifact does not ship stays None, never borrowed)."""
+    import nfl_slate_view as sv
+
+    cols = sv.total_columns()
+    for U in sv.TOTAL_GRID:
+        assert cols[U][2] == f"p_push_total_{U}"
+    shipped = {"p_over_44": 0.46, "p_under_44": 0.51,
+               "p_push_44": 0.99, "p_push_total_44": 0.03}
+    assert sv.price_total(shipped, 44) == pytest.approx((0.46, 0.51, 0.03))
+    legacy_only = {"p_over_44": 0.46, "p_under_44": 0.51, "p_push_44": 0.99}
+    assert sv.price_total(legacy_only, 44) == (0.46, 0.51, None)
+
+
+def test_nfl_spread_reads_the_push_extension_and_gaps_beyond():
+    """Current artifacts fill the modeled line over −30..+23 via the
+    push-only extension; pre-extension artifacts keep their gaps there —
+    while the tail composites hold in both vintages (never a slice of the
+    per-bin line). The +24..+30 bins are the TOTALS grid's own names, so
+    they stay gaps even when an artifact ships p_push_24..30 (the legacy
+    totals dup), never read as margin mass."""
+    import nfl_market_diagnostics as nd
+
+    n = 3
+    full = pd.DataFrame({
+        "margin": [0, 25, -25],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
+           for k in range(-30, 31)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dist = nd.spread_distribution(full)
+    assert dist["warning"] is None
+    assert dist["modeled"][dist["ks"].index(23)] == pytest.approx(0.02)
+    assert dist["modeled"][dist["ks"].index(-25)] == pytest.approx(0.02)
+    # The positive arm stops below TOTAL_GRID[0]: 24..30 are totals-line
+    # names, so a same-named margin column can never be plotted there.
+    for k in range(24, 31):
+        v = dist["modeled"][dist["ks"].index(k)]
+        assert v != v, k          # NaN gap, never margin mass
+    legacy = pd.DataFrame({
+        "margin": [0, 25, -25],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
+           for k in range(-14, 15)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    old = nd.spread_distribution(legacy)
+    assert old["modeled"][old["ks"].index(10)] == pytest.approx(0.02)
+    assert old["modeled"][old["ks"].index(25)] != \
+        old["modeled"][old["ks"].index(25)]  # NaN: legacy gap kept
+    assert old["callouts"]["P(margin>=10)"]["modeled"] == pytest.approx(0.12)
+    assert old["callouts"]["P(margin<=-10)"]["modeled"] == pytest.approx(0.20)
+    # Legacy totals dup without the extension edge: 24..30 stay gaps.
+    dup = pd.DataFrame({
+        "margin": [0, 25, -25],
+        **{(f"p_push_m{-k}" if k < 0 else f"p_push_{k}"): [0.02] * n
+           for k in range(-14, 15)},
+        **{f"p_push_{u}": [0.99] * n for u in range(24, 31)},
+        "p_home_cover_10": [0.10] * n,
+        "p_push_10": [0.02] * n,
+        "p_home_cover_m10": [0.80] * n,
+    })
+    dup_dist = nd.spread_distribution(dup)
+    assert dup_dist["modeled"][dup_dist["ks"].index(25)] != \
+        dup_dist["modeled"][dup_dist["ks"].index(25)]  # NaN: dup unread

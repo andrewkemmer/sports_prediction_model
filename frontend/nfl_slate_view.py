@@ -7,8 +7,10 @@ Read-only over the committed slate-serve artifact
 The artifact's OWN column contract is the schema (documented 1:1 against the
 MLB ``run_engine_markets_*`` mapping table in the slate-serve record): the
 integer spread grid ``p_home_cover_<±L>/p_push_<L>`` over -14..+14, the
-integer totals grid ``p_over_<U>/p_under_<U>/p_push_<U>`` over 24..66, and
-the per-side derived-ML pair ``p_home_win_derived/p_away_win_derived``.
+integer totals grid ``p_over_<U>/p_under_<U>/p_push_total_<U>`` over 24..66,
+and the per-side derived-ML pair ``p_home_win_derived/p_away_win_derived``
+(the totals push lives in its OWN ``p_push_total_<U>`` namespace —
+``total_columns`` never touches the margin family's ``p_push_<U>`` name).
 
 Column semantics (mirror of the backend engine + the MLB convention "home
 covers -L iff margin > L, strict"):
@@ -17,8 +19,12 @@ covers -L iff margin > L, strict"):
     the home team's quoted spread is the negation, -L).
   * ``p_push_<L>`` = P(margin == L) — the shared push band of the whole
     integer line (both sides push on the same margin).
-  * ``p_over_<U>/p_under_<U>/p_push_<U>`` = P(total > U) / P(total < U) /
-    P(total == U) for the integer total U.
+  * ``p_over_<U>/p_under_<U>/p_push_total_<U>`` = P(total > U) /
+    P(total < U) / P(total == U) for the integer total U. The pre-split
+    artifacts stored totals pushes under the shared ``p_push_<U>`` name,
+    which on current artifacts is the MARGIN family's (mitigated: a margin
+    column at a totals line would otherwise read as totals mass) — a line
+    the artifact does not ship stays None, never borrowed.
   * ``p_home_win_derived``/``p_away_win_derived`` = P(H>A)/(1-P(tie)) per
     side — the derived ML pair (ties normalized out).
 
@@ -98,7 +104,7 @@ def total_columns() -> dict[int, tuple[str, str, str]]:
     """total -> (over, under, push) columns for the priced totals grid."""
     out: dict[int, tuple[str, str, str]] = {}
     for U in TOTAL_GRID:
-        out[U] = (f"p_over_{U}", f"p_under_{U}", f"p_push_{U}")
+        out[U] = (f"p_over_{U}", f"p_under_{U}", f"p_push_total_{U}")
     return out
 
 

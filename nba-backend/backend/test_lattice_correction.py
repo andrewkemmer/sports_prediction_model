@@ -733,3 +733,118 @@ def test_relief_deepens_pm1_on_piled_margin_evidence():
         assert d_rel[i] < 0. and d_pl[i] < 0.  # undercut direction held
         assert abs(d_rel[i]) > abs(d_pl[i])    # relief deepens
     assert relieved["residual_mae_after"] <= plain["residual_mae_after"]
+# ---------------------------------------------------------------------------
+# Section 10: point-in-time core (2026-10-16). The distribution walk is ONE
+# shared causal engine mirrored in all four backends. These guards pin (a)
+# that the mirrored copies stay byte-identical, so a one-copy edit can never
+# silently fork the point-in-time discipline per sport -- the same failure
+# mode the gaussian_family drift guard above already caught once -- and (b)
+# that THIS backend's walk leaks nothing backwards: not from features, not
+# from outcomes, not from model structure (no origin is ever priced by a map
+# fitted on itself, and the final serving maps never reprice issued rows).
+# ---------------------------------------------------------------------------
+
+PIT_CORE_FUNCTIONS = ("_distribution_blocks", "_distribution_inputs",
+                      "_distribution_cdfs", "_distribution_fit_maps",
+                      "causal_distribution_frame")
+
+
+def _pit_core_digest(path):
+    """sha256 of the point-in-time core's source, line-ending normalized."""
+    import ast
+    import hashlib
+    import textwrap
+    source = path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    found = {node.name: ast.get_source_segment(source, node)
+             for node in ast.parse(source).body
+             if isinstance(node, ast.FunctionDef)}
+    missing = [name for name in PIT_CORE_FUNCTIONS if not found.get(name)]
+    assert not missing, f"{path.name} lost PIT core function(s): {missing}"
+    body = "\n\n".join(textwrap.dedent(found[name])
+                       for name in PIT_CORE_FUNCTIONS)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def test_shared_distribution_pit_core_copies_are_byte_identical():
+    """The four distributions.py copies must share one causal core.
+
+    A sport-local edit to the walk (a fit widened to the whole frame, an
+    admission gate read on the origin being scored) would leak in that sport
+    only and is exactly what this guard refuses.
+    """
+    root = Path(__file__).resolve().parents[2]
+    copies = [root / f"{sport}-backend" / "backend" / "distributions.py"
+              for sport in ("mlb", "nba", "nfl", "nhl")]
+    absent = [str(p) for p in copies if not p.is_file()]
+    assert not absent, f"missing shared copies: {absent}"
+    digests = [_pit_core_digest(p) for p in copies]
+    assert all(d == digests[0] for d in digests), \
+        "distributions.py point-in-time core drifted: " + ", ".join(
+            f"{p.parent.parent.name}={d[:12]}" for p, d in zip(copies, digests))
+
+
+def test_distribution_walk_never_prices_from_the_future_or_its_own_origin():
+    """Adversarial PIT contract of this backend's own distribution walk."""
+    inputs = (("home_expected_runs", "away_expected_runs") if SPORT == "mlb"
+              else ("mu_h", "mu_a"))
+    date_col = "game_date" if SPORT == "mlb" else "gameday"
+    frame = _walk_frame()
+    priced, bundle = dist.causal_distribution_frame(frame, n_draws=200)
+    cols = [c for c in priced if c.startswith("p_")]
+    assert cols
+    first = frame.index < 110
+
+    # Later outcomes AND later feature inputs: neither may move an issued
+    # price. Poisoning both covers feature leakage and outcome leakage.
+    poisoned = frame.copy()
+    poisoned.loc[~first, "home_score"] += 20
+    poisoned.loc[~first, "away_score"] = 0
+    poisoned.loc[~first, inputs[0]] = poisoned.loc[~first, inputs[0]] * 1.5
+    poisoned.loc[~first, inputs[1]] = poisoned.loc[~first, inputs[1]] * 0.5
+    changed, _ = dist.causal_distribution_frame(poisoned, n_draws=200)
+    assert [c for c in cols if c in changed.columns] == cols,         "a later outcome or feature changed the priced column set: " +         f"{sorted(set(cols) - set(changed.columns))[:6]}"
+    np.testing.assert_array_equal(
+        priced.loc[first, cols].to_numpy(float),
+        changed.loc[first, cols].to_numpy(float),
+        err_msg="a later outcome or feature moved an already-issued price")
+
+    # Row order is not evidence: the same rows in any order price identically.
+    shuffled = frame.sample(frac=1., random_state=81)
+    reordered, _ = dist.causal_distribution_frame(shuffled, n_draws=200)
+    assert [c for c in cols if c in reordered.columns] == cols,         "row order changed the priced column set"
+    np.testing.assert_allclose(
+        priced[cols].to_numpy(float),
+        reordered.reindex(frame.index)[cols].to_numpy(float),
+        atol=1e-10, rtol=0.)
+
+    # Model structure: the first origin holds no prior evidence, so it can
+    # admit nothing and prices the identity base family; no origin anywhere is
+    # priced by a map fitted on the origin it scores.
+    opening = bundle["origins"][0]
+    assert opening["n_prior"] == 0
+    assert not any(opening["calibration_admitted"].values())
+    for kind in ("total", "margin"):
+        assert np.all(np.asarray(opening["maps"][kind], float) == 0.)
+    assert all(o["n_prior"] < len(frame) for o in bundle["origins"])
+
+    # The maps the walk issued are the maps that priced those rows (the final
+    # serving fit, which may learn from every settled row, is not what the
+    # issued OOF columns came from).
+    tail = frame.index >= 220
+    direct = dist._distribution_price(
+        frame.loc[tail].drop(columns=["home_score", "away_score"]),
+        bundle["origins"][-1]["maps"], n_draws=200)
+    stable = [c for c in ("p_home_win_derived", "p_away_win_derived", "p_tie",
+                          "p_over_fair", "p_cover_fair", "fair_total",
+                          "fair_spread", "distribution_mean_total",
+                          "distribution_mean_margin", "distribution_sd_total",
+                          "distribution_sd_margin") if c in direct.columns]
+    assert len(stable) >= 9
+    np.testing.assert_allclose(priced.loc[tail, stable].to_numpy(float),
+                               direct[stable].to_numpy(float),
+                               atol=1e-12, rtol=0.)
+
+    # An undated frame is refused, never silently claimed as point-in-time.
+    with pytest.raises((ValueError, KeyError)):
+        dist.causal_distribution_frame(frame.drop(columns=[date_col]),
+                                       n_draws=200)
