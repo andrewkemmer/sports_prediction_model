@@ -188,7 +188,13 @@ LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
 # of the fitted support; every other target keeps exact current behavior.
 # Gates, collateral, cap and zero-sum are untouched — relief only changes
 # the proposed amplitude. Gated in production (see nba_shrinkage_experiment).
-LATTICE_RELIEF_BOOST = 2.      # high-mass tau multiplier where registered
+LATTICE_RELIEF_BOOST = 3.      # high-mass tau multiplier where registered
+                                # (2026-10-16: 2 kept ~1/3 of the NBA margin +/-1
+                                # residual — shipped 3.08%/2.71% vs observed
+                                # 2.17%/1.83%; boost 3 deepens +/-1, clears every
+                                # bar with lower MAE — see
+                                # run_diagnostics/nba_shrinkage_experiment.json
+                                # verdict (gate 4.011, collateral ok))
 LATTICE_RELIEF_QUANTILE = .75  # mass bins at/above this quantile get relief
 LATTICE_RELIEF = {("nba", "margin"): {"boost": LATTICE_RELIEF_BOOST,
                                       "quantile": LATTICE_RELIEF_QUANTILE}}

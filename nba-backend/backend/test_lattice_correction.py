@@ -683,7 +683,7 @@ def test_relief_registered_only_for_nba_margin():
     spec = fam.LATTICE_RELIEF[("nba", "margin")]
     assert spec == {"boost": fam.LATTICE_RELIEF_BOOST,
                     "quantile": fam.LATTICE_RELIEF_QUANTILE}
-    assert (fam.LATTICE_RELIEF_BOOST, fam.LATTICE_RELIEF_QUANTILE) == (2., .75)
+    assert (fam.LATTICE_RELIEF_BOOST, fam.LATTICE_RELIEF_QUANTILE) == (3., .75)
     rng = np.random.default_rng(4)
     w, r, se = rng.random(41), rng.normal(0, .005, 41), np.full(41, .004)
     np.testing.assert_array_equal(
