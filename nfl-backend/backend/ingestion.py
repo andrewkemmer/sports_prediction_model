@@ -132,8 +132,10 @@ def _stale_cache(path: Path):
 
 
 def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
-    """Filter a schedules frame to the eligible population: settled
-    regular-season or postseason games within the configured season window.
+    """Filter a schedules frame to the eligible population: regular-season or
+    postseason games within the configured season window (schedule-level
+    eligibility — settled filtering happens downstream via decided_all, so
+    pending slate rows and their pre-kickoff weather windows survive here).
 
     ``config.GAME_TYPES`` carries the nflverse spellings the schedule
     actually uses -- REG plus the postseason round codes WC/DIV/CON/SB

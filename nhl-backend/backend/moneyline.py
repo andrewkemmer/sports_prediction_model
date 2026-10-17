@@ -616,9 +616,19 @@ def fit_final_models(game_df: pd.DataFrame,
     All measured OOF windows are prior evidence relative to future serving.
     """
     df = folds_mod.canonical_sort(game_df, "gameday")
+    # Labeled settled rows only (NBA _binary_labels parity): an unsettled or
+    # non-binary row must never enter the serving refit — its features would
+    # move the preprocessor statistics and its label would fail (or worse,
+    # silently fit). Current callers pass decided-only frames, so this is a
+    # no-op there and a guard everywhere else.
+    labels = pd.to_numeric(df["home_win"], errors="coerce")
+    labels = labels.where(labels.isin([0, 1]))
+    df = df.loc[labels.notna()].copy()
+    if len(df) < 2:
+        raise ValueError("final moneyline fit requires at least two settled games")
     rounds = causal_xgb_rounds(xgb_best_rounds or [])
     models: dict = {}
-    y = df["home_win"].astype(int).to_numpy()
+    y = labels.loc[labels.notna()].astype(int).to_numpy()
     for name in config.ENSEMBLE_MEMBERS:
         models[name] = _fit_member(name, member_matrix(name, df), y,
                                    fold=False, xgb_rounds=rounds)

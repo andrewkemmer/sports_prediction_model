@@ -512,7 +512,17 @@ def fit_final_models(game_df: pd.DataFrame) -> tuple[dict, TrainFoldPreprocessor
     Returns ({name: {model, pre}}, fitted elastic-net preprocessor).
     """
     df = folds_mod.canonical_sort(game_df, "gameday")
-    y = df["home_win"].astype(int).to_numpy()
+    # Labeled settled rows only (NBA _binary_labels parity): an unsettled or
+    # non-binary row must never enter the serving refit — its features would
+    # move the preprocessor statistics and its label would fail (or worse,
+    # silently fit). Current callers pass decided-only frames, so this is a
+    # no-op there and a guard everywhere else.
+    labels = pd.to_numeric(df["home_win"], errors="coerce")
+    labels = labels.where(labels.isin([0, 1]))
+    df = df.loc[labels.notna()].copy()
+    if len(df) < 2:
+        raise ValueError("final moneyline fit requires at least two settled games")
+    y = labels.loc[labels.notna()].astype(int).to_numpy()
     models = {name: _fit_member(name, member_matrix(name, df), y)
               for name in config.ENSEMBLE_MEMBERS}
     pre = models.get("elasticnet", {}).get("pre") or TrainFoldPreprocessor()
