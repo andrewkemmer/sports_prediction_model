@@ -343,6 +343,26 @@ def fit_final(game_df: pd.DataFrame) -> ScoreRegressor:
 # ---------------------------------------------------------------------------
 
 
+def _elasticnet_full_view(df: pd.DataFrame) -> pd.DataFrame:
+    """Linear view plus raw per-side columns (arm C trial only).
+
+    The moneyline linear view deliberately drops raw sides; this challenger
+    view adds back every raw per-side column present in the frame so the
+    elastic net can learn side-strength logic, not only gaps. Team-ID
+    categoricals are excluded (arbitrary IDs as linear ordinals would be a
+    bug). Standardization/NaN handling ride the existing train-fold
+    preprocessor, which is column-generic. Default-off; see
+    config.SCORE_EN_ELASTICNET_FULL_VIEW.
+    """
+    base = ml_mod.member_matrix("elasticnet", df)
+    extra = [c for c in config.RAW_PER_SIDE_COLS
+             if c in df.columns and c not in base.columns
+             and c not in config.TREE_CATEGORICAL_COLS]
+    if not extra:
+        return base
+    return pd.concat([base, df[extra]], axis=1)
+
+
 def _make_score_member(name: str):
     """Construct one score-regression member (twin of moneyline._make_member)."""
     if name == "xgboost":
@@ -500,8 +520,14 @@ class ScoreEnsembleRegressor:
     def _matrix(self, name: str, df: pd.DataFrame) -> pd.DataFrame:
         # Same matrices the binary moneyline members consume (structural
         # property, not convention): tree views keep the categorical team-ID
-        # pair, the elastic net takes the linear view.
-        X = ml_mod.member_matrix(name, df)
+        # pair, the elastic net takes the linear view — unless the full-view
+        # challenger flag is set (arm C trial only): then the elastic net
+        # additionally sees the standardized raw per-side columns (team-ID
+        # categoricals stay excluded). Default-off is byte-identical arm B.
+        if name == "elasticnet" and config.SCORE_EN_ELASTICNET_FULL_VIEW:
+            X = _elasticnet_full_view(df)
+        else:
+            X = ml_mod.member_matrix(name, df)
         if name not in self.columns:
             self.columns[name] = list(X.columns)
         return X.reindex(columns=self.columns[name])

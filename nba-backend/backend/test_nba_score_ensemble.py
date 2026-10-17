@@ -337,3 +337,39 @@ def test_mixture_walk_is_point_in_time_by_recomputation():
         m = mix_oof[f"crps_mix_{kind}"].to_numpy(float)
         assert np.isfinite(s).all() and np.isfinite(m).all()
     assert set(result["summary"]) == {"total", "margin"}
+
+
+def test_elasticnet_full_view_flag_off_is_byte_identical_arm_b(monkeypatch):
+    """Default-off challenger flag: elasticnet matrix == linear view exactly."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", False)
+    try:
+        from backend import moneyline as ml_mod
+    except ImportError:
+        import moneyline as ml_mod
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor()
+    got = ens._matrix("elasticnet", df)
+    want = ml_mod.member_matrix("elasticnet", df)
+    assert list(got.columns) == list(want.columns)
+    pd.testing.assert_frame_equal(got.reset_index(drop=True),
+                                  want.reset_index(drop=True))
+
+
+def test_elasticnet_full_view_adds_raw_sides_not_team_ids(monkeypatch):
+    """Arm C view: raw per-side columns in, team-ID categoricals out."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", True)
+    df = _frame()
+    rng = np.random.default_rng(7)
+    df["elo_home"] = rng.normal(1500, 50, len(df))
+    df["elo_away"] = rng.normal(1500, 50, len(df))
+    df["home_team_id"] = 1
+    df["away_team_id"] = 2
+    ens = dist_mod.ScoreEnsembleRegressor()
+    got = ens._matrix("elasticnet", df)
+    assert "elo_home" in got.columns and "elo_away" in got.columns
+    assert "home_team_id" not in got.columns
+    assert "away_team_id" not in got.columns
+    # Still fittable end to end through the linear preprocessor path.
+    ens2 = dist_mod.ScoreEnsembleRegressor().fit(df)
+    p = ens2.predict_member(df.head(5), "elasticnet", "home_score")
+    assert np.isfinite(p).all() and (p > 0).all()
