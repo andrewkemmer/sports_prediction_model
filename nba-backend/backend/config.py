@@ -619,13 +619,13 @@ SCORE_XGBOOST_PARAMS = {
     "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
     "enable_categorical": True, "tree_method": "hist",
 }
-# Elastic-net full-view challenger flag (trial-only, default OFF): when True
-# the score ensemble's elastic net trains on the linear view PLUS the
-# standardized raw per-side columns (team-ID categoricals stay excluded —
-# arbitrary IDs as linear ordinals would be a bug, not a feature). Default
-# False is byte-identical arm B; arm C sets it True for the walk-forward
-# trial only. Promotion (default True) requires the trial verdict.
-SCORE_EN_ELASTICNET_FULL_VIEW = False
+# Elastic-net full-view flag (PROMOTED 2026-10-17): the score ensemble's
+# elastic net trains on the linear view PLUS the standardized raw per-side
+# columns (team-ID categoricals stay excluded — arbitrary IDs as linear
+# ordinals would be a bug, not a feature). A/B/C walk-forward verdict on
+# 2,130 grading games: B (diffs-only EN) z=-2.34 vs incumbent FAILS the 2.5
+# gate; C (this flag) z=-3.18 PASSES and earns EN weight 0.55 (B: 0.00).
+SCORE_EN_ELASTICNET_FULL_VIEW = True
 # Elastic-net regression leg (standardized features, raw-count target).
 SCORE_ELASTICNET_PARAMS = {
     "alpha": 1.0, "l1_ratio": 0.5,

@@ -187,6 +187,8 @@ def run_engine_feature_cols(reg: "ScoreRegressor | None" = None) -> list[str]:
     """
     cols = list(getattr(reg, "feature_columns", None) or [])
     if not cols:
+        cols = _ensemble_union_columns(reg)
+    if not cols:
         cols = list(config.active_moneyline_feature_cols())
     return [c for c in cols if c not in config.TREE_CATEGORICAL_COLS]
 
@@ -205,6 +207,13 @@ def distribution_feature_weights(
     LightGBM importances there): the drift column then reports no weight
     rather than borrowing the binary moneyline blend's numbers.
     """
+    if isinstance(getattr(reg, "members", None), dict) and reg.members:
+        # Promoted 2026-10-17: the distribution model is the score ensemble.
+        # Blend-weighted pooled importances across members (the moneyline
+        # convention): each member's normalized vector (split-gain for the
+        # trees, |coef| on the standardized linear view for the elastic net)
+        # pooled over sides, scaled by the regressor's own earned weights.
+        return _ensemble_feature_weights(reg)
     home = getattr(reg, "home_model", None)
     away = getattr(reg, "away_model", None)
     if home is None or away is None:
@@ -225,6 +234,66 @@ def distribution_feature_weights(
     return {name: round(100.0 * (hv + av) / total, 6)
             for name, hv, av in keep}
 
+
+
+def _ensemble_union_columns(reg) -> list[str]:
+    """Union of fitted ensemble member input columns, member order."""
+    seen: list[str] = []
+    for name in config.SCORE_ENSEMBLE_MEMBERS:
+        for col in ((getattr(reg, "columns", None) or {}).get(name) or []):
+            if col not in seen:
+                seen.append(col)
+    return seen
+
+
+def _member_importance_vector(model, columns: list) -> dict | None:
+    """One member's normalized non-negative importance over its columns."""
+    try:
+        if hasattr(model, "feature_importances_"):
+            vals = [float(v) for v in model.feature_importances_]
+        elif hasattr(model, "coef_"):
+            vals = [float(abs(v)) for v in
+                    np.ravel(np.asarray(model.coef_, dtype=float))]
+        else:
+            return None
+    except Exception:  # noqa: BLE001 - unfitted/foreign models skip honestly
+        return None
+    if len(vals) != len(columns) or sum(vals) <= 0:
+        return None
+    total = sum(vals)
+    return {c: v / total for c, v in zip(columns, vals)}
+
+
+def _ensemble_feature_weights(reg) -> dict[str, float] | None:
+    """Blend-weighted pooled importances of the fitted score ensemble."""
+    weights = dict(getattr(reg, "weights", None) or {})
+    acc: dict[str, float] = {}
+    for name in config.SCORE_ENSEMBLE_MEMBERS:
+        w = weights.get(name, 0.0)
+        try:
+            w = float(w)
+        except (TypeError, ValueError):
+            continue
+        if w <= 0:
+            continue
+        cols = list(((getattr(reg, "columns", None) or {}).get(name) or []))
+        for side in ScoreEnsembleRegressor.SIDES:
+            try:
+                model, _ = reg.members[side][name]
+            except (KeyError, TypeError):
+                continue
+            vec = _member_importance_vector(model, cols)
+            if not vec:
+                continue
+            for col, val in vec.items():
+                if col in config.TREE_CATEGORICAL_COLS:
+                    continue
+                acc[col] = acc.get(col, 0.0) + w * val
+    total = sum(acc.values())
+    if not acc or total <= 0:
+        return None
+    return {col: round(100.0 * val / total, 6)
+            for col, val in acc.items()}
 
 
 def pearson_poisson_adequacy(y: np.ndarray, mu: np.ndarray) -> float:

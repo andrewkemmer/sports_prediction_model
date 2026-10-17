@@ -1377,7 +1377,16 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         ml_oof["p_ensemble_calibrated"] = ml_oof.p_ensemble_calibrated.fillna(
             ml_oof.p_ensemble)
 
-        dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
+        # Promoted 2026-10-17 (A/B/C verdict: C z=-3.18 clears the 2.5
+        # gate, B z=-2.34 does not): the distribution walk IS the score
+        # ensemble — earned Poisson-deviance blends with the full-view
+        # elastic net — so mu_h/mu_a downstream (fit check, marketize,
+        # calibration) are the promoted model's means, not the incumbent's.
+        dist = dist_mod.walk_forward_oof_ensemble(game_df,
+                                                  fold_list=fold_list)
+        logger.info("score-ensemble serving weights (OOF-earned): %s",
+                      {k: round(float(v), 4)
+                       for k, v in dist["member_weights"].items()})
         dist_oof = _merge_oof_metadata(dist["oof"], game_df)
         # Score-mean adequacy diagnostics remain distinct from challenger pricing.
         _fit_check = dist_mod.run_line_fit_check(dist_oof)
@@ -1402,7 +1411,13 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                               f"{len(fold_list)} folds")
 
         final_models, _ = ml_mod.fit_final_models(game_df)
-        final_reg = dist_mod.fit_final(game_df)
+        # The serving score means come from the promoted ensemble, fitted
+        # on the full frame and blended with the walk's OOF-earned weights
+        # — never equal priors, never an in-sample optimum (the
+        # fit_final_models convention). ScoreEnsembleRegressor.predict
+        # defaults to these weights, so the slate call below is unchanged.
+        final_reg = dist_mod.ScoreEnsembleRegressor().fit(game_df)
+        final_reg.set_weights(dist["member_weights"])
         if len(slate):
             gaps = _empty_contract_columns(slate)
             if gaps:

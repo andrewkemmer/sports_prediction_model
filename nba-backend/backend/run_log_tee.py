@@ -102,7 +102,17 @@ class _Tee:
             self._file.flush()
         except (OSError, ValueError):
             pass  # disk full/removed mid-run: console keeps working
-        return self._stream.write(orig)
+        try:
+            return self._stream.write(orig)
+        except UnicodeEncodeError:
+            # Windows cp1252 console: a glyph the console cannot encode
+            # (emoji banners, accented names) must never kill the run -
+            # the log file above already carries the full text, so the
+            # console degrades to ? marks. (2026-10-17: this exact crash
+            # at import time silently dropped the nine pl_rapm features
+            # from an entire trial frame.)
+            return self._stream.write(
+                orig.encode("ascii", errors="replace").decode("ascii"))
 
     def _commit_partial(self) -> None:
         """Land whatever line is half-written (close / atexit delivery)."""

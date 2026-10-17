@@ -373,3 +373,38 @@ def test_elasticnet_full_view_adds_raw_sides_not_team_ids(monkeypatch):
     ens2 = dist_mod.ScoreEnsembleRegressor().fit(df)
     p = ens2.predict_member(df.head(5), "elasticnet", "home_score")
     assert np.isfinite(p).all() and (p > 0).all()
+
+
+def test_ensemble_drift_views_use_member_matrices():
+    """Promoted-model drift view: blend-weighted member importances."""
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor().fit(df)
+    ens.set_weights({"xgboost": 0.5, "lightgbm": 0.5, "elasticnet": 0.0})
+    weights = dist_mod.distribution_feature_weights(ens)
+    assert weights, "fitted tree members must yield a weight map"
+    assert abs(sum(weights.values()) - 100.0) < 1e-6
+    assert all(v >= 0.0 for v in weights.values())
+    for col in config.TREE_CATEGORICAL_COLS:
+        assert col not in weights
+    union = set()
+    for name in config.SCORE_ENSEMBLE_MEMBERS:
+        union.update(ens.columns[name])
+    assert set(weights) <= union
+    cols = dist_mod.run_engine_feature_cols(ens)
+    assert cols == [c for c in dict.fromkeys(
+        [c for name in config.SCORE_ENSEMBLE_MEMBERS
+         for c in ens.columns[name]])
+        if c not in config.TREE_CATEGORICAL_COLS]
+
+
+def test_ensemble_drift_views_degrade_honestly():
+    """Unfitted / zero-weight ensembles: None + contract fallback, no crash."""
+    ens = dist_mod.ScoreEnsembleRegressor()
+    assert dist_mod.distribution_feature_weights(ens) is None
+    assert dist_mod.run_engine_feature_cols(ens) == [
+        c for c in config.active_moneyline_feature_cols()
+        if c not in config.TREE_CATEGORICAL_COLS]
+    df = _frame()
+    ens.fit(df)
+    ens.set_weights({"xgboost": 0.0, "lightgbm": 0.0, "elasticnet": 0.0})
+    assert dist_mod.distribution_feature_weights(ens) is None
