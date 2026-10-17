@@ -81,6 +81,60 @@ def _make_reg(scale=12., crps=False):
     return LGBMRegressor(**params)
 
 
+# ---------------------------------------------------------------------------
+# Negative-binomial challenger (2026-10-17): NB2 with log link vs the
+# Poisson incumbent. Poisson forces variance == mean; NB adds one
+# train-fold-estimated dispersion r per side (variance = mu + mu^2/r,
+# r -> inf recovers Poisson). Same tree matrix, same LightGBM hyper-params,
+# same folds — the ONLY difference is the likelihood. Trial-only until a
+# walk-forward verdict clears the 2.5 gate.
+#
+# LightGBM contract (verified 2026-10-17): the callable receives RAW
+# margins with init_score INCLUDED during training, but predict() returns
+# raw WITHOUT the init — so the objective uses yp as-is while predict()
+# adds the stored log-mean back (the GaussianCRPSObjective precedent).
+# ---------------------------------------------------------------------------
+NB_DISPERSION_MIN = 1.0
+NB_DISPERSION_MAX = 1e4
+NB_RAW_CLIP = (-5.0, 12.0)
+
+
+def estimate_nb_dispersion(y: np.ndarray) -> float:
+    """Method-of-moments NB dispersion r from train labels (per side)."""
+    y = np.asarray(y, dtype=float)
+    y = y[np.isfinite(y) & (y >= 0)]
+    if len(y) < 2:
+        return NB_DISPERSION_MAX
+    m, v = float(y.mean()), float(y.var(ddof=1))
+    if not np.isfinite(m) or m <= 0 or not np.isfinite(v) or v <= m:
+        return NB_DISPERSION_MAX  # Poisson limit: no over-dispersion
+    return float(np.clip(m * m / (v - m),
+                         NB_DISPERSION_MIN, NB_DISPERSION_MAX))
+
+
+class NegativeBinomialObjective:
+    """NB2 NLL grad/hess w.r.t. the raw log-mean score."""
+
+    def __init__(self, dispersion: float) -> None:
+        self.r = float(np.clip(dispersion, NB_DISPERSION_MIN,
+                               NB_DISPERSION_MAX))
+
+    def __call__(self, y_true, y_pred):
+        y = np.asarray(y_true, dtype=float)
+        mu = np.exp(np.clip(np.asarray(y_pred, dtype=float), *NB_RAW_CLIP))
+        r = self.r
+        grad = -y + (y + r) * mu / (mu + r)
+        hess = (y + r) * mu * r / (mu + r) ** 2
+        return grad, np.maximum(hess, 1e-5)
+
+
+def _make_reg_nb(dispersion: float):
+    from lightgbm import LGBMRegressor
+    params = dict(config.LIGHTGBM_REG_PARAMS)
+    params["objective"] = NegativeBinomialObjective(dispersion)
+    return LGBMRegressor(**params)
+
+
 def gaussian_crps(y, location, scale):
     """Analytic continuous Gaussian CRPS, useful for objective verification."""
     from scipy.special import ndtr
@@ -96,14 +150,21 @@ def gaussian_crps(y, location, scale):
 class ScoreRegressor:
     """PIT score-mean models; direct CRPS location trees are an opt-in challenger."""
 
-    def __init__(self, crps_location=False) -> None:
+    def __init__(self, crps_location=False, nb=False) -> None:
         # Direct CRPS location trees are a research challenger, NOT the
         # production default: the full 2026-10-11 walk underperformed.
         self.crps_location = bool(crps_location)
+        # Negative-binomial challenger (trial-only): NB2 log-link LightGBM
+        # per side with train-fold dispersion; mutually exclusive with CRPS.
+        self.nb = bool(nb)
+        if self.crps_location and self.nb:
+            raise ValueError("ScoreRegressor takes one challenger at a time")
         self.home_model: Any | None = None
         self.away_model: Any | None = None
         self.feature_columns: list[str] = []
         self.fallback: tuple[Any, Any] | None = None
+        self.nb_log_mean: tuple[float, float] | None = None
+        self.nb_dispersion: tuple[float, float] | None = None
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # Resolved through the binary moneyline's OWN member_matrix helper —
@@ -144,6 +205,20 @@ class ScoreRegressor:
                                 categorical_feature=categorical)
             self.away_model.fit(X, total, init_score=np.full(len(X), self.total_center),
                                 categorical_feature=categorical)
+        elif self.nb:
+            rs, lms, models = [], [], []
+            for y in (h.to_numpy(dtype=float), a.to_numpy(dtype=float)):
+                r = estimate_nb_dispersion(y)
+                lm = float(np.log(max(np.mean(y), 1e-6)))
+                model = _make_reg_nb(r)
+                model.fit(X, y, init_score=np.full(len(X), lm),
+                          categorical_feature=categorical)
+                rs.append(r)
+                lms.append(lm)
+                models.append(model)
+            self.home_model, self.away_model = models
+            self.nb_dispersion = (rs[0], rs[1])
+            self.nb_log_mean = (lms[0], lms[1])
         else:
             self.home_model, self.away_model = _make_reg(), _make_reg()
             self.home_model.fit(X, h, categorical_feature=categorical)
@@ -164,6 +239,16 @@ class ScoreRegressor:
             total = self.total_center + self.away_model.predict(X)
             return (np.clip((total + margin) / 2., 1e-6, None),
                     np.clip((total - margin) / 2., 1e-6, None))
+        if self.nb:
+            assert self.nb_log_mean is not None
+            lo, hi = NB_RAW_CLIP
+            mh = np.exp(np.clip(
+                np.asarray(self.home_model.predict(X), dtype=float)
+                + self.nb_log_mean[0], lo, hi))
+            ma = np.exp(np.clip(
+                np.asarray(self.away_model.predict(X), dtype=float)
+                + self.nb_log_mean[1], lo, hi))
+            return (np.clip(mh, 1e-6, None), np.clip(ma, 1e-6, None))
         return (np.clip(self.home_model.predict(X), 1e-6, None),
                 np.clip(self.away_model.predict(X), 1e-6, None))
 
@@ -397,6 +482,51 @@ def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
 
 def fit_final(game_df: pd.DataFrame) -> ScoreRegressor:
     return ScoreRegressor().fit(game_df)
+
+
+def walk_forward_oof_nb(game_df: pd.DataFrame, date_col: str = "gameday",
+                        fold_list=None) -> dict:
+    """NB-challenger twin of walk_forward_oof: identical folds and frame.
+
+    Trial-only (2026-10-17): NB2 log-link LightGBM per side with
+    train-fold dispersion, vs the Poisson incumbent. Fold rows carry the
+    fitted per-side dispersions for diagnosis.
+    """
+    df = folds_mod.canonical_sort(game_df, date_col)
+    folds = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col)
+    parts: list[pd.DataFrame] = []
+    rows: list[dict] = []
+    for fold in folds:
+        train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
+        train_dates = pd.to_datetime(train[date_col], errors="raise").dt.normalize()
+        val_dates = pd.to_datetime(val[date_col], errors="raise").dt.normalize()
+        if train_dates.max() >= val_dates.min():
+            raise ValueError("distribution training must precede validation dates")
+        try:
+            reg = ScoreRegressor(nb=True).fit(train)
+            mu_h, mu_a = reg.predict(val)
+            rh, ra = reg.nb_dispersion or (float("nan"), float("nan"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NB distribution fold %s failed: %s", fold.fold_id, exc)
+            mu_h = np.full(len(val), np.nan)
+            mu_a = np.full(len(val), np.nan)
+            rh, ra = float("nan"), float("nan")
+        parts.append(pd.DataFrame({
+            "game_id": val.game_id.to_numpy(),
+            "gameday": pd.to_datetime(val[date_col]).to_numpy(),
+            "season": val.season.to_numpy() if "season" in val else np.nan,
+            "fold_id": fold.fold_id, "mu_h": mu_h, "mu_a": mu_a,
+            "home_score": val.home_score.to_numpy(float),
+            "away_score": val.away_score.to_numpy(float),
+        }))
+        rows.append({"fold_id": fold.fold_id, "val_start": str(fold.val_start.date()),
+                     "val_end": str(fold.val_end.date()), "n_train": len(train),
+                     "n_val": len(val), "r_home": rh, "r_away": ra})
+    oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(oof):
+        oof["margin"] = oof.home_score - oof.away_score
+        oof["total"] = oof.home_score + oof.away_score
+    return {"oof": oof, "fold_table": pd.DataFrame(rows)}
 
 
 # ---------------------------------------------------------------------------

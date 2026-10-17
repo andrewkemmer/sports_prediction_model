@@ -171,6 +171,46 @@ def test_ensemble_mus_price_through_the_identical_variance_machinery():
     assert (set(priced.columns) ^ set(priced2.columns)).isdisjoint(fixed)
 
 
+def test_nb_objective_matches_numeric_gradient():
+    rng = np.random.default_rng(5)
+    y = rng.poisson(3.2, 60).astype(float)
+    f = np.full_like(y, np.log(y.mean()) + 0.5)
+    for r in (5.0, 100.0):
+        obj = dist_mod.NegativeBinomialObjective(r)
+        grad, hess = obj(y, f)
+        assert np.isfinite(grad).all() and (hess > 0).all()
+        eps = 1e-5
+
+        def nll(ff):
+            m = np.exp(ff)
+            return float(np.mean(-y * ff + (y + r) * np.log(m + r)))
+
+        num = (nll(f + eps) - nll(f - eps)) / (2 * eps)
+        assert grad.mean() == pytest.approx(num, rel=1e-4)
+
+
+def test_nb_dispersion_edges_fall_back_to_poisson_limit():
+    assert dist_mod.estimate_nb_dispersion(
+        np.full(50, 3.0)) == dist_mod.NB_DISPERSION_MAX
+    assert dist_mod.estimate_nb_dispersion(np.array([])) == \
+        dist_mod.NB_DISPERSION_MAX
+    rng = np.random.default_rng(9)
+    y = rng.negative_binomial(6, 6 / (6 + 3.2), 500).astype(float)
+    r = dist_mod.estimate_nb_dispersion(y)
+    assert dist_mod.NB_DISPERSION_MIN <= r < dist_mod.NB_DISPERSION_MAX
+
+
+def test_nb_regressor_fits_and_predicts_finite_positive():
+    df = _frame()
+    reg = dist_mod.ScoreRegressor(nb=True).fit(df)
+    assert reg.nb_dispersion is not None and reg.nb_log_mean is not None
+    mu_h, mu_a = reg.predict(df.head(10))
+    assert np.isfinite(mu_h).all() and (mu_h > 0).all()
+    assert np.isfinite(mu_a).all() and (mu_a > 0).all()
+    with pytest.raises(ValueError):
+        dist_mod.ScoreRegressor(crps_location=True, nb=True)
+
+
 def test_elasticnet_full_view_flag_off_is_byte_identical_arm_b(monkeypatch):
     """Default-off challenger flag: elasticnet matrix == linear view exactly."""
     monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", False)

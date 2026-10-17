@@ -77,6 +77,48 @@ def test_fit_side_model_crps_opt_in_fits_and_predicts_positive_means():
     assert np.all(np.isfinite(lam)) and np.all(lam > 0)
 
 
+def test_nb_objective_matches_numeric_gradient():
+    rng = np.random.default_rng(5)
+    y = rng.poisson(4., 60).astype(float)
+    f = np.full_like(y, np.log(y.mean()) + 0.5)
+    for r in (5.0, 100.0):
+        obj = dist.NegativeBinomialObjective(r)
+        grad, hess = obj(y, f)
+        assert np.isfinite(grad).all() and (hess > 0).all()
+        eps = 1e-5
+
+        def nll(ff):
+            m = np.exp(ff)
+            return float(np.mean(-y * ff + (y + r) * np.log(m + r)))
+
+        num = (nll(f + eps) - nll(f - eps)) / (2 * eps)
+        assert grad.mean() == pytest.approx(num, rel=1e-4)
+
+
+def test_nb_dispersion_edges_fall_back_to_poisson_limit():
+    assert dist.estimate_nb_dispersion(
+        np.full(50, 4.0)) == dist.NB_DISPERSION_MAX
+    assert dist.estimate_nb_dispersion(np.array([])) == dist.NB_DISPERSION_MAX
+    rng = np.random.default_rng(9)
+    y = rng.negative_binomial(4, 4 / (4 + 4.), 500).astype(float)
+    assert dist.NB_DISPERSION_MIN <= dist.estimate_nb_dispersion(y) \
+        < dist.NB_DISPERSION_MAX
+    with pytest.raises(ValueError, match="one challenger"):
+        dist._fit_side_model(dict(dist.RUN_LGBM_PARAMS),
+                             *_tiny_side_frames(), fixed_rounds=8,
+                             crps=True, nb=True)
+
+
+def test_fit_side_model_nb_opt_in_fits_and_predicts_positive_means():
+    tr, y_tr, va, y_va = _tiny_side_frames()
+    model, lam, best = dist._fit_side_model(dict(dist.RUN_LGBM_PARAMS),
+                                            tr, y_tr, va, y_va,
+                                            fixed_rounds=8, nb=True)
+    assert isinstance(model.objective, dist.NegativeBinomialObjective)
+    assert np.all(np.isfinite(lam)) and np.all(lam > 0)
+    assert dist.RUN_LGBM_PARAMS["objective"] == "poisson"
+
+
 def test_grid_key_is_the_shared_nba_column_builder():
     assert dist._grid_key("p_over", 8) == "p_over_8"
     assert dist._grid_key("p_home_cover", -1.5) == "p_home_cover_m1_5"

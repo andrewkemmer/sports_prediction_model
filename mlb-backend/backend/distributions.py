@@ -447,10 +447,44 @@ def build_side_frame(games: pd.DataFrame, side: str,
 RUN_FIXED_FIT_ROUNDS = 180
 
 
+NB_DISPERSION_MIN = 1.0
+NB_DISPERSION_MAX = 1e4
+NB_RAW_CLIP = (-5.0, 12.0)
+
+
+def estimate_nb_dispersion(y: np.ndarray) -> float:
+    """Method-of-moments NB dispersion r from train labels (per side)."""
+    y = np.asarray(y, dtype=float)
+    y = y[np.isfinite(y) & (y >= 0)]
+    if len(y) < 2:
+        return NB_DISPERSION_MAX
+    m, v = float(y.mean()), float(y.var(ddof=1))
+    if not np.isfinite(m) or m <= 0 or not np.isfinite(v) or v <= m:
+        return NB_DISPERSION_MAX
+    return float(np.clip(m * m / (v - m),
+                         NB_DISPERSION_MIN, NB_DISPERSION_MAX))
+
+
+class NegativeBinomialObjective:
+    """NB2 NLL grad/hess w.r.t. the raw log-mean score (NBA template)."""
+
+    def __init__(self, dispersion: float) -> None:
+        self.r = float(np.clip(dispersion, NB_DISPERSION_MIN,
+                               NB_DISPERSION_MAX))
+
+    def __call__(self, y_true, y_pred):
+        y = np.asarray(y_true, dtype=float)
+        mu = np.exp(np.clip(np.asarray(y_pred, dtype=float), *NB_RAW_CLIP))
+        r = self.r
+        grad = -y + (y + r) * mu / (mu + r)
+        hess = (y + r) * mu * r / (mu + r) ** 2
+        return grad, np.maximum(hess, 1e-5)
+
+
 def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
                     va_frame: pd.DataFrame, y_va: np.ndarray,
                     fixed_rounds: Optional[int] = None,
-                    crps: bool = False):
+                    crps: bool = False, nb: bool = False):
     """Fit one side's Poisson model.
 
     fixed_rounds (run-engine OOF + production path): train exactly that many
@@ -464,16 +498,28 @@ def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
     crps (default False): NBA-parity opt-in that swaps the Poisson
     likelihood for the analytic Gaussian CRPS location objective with an
     explicit train-mean init score. Production callers never set it.
+
+    nb (default False): trial-only Negative-Binomial challenger (2026-10-17)
+    — NB2 log-link with train-fold dispersion, same matrix and rounds.
     """
     from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
+    if crps and nb:
+        raise ValueError("_fit_side_model takes one challenger at a time")
     model = LGBMRegressor(**params)
     crps_scale = max(float(np.std(np.asarray(y_tr, float))), 1.)
     crps_center = float(np.mean(np.asarray(y_tr, float)))
     fit_kwargs = {}
+    nb_log_mean = None
     if crps:
         model.set_params(objective=GaussianCRPSObjective(crps_scale))
         fit_kwargs["init_score"] = np.full(len(y_tr), crps_center)
+    if nb:
+        nb_r = estimate_nb_dispersion(np.asarray(y_tr, float))
+        nb_log_mean = float(np.log(max(float(np.mean(np.asarray(y_tr, float))),
+                                        1e-6)))
+        model.set_params(objective=NegativeBinomialObjective(nb_r))
+        fit_kwargs["init_score"] = np.full(len(y_tr), nb_log_mean)
     if fixed_rounds is not None:
         # OOF uses the same fixed-round refit policy as production. The
         # validation frame remains prediction-only; it must not select the
@@ -495,6 +541,10 @@ def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
     lam = np.clip(model.predict(va_frame, num_iteration=best), 1e-6, None)
     if crps:
         lam = np.clip(lam + crps_center, 1e-6, None)
+    if nb:
+        assert nb_log_mean is not None
+        lo, hi = NB_RAW_CLIP
+        lam = np.clip(np.exp(np.clip(lam + nb_log_mean, lo, hi)), 1e-6, None)
     return model, lam, best
 
 
@@ -579,6 +629,7 @@ def run_oof(games: pd.DataFrame,
             run_features: Optional[list[str]] = None,
             dropped: Optional[list[str]] = None,
             decided_snapshot: Optional[pd.DataFrame] = None,
+            nb: bool = False,
             ) -> dict[str, Any]:
     """Walk-forward OOF for both side models on the moneyline pipeline's folds.
 
@@ -593,6 +644,8 @@ def run_oof(games: pd.DataFrame,
     are built on the SAME canonical frame training used — preventing the
     fold-signature desync when the pipeline frame is mutated by slate
     concatenation, weather, or dome refinement.
+    ``nb`` (default False): trial-only Negative-Binomial challenger
+    (2026-10-17) — NB2 log-link per side with train-fold dispersion.
     Returns rows (one per decided game), per-side metrics, baseline metrics,
     and the dispersion probe."""
     from training import canonical_walk_forward_splits
@@ -648,7 +701,7 @@ def run_oof(games: pd.DataFrame,
             y_va = va[target].to_numpy(dtype=float)
             _, lam, _ = _fit_side_model(
                 params, tr_frame, y_tr, va_frame, y_va,
-                fixed_rounds=RUN_FIXED_FIT_ROUNDS,
+                fixed_rounds=RUN_FIXED_FIT_ROUNDS, nb=nb,
             )
             key = f"{side}_expected_runs"
             rec_base[key] = np.round(lam, 4)
