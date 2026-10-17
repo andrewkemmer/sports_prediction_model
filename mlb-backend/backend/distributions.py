@@ -2987,13 +2987,17 @@ def _distribution_transform(cdf, design, coefficients):
     return family.transform(cdf, design, coefficients)
 
 
-def _distribution_no_tie(cdf, support, home_share=None):
+def _distribution_no_tie(cdf, support, home_share=None, tie_rate=None):
     # Structural no-tie rule of the margin lattice. The NHL supplies a
     # causal OT/SO home-win share (maps["lattice"]["margin"]
     # ["ot_home_share"], estimated from prior OOF one-goal finals) so the
     # P(M=0) mass is redistributed to +/-1 by OT win probabilities from OOF;
-    # None keeps the exact equal split every pre-lattice bundle used.
-    return family.no_tie(cdf, support, DISTRIBUTION_SPORT, home_share)
+    # None keeps the exact equal split every pre-lattice bundle used. The
+    # NFL instead supplies a fitted overtime tie_rate (preregistered
+    # ("nfl", "margin", "tie_mass")); None keeps the exact pre-lattice
+    # valid tie mass. Other sports ignore tie_rate (passthrough).
+    return family.no_tie(cdf, support, DISTRIBUTION_SPORT, home_share,
+                         tie_rate=tie_rate)
 
 
 def lattice_crps(cdf, support, outcome):
@@ -3033,7 +3037,8 @@ def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
             variance = maps.get("variance") or family.defaults(DISTRIBUTION_SPORT)
             spec["alpha"] = float(variance.get("total_parity_alpha", 0.))
         if kind == "margin":
-            cdf = _distribution_no_tie(cdf, support, spec.get("ot_home_share"))
+            cdf = _distribution_no_tie(cdf, support, spec.get("ot_home_share"),
+                                         tie_rate=spec.get("tie_rate"))
         cdf = family.lattice_correct(cdf, support, spec,
                                      DISTRIBUTION_SPORT, target)
         if sampled:

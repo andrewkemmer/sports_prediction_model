@@ -325,12 +325,18 @@ LATTICE_PREREGISTERED = {
         "mechanism": ("touchdown+XP key number, away side: excess margin "
                         "mass at exactly -7 (scoring symmetry with spike_7)"),
         "direction": "amplitude > 0", "test": "one-sided",
-        "structural_bar": LATTICE_STRUCTURAL_Z},
-    ("nfl", "margin", "spike_secondary_mirror"): {
+        "structural_bar": LATTICE_STRUCTURAL_Z},    ("nfl", "margin", "spike_secondary_mirror"): {
         "mechanism": ("secondary scoring key numbers, away side "
-                        "(-1, -4, -6, -10, -14, -17) with stronger shrinkage, "
-                        "individually gated"),
+                      "(-1, -4, -6, -10, -14, -17) with stronger shrinkage, "
+                      "individually gated"),
         "direction": "amplitude > 0", "test": "one-sided",
+        "structural_bar": LATTICE_STRUCTURAL_Z},
+    ("nfl", "margin", "tie_mass"): {
+        "mechanism": ("overtime tie rate: the discretized smooth density "
+                      "overstates P(M=0) ~5x (0.016 served vs 0.003 observed); "
+                      "a single rate parameter sets the tie bin, others "
+                      "rescaled proportionally"),
+        "direction": "model tie mass > observed", "test": "one-sided exact binomial",
         "structural_bar": LATTICE_STRUCTURAL_Z},
     ("nhl", "margin", "empty_net_2_to_3"): {
         "mechanism": ("empty-net goal: 2-goal leads finish as 3-goal finals; "
@@ -759,6 +765,89 @@ def fit_pooled_home_share(outcomes, pmfs=None, support=None, min_decisions=40,
         return None, report
     report["significant"] = True
     return share, report
+
+
+# NFL overtime tie rate (structural, single-parameter, 2026-10-18): the
+# discretized smooth density puts ~1.6% of margin mass at 0 while real NFL
+# ties run ~0.3%. Unlike the multi-bin residual fits this is one
+# rule-adjacent rate: a Beta posterior sets it, an exact one-sided binomial
+# test on ALL prior evidence admits it (a held-out tail holds ~2-3 ties and
+# cannot separate — the pooled z of -11 is the usable evidence). The prior
+# mean is empirically informed (declared, not rule-derived); the pooled
+# data overwhelm any sane prior weight within seasons. Uniform across games
+# by declared assumption (OT tie mechanics roughly state-independent).
+NFL_TIE_PRIOR = (0.003, 600)   # prior mean, pseudo-games (Beta prior)
+
+
+def _binom_cdf_le(k, n, p):
+    """Exact P(X <= k) for Binomial(n, p), iterative terms (k small here)."""
+    k, n, p = int(k), int(n), float(p)
+    if k < 0:
+        return 0.
+    if k >= n:
+        return 1.
+    if not 0. < p < 1.:
+        return 1. if k >= n * p else 0.
+    term, total = (1. - p) ** n, (1. - p) ** n
+    for i in range(1, k + 1):
+        term *= (n - i + 1.) / i * p / (1. - p)
+        total += term
+    return min(max(total, 0.), 1.)
+
+
+def fit_tie_rate(outcomes, model_p0, sport, bar=LATTICE_STRUCTURAL_Z,
+                 prior=NFL_TIE_PRIOR):
+    """NFL overtime tie rate from prior evidence (Beta posterior + exact gate).
+
+    Returns (t | None, report): the posterior tie rate when the exact
+    one-sided binomial test (observed ties significantly BELOW the mean
+    model tie mass, bar = structural 2.5) admits, else None with the
+    refusal reason. Unadmitted callers keep exact passthrough — never a
+    partial tie correction.
+    """
+    m, w = float(prior[0]), float(prior[1])
+    report: dict = {"estimator": "tie_rate", "sport": sport,
+                     "bar": float(bar), "admitted": False,
+                     "prior": [m, w]}
+    y = np.asarray(outcomes, float)
+    y = y[np.isfinite(y)]
+    n = len(y)
+    p0 = float(model_p0)
+    if n == 0 or not 0. < p0 < 1.:  # pragma: no cover - degenerate evidence
+        report["reason"] = "degenerate_evidence"
+        return None, report
+    k = int((y == 0).sum())
+    t = (k + m * w) / (n + w)
+    p_value = _binom_cdf_le(k, n, p0)
+    report.update(k_ties=k, n=n, model_p0=round(p0, 6),
+                  p_value=p_value, t=round(float(t), 6))
+    if p_value > float(ndtr(-bar)):
+        report["reason"] = "held_out_not_significant"
+        return None, report
+    if not t < p0:
+        report["reason"] = "posterior_not_below_model"
+        return None, report
+    report["admitted"] = True
+    report["significant"] = True
+    return float(t), report
+
+
+def apply_tie_rate(pmf, j0, t):
+    """Set bin j0 to mass t, rescaling the other bins proportionally.
+
+    Mass-proportional rescaling (the neutral rule: the lift lands where the
+    model already puts mass). Rows already degenerate at bin j0 (base mass
+    ~1) are left unchanged — nothing to rescale from.
+    """
+    out = np.asarray(pmf, float).copy()
+    t = float(t)
+    base = out[:, int(j0)]
+    deg = base > 1. - 1e-9
+    scale = (1. - t) / np.clip(1. - base, 1e-12, None)
+    out = out * scale[:, None]
+    out[:, int(j0)] = t
+    out[deg] = np.asarray(pmf, float)[deg]
+    return out
 
 
 def fit_margin_spikes(pmfs, outcomes, support, sport,
@@ -1202,7 +1291,7 @@ def transform(cdf, x, beta):
     return out
 
 
-def no_tie(cdf, support, sport, home_share=None):
+def no_tie(cdf, support, sport, home_share=None, tie_rate=None):
     """Push the model's tie mass off the zero margin (no-tie sports only).
 
     P(M=0)=0 for the NHL/MLB/NBA margin lattices — those games are always
@@ -1232,8 +1321,26 @@ def no_tie(cdf, support, sport, home_share=None):
     DECREASES. NHL/MLB keep their fitted/nearest-neighbor split unchanged
     (their measured +/-1 evidence supports it or lacks direction).
     """
-    if sport == "nfl" or support[0] >= 0:
+    if support[0] >= 0:
         return cdf
+    if sport == "nfl":
+        # Structural overtime tie rate (preregistered ("nfl", "margin",
+        # "tie_mass")): None keeps the exact pre-lattice formula (valid tie
+        # mass from the discretized density); a fitted tie_rate sets bin 0
+        # and rescales the other bins proportionally (see apply_tie_rate).
+        # Monotonicity holds: all masses stay nonnegative and sum to 1.
+        if tie_rate is None:
+            return cdf
+        t = float(tie_rate)
+        if not 0. <= t < 1.:
+            raise ValueError("NFL tie_rate must lie in [0, 1)")
+        support = np.asarray(support)
+        j = int(np.searchsorted(support, 0))
+        if j >= len(support) or int(support[j]) != 0:
+            return cdf
+        base = np.diff(np.column_stack([np.zeros(len(cdf)), cdf]), axis=1)
+        pmf = apply_tie_rate(np.clip(base, 0., None), j, t)
+        return np.clip(np.cumsum(pmf, axis=1), 0., 1.)
     out = cdf.copy()
     j = int(np.searchsorted(support, 0))
     if sport == "nba":

@@ -945,3 +945,97 @@ def test_distribution_walk_never_prices_from_the_future_or_its_own_origin():
     with pytest.raises((ValueError, KeyError)):
         dist.causal_distribution_frame(frame.drop(columns=[date_col]),
                                        n_draws=200)
+
+
+def test_tie_mass_is_preregistered_structural():
+    spec = fam.LATTICE_PREREGISTERED[("nfl", "margin", "tie_mass")]
+    assert spec["direction"] == "model tie mass > observed"
+    assert spec["test"] == "one-sided exact binomial"
+    assert spec["structural_bar"] == fam.LATTICE_STRUCTURAL_Z
+
+
+def _tie_outcomes(n, k_ties, seed=4):
+    rng = np.random.default_rng(seed)
+    y = rng.integers(1, 30, size=n).astype(float) * rng.choice([-1., 1.], size=n)
+    y[:k_ties] = 0.
+    return y
+
+
+def test_tie_rate_beta_posterior_math_and_exact_gate():
+    # Strong evidence: 8 ties in 2574 games against 1.6% model mass.
+    y = _tie_outcomes(2574, 8)
+    t, rep = fam.fit_tie_rate(y, 0.016, SPORT)
+    assert rep["estimator"] == "tie_rate" and rep["admitted"]
+    assert rep["k_ties"] == 8 and rep["n"] == 2574
+    m, w = fam.NFL_TIE_PRIOR
+    assert t == pytest.approx((8 + m * w) / (2574 + w))
+    assert rep["p_value"] < 0.00621 + 1e-4   # one-sided 2.5-sigma level
+    assert t < 0.016
+    # Weak evidence: 2 ties in 700 games against 1% model mass refuses.
+    t2, rep2 = fam.fit_tie_rate(_tie_outcomes(700, 2), 0.01, SPORT)
+    assert t2 is None and not rep2["admitted"]
+    assert rep2["reason"] == "held_out_not_significant"
+    # Observed ties ABOVE model mass refuses (wrong direction).
+    y3 = _tie_outcomes(500, 10)
+    t3, rep3 = fam.fit_tie_rate(y3, 0.005, SPORT)
+    assert t3 is None and not rep3["admitted"]
+
+
+def test_binom_cdf_le_matches_closed_forms():
+    assert fam._binom_cdf_le(0, 10, 0.5) == pytest.approx(0.5 ** 10)
+    assert fam._binom_cdf_le(10, 10, 0.5) == pytest.approx(1.0)
+    assert fam._binom_cdf_le(-1, 10, 0.5) == pytest.approx(0.0)
+    # 2 in 700 at 1%: Poisson(7) P(X<=2) = e^-7 (1+7+24.5) ~= 0.0296.
+    assert fam._binom_cdf_le(2, 700, 0.01) == pytest.approx(0.0296, abs=2e-3)
+
+
+def test_apply_tie_rate_renormalizes_proportionally():
+    rng = np.random.default_rng(6)
+    P = rng.dirichlet(np.ones(61), size=5)
+    j0 = 30
+    Q = fam.apply_tie_rate(P, j0, 0.003)
+    np.testing.assert_allclose(Q.sum(axis=1), 1., atol=1e-12)
+    np.testing.assert_allclose(Q[:, j0], 0.003, atol=1e-12)
+    # Other bins keep their relative shares (proportional rescale).
+    mask = np.ones(61, bool)
+    mask[j0] = False
+    np.testing.assert_allclose(Q[:, mask] / Q[:, mask].sum(axis=1, keepdims=True),
+                               P[:, mask] / P[:, mask].sum(axis=1, keepdims=True),
+                               atol=1e-12)
+    # Degenerate rows (all mass at j0) are left unchanged.
+    D = np.zeros((2, 61))
+    D[:, j0] = 1.
+    np.testing.assert_array_equal(fam.apply_tie_rate(D, j0, 0.003), D)
+
+
+def test_no_tie_nfl_branch_sets_tie_bin_and_stays_valid():
+    support = np.arange(-30, 31)
+    cdf = _smooth_cdf(support, 2., 13., rows=4)
+    # None keeps the exact pre-lattice formula (object-identical passthrough).
+    assert fam.no_tie(cdf, support, "nfl") is cdf
+    assert fam.no_tie(cdf, support, "nfl", tie_rate=None) is cdf
+    out = fam.no_tie(cdf, support, "nfl", tie_rate=0.003)
+    pmf = np.diff(np.column_stack([np.zeros(len(out)), out]), axis=1)
+    np.testing.assert_allclose(pmf[:, support == 0], 0.003, atol=1e-9)
+    np.testing.assert_allclose(pmf.sum(axis=1), 1., atol=1e-9)
+    assert bool((np.diff(out, axis=1) >= -1e-9).all())  # monotone CDF
+    assert bool(((out >= 0.) & (out <= 1.)).all())
+    with pytest.raises(ValueError):
+        fam.no_tie(cdf, support, "nfl", tie_rate=1.5)
+    # No zero bin on the support: passthrough, never a crash.
+    assert fam.no_tie(cdf, np.arange(5), "nfl", tie_rate=0.003) is not None
+
+
+def test_tie_rate_bundle_round_trip_and_prefx_passthrough():
+    import json
+    support = np.arange(-30, 31)
+    cdf = _smooth_cdf(support, 2., 13., rows=2)
+    # Stored bundle round trip: JSON-serialized tie_rate reprices identically.
+    t, rep = fam.fit_tie_rate(_tie_outcomes(2574, 8), 0.016, SPORT)
+    bundle = {"tie_rate": round(float(t), 6), "tie_report": rep}
+    restored = json.loads(json.dumps(bundle))
+    a = fam.no_tie(cdf, support, "nfl", tie_rate=bundle["tie_rate"])
+    b = fam.no_tie(cdf, support, "nfl", tie_rate=restored["tie_rate"])
+    np.testing.assert_array_equal(a, b)
+    # Pre-fix bundles carry no tie_rate key: spec.get -> None -> passthrough.
+    assert dist._distribution_no_tie(cdf, support, None, tie_rate=None) is cdf
