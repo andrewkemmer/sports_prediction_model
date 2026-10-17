@@ -169,3 +169,36 @@ def test_ensemble_mus_price_through_the_identical_variance_machinery():
     assert fixed.issubset(set(priced.columns))
     assert fixed.issubset(set(priced2.columns))
     assert (set(priced.columns) ^ set(priced2.columns)).isdisjoint(fixed)
+
+
+def test_elasticnet_full_view_flag_off_is_byte_identical_arm_b(monkeypatch):
+    """Default-off challenger flag: elasticnet matrix == linear view exactly."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", False)
+    try:
+        from backend import moneyline as ml_mod
+    except ImportError:
+        import moneyline as ml_mod
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor()
+    got = ens._matrix("elasticnet", df)
+    want = ml_mod.member_matrix("elasticnet", df)
+    assert list(got.columns) == list(want.columns)
+    pd.testing.assert_frame_equal(got.reset_index(drop=True),
+                                  want.reset_index(drop=True))
+
+
+def test_elasticnet_full_view_adds_raw_sides_not_team_ids(monkeypatch):
+    """Arm C view: raw per-side columns in, team-ID categoricals out."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", True)
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor()
+    got = ens._matrix("elasticnet", df)
+    raw = [c for c in config.RAW_PER_SIDE_COLS if c in df.columns]
+    assert raw, "fixture must carry raw per-side columns for this test"
+    assert set(raw) <= set(got.columns)
+    for col in config.TREE_CATEGORICAL_COLS:
+        assert col not in got.columns
+    # Still fittable end to end through the linear preprocessor path.
+    ens2 = dist_mod.ScoreEnsembleRegressor().fit(df)
+    p = ens2.predict_member(df.head(5), "elasticnet", "home_score")
+    assert np.isfinite(p).all() and (p > 0).all()
