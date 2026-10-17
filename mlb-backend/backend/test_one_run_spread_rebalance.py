@@ -191,6 +191,25 @@ def test_walk_stores_the_disclosure_and_composes_the_delta(monkeypatch):
     assert "delta" not in spec and not spec.get("significant")
 
 
+def test_two_stage_gate_discloses_which_bar_admitted(monkeypatch):
+    """The generic bar applies first; this pre-registered, one-sided
+    mechanism may then take the STRUCTURAL bar. Which stage admitted is
+    disclosed, and below both bars it refuses."""
+    pmfs, outcomes, support = _one_run_evidence()
+    # Serving-scale evidence clears the generic bar -> generic stage.
+    _, rep = dist.fit_one_run_spread_rebalance(pmfs, outcomes, support, .6)
+    assert rep["bar_applied"] == "generic" and rep["z"] >= fam.LATTICE_GATE_Z
+    # Force the generic stage to reject: the structural stage decides.
+    monkeypatch.setattr(fam, "LATTICE_GATE_Z", 99.)
+    delta, rep = dist.fit_one_run_spread_rebalance(pmfs, outcomes, support, .6)
+    assert delta is not None and rep["bar_applied"] == "structural"
+    assert fam.LATTICE_STRUCTURAL_Z <= rep["z"] < 99.
+    # Below BOTH bars -> refused, no delta, prices unchanged.
+    monkeypatch.setattr(fam, "LATTICE_STRUCTURAL_Z", 99.)
+    delta, rep = dist.fit_one_run_spread_rebalance(pmfs, outcomes, support, .6)
+    assert delta is None and rep["reason"] == "held_out_not_significant"
+
+
 def test_composes_with_an_admitted_generic_delta(monkeypatch):
     pmfs, outcomes, support = _one_run_evidence()
     evidence = {"margin": {"pmfs": pmfs, "outcomes": outcomes,

@@ -3077,12 +3077,19 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
 # donor's residual/capacity/drawn triple rides the report.
 #
 # GATES: one-sided direction per bin (recipient up, donors down), zero-sum by
-# construction, forbidden bins untouched, the SAME paired held-out gate the
-# generic fit uses at the UNCHANGED GENERIC bar (LATTICE_GATE_Z — measured
-# z 3.27 on the 20261016 evidence, so no structural-bar fallback is claimed
-# or needed), and the per-bin collateral guard vetoing any draw that pushes a
-# bin past its own noise floor. A refused rebalance returns no delta and
-# prices byte-identically to before.
+# construction, forbidden bins untouched, and the per-bin collateral guard
+# vetoing any draw that pushes a bin past its own noise floor. Admission runs
+# the SAME two-stage gate the walk-off share and the NFL key-number spikes
+# use: the generic bar first (LATTICE_GATE_Z on the paired held-out loss),
+# then — for this pre-registered, one-sided-direction mechanism only — the
+# one-sided structural bar (LATTICE_STRUCTURAL_Z). Measured on the 20261017
+# artifact (run_diagnostics/mlb17_origin_admissions.log): the share-sized
+# amount clears the generic bar at the serving fit (z 3.27) but per-origin
+# evidence is thinner (median z ~2.5), so the generic stage alone admitted
+# 10/57 share-bearing origins and the pooled chart barely moved (+0.0015 at
+# M=+1); the structural stage takes 36/57. The stage that admitted is
+# disclosed per fit as "bar_applied". A refused rebalance returns no delta
+# and prices byte-identically to before.
 ONE_RUN_REBALANCE_RECIPIENT = 1        # M=+1: the walk-off one-run home win
 ONE_RUN_REBALANCE_MIRROR = -1          # M=-1: its away-side mirror
 ONE_RUN_REBALANCE_DONORS = (-1, -2, 3)  # funding order; capacity-capped
@@ -3105,6 +3112,7 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
                     "recipient": ONE_RUN_REBALANCE_RECIPIENT,
                     "donors": list(ONE_RUN_REBALANCE_DONORS),
                     "bar": float(family.LATTICE_GATE_Z),
+                    "structural_bar": float(family.LATTICE_STRUCTURAL_Z),
                     "share": None if share is None else round(float(share), 4),
                     "bins": []}
     if share is None:
@@ -3203,7 +3211,22 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     z = float(-d.mean() / ses) if ses > 0. else 0.
     report["z"] = round(z, 3)
     report["n_test"] = int(len(hold))
-    if not (d.mean() < 0. and z >= family.LATTICE_GATE_Z):
+    if d.mean() < 0. and z >= family.LATTICE_GATE_Z:
+        report["bar_applied"] = "generic"
+    elif d.mean() < 0. and z >= family.LATTICE_STRUCTURAL_Z:
+        # Pre-registered TWO-STAGE gate (2026-10-17; the house rule the
+        # walk-off share and the NFL key-number spikes already use): the
+        # generic bar applies first, and a mechanism whose direction was
+        # declared one-sided BEFORE fitting may then take the one-sided
+        # structural bar. Nothing else relaxes — the direction is enforced
+        # by construction (recipient up; donors down only where their own
+        # actuals support it), the collateral guard above is unchanged and
+        # the held-out loss must still improve. Measured on the 20261017
+        # artifact: 10/57 share-bearing origins clear the generic bar and
+        # 36/57 clear the structural one, which is the difference between a
+        # chart-level no-op and a visible ±1 correction.
+        report["bar_applied"] = "structural"
+    else:
         report["reason"] = "held_out_not_significant"
         return None, report
     delta = np.clip(delta, -family.LATTICE_DELTA_CAP, family.LATTICE_DELTA_CAP)

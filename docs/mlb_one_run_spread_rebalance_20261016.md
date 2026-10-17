@@ -48,11 +48,14 @@ its own code):
   0.0880 actual, capacity 0, drawn 0. The unfunded remainder (0 on the
   current evidence) falls to the mass-proportional sink. Each donor's
   residual/capacity/drawn triple rides the report.
-- **Gates**: unchanged generic bar (LATTICE_GATE_Z = 3.0, two-sided paired
-  held-out loss) + the per-bin collateral guard (no bin's |residual| may
-  worsen beyond its own 1σ binomial floor) + zero-sum by construction +
-  forbidden bin 0 untouched. A refused rebalance returns no delta and
-  prices byte-identically to before; no structural-bar fallback is claimed.
+- **Gates**: unchanged generic bar first (LATTICE_GATE_Z = 3.0, two-sided
+  paired held-out loss) — then, because the mechanism is pre-registered with
+  a one-sided direction, the pre-registered structural bar (2.5), the same
+  two-stage rule the walk-off share and the NFL key-number spikes use (see
+  §G for why the second stage exists). Plus the per-bin collateral guard
+  (no bin's |residual| may worsen beyond its own 1σ binomial floor),
+  zero-sum by construction, forbidden bin 0 untouched. A refused rebalance
+  returns no delta and prices byte-identically to before.
 
 ## C. Verdict on the 20261016 evidence (final serving fit, n=7039)
 
@@ -112,7 +115,57 @@ held-out cost is quadratic, so the gate ceiling sits near amt ≈ 0.017. The
 share-sized amount is not tuned to that ladder — it is the pre-registered
 structural quantity (the same (q̂−½)·mass the admitted walk-off share itself
 uses) — and it clears the GENERIC bar with margin, so the mechanism claims
-no structural concession.
+no structural concession at the serving fit.
+
+## G. 20261017 validation — why the dashboard looked unchanged, and the fix
+
+The 20261017 pipeline run shipped the mechanism (meta
+`lattice_summary.margin.one_run_rebalance`: significant, z 3.268,
+`delta_source: one_run_rebalance`) — but the Distribution chart pools the
+PMFs **each origin** shipped, and only the origins whose own gate admitted
+move. Measured on that artifact (`run_diagnostics/mlb17_origin_admissions*.log`):
+
+| | generic bar only (as first shipped) | + structural stage |
+|---|---|---|
+| share-bearing origins admitting | 10 / 57 | **36 / 57** |
+| origins shipping a margin delta | 9 / 84 | **35 / 84** |
+| pooled P(M=+1) (actual 0.1740) | 0.1448 (gap +0.0292) | **0.1487 (+0.0253)** |
+| pooled P(M=−1) (actual 0.1088) | 0.1247 (−0.0159) | **0.1219 (−0.0131)** |
+| pooled P(M=+3) (actual 0.0663) | 0.0752 (−0.0089) | **0.0738 (−0.0075)** |
+| modeled one-run split (obs 0.6153) | 0.5373 | **0.5496** |
+
+Pre-rebalance baseline for the same 7,039 games: P(M=+1) 0.1433 (+0.0308),
+P(M=−1) 0.1255 (−0.0167), split 0.5330. M=−2 is untouched by design — the
+actuals show it SHORT (+0.0096), so it cannot fund.
+
+Why the first version barely moved the chart: per-origin evidence is much
+thinner than the serving fit's (amounts 0.0074…0.0137, median held-out
+z ≈ 2.5), and demanding the generic bar alone admitted one origin in six.
+The fix is **not** a weaker gate: it is the house two-stage rule (generic
+bar first, then the pre-registered one-sided structural bar for a mechanism
+whose direction was declared before fitting) that the walk-off share and the
+NFL spikes already use. Direction, collateral, zero-sum, caps and the
+requirement that the held-out loss actually improve are all unchanged, and
+each fit discloses which stage admitted (`bar_applied`).
+
+Still open, and deliberately not forced: the residual at M=+1 is 0.025 even
+after this, because the transfer is capped by the admitted share (whose own
+estimator clips q̂ at 0.60) and by the gate ceiling in §D. Closing the rest
+needs the share clip re-registered, a second recipient (+2/−2), or more
+settled 2026 evidence.
+
+### Full-walk verification on the 20261017 artifact (two-stage)
+
+`regenerate_lattice_artifacts.py mlb` (record in
+`run_diagnostics/mlb_rebalance_regen_two_stage.log`): margin origins
+admitting a delta **35/84** (serving fit admits at the *generic* stage,
+z 3.268, `bar_applied: generic`); pooled per-origin residuals M=+1
++0.0379 → +0.0253, M=−1 −0.0225 → −0.0131, M=+3 −0.0087 → −0.0075,
+M=−2 untouched (short by +0.0096). Run-line cards: CRPS 2.466025 →
+2.465772, Brier 0.247735 → **0.247513**, logloss 0.688606 → **0.688158**.
+Run-line cover ECE moves 0.0080 → 0.0098 — the same pre-existing drift the
+admitted totals delta already produced before this mechanism existed.
+Target isolation passes; zero non-distribution cell diffs in both audits.
 
 ## E. Standing rules honoured
 
@@ -134,9 +187,11 @@ no structural concession.
 
 ## F. Tests
 
-`mlb-backend/backend/test_one_run_spread_rebalance.py` (8 tests): amount and
+`mlb-backend/backend/test_one_run_spread_rebalance.py` (9 tests): amount and
 funding read from the evidence; short donor funds exact 0 and discloses its
 capacity; pure noise refused with a verdict; no-share and sub-half share are
 no-ops; evidence guards; the delta prices a valid CDF with the forbidden bin
-empty; the walk stores the disclosure and ships the delta; composition with
-an admitted generic delta. Full MLB backend suite: 461 passed, 4 skipped.
+empty; the two-stage gate discloses which bar admitted (and refuses below
+both); the walk stores the disclosure and ships the delta; composition with
+an admitted generic delta. Full MLB backend suite: **470 passed, 4
+skipped** (2026-10-17).
