@@ -18,29 +18,29 @@
    "source": "oof_decided_store"
   },
   "run_line": {
-   "n": 1521,
-   "actual_win_rate": 0.5569,
-   "win_rate": 0.5569,
-   "predicted_mean": 0.5177,
-   "auc": 0.5619,
-   "ece_raw": 0.041,
-   "ece_calibrated": 0.041,
-   "brier": 0.2479,
-   "logloss": 0.6889,
+   "n": 1511,
+   "actual_win_rate": 0.5493,
+   "win_rate": 0.5493,
+   "predicted_mean": 0.5173,
+   "auc": 0.5572,
+   "ece_raw": 0.0576,
+   "ece_calibrated": 0.0576,
+   "brier": 0.248,
+   "logloss": 0.6891,
    "holdout": {},
    "source": "oof_decided_store",
-   "auc_n": 2496
+   "auc_n": 2483
   },
   "derived_ml": {
-   "n": 1511,
-   "actual_win_rate": 0.6625,
-   "win_rate": 0.6625,
-   "predicted_mean": 0.6221,
-   "auc": 0.6981,
-   "ece_raw": 0.0496,
-   "ece_calibrated": 0.0496,
-   "brier": 0.214,
-   "logloss": 0.6174,
+   "n": 1547,
+   "actual_win_rate": 0.6626,
+   "win_rate": 0.6626,
+   "predicted_mean": 0.6261,
+   "auc": 0.698,
+   "ece_raw": 0.0461,
+   "ece_calibrated": 0.0461,
+   "brier": 0.2144,
+   "logloss": 0.618,
    "holdout": {},
    "source": "oof_decided_store",
    "auc_n": 2565,
@@ -65,20 +65,20 @@
   {
    "card": "run_line",
    "date": "2026-10-17",
-   "ece_calibrated": 0.041,
-   "brier": 0.2479,
-   "logloss": 0.6889,
-   "predicted_mean": 0.5177,
-   "n": 1521
+   "ece_calibrated": 0.0576,
+   "brier": 0.248,
+   "logloss": 0.6891,
+   "predicted_mean": 0.5173,
+   "n": 1511
   },
   {
    "card": "derived_ml",
    "date": "2026-10-17",
-   "ece_calibrated": 0.0496,
-   "brier": 0.214,
-   "logloss": 0.6174,
-   "predicted_mean": 0.6221,
-   "n": 1511
+   "ece_calibrated": 0.0461,
+   "brier": 0.2144,
+   "logloss": 0.618,
+   "predicted_mean": 0.6261,
+   "n": 1547
   }
  ],
  "fit": {
@@ -92,9 +92,9 @@
   },
   "margin_tail": {
    "obs_home_win": 0.5443,
-   "mod_home_win": 0.5342,
+   "mod_home_win": 0.5394,
    "obs_push": 0.0035,
-   "mod_push": 0.0163
+   "mod_push": 0.0058
   },
   "variance_obs": {
    "home": 9.56,
@@ -128,6 +128,23 @@
     "reason": "held_out_not_significant"
    },
    "margin": {
+    "tie_rate": 0.003403,
+    "tie_report": {
+     "estimator": "tie_rate",
+     "sport": "nfl",
+     "bar": 2.5,
+     "admitted": true,
+     "prior": [
+      0.003,
+      600.0
+     ],
+     "k_ties": 9,
+     "n": 2574,
+     "model_p0": 0.02905,
+     "p_value": 3.242465084542193e-22,
+     "t": 0.003403,
+     "significant": true
+    },
     "spike_report": {
      "estimator": "key_number_spikes",
      "sport": "nfl",
@@ -136,119 +153,120 @@
       {
        "bin": 3,
        "secondary": false,
-       "amplitude": 0.017428,
-       "z": 4.52,
+       "amplitude": 0.017459,
+       "z": 4.374,
        "admitted": true
       },
       {
        "bin": 7,
        "secondary": false,
-       "amplitude": 0.006192,
-       "z": 1.938,
+       "amplitude": 0.006065,
+       "z": 1.758,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": -3,
        "secondary": false,
-       "amplitude": 0.014129,
-       "z": 4.93,
+       "amplitude": 0.014136,
+       "z": 4.789,
        "admitted": true
       },
       {
        "bin": -7,
        "secondary": false,
-       "amplitude": 0.004587,
-       "z": 2.942,
+       "amplitude": 0.004477,
+       "z": 2.778,
        "admitted": true
       },
       {
        "bin": 1,
        "secondary": true,
-       "amplitude": -0.00017,
+       "amplitude": -0.0002,
        "admitted": false,
        "reason": "amplitude_not_positive"
       },
       {
        "bin": 4,
        "secondary": true,
-       "amplitude": -0.000248,
+       "amplitude": -0.000279,
        "admitted": false,
        "reason": "amplitude_not_positive"
       },
       {
        "bin": 6,
        "secondary": true,
-       "amplitude": 0.000106,
-       "z": 2.409,
+       "amplitude": 8.6e-05,
+       "z": 2.22,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": 10,
        "secondary": true,
-       "amplitude": 0.000165,
-       "z": -0.79,
+       "amplitude": 0.000153,
+       "z": -1.066,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": 14,
        "secondary": true,
-       "amplitude": 0.000259,
-       "z": -0.294,
+       "amplitude": 0.000255,
+       "z": -0.566,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": 17,
        "secondary": true,
-       "amplitude": 1.8e-05,
-       "z": 3.608,
+       "amplitude": 1.2e-05,
+       "z": 3.455,
        "admitted": true
       },
       {
        "bin": -1,
        "secondary": true,
-       "amplitude": -0.000322,
+       "amplitude": -0.000355,
        "admitted": false,
        "reason": "amplitude_not_positive"
       },
       {
        "bin": -4,
        "secondary": true,
-       "amplitude": -3.1e-05,
+       "amplitude": -5.3e-05,
        "admitted": false,
        "reason": "amplitude_not_positive"
       },
       {
        "bin": -6,
        "secondary": true,
-       "amplitude": 0.000267,
-       "z": 1.591,
+       "amplitude": 0.000255,
+       "z": 1.384,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": -10,
        "secondary": true,
-       "amplitude": 4.1e-05,
-       "z": 1.893,
+       "amplitude": 2.9e-05,
+       "z": 1.694,
        "admitted": false,
        "reason": "held_out_not_significant"
       },
       {
        "bin": -14,
        "secondary": true,
-       "amplitude": 0.000194,
-       "z": 2.66,
-       "admitted": true
+       "amplitude": 0.000192,
+       "z": 2.481,
+       "admitted": false,
+       "reason": "held_out_not_significant"
       },
       {
        "bin": -17,
        "secondary": true,
-       "amplitude": 5.6e-05,
-       "z": 2.393,
+       "amplitude": 5.4e-05,
+       "z": 2.2,
        "admitted": false,
        "reason": "held_out_not_significant"
       }
@@ -256,7 +274,7 @@
      "relief_boost": 1.0,
      "significant": true,
      "cap": 0.05,
-     "delta_l1": 0.072708
+     "delta_l1": 0.072166
     },
     "target": "margin",
     "sport": "nfl",
@@ -264,13 +282,13 @@
     "n_test": 772,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 0.0007416840775224207,
-    "residual_mae_after": 0.00027416789293,
-    "delta_l1": 0.326257,
-    "delta_max": 0.046469,
+    "residual_mae_before": 0.0007037203903931755,
+    "residual_mae_after": 0.00026325226007116144,
+    "delta_l1": 0.31278,
+    "delta_max": 0.045774,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
-    "gate_z": 4.843,
+    "gate_z": 4.126,
     "support": [
      -250,
      250
@@ -332,17 +350,17 @@
    "n": 2522
   },
   "home_cover_3": {
-   "engine_ece_raw": 0.0531,
-   "engine_ece_calibrated": 0.0531,
-   "engine_brier": 0.2161,
-   "engine_logloss": 0.6225,
+   "engine_ece_raw": 0.049,
+   "engine_ece_calibrated": 0.049,
+   "engine_brier": 0.2159,
+   "engine_logloss": 0.6222,
    "n": 2373
   },
   "derived_moneyline": {
-   "engine_ece_raw": 0.044,
-   "engine_ece_calibrated": 0.044,
-   "engine_brier": 0.2209,
-   "engine_logloss": 0.6324,
+   "engine_ece_raw": 0.0438,
+   "engine_ece_calibrated": 0.0438,
+   "engine_brier": 0.2207,
+   "engine_logloss": 0.6318,
    "n": 2565
   }
  },
