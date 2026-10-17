@@ -445,6 +445,52 @@ def test_nb_regressor_fits_and_predicts_finite_positive():
         dist_mod.ScoreRegressor(crps_location=True, nb=True)
 
 
+def test_nb_leg_member_uses_tree_view_and_predicts_positive(monkeypatch):
+    """lightgbm_nb: same matrix as the Poisson leg, NB likelihood only."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", True)
+    monkeypatch.setattr(config, "SCORE_ENSEMBLE_MEMBERS",
+                        ["xgboost", "lightgbm", "lightgbm_nb",
+                         "elasticnet"])
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor()
+    got = ens._matrix("lightgbm_nb", df)
+    try:
+        from backend import moneyline as ml_mod
+    except ImportError:
+        import moneyline as ml_mod
+    want = ml_mod.member_matrix("lightgbm", df)
+    assert list(got.columns) == list(want.columns)
+    ens.fit(df)
+    assert set(ens.nb_leg_state) == {"home_score", "away_score"}
+    for side in ("home_score", "away_score"):
+        p = ens.predict_member(df.head(10), "lightgbm_nb", side)
+        assert np.isfinite(p).all() and (p > 0).all(), side
+        q = ens.predict_member(df.head(10), "lightgbm", side)
+        assert not np.allclose(p, q)  # different likelihood, different mus
+
+
+def test_four_member_walk_earns_simplex_weights(monkeypatch):
+    """E-arm geometry: 4-member walk blends with earned simplex weights."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", True)
+    monkeypatch.setattr(config, "SCORE_ENSEMBLE_MEMBERS",
+                        ["xgboost", "lightgbm", "lightgbm_nb",
+                         "elasticnet"])
+    # Small synthetic windows (< MIN_VAL_FOLD_GAMES) are all provisional —
+    # no grading evidence, no earned weights. Lower the bar so the walk
+    # exercises the earning path instead of the cold-start path.
+    monkeypatch.setattr(config, "MIN_VAL_FOLD_GAMES", 5)
+    df = _frame(n=300)
+    folds = folds_mod.make_folds(df, "gameday")
+    result = dist_mod.walk_forward_oof_ensemble(
+        df, fold_list=folds, progress_every=0)
+    oof = result["oof"]
+    assert "mu_h_lightgbm_nb" in oof.columns
+    w = result["member_weights"]
+    assert set(w) == {"xgboost", "lightgbm", "lightgbm_nb", "elasticnet"}
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    assert min(w.values()) >= 0.0
+
+
 def test_ensemble_drift_views_degrade_honestly():
     """Unfitted / zero-weight ensembles: None + contract fallback, no crash."""
     ens = dist_mod.ScoreEnsembleRegressor()

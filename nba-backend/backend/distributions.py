@@ -572,6 +572,16 @@ def _make_score_member(name: str):
         params = dict(config.LIGHTGBM_REG_PARAMS)
         params["objective"] = "poisson"
         return LGBMRegressor(**params)
+    if name == "lightgbm_nb":
+        # NB-inside-ensemble challenger leg (trial-only, 2026-10-17): same
+        # tree matrix and hyper-params as the Poisson leg; the NB objective
+        # with its train-fold dispersion is set per fold at fit time (there
+        # is no fold-independent default), so construction ships the
+        # Poisson placeholder and fit() overrides it via set_params.
+        from lightgbm import LGBMRegressor
+        params = dict(config.LIGHTGBM_REG_PARAMS)
+        params["objective"] = "poisson"
+        return LGBMRegressor(**params)
     if name == "elasticnet":
         from sklearn.linear_model import ElasticNet
         return ElasticNet(**config.SCORE_ELASTICNET_PARAMS)
@@ -711,6 +721,10 @@ class ScoreEnsembleRegressor:
         self.members: dict[str, dict[str, tuple[Any, Any]]] = {}
         self.columns: dict[str, list[str]] = {}
         self.weights: dict[str, float] = dict(config.SCORE_ENSEMBLE_WEIGHTS)
+        # NB-leg side-car: (log-mean init, dispersion) per side. Kept out
+        # of the (model, pre) member tuples so fitted bundles keep their
+        # shape and serving predict_member needs no signature change.
+        self.nb_leg_state: dict[str, tuple[float, float]] = {}
 
     def set_weights(self, weights: dict[str, float]) -> "ScoreEnsembleRegressor":
         self.weights = dict(weights)
@@ -725,6 +739,10 @@ class ScoreEnsembleRegressor:
         # categoricals stay excluded). Default-off is byte-identical arm B.
         if name == "elasticnet" and config.SCORE_EN_ELASTICNET_FULL_VIEW:
             X = _elasticnet_full_view(df)
+        elif name == "lightgbm_nb":
+            # Same tree view the Poisson leg consumes — the ONLY difference
+            # between the legs is the likelihood, never the inputs.
+            X = ml_mod.member_matrix("lightgbm", df)
         else:
             X = ml_mod.member_matrix(name, df)
         if name not in self.columns:
@@ -748,11 +766,18 @@ class ScoreEnsembleRegressor:
                 model = _make_score_member(name)
                 X_fit = ml_mod.member_fit_input(name, X, pre)
                 fit_kwargs: dict[str, Any] = {}
-                if name == "lightgbm":
+                if name in ("lightgbm", "lightgbm_nb"):
                     categorical = [c for c in config.TREE_CATEGORICAL_COLS
                                    if c in getattr(X_fit, "columns", [])]
                     if categorical:
                         fit_kwargs["categorical_feature"] = categorical
+                if name == "lightgbm_nb":
+                    r = estimate_nb_dispersion(y)
+                    lm = float(np.log(max(float(np.mean(y)), 1e-6)))
+                    model.set_params(
+                        objective=NegativeBinomialObjective(r))
+                    fit_kwargs["init_score"] = np.full(len(X_fit), lm)
+                    self.nb_leg_state[side] = (lm, r)
                 model.fit(X_fit, y, **fit_kwargs)
                 if name == "xgboost":
                     _check_score_xgb_categories(model, X)
@@ -764,6 +789,14 @@ class ScoreEnsembleRegressor:
                        side: str) -> np.ndarray:
         model, pre = self.members[side][name]
         X = ml_mod.member_fit_input(name, self._matrix(name, df), pre)
+        if name == "lightgbm_nb":
+            # Raw margins exclude the init (LightGBM custom-objective
+            # contract): add the stored train-fold log-mean back, then exp.
+            lm, _ = self.nb_leg_state[side]
+            lo, hi = NB_RAW_CLIP
+            mu = np.exp(np.clip(
+                np.asarray(model.predict(X), dtype=float) + lm, lo, hi))
+            return np.clip(mu, 1e-6, None)
         return np.clip(np.asarray(model.predict(X), dtype=float), 1e-6, None)
 
     def predict(self, df: pd.DataFrame,
