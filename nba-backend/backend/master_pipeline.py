@@ -1391,6 +1391,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # Learn variance/skew and coherent calibration only from prior origins.
         oof_markets = _marketize(ml_oof, dist_oof, "oof", mc_meta_out=_mc_meta)
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        # Delivery disclosure parity (NFL/NHL pipelines): the markets-meta
+        # writer reads the lattice summary off this attrs bundle, so without
+        # it every pipeline run ships "lattice": {} even though the columns
+        # carry the transfer (the 2026-10-17 disclosure-strip recurrence).
+        oof_markets.attrs["challenger_bundle"] = market_calibration
         _mc_meta = market_calibration["monte_carlo"]
         oof_markets = _stamp_sealed_tail(oof_markets)
         _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
