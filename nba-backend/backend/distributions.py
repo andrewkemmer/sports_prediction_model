@@ -1334,6 +1334,260 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
     return out
 
 
+# ---------------------------------------------------------------------------
+# NBA spread key-number mass transfer (2026-10-16, PRE-REGISTERED)
+# ---------------------------------------------------------------------------
+# WHY (measured on the shipped 20261016 artifact from its own delivered
+# columns — run_diagnostics/nba_keynumber_align_probe.py, untracked): the
+# spread lattice's teeth sit at the registered key numbers. The model sits
+# ABOVE the actuals at M = -1, +1, -6, +14, +15, +18 (pooled residuals
+# -0.0027/-0.0042/-0.0025/-0.0029/-0.0034/-0.0036) and BELOW them at
+# M = -10, -9, -2, +6, +7, +11, +13, +16 (+0.0031/+0.0032/+0.0029/+0.0035/
+# +0.0051/+0.0042/+0.0037/+0.0033) — every one of the fourteen bins holding
+# its sign on the time-ordered held-out tail as well (the -2 tooth is the
+# only one that flips, at n=720 noise). Each tooth is smaller than its own
+# 1-sigma binomial floor alone (~0.0037 at n_train ~1680), which is why the
+# generic localized residual prices them shrink-limited: it can only REMOVE
+# mass with a mass-proportional sink smeared over every bin, so it cannot
+# make the one trade that fixes two teeth at once — the measured NHL empty-net
+# and MLB one-run failure mode.
+#
+# MECHANISM — registers and direction declared BEFORE fitting (this module IS
+# the disclosure record; the shared gaussian_family.py copies stay
+# byte-identical and its four-backend test keeps them that way — the MLB
+# one-run rebalance precedent). Mass moves from the six registered DONORS
+# into the eight registered RECIPIENTS, and every quantity is DYNAMIC:
+#
+#   demand(recipient) = SE-shrunk train residual at the recipient bin under
+#       the declared demand relief KEYNUMBER_DEMAND_RELIEF on the
+#       mass-proportional prior scale (the NFL/NHL spike-relief precedent,
+#       shipped at the value the ladder measured — see the probe log),
+#   capacity(donor)   = clip(-train residual, 0, model mass) — the donor's
+#       OWN ACTUALS-SUPPORTED excess (the NHL empty-net supply rule): a
+#       donor the actuals show SHORT funds exact 0, and mass is never taken
+#       from a bin the evidence does not over-predict. Supply is deliberately
+#       UN-shrunk: the trade moves existing mass, so shrinking both sides
+#       double-shrinks it — measured as the binding defect of the first pass
+#       (supply cut to 0.0020 against 0.0130 of demand, a near no-op that
+#       moved no pooled residual by more than 0.0002); with the raw supply
+#       rule the amount rises to meet the declared demand and the held-out z
+#       rises with it (ladder rows for both definitions are in
+#       run_diagnostics/nba_keynumber_ladder.log),
+#   amount            = SUM of the declared recipient demands (the
+#       recipients' claim; one scalar, not fourteen),
+#   gains             = an EQUAL unit at each ACTIVE recipient (the
+#       registered template — proportions are rule-derived and carry NO
+#       outcome data: re-estimating fourteen proportions from train
+#       residuals that are individually below their noise floor cost a
+#       measured 0.9 held-out z on the same evidence
+#       (run_diagnostics/nba_keynumber_shape_probe.py: z 3.023 -> 3.995
+#       at relief 3, same amount)),
+#   draws             = each donor funds pro rata over its capacity,
+#       actuals-CAPPED per donor (never beyond its own excess),
+#   sink              = the un-funded remainder falls to the family's
+#       mass-proportional sink over bins that are neither registered nor
+#       the no-tie forbidden bin — the MLB one-run rebalance funding rule.
+#
+# So the vector stays zero-sum by construction, the sink can only take from
+# bins OUTSIDE the registered set, and every registered bin carries its
+# residual / demand / capacity / gain / drawn entry in the report. GATES: the declared DIRECTION is enforced by the sizing itself on
+# TRAIN evidence (a recipient not under-predicted demands 0, a donor not
+# over-predicted funds 0), then a ONE-SIDED paired held-out test at the
+# UNCHANGED GENERIC bar (family.LATTICE_GATE_Z — no structural-bar claim is
+# made or needed: these teeth are empirical spread-key-number structure, not
+# a rule-derived parameter), and the per-bin collateral guard (no bin's
+# |residual| may worsen past its own noise floor). A refused transfer
+# returns no delta and prices byte-identically to before.
+#
+# Registered bins (declared 2026-10-16 from the measurement above):
+#   donors      = over-fit spikes the actuals do not support
+#   recipients  = under-fit spikes the actuals demand
+KEYNUMBER_TRANSFER_DONORS = (-1, 1, -6, 14, 15, 18)
+KEYNUMBER_TRANSFER_RECIPIENTS = (-10, -9, -2, 6, 7, 11, 13, 16)
+# Demand relief on the recipient's prior scale (tau = LATTICE_PRIOR_FRAC *
+# relief * local model mass): the unboosted mass-proportional prior keeps a
+# rule-sized tooth at a fraction of its own residual — the "spikes underfit
+# the residual" complaint of the NFL (-3/+3, ~0.36) and NHL (|M|=3, ~1/3)
+# ladders. Shipped value is chosen by the captured-evidence ladder in
+# run_diagnostics/nba_keynumber_ladder.* (untracked), disclosed in the
+# report; a deeper demand still loses to its donor capacity, the collateral
+# guard or the held-out gate, so relief can never force an admission.
+KEYNUMBER_DEMAND_RELIEF = 3.
+
+
+def fit_keynumber_transfer(pmfs, outcomes, support,
+                           demand_relief=None,
+                           bar=family.LATTICE_GATE_Z,
+                           min_history=family.MIN_HISTORY):
+    """Preregistered NBA spread key-number donor -> recipient mass transfer.
+
+    See the module header above for the pre-registration. Sizing is fully
+    dynamic (demand from the recipients' own shrunk under-fit residuals under
+    the declared relief, supply from the donors' own actuals-capped excess,
+    amount = min of the two totals, pro-rata on each side); nothing here is
+    a constant amplitude.
+
+    Returns ``(delta | None, report)``: the zero-sum, capped, rounded pure
+    transfer vector, or None when the evidence, the direction, the collateral
+    guard or the held-out gate refuses — plus the per-bin disclosure report.
+    """
+    if demand_relief is None:
+        # Resolved at CALL time so the declared constant is a single knob
+        # (the causal-walk ladder reads it at runtime; tests can see it).
+        demand_relief = KEYNUMBER_DEMAND_RELIEF
+    report: dict = {"estimator": "keynumber_spread_transfer",
+                    "sport": DISTRIBUTION_SPORT,
+                    "mechanism": "keynumber_donor_recipient",
+                    "bar": float(bar),
+                    "demand_relief": float(demand_relief),
+                    "donors": list(KEYNUMBER_TRANSFER_DONORS),
+                    "recipients": list(KEYNUMBER_TRANSFER_RECIPIENTS),
+                    "bins": []}
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.empty(0) if outcomes is None else np.asarray(outcomes, float)
+    if pmfs.ndim != 2 or pmfs.shape[1] != len(support) or len(pmfs) != len(outcomes):
+        report["reason"] = "misaligned_evidence"
+        return None, report
+    inside = ((outcomes >= support[0]) & (outcomes <= support[-1])
+              & np.isfinite(outcomes))
+    n_test = int(family.LATTICE_TEST_FRACTION * len(outcomes))
+    if (inside.sum() < int(min_history) or n_test < family.LATTICE_MIN_TEST
+            or len(outcomes) - n_test < int(min_history)):
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    train = np.flatnonzero(inside[:len(outcomes) - n_test])
+    # Absolute tail positions (the fit_ot_home_share discipline): the gate
+    # scores the time-ordered held-out tail itself, never rows the sizing
+    # was computed from.
+    hold = np.arange(len(outcomes) - n_test, len(outcomes))
+    hold = hold[inside[hold]]
+    if len(train) < int(min_history) or len(hold) < family.LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    n_train = max(int(len(train)), 1)
+    pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
+    obs = np.bincount(np.searchsorted(support, outcomes[train]),
+                      minlength=len(support)).astype(float) / n_train
+    resid = obs - pbar
+    se = np.sqrt(pbar * (1. - pbar) / n_train)
+    index = {int(v): i for i, v in enumerate(support)}
+    # Sizing, per registered bin, on TRAIN evidence only. A registered bin
+    # outside this origin's support simply contributes 0 (per-bin skip, the
+    # NHL per-pair rule) — it is never re-guessed from a neighbouring bin.
+    demands: dict = {}
+    supplies: dict = {}
+    for v in KEYNUMBER_TRANSFER_RECIPIENTS:
+        if int(v) not in index:
+            continue
+        i = index[int(v)]
+        demand = float(family.lattice_local_deltas(
+            float(demand_relief) * pbar[i:i + 1], resid[i:i + 1],
+            se[i:i + 1])[0])
+        demand = max(demand, 0.)          # an over-predicted recipient demands 0
+        demands[int(v)] = demand
+        report["bins"].append({"bin": int(v), "role": "recipient",
+                               "residual": round(float(resid[i]), 6),
+                               "demand": round(demand, 6), "gain": 0.0})
+    for v in KEYNUMBER_TRANSFER_DONORS:
+        if int(v) not in index:
+            continue
+        i = index[int(v)]
+        capacity = float(np.clip(-resid[i], 0., pbar[i]))
+        supplies[int(v)] = capacity       # an under-predicted donor funds 0
+        report["bins"].append({"bin": int(v), "role": "donor",
+                               "residual": round(float(resid[i]), 6),
+                               "capacity": round(capacity, 6), "drawn": 0.0})
+    demand_total = float(sum(demands.values()))
+    capacity_total = float(sum(supplies.values()))
+    report["demand_total"] = round(demand_total, 6)
+    report["capacity_total"] = round(capacity_total, 6)
+    if demand_total <= 0.:
+        report["reason"] = "no_recipient_underfit"
+        return None, report
+    if capacity_total <= 0.:
+        report["reason"] = "no_donor_excess"
+        return None, report
+    active = {v: d for v, d in demands.items() if d > 0.}
+    amount = float(demand_total)          # the declared claim — 1 fitted scalar
+    report["amount"] = round(amount, 6)
+    # Registered template: an equal unit at each ACTIVE recipient. The
+    # proportions are rule-derived (declared in the header BEFORE fitting)
+    # and hold no outcome data, so the per-origin gate does not pay for
+    # re-estimating fourteen noisy proportions before it can score anything.
+    report["template"] = "equal_per_active_recipient"
+    delta = np.zeros(len(support))
+    rows = {row["bin"]: row for row in report["bins"]}
+    unit = amount / len(active)
+    for v in active:
+        delta[index[v]] += unit
+        rows[v]["gain"] = round(float(unit), 6)
+    # Funding: donors pro rata over capacity, actuals-CAPPED per donor; the
+    # whole donor side scales by min(1, amount / capacity_total).
+    scale = min(1., amount / capacity_total) if capacity_total > 0. else 0.
+    drawn_total = 0.
+    for v, capacity in supplies.items():
+        draw = capacity * scale
+        delta[index[v]] -= draw
+        drawn_total += draw
+        rows[v]["drawn"] = round(float(draw), 6)
+    report["funded_by_donors"] = round(float(drawn_total), 6)
+    # Un-funded remainder falls to the MLP mass-proportional sink over bins
+    # that are neither registered nor forbidden (the MLB funding rule).
+    registered = {index[int(v)] for v in (*demands, *supplies) if int(v) in index}
+    banned = {index[int(v)] for v in
+              (family.lattice_config(DISTRIBUTION_SPORT, "margin")
+               or {}).get("forbidden_bins", ()) if int(v) in index}
+    sink = np.array([i for i in range(len(support))
+                     if i not in registered and i not in banned])
+    sink_mass = float(np.clip(pbar[sink], 0., None).sum()) if len(sink) else 0.
+    shortfall = float(amount - drawn_total)
+    if shortfall > 0. and sink_mass > 0.:
+        delta[sink] -= shortfall * np.clip(pbar[sink], 0., None) / sink_mass
+    report["funded_by_sink"] = round(max(shortfall, 0.), 6)
+    report["zero_sum_free"] = round(float(delta.sum()), 9)
+    # Per-bin collateral guard: no bin's |residual| may worsen by more than
+    # its own 1-sigma binomial noise floor (pooled over all inside rows).
+    n_all = max(int(inside.sum()), 1)
+    pooled = np.clip(pmfs[inside].mean(axis=0), 0., 1.)
+    pooled_obs = np.bincount(np.searchsorted(support, outcomes[inside]),
+                             minlength=len(support)).astype(float) / n_all
+    pooled_resid = pooled_obs - pooled
+    se_pool = np.sqrt(pooled * (1. - pooled) / n_all)
+    excess = ((np.abs(pooled_resid - delta) - np.abs(pooled_resid)) - se_pool)
+    report["collateral_max_excess"] = round(float(excess.max()), 6)
+    if not (excess <= 0.).all():
+        report["reason"] = "collateral_violation"
+        return None, report
+    # One-sided paired held-out gate: the SAME squared-probability loss the
+    # generic fit uses, at the UNCHANGED generic bar.
+    indices_hold = np.searchsorted(support, outcomes[hold])
+    d = (-2. * delta[indices_hold] + 2. * (pmfs[hold] @ delta)
+         + float(delta @ delta))
+    ses = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / ses) if ses > 0. else 0.
+    report["z"] = round(z, 3)
+    report["n_test"] = int(len(hold))
+    if not (d.mean() < 0. and z >= bar):
+        report["reason"] = "held_out_not_significant"
+        return None, report
+    delta = family._zero_sum_mass_proportional(delta, pbar)
+    # Forbidden bins (margin 0, the no-tie structural rule) are zeroed here
+    # as well as in lattice_correct — the transfer never registers them, and
+    # the mass-proportional zero-sum must not graduate into one.
+    for v in (family.lattice_config(DISTRIBUTION_SPORT, "margin")
+              or {}).get("forbidden_bins", ()):
+        if int(v) in index:
+            delta[index[int(v)]] = 0.
+    delta = np.clip(delta, -family.LATTICE_DELTA_CAP, family.LATTICE_DELTA_CAP)
+    delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
+    delta = np.round(delta, family.LATTICE_ROUND)
+    report["significant"] = True
+    report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
+    report["delta_max"] = round(float(np.abs(delta).max()), 6)
+    return [float(v) for v in delta], report
+
+
 def _fit_lattice_maps(outcomes, parameters, evidence):
     """Independent per-target lattice fits — totals AND margin.
 
@@ -1344,6 +1598,14 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     with its own origin's maps — per target, behind the held-out
     significance gate. Every value is plain JSON so stored bundles reprice
     byte-identically.
+
+    The preregistered NBA spread key-number transfer is fitted FIRST on the
+    margin evidence (each side sized dynamically from actuals, gated once at
+    the unchanged generic bar); the generic localized residual then runs on
+    transfer-adjusted pmfs so it prices the leftover teeth instead of
+    re-fighting them, and both components compose into one stored delta
+    (the NHL transfer-then-generic order). Cold starts and refused
+    transfers keep the exact shipped behavior.
     """
     totals: dict = {}
     margin: dict = {}
@@ -1362,14 +1624,58 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
                                          support=margin_ev.get("support"))
         if share is not None:
             margin["ot_home_share"] = share
+    # Preregistered key-number transfer (module header above): fitted from
+    # the margin evidence FIRST, so the generic residual never has to
+    # rediscover (and currently cannot make) the donor -> recipient trade.
+    # The disclosure always rides the margin spec; an unconfirmed transfer
+    # ships no delta and prices byte-identically.
+    fit_evidence = dict(evidence or {})
+    transfer_delta = None
+    margin_ev = (evidence or {}).get("margin") or {}
+    if margin_ev.get("pmfs") is not None:
+        transfer_delta, transfer_report = fit_keynumber_transfer(
+            margin_ev.get("pmfs"), margin_ev.get("outcomes"),
+            margin_ev.get("support"))
+        # Disclosure always rides the margin spec (the MLB one_run_rebalance
+        # record): admitted, refused or direction-failed — the verdict and
+        # the per-bin sizing are visible either way.
+        margin["keynumber_report"] = transfer_report
+        if transfer_delta is not None:
+            adjusted = np.clip(np.asarray(margin_ev["pmfs"], float)
+                               + np.asarray(transfer_delta, float)[None, :],
+                               0., None)
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            collapsed = (~np.isfinite(row_total[:, 0])
+                         | (row_total[:, 0] <= 0.))
+            adjusted[collapsed] = np.asarray(margin_ev["pmfs"], float)[collapsed]
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            fit_evidence["margin"] = dict(margin_ev,
+                                          pmfs=adjusted / row_total)
     for target, kind in (("totals", "total"), ("margin", "margin")):
-        ev = (evidence or {}).get(kind) or None
+        ev = fit_evidence.get(kind) or None
         if ev is None:
             continue
         (totals if target == "totals" else margin).update(
             family.fit_lattice_correction(ev.get("pmfs"), ev.get("outcomes"),
                                           ev.get("support"), DISTRIBUTION_SPORT,
                                           target))
+    if transfer_delta is not None:
+        # Compose structural transfer + generic residual into the single
+        # stored delta: family.compose_lattice_deltas' own contract (sum,
+        # mass-proportional zero-sum, clamp, eps-zero, round). Both
+        # components are far inside the LATTICE_DELTA_CAP fix bound, so the
+        # uniform clamp is not binding here and no per-bin cap is needed.
+        parts = [np.asarray(transfer_delta, float)]
+        if "delta" in margin:
+            parts.append(np.asarray(margin["delta"], float))
+        weight = np.clip(np.asarray(margin_ev["pmfs"], float).mean(axis=0),
+                         0., None)
+        margin["delta"] = family.compose_lattice_deltas(parts, weight)
+        margin["significant"] = True
+        margin["delta_source"] = ("generic+keynumber_transfer"
+                                  if len(parts) > 1 else "keynumber_transfer")
+        fitted = np.asarray(margin_ev.get("support"))
+        margin["support"] = [int(fitted[0]), int(fitted[-1])]
     return {"totals": totals, "margin": margin}
 
 

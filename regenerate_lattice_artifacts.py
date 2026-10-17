@@ -193,11 +193,20 @@ def main() -> None:
     real_fit, real_share = family.fit_lattice_correction, family.fit_ot_home_share
     real_pooled = family.fit_pooled_home_share
     real_spikes = family.fit_margin_spikes
+    # Sport-module structural filers that do NOT ride a family hook (MLB's
+    # one-run rebalance is gated off by the neutralized share; the NBA
+    # key-number transfer is not, so it is neutralized explicitly). A sport
+    # without the symbol is untouched.
+    real_keytransfer = getattr(dist, "fit_keynumber_transfer", None)
     family.fit_lattice_correction = lambda *a, **k: {
         "significant": False, "reason": "baseline_lattice_disabled"}
     family.fit_ot_home_share = lambda *a, **k: None
     family.fit_pooled_home_share = lambda *a, **k: (None, {"reason": "baseline_disabled"})
     family.fit_margin_spikes = lambda *a, **k: (None, {"reason": "baseline_disabled"})
+    if real_keytransfer is not None:
+        dist.fit_keynumber_transfer = lambda *a, **k: (
+            None, {"estimator": "keynumber_spread_transfer",
+                   "reason": "baseline_lattice_disabled"})
     t0 = time.time()
     if cfg["style"] == "mlb":
         priced_base, bundle_base = dist.calibrate_market_frame(oof)
@@ -207,6 +216,8 @@ def main() -> None:
     (family.fit_lattice_correction, family.fit_ot_home_share,
      family.fit_pooled_home_share,
      family.fit_margin_spikes) = real_fit, real_share, real_pooled, real_spikes
+    if real_keytransfer is not None:
+        dist.fit_keynumber_transfer = real_keytransfer
 
     # ---- 2. lattice run ---------------------------------------------------
     t0 = time.time()
