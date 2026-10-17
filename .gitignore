@@ -37,3 +37,9 @@ scratch/
 
 # Local agent scratch (RFE runners, smoke artifacts) — never committed.
 .local_rfe/
+# Analysis write-ups and diagnostic probe outputs — local working material,
+# never delivery. The pipeline recreates run_diagnostics/ as a runtime
+# scratch dir (RUN_DIAGNOSTICS_DIR); code comments citing specific probe logs
+# refer to that local scratch, not versioned history.
+docs/
+run_diagnostics/
