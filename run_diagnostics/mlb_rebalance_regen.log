@@ -1,0 +1,491 @@
+E:\sports_prediction_model\regenerate_lattice_artifacts.py:184: DtypeWarning: Columns (0: game_pk) have mixed types. Specify dtype option on import or set low_memory=False.
+  frame = pd.read_csv(markets_path, float_precision="round_trip")
+{
+ "sport": "mlb",
+ "date": "20261016",
+ "markets": "mlb-backend\\data_delivery\\run_engine_markets_20261016.csv",
+ "rows": {
+  "oof": 7039,
+  "slate": 1
+ },
+ "walk_seconds_baseline": 125.2,
+ "walk_seconds_lattice": 126.9,
+ "distribution_columns": 185,
+ "baseline_vs_delivered_changed_columns": [
+  "distribution_mean_margin",
+  "distribution_mean_total",
+  "distribution_sd_margin",
+  "distribution_sd_total",
+  "fair_spread",
+  "fair_total",
+  "p_away_win_derived",
+  "p_cover_fair",
+  "p_home_cover_0_5",
+  "p_home_cover_1_5",
+  "p_home_cover_2_5",
+  "p_home_cover_3_5",
+  "p_home_win_derived",
+  "p_over_0_0",
+  "p_over_10_0",
+  "p_over_10_5",
+  "p_over_11_0",
+  "p_over_11_5",
+  "p_over_12_0",
+  "p_over_12_5",
+  "p_over_13_0",
+  "p_over_14_0",
+  "p_over_15_0",
+  "p_over_16_0",
+  "p_over_17_0",
+  "p_over_18_0",
+  "p_over_19_0",
+  "p_over_1_0",
+  "p_over_20_0",
+  "p_over_21_0",
+  "p_over_22_0",
+  "p_over_23_0",
+  "p_over_24_0",
+  "p_over_25_0",
+  "p_over_26_0",
+  "p_over_27_0",
+  "p_over_2_0",
+  "p_over_3_0",
+  "p_over_4_0",
+  "p_over_5_0",
+  "p_over_6_0",
+  "p_over_6_5",
+  "p_over_7_0",
+  "p_over_7_5",
+  "p_over_8_0",
+  "p_over_8_5",
+  "p_over_9_0",
+  "p_over_9_5",
+  "p_over_fair",
+  "p_push_0_0",
+  "p_push_10_0",
+  "p_push_11_0",
+  "p_push_12_0",
+  "p_push_13_0",
+  "p_push_14_0",
+  "p_push_15_0",
+  "p_push_16_0",
+  "p_push_17_0",
+  "p_push_18_0",
+  "p_push_19_0",
+  "p_push_1_0",
+  "p_push_20_0",
+  "p_push_21_0",
+  "p_push_22_0",
+  "p_push_23_0",
+  "p_push_24_0",
+  "p_push_25_0",
+  "p_push_26_0",
+  "p_push_27_0",
+  "p_push_28_0",
+  "p_push_2_0",
+  "p_push_3_0",
+  "p_push_4_0",
+  "p_push_5_0",
+  "p_push_6_0",
+  "p_push_7_0",
+  "p_push_8_0",
+  "p_push_9_0",
+  "p_rl_10_0_away_push",
+  "p_rl_10_0_push",
+  "p_rl_1_0_away",
+  "p_rl_1_0_away_favorite",
+  "p_rl_1_0_away_push",
+  "p_rl_1_0_home",
+  "p_rl_1_0_home_dog",
+  "p_rl_1_0_push",
+  "p_rl_1_5_away",
+  "p_rl_1_5_away_favorite",
+  "p_rl_1_5_home",
+  "p_rl_1_5_home_dog",
+  "p_rl_2_0_away",
+  "p_rl_2_0_away_favorite",
+  "p_rl_2_0_away_push",
+  "p_rl_2_0_home",
+  "p_rl_2_0_home_dog",
+  "p_rl_2_0_push",
+  "p_rl_2_5_away",
+  "p_rl_2_5_away_favorite",
+  "p_rl_2_5_home",
+  "p_rl_2_5_home_dog",
+  "p_rl_3_0_away",
+  "p_rl_3_0_away_favorite",
+  "p_rl_3_0_away_push",
+  "p_rl_3_0_home",
+  "p_rl_3_0_home_dog",
+  "p_rl_3_0_push",
+  "p_rl_3_5_away",
+  "p_rl_3_5_away_favorite",
+  "p_rl_3_5_home",
+  "p_rl_3_5_home_dog",
+  "p_rl_4_0_away",
+  "p_rl_4_0_away_favorite",
+  "p_rl_4_0_away_push",
+  "p_rl_4_0_home",
+  "p_rl_4_0_home_dog",
+  "p_rl_4_0_push",
+  "p_rl_5_0_away_push",
+  "p_rl_5_0_push",
+  "p_rl_6_0_away_push",
+  "p_rl_6_0_push",
+  "p_rl_7_0_away_push",
+  "p_rl_7_0_push",
+  "p_rl_8_0_away_push",
+  "p_rl_8_0_push",
+  "p_rl_9_0_away_push",
+  "p_rl_9_0_push",
+  "p_under_10_0",
+  "p_under_10_5",
+  "p_under_11_0",
+  "p_under_11_5",
+  "p_under_12_0",
+  "p_under_12_5",
+  "p_under_13_0",
+  "p_under_14_0",
+  "p_under_15_0",
+  "p_under_16_0",
+  "p_under_17_0",
+  "p_under_18_0",
+  "p_under_19_0",
+  "p_under_1_0",
+  "p_under_20_0",
+  "p_under_21_0",
+  "p_under_22_0",
+  "p_under_23_0",
+  "p_under_24_0",
+  "p_under_25_0",
+  "p_under_26_0",
+  "p_under_27_0",
+  "p_under_28_0",
+  "p_under_2_0",
+  "p_under_3_0",
+  "p_under_4_0",
+  "p_under_5_0",
+  "p_under_6_0",
+  "p_under_6_5",
+  "p_under_7_0",
+  "p_under_7_5",
+  "p_under_8_0",
+  "p_under_8_5",
+  "p_under_9_0",
+  "p_under_9_5"
+ ],
+ "lattice_changed_columns_n": 161,
+ "lattice_changed_columns_sample": [
+  "distribution_mean_margin",
+  "distribution_mean_total",
+  "distribution_sd_margin",
+  "distribution_sd_total",
+  "fair_spread",
+  "fair_total",
+  "p_away_win_derived",
+  "p_cover_fair",
+  "p_home_cover_0_5",
+  "p_home_cover_1_5",
+  "p_home_cover_2_5",
+  "p_home_cover_3_5"
+ ],
+ "isolation_nondist_columns_identical": true,
+ "delivered_nondist_columns_identical": true,
+ "lattice_summary": {
+  "totals": {
+   "target": "totals",
+   "sport": "mlb",
+   "n_fit": 4928,
+   "n_test": 2111,
+   "significant": true,
+   "basis": "localized_per_bin_shrinkage",
+   "residual_mae_before": 0.0011314943409572087,
+   "residual_mae_after": 0.0003183931398064634,
+   "delta_l1": 0.132739,
+   "delta_max": 0.019115,
+   "collateral_max_excess": 0.0,
+   "collateral_ok": true,
+   "gate_z": 5.527,
+   "support": [
+    0,
+    160
+   ]
+  },
+  "margin": {
+   "ot_home_share": 0.6,
+   "split_share_report": {
+    "estimator": "hierarchical_pooled",
+    "structural": false,
+    "bar": 3.0,
+    "blocks": [
+     0.5988,
+     0.6105,
+     0.6434,
+     0.6283
+    ],
+    "block_n": [
+     344,
+     344,
+     373,
+     339
+    ],
+    "share": 0.6,
+    "z": 3.064,
+    "n_test": 2111,
+    "significant": true
+   },
+   "target": "margin",
+   "sport": "mlb",
+   "n_fit": 4928,
+   "n_test": 2111,
+   "significant": true,
+   "basis": "localized_per_bin_shrinkage",
+   "residual_mae_before": 0.00039215833472685684,
+   "residual_mae_after": 0.0001399966724223537,
+   "delta_l1": 0.087338,
+   "delta_max": 0.03,
+   "collateral_max_excess": 0.0,
+   "collateral_ok": true,
+   "gate_z": 2.229,
+   "reason": "held_out_not_significant",
+   "one_run_rebalance": {
+    "estimator": "one_run_spread_rebalance",
+    "sport": "mlb",
+    "recipient": 1,
+    "donors": [
+     -1,
+     -2,
+     3
+    ],
+    "bar": 3.0,
+    "share": 0.6,
+    "bins": [
+     {
+      "bin": -1,
+      "residual": -0.024847,
+      "capacity": 0.021935,
+      "drawn": 0.009368
+     },
+     {
+      "bin": -2,
+      "residual": 0.008695,
+      "capacity": 0.0,
+      "drawn": 0.0
+     },
+     {
+      "bin": 3,
+      "residual": -0.012532,
+      "capacity": 0.010104,
+      "drawn": 0.004315
+     }
+    ],
+    "amount": 0.013684,
+    "one_run_mass": 0.273674,
+    "model_split": 0.5155,
+    "funded_by_donors": 0.013684,
+    "funded_by_sink": 0.0,
+    "collateral_max_excess": 0.0,
+    "z": 3.268,
+    "n_test": 2111,
+    "significant": true,
+    "delta_l1": 0.027367,
+    "delta_max": 0.013684
+   },
+   "delta_source": "one_run_rebalance",
+   "support": [
+    -160,
+    160
+   ]
+  }
+ },
+ "metrics": {
+  "baseline": {
+   "totals": {
+    "crps": 2.4605456103909646,
+    "ece_cover": 0.005233305867310734,
+    "brier": 0.24939014504503482,
+    "logloss": 0.6919266377213141,
+    "calibration_in_the_large": 2.320215939755066e-05
+   },
+   "run_line": {
+    "crps": 2.4660010897600224,
+    "ece_cover": 0.006487262395226627,
+    "brier": 0.24788556578684473,
+    "logloss": 0.6889096648728343,
+    "calibration_in_the_large": -0.006487262395226567
+   }
+  },
+  "lattice": {
+   "totals": {
+    "crps": 2.460567790015684,
+    "ece_cover": 0.0019306009376331547,
+    "brier": 0.24909244704787614,
+    "logloss": 0.6913293003864014,
+    "calibration_in_the_large": -0.0019306009376331978
+   },
+   "run_line": {
+    "crps": 2.4657143825413272,
+    "ece_cover": 0.01068732490410569,
+    "brier": 0.24762474103321494,
+    "logloss": 0.6883860176287532,
+    "calibration_in_the_large": -0.001067384571672103
+   }
+  }
+ },
+ "pooled_pmf": {
+  "total": {
+   "mae_baseline": 0.0011326320905701661,
+   "mae_lattice": 0.0005628780926312231,
+   "worst_underpredicted_baseline": {
+    "5": 0.02089,
+    "3": 0.02004,
+    "7": 0.01612,
+    "9": 0.01262
+   },
+   "worst_underpredicted_lattice": {
+    "3": 0.01162,
+    "5": 0.00854,
+    "7": 0.00783,
+    "11": 0.00538
+   },
+   "worst_overpredicted_lattice": {
+    "8": -0.00768,
+    "0": -0.00754,
+    "4": -0.00703,
+    "6": -0.00567
+   }
+  },
+  "margin": {
+   "mae_baseline": 0.000408661863739793,
+   "mae_lattice": 0.00035781333740472673,
+   "worst_underpredicted_baseline": {
+    "1": 0.03783,
+    "-2": 0.00962,
+    "2": 0.00757,
+    "14": 0.00161
+   },
+   "worst_underpredicted_lattice": {
+    "1": 0.02947,
+    "-2": 0.00964,
+    "2": 0.00685,
+    "14": 0.00164
+   },
+   "worst_overpredicted_lattice": {
+    "-1": -0.01584,
+    "3": -0.00875,
+    "5": -0.00715,
+    "6": -0.00521
+   }
+  }
+ },
+ "diagnostic_bins": {
+  "margin": {
+   "-1": {
+    "residual_baseline": -0.02246,
+    "residual_lattice": -0.01584,
+    "observed": 0.10882
+   },
+   "0": {
+    "residual_baseline": 0.0,
+    "residual_lattice": 0.0,
+    "observed": 0.0
+   },
+   "1": {
+    "residual_baseline": 0.03783,
+    "residual_lattice": 0.02947,
+    "observed": 0.17403
+   }
+  },
+  "total": {
+   "5": {
+    "residual_baseline": 0.02089,
+    "residual_lattice": 0.00854,
+    "observed": 0.09788
+   },
+   "6": {
+    "residual_baseline": -0.01612,
+    "residual_lattice": -0.00567,
+    "observed": 0.07458
+   },
+   "7": {
+    "residual_baseline": 0.01612,
+    "residual_lattice": 0.00783,
+    "observed": 0.11422
+   }
+  }
+ },
+ "push_rates": {},
+ "margin_bins": {
+  "-3": {
+   "residual_baseline": 0.00066,
+   "residual_lattice": 0.00076,
+   "observed": 0.06919
+  },
+  "-2": {
+   "residual_baseline": 0.00962,
+   "residual_lattice": 0.00964,
+   "observed": 0.08808
+  },
+  "-1": {
+   "residual_baseline": -0.02246,
+   "residual_lattice": -0.01584,
+   "observed": 0.10882
+  },
+  "0": {
+   "residual_baseline": 0.0,
+   "residual_lattice": 0.0,
+   "observed": 0.0
+  },
+  "1": {
+   "residual_baseline": 0.03783,
+   "residual_lattice": 0.02947,
+   "observed": 0.17403
+  },
+  "2": {
+   "residual_baseline": 0.00757,
+   "residual_lattice": 0.00685,
+   "observed": 0.09277
+  },
+  "3": {
+   "residual_baseline": -0.00868,
+   "residual_lattice": -0.00875,
+   "observed": 0.06634
+  }
+ },
+ "moneyline": {
+  "two_way_max_abs_dev_lattice": 0.0,
+  "two_way_max_abs_dev_baseline": 0.0
+ },
+ "serving_isolation": {
+  "margin_only_columns_n": 29,
+  "totals_only_columns_n": 97,
+  "overlap_forbidden": [],
+  "pass": true,
+  "margin_sample": [
+   "derived_ml",
+   "distribution_mean_margin",
+   "distribution_sd_margin",
+   "p_away_win_derived",
+   "p_cover_fair",
+   "p_home_cover_0_5",
+   "p_home_cover_1_0",
+   "p_home_cover_1_5"
+  ],
+  "totals_sample": [
+   "distribution_mean_total",
+   "distribution_sd_total",
+   "p_over_0_0",
+   "p_over_10_0",
+   "p_over_10_5",
+   "p_over_11_0",
+   "p_over_11_5",
+   "p_over_12_0"
+  ]
+ },
+ "origins_significant": {
+  "totals": 68,
+  "margin": 9
+ },
+ "origins_share": 56,
+ "origins_total": 84
+}

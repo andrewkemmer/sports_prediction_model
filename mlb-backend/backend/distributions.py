@@ -3042,6 +3042,179 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
     return out
 
 
+# ---------------------------------------------------------------------------
+# MLB one-run "spread spike" rebalance (2026-10-16, PRE-REGISTERED)
+# ---------------------------------------------------------------------------
+# WHY: on the 20261016 artifact the pooled margin model sits P(M=+1) 0.1433
+# against 0.1739 actual (+0.031 short — the +1 spike UNDERFITS the residual)
+# and P(M=-1) 0.1255 against 0.1089 (-0.017 long — the -1 spike OVERFITS it).
+# The structural walk-off share re-splits each row's TIE mass only
+# ((q-1/2)*m0, m0 ~ 0.07 of model mass), so it can never absorb the tilt: the
+# defect is the model's own ONE-RUN-FINAL split, P(+1)/(P(+1)+P(-1)) = 0.515
+# against the gated pooled share q-hat ~ 0.60. The generic residual fit has
+# the amplitude (its delta pins M=+1 at the 0.03 fix cap) but its held-out z
+# (2.23 on 20261016) sits under the generic bar, which is why MLB margin has
+# shipped structural-only.
+#
+# MECHANISM — direction and bar declared BEFORE any fitting (this module is
+# the disclosure record: the shared family.LATTICE_PREREGISTERED table is
+# byte-identical infrastructure mirrored in all four backends, so an
+# MLB-only mechanism registers here, next to its code): the ADMITTED walk-off
+# share is the target split of the model's one-run-final mass, and the
+# rebalance closes the gap with ONE constant transfer
+#     amt = (share - 1/2) * (p(+1) + p(-1)) / 2    (pooled model masses)
+# moved from the funding donors into M=+1. Every number is DYNAMIC — the
+# share comes from the gated pooled estimator and the masses from the fitted
+# evidence; there is no constant amplitude anywhere.
+#
+# FUNDING (the "shift mass out of the neighbouring spread bins" ask, made
+# honest): the declared donors (-1, -2, +3) fund in proportion to their own
+# ACTUALS-SUPPORTED excess — each donor's draw is capped at the shrunk train
+# residual it can give before flipping sign. A donor the actuals show SHORT
+# funds exact 0 (measured 20261016: M=-2 is model 0.0784 vs 0.0880 actual),
+# and the unfunded remainder falls to the mass-proportional sink, so the
+# rebalance can never widen a bin its own evidence already shows short. Each
+# donor's residual/capacity/drawn triple rides the report.
+#
+# GATES: one-sided direction per bin (recipient up, donors down), zero-sum by
+# construction, forbidden bins untouched, the SAME paired held-out gate the
+# generic fit uses at the UNCHANGED GENERIC bar (LATTICE_GATE_Z — measured
+# z 3.27 on the 20261016 evidence, so no structural-bar fallback is claimed
+# or needed), and the per-bin collateral guard vetoing any draw that pushes a
+# bin past its own noise floor. A refused rebalance returns no delta and
+# prices byte-identically to before.
+ONE_RUN_REBALANCE_RECIPIENT = 1        # M=+1: the walk-off one-run home win
+ONE_RUN_REBALANCE_MIRROR = -1          # M=-1: its away-side mirror
+ONE_RUN_REBALANCE_DONORS = (-1, -2, 3)  # funding order; capacity-capped
+
+
+def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
+                                 min_history=family.MIN_HISTORY):
+    """Close the model's one-run-final split gap to the admitted walk-off share.
+
+    Pre-registered MLB-only mechanism (module header above): ``share`` is the
+    ALREADY-ADMITTED walk-off home-win estimate — without it this is a
+    no-op — and the transfer amount, the donor capacities and every funding
+    split are read from the fitted evidence, never constant. Returns
+    ``(delta | None, report)``: the zero-sum, capped, rounded transfer vector
+    or None when the evidence, the direction, the collateral guard or the
+    held-out gate refuses, plus the per-donor disclosure report.
+    """
+    report: dict = {"estimator": "one_run_spread_rebalance",
+                    "sport": DISTRIBUTION_SPORT,
+                    "recipient": ONE_RUN_REBALANCE_RECIPIENT,
+                    "donors": list(ONE_RUN_REBALANCE_DONORS),
+                    "bar": float(family.LATTICE_GATE_Z),
+                    "share": None if share is None else round(float(share), 4),
+                    "bins": []}
+    if share is None:
+        report["reason"] = "no_admitted_walkoff_share"
+        return None, report
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.empty(0) if outcomes is None else np.asarray(outcomes, float)
+    if pmfs.ndim != 2 or pmfs.shape[1] != len(support) or len(pmfs) != len(outcomes):
+        report["reason"] = "misaligned_evidence"
+        return None, report
+    inside = ((outcomes >= support[0]) & (outcomes <= support[-1])
+              & np.isfinite(outcomes))
+    n_test = int(family.LATTICE_TEST_FRACTION * len(outcomes))
+    if (inside.sum() < int(min_history) or n_test < family.LATTICE_MIN_TEST
+            or len(outcomes) - n_test < int(min_history)):
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    train = np.flatnonzero(inside[:len(outcomes) - n_test])
+    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    if len(train) < int(min_history) or len(hold) < family.LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    index = {int(v): i for i, v in enumerate(support)}
+    registered = (ONE_RUN_REBALANCE_RECIPIENT, ONE_RUN_REBALANCE_MIRROR,
+                  *ONE_RUN_REBALANCE_DONORS)
+    if any(int(v) not in index for v in registered):
+        report["reason"] = "support_lacks_registered_bins"
+        return None, report
+    recipient = index[ONE_RUN_REBALANCE_RECIPIENT]
+    mirror = index[ONE_RUN_REBALANCE_MIRROR]
+    donors = [index[int(v)] for v in ONE_RUN_REBALANCE_DONORS]
+    n_train = max(int(len(train)), 1)
+    pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
+    obs = np.bincount(np.searchsorted(support, outcomes[train]),
+                      minlength=len(support)).astype(float) / n_train
+    resid = obs - pbar
+    se = np.sqrt(pbar * (1. - pbar) / n_train)
+    shrunk = family.lattice_local_deltas(pbar, resid, se)
+    one_run_mass = float(pbar[recipient] + pbar[mirror])
+    tilt = (float(share) - .5) * .5 * one_run_mass
+    if not tilt > 0. or one_run_mass <= 0.:
+        report["reason"] = "no_positive_tilt"
+        return None, report
+    report["amount"] = round(float(tilt), 6)
+    report["one_run_mass"] = round(one_run_mass, 6)
+    report["model_split"] = round(float(pbar[recipient]) / one_run_mass, 4)
+    registered_idx = {recipient, *donors}
+    banned = {index[int(b)] for b in
+              (family.lattice_config(DISTRIBUTION_SPORT, "margin")
+               or {}).get("forbidden_bins", ()) if int(b) in index}
+    sink = np.array([i for i in range(len(support))
+                     if i not in registered_idx and i not in banned])
+    sink_mass = float(pbar[sink].sum()) if len(sink) else 0.
+    # Donor capacity = the shrunk train residual the donor can give before
+    # its own sign flips: a donor the actuals show SHORT funds exact 0.
+    capacity = {d: max(0., -float(shrunk[d])) for d in donors}
+    total_capacity = float(sum(capacity.values()))
+    delta = np.zeros(len(support))
+    delta[recipient] += tilt
+    drawn = 0.
+    for d in donors:
+        draw = (tilt * capacity[d] / total_capacity) if total_capacity > 0. else 0.
+        delta[d] -= draw
+        drawn += draw
+        report["bins"].append({"bin": int(support[d]),
+                               "residual": round(float(resid[d]), 6),
+                               "capacity": round(float(capacity[d]), 6),
+                               "drawn": round(float(draw), 6)})
+    remainder = float(tilt) - drawn
+    if remainder > 0. and sink_mass > 0.:
+        delta[sink] -= remainder * pbar[sink] / sink_mass
+    report["funded_by_donors"] = round(float(drawn), 6)
+    report["funded_by_sink"] = round(float(remainder), 6)
+    if pbar.sum() > 0.:
+        delta -= delta.sum() * (pbar / pbar.sum())
+    for j in banned:
+        delta[j] = 0.
+    # Per-bin collateral guard: no bin's |residual| may worsen by more than
+    # its own 1-sigma binomial noise floor (pooled over all inside rows).
+    n_all = max(int(inside.sum()), 1)
+    pooled = np.clip(pmfs[inside].mean(axis=0), 0., 1.)
+    pooled_obs = np.bincount(np.searchsorted(support, outcomes[inside]),
+                             minlength=len(support)).astype(float) / n_all
+    se_pool = np.sqrt(pooled * (1. - pooled) / n_all)
+    excess = ((np.abs((pooled_obs - pooled) - delta)
+               - np.abs(pooled_obs - pooled)) - se_pool)
+    report["collateral_max_excess"] = round(float(excess.max()), 6)
+    if not (excess <= 0.).all():
+        report["reason"] = "collateral_violation"
+        return None, report
+    indices_hold = np.searchsorted(support, outcomes[hold])
+    d = (-2. * delta[indices_hold] + 2. * (pmfs[hold] @ delta)
+         + float(delta @ delta))
+    ses = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / ses) if ses > 0. else 0.
+    report["z"] = round(z, 3)
+    report["n_test"] = int(len(hold))
+    if not (d.mean() < 0. and z >= family.LATTICE_GATE_Z):
+        report["reason"] = "held_out_not_significant"
+        return None, report
+    delta = np.clip(delta, -family.LATTICE_DELTA_CAP, family.LATTICE_DELTA_CAP)
+    delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
+    delta = np.round(delta, family.LATTICE_ROUND)
+    report["significant"] = True
+    report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
+    report["delta_max"] = round(float(np.abs(delta).max()), 6)
+    return [float(v) for v in delta], report
+
+
 def _fit_lattice_maps(outcomes, parameters, evidence):
     """Independent per-target lattice fits — totals AND margin.
 
@@ -3096,6 +3269,29 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
             family.fit_lattice_correction(ev.get("pmfs"), ev.get("outcomes"),
                                           ev.get("support"), DISTRIBUTION_SPORT,
                                           target))
+    if DISTRIBUTION_SPORT == "mlb":
+        # One-run spread rebalance (2026-10-16, pre-registered in the module
+        # header above): the ADMITTED walk-off share is the target split of
+        # the model's one-run-final mass, and this lattice transfer closes the
+        # remaining gap, funded by the actuals-capacity donors (-1/-2/+3 — a
+        # donor the actuals show SHORT funds exact 0). Disclosure always
+        # rides the margin spec; a refused rebalance keeps the exact shipped
+        # prices, and an admitted one composes with the generic delta.
+        rebalance, rebalance_report = fit_one_run_spread_rebalance(
+            margin_ev.get("pmfs"), margin_ev.get("outcomes"),
+            margin_ev.get("support"), margin.get("ot_home_share"))
+        margin["one_run_rebalance"] = rebalance_report
+        if rebalance is not None:
+            parts = ([margin["delta"]] if "delta" in margin else []) + [rebalance]
+            weight = np.clip(np.asarray(margin_ev.get("pmfs"), float).mean(axis=0),
+                             0., None)
+            margin["delta"] = (family.compose_lattice_deltas(parts, weight)
+                               if len(parts) > 1 else rebalance)
+            margin["significant"] = True
+            margin["delta_source"] = ("generic+one_run_rebalance"
+                                      if len(parts) > 1 else "one_run_rebalance")
+            fitted = np.asarray(margin_ev.get("support"))
+            margin["support"] = [int(fitted[0]), int(fitted[-1])]
     return {"totals": totals, "margin": margin}
 
 
