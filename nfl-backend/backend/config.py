@@ -885,10 +885,16 @@ SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
 # (NBA precedent: classifier geometry -> poisson, tune before changing).
 # max_depth 2 -> 1 adopted from the 2026-10-16 XGB tune (depth1: member gain
 # +0.1004 vs 0.0133 noise floor, all 5 seeds, tail +0.0304); see scratch/nfl_xgb_tune.json.
+# lr 0.05 -> 0.03 + subsample/colsample -> 0.7 adopted from the 2026-10-17
+# XGB member tune (step 3 of the mean challenge): 6-config x 3-seed screen
+# on identical 201-fold OOF, 5-seed confirmation of g1/g2/g3; g2 mean
+# 4.34196 vs incumbent 4.36379 with complete seed separation (every g2
+# seed beats every incumbent seed). Ensemble-only path — the served
+# single-LGBM incumbent is untouched.
 SCORE_XGBOOST_PARAMS = {
     "objective": "count:poisson", "max_depth": 1, "min_child_weight": 24,
-    "subsample": 0.8362063939495796, "colsample_bytree": 0.5776054924033233,
-    "learning_rate": 0.05, "reg_lambda": 2.724319750551711,
+    "subsample": 0.7, "colsample_bytree": 0.7,
+    "learning_rate": 0.03, "reg_lambda": 2.724319750551711,
     "reg_alpha": 0.0011200063571888054,
     "n_estimators": 500,
     "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
@@ -903,8 +909,14 @@ SCORE_XGBOOST_PARAMS = {
 # precedent, 2026-10-17: B z=-2.34 fails, C z=-3.18 passes).
 SCORE_EN_ELASTICNET_FULL_VIEW = False
 # Elastic-net regression leg (standardized features, raw-count target).
+# alpha 1.0 -> 0.3 adopted from the 2026-10-17 leg ladder (member-level
+# gate, two-gate protocol gate 1): 0.3 beat the 1.0 baseline at paired
+# z=-4.01 on identical 201-fold OOF (nnz ~10 -> ~20 per side); refinement
+# 0.2/0.4/0.5 all lost to 0.3. The tuned leg rejoined the blend at ~0.19
+# weight (E arm) vs 0.00 for the 1.0 leg (B arm). Ensemble-only path —
+# the served single-LGBM incumbent is untouched.
 SCORE_ELASTICNET_PARAMS = {
-    "alpha": 1.0, "l1_ratio": 0.5,
+    "alpha": 0.3, "l1_ratio": 0.5,
     "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
 }
 

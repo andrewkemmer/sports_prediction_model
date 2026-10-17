@@ -128,6 +128,35 @@ def test_ensemble_walk_is_point_in_time_by_recomputation():
                 expected.get(name, 0.0), abs=1e-9), (fold.fold_id, name)
 
 
+def test_two_member_subset_walk_is_self_consistent(monkeypatch):
+    """Member-subset robustness (NFL step-1 trial): the walk, blender, and
+    prediction path are subset-agnostic — dropping a member needs no code
+    change, only the config list. monkeypatch restores production defaults."""
+    monkeypatch.setattr(config, "SCORE_ENSEMBLE_MEMBERS",
+                        ["xgboost", "lightgbm"])
+    monkeypatch.setattr(config, "SCORE_ENSEMBLE_WEIGHTS",
+                        {"xgboost": 0.5, "lightgbm": 0.5})
+    df = _frame(n=300)
+    folds = folds_mod.make_folds(df, "gameday")
+    result = dist_mod.walk_forward_oof_ensemble(
+        df, fold_list=folds, progress_every=0)
+    oof = result["oof"]
+    assert "mu_h_elasticnet" not in oof.columns
+    assert "weight_elasticnet" not in oof.columns
+    for name in ("xgboost", "lightgbm"):
+        assert f"mu_h_{name}" in oof.columns
+        assert f"weight_{name}" in oof.columns
+    wsum = oof[["weight_xgboost", "weight_lightgbm"]].sum(axis=1)
+    assert ((wsum - 1.0).abs() < 1e-9).all()
+    assert np.isfinite(oof.mu_h.to_numpy(float)).all()
+    assert (oof.mu_h.to_numpy(float) > 0).all()
+    assert set(result["member_weights"]) == {"xgboost", "lightgbm"}
+    ens = dist_mod.ScoreEnsembleRegressor().fit(df)
+    mu_h, mu_a = ens.predict(df.head(10))
+    assert np.isfinite(mu_h).all() and (mu_h > 0).all()
+    assert np.isfinite(mu_a).all() and (mu_a > 0).all()
+
+
 def test_make_score_member_rejects_unknown_names():
     with pytest.raises(KeyError):
         dist_mod._make_score_member("nope")
