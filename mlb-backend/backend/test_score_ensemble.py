@@ -12,9 +12,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import config
 from config import SCORE_ENSEMBLE_MEMBERS, SCORE_ENSEMBLE_WEIGHTS
 import distributions as dist_mod
-from training import active_moneyline_feature_cols, canonical_walk_forward_splits
+from training import (active_moneyline_feature_cols,
+                      canonical_walk_forward_splits, RAW_PER_SIDE_COLS)
 
 H_H = dist_mod._MLB_MU_H
 H_A = dist_mod._MLB_MU_A
@@ -124,6 +126,59 @@ def test_ensemble_walk_is_point_in_time_by_recomputation():
         for name in SCORE_ENSEMBLE_MEMBERS:
             assert got[f"weight_{name}"] == pytest.approx(
                 expected.get(name, 0.0), abs=1e-9), (fold, name)
+
+
+def test_en_diffs_only_flag_off_is_byte_identical_arm_b(monkeypatch):
+    """Default-off: EN numeric array == full side-frame transform."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", False)
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor().fit(df)
+    assert ens.en_columns == {} and ens.en_scalers == {}
+    for side in ("home", "away"):
+        tree_frame, num = ens._matrices(df, side, for_elasticnet=True)
+        assert list(ens.columns[side]) == list(tree_frame.columns)[:len(
+            ens.columns[side])]
+        assert num.shape[1] == len(ens.columns[side])
+
+
+def test_en_diffs_only_adds_nothing_removes_raw_levels(monkeypatch):
+    """Arm C view: raw per-side levels out of the EN input, trees untouched."""
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", True)
+    df = _frame()
+    ens = dist_mod.ScoreEnsembleRegressor().fit(df)
+    for side in ("home", "away"):
+        # Raw levels are side-routed: the home frame carries only the
+        # home halves (+ shared env diffs), never the opponent's.
+        side_raw = {c for c in RAW_PER_SIDE_COLS if c in ens.columns[side]}
+        assert side_raw, f"{side} frame must carry same-side raw levels"
+        assert not (set(ens.en_columns[side]) & set(RAW_PER_SIDE_COLS))
+        assert side_raw <= set(ens.columns[side])  # trees keep them
+        tree_frame, num = ens._matrices(df, side, for_elasticnet=True)
+        assert num.shape[1] == len(ens.en_columns[side])
+        p = ens.predict_member(df.head(10), "elasticnet", side)
+        assert np.isfinite(p).all() and (p > 0).all(), side
+    mu_h, mu_a = ens.predict(df.head(10))
+    assert np.isfinite(mu_h).all() and (mu_h > 0).all()
+    assert np.isfinite(mu_a).all() and (mu_a > 0).all()
+
+
+def test_en_predict_reuses_fit_time_view_across_flag_toggle(monkeypatch):
+    """Fit-time view freeze: toggling the flag between fit and predict
+    must not change geometry (probed 2026-10-17: 74-wide EN model fed a
+    41-wide frame raises in sklearn)."""
+    df = _frame()
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", False)
+    ens = dist_mod.ScoreEnsembleRegressor().fit(df)
+    ref = ens.predict_member(df.head(10), "elasticnet", "home")
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", True)
+    got = ens.predict_member(df.head(10), "elasticnet", "home")
+    np.testing.assert_allclose(got, ref, rtol=0)
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", True)
+    ens2 = dist_mod.ScoreEnsembleRegressor().fit(df)
+    ref2 = ens2.predict_member(df.head(10), "elasticnet", "home")
+    monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_DIFFS_ONLY", False)
+    got2 = ens2.predict_member(df.head(10), "elasticnet", "home")
+    np.testing.assert_allclose(got2, ref2, rtol=0)
 
 
 def test_make_score_member_rejects_unknown_names():

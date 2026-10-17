@@ -44,6 +44,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 from frames import get_decided_frame, fold_signature
 
+import config as config_mod
 from config import (
     AGREEMENT_FILTER_DELTA,
     DATA_DELIVERY_DIR,
@@ -971,14 +972,32 @@ class ScoreEnsembleRegressor:
         self.scalers: dict[str, _ScoreStandardizer] = {}
         self.weights: dict[str, float] = dict(SCORE_ENSEMBLE_WEIGHTS)
         self.cat_vocab = list(cat_vocab) if cat_vocab is not None else None
+        # Diffs-only challenger view (trial-only): the EN's own column
+        # list + standardizer per side, so the tree legs' shared frame is
+        # never narrowed. Empty unless the flag is on at fit time.
+        self.en_columns: dict[str, list[str]] = {}
+        self.en_scalers: dict[str, _ScoreStandardizer] = {}
+        # Fit-time EN view per side (True = diffs-only). Predict reuses
+        # the training geometry even if the trial flag moves between fit
+        # and predict — probed 2026-10-17: a 74-wide model fed a 41-wide
+        # frame raises in sklearn instead of predicting.
+        self.en_active: dict[str, bool] = {}
 
     def set_weights(self, weights: dict[str, float]) -> "ScoreEnsembleRegressor":
         self.weights = dict(weights)
         return self
 
     def _matrices(self, games: pd.DataFrame, side: str,
-                  fit: bool = False) -> tuple[pd.DataFrame, np.ndarray]:
-        """Tree-frame (categoricals attached) + standardized numeric array."""
+                  fit: bool = False,
+                  for_elasticnet: bool = False) -> tuple[pd.DataFrame, np.ndarray]:
+        """Tree-frame (categoricals attached) + standardized numeric array.
+
+        With SCORE_EN_ELASTICNET_DIFFS_ONLY and for_elasticnet, the numeric
+        array is the side frame minus the raw per-side levels (the NBA arm-B
+        view); the tree frame is always the full frame. The view freezes at
+        fit time (``en_active``) so predict reuses the training geometry
+        even if the trial flag moves between fit and predict.
+        """
         frame, _ = build_side_frame(games, side)
         if side not in self.columns:
             self.columns[side] = list(frame.columns)
@@ -989,6 +1008,27 @@ class ScoreEnsembleRegressor:
             _cast_score_categories(tree_frame, self.cat_vocab)
         if fit or side not in self.scalers:
             self.scalers[side] = _ScoreStandardizer().fit(frame)
+        # Read through the module (not the from-import binding) so trials
+        # and tests can flip the flag without reimporting. At predict time
+        # the recorded fit-time view wins over the ambient flag.
+        if fit and for_elasticnet:
+            self.en_active[side] = bool(
+                config_mod.SCORE_EN_ELASTICNET_DIFFS_ONLY)
+        if for_elasticnet and not fit and side in self.en_active:
+            en_view = self.en_active[side]
+        else:
+            en_view = bool(for_elasticnet and
+                           config_mod.SCORE_EN_ELASTICNET_DIFFS_ONLY)
+        if en_view:
+            from training import RAW_PER_SIDE_COLS
+            raw = set(RAW_PER_SIDE_COLS)
+            if side not in self.en_columns:
+                self.en_columns[side] = [
+                    c for c in self.columns[side] if c not in raw]
+            en_frame = frame.reindex(columns=self.en_columns[side])
+            if fit or side not in self.en_scalers:
+                self.en_scalers[side] = _ScoreStandardizer().fit(en_frame)
+            return tree_frame, self.en_scalers[side].transform(en_frame)
         return tree_frame, self.scalers[side].transform(frame)
 
     def fit(self, games: pd.DataFrame) -> "ScoreEnsembleRegressor":
@@ -999,13 +1039,18 @@ class ScoreEnsembleRegressor:
                 raise ValueError("score ensemble requires settled scores")
             train = games.loc[valid]
             y = y.loc[valid].to_numpy(dtype=float)
-            tree_frame, num = self._matrices(train, side, fit=True)
+            tree_frame, num = self._matrices(train, side, fit=True,
+                                              for_elasticnet=True)
             fitted: dict[str, tuple[Any, Any]] = {}
             for name in SCORE_ENSEMBLE_MEMBERS:
                 model = _make_score_member(name)
                 if name == "elasticnet":
                     model.fit(num, y)
-                    fitted[name] = (model, self.scalers[side])
+                    # Second slot records the standardizer that produced
+                    # num: the EN's own scaler under the diffs-only flag,
+                    # else the shared side scaler (identical object then).
+                    en_scaler = self.en_scalers.get(side, self.scalers[side])
+                    fitted[name] = (model, en_scaler)
                 else:
                     if name == "lightgbm":
                         model.set_params(n_estimators=int(RUN_FIXED_FIT_ROUNDS))
@@ -1019,7 +1064,8 @@ class ScoreEnsembleRegressor:
     def predict_member(self, games: pd.DataFrame, name: str,
                        side: str) -> np.ndarray:
         model, _ = self.members[side][name]
-        tree_frame, num = self._matrices(games, side)
+        tree_frame, num = self._matrices(
+            games, side, for_elasticnet=(name == "elasticnet"))
         X = num if name == "elasticnet" else tree_frame
         return np.clip(np.asarray(model.predict(X), dtype=float), 1e-6, None)
 

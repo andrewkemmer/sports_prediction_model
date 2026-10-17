@@ -438,6 +438,15 @@ SCORE_ELASTICNET_PARAMS = {
     "alpha": 1.0, "l1_ratio": 0.5,
     "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
 }
+# Elastic-net diffs-only challenger flag (trial-only, default OFF): when
+# True the score ensemble's elastic net trains on the side frame MINUS the
+# raw per-side levels (training.RAW_PER_SIDE_COLS) — the NBA arm-B view.
+# NOTE the reversed direction vs NBA (2026-10-17): MLB's EN already sees
+# all 66 raw levels (no linear/tree view split exists here), so the
+# ablation tests whether the levels matter by REMOVING them. Default False
+# is byte-identical arm B; arm C sets it True for the walk-forward trial
+# only. Promotion requires the trial verdict.
+SCORE_EN_ELASTICNET_DIFFS_ONLY = False
 # RETUNE 2026-09-30 (max_depth 3 -> 1) — adopted, then PROVENANCE-
 # CORRECTED 2026-09-30 after the first production run under the new
 # regime zero-weighted the member (ensemble AUC 0.585 -> 0.561):
