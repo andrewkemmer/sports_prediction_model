@@ -1355,6 +1355,179 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
     return out
 
 
+# NHL empty-net |M|=2 -> |M|=3 structural transfer (declared 2026-10-16
+# BEFORE fitting; preregistered as family.LATTICE_PREREGISTERED
+# ("nhl", "margin", "empty_net_2_to_3")). Trailing teams pull the goalie,
+# so 2-goal leads finish as 3-goal finals more often than the smooth
+# family allows. The shipped BASE margin residual (2026-10-14/15 walk,
+# n=2707 — run_diagnostics/nhl_lattice.json, nhl_struct_check.log) puts
+# the worst UNDER-predictions at +3/+0.0363 and -3/+0.0295 while +2/-2
+# OVER-predict by -0.0244/-0.0097 — the mass the actuals want at |M|=3
+# is sitting at |M|=2. The generic localized residual could not trade it
+# (pooled MAE worsened 0.000793 -> 0.000871, held-out gate z -0.619,
+# 0/60 margin origins admitted): its mass-proportional zero-sum removal
+# is smeared across every bin, so the collateral guard vetoes the one
+# trade that fixes two bins at once. This mechanism prices that trade as
+# a STRUCTURAL transfer: mass is taken ONLY from the same-sign |M|=2
+# donor, and every quantity is sized dynamically from prior-OOF actuals
+# on both ends (see fit_empty_net_transfer) — nothing here is a hard-coded
+# amplitude. The transfer estimator lives in this sport-specific module,
+# NOT in the shared gaussian_family.py, whose four backend copies must
+# stay byte-identical (test_shared_gaussian_family_copies_are_byte_identical).
+EMPTY_NET_TRANSFER_PAIRS = ((2, 3), (-2, -3))   # (donor, recipient) margins
+# Structural demand relief (the NFL LATTICE_SPIKE_RELIEF_BOOST precedent,
+# same value and same measured failure): the mass-proportional prior
+# (tau = PRIOR_FRAC * local model mass) OVER-SHRINKS a rule-derived spike
+# — on synthetic evidence shaped like the shipped residual the unboosted
+# prior kept the transfer demand at ~1/3 of the +/-3 residual it must
+# absorb, the exact "spikes underfit the residual" complaint (NFL measured
+# the same ~0.36 shrink on their +/-3 bins). The recipient's prior scale
+# is therefore multiplied by this factor BEFORE the same per-bin
+# noise-floor shrinkage; gates, the donor supply limit and the generic
+# path are untouched — relief changes only the proposed demand, and an
+# over-deep demand still loses to its supply cap or fails its own gate.
+EMPTY_NET_DEMAND_RELIEF = 3.
+# Per-bin clamp at the transfer bins — the NFL key-number precedent
+# (LATTICE_SPIKE_CAP, same value): a preregistered, individually
+# held-out-gated structural leg may exceed the generic LATTICE_DELTA_CAP
+# fix bound at ITS bins; every other composed bin keeps the generic cap.
+# The transfer itself never exceeds the donor's observed excess, so this
+# cap only bounds extreme single-origin evidence.
+EMPTY_NET_SPIKE_CAP = .05
+
+
+def fit_empty_net_transfer(pmfs, outcomes, support,
+                           pairs=EMPTY_NET_TRANSFER_PAIRS,
+                           bar=family.LATTICE_STRUCTURAL_Z,
+                           min_history=family.MIN_HISTORY):
+    """Preregistered empty-net |M|=2 -> |M|=3 mass transfer (NHL margin).
+
+    For each (donor, recipient) pair the transfer t >= 0 moves model mass
+    from the donor bin to the recipient bin (+t at recipient, -t at
+    donor) — a pure, exactly zero-sum shift: mass moves, none is made.
+    Every quantity is DYNAMIC, sized from prior-OOF actuals on both ends:
+
+      demand = the SE-shrunk train residual at the recipient bin
+        (family.lattice_local_deltas under the STRUCTURAL prior scale —
+        relief-weighted model mass, see EMPTY_NET_DEMAND_RELIEF) — the
+        under-fit depth against the bin's own binomial noise floor, never
+        a constant;
+      supply = clip(-train residual at the donor, 0, donor model mass) —
+        the donor's OBSERVED excess. Actuals showing no excess at the
+        donor (residual >= 0) supply exact zero, so mass is never taken
+        from a bin the actuals do not over-predict;
+      t = min(demand, supply, EMPTY_NET_SPIKE_CAP).
+
+    Each pair is then gated INDIVIDUALLY, one-sided (held-out z >= bar —
+    the pre-registered structural bar, direction: the paired shift
+    improves the squared-probability loss) on the time-ordered held-out
+    tail of the same evidence, exactly like family.fit_margin_spikes'
+    per-spike gate. Unadmitted pairs contribute exact 0. The train
+    direction checks (recipient under-predicted, donor over-predicted)
+    run on TRAIN evidence only; the held-out tail alone decides
+    admission.
+
+    Returns (delta | None, report): the combined transfer delta
+    (zero-sum, clamped at EMPTY_NET_SPIKE_CAP, rounded — the generic post
+    pipeline) or None when no pair admits, plus the per-pair verdict
+    table (demand/supply/transfer/z per pair) for disclosure.
+    """
+    report: dict = {"estimator": "empty_net_2_to_3_transfer",
+                     "sport": DISTRIBUTION_SPORT,
+                     "mechanism": "empty_net_2_to_3",
+                     "bar": float(bar), "pairs": []}
+    support = np.asarray(support)
+    pmfs = np.empty((0, len(support))) if pmfs is None else np.asarray(pmfs, float)
+    outcomes = np.empty(0) if outcomes is None else np.asarray(outcomes, float)
+    if pmfs.ndim != 2 or pmfs.shape[1] != len(support) or len(pmfs) != len(outcomes):
+        raise ValueError("empty-net transfer evidence requires aligned pmfs and outcomes")
+    inside = ((outcomes >= support[0]) & (outcomes <= support[-1])
+              & np.isfinite(outcomes))
+    if inside.sum() < int(min_history):
+        report["reason"] = "insufficient_history"
+        return None, report
+    n_test = int(family.LATTICE_TEST_FRACTION * len(outcomes))
+    if n_test < family.LATTICE_MIN_TEST or len(outcomes) - n_test < int(min_history):
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    train = np.flatnonzero(inside[:len(outcomes) - n_test])
+    # Absolute tail positions (the fit_ot_home_share discipline): the gate
+    # must score the time-ordered held-out tail itself, never rows the
+    # demand was fitted on.
+    hold = np.arange(len(outcomes) - n_test, len(outcomes))
+    hold = hold[inside[hold]]
+    if len(train) < int(min_history) or len(hold) < family.LATTICE_MIN_TEST:
+        report["reason"] = "insufficient_held_out_evidence"
+        return None, report
+    n_train = max(int(len(train)), 1)
+    pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
+    se = np.sqrt(pbar * (1. - pbar) / n_train)
+    obs = np.bincount(np.searchsorted(support, outcomes[train]),
+                      minlength=len(support)).astype(float)
+    obs /= max(int(len(train)), 1)
+    resid = obs - pmfs[train].mean(axis=0)
+    indices_hold = np.searchsorted(support, outcomes[hold])
+    admitted = []
+    for donor, recipient in pairs:
+        i2 = int(np.searchsorted(support, donor))
+        i3 = int(np.searchsorted(support, recipient))
+        row: dict = {"donor": int(donor), "recipient": int(recipient)}
+        if not (0 <= i2 < len(support) and 0 <= i3 < len(support)
+                and int(support[i2]) == donor and int(support[i3]) == recipient):
+            row.update(admitted=False, reason="support_lacks_pair")
+            report["pairs"].append(row)
+            continue
+        # Demand = SE-shrunk recipient residual under the STRUCTURAL prior
+        # scale (relief-weighted mass; lattice_local_deltas uses the weight
+        # only as the prior scale, so the boosted call stays one shared
+        # shrinkage code path).
+        demand = float(family.lattice_local_deltas(
+            EMPTY_NET_DEMAND_RELIEF * pbar[i3:i3 + 1],
+            resid[i3:i3 + 1], se[i3:i3 + 1])[0])
+        supply = float(np.clip(-resid[i2], 0., pbar[i2]))
+        row["demand"] = round(demand, 6)
+        row["supply"] = round(supply, 6)
+        if not demand > 0.:
+            row.update(admitted=False, reason="recipient_not_underpredicted")
+            report["pairs"].append(row)
+            continue
+        if supply <= 0.:
+            row.update(admitted=False, reason="no_donor_excess")
+            report["pairs"].append(row)
+            continue
+        transfer = float(min(demand, supply, EMPTY_NET_SPIKE_CAP))
+        row["transfer"] = round(transfer, 6)
+        trial = np.zeros(len(support))
+        trial[i3], trial[i2] = transfer, -transfer
+        d = (-2. * trial[indices_hold] + 2. * (pmfs[hold] @ trial)
+             + float(trial @ trial))
+        tse = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+        z = float(-d.mean() / tse) if tse > 0. else 0.
+        row["z"] = round(z, 3)
+        if d.mean() < 0. and z >= bar:
+            row["admitted"] = True
+            admitted.append((i3, i2, transfer))
+        else:
+            row["admitted"] = False
+            row["reason"] = "held_out_not_significant"
+        report["pairs"].append(row)
+    if not admitted:
+        report["reason"] = "no_transfer_admitted"
+        return None, report
+    delta = np.zeros(len(support))
+    for i3, i2, transfer in admitted:
+        delta[i3] += transfer
+        delta[i2] -= transfer
+    delta = family._zero_sum_mass_proportional(delta, pbar)
+    delta = np.clip(delta, -EMPTY_NET_SPIKE_CAP, EMPTY_NET_SPIKE_CAP)
+    delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
+    delta = np.round(delta, family.LATTICE_ROUND)
+    report["significant"] = True
+    report["cap"] = float(EMPTY_NET_SPIKE_CAP)
+    report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
+    return [float(v) for v in delta], report
+
+
 def _fit_lattice_maps(outcomes, parameters, evidence):
     """Independent per-target lattice fits — totals AND margin.
 
@@ -1364,8 +1537,13 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     finals). The generic sawtooth residual is fit from the walk's
     own BASE-model evidence — pmfs of strictly-prior OOF rows, each priced
     with its own origin's maps — per target, behind the held-out
-    significance gate. Every value is plain JSON so stored bundles reprice
-    byte-identically.
+    significance gate. The preregistered empty-net |M|=2 -> |M|=3 transfer
+    is fitted FIRST on the margin evidence (each pair sized dynamically
+    from actuals and individually gated at the structural bar); the
+    generic residual then runs on transfer-adjusted pmfs and both
+    components price as one composed delta with per-bin caps — the NFL
+    key-number compose pattern. Every value is plain JSON so stored
+    bundles reprice byte-identically.
     """
     totals: dict = {}
     margin: dict = {}
@@ -1384,14 +1562,82 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
                                          support=margin_ev.get("support"))
         if share is not None:
             margin["ot_home_share"] = share
+    # Preregistered empty-net transfer (family.LATTICE_PREREGISTERED
+    # nhl/margin/empty_net_2_to_3): the |M|=2 -> |M|=3 trade is fitted from
+    # the margin evidence FIRST — dynamically sized from actuals on both
+    # ends, individually gated one-sided at the structural bar — so the
+    # generic localized residual never has to rediscover (and currently
+    # cannot make) the trade its mass-proportional removal forbids. The
+    # generic fit then runs on transfer-adjusted pmfs and is admitted only
+    # on its own generic gate; the pair verdicts ride
+    # margin["empty_net_report"]. The +/-1 split and no-tie rule are
+    # untouched, and an unconfirmed transfer is a byte-identical no-op.
+    fit_evidence = dict(evidence or {})
+    transfer_delta = None
+    margin_ev = (evidence or {}).get("margin") or {}
+    if margin_ev.get("pmfs") is not None:
+        transfer_delta, transfer_report = fit_empty_net_transfer(
+            margin_ev.get("pmfs"), margin_ev.get("outcomes"),
+            margin_ev.get("support"))
+        if transfer_delta is not None:
+            margin["empty_net_report"] = transfer_report
+            adjusted = np.clip(np.asarray(margin_ev["pmfs"], float)
+                               + np.asarray(transfer_delta, float)[None, :], 0., None)
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            collapsed = ~np.isfinite(row_total[:, 0]) | (row_total[:, 0] <= 0.)
+            adjusted[collapsed] = np.asarray(margin_ev["pmfs"], float)[collapsed]
+            row_total = adjusted.sum(axis=1, keepdims=True)
+            fit_evidence["margin"] = dict(margin_ev,
+                                          pmfs=adjusted / row_total)
+        elif transfer_report.get("pairs"):
+            margin["empty_net_report"] = transfer_report
     for target, kind in (("totals", "total"), ("margin", "margin")):
-        ev = (evidence or {}).get(kind) or None
+        ev = fit_evidence.get(kind) or None
         if ev is None:
             continue
         (totals if target == "totals" else margin).update(
             family.fit_lattice_correction(ev.get("pmfs"), ev.get("outcomes"),
                                           ev.get("support"), DISTRIBUTION_SPORT,
                                           target))
+    if transfer_delta is not None:
+        # Compose structural transfer + generic residual into the single
+        # stored delta (same post pipeline each fit applies alone;
+        # family.compose_lattice_deltas' own contract — sum,
+        # mass-proportional zero-sum, clamp, eps-zero, round — done here
+        # with PER-BIN caps because the shared family's compose predates
+        # the caps argument and its four backend copies must stay
+        # byte-identical). Generic-only metrics stay as fitted;
+        # delta_l1/delta_max describe the COMPOSED vector that prices.
+        parts = [np.asarray(transfer_delta, float)]
+        if "delta" in margin:
+            parts.append(np.asarray(margin["delta"], float))
+        weight = np.clip(np.asarray(margin_ev["pmfs"], float).mean(axis=0),
+                         0., None)
+        composed = family._zero_sum_mass_proportional(np.sum(parts, axis=0),
+                                                       weight)
+        # Per-bin caps: the composed vector may reach EMPTY_NET_SPIKE_CAP
+        # exactly at the four bins of an ADMITTED pair — each of those
+        # cleared its own one-sided held-out gate — while every other bin
+        # keeps the generic family.LATTICE_DELTA_CAP fix bound.
+        _msup = np.asarray(margin_ev.get("support"))
+        caps = np.full(len(composed), family.LATTICE_DELTA_CAP)
+        for _p in (margin.get("empty_net_report") or {}).get("pairs", []):
+            if _p.get("admitted"):
+                for _key in ("donor", "recipient"):
+                    _j = int(np.searchsorted(_msup, _p[_key]))
+                    if (0 <= _j < len(_msup)
+                            and int(_msup[_j]) == int(_p[_key])):
+                        caps[_j] = EMPTY_NET_SPIKE_CAP
+        composed = np.clip(composed, -caps, caps)
+        composed[np.abs(composed) < family.LATTICE_DELTA_EPS] = 0.
+        margin["delta"] = [float(v)
+                           for v in np.round(composed, family.LATTICE_ROUND)]
+        margin["delta_l1"] = round(float(np.abs(margin["delta"]).sum()), 6)
+        margin["delta_max"] = round(float(np.abs(margin["delta"]).max()), 6)
+        margin["significant"] = True
+        # Fitted-lattice bounds for the composed delta (same union lattice
+        # both components were fitted on) — see family._realign_lattice_delta.
+        margin["support"] = [int(_msup[0]), int(_msup[-1])]
     return {"totals": totals, "margin": margin}
 
 

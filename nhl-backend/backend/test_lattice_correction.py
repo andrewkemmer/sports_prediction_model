@@ -652,6 +652,156 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
                                             r_train, d, 2.708, out) is None
     assert fam._structural_lattice_fallback("mlb", "margin", support,
                                             r_train, d, 2.708, out) is None
+
+
+# ---------------------------------------------------------------------------
+# Section 9b: empty-net |M|=2 -> |M|=3 structural transfer (2026-10-16).
+# The shipped walk's worst margin residual is the +/-3 under-fit (+0.036/
+# +0.030) sitting on a +/-2 over-predict (-0.024/-0.010) — run_diagnostics/
+# nhl_lattice.json — and the generic localized residual could not trade
+# that mass (0/60 margin origins admitted). This mechanism prices the
+# trade as a preregistered, dynamically sized, individually gated transfer.
+# NHL-specific: the estimator lives in THIS backend's distributions.py so
+# the shared gaussian_family.py stays byte-identical across the four copies.
+# ---------------------------------------------------------------------------
+
+def _empty_net_evidence(demand3=.035, demandm3=.03, excess2=.025,
+                        excessm2=.01, n=5000, seed=5):
+    """Smooth BASE model vs actuals piled at +/-3 with the mass coming off
+    +/-2 — the shipped NHL residual pattern, scaled to sample size."""
+    rng = np.random.default_rng(seed)
+    support = np.arange(-25, 26)
+    base = np.exp(-.5 * ((support - .5) / 7.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    for value, shift in ((3, demand3), (-3, demandm3),
+                         (2, -excess2), (-2, -excessm2)):
+        truth[support == value] += shift
+    truth = truth / truth.sum()
+    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+
+def test_empty_net_transfer_shifts_donor_mass_to_the_spikes():
+    """Piled +/-3 residuals over +/-2 excess admit the transfer: mass moves
+    from the donors to the spikes, exactly zero-sum, nothing else touched."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    pmfs, outcomes, support = _empty_net_evidence()
+    delta, rep = dist.fit_empty_net_transfer(pmfs, outcomes, support)
+    assert rep["estimator"] == "empty_net_2_to_3_transfer"
+    assert rep["mechanism"] == "empty_net_2_to_3"
+    assert rep["bar"] == fam.LATTICE_STRUCTURAL_Z
+    assert rep.get("significant") and delta is not None
+    by_pair = {(p["donor"], p["recipient"]): p for p in rep["pairs"]}
+    assert set(by_pair) == {(2, 3), (-2, -3)}
+    for pair in by_pair.values():
+        assert pair["admitted"] and pair["z"] >= fam.LATTICE_STRUCTURAL_Z
+        assert pair["demand"] > 0. and pair["supply"] > 0.
+        # The transfer is demand/supply-limited, never a fixed amplitude.
+        assert abs(pair["transfer"]
+                   - min(pair["demand"], pair["supply"],
+                         dist.EMPTY_NET_SPIKE_CAP)) <= 1e-6
+    d = np.asarray(delta, float)
+    assert d[support == 3] > 0. and d[support == -3] > 0.   # recipient side
+    assert d[support == 2] < 0. and d[support == -2] < 0.   # donor side
+    # Localized: only the four transfer bins move.
+    assert set(np.asarray(support).flat[np.flatnonzero(d)]) == {2, 3, -2, -3}
+    assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
+    assert (np.abs(d) <= dist.EMPTY_NET_SPIKE_CAP + 1e-12).all()  # clamp
+    assert (d == np.round(d, fam.LATTICE_ROUND)).all()        # stored rounding
+
+
+def test_empty_net_transfer_is_sized_from_actuals_not_a_constant():
+    """The donor's observed excess caps the shift: halving the +/-2 excess
+    halves the transferred mass — the adjustment follows the actuals."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    deep, outcomes_deep, support = _empty_net_evidence(excess2=.025,
+                                                        excessm2=.01)
+    thin, outcomes_thin, _ = _empty_net_evidence(excess2=.008,
+                                                 excessm2=.004)
+    d_deep, rep_deep = dist.fit_empty_net_transfer(deep, outcomes_deep, support)
+    d_thin, rep_thin = dist.fit_empty_net_transfer(thin, outcomes_thin, support)
+    assert d_deep is not None and d_thin is not None
+    pair_deep = {p["donor"]: p for p in rep_deep["pairs"]}[2]
+    pair_thin = {p["donor"]: p for p in rep_thin["pairs"]}[2]
+    assert pair_thin["supply"] < pair_deep["supply"]
+    assert pair_thin["transfer"] < pair_deep["transfer"]
+    # Supply-limited: the transfer never takes more than the donor released.
+    assert pair_deep["transfer"] <= pair_deep["supply"] + 1e-9
+
+
+def test_empty_net_transfer_never_takes_mass_the_actuals_do_not_release():
+    """A spike whose donor also under-predicts is a disclosed no-op: mass
+    is never shifted from a bin the actuals do not over-predict."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    rng = np.random.default_rng(13)
+    support = np.arange(-25, 26)
+    base = np.exp(-.5 * ((support - .5) / 7.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    truth[support == 3] += .03     # +3 under-predicted ...
+    truth[support == 2] += .02     # ... but +2 under-predicted TOO: no donor
+    truth = truth / truth.sum()
+    outcomes = rng.choice(support, size=2500, p=truth)
+    delta, rep = dist.fit_empty_net_transfer(np.tile(base, (2500, 1)),
+                                             outcomes, support)
+    assert delta is None and rep["reason"] == "no_transfer_admitted"
+    by_pair = {(p["donor"], p["recipient"]): p for p in rep["pairs"]}
+    assert by_pair[(2, 3)]["reason"] == "no_donor_excess"
+    assert not any(p.get("admitted") for p in rep["pairs"])
+    # Every pair carries its disclosure verdict, admitted or not.
+    for p in rep["pairs"]:
+        assert "admitted" in p and ("z" in p or "reason" in p)
+
+
+def test_empty_net_transfer_rejects_pure_noise():
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    rng = np.random.default_rng(17)
+    support = np.arange(-25, 26)
+    base = np.exp(-.5 * ((support - .5) / 7.) ** 2)
+    base = base / base.sum()
+    outcomes = rng.choice(support, size=2000, p=base)
+    delta, rep = dist.fit_empty_net_transfer(np.tile(base, (2000, 1)),
+                                             outcomes, support)
+    assert delta is None and rep["reason"] == "no_transfer_admitted"
+    assert not any(p.get("admitted") for p in rep["pairs"])
+
+
+def test_nhl_lattice_fit_composes_the_empty_net_transfer():
+    """Wiring: _fit_lattice_maps fits the transfer first, runs the generic
+    residual on adjusted pmfs and prices both as one capped delta."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    pmfs, outcomes, support = _empty_net_evidence()
+    maps = dist._fit_lattice_maps(
+        {}, {}, {"margin": {"pmfs": pmfs, "outcomes": outcomes,
+                             "support": support}})
+    margin = maps["margin"]
+    report = margin["empty_net_report"]
+    assert report["significant"]
+    by_pair = {(p["donor"], p["recipient"]): p for p in report["pairs"]}
+    assert by_pair[(2, 3)]["admitted"] and by_pair[(-2, -3)]["admitted"]
+    assert margin["significant"]
+    assert margin["support"] == [int(support[0]), int(support[-1])]
+    d = np.asarray(margin["delta"], float)
+    at = lambda v: d[int(np.searchsorted(support, v))]
+    assert at(3) > 0. and at(-3) > 0. and at(2) < 0. and at(-2) < 0.
+    # Per-bin caps: only admitted-pair bins may exceed the generic fix bound.
+    for j, v in enumerate(np.asarray(support).flat):
+        cap = (dist.EMPTY_NET_SPIKE_CAP if v in (2, 3, -2, -3)
+               else fam.LATTICE_DELTA_CAP)
+        assert abs(d[j]) <= cap + 1e-12
+    assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
+    np.testing.assert_allclose(margin["delta_l1"],
+                               round(float(np.abs(d).sum()), 6), atol=1e-9)
+    # Plain-JSON disclosure: the report survives the bundle's summary pass.
+    import json
+    json.dumps(fam.lattice_summary(margin))
+
+
 # ---------------------------------------------------------------------------
 # Section 10: point-in-time core (2026-10-16). The distribution walk is ONE
 # shared causal engine mirrored in all four backends. These guards pin (a)
