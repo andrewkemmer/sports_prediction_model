@@ -444,3 +444,97 @@ tail requires a heavier-tailed family component, which is a separate
 change needing its own preregistration and gates. Probes and logs:
 run_diagnostics/nba_tail_skew_ab.py/.log, nba_tail_variance_ab.log,
 nba_tail_skew_ceiling_honest.log (untracked).
+
+## A8. NFL key numbers: +/-3 spike underfit — registered margin relief + structural spike headroom (2026-10-16)
+
+**Complaint (user-reported).** "NFL spread +3 and -3 is underfit — the
+spikes underfit the residuals." Measured on the shipped 20261016 artifact
+from its own delivered columns (run_diagnostics/nfl_keynumber_align_probe
+.log, untracked): pooled post-lattice margin residuals M=-3 +0.0313
+(z 6.15, obs 0.0719 vs model 0.0406), M=+3 +0.0281 (z 5.31, obs 0.0781 vs
+model 0.0500), M=-7 +0.0128 (z 3.31), M=+7 +0.0113 (z 2.83); totals teeth
+T=51 +0.0135 (z 3.42), T=37 +0.0097 (z 2.63), T=44 +0.0078 (z 2.09) against
+troughs T=42 -0.0080 (z -3.04), T=53 -0.0088 (z -4.04). The composed
+margin vector had pinned at the +/-0.03 clamp (meta delta_max exactly
+0.030) with both +/-3 spike amplitudes at ~36% of their train residuals —
+the mass-proportional prior over-shrinking a rule-derived structural
+parameter, the same failure mode A6 diagnosed for NBA +/-1.
+
+**Three levers, one causal ladder (run_diagnostics/nfl_keynumber_relief
+_ladder.json/.py/.log, untracked; one baseline walk on reconstructed BASE
+evidence, all variants gated by the standing production gates):**
+
+| ladder | variants | verdict |
+|---|---|---|
+| (a) spike amplitude relief x structural cap | boost {1,2,3,4,6} x cap {.03,.05} | **relief REJECTED, cap ADOPTED**: deeper spike proposals fail their OWN held-out gate — at boost 2 the -3 mirror drops to z 2.476 < 2.5 and REJECTS (post-lattice -3 leftover z 5.9 vs 3.9 at boost 1); boost 3 additionally loses +7/14 admissions. All six spikes admit only at boost 1. The cap leg: +3 composed 0.030 -> 0.0324 at cap .05 (holdout z 2.78 -> 2.39), -3 unchanged — headroom alone is NOT the fix but is REQUIRED once the second layer deepens. |
+| (b) registered generic MARGIN relief on spike-adjusted pmfs (spikes fixed boost 1/cap .05) | boost {1,2,3,5,8} | **boost 3 ADOPTED**: generic gate z 5.86 (bar 3.0), collateral clean (max excess 0.0), holdout pooled MAE 0.00072 -> 0.00027, BOTH key numbers inside the 95% band (-3: z 3.91 -> 1.77; +3: 2.39 -> 0.07) and the M=0 tie overprice (-2.82) lands in band (-1.06); band-outside count 12 -> 4. boost 5: marginal MAE gain (0.000646) for a deeper +14 overshoot (z -3.74) and a cap-binding dmax — not taken. boost 8: **collateral VETO** (max excess +0.00012, reason collateral_violation) — honest reject, same ceiling shape as A6's boost 5. |
+| (c) registered generic TOTALS relief | boost {1,2,3,5} | **REJECTED**: deepening fixes T=51 (z 1.96 -> 0.45 holdout) but pushes the T=40 trough from z -2.17 to -3.5 and opens a new tooth at 66 — band-outside 4 -> 5 with a worse worst-|z|. boost 5 also trips collateral. ("nfl","totals") stays deliberately unregistered; the admitted totals generic fit (gate 6.28) keeps its shrink-limited amplitudes and the teeth stay within multiplicity, as before. |
+
+**What shipped.**
+
+1. `gaussian_family.py` (all four byte-identical copies):
+   `LATTICE_RELIEF` gains the `("nfl","margin")` entry (boost 3,
+   quantile .75 — the A6 registration pattern);
+   `LATTICE_SPIKE_CAP = .05` clamps the STRUCTURAL spike component alone
+   (the generic keeps `LATTICE_DELTA_CAP = .03`);
+   `compose_lattice_deltas(..., caps=)` accepts a per-bin clamp vector
+   (None = exact old behavior, shape/finite validated);
+   `lattice_local_deltas(..., prior_mult=)` exposes the spike-amplitude
+   prior knob, shipped at `LATTICE_SPIKE_RELIEF_BOOST = 1.` BY
+   MEASUREMENT (the ladder above is its rejection record); the spike
+   report discloses `cap` and `relief_boost`.
+2. NFL `distributions._fit_lattice_maps` builds per-bin caps: the
+   composed vector may reach .05 exactly at admitted spike bins (each
+   cleared its own one-sided held-out gate), every other bin keeps .03.
+3. Tests: clamp/compose pins moved to the structural cap with the
+   uniform-clamp contract still pinned (caps=None), new pins for
+   disclosure, per-bin caps validation, and NFL wiring; the relief
+   registry pin now records both admitted pairs. NBA/MLB/NHL receive the
+   same shared-file edits; their behavior is byte-unchanged (relief and
+   caps are keyed/inert outside the NFL margin path).
+
+**After (regenerated 20261016 artifact through
+regenerate_lattice_artifacts.py nfl --write; pooled over the same
+per-origin walk CDFs, n=2574):**
+
+| quantity | baseline -> lattice |
+|---|---|
+| pooled margin resid MAE | 0.000857 -> **0.000433 (-50%)** (previously ~0.00070) |
+| M=-3 residual (z) | +0.0443 (6.15 shipped-before) -> **+0.0192 (z 3.76)** |
+| M=+3 residual (z) | +0.0489 (5.31) -> **+0.0127 (z 2.39)** |
+| M=+7 / -7 | +0.0113/+0.0128 -> **+0.0040 (z 1.0) / +0.0073 (z 1.88)** |
+| push M=3 model vs obs | 0.0292 -> **0.0654** vs 0.0781 (full-sample; the held-out tail the fit gates on sits in band at z 1.77/0.07 — the full-sample z stays positive because thin-evidence early origins price pre-lattice, causal by design) |
+| push M=0 model vs obs | 0.0290 -> **0.0145** vs 0.0035 (tie overprice halved, generic path) |
+| serving fit | margin gate z **5.855**, delta_max **0.046483** (SPIKE_CAP headroom used only at admitted bins), basis `localized_per_bin_shrinkage+relief`, collateral clean; spikes admitted [3, 7, -3, -7, 14, -14], relief 1.0, cap 0.05 disclosed in the meta |
+| origins admitting | 175/201 (both targets) |
+| totals | unchanged by design: gate z 6.282, delta_max 0.005573, pooled teeth 51/37/44 as measured |
+
+Metrics (same walk): totals CRPS 7.634133 -> 7.636060 (+0.03%, the
+pre-existing noise-scale trade from A3 note 5), run-line CRPS
+7.374284 -> **7.372110**, Brier/logloss improve on both cards, totals
+ECE 0.0107 -> 0.0094; run-line ECE 0.0081 -> 0.0149 worsens — reported,
+not hidden (the run-line ECE moves with the same margin prices that fix
+the key numbers; no rule-derived claim is made for it). The moneyline
+two-way deviation field reads 0.03382/0.03478 — byte-identical to the
+pre-change record (it is the NFL tie-mass term in that metric, not a
+regression; verified against run_diagnostics/nfl_regate.json).
+
+**Verification.** Isolation: non-distribution columns byte-identical
+(delivered_nondist_columns_identical true/true), serving-maps isolation
+pass (185 margin-only / 257 totals-only columns, overlap empty), 461
+distribution columns moved. Suites green at sign-off: NFL 120 passed /
+1 skipped, MLB 461 / 4, NBA 703 / 3, NHL 682 / 2 (shared lattice file;
+5 deselected while a parallel session's NHL empty-net work is in
+flight), frontend 150. A second full reprice run (no write) reproduced
+the first run's priced outputs exactly — push rates, pooled PMF, margin
+bins, metrics, lattice summary and serving isolation all byte-equal,
+against the same 461-column lattice set (run_diagnostics/
+nfl_keynumber_reprice_check.log, untracked). Local render verified on
+the Streamlit NFL markets page, Distribution tab / Spread view (model
+line now tracks the observed +/-3 towers — full-sample z 3.76/2.39
+against the shipped band vs 6.15/5.31 before, with the gated held-out
+tail in band; the fit panel reads the spike amplitudes and gate verdict
+from the regenerated meta). Probe programs and logs stay UNTRACKED by the
+task guardrail (no new programs committed): nfl_keynumber_align_probe,
+nfl_keynumber_relief_ladder (+ .json/.npz/.log), nfl_keynumber_
+regenerate.log, *_suite_keynumber.log.

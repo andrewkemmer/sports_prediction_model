@@ -171,6 +171,19 @@ LATTICE_TARGETS = ("totals", "margin")
 # shrink to zero; per-bin binomial SEs supply the noise floor.
 LATTICE_PRIOR_FRAC = .1         # prior signal scale = frac * local model mass
 LATTICE_DELTA_CAP = .03         # |delta(k)| clamp: a lattice fix, not a refit
+# Structural spike headroom (2026-10-16, NFL key-number alignment): the
+# preregistered key-number spikes are individually held-out gated (one-sided
+# structural bar per bin), and their rule-derived residuals exceed the
+# generic fix bound — the NFL margin +/-3 baselines sit +0.049/+0.044 under
+# the observed frequencies (20261016 evidence, n=2574), where the shipped
+# composed vector pinned at the .03 cap and still shipped post-lattice z
+# 5.3/6.2 leftovers (run_diagnostics/nfl_keynumber_align_probe.log). The
+# STRUCTURAL spike component therefore carries its own clamp; every generic
+# component keeps LATTICE_DELTA_CAP, and the composed vector keeps it
+# everywhere except at admitted structural spike bins (per-bin caps at the
+# NFL compose site). No cap relief exists without a preregistered, individually
+# gated spike at that bin.
+LATTICE_SPIKE_CAP = .05
 LATTICE_DELTA_EPS = 1e-9        # coefficients below this serialize as exact 0
 LATTICE_GATE_Z = 3.0            # generic bar: held-out, two-sided, + MAE + collateral
 LATTICE_STRUCTURAL_Z = 2.5      # preregistered one-sided bar (rule-derived
@@ -181,6 +194,23 @@ LATTICE_ROUND = 6               # decimal rounding stored deltas reprice with
 LATTICE_SHARE_BLOCKS = 4        # time blocks for the hierarchical share pool
 LATTICE_SHARE_TAU = .05         # between-block SD prior for share pooling
 LATTICE_SPIKE_SECONDARY_SHRINK = 4.  # extra shrinkage on secondary key numbers
+# Key-number spike relief knob (2026-10-16) — shipped at 1.0 (no relief) BY
+# MEASUREMENT: the mass-proportional prior (tau = PRIOR_FRAC * local mass)
+# shrinks the NFL +/-3 spikes to ~36% of their train residuals (amplitude
+# 0.017/0.014 vs 0.049/0.044), but the causal-walk ladder
+# (run_diagnostics/nfl_keynumber_relief_ladder.json, sections (a)+(c))
+# measured that DEEPER spike proposals fail their own held-out gate: at
+# boost 2 the -3 mirror spike drops to z 2.476 < 2.5 and REJECTS (post-lattice
+# -3 leftover z 5.9 vs 3.9 at boost 1), and boost 3+ additionally loses the
+# +7/14 admissions — the squared-loss gate penalizes the deep proposal's
+# amp^2 term faster than its linear hit gain. The spike amplitude stays at
+# the shrink-limited level; the +/-3 alignment ships through the REGISTERED
+# generic relief on spike-adjusted pmfs (LATTICE_RELIEF, (nfl, margin))
+# where the second layer's own gate has headroom. The knob is kept so a
+# future evidence regime can re-ladder it; the per-spike z in the
+# spike_report is computed at whatever boost is configured, so an
+# over-deep proposal fails its own gate instead of shipping.
+LATTICE_SPIKE_RELIEF_BOOST = 1.
 # Registered high-mass shrinkage relief (2026-10-16): the mass-proportional
 # prior (tau = PRIOR_FRAC * w) over-shrinks high-mass bins (measured: NBA
 # margin keeps ~1/3 of the +/-1 residual). Registered (sport, target) pairs
@@ -207,7 +237,32 @@ LATTICE_RELIEF_BOOST = 3.      # tau multiplier on mass bins >= the quantile
                                 # run_diagnostics/nba_walk_boost_eval*.log)
 LATTICE_RELIEF_QUANTILE = .75  # mass-bearing bins at/above this quantile get relief
 LATTICE_RELIEF = {("nba", "margin"): {"boost": LATTICE_RELIEF_BOOST,
-                                      "quantile": LATTICE_RELIEF_QUANTILE}}
+                                      "quantile": LATTICE_RELIEF_QUANTILE},
+                  # NFL margin (2026-10-16, key-number alignment): the
+                  # registered relief is the layer that actually closes the
+                  # +/-3 underfit — the spike layer alone cannot (its deeper
+                  # proposals fail their own held-out gate, see
+                  # LATTICE_SPIKE_RELIEF_BOOST), so the SECOND layer — the
+                  # generic residual on spike-adjusted pmfs — takes the
+                  # leftover with the same mass-targeted relief the NBA
+                  # +/-1 remediation used. Causal-walk ladder
+                  # (run_diagnostics/nfl_keynumber_relief_ladder.json,
+                  # section margin_relief_ladder): boost 3 keeps the generic
+                  # gate at z 5.86 (bar 3.0), collateral clean (max excess
+                  # 0.0), pooled MAE 0.00072 -> 0.00027, and brings BOTH
+                  # key numbers inside the 95% band on the held-out tail
+                  # (-3: z 3.91 -> 1.77; +3: 2.39 -> 0.07) while the M=0
+                  # tie overprice (-2.82) also lands in band (-1.06);
+                  # boost 5 trades a deeper +14 overshoot (z -3.74) and a
+                  # cap-binding dmax for a marginal MAE gain, boost 8 is a
+                  # measured COLLATERAL VETO (max excess +0.00012). Totals
+                  # relief was A/B'd on the same walk and REJECTED
+                  # (section totals_ladder): deepening the totals teeth
+                  # fixes 51 but pushes bin 40 from z -2.17 to -3.5 and
+                  # adds a new tooth at 66 — the band gets worse, so
+                  # ("nfl", "totals") is deliberately unregistered.
+                  ("nfl", "margin"): {"boost": 3.,
+                                     "quantile": LATTICE_RELIEF_QUANTILE}}
 # Totals relief was tested and REJECTED on the same evidence (2026-10-16):
 # every deeper totals variant — global frac 0.2/0.3/0.5 and mass-targeted
 # boost 2/3/5 — fails the held-out bar (gate z 2.37..2.76 < 3.0), so
@@ -456,7 +511,7 @@ def lattice_correct(cdf, support, correction, sport, target):
 
 
 def lattice_local_deltas(weight, resid, se, shrink_mult=1., relief_boost=1.,
-                         relief_quantile=None):
+                         relief_quantile=None, prior_mult=1.):
     """Localized per-bin SE-aware shrunk residual (2026-10-16; the retired
     global Fourier basis's replacement — one generic basis, one code path,
     parameterized only by the sport/target's own weight and noise floor).
@@ -479,11 +534,16 @@ def lattice_local_deltas(weight, resid, se, shrink_mult=1., relief_boost=1.,
     > 1 with ``relief_quantile`` set) multiplies tau where local model
     mass sits at/above that quantile OF THE MASS-BEARING BINS — relief
     exactly where the prior over-shrinks; ``None`` keeps current behavior.
+    ``prior_mult`` scales the prior signal scale itself for callers whose
+    bins carry a RULE-DERIVED structural excess (the preregistered
+    key-number spikes — see LATTICE_SPIKE_RELIEF_BOOST); gates, SE floors
+    and the generic path are untouched.
     """
     weight = np.clip(np.asarray(weight, float), 0., None)
     resid = np.asarray(resid, float)
     se = np.asarray(se, float)
-    tau = LATTICE_PRIOR_FRAC * weight / max(float(shrink_mult), 1e-12)
+    tau = (float(prior_mult) * LATTICE_PRIOR_FRAC * weight
+           / max(float(shrink_mult), 1e-12))
     if relief_quantile is not None and len(weight):
         # Quantile over MASS-BEARING bins: union lattices pad the support
         # with exact-zero bins, and a plain quantile over them collapses to
@@ -719,8 +779,8 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
     contribute exact 0 — never a partial spike.
 
     Returns (delta | None, report): the combined spike delta (zero-sum,
-    clamped, rounded — same post pipeline as the generic fit) or None
-    when no spike admits, plus the per-spike verdict table for disclosure.
+    clamped at the STRUCTURAL LATTICE_SPIKE_CAP, rounded) or None when no
+    spike admits, plus the per-spike verdict table for disclosure.
     """
     report: dict = {"estimator": "key_number_spikes", "sport": sport,
                      "bar": float(bar), "spikes": []}
@@ -745,6 +805,7 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
         return None, report
     candidates = [(int(v), False) for v in primary] + [(int(v), True) for v in secondary]
     candidates = [(v, sec) for v, sec in candidates if support[0] <= v <= support[-1]]
+    report["relief_boost"] = float(LATTICE_SPIKE_RELIEF_BOOST)
     n_train = max(int(len(train)), 1)
     pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
     se = np.sqrt(pbar * (1. - pbar) / n_train)
@@ -763,8 +824,13 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
     for value, secondary_flag in candidates:
         i = int(np.searchsorted(support, value))
         mult = LATTICE_SPIKE_SECONDARY_SHRINK if secondary_flag else 1.
+        # Registered key-number relief: the structural spike's prior scale
+        # is its own evidence (LATTICE_SPIKE_RELIEF_BOOST), not a fraction
+        # of local model mass — the gate below still decides, at the
+        # boosted amplitude.
         amp = float(lattice_local_deltas(pbar[i:i + 1], resid[i:i + 1],
-                                         se[i:i + 1], shrink_mult=mult)[0])
+                                         se[i:i + 1], shrink_mult=mult,
+                                         prior_mult=LATTICE_SPIKE_RELIEF_BOOST)[0])
         row = {"bin": value, "secondary": bool(secondary_flag),
                "amplitude": round(amp, 6)}
         if not amp > 0.:
@@ -797,10 +863,15 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
         delta[i] += amp
         delta[sink] -= amp * pbar[sink] / sink_mass
     delta = _zero_sum_mass_proportional(delta, pbar)
-    delta = np.clip(delta, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    # Structural clamp: the spike component alone may reach
+    # LATTICE_SPIKE_CAP (each bin already held-out gated above); the
+    # generic component keeps LATTICE_DELTA_CAP and the composed vector
+    # is capped per bin at the compose site.
+    delta = np.clip(delta, -LATTICE_SPIKE_CAP, LATTICE_SPIKE_CAP)
     delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, LATTICE_ROUND)
     report["significant"] = True
+    report["cap"] = float(LATTICE_SPIKE_CAP)
     report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
     return [float(v) for v in delta], report
 
@@ -1026,7 +1097,7 @@ def _collateral_excess(resid_pooled, delta, se_pool):
     return (np.abs(r - d) - np.abs(r)) - se
 
 
-def compose_lattice_deltas(deltas, weight=None):
+def compose_lattice_deltas(deltas, weight=None, caps=None):
     """Compose admitted delta components into one stored vector.
 
     Used where a structural component (NFL key-number spikes) and the
@@ -1034,6 +1105,13 @@ def compose_lattice_deltas(deltas, weight=None):
     mass-proportional zero-sum, clamp, eps-zero, round — the same post
     pipeline each fit applies alone, so a composed delta obeys the same
     contract. Components stay disclosed in their own report keys.
+
+    ``caps`` optionally supplies a PER-BIN clamp instead of the uniform
+    LATTICE_DELTA_CAP (shape must match the composed vector): the NFL
+    margin compose site grants LATTICE_SPIKE_CAP only at bins where a
+    preregistered, individually held-out-gated spike admitted — every
+    other bin keeps the generic fix bound. ``None`` keeps the exact
+    pre-existing uniform behavior.
     """
     if any(part is None for part in deltas):
         raise ValueError("compose_lattice_deltas requires admitted (non-None) components")
@@ -1043,7 +1121,14 @@ def compose_lattice_deltas(deltas, weight=None):
     w = (np.clip(np.asarray(weight, float), 0., None) if weight is not None
          else np.ones_like(total))
     total = _zero_sum_mass_proportional(total, w)
-    total = np.clip(total, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    if caps is None:
+        total = np.clip(total, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
+    else:
+        caps = np.asarray(caps, float)
+        if caps.shape != total.shape or not np.isfinite(caps).all():
+            raise ValueError("compose per-bin caps must be a finite vector "
+                             "matching the composed delta")
+        total = np.clip(total, -caps, caps)
     total[np.abs(total) < LATTICE_DELTA_EPS] = 0.
     return [float(v) for v in np.round(total, LATTICE_ROUND)]
 

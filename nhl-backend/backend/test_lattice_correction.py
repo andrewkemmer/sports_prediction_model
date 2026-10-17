@@ -310,17 +310,30 @@ def test_structural_spikes_admit_primaries_individually_and_compose():
         assert ("z" in row) if row["admitted"] else ("reason" in row)
     d = np.asarray(delta, float)
     assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
-    assert (np.abs(d) <= fam.LATTICE_DELTA_CAP + 1e-12).all()  # clamp
+    # The STRUCTURAL spike component clamps at LATTICE_SPIKE_CAP (each
+    # bin held-out gated above); generic components keep LATTICE_DELTA_CAP.
+    assert (np.abs(d) <= fam.LATTICE_SPIKE_CAP + 1e-12).all()  # clamp
     assert d[support == 3] > 0. and d[support == 7] > 0.    # spike direction
     assert (d == np.round(d, fam.LATTICE_ROUND)).all()        # stored rounding
     # Compose keeps the contract: spike delta + zero generic residual gives
-    # the spike vector back up to the stored rounding, still zero-sum.
+    # the spike vector back up to the stored rounding, still zero-sum —
+    # under the per-bin caps production passes (SPIKE_CAP at the admitted
+    # bins, the generic fix bound elsewhere).
+    caps = np.full(len(d), fam.LATTICE_DELTA_CAP)
+    caps[np.abs(d) > 0.] = fam.LATTICE_SPIKE_CAP
     combo = np.asarray(fam.compose_lattice_deltas(
-        [delta, [0.] * len(d)]), float)
+        [delta, [0.] * len(d)], caps=caps), float)
     np.testing.assert_allclose(combo, d, atol=1e-6)
     assert abs(combo.sum()) <= len(combo) * 5e-7 + 1e-9
+    # caps=None keeps the exact pre-existing uniform generic clamp.
+    combo_uniform = np.asarray(fam.compose_lattice_deltas(
+        [delta, [0.] * len(d)]), float)
+    assert (np.abs(combo_uniform) <= fam.LATTICE_DELTA_CAP + 1e-12).all()
     with pytest.raises(ValueError):
         fam.compose_lattice_deltas([delta, None])
+    with pytest.raises(ValueError):
+        fam.compose_lattice_deltas([delta, [0.] * len(d)],
+                                   caps=[fam.LATTICE_SPIKE_CAP])
 
 
 def test_spike_fit_rejects_pure_noise_with_verdicts():
@@ -367,7 +380,7 @@ def test_structural_spikes_admit_mirror_bins_when_piled():
     d = np.asarray(delta, float)
     assert d[support == -3] > 0. and d[support == -7] > 0.  # spike direction
     assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
-    assert (np.abs(d) <= fam.LATTICE_DELTA_CAP + 1e-12).all()  # clamp
+    assert (np.abs(d) <= fam.LATTICE_SPIKE_CAP + 1e-12).all()  # clamp
 
 
 def test_preregistered_table_covers_nfl_mirror_spikes():
@@ -394,6 +407,56 @@ def test_nfl_lattice_fit_passes_mirror_candidates_to_spikes():
     by_bin = {s["bin"]: s
                 for s in maps["margin"]["spike_report"]["spikes"]}
     assert by_bin[-3]["admitted"] and by_bin[-7]["admitted"]
+
+
+def test_spike_report_discloses_structural_cap_and_relief():
+    """Disclosure: the spike report carries the structural clamp and the
+    registered relief boost it was fitted under."""
+    pmfs, outcomes, support = _spike_evidence()
+    _, rep = fam.fit_margin_spikes(pmfs, outcomes, support, SPORT)
+    assert rep["cap"] == fam.LATTICE_SPIKE_CAP
+    assert rep["relief_boost"] == fam.LATTICE_SPIKE_RELIEF_BOOST
+
+
+def test_compose_per_bin_caps_honored_and_validated():
+    """caps=None keeps the exact uniform generic clamp; a caps vector is
+    honored per bin and validated (shape/finite) — the NFL margin compose
+    site grants SPIKE_CAP only at admitted spike bins."""
+    base = [0.] * 9
+    base[4] = 0.04
+    uniform = np.asarray(fam.compose_lattice_deltas([base]), float)
+    assert abs(uniform[4]) <= fam.LATTICE_DELTA_CAP + 1e-12
+    caps = np.full(9, fam.LATTICE_DELTA_CAP)
+    caps[4] = fam.LATTICE_SPIKE_CAP
+    capped = np.asarray(fam.compose_lattice_deltas([base], caps=caps), float)
+    assert capped[4] > fam.LATTICE_DELTA_CAP           # headroom honored
+    assert (np.abs(np.delete(capped, 4))
+            <= fam.LATTICE_DELTA_CAP + 1e-12).all()    # others unchanged
+    with pytest.raises(ValueError):
+        fam.compose_lattice_deltas([base], caps=[fam.LATTICE_SPIKE_CAP] * 5)
+    with pytest.raises(ValueError):
+        fam.compose_lattice_deltas([base],
+                                   caps=[float("nan")] * 9)
+
+
+def test_nfl_composed_delta_uses_spike_cap_only_at_admitted_bins():
+    """Wiring: the NFL compose site's per-bin caps grant LATTICE_SPIKE_CAP
+    exactly at admitted structural spike bins; every other bin of the
+    stored composed vector stays within the generic fix bound."""
+    if SPORT != "nfl":
+        pytest.skip("per-bin structural caps are an NFL-caller extension")
+    pmfs, outcomes, support = _mirror_spike_evidence()
+    maps = dist._fit_lattice_maps(
+        {}, {}, {"margin": {"pmfs": pmfs, "outcomes": outcomes,
+                             "support": support}})
+    delta = np.asarray(maps["margin"]["delta"], float)
+    admitted = {int(s["bin"]) for s in maps["margin"]["spike_report"]["spikes"]
+                if s.get("admitted")}
+    assert {-3, -7} <= admitted
+    for j, b in enumerate(support):
+        bound = (fam.LATTICE_SPIKE_CAP if int(b) in admitted
+                 else fam.LATTICE_DELTA_CAP)
+        assert abs(delta[j]) <= bound + 1e-12, (int(b), delta[j], bound)
 
 
 def _share_evidence(tilt=.15, n=900, seed=2):

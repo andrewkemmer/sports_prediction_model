@@ -18,29 +18,29 @@
    "source": "oof_decided_store"
   },
   "run_line": {
-   "n": 1535,
-   "actual_win_rate": 0.555,
-   "win_rate": 0.555,
-   "predicted_mean": 0.5169,
-   "auc": 0.5676,
-   "ece_raw": 0.0398,
-   "ece_calibrated": 0.0398,
-   "brier": 0.248,
-   "logloss": 0.6891,
+   "n": 1526,
+   "actual_win_rate": 0.5564,
+   "win_rate": 0.5564,
+   "predicted_mean": 0.5184,
+   "auc": 0.5636,
+   "ece_raw": 0.039,
+   "ece_calibrated": 0.039,
+   "brier": 0.2478,
+   "logloss": 0.6888,
    "holdout": {},
    "source": "oof_decided_store",
-   "auc_n": 2492
+   "auc_n": 2495
   },
   "derived_ml": {
-   "n": 1502,
-   "actual_win_rate": 0.6651,
-   "win_rate": 0.6651,
-   "predicted_mean": 0.6211,
-   "auc": 0.6987,
-   "ece_raw": 0.0563,
-   "ece_calibrated": 0.0563,
-   "brier": 0.2138,
-   "logloss": 0.617,
+   "n": 1527,
+   "actual_win_rate": 0.6627,
+   "win_rate": 0.6627,
+   "predicted_mean": 0.6222,
+   "auc": 0.6984,
+   "ece_raw": 0.0517,
+   "ece_calibrated": 0.0517,
+   "brier": 0.2142,
+   "logloss": 0.6179,
    "holdout": {},
    "source": "oof_decided_store",
    "auc_n": 2565,
@@ -65,20 +65,20 @@
   {
    "card": "run_line",
    "date": "2026-10-16",
-   "ece_calibrated": 0.0398,
-   "brier": 0.248,
-   "logloss": 0.6891,
-   "predicted_mean": 0.5169,
-   "n": 1535
+   "ece_calibrated": 0.039,
+   "brier": 0.2478,
+   "logloss": 0.6888,
+   "predicted_mean": 0.5184,
+   "n": 1526
   },
   {
    "card": "derived_ml",
    "date": "2026-10-16",
-   "ece_calibrated": 0.0563,
-   "brier": 0.2138,
-   "logloss": 0.617,
-   "predicted_mean": 0.6211,
-   "n": 1502
+   "ece_calibrated": 0.0517,
+   "brier": 0.2142,
+   "logloss": 0.6179,
+   "predicted_mean": 0.6222,
+   "n": 1527
   }
  ],
  "fit": {
@@ -92,9 +92,9 @@
   },
   "margin_tail": {
    "obs_home_win": 0.5443,
-   "mod_home_win": 0.5323,
+   "mod_home_win": 0.5356,
    "obs_push": 0.0035,
-   "mod_push": 0.0237
+   "mod_push": 0.0145
   },
   "variance_obs": {
    "home": 9.56,
@@ -107,7 +107,7 @@
    "away_variance": 4.043589286324381,
    "correlation": 0.028752263553753803,
    "total_skew": 0.0714613727338509,
-   "margin_skew": 0.017814410553763208,
+   "margin_skew": 0.01781441055376321,
    "total_parity_alpha": 0.0
   },
   "lattice": {
@@ -118,8 +118,8 @@
     "n_test": 772,
     "significant": true,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0009637020620841656,
-    "residual_mae_after": 0.0007202142906917477,
+    "residual_mae_before": 0.0009637020620841684,
+    "residual_mae_after": 0.0007202142906917508,
     "delta_l1": 0.06445299999999998,
     "delta_max": 0.005573,
     "collateral_max_excess": 0.0,
@@ -255,7 +255,9 @@
        "reason": "held_out_not_significant"
       }
      ],
+     "relief_boost": 1.0,
      "significant": true,
+     "cap": 0.05,
      "delta_l1": 0.085577
     },
     "target": "margin",
@@ -263,14 +265,14 @@
     "n_fit": 1802,
     "n_test": 772,
     "significant": true,
-    "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0007212716487289264,
-    "residual_mae_after": 0.0005254227919324252,
-    "delta_l1": 0.178419,
-    "delta_max": 0.03,
+    "basis": "localized_per_bin_shrinkage+relief",
+    "residual_mae_before": 0.0007212716487289259,
+    "residual_mae_after": 0.0002738744237299393,
+    "delta_l1": 0.328707,
+    "delta_max": 0.046483,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
-    "gate_z": 7.064,
+    "gate_z": 5.855,
     "support": [
      -250,
      250
@@ -332,15 +334,15 @@
    "n": 2522
   },
   "home_cover_3": {
-   "engine_ece_raw": 0.0535,
-   "engine_ece_calibrated": 0.0535,
-   "engine_brier": 0.2162,
-   "engine_logloss": 0.6226,
+   "engine_ece_raw": 0.0519,
+   "engine_ece_calibrated": 0.0519,
+   "engine_brier": 0.216,
+   "engine_logloss": 0.6223,
    "n": 2373
   },
   "derived_moneyline": {
-   "engine_ece_raw": 0.0433,
-   "engine_ece_calibrated": 0.0433,
+   "engine_ece_raw": 0.042,
+   "engine_ece_calibrated": 0.042,
    "engine_brier": 0.2208,
    "engine_logloss": 0.6322,
    "n": 2565
