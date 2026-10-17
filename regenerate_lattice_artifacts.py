@@ -198,6 +198,7 @@ def main() -> None:
     # key-number transfer is not, so it is neutralized explicitly). A sport
     # without the symbol is untouched.
     real_keytransfer = getattr(dist, "fit_keynumber_transfer", None)
+    real_emptynet = getattr(dist, "fit_empty_net_transfer", None)
     family.fit_lattice_correction = lambda *a, **k: {
         "significant": False, "reason": "baseline_lattice_disabled"}
     family.fit_ot_home_share = lambda *a, **k: None
@@ -206,6 +207,13 @@ def main() -> None:
     if real_keytransfer is not None:
         dist.fit_keynumber_transfer = lambda *a, **k: (
             None, {"estimator": "keynumber_spread_transfer",
+                   "reason": "baseline_lattice_disabled"})
+    if real_emptynet is not None:
+        # NHL's empty-net transfer is a sport-module filer too (see above):
+        # without this the baseline silently ships the correction it is
+        # supposed to exclude.
+        dist.fit_empty_net_transfer = lambda *a, **k: (
+            None, {"estimator": "empty_net_2_to_3_transfer",
                    "reason": "baseline_lattice_disabled"})
     t0 = time.time()
     if cfg["style"] == "mlb":
@@ -218,6 +226,8 @@ def main() -> None:
      family.fit_margin_spikes) = real_fit, real_share, real_pooled, real_spikes
     if real_keytransfer is not None:
         dist.fit_keynumber_transfer = real_keytransfer
+    if real_emptynet is not None:
+        dist.fit_empty_net_transfer = real_emptynet
 
     # ---- 2. lattice run ---------------------------------------------------
     t0 = time.time()

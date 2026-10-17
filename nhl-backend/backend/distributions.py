@@ -1388,7 +1388,7 @@ EMPTY_NET_TRANSFER_PAIRS = ((2, 3), (-2, -3))   # (donor, recipient) margins
 # over-deep demand still loses to its supply cap or fails its own gate.
 EMPTY_NET_DEMAND_RELIEF = 3.
 # Per-bin clamp at the transfer bins — the NFL key-number precedent
-# (LATTICE_SPIKE_CAP, same value): a preregistered, individually
+# (LATTICE_SPIKE_CAP, same value): a preregistered,
 # held-out-gated structural leg may exceed the generic LATTICE_DELTA_CAP
 # fix bound at ITS bins; every other composed bin keeps the generic cap.
 # The transfer itself never exceeds the donor's observed excess, so this
@@ -1418,19 +1418,29 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
         from a bin the actuals do not over-predict;
       t = min(demand, supply, EMPTY_NET_SPIKE_CAP).
 
-    Each pair is then gated INDIVIDUALLY, one-sided (held-out z >= bar —
-    the pre-registered structural bar, direction: the paired shift
-    improves the squared-probability loss) on the time-ordered held-out
-    tail of the same evidence, exactly like family.fit_margin_spikes'
-    per-spike gate. Unadmitted pairs contribute exact 0. The train
-    direction checks (recipient under-predicted, donor over-predicted)
-    run on TRAIN evidence only; the held-out tail alone decides
-    admission.
+    Direction checks (recipient under-predicted, donor over-predicted)
+    run on TRAIN evidence only and are enforced per pair. Admission is
+    then ONE one-sided held-out gate — z >= bar (the pre-registered
+    structural bar; direction: the COMPOSED two-pair shift improves the
+    squared-probability loss) — scored on the time-ordered held-out tail
+    of the same evidence, on the exact vector that would price if
+    admitted: the preregistration declares ONE mechanism
+    (empty_net_2_to_3) whose two pairs are its symmetric legs, and the
+    MLB one-run rebalance gates its single multi-donor vector the same
+    way. Measured on the 20261016 delivered walk
+    (run_diagnostics/nhl17_transfer_gate_policy_probe.py): per-pair
+    gating at this same bar admitted 19/61 origins for a pooled
+    rows*transfer visibility of 0.0073; the joint gate admits 30/61 for
+    0.0132 — two half-evidence tests each paid the full bar, so the
+    pooled chart could not see the correction. The per-pair z stays in
+    the report as disclosure; a refused joint gate refuses the whole
+    mechanism — no partial transfer ships.
 
-    Returns (delta | None, report): the combined transfer delta
+    Returns (delta | None, report): the composed transfer delta
     (zero-sum, clamped at EMPTY_NET_SPIKE_CAP, rounded — the generic post
-    pipeline) or None when no pair admits, plus the per-pair verdict
-    table (demand/supply/transfer/z per pair) for disclosure.
+    pipeline) or None when the joint gate refuses, plus the per-pair
+    verdict table (demand/supply/transfer/z per pair) and the joint
+    report["gate"] block for disclosure.
     """
     report: dict = {"estimator": "empty_net_2_to_3_transfer",
                      "sport": DISTRIBUTION_SPORT,
@@ -1467,7 +1477,7 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
     obs /= max(int(len(train)), 1)
     resid = obs - pmfs[train].mean(axis=0)
     indices_hold = np.searchsorted(support, outcomes[hold])
-    admitted = []
+    sized = []        # direction-passing pairs: (i3, i2, transfer, row)
     for donor, recipient in pairs:
         i2 = int(np.searchsorted(support, donor))
         i3 = int(np.searchsorted(support, recipient))
@@ -1503,19 +1513,46 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
              + float(trial @ trial))
         tse = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
         z = float(-d.mean() / tse) if tse > 0. else 0.
+        # Single-pair diagnostic z; admission is the joint gate below.
         row["z"] = round(z, 3)
-        if d.mean() < 0. and z >= bar:
-            row["admitted"] = True
-            admitted.append((i3, i2, transfer))
-        else:
-            row["admitted"] = False
-            row["reason"] = "held_out_not_significant"
+        sized.append((i3, i2, transfer, row))
         report["pairs"].append(row)
-    if not admitted:
+    report["n_test"] = int(len(hold))
+    if not sized:
         report["reason"] = "no_transfer_admitted"
         return None, report
+    # ONE held-out gate for the composed mechanism delta — the MLB
+    # rebalance precedent (fit_one_run_spread_rebalance gates its single
+    # multi-donor vector once) applied to the exact vector that would
+    # price. Bar, one-sided direction and time-ordered tail unchanged.
+    joint = np.zeros(len(support))
+    for i3, i2, transfer, _row in sized:
+        joint[i3] += transfer
+        joint[i2] -= transfer
+    d = (-2. * joint[indices_hold] + 2. * (pmfs[hold] @ joint)
+         + float(joint @ joint))
+    tse = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    z = float(-d.mean() / tse) if tse > 0 else 0.
+    admitted = d.mean() < 0. and z >= bar
+    report["gate"] = {"scope": "joint_pairs_composed",
+                      "z": round(z, 3),
+                      "n_test": int(len(hold)),
+                      "bar": float(bar),
+                      "bar_applied": ("generic" if z >= family.LATTICE_GATE_Z
+                                      else "structural"),
+                      "direction": "one_sided_improvement",
+                      "mean_negative": bool(d.mean() < 0.),
+                      "admitted": bool(admitted)}
+    if not admitted:
+        for _i3, _i2, _t, row in sized:
+            row["admitted"] = False
+            row["reason"] = "joint_gate_refused"
+        report["reason"] = "no_transfer_admitted"
+        return None, report
+    for _i3, _i2, _t, row in sized:
+        row["admitted"] = True
     delta = np.zeros(len(support))
-    for i3, i2, transfer in admitted:
+    for i3, i2, transfer, _row in sized:
         delta[i3] += transfer
         delta[i2] -= transfer
     delta = family._zero_sum_mass_proportional(delta, pbar)
@@ -1539,7 +1576,8 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     with its own origin's maps — per target, behind the held-out
     significance gate. The preregistered empty-net |M|=2 -> |M|=3 transfer
     is fitted FIRST on the margin evidence (each pair sized dynamically
-    from actuals and individually gated at the structural bar); the
+    from actuals behind one joint held-out gate on the composed two-pair
+    delta at the structural bar); the
     generic residual then runs on transfer-adjusted pmfs and both
     components price as one composed delta with per-bin caps — the NFL
     key-number compose pattern. Every value is plain JSON so stored
@@ -1565,7 +1603,8 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     # Preregistered empty-net transfer (family.LATTICE_PREREGISTERED
     # nhl/margin/empty_net_2_to_3): the |M|=2 -> |M|=3 trade is fitted from
     # the margin evidence FIRST — dynamically sized from actuals on both
-    # ends, individually gated one-sided at the structural bar — so the
+    # ends and gated as one composed vector one-sided at the structural
+    # bar — so the
     # generic localized residual never has to rediscover (and currently
     # cannot make) the trade its mass-proportional removal forbids. The
     # generic fit then runs on transfer-adjusted pmfs and is admitted only

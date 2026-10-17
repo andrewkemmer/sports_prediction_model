@@ -881,6 +881,103 @@ def test_nhl_lattice_fit_composes_the_empty_net_transfer():
     json.dumps(fam.lattice_summary(margin))
 
 
+def _empty_net_two_phase_evidence(train_shifts, hold_shifts,
+                                  n=6000, seed=11):
+    """Time-inhomogeneous empty-net evidence: the first 70% of rows follow
+    `train_shifts` ((margin, delta) added to the base truth), the held-out
+    tail follows `hold_shifts` — so a pair can be sized from train evidence
+    while the tail confirms or reverses it (the gate must only ever see the
+    tail)."""
+    rng = np.random.default_rng(seed)
+    support = np.arange(-25, 26)
+    base = np.exp(-.5 * ((support - .5) / 7.) ** 2)
+    base = base / base.sum()
+
+    def truth(shifts):
+        t = base.copy()
+        for value, delta in shifts:
+            t[support == value] += delta
+        return t / t.sum()
+
+    n_train = int(.7 * n)          # matches LATTICE_TEST_FRACTION's cut
+    y = np.concatenate([rng.choice(support, size=n_train, p=truth(train_shifts)),
+                        rng.choice(support, size=n - n_train,
+                                   p=truth(hold_shifts))])
+    return np.tile(base, (n, 1)), y, support
+
+
+def test_empty_net_joint_gate_admits_the_composed_mechanism_once():
+    """One mechanism, ONE held-out gate: admission is a single one-sided
+    test on the composed two-pair vector (the exact vector that prices),
+    disclosed as report['gate'] — the MLB rebalance's single-composed-gate
+    precedent. Both pairs' single-pair z stay in the rows as diagnostics."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    pmfs, outcomes, support = _empty_net_evidence()
+    delta, rep = dist.fit_empty_net_transfer(pmfs, outcomes, support)
+    gate = rep["gate"]
+    assert gate["scope"] == "joint_pairs_composed"
+    assert gate["bar"] == fam.LATTICE_STRUCTURAL_Z
+    assert gate["bar_applied"] in ("generic", "structural")
+    assert gate["admitted"] and gate["mean_negative"]
+    assert gate["z"] >= fam.LATTICE_STRUCTURAL_Z
+    assert gate["n_test"] == int(fam.LATTICE_TEST_FRACTION * len(outcomes))
+    assert rep["n_test"] == gate["n_test"]
+    for pair in rep["pairs"]:
+        assert pair["admitted"]
+        assert isinstance(pair.get("z"), float)   # diagnostic, not the gate
+
+
+def test_empty_net_joint_gate_refuses_the_whole_mechanism_no_partial():
+    """A sized pair that its own tail reverses drags the composed gate:
+    when the joint test fails, NOTHING ships — not even the pair whose
+    single-pair z clears the bar (partial admission would price a vector
+    the gate never tested). Train sizes both pairs; the tail reverses only
+    -2/-3, so pair (2,3) alone would pass while the mechanism does not."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    pmfs, outcomes, support = _empty_net_two_phase_evidence(
+        train_shifts=((3, .035), (2, -.025), (-3, .030), (-2, -.020)),
+        hold_shifts=((3, .035), (2, -.025), (-3, -.030), (-2, .020)))
+    delta, rep = dist.fit_empty_net_transfer(pmfs, outcomes, support)
+    assert delta is None and rep["reason"] == "no_transfer_admitted"
+    by_pair = {(p["donor"], p["recipient"]): p for p in rep["pairs"]}
+    # Both pairs passed their TRAIN direction checks and were sized...
+    assert by_pair[(2, 3)]["transfer"] > 0. and by_pair[(-2, -3)]["transfer"] > 0.
+    # ...the +2->+3 pair alone would clear the bar on the tail ...
+    assert by_pair[(2, 3)]["z"] >= fam.LATTICE_STRUCTURAL_Z
+    # ...but the composed gate refuses, so no partial transfer ships.
+    gate = rep["gate"]
+    assert not gate["admitted"] and not gate["mean_negative"]
+    assert not any(p.get("admitted") for p in rep["pairs"])
+    for pair in rep["pairs"]:
+        assert pair["reason"] == "joint_gate_refused"
+
+
+def test_empty_net_joint_gate_pools_thin_pairs_past_the_bar():
+    """The other direction of the same gate: two pairs that each fail the
+    structural bar ALONE (half the evidence, full bar) admit when their
+    composed vector clears it — the measured 19/61 -> 30/61 admission gain
+    (run_diagnostics/nhl17_transfer_gate_policy_probe.py) rests on this."""
+    if SPORT != "nhl":
+        pytest.skip("the empty-net transfer is an NHL-caller mechanism")
+    pmfs, outcomes, support = _empty_net_two_phase_evidence(
+        train_shifts=((3, .010), (2, -.007), (-3, .0225), (-2, -.01575)),
+        hold_shifts=((3, .010), (2, -.007), (-3, .0225), (-2, -.01575)))
+    delta, rep = dist.fit_empty_net_transfer(pmfs, outcomes, support)
+    assert delta is not None and rep["significant"]
+    gate = rep["gate"]
+    assert gate["admitted"] and gate["z"] >= fam.LATTICE_STRUCTURAL_Z
+    by_pair = {(p["donor"], p["recipient"]): p for p in rep["pairs"]}
+    # Each pair alone sits under the bar — only the composed test passes.
+    assert all(p["admitted"] for p in by_pair.values())
+    assert all(by_pair[k]["z"] < fam.LATTICE_STRUCTURAL_Z for k in by_pair)
+    d = np.asarray(delta, float)
+    assert d[support == 3] > 0. and d[support == -3] > 0.
+    assert d[support == 2] < 0. and d[support == -2] < 0.
+    assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9
+
+
 # ---------------------------------------------------------------------------
 # Section 10: point-in-time core (2026-10-16). The distribution walk is ONE
 # shared causal engine mirrored in all four backends. These guards pin (a)
