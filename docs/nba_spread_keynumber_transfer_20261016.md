@@ -262,9 +262,81 @@ evidence (the documented follow-up path for NHL empty-net ±2/±3 in A3 note 4)
 * `regenerate_lattice_artifacts.py` gains one guarded neutralization
   (`getattr(dist, "fit_keynumber_transfer", None)`) so the baseline arm of any
   re-gate excludes the mechanism the way it already excludes the family
-  hooks; inert for the other three sports.
-* Evidence logs (untracked by the task guardrail): `run_diagnostics/`
+  hooks; inert for the other three sports.* Evidence logs (untracked by the task guardrail): `run_diagnostics/`
   `nba_keynumber_align_probe.py`, `nba_keynumber_ladder.py`,
   `nba_keynumber_shape_probe.py`, `nba_keynumber_walk_ladder{,2,3}.log`,
   `nba_keynumber_walk_off.log`, `nba_keynumber_regenerate.log`,
   `nba_suite_keynumber_transfer.log`, `frontend_suite_keynumber_transfer.log`.
+
+## 8. Round 2 (2026-10-17) — "I don't see any improvement in the spreads"
+
+User reported no visible improvement on the dashboard (`OOF artifact: 20261017`,
+screenshot 00:34 EDT). Confirmed by measurement first: the delivered
+20261017 artifact's pooled `p_push` teeth are **byte-identical to the
+pre-transfer state** — Σ|resid| over the 14 registered bins **0.048319**,
+exactly the section-5 OFF arm, with an empty `lattice.margin` block in both
+meta and monitor (`delta_source: None`, no `keynumber_report`).
+
+**Root cause — the transfer was never in the delivered artifact.** The
+pipeline delivery commits (`ffafc9b6`/`eeb73668`, 04:35/04:36) rebuilt the
+20261017 CSV from a checkout whose `calibrate_market_frame` did not carry the
+key-number transfer at all — the same stale-checkout failure mode diagnosed
+at 00:36 the previous night, recurring on the 04:35 rebuild. The committed
+code (7c609b24) admits the transfer on this exact evidence (serving z 3.639,
+bar 3.0, 10/56 walk origins), so the artifact the user saw simply did not
+contain the mechanism.
+
+**Remedy — regenerate the delivered artifact from committed code, nothing
+else.** Built in a detached `git worktree` at HEAD (`run_diagnostics/_clean_head`,
+no uncommitted tree state of any session), `regenerate_lattice_artifacts.py
+nba --write` on the delivered 04:35 base:
+
+| check | result |
+|---|---|
+| Σ\|resid\| over 14 bins, delivered → shipped | **0.048319 → 0.047797 (−1.1%)** |
+| per-bin direction | 13 of 14 improve, 1 flat (+15), **0 regress** |
+| pooled margin MAE (61 bins) | 0.001579 → 0.001570 |
+| `isolation_nondist_columns_identical` / `delivered_nondist_columns_identical` | true / true |
+| cell-level vs delivered | **0 of 25 non-distribution columns changed; 231 distribution columns, all margin-side** (198 cover/spread + 33 derived; 0 totals) |
+| meta disclosure | `delta_source generic+keynumber_transfer`, gate_z 3.519, `keynumber_report` z 3.639 / bar 3.0 / relief 3.0 / amount 0.015159 / funded_by_donors 0.010828 / funded_by_sink 0.004331 / collateral 0.0 |
+| totals side | unchanged vs delivered (byte-identical; gate_z 3.003, δmax 0.001211 — the 04:35 rebuild carried the totals lattice) |
+| monitor key set | unchanged (10 top-level keys; lattice blocks empty in both, per the delivery convention) |
+| NBA suite / frontend suite | **714 passed, 3 skipped** / **150 passed** |
+
+Per-bin closures on the delivered evidence (delivered → shipped): +1
+−0.00415 → −0.00398 (+4.1%), −10 +0.00312 → +0.00307, −9 +0.00323 →
++0.00318, −2 +0.00292 → +0.00288, +6 +0.00354 → +0.00350, +13 +0.00374 →
++0.00370, +16 +0.00330 → +0.00325, +18 −0.00359 → −0.00355, +11 +0.00423 →
++0.00421, +7 +0.00512 → +0.00511, −1 −0.00266 → −0.00265, +14 −0.00287 →
+−0.00286, −6 −0.00251 → −0.00250; +15 unchanged (−0.00336). The absolute
+movement per bin is 0.00001–0.00017 against a 95% band half-width of
+~0.0019 — **honest, but not visually distinguishable at n=2,400**; that
+boundary is section 6's, unchanged.
+
+**Remediation avenues measured this round and refused (with evidence):**
+
+* **Two-stage gate (generic 3.0 → one-sided structural 2.5)** — implemented
+  and A/B-walked on 20261017 evidence (`run_diagnostics/nba17_twostage_ab.py`):
+  admits 6 additional origins at the structural stage, Σ|resid| 0.050674 →
+  0.049618 on that tree. **Rejected and reverted**: the structural bar is
+  reserved for mechanisms listed in `LATTICE_PREREGISTERED` with a
+  rule-derived directional prior (MLB walk-off split, NFL scoring spikes,
+  NHL empty-net); the NBA spread key numbers are empirical — no such claim
+  is registered for them, and section 6 already committed to "no gate
+  changes". Shipping it would be a bar-lowering dressed as a mechanism.
+* **A shared `gaussian_family` tail-gate indexing fix landed in the working
+  tree from a parallel session** (uncommitted at round-2 time; `flatnonzero`
+  on a tail slice returned slice-relative indices scored in-sample). With
+  that fix, the generic lattice admits **0/56 margin origins** on 20261017
+  evidence and the artifact degrades at +1 (−0.00415 → −0.00597). This
+  round therefore regenerates from **committed HEAD only** (detached
+  worktree) so the artifact is exactly reproducible from git; the fix's
+  impact on NBA lattice admissions belongs to whichever session lands it,
+  together with its own remediation.
+
+**Delivery note.** The dashboard reads whatever the latest committed
+`nba_run_engine_markets_*.csv` carries; this commit restores the registered
+transfer to the 20261017 artifact. If the next pipeline rebuild again runs
+from a checkout without the registered mechanism (third occurrence), the
+teeth will silently revert to 0.048319 — the pipeline checkout's provenance
+is now the binding failure mode, not the lattice code.
