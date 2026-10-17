@@ -79,6 +79,9 @@ def main() -> None:
         calls.append({"share": rep.get("share"), "z": rep.get("z"),
                       "reason": rep.get("reason"),
                       "amount": rep.get("amount"),
+                      "secondary_residual": rep.get("secondary_residual"),
+                      "secondary_capacity": rep.get("secondary_capacity"),
+                      "secondary_amount": rep.get("secondary_amount"),
                       "admitted": bool(rep.get("significant"))})
         return delta, rep
 
@@ -106,6 +109,15 @@ def main() -> None:
     if amounts:
         print("  amount range:", round(min(amounts), 5), "..",
               round(max(amounts), 5))
+    sec = [c for c in calls if c.get("secondary_amount") is not None]
+    if sec:
+        fired = [c for c in sec if c["secondary_amount"] > 0.]
+        print(f"  secondary leg: {len(fired)}/{len(sec)} origins with a -2 "
+              f"deficit in their own train actuals")
+        if fired:
+            amts = sorted(c["secondary_amount"] for c in fired)
+            print("  secondary amount range:", round(min(amts), 5), "..",
+                  round(max(amts), 5))
 
     origins = bundle["origins"]
     with_delta = sum(1 for o in origins

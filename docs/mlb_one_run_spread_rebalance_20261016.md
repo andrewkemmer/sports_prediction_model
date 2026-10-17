@@ -30,6 +30,10 @@ ever move ≈ 0.007 at ±1 — an order of magnitude below the residual.
 
 ## B. Pre-registered mechanism (`fit_one_run_spread_rebalance`, MLB-only)
 
+> As originally registered 2026-10-16 (single recipient, three donors).
+> §H below records the 2026-10-17 two-recipient extension, which supersedes
+> the donor set and the transfer shape while keeping every gate unchanged.
+
 Declared **before fitting** in the module header of
 `mlb-backend/backend/distributions.py` (the shared
 `family.LATTICE_PREREGISTERED` table is byte-identical infrastructure
@@ -148,11 +152,11 @@ NFL spikes already use. Direction, collateral, zero-sum, caps and the
 requirement that the held-out loss actually improve are all unchanged, and
 each fit discloses which stage admitted (`bar_applied`).
 
-Still open, and deliberately not forced: the residual at M=+1 is 0.025 even
-after this, because the transfer is capped by the admitted share (whose own
-estimator clips q̂ at 0.60) and by the gate ceiling in §D. Closing the rest
-needs the share clip re-registered, a second recipient (+2/−2), or more
-settled 2026 evidence.
+Still open after the two-stage fix, and deliberately not forced: the
+residual at M=+1 is 0.025 even after it, because the transfer is capped by
+the admitted share (whose own estimator clips q̂ at 0.60) and by the gate
+ceiling in §D. §H below closes the next slice of it with the second
+recipient (M=−2) the note originally left open.
 
 ### Full-walk verification on the 20261017 artifact (two-stage)
 
@@ -166,6 +170,60 @@ M=−2 untouched (short by +0.0096). Run-line cards: CRPS 2.466025 →
 Run-line cover ECE moves 0.0080 → 0.0098 — the same pre-existing drift the
 admitted totals delta already produced before this mechanism existed.
 Target isolation passes; zero non-distribution cell diffs in both audits.
+
+## H. Two-recipient extension (2026-10-17): M=−2 receives, funded by −1/+3
+
+The pooled residual says the correction is still mis-shapen: **+1 and −2
+are underfit while −1 is overfit** (20261017 shipped: +1 gap +0.0253, −2
++0.0096, −1 −0.0131). The mechanism therefore gains a SECOND recipient at
+M=−2, declared in the same module header before any fitting:
+
+- **Secondary leg** `tilt2 = clip(max(0, shrunk[−2]), 0, 0.03)` — the
+  SE-shrunk train shortfall **at −2 itself**. This is the same evidence
+  function that caps donor capacity, read with the opposite sign, so the
+  leg is one-sided by construction: a −2 the actuals show long or flat
+  gets **exact 0** (pinned by `test_secondary_leg_is_one_sided_on_the_actuals`).
+  Measured on the 20261017 artifact: all 57 share-bearing origins see a −2
+  deficit in their own train actuals, legs of 0.00048…0.00701 — no constant
+  anywhere.
+- **Donors are now (−1, +3)**. M=−2 moves from the donor set to the
+  recipient side because the actuals show it **short**, not long — the
+  original code already refused to let it fund (capacity 0, drawn 0); it
+  now receives instead. Funding, caps and the sink are unchanged, with one
+  tightening: the legs scale DOWN together when the capped donor capacity
+  cannot cover `tilt + tilt2`, so a donor never overdraws its own shrunk
+  residual.
+- **Gates unchanged** — same two-stage bar, same collateral guard, same
+  zero-sum/cap/forbidden-bin path, one gate over the composed vector. The
+  report gains `secondary_residual` / `secondary_capacity` /
+  `secondary_amount` / `total_amount` and per-donor rows as before.
+
+### Measured A/B on the 20261017 artifact (identical OOF, n=7039)
+
+Probe: `run_diagnostics/mlb17_two_recipient_probe.log`. Baseline is the
+**delivered** one-recipient artifact (your pipeline run); treatment is this
+walk with the second recipient. Every bin you named moves the right way:
+
+| bin | actual | shipped (1-rcpt) | **2-rcpt** | reading |
+|---|---|---|---|---|
+| +1 | 0.1740 | 0.1487 (+0.0253) | **0.1566 (+0.0175)** | underfit closed 31% |
+| −2 | 0.0881 | 0.0785 (+0.0096) | **0.0825 (+0.0056)** | underfit closed 42% |
+| −1 | 0.1088 | 0.1219 (−0.0131) | **0.1146 (−0.0058)** | overfit closed 56% |
+| +3 | 0.0663 | 0.0738 (−0.0075) | **0.0716 (−0.0052)** | donor, gives 31% |
+| modeled one-run split (obs 0.6153) | 0.5496 | **0.5773** | |
+
+Origins shipping a margin delta 35/84 → **55/84**; 56/57 share-bearing
+origins now clear a bar. The artifact is regenerated with this mechanism
+(`regenerate_lattice_artifacts.py mlb --write`, log
+`run_diagnostics/mlb17_regenerate.log`) and the written CSV reproduces the
+probe's pooled numbers exactly. Full MLB backend suite: **471 passed, 4
+skipped**.
+
+Still deliberately open: the +1 residual (+0.0175) and the one-run split
+(0.5773 vs 0.6153) remain short because the primary leg is still sized by
+the admitted share, whose estimator clips q̂ at 0.60 (§D's ladder shows the
+full residual is refused at z 1.99). Closing the rest needs the share clip
+re-registered or more settled 2026 evidence — not a weaker gate.
 
 ## E. Standing rules honoured
 
@@ -187,11 +245,14 @@ Target isolation passes; zero non-distribution cell diffs in both audits.
 
 ## F. Tests
 
-`mlb-backend/backend/test_one_run_spread_rebalance.py` (9 tests): amount and
-funding read from the evidence; short donor funds exact 0 and discloses its
-capacity; pure noise refused with a verdict; no-share and sub-half share are
+`mlb-backend/backend/test_one_run_spread_rebalance.py` (10 tests): amount
+and funding read from the evidence (including the secondary leg's
+residual-sized amount and the no-overdraw cap); a short donor funds exact 0
+and discloses its capacity, with its deficit routed to the −2 recipient
+instead; the secondary leg is one-sided on the actuals (a long −2 gets exact
+0); pure noise refused with a verdict; no-share and sub-half share are
 no-ops; evidence guards; the delta prices a valid CDF with the forbidden bin
 empty; the two-stage gate discloses which bar admitted (and refuses below
 both); the walk stores the disclosure and ships the delta; composition with
-an admitted generic delta. Full MLB backend suite: **470 passed, 4
+an admitted generic delta. Full MLB backend suite: **471 passed, 4
 skipped** (2026-10-17).

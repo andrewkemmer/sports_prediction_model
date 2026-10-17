@@ -3061,20 +3061,31 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
 # byte-identical infrastructure mirrored in all four backends, so an
 # MLB-only mechanism registers here, next to its code): the ADMITTED walk-off
 # share is the target split of the model's one-run-final mass, and the
-# rebalance closes the gap with ONE constant transfer
+# rebalance closes the gap with TWO dynamically-sized legs — the primary
 #     amt = (share - 1/2) * (p(+1) + p(-1)) / 2    (pooled model masses)
-# moved from the funding donors into M=+1. Every number is DYNAMIC — the
-# share comes from the gated pooled estimator and the masses from the fitted
-# evidence; there is no constant amplitude anywhere.
+# moved from the funding donors into M=+1 (2026-10-16), and, since
+# 2026-10-17, a SECOND recipient at M=-2 (the other spike the residual
+# shows underfit: 20261017 pooled obs 0.0881 vs model 0.0785) whose leg is
+# sized by ITS OWN SE-shrunk train shortfall — the same evidence function
+# that caps donor capacity, read with the opposite sign. Every number is
+# DYNAMIC — the primary leg comes from the gated pooled share estimator and
+# the fitted masses, the -2 leg from the fitted residual at -2 itself; a
+# -2 the actuals show LONG (or flat) receives exact 0. There is no constant
+# amplitude anywhere.
 #
 # FUNDING (the "shift mass out of the neighbouring spread bins" ask, made
-# honest): the declared donors (-1, -2, +3) fund in proportion to their own
-# ACTUALS-SUPPORTED excess — each donor's draw is capped at the shrunk train
-# residual it can give before flipping sign. A donor the actuals show SHORT
-# funds exact 0 (measured 20261016: M=-2 is model 0.0784 vs 0.0880 actual),
-# and the unfunded remainder falls to the mass-proportional sink, so the
-# rebalance can never widen a bin its own evidence already shows short. Each
-# donor's residual/capacity/drawn triple rides the report.
+# honest): the declared donors (-1, +3 — M=-2 moved to the recipient side
+# in the two-recipient extension, since the actuals show it SHORT not long)
+# fund in proportion to their own ACTUALS-SUPPORTED excess — each donor's
+# draw is capped at the shrunk train residual it can give before flipping
+# sign, and the recipients' legs are scaled DOWN to the funding that cap
+# actually provides when it falls short (donors never overdraw). A donor the
+# actuals show SHORT funds exact 0 (measured 20261016: M=-2 is model 0.0784
+# vs 0.0880 actual — the reason -2 is a recipient, not a donor), and the
+# unfunded remainder falls to the mass-proportional sink, so the rebalance
+# can never widen a bin its own evidence already shows short. Each donor's
+# residual/capacity/drawn triple and each recipient's residual/amount ride
+# the report.
 #
 # GATES: one-sided direction per bin (recipient up, donors down), zero-sum by
 # construction, forbidden bins untouched, and the per-bin collateral guard
@@ -3092,7 +3103,9 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
 # and prices byte-identically to before.
 ONE_RUN_REBALANCE_RECIPIENT = 1        # M=+1: the walk-off one-run home win
 ONE_RUN_REBALANCE_MIRROR = -1          # M=-1: its away-side mirror
-ONE_RUN_REBALANCE_DONORS = (-1, -2, 3)  # funding order; capacity-capped
+ONE_RUN_REBALANCE_SECONDARY = -2       # M=-2: second recipient (2026-10-17); its
+                                       # leg = its own SE-shrunk shortfall, one-sided
+ONE_RUN_REBALANCE_DONORS = (-1, 3)     # funding order; capacity-capped
 
 
 def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
@@ -3101,15 +3114,18 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
 
     Pre-registered MLB-only mechanism (module header above): ``share`` is the
     ALREADY-ADMITTED walk-off home-win estimate — without it this is a
-    no-op — and the transfer amount, the donor capacities and every funding
-    split are read from the fitted evidence, never constant. Returns
-    ``(delta | None, report)``: the zero-sum, capped, rounded transfer vector
-    or None when the evidence, the direction, the collateral guard or the
-    held-out gate refuses, plus the per-donor disclosure report.
+    no-op — and the transfer amounts (the share-sized primary leg into M=+1
+    plus the residual-sized secondary leg into M=-2), the donor capacities
+    and every funding split are read from the fitted evidence, never
+    constant. Returns ``(delta | None, report)``: the zero-sum, capped,
+    rounded transfer vector or None when the evidence, the direction, the
+    collateral guard or the held-out gate refuses, plus the per-bin
+    disclosure report.
     """
     report: dict = {"estimator": "one_run_spread_rebalance",
                     "sport": DISTRIBUTION_SPORT,
                     "recipient": ONE_RUN_REBALANCE_RECIPIENT,
+                    "secondary": ONE_RUN_REBALANCE_SECONDARY,
                     "donors": list(ONE_RUN_REBALANCE_DONORS),
                     "bar": float(family.LATTICE_GATE_Z),
                     "structural_bar": float(family.LATTICE_STRUCTURAL_Z),
@@ -3132,18 +3148,20 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
         report["reason"] = "insufficient_held_out_evidence"
         return None, report
     train = np.flatnonzero(inside[:len(outcomes) - n_test])
-    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    hold = (np.flatnonzero(inside[len(outcomes) - n_test:])  # GLOBAL rows: flatnonzero on a tail slice is slice-relative
+                   + (len(outcomes) - n_test))
     if len(train) < int(min_history) or len(hold) < family.LATTICE_MIN_TEST:
         report["reason"] = "insufficient_held_out_evidence"
         return None, report
     index = {int(v): i for i, v in enumerate(support)}
     registered = (ONE_RUN_REBALANCE_RECIPIENT, ONE_RUN_REBALANCE_MIRROR,
-                  *ONE_RUN_REBALANCE_DONORS)
+                  ONE_RUN_REBALANCE_SECONDARY, *ONE_RUN_REBALANCE_DONORS)
     if any(int(v) not in index for v in registered):
         report["reason"] = "support_lacks_registered_bins"
         return None, report
     recipient = index[ONE_RUN_REBALANCE_RECIPIENT]
     mirror = index[ONE_RUN_REBALANCE_MIRROR]
+    secondary = index[ONE_RUN_REBALANCE_SECONDARY]
     donors = [index[int(v)] for v in ONE_RUN_REBALANCE_DONORS]
     n_train = max(int(len(train)), 1)
     pbar = np.clip(pmfs[train].mean(axis=0), 0., 1.)
@@ -3157,10 +3175,21 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     if not tilt > 0. or one_run_mass <= 0.:
         report["reason"] = "no_positive_tilt"
         return None, report
+    # Secondary leg (2026-10-17): M=-2 is the second spike the pooled
+    # residual shows underfit. Its amount is the SE-shrunk train shortfall
+    # AT -2 itself — one-sided by construction (a -2 the actuals show long
+    # or flat gets exact 0), capped at the lattice fix cap. The disclosed
+    # "capacity" is that shortfall before the cap.
+    secondary_capacity = max(0., float(shrunk[secondary]))
+    tilt2 = min(secondary_capacity, family.LATTICE_DELTA_CAP)
     report["amount"] = round(float(tilt), 6)
+    report["secondary_residual"] = round(float(resid[secondary]), 6)
+    report["secondary_capacity"] = round(secondary_capacity, 6)
+    report["secondary_amount"] = round(float(tilt2), 6)
+    report["total_amount"] = round(float(tilt) + float(tilt2), 6)
     report["one_run_mass"] = round(one_run_mass, 6)
     report["model_split"] = round(float(pbar[recipient]) / one_run_mass, 4)
-    registered_idx = {recipient, *donors}
+    registered_idx = {recipient, secondary, *donors}
     banned = {index[int(b)] for b in
               (family.lattice_config(DISTRIBUTION_SPORT, "margin")
                or {}).get("forbidden_bins", ()) if int(b) in index}
@@ -3171,18 +3200,24 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     # its own sign flips: a donor the actuals show SHORT funds exact 0.
     capacity = {d: max(0., -float(shrunk[d])) for d in donors}
     total_capacity = float(sum(capacity.values()))
+    # Funding never overdraws a donor: when the capped capacity cannot
+    # cover both legs, the legs scale DOWN together to what the actuals
+    # actually fund (the shortfall still falls to the sink below).
+    need = float(tilt) + float(tilt2)
+    funded = min(need, total_capacity) if total_capacity > 0. else 0.
     delta = np.zeros(len(support))
     delta[recipient] += tilt
+    delta[secondary] += tilt2
     drawn = 0.
     for d in donors:
-        draw = (tilt * capacity[d] / total_capacity) if total_capacity > 0. else 0.
+        draw = (funded * capacity[d] / total_capacity) if total_capacity > 0. else 0.
         delta[d] -= draw
         drawn += draw
         report["bins"].append({"bin": int(support[d]),
                                "residual": round(float(resid[d]), 6),
                                "capacity": round(float(capacity[d]), 6),
                                "drawn": round(float(draw), 6)})
-    remainder = float(tilt) - drawn
+    remainder = need - drawn
     if remainder > 0. and sink_mass > 0.:
         delta[sink] -= remainder * pbar[sink] / sink_mass
     report["funded_by_donors"] = round(float(drawn), 6)

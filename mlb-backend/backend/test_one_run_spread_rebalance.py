@@ -3,14 +3,17 @@
 The MLB margin lattice ships a structural-only correction: the gated walk-off
 home-win share re-splits each row's TIE mass, which cannot absorb the model's
 own one-run-final split defect (20261016: P(M=+1) 0.1433 vs 0.1739 actual,
-P(M=-1) 0.1255 vs 0.1089). The pre-registered rebalance in
-``distributions.fit_one_run_spread_rebalance`` closes that gap with one
-constant transfer whose amount, donor capacities and funding splits are all
-read from the fitted evidence. These tests pin the contract: direction is
-one-sided per bin, a donor the actuals show SHORT funds exact 0, the vector
-is zero-sum and valid through ``lattice_correct``, the held-out gate and the
-collateral guard veto, and the walk stores the disclosure (a refused
-rebalance ships no delta, so prices are byte-identical).
+P(M=-1) 0.1255 vs 0.1089; 20261017: M=-2 also underfit, obs 0.0881 vs model
+0.0785). The pre-registered rebalance in
+``distributions.fit_one_run_spread_rebalance`` closes that gap with TWO
+dynamically-sized legs — the share-sized primary into M=+1 and the
+residual-sized secondary into M=-2 — whose amounts, donor capacities and
+funding splits are all read from the fitted evidence. These tests pin the
+contract: direction is one-sided per bin, a donor the actuals show SHORT
+funds exact 0 and a recipient the actuals show LONG receives exact 0, the
+vector is zero-sum and valid through ``lattice_correct``, the held-out gate
+and the collateral guard veto, and the walk stores the disclosure (a
+refused rebalance ships no delta, so prices are byte-identical).
 
 Run: ``python -m pytest test_one_run_spread_rebalance.py -q``
 """
@@ -27,19 +30,22 @@ import distributions as dist
 SPORT = dist.DISTRIBUTION_SPORT
 RECIPIENT = dist.ONE_RUN_REBALANCE_RECIPIENT
 MIRROR = dist.ONE_RUN_REBALANCE_MIRROR
+SECONDARY = dist.ONE_RUN_REBALANCE_SECONDARY
 DONORS = dist.ONE_RUN_REBALANCE_DONORS
 
 
 def _one_run_evidence(deficit=.04, n=3000, seed=11):
-    """Smooth base model whose actuals pile M=+1 and give back at -1 and +3."""
+    """Smooth base model whose actuals pile M=+1 AND M=-2 and give back at
+    -1 and +3 — the 20261017 pooled shape (+1 and -2 underfit, -1 overfit)."""
     rng = np.random.default_rng(seed)
     support = np.arange(-25, 26)
     base = np.exp(-.5 * ((support - .5) / 6.) ** 2)
     base = base / base.sum()
     truth = base.copy()
     truth[support == RECIPIENT] += deficit
+    truth[support == SECONDARY] += deficit * .3
     truth[support == MIRROR] -= deficit * .6
-    truth[support == 3] -= deficit * .4
+    truth[support == 3] -= deficit * .7
     truth = truth / truth.sum()
     return (np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth),
             support)
@@ -65,48 +71,90 @@ def test_amount_and_funding_are_read_from_the_evidence():
                                           abs=1e-6)
     assert _at(delta, support, RECIPIENT) == pytest.approx(rep["amount"],
                                                            abs=1e-5)
-    # Direction: recipient up, donors down, zero-sum by construction.
+    # Secondary leg: sized by M=-2's OWN SE-shrunk shortfall in the train
+    # actuals — no constant, and capped at the lattice fix cap.
+    assert rep["secondary"] == SECONDARY == -2
+    assert rep["secondary_residual"] > 0.            # actuals show -2 short
+    assert rep["secondary_capacity"] >= rep["secondary_amount"] > 0.
+    assert _at(delta, support, SECONDARY) == pytest.approx(
+        rep["secondary_amount"], abs=1e-5)
+    # Direction: both recipients up, donors down, zero-sum by construction.
     assert _at(delta, support, RECIPIENT) > 0.
     for donor in DONORS:
         assert _at(delta, support, donor) <= 0.
     assert abs(float(np.sum(delta))) < 1e-6
     assert rep["z"] >= fam.LATTICE_GATE_Z
     assert rep["funded_by_sink"] == pytest.approx(0., abs=1e-9)
-    assert rep["funded_by_donors"] == pytest.approx(rep["amount"], abs=1e-6)
+    assert rep["funded_by_donors"] == pytest.approx(rep["total_amount"],
+                                                    abs=1e-6)
     rows = {r["bin"]: r for r in rep["bins"]}
     assert set(rows) == set(DONORS)
     for row in rows.values():
         assert row["capacity"] >= 0.
+        # Each draw = need scaled by the donor's capacity share; donors
+        # never overdraw (draw <= capacity whenever need <= total capacity).
         assert row["drawn"] == pytest.approx(
-            rep["amount"] * row["capacity"] / sum(r["capacity"]
-                                                  for r in rows.values()),
+            rep["total_amount"] * row["capacity"] / sum(r["capacity"]
+                                                        for r in rows.values()),
             abs=1e-6)
+        assert row["drawn"] <= row["capacity"] + 1e-12
 
 
 def test_short_donor_funds_exact_zero_and_discloses_capacity():
     """A donor whose own actuals show a DEFICIT (model short) must fund 0 —
-    the rebalance can never widen a bin its evidence already shows short."""
+    the rebalance can never widen a bin its evidence already shows short.
+    (+3 is the short donor here; M=-2 moved to the recipient side in the
+    two-recipient extension and receives its shortfall instead.)"""
     rng = np.random.default_rng(5)
     support = np.arange(-25, 26)
     base = np.exp(-.5 * ((support - .5) / 6.) ** 2)
     base = base / base.sum()
     truth = base.copy()
     truth[support == RECIPIENT] += .04
-    truth[support == 2] -= .04          # M=+2 long, M=-2 SHORT
-    truth[support == -2] += .02
-    truth[support == 3] -= .02
+    truth[support == MIRROR] -= .04    # the funding donor with capacity
+    truth[support == SECONDARY] += .02  # M=-2 SHORT -> secondary recipient
+    truth[support == 3] += .02          # M=+3 SHORT -> funds exact 0
     truth = truth / truth.sum()
     pmfs = np.tile(base, (3000, 1))
     outcomes = rng.choice(support, size=3000, p=truth)
     delta, rep = dist.fit_one_run_spread_rebalance(pmfs, outcomes, support, .6)
     rows = {r["bin"]: r for r in rep["bins"]}
-    assert rows[-2]["residual"] > 0.               # actuals show it short
-    assert rows[-2]["capacity"] == 0.
-    assert rows[-2]["drawn"] == 0.
-    assert _at(delta, support, -2) == 0.           # never touched
+    assert rows[3]["residual"] > 0.               # actuals show +3 short
+    assert rows[3]["capacity"] == 0.
+    assert rows[3]["drawn"] == 0.
+    assert _at(delta, support, 3) == 0.           # never touched
+    # The -2 deficit goes to the secondary recipient leg instead of funding.
+    assert rep["secondary_residual"] > 0.
+    assert rep["secondary_amount"] > 0.
+    assert _at(delta, support, SECONDARY) == pytest.approx(
+        rep["secondary_amount"], abs=1e-5)
     # The rest of the funding still lands (other donors + recipient).
     assert _at(delta, support, RECIPIENT) > 0.
     assert abs(float(np.sum(delta))) < 1e-6
+
+
+def test_secondary_leg_is_one_sided_on_the_actuals():
+    """The M=-2 leg is driven only by ITS OWN evidence: actuals showing -2
+    LONG (model overpredicts it) get exact 0 — the mechanism never widens a
+    bin its evidence does not support, recipient or donor."""
+    rng = np.random.default_rng(7)
+    support = np.arange(-25, 26)
+    base = np.exp(-.5 * ((support - .5) / 6.) ** 2)
+    base = base / base.sum()
+    truth = base.copy()
+    truth[support == RECIPIENT] += .04
+    truth[support == MIRROR] -= .04    # -1 overfit -> funds the primary leg
+    truth[support == SECONDARY] -= .02  # actuals show -2 LONG, not short
+    truth = truth / truth.sum()
+    pmfs = np.tile(base, (3000, 1))
+    outcomes = rng.choice(support, size=3000, p=truth)
+    delta, rep = dist.fit_one_run_spread_rebalance(pmfs, outcomes, support, .6)
+    assert delta is not None
+    assert rep["secondary_residual"] < 0.
+    assert rep["secondary_capacity"] == 0.
+    assert rep["secondary_amount"] == 0.
+    assert _at(delta, support, SECONDARY) == 0.   # untouched: not a donor now
+    assert _at(delta, support, RECIPIENT) > 0.    # the primary leg still ships
 
 
 def test_pure_noise_is_refused_with_a_verdict():
