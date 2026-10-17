@@ -1,5 +1,15 @@
 # Integer-lattice (sawtooth) correction — verification report (2026-10-15, localized-basis re-gate 2026-10-16)
 
+> 2026-10-17 addendum — every "held-out" gate verdict in this file (and in
+> all delivered artifacts produced before today) was computed IN-SAMPLE:
+> `flatnonzero` on the tail slice returns slice-relative indices, so the
+> gate scored the FIRST ~30% of rows, not the time-ordered tail. The index
+> fix (all four families + MLB share gate), the honest re-verdicts and the
+> NFL ±3 registration ladder are documented in
+> `docs/nfl_keynumber_holdout_fix_20261017.md`; the admission tables below
+> are preserved as the historical record but their z-values are in-sample
+> numbers and are superseded by the honest-gate artifacts.
+>
 > 2026-10-16 addendum — the localized-basis re-gate (this file's 10-15 body
 > below is the preserved Fourier-basis record; the verdicts it reports are
 > superseded by the table in §A3). Commit 5a244bfd retired the global

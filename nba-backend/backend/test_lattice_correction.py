@@ -291,16 +291,32 @@ def test_shared_gaussian_family_copies_are_byte_identical():
 # every backend pins the same contract.
 # ---------------------------------------------------------------------------
 
-def _spike_evidence(amplitude=.04, n=2500, seed=7):
+def _spike_evidence(amplitude=.05, holdout7_frac=.5, n=2500, seed=7):
+    """Time-inhomogeneous spike evidence: TRAIN carries +3/amplitude and
+    +7/.07 excess; the held-out TAIL carries the full +3 but only
+    holdout7_frac*.07 at +7. The spike gate scores the TAIL (2026-10-17
+    tail-gate fix: flatnonzero on a tail slice is slice-relative, so the
+    old stationary generator was scored in-sample), so a stationary truth
+    can no longer land bin 7 between the bars -- the split truth keeps +3
+    comfortably admitted and +7's tail verdict inside
+    [LATTICE_STRUCTURAL_Z, LATTICE_GATE_Z): exactly the structural bar's
+    jurisdiction this test pins."""
     rng = np.random.default_rng(seed)
     support = np.arange(-30, 31)
     base = np.exp(-.5 * ((support - 1.5) / 13.) ** 2)
     base = base / base.sum()
-    truth = base.copy()
-    truth[support == 3] += amplitude
-    truth[support == 7] += amplitude
-    truth = truth / truth.sum()
-    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+    def truth(a7):
+        t = base.copy()
+        t[support == 3] += amplitude
+        t[support == 7] += a7
+        return t / t.sum()
+
+    n_train = int(0.7 * n)   # matches LATTICE_TEST_FRACTION's tail cut
+    y = np.concatenate([rng.choice(support, size=n_train, p=truth(.07)),
+                        rng.choice(support, size=n - n_train,
+                                   p=truth(.07 * holdout7_frac))])
+    return np.tile(base, (n, 1)), y, support
 
 
 def test_structural_spikes_admit_primaries_individually_and_compose():
@@ -749,9 +765,13 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
 # revoke the admitted shallow totals fit instead of improving it.
 # ---------------------------------------------------------------------------
 
-def _pm1_piled_evidence(amplitude=.015, n=2500, seed=11):
+def _pm1_piled_evidence(amplitude=.025, n=2500, seed=11):
     """Smooth base the truth undercuts exactly at +/-1 (the NBA shape:
-    overpredicted ones from the no-tie 50/50 split)."""
+    overpredicted ones from the no-tie 50/50 split). Amplitude .025 is
+    the smallest round value whose admitted map clears the generic bar
+    on the HELD-OUT TAIL (2026-10-17 tail-gate fix: the old .015 gave
+    an in-sample pass but only tail z ~0.8-2.5 -- honest evidence for an
+    admitted correction)."""
     rng = np.random.default_rng(seed)
     support = np.arange(-30, 31)
     base = np.exp(-.5 * (support / 13.) ** 2)

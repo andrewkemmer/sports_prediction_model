@@ -799,7 +799,8 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
         report["reason"] = "insufficient_held_out_evidence"
         return None, report
     train = np.flatnonzero(inside[:len(outcomes) - n_test])
-    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    hold = (np.flatnonzero(inside[len(outcomes) - n_test:])  # GLOBAL rows: flatnonzero on a tail slice is slice-relative
+                   + (len(outcomes) - n_test))
     if len(train) < int(min_history) or len(hold) < LATTICE_MIN_TEST:
         report["reason"] = "insufficient_held_out_evidence"
         return None, report
@@ -974,7 +975,8 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
         out["reason"] = "insufficient_held_out_evidence"
         return out
     train = np.flatnonzero(inside[:len(outcomes) - n_test])
-    hold = np.flatnonzero(inside[len(outcomes) - n_test:])
+    hold = (np.flatnonzero(inside[len(outcomes) - n_test:])  # GLOBAL rows: flatnonzero on a tail slice is slice-relative
+                   + (len(outcomes) - n_test))
     if len(train) < int(min_history) or len(hold) < LATTICE_MIN_TEST:
         out["reason"] = "insufficient_held_out_evidence"
         return out

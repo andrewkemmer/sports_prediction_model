@@ -278,16 +278,32 @@ def test_shared_gaussian_family_copies_are_byte_identical():
 # every backend pins the same contract.
 # ---------------------------------------------------------------------------
 
-def _spike_evidence(amplitude=.04, n=2500, seed=7):
+def _spike_evidence(amplitude=.05, holdout7_frac=.5, n=2500, seed=7):
+    """Time-inhomogeneous spike evidence: TRAIN carries +3/amplitude and
+    +7/.07 excess; the held-out TAIL carries the full +3 but only
+    holdout7_frac*.07 at +7. The spike gate scores the TAIL (2026-10-17
+    tail-gate fix: flatnonzero on a tail slice is slice-relative, so the
+    old stationary generator was scored in-sample), so a stationary truth
+    can no longer land bin 7 between the bars -- the split truth keeps +3
+    comfortably admitted and +7's tail verdict inside
+    [LATTICE_STRUCTURAL_Z, LATTICE_GATE_Z): exactly the structural bar's
+    jurisdiction this test pins."""
     rng = np.random.default_rng(seed)
     support = np.arange(-30, 31)
     base = np.exp(-.5 * ((support - 1.5) / 13.) ** 2)
     base = base / base.sum()
-    truth = base.copy()
-    truth[support == 3] += amplitude
-    truth[support == 7] += amplitude
-    truth = truth / truth.sum()
-    return np.tile(base, (n, 1)), rng.choice(support, size=n, p=truth), support
+
+    def truth(a7):
+        t = base.copy()
+        t[support == 3] += amplitude
+        t[support == 7] += a7
+        return t / t.sum()
+
+    n_train = int(0.7 * n)   # matches LATTICE_TEST_FRACTION's tail cut
+    y = np.concatenate([rng.choice(support, size=n_train, p=truth(.07)),
+                        rng.choice(support, size=n - n_train,
+                                   p=truth(.07 * holdout7_frac))])
+    return np.tile(base, (n, 1)), y, support
 
 
 def test_structural_spikes_admit_primaries_individually_and_compose():
