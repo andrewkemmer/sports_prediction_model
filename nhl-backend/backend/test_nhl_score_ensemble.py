@@ -211,6 +211,79 @@ def test_nb_regressor_fits_and_predicts_finite_positive():
         dist_mod.ScoreRegressor(crps_location=True, nb=True)
 
 
+def test_cmp_nu_one_grad_is_exactly_poisson():
+    # At nu = 1 CMP *is* Poisson: the grad must equal -(y - mu) exactly,
+    # not approximately. This pins the mean-parametrization wiring.
+    obj = dist_mod.ComPoissonObjective(1.0)
+    y = np.array([0., 1., 3., 6.])
+    f = np.log(np.array([2., 2., 2., 2.]))
+    grad, hess = obj(y, f)
+    np.testing.assert_allclose(grad, -(y - 2.0), rtol=0)
+    assert np.all(hess > 0.)
+
+
+def test_cmp_objective_matches_the_numerical_gradient():
+    from scipy.special import gammaln
+    nu = 2.0
+    obj = dist_mod.ComPoissonObjective(nu)
+    rng = np.random.default_rng(4)
+    y = rng.poisson(3., 12)
+    f = np.log(rng.uniform(1., 5., 12))
+
+    def nll(ff):
+        mu = np.exp(np.clip(ff, *dist_mod.NB_RAW_CLIP))
+        lam = dist_mod._cmp_lam_from_mu(mu, nu)
+        lt = (np.arange(dist_mod.CMP_JMAX)[None, :]
+              * np.log(np.maximum(lam, 1e-300))[:, None]
+              - nu * gammaln(np.arange(dist_mod.CMP_JMAX) + 1)[None, :])
+        logz = np.logaddexp.reduce(lt, axis=1)
+        return float(np.mean(-(y * np.log(np.maximum(lam, 1e-300))
+                                - nu * gammaln(y + 1) - logz)))
+    grad, hess = obj(y, f)
+    eps = 1e-6
+    num = (nll(f + eps) - nll(f - eps)) / (2 * eps)
+    assert grad.mean() == pytest.approx(num, rel=1e-4)
+    assert np.all(np.isfinite(hess)) and np.all(hess > 0.)
+
+
+def test_cmp_nu_estimator_points_the_right_way():
+    rng = np.random.default_rng(7)
+    # Underdispersed (binomial: var 1.5 < mean 3) -> nu ~= 2 > 1;
+    # overdispersed (NB) -> nu < 1.
+    assert dist_mod.estimate_cmp_nu(
+        rng.binomial(6, 0.5, 2000).astype(float)) > 1.0
+    over = rng.negative_binomial(1, 1 / (1 + 3.2), 2000).astype(float)
+    assert dist_mod.estimate_cmp_nu(over) < 1.0
+    assert dist_mod.estimate_cmp_nu(np.array([2., 2., 2.])) == 1.0
+    assert dist_mod.estimate_cmp_nu(np.array([])) == 1.0
+    with pytest.raises(ValueError, match="positive"):
+        dist_mod.ComPoissonObjective(0.0)
+    with pytest.raises(ValueError, match="positive"):
+        dist_mod.ComPoissonObjective(float("nan"))
+
+
+def test_cmp_moments_match_poisson_at_nu_one():
+    from scipy.stats import poisson
+    lam = np.array([0.5, 2., 5., 12.])
+    mean, var = dist_mod.cmp_moments(lam, 1.0)
+    np.testing.assert_allclose(mean, lam, rtol=1e-9)
+    np.testing.assert_allclose(var, lam, rtol=1e-9)
+    assert bool((poisson.pmf(3, lam) > 0).all())
+
+
+def test_cmp_regressor_fits_and_predicts_finite_positive():
+    df = _frame()
+    reg = dist_mod.ScoreRegressor(cmp=True).fit(df)
+    assert reg.cmp_nu is not None and reg.cmp_log_mean is not None
+    mu_h, mu_a = reg.predict(df.head(10))
+    assert np.isfinite(mu_h).all() and (mu_h > 0).all()
+    assert np.isfinite(mu_a).all() and (mu_a > 0).all()
+    with pytest.raises(ValueError):
+        dist_mod.ScoreRegressor(crps_location=True, cmp=True)
+    with pytest.raises(ValueError):
+        dist_mod.ScoreRegressor(nb=True, cmp=True)
+
+
 def test_elasticnet_full_view_flag_off_is_byte_identical_arm_b(monkeypatch):
     """Default-off challenger flag: elasticnet matrix == linear view exactly."""
     monkeypatch.setattr(config, "SCORE_EN_ELASTICNET_FULL_VIEW", False)

@@ -100,6 +100,99 @@ def _make_reg_nb(dispersion: float):
     return LGBMRegressor(**params)
 
 
+# ---------------------------------------------------------------------------
+# Conway-Maxwell-Poisson challenger (trial-only): CMP with mean-parameterized
+# log link vs the Poisson incumbent. Same tree matrix, same LightGBM
+# hyper-params, same folds — the ONLY difference is the likelihood.
+# Motivation (2026-10-17): NB refused everywhere with dispersions pegged at
+# caps — the signature of a shape parameter with nothing to grip in the
+# overdispersion direction. CMP's nu goes BOTH ways (nu = 1 is Poisson,
+# nu > 1 underdispersed, nu < 1 overdispersed), so it can express what NB
+# structurally cannot. nu is train-fold moment-matched per side; the trees
+# fit the log-mean with exact CMP moments (truncated-sum E[Y], Var[Y] —
+# NHL means ~3 keep the support tiny, so exact beats approximate).
+# Trial-only until a walk-forward verdict clears the 2.5 gate.
+# ---------------------------------------------------------------------------
+CMP_NU_MIN = 0.25
+CMP_NU_MAX = 4.0
+CMP_JMAX = 200
+CMP_TOL = 1e-12
+
+
+def _cmp_log_terms(lam: np.ndarray, nu: float, jmax: int = CMP_JMAX
+                   ) -> np.ndarray:
+    """log pmf-terms j*log(lam) - nu*lgamma(j+1), rows obs x cols j."""
+    from scipy.special import gammaln
+    lam = np.maximum(np.asarray(lam, dtype=float), 1e-300)
+    js = np.arange(jmax)
+    return (js[None, :] * np.log(lam)[:, None]
+            - nu * gammaln(js + 1)[None, :])
+
+
+def cmp_moments(lam: np.ndarray, nu: float) -> tuple[np.ndarray, np.ndarray]:
+    """Exact CMP E[Y], Var[Y] by truncated normalized sum (log-space)."""
+    lt = _cmp_log_terms(lam, nu)
+    lt = lt - lt.max(axis=1, keepdims=True)
+    w = np.exp(lt)
+    w = w / w.sum(axis=1, keepdims=True)
+    js = np.arange(lt.shape[1])
+    mean = w @ js
+    var = w @ (js ** 2) - mean ** 2
+    return mean, np.maximum(var, 1e-12)
+
+
+def estimate_cmp_nu(y: np.ndarray) -> float:
+    """Moment-match CMP nu from train labels (Var ~= mu/nu), per side."""
+    y = np.asarray(y, dtype=float)
+    y = y[np.isfinite(y) & (y >= 0)]
+    if len(y) < 2:
+        return 1.0
+    m, v = float(y.mean()), float(y.var(ddof=1))
+    if not np.isfinite(m) or m <= 0 or not np.isfinite(v) or v <= 0:
+        return 1.0
+    return float(np.clip(m / v, CMP_NU_MIN, CMP_NU_MAX))
+
+
+def _cmp_lam_from_mu(mu: np.ndarray, nu: float) -> np.ndarray:
+    """Huang (2017) mean-parametrization inverse: lam = (mu + c)^nu."""
+    c = (nu - 1.0) / (2.0 * nu)
+    return np.power(np.maximum(np.asarray(mu, dtype=float) + c, 1e-12), nu)
+
+
+class ComPoissonObjective:
+    """CMP NLL grad/hess w.r.t. the raw log-mean score (mean-parameterized).
+
+    y_pred carries the full log-mean (init_score included, same contract
+    as the NB leg): mu = exp(clip(y_pred)), lam solved from mu, E[Y] and
+    Var[Y] exact by truncated sum. At nu = 1 the grad is exactly the
+    Poisson grad -(y - mu) — pinned by test, not by trust.
+    """
+
+    def __init__(self, nu: float) -> None:
+        nu = float(nu)
+        if not np.isfinite(nu) or nu <= 0:
+            raise ValueError("CMP nu must be positive")
+        self.nu = float(np.clip(nu, CMP_NU_MIN, CMP_NU_MAX))
+
+    def __call__(self, y_true, y_pred):
+        y = np.asarray(y_true, dtype=float)
+        mu = np.exp(np.clip(np.asarray(y_pred, dtype=float), *NB_RAW_CLIP))
+        nu = self.nu
+        lam = _cmp_lam_from_mu(mu, nu)
+        exp_y, var_y = cmp_moments(lam, nu)
+        k = nu * mu / np.maximum(mu + (nu - 1.0) / (2.0 * nu), 1e-12)
+        grad = -(y - exp_y) * k
+        hess = var_y * k ** 2
+        return grad, np.maximum(hess, 1e-5)
+
+
+def _make_reg_cmp(nu: float):
+    from lightgbm import LGBMRegressor
+    params = dict(config.LIGHTGBM_REG_PARAMS)
+    params["objective"] = ComPoissonObjective(nu)
+    return LGBMRegressor(**params)
+
+
 def gaussian_crps(y, location, scale):
     """Analytic continuous Gaussian CRPS, useful for objective verification."""
     from scipy.special import ndtr
@@ -121,10 +214,12 @@ class ScoreRegressor:
     """
 
     def __init__(self, declare_categoricals: bool = True,
-                 crps_location: bool = False, nb: bool = False) -> None:
+                 crps_location: bool = False, nb: bool = False,
+                 cmp: bool = False) -> None:
         self.crps_location = bool(crps_location)
         self.nb = bool(nb)
-        if self.crps_location and self.nb:
+        self.cmp = bool(cmp)
+        if sum((self.crps_location, self.nb, self.cmp)) > 1:
             raise ValueError("ScoreRegressor takes one challenger at a time")
         self.home_model = _make_reg(crps=self.crps_location)
         self.away_model = _make_reg(crps=self.crps_location)
@@ -137,6 +232,8 @@ class ScoreRegressor:
         self.total_center = 0.
         self.nb_log_mean: tuple[float, float] | None = None
         self.nb_dispersion: tuple[float, float] | None = None
+        self.cmp_log_mean: tuple[float, float] | None = None
+        self.cmp_nu: tuple[float, float] | None = None
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # Resolved through the binary moneyline's OWN member_matrix helper —
@@ -200,6 +297,23 @@ class ScoreRegressor:
                 lms.append(lm)
             self.nb_dispersion = (rs[0], rs[1])
             self.nb_log_mean = (lms[0], lms[1])
+        elif self.cmp:
+            nus, lms = [], []
+            for side, y in (("home", h.to_numpy(dtype=float)),
+                            ("away", a.to_numpy(dtype=float))):
+                nu = estimate_cmp_nu(y)
+                lm = float(np.log(max(np.mean(y), 1e-6)))
+                model = _make_reg_cmp(nu)
+                model.fit(X, y, init_score=np.full(len(X), lm),
+                          **fit_kwargs)
+                if side == "home":
+                    self.home_model = model
+                else:
+                    self.away_model = model
+                nus.append(nu)
+                lms.append(lm)
+            self.cmp_nu = (nus[0], nus[1])
+            self.cmp_log_mean = (lms[0], lms[1])
         else:
             self.home_model.fit(X, h, **fit_kwargs)
             self.away_model.fit(X, a, **fit_kwargs)
@@ -221,6 +335,20 @@ class ScoreRegressor:
             ma = np.exp(np.clip(
                 np.asarray(self.away_model.predict(X), dtype=float)
                 + self.nb_log_mean[1], lo, hi))
+            return (np.clip(mh, 1e-6, None), np.clip(ma, 1e-6, None))
+        if self.cmp:
+            # Mean-parameterized by construction: served mus are the fitted
+            # log-means, exactly like the NB leg (the dispersion only
+            # steered training gradients). CMP-CDF pricing is step 2, gated
+            # on this training-gate passing first.
+            assert self.cmp_log_mean is not None
+            lo, hi = NB_RAW_CLIP
+            mh = np.exp(np.clip(
+                np.asarray(self.home_model.predict(X), dtype=float)
+                + self.cmp_log_mean[0], lo, hi))
+            ma = np.exp(np.clip(
+                np.asarray(self.away_model.predict(X), dtype=float)
+                + self.cmp_log_mean[1], lo, hi))
             return (np.clip(mh, 1e-6, None), np.clip(ma, 1e-6, None))
         return (
             np.clip(self.home_model.predict(X), 1e-6, None),
@@ -473,6 +601,58 @@ def walk_forward_oof_nb(game_df: pd.DataFrame, date_col: str = "gameday",
                           "r_home": rh, "r_away": ra})
         if (fold.fold_id + 1) in announce:
             logger.info("NB dist OOF fold %d/%d", fold.fold_id + 1, n_folds)
+    oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(oof):
+        oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])
+        oof["resid_total"] = oof["total"] - (oof["mu_h"] + oof["mu_a"])
+    return {"oof": oof, "fold_table": pd.DataFrame(fold_rows),
+            "n_folds": n_folds}
+
+
+def walk_forward_oof_cmp(game_df: pd.DataFrame, date_col: str = "gameday",
+                         progress_every: int = 25,
+                         fold_list: list | None = None) -> dict:
+    """CMP-challenger twin of walk_forward_oof (trial-only)."""
+    df = folds_mod.canonical_sort(game_df, date_col)
+    fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
+    parts: list[pd.DataFrame] = []
+    fold_rows: list[dict] = []
+    n_folds = len(fold_list)
+    announce = set(folds_mod.progress_checkpoints(n_folds, progress_every))
+    for fold in fold_list:
+        train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
+        train_dates = pd.to_datetime(train[date_col], errors="raise").dt.normalize()
+        val_dates = pd.to_datetime(val[date_col], errors="raise").dt.normalize()
+        if train_dates.max() >= val_dates.min():
+            raise ValueError("distribution training must precede validation dates")
+        try:
+            reg = ScoreRegressor(cmp=True).fit(train)
+            mu_h, mu_a = reg.predict(val)
+            nh, na = reg.cmp_nu or (float("nan"), float("nan"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("CMP dist OOF fold %s failed: %s", fold.fold_id, exc)
+            mu_h = np.full(len(val), np.nan)
+            mu_a = np.full(len(val), np.nan)
+            nh, na = float("nan"), float("nan")
+        part = pd.DataFrame({
+            "game_id": val["game_id"].to_numpy(),
+            "gameday": pd.to_datetime(val[date_col]).to_numpy(),
+            "season": val["season"].to_numpy(),
+            "fold_id": fold.fold_id,
+            "mu_h": mu_h, "mu_a": mu_a,
+            "home_score": val["home_score"].astype(float).to_numpy(),
+            "away_score": val["away_score"].astype(float).to_numpy(),
+        })
+        part["margin"] = part["home_score"] - part["away_score"]
+        part["total"] = part["home_score"] + part["away_score"]
+        parts.append(part)
+        fold_rows.append({"fold_id": fold.fold_id,
+                          "val_start": str(fold.val_start.date()),
+                          "val_end": str(fold.val_end.date()),
+                          "n_train": int(len(train)), "n_val": int(len(val)),
+                          "nu_home": nh, "nu_away": na})
+        if (fold.fold_id + 1) in announce:
+            logger.info("CMP dist OOF fold %d/%d", fold.fold_id + 1, n_folds)
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     if len(oof):
         oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])
