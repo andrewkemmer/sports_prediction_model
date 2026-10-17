@@ -1,0 +1,486 @@
+{
+ "distribution_method": "causal_split_skew_crps_mc",
+ "distribution_objective": "discrete_crps",
+ "distribution_metrics": {
+  "method": "causal_split_skew_crps_mc",
+  "roi_verified": false,
+  "totals": {
+   "n": 2400,
+   "n_pushes": 0,
+   "crps": 10.762080442390834,
+   "auc": 0.5062228324309902,
+   "logloss": 0.6930924529810092,
+   "logscore": 0.6930924529810092,
+   "brier": 0.24997263256549998,
+   "predicted_mean": 0.500058275,
+   "actual_win_rate": 0.5116666666666667,
+   "ece_cover": 0.011608391666666633,
+   "reliability": [
+    {
+     "n": 1187,
+     "predicted": 0.49478855939342886,
+     "actual": 0.5037910699241785,
+     "gap": -0.009002510530749686
+    },
+    {
+     "n": 1213,
+     "predicted": 0.5052150370981039,
+     "actual": 0.5193734542456719,
+     "gap": -0.014158417147568048
+    }
+   ],
+   "calibration_in_the_large": -0.011608391666666718,
+   "threshold_policy": "closest_half_point_to_model_50_percent"
+  },
+  "run_line": {
+   "n": 2400,
+   "n_pushes": 0,
+   "crps": 8.217417750805334,
+   "auc": 0.495114704434062,
+   "logloss": 0.6934146130361766,
+   "logscore": 0.6934146130361766,
+   "brier": 0.250133696767,
+   "predicted_mean": 0.5000993833333334,
+   "actual_win_rate": 0.4945833333333333,
+   "ece_cover": 0.012552266666666652,
+   "reliability": [
+    {
+     "n": 1204,
+     "predicted": 0.4929871594684386,
+     "actual": 0.5,
+     "gap": -0.007012840531561426
+    },
+    {
+     "n": 1196,
+     "predicted": 0.5072591806020067,
+     "actual": 0.4891304347826087,
+     "gap": 0.018128745819397996
+    }
+   ],
+   "calibration_in_the_large": 0.00551605000000005,
+   "threshold_policy": "closest_half_point_to_model_50_percent"
+  },
+  "derived_moneyline": {
+   "n": 2400,
+   "n_ties": 0,
+   "auc": 0.7301790415602942,
+   "logloss": 0.6074630547963379,
+   "brier": 0.2095923508525,
+   "settlement": "final_score_no_tie"
+  },
+  "fixed_thresholds": {
+   "total_210.0": {
+    "n": 2400,
+    "auc": 0.6677458333877369,
+    "logloss": 0.44392398921567744,
+    "brier": 0.138775461926,
+    "reliability": [
+     {
+      "n": 4,
+      "predicted": 0.586805,
+      "actual": 0.25
+     },
+     {
+      "n": 107,
+      "predicted": 0.6603631775700936,
+      "actual": 0.5046728971962616
+     },
+     {
+      "n": 694,
+      "predicted": 0.7637885014409224,
+      "actual": 0.760806916426513
+     },
+     {
+      "n": 1436,
+      "predicted": 0.8462422005571031,
+      "actual": 0.8655988857938719
+     },
+     {
+      "n": 159,
+      "predicted": 0.9144106918238993,
+      "actual": 0.9245283018867925
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "total_220.0": {
+    "n": 2400,
+    "auc": 0.6471715449530195,
+    "logloss": 0.6161292380083865,
+    "brier": 0.21342409308166665,
+    "reliability": [
+     {
+      "n": 13,
+      "predicted": 0.38804153846153844,
+      "actual": 0.38461538461538464
+     },
+     {
+      "n": 104,
+      "predicted": 0.4595226923076924,
+      "actual": 0.34615384615384615
+     },
+     {
+      "n": 485,
+      "predicted": 0.5612234226804124,
+      "actual": 0.5195876288659794
+     },
+     {
+      "n": 1061,
+      "predicted": 0.6513278605089536,
+      "actual": 0.6597549481621112
+     },
+     {
+      "n": 670,
+      "predicted": 0.7413854029850747,
+      "actual": 0.7701492537313432
+     },
+     {
+      "n": 67,
+      "predicted": 0.8246426865671642,
+      "actual": 0.8955223880597015
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "total_230.0": {
+    "n": 2400,
+    "auc": 0.6502227502227502,
+    "logloss": 0.6581697354497512,
+    "brier": 0.2330403737265,
+    "reliability": [
+     {
+      "n": 2,
+      "predicted": 0.19299000000000005,
+      "actual": 0.0
+     },
+     {
+      "n": 121,
+      "predicted": 0.26061471074380166,
+      "actual": 0.18181818181818182
+     },
+     {
+      "n": 563,
+      "predicted": 0.3602443694493783,
+      "actual": 0.32326820603907636
+     },
+     {
+      "n": 984,
+      "predicted": 0.44913548780487805,
+      "actual": 0.45934959349593496
+     },
+     {
+      "n": 597,
+      "predicted": 0.5437406365159129,
+      "actual": 0.6063651591289783
+     },
+     {
+      "n": 126,
+      "predicted": 0.6305269841269838,
+      "actual": 0.6428571428571429
+     },
+     {
+      "n": 7,
+      "predicted": 0.7165714285714285,
+      "actual": 0.8571428571428571
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "total_240.0": {
+    "n": 2400,
+    "auc": 0.6516221934245947,
+    "logloss": 0.5497713217976603,
+    "brier": 0.18367918396966668,
+    "reliability": [
+     {
+      "n": 21,
+      "predicted": 0.09038761904761905,
+      "actual": 0.09523809523809523
+     },
+     {
+      "n": 486,
+      "predicted": 0.16420423868312756,
+      "actual": 0.1440329218106996
+     },
+     {
+      "n": 1166,
+      "predicted": 0.2480839279588336,
+      "actual": 0.23499142367066894
+     },
+     {
+      "n": 613,
+      "predicted": 0.3415075693311582,
+      "actual": 0.3719412724306688
+     },
+     {
+      "n": 107,
+      "predicted": 0.4298080373831776,
+      "actual": 0.4953271028037383
+     },
+     {
+      "n": 7,
+      "predicted": 0.5178428571428572,
+      "actual": 0.7142857142857143
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "margin_-5.5": {
+    "n": 2400,
+    "auc": 0.7276303605770549,
+    "logloss": 0.5640142899413579,
+    "brier": 0.191238738443,
+    "reliability": [
+     {
+      "n": 3,
+      "predicted": 0.2949733333333333,
+      "actual": 0.3333333333333333
+     },
+     {
+      "n": 101,
+      "predicted": 0.3642908910891089,
+      "actual": 0.3069306930693069
+     },
+     {
+      "n": 277,
+      "predicted": 0.45232238267148017,
+      "actual": 0.41155234657039713
+     },
+     {
+      "n": 430,
+      "predicted": 0.550306511627907,
+      "actual": 0.5186046511627908
+     },
+     {
+      "n": 506,
+      "predicted": 0.6488977470355731,
+      "actual": 0.6699604743083004
+     },
+     {
+      "n": 508,
+      "predicted": 0.7510599606299212,
+      "actual": 0.765748031496063
+     },
+     {
+      "n": 503,
+      "predicted": 0.8494541948310139,
+      "actual": 0.8707753479125249
+     },
+     {
+      "n": 72,
+      "predicted": 0.9140080555555554,
+      "actual": 0.9444444444444444
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "margin_0.5": {
+    "n": 2400,
+    "auc": 0.7301790415602942,
+    "logloss": 0.6074630547963379,
+    "brier": 0.2095923508525,
+    "reliability": [
+     {
+      "n": 9,
+      "predicted": 0.19032888888888888,
+      "actual": 0.0
+     },
+     {
+      "n": 184,
+      "predicted": 0.2607879347826087,
+      "actual": 0.18478260869565216
+     },
+     {
+      "n": 357,
+      "predicted": 0.35506487394957986,
+      "actual": 0.3137254901960784
+     },
+     {
+      "n": 454,
+      "predicted": 0.45078700440528635,
+      "actual": 0.4581497797356828
+     },
+     {
+      "n": 448,
+      "predicted": 0.5484364732142858,
+      "actual": 0.5446428571428571
+     },
+     {
+      "n": 412,
+      "predicted": 0.6497129126213593,
+      "actual": 0.6747572815533981
+     },
+     {
+      "n": 393,
+      "predicted": 0.7484898727735368,
+      "actual": 0.7913486005089059
+     },
+     {
+      "n": 143,
+      "predicted": 0.826726153846154,
+      "actual": 0.8391608391608392
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   },
+   "margin_5.5": {
+    "n": 2400,
+    "auc": 0.7225129089244442,
+    "logloss": 0.6068237875142921,
+    "brier": 0.209542404065,
+    "reliability": [
+     {
+      "n": 208,
+      "predicted": 0.1664839423076923,
+      "actual": 0.12980769230769232
+     },
+     {
+      "n": 447,
+      "predicted": 0.25400648769574946,
+      "actual": 0.22371364653243847
+     },
+     {
+      "n": 512,
+      "predicted": 0.34934511718749994,
+      "actual": 0.37109375
+     },
+     {
+      "n": 406,
+      "predicted": 0.44793960591133003,
+      "actual": 0.43842364532019706
+     },
+     {
+      "n": 384,
+      "predicted": 0.5469961458333333,
+      "actual": 0.5546875
+     },
+     {
+      "n": 322,
+      "predicted": 0.6471759627329192,
+      "actual": 0.7018633540372671
+     },
+     {
+      "n": 121,
+      "predicted": 0.7318426446280991,
+      "actual": 0.768595041322314
+     }
+    ],
+    "event": "strict_exceedance_including_push_as_nonwin"
+   }
+  },
+  "conditional_crps": {
+   "season_2024.0": {
+    "n": 1085,
+    "total": 10.75459297284977,
+    "margin": 8.223692526987282
+   },
+   "season_2025.0": {
+    "n": 1315,
+    "total": 10.76825831649886,
+    "margin": 8.212240463993613
+   },
+   "is_playoffs_False": {
+    "n": 2231,
+    "total": 10.762805943923622,
+    "margin": 8.1611266148251
+   },
+   "is_playoffs_True": {
+    "n": 169,
+    "total": 10.752502963576331,
+    "margin": 8.960527362473371
+   },
+   "provisional_False": {
+    "n": 2130,
+    "total": 10.81731626616845,
+    "margin": 8.14342564925371
+   },
+   "provisional_True": {
+    "n": 270,
+    "total": 10.326331165922962,
+    "margin": 8.801133218601482
+   }
+  }
+ },
+ "lattice": {},
+ "settlement": "final_score_no_tie",
+ "record": "nba_run_engine_markets",
+ "written_utc": "2026-10-17T04:34:16.248989+00:00",
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.9-rapm-dated-rosters",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "moneyline_evaluation": {
+   "headline": "causal_rolling_blend",
+   "retrospective": "diagnostic_only_not_oof",
+   "calibration": "nested_prior_evidence_gate_at_every_origin",
+   "xgb_round_policy": "train_tail_probe_then_all_train_refit"
+  },
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 74449,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 1712728,
+  "event_rows": 6922
+ },
+ "columns": 925,
+ "n_rows": 2414,
+ "n_oof": 2400,
+ "n_slate": 14,
+ "grids": {
+  "spread": [
+   -20,
+   20
+  ],
+  "total": [
+   180,
+   280
+  ],
+  "half_stops": [
+   -0.5,
+   0.5
+  ],
+  "totals_push_namespace": "p_push_total_<U>"
+ },
+ "mc_meta": {
+  "method": "inverse_calibrated_cdf_monte_carlo",
+  "family": "two_sided_asymmetric_gaussian_split_skew",
+  "n_draws": 50000,
+  "requested_draws": 50000,
+  "seed": 42,
+  "mc_se_totals_max": 0.00223606797749979,
+  "reason": "requested",
+  "memory_policy": "one_game_at_a_time"
+ },
+ "run_line_fit_check": {
+  "home": {
+   "pearson": 1.2782,
+   "deviance_model": 1.28035,
+   "deviance_baseline": 1.46759,
+   "rmse_model": 12.125,
+   "rmse_baseline": 12.9856,
+   "n": 2400
+  },
+  "away": {
+   "pearson": 1.2612,
+   "deviance_model": 1.26155,
+   "deviance_baseline": 1.48359,
+   "rmse_model": 11.9453,
+   "rmse_baseline": 12.959,
+   "n": 2400
+  }
+ }
+}
