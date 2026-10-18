@@ -105,6 +105,156 @@ def fit_variance(h, a, outcomes, sport):
     return parameters
 
 
+def _half_moments(h, a, total, margin):
+    """Centered side-residual moments on one pace half (fit_variance math)."""
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    total = np.asarray(total, float)
+    margin = np.asarray(margin, float)
+    home = .5 * (total + margin)
+    away = .5 * (total - margin)
+    eh, ea = home - h, away - a
+    # Center covariance: common pace is not confused with side bias.
+    ch, ca = eh - eh.mean(), ea - ea.mean()
+    vh = np.clip(np.sum(ch ** 2) / np.sum(h), .05, 30.)
+    va = np.clip(np.sum(ca ** 2) / np.sum(a), .05, 30.)
+    denom = np.sqrt(np.sum(ch ** 2) * np.sum(ca ** 2))
+    rho = np.clip(np.sum(ch * ca) / denom, -.9, .9) if denom > 1e-12 else 0.
+    return float(vh), float(va), float(rho)
+
+
+# Minimum games per pace half for the conditional fit; below it the half
+# moments are noise and the origin falls back to the global scalars.
+CONDVARIANCE_MIN_HALF = 50
+
+
+def fit_condvariance(h, a, outcomes, sport):
+    """Pace-conditional dispersion + correlation (NBA trial, default off).
+
+    Starts from the global fit_variance scalars (skews stay global — the
+    measured margin-variance table points against a margin-magnitude term),
+    then splits strictly-prior history at median expected total and fits
+    per-half side-residual moments with the same centered math. Per-game
+    rates interpolate linearly in pace deviation between the half anchors.
+    Falls back to the exact global dict whenever history is thin, halves
+    are small, or anchors do not order — so early origins price byte-
+    identical to the incumbent arm.
+    """
+    base = fit_variance(h, a, outcomes, sport)
+    if sport != "nba":
+        return base
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    if len(h) < 2 * MIN_HISTORY:
+        return base
+    reference = SPORT_PRIORS["nba"][0]
+    pace = np.clip((h + a) / reference - 1., -1., 2.)
+    med = float(np.median(pace))
+    slow_m = pace <= med
+    fast_m = ~slow_m
+    if int(slow_m.sum()) < CONDVARIANCE_MIN_HALF or \
+            int(fast_m.sum()) < CONDVARIANCE_MIN_HALF:
+        return base
+    total = np.asarray(outcomes["total"], float)
+    margin = np.asarray(outcomes["margin"], float)
+    slow = _half_moments(h[slow_m], a[slow_m], total[slow_m], margin[slow_m])
+    fast = _half_moments(h[fast_m], a[fast_m], total[fast_m], margin[fast_m])
+    slow_pace = float(pace[slow_m].mean())
+    fast_pace = float(pace[fast_m].mean())
+    if not fast_pace > slow_pace:
+        return base
+    base["pace_cond"] = {
+        "slow_pace": slow_pace, "fast_pace": fast_pace,
+        "slow": {"home_variance": slow[0], "away_variance": slow[1],
+                   "correlation": slow[2]},
+        "fast": {"home_variance": fast[0], "away_variance": fast[1],
+                   "correlation": fast[2]},
+    }
+    return base
+
+
+def resolve_widths(h, a, p, sport):
+    """Per-game (vh, va, rho) arrays from the variance parameters.
+
+    Scalars broadcast (byte-identical to the old inline math when no
+    pace_cond block is present); the NBA conditional block interpolates
+    rates/correlation in pace deviation between the fitted half anchors.
+    """
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    rh = np.ones(h.shape) * float(p["home_variance"])
+    ra = np.ones(a.shape) * float(p["away_variance"])
+    rho = np.ones(h.shape) * float(p["correlation"])
+    cond = (p or {}).get("pace_cond")
+    if cond is not None and sport == "nba" and h.size:
+        reference = SPORT_PRIORS["nba"][0]
+        pace = np.clip((h + a) / reference - 1., -1., 2.)
+        lo, hi = float(cond["slow_pace"]), float(cond["fast_pace"])
+        t = np.clip((pace - lo) / (hi - lo), 0., 1.) if hi > lo \
+            else np.zeros_like(pace)
+        slow, fast = cond["slow"], cond["fast"]
+        rh = np.clip(slow["home_variance"] + t * (fast["home_variance"]
+                                                  - slow["home_variance"]),
+                     .05, 30.)
+        ra = np.clip(slow["away_variance"] + t * (fast["away_variance"]
+                                                  - slow["away_variance"]),
+                     .05, 30.)
+        rho = np.clip(slow["correlation"] + t * (fast["correlation"]
+                                                  - slow["correlation"]),
+                      -.9, .9)
+    return rh * h, ra * a, rho
+
+
+def fit_tilt(h, a, outcomes, sport):
+    """Totals-location tilt on pace deviation (NBA trial, default off).
+
+    Total residuals (actual minus expected total) regressed on the pace
+    covariate the calibration design already uses ((h+a)/ref - 1). Returns
+    a ``total_tilt`` block (slope, intercept at the history pace mean, and
+    that pace mean) or {} when history is thin or non-NBA — so origins
+    without enough evidence price exactly as today. The intercept absorbs
+    season-level drift; the slope carries the stable within-season tilt.
+    """
+    if sport != "nba":
+        return {}
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    if len(h) < 2 * MIN_HISTORY:
+        return {}
+    reference = SPORT_PRIORS["nba"][0]
+    pace = np.clip((h + a) / reference - 1., -1., 2.)
+    resid = np.asarray(outcomes["total"], float) - (h + a)
+    ok = np.isfinite(pace) & np.isfinite(resid)
+    if int(ok.sum()) < 2 * MIN_HISTORY:
+        return {}
+    pace, resid = pace[ok], resid[ok]
+    pmean = float(pace.mean())
+    xc = pace - pmean
+    denom = float(xc @ xc)
+    if denom <= 1e-12:
+        return {}
+    slope = float(xc @ resid / denom)
+    intercept = float(resid.mean())
+    # Cap the per-game shift at a sane basketball magnitude so a noisy
+    # early-origin slope cannot swing prices by tens of points.
+    return {"total_tilt": {"slope": slope, "intercept": intercept,
+                             "pace_mean": pmean, "cap": 6.}}
+
+
+def tilt_shift(h, a, tilt, sport):
+    """Per-game additive total-location shift (zeros when no block)."""
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    if not tilt or sport != "nba":
+        return np.zeros(h.shape)
+    reference = SPORT_PRIORS["nba"][0]
+    pace = np.clip((h + a) / reference - 1., -1., 2.)
+    shift = (float(tilt["intercept"])
+             + float(tilt["slope"]) * (pace - float(tilt["pace_mean"])))
+    return np.clip(shift, -float(tilt.get("cap", 6.)),
+                    float(tilt.get("cap", 6.)))
+
+
 def parity_correct(cdf, support, alpha):
     """NHL odd/even parity projection of a calibrated TOTAL CDF.
 
@@ -1248,12 +1398,17 @@ def split_cdf(x, mean, sd, skew):
 
 def raw_cdf(h, a, kind, sport, parameters=None):
     p = defaults(sport) if parameters is None else parameters
-    vh, va = float(p["home_variance"]) * h, float(p["away_variance"]) * a
-    rho = float(p["correlation"])
-    if np.any(vh <= 0) or np.any(va <= 0) or not -.99 < rho < .99:
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    vh, va, rho = resolve_widths(h, a, p, sport)
+    if np.any(vh <= 0) or np.any(va <= 0) or np.any(~(np.abs(rho) < .99)):
         raise ValueError("invalid Gaussian variance/correlation parameters")
     cross = 2. * rho * np.sqrt(vh * va)
     mean = h + a if kind == "total" else h - a
+    if kind == "total":
+        # NBA totals pace-tilt (trial, default off): additive location
+        # shift from the variance params; absent block prices byte-identical.
+        mean = mean + tilt_shift(h, a, (p or {}).get("total_tilt"), sport)
     sd = np.sqrt(np.maximum(vh + va + (cross if kind == "total" else -cross), 1e-9))
     skew = float(p[f"{kind}_skew"])
     # Expand from predictions/parameters only, never from scored outcomes.

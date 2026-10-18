@@ -631,6 +631,20 @@ SCORE_ELASTICNET_PARAMS = {
     "alpha": 1.0, "l1_ratio": 0.5,
     "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
 }
+# Pace-conditional variance trial (2026-10-17, DEFAULT OFF): when True the
+# NBA distribution fits dispersion rates + residual correlation per
+# expected-total half (slow/fast split at the prior-history median pace)
+# and interpolates per game, instead of one global scalar set. Trial-only
+# until a walk-forward verdict clears the 2.5 gate (run_diagnostics/
+# nba_condvar_trial.py). Other sports never read this flag.
+DISTRIBUTION_CONDVARIANCE_PACE = False
+# Totals pace-tilt trial (2026-10-18, DEFAULT OFF): when True the NBA
+# distribution fits a per-origin totals-location tilt on pace deviation
+# (stable slope, drifting intercept across seasons) and shifts the total
+# location before the Gaussian CDF is formed. Trial-only until a
+# walk-forward verdict clears the gate (run_diagnostics/nba_tilt_trial.py).
+# Other sports never read this flag.
+DISTRIBUTION_TOTAL_TILT_PACE = False
 
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the
