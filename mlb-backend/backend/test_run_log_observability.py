@@ -338,3 +338,33 @@ def test_no_hardcoded_column_count_remains():
                 assert not isinstance(arg, ast.Constant), (
                     f"hardcoded count in: {text!r}"
                 )
+
+
+# ── E. a dirty checkout must name its dirt ────────────────────────────────────
+
+def test_dirty_checkout_names_bounded_porcelain_entries():
+    """The 2026-10-18 18:27 remote run logged
+    ``code checkout: 8b054b9df5e3 (dirty)`` with no detail, so the review
+    could not tell a code modification from runtime debris (caches,
+    notebook outputs, delivered artifacts). A dirty tree must log its
+    porcelain entries -- and bounded, so a pathological tree cannot flood
+    the pushed log.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    found = False
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If)
+                and isinstance(node.test, ast.Name)
+                and node.test.id == "_porcelain"):
+            continue
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == "info"
+                    and sub.args
+                    and isinstance(sub.args[0], ast.Constant)
+                    and "code checkout dirt" in str(sub.args[0].value)):
+                found = True
+    assert found, "a dirty checkout must log its porcelain entries"
+    assert "_dirty_lines[:10]" in src, "dirt detail must stay bounded"

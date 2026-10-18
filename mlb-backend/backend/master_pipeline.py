@@ -242,12 +242,24 @@ try:
     import subprocess as _sp  # noqa: E402 — startup observability only
     _sha = _sp.run(["git", "rev-parse", "HEAD"], capture_output=True,
                    text=True, timeout=15, cwd=Path.cwd()).stdout.strip()[:12]
-    _dirty = _sp.run(["git", "status", "--porcelain"], capture_output=True,
-                     text=True, timeout=15, cwd=Path.cwd()).stdout.strip()
+    _porcelain = _sp.run(["git", "status", "--porcelain"],
+                         capture_output=True, text=True, timeout=15,
+                         cwd=Path.cwd()).stdout.strip()
     from distributions import _pooled_grid_crps as _crps_writer  # noqa: E402,F401
     logging.info("code checkout: %s (%s) pooled_crps_writer=%s",
-                 _sha or "unknown", "dirty" if _dirty else "clean",
+                 _sha or "unknown", "dirty" if _porcelain else "clean",
                  bool(_crps_writer))
+    if _porcelain:
+        # 2026-10-18 remote-log remediation: the 18:27 run reported
+        # "(dirty)" with no detail, so the review could not tell a code
+        # modification from runtime debris (caches, notebook outputs,
+        # delivered artifacts). Name the entries, bounded so a
+        # pathological tree cannot flood the log.
+        _dirty_lines = _porcelain.splitlines()
+        _shown = "; ".join(_dirty_lines[:10])
+        if len(_dirty_lines) > 10:
+            _shown += f" (+{len(_dirty_lines) - 10} more)"
+        logging.info("code checkout dirt: %s", _shown)
 except Exception as _sha_exc:  # noqa: BLE001 — observability only
     logging.warning("code checkout unresolved (%s)", _sha_exc)
 _banner("PHASE 1", "Statcast Data Ingestion")
