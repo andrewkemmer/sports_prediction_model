@@ -5376,6 +5376,74 @@ def test_season_seam_recheck_reaches_sub_100_phase_samples():
     assert thin[col]["status"] == "ALERT", thin[col]
 
 
+def test_season_anchored_phase_alignment_survives_moved_opening_nights():
+    """Phase windows anchor to days-since-opening-night when frames carry
+    ``season``; same calendar dates are not the same season phase when
+    opening nights move.
+
+    The 2026-10-18 remote run paged goalie_starts_home/away at psi_adj
+    ~11: the current window sat at season-days 9-17 of 2026-27 (opened
+    2026-09-29, starts ~3.7) while the calendar proxy pulled prior-year
+    rows reaching back to opening night (mean ~2.7), and a benign ~1-start
+    ramp misalignment failed the 2-SE re-check. Offset anchoring compares
+    like with like. Three pinned behaviours: baseline-only pages (the
+    pre-guard behaviour); the calendar fallback (no ``season`` column)
+    still pages on this frame; season-anchored relabels OK-SEASONAL.
+    """
+    rng = np.random.default_rng(41)
+    col = "goalie_starts_home"
+    base = pd.DataFrame({
+        col: rng.normal(0.0, 1.0, 130),
+        "gameday": pd.date_range("2026-02-01", periods=130, freq="D"),
+        "season": 2025,
+    })
+    cur = pd.DataFrame({
+        col: rng.normal(50.0, 2.0, 45),
+        "gameday": ([pd.Timestamp("2026-10-10")] * 15
+                    + [pd.Timestamp("2026-10-11")] * 15
+                    + [pd.Timestamp("2026-10-12")] * 15),
+        "season": 2026,
+    })
+    # 2026 opened Sep 29 (offsets 11-13 for the current window, ±7 → 4-20).
+    # 2025 opened Sep 20: Sep 20-Oct 4 rows sit at offsets 0-14 (the 4-14
+    # slice is selected by the anchor) while Oct 11-19 rows sit at offsets
+    # 21-29 (excluded by the anchor, but inside the old Oct 3-19 calendar
+    # window, where they drag the pool mean down).
+    phase = pd.DataFrame({
+        col: np.concatenate([rng.normal(50.0, 2.0, 90),
+                             rng.normal(0.0, 1.0, 60),
+                             rng.normal(50.0, 2.0, 5)]),
+        "gameday": (list(pd.Timestamp("2025-09-20")
+                           + pd.to_timedelta(rng.integers(0, 15, 90), "D"))
+                    + list(pd.Timestamp("2025-10-11")
+                           + pd.to_timedelta(rng.integers(0, 9, 60), "D"))
+                    + list(pd.Timestamp("2026-09-29")
+                           + pd.to_timedelta(rng.integers(0, 5, 5), "D"))),
+        "season": [2025] * 150 + [2026] * 5,
+    })
+
+    plain = {r["feature"]: r for r in
+             mon.feature_drift(base, cur, feature_cols=[col])}
+    assert plain[col]["status"] == "ALERT", plain[col]
+
+    # Calendar fallback (the pre-anchoring behaviour): the decoy block
+    # drags the pool mean down and the row still pages.
+    calendar = {r["feature"]: r for r in
+                mon.feature_drift(base, cur, feature_cols=[col],
+                                  phase_frame=phase.drop(columns=["season"]))}
+    assert calendar[col]["status"] == "ALERT", calendar[col]
+
+    # Season-anchored: the same-phase pool matches and the row relabels,
+    # verdict-only — the evidence still describes the real shift.
+    seam = {r["feature"]: r for r in
+            mon.feature_drift(base, cur, feature_cols=[col],
+                              phase_frame=phase)}
+    assert seam[col]["status"] == "OK-SEASONAL", seam[col]
+    for key in ("psi", "psi_adjusted", "mean_shift", "n_baseline",
+                "n_current"):
+        assert seam[col][key] == plain[col][key], f"{key} was rewritten"
+
+
 def test_feature_drift_logs_view_labeled_summary_lines():
     """The run log must carry MLB's view-labeled drift lines.
 

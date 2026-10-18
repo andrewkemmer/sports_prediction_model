@@ -251,9 +251,22 @@ def _phase_matched_baseline(bgames: pd.DataFrame, cgames: pd.DataFrame,
     seasonal features back to ALERT). For each k in ``months_back``
     (negative ints), take bgames rows whose gameday falls in the padded
     same-phase window shifted k years — the season seam moves WITH the
-    calendar instead of across it. Only rows already present in the frame
+    calendar instead of across it.    Only rows already present in the frame
     qualify (no new data is fetched). Missing or unparsable gameday
     columns yield [] — callers keep the plain baseline verdict.
+
+    Season-anchored alignment (2026-10-18 remote-log remediation): when
+    both frames carry a usable ``season`` column and the current window
+    sits inside a single season, the phase windows are anchored to
+    days-since-season-start instead of raw calendar dates. Same calendar
+    dates are NOT the same season phase when opening nights move —
+    2026-27 opened 2026-09-29, nine days before 2025-26 (2025-10-07) —
+    so the calendar proxy compared the current window (season-days 9-17,
+    goalie starts ~3.7) against prior-year rows reaching back to opening
+    night (mean ~2.7), and a benign ~1-start ramp misalignment failed the
+    2-SE re-check at psi_adj ~11. Offset anchoring compares like with
+    like; any frame without season information (including every pinned
+    synthetic test) keeps the exact calendar behavior below.
     """
     if "gameday" not in bgames.columns or "gameday" not in cgames.columns:
         return []
@@ -262,12 +275,61 @@ def _phase_matched_baseline(bgames: pd.DataFrame, cgames: pd.DataFrame,
         return []
     lo, hi = cd.min(), cd.max()
     bd = pd.to_datetime(bgames["gameday"], errors="coerce")
+    anchored = _season_anchored_phase_values(bgames, cgames, col,
+                                             months_back, cd, bd, lo, hi)
+    if anchored is not None:
+        return anchored
     out: list = []
     for k in months_back:
         lo2 = lo + pd.DateOffset(years=k) - pd.Timedelta(days=7)
         hi2 = hi + pd.DateOffset(years=k) + pd.Timedelta(days=7)
         win = bgames.loc[(bd >= lo2) & (bd <= hi2), col].dropna()
         out.extend(win.tolist())
+    return out
+
+
+def _season_anchored_phase_values(bgames: pd.DataFrame,
+                                  cgames: pd.DataFrame, col: str,
+                                  months_back: tuple[int, ...],
+                                  cd: pd.Series, bd: pd.Series,
+                                  lo, hi) -> list | None:
+    """Same-phase prior-season values anchored to days-since-opening-night.
+
+    Returns None when season anchoring cannot engage — missing/unparsable
+    ``season`` columns, a current window straddling two seasons (the
+    Cup-final-tail-plus-opening shape keeps calendar behavior), or none
+    of the mapped prior seasons present in ``bgames`` — so callers always
+    fall back to the calendar windows, never to an empty verdict.
+    """
+    if "season" not in bgames.columns or "season" not in cgames.columns:
+        return None
+    cszn = pd.to_numeric(cgames["season"], errors="coerce")
+    bszn = pd.to_numeric(bgames["season"], errors="coerce")
+    cur_seasons = {int(s) for s in cszn.dropna().tolist()}
+    if len(cur_seasons) != 1 or not len(bszn.dropna()):
+        return None
+    cur_season = next(iter(cur_seasons))
+    targets = [cur_season + k for k in months_back]
+    if not any((bszn == t).any() for t in targets):
+        return None
+    cur_starts = pd.concat([cd[cszn == cur_season],
+                            bd[bszn == cur_season]]).dropna()
+    if cur_starts.empty:
+        return None
+    cstart = cur_starts.min()
+    o_lo = (lo - cstart).days
+    o_hi = (hi - cstart).days
+    out: list = []
+    for tgt in targets:
+        tmask = bszn == tgt
+        if not tmask.any():
+            continue
+        tstart = bd[tmask].dropna().min()
+        if pd.isna(tstart):
+            continue
+        off = (bd - tstart).dt.days
+        sel = tmask & off.ge(o_lo - 7) & off.le(o_hi + 7)
+        out.extend(bgames.loc[sel, col].dropna().tolist())
     return out
 
 
