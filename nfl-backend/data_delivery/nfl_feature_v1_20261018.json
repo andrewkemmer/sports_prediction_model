@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-10-18T14:58:39.500545+00:00",
+ "created_utc": "2026-10-18T19:13:31.346846+00:00",
  "feature_set_version": "nfl-prod-v9.9-pending-state",
  "manifest": {
   "elo_diff": {
@@ -224,7 +224,7 @@
   },
   "is_turf_home": {
    "description": "Home venue playing surface is artificial turf",
-   "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+   "definition": "1.0 when the schedule surface contains a turf token (turf/astro/a-turf/a_turf/matrix/fieldturf/sportturf/ubu/shaw/hellas/synthetic/artificial, case-insensitive substring); 0.0 when it contains a grass token (grass/natural/sod/bermuda, incl. hybrid SISGrass/Desso GrassMaster); NaN when blank/unknown/unlisted",
    "source": "nflverse schedule surface field",
    "lookback": 0,
    "aggregation": "static pre-game fact",
@@ -236,7 +236,7 @@
     "tree",
     "mlp"
    ],
-   "feature_version": 4
+   "feature_version": 5
   },
   "temp_f": {
    "description": "Hourly venue temperature immediately before kickoff (F)",
@@ -1125,490 +1125,490 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.3108503998915103,
-   "std": 101.57105200401467
+   "mean": 0.3365031762218429,
+   "std": 101.56238216523597
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -8.250648073656943e-05,
-   "std": 0.2837372100427794
+   "mean": 5.986975201412362e-06,
+   "std": 0.2837259893705296
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 93.77,
-   "mean": 0.03866366366366367,
-   "std": 2.5490323201017744
+   "mean": 0.03864915572232645,
+   "std": 2.5485539632630467
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.2875747976064766,
-   "std": 0.45271146733918516
+   "mean": 0.28747361013370865,
+   "std": 0.4526639287098906
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.3311102105754297,
-   "std": 10.09956220679713
+   "mean": -0.3294208540604792,
+   "std": 10.09817386253956
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.007898395826189385,
-   "std": 0.688048865871104
+   "mean": -0.007835300895993826,
+   "std": 0.6879352533834097
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.001890050907106287,
-   "std": 0.12262074004338509
+   "mean": -0.0018923309079648246,
+   "std": 0.12259909525014209
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.014079549454417459,
-   "std": 0.36067074545547356
+   "mean": 0.014074595355383532,
+   "std": 0.36060736056270354
   },
   {
    "feature": "rest_short_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.1562829989440338,
-   "std": 0.36318735148372655
+   "mean": 0.1562280084447572,
+   "std": 0.3631352602891073
   },
   {
    "feature": "rest_short_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.14220344948961633,
-   "std": 0.34932016792690895
+   "mean": 0.14215341308937368,
+   "std": 0.3492688703442984
   },
   {
    "feature": "div_game",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.35163674762407604,
-   "std": 0.4775653075034049
+   "mean": 0.3518648838845883,
+   "std": 0.477636117261127
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 98.7,
-   "mean": -937.258942343547,
-   "std": 682.407612996223
+   "mean": -937.1361383730846,
+   "std": 682.3169167442107
   },
   {
    "feature": "altitude_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 597.5461457233368,
-   "std": 967.6244186477965
+   "mean": 597.4052076002815,
+   "std": 967.4832824302939
   },
   {
    "feature": "prime_time",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.22034494896163323,
-   "std": 0.4145522197988357
+   "mean": 0.22026741731175228,
+   "std": 0.4144998626491443
   },
   {
    "feature": "is_turf_home",
-   "n_games": 2841,
-   "coverage_pct": 97.92,
+   "n_games": 2842,
+   "coverage_pct": 97.89,
    "mean": 0.4284687275341481,
    "std": 0.4949457878337749
   },
   {
    "feature": "temp_f",
-   "n_games": 2841,
-   "coverage_pct": 71.24,
-   "mean": 57.81067193675889,
-   "std": 17.31325228371974
+   "n_games": 2842,
+   "coverage_pct": 71.25,
+   "mean": 57.80943209876543,
+   "std": 17.30906468530565
   },
   {
    "feature": "wind_mph",
-   "n_games": 2841,
-   "coverage_pct": 71.24,
-   "mean": 7.929644268774703,
-   "std": 4.439038460491073
+   "n_games": 2842,
+   "coverage_pct": 71.25,
+   "mean": 7.932345679012346,
+   "std": 4.439606336816536
   },
   {
    "feature": "is_precip",
-   "n_games": 2841,
-   "coverage_pct": 71.24,
-   "mean": 0.012351778656126482,
-   "std": 0.11047733920717648
+   "n_games": 2842,
+   "coverage_pct": 71.25,
+   "mean": 0.012345679012345678,
+   "std": 0.11045038506771217
   },
   {
    "feature": "is_snow",
-   "n_games": 2841,
-   "coverage_pct": 71.24,
-   "mean": 0.00691699604743083,
-   "std": 0.08290082472542841
+   "n_games": 2842,
+   "coverage_pct": 71.25,
+   "mean": 0.006913580246913581,
+   "std": 0.08288048527964514
   },
   {
    "feature": "pbp_air_yards_att_ewm_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.005688600522686965,
-   "std": 1.5610798413730091
+   "mean": -0.006364665484214076,
+   "std": 1.5612172459934024
   },
   {
    "feature": "pbp_air_yards_att_ewm_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 7.9730109629691315,
-   "std": 1.1223511019364107
+   "mean": 7.9729058563383655,
+   "std": 1.1221663488046638
   },
   {
    "feature": "pbp_air_yards_att_ewm_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 7.978699563491818,
-   "std": 1.1135057120493346
+   "mean": 7.979270521822581,
+   "std": 1.1137222846311359
   },
   {
    "feature": "pbp_def_epa_play_ewm_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 7.288901239184348e-05,
-   "std": 0.10747523204107778
+   "mean": 7.745573142340792e-05,
+   "std": 0.10745648242478645
   },
   {
    "feature": "pbp_def_epa_play_ewm_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.009177898771906173,
-   "std": 0.07573589255475449
+   "mean": -0.009192752783753989,
+   "std": 0.07572660390074787
   },
   {
    "feature": "pbp_def_epa_play_ewm_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.009250787784298017,
-   "std": 0.07899626547549432
+   "mean": -0.009270208515177396,
+   "std": 0.0789890298211694
   },
   {
    "feature": "travel_miles_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 98.8,
-   "mean": 74.25921243517529,
-   "std": 561.7076711384102
+   "mean": 75.74778197946141,
+   "std": 567.1200767339641
   },
   {
    "feature": "travel_miles_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.23,
-   "mean": 1012.8799716806288,
-   "std": 774.9158522293953
+   "mean": 1014.2395732147801,
+   "std": 778.1351921190029
   },
   {
    "feature": "elo_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 1504.2540865819592,
-   "std": 76.23935107687808
+   "mean": 1504.2809117717175,
+   "std": 76.23934559501647
   },
   {
    "feature": "elo_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 1503.9432361820684,
-   "std": 73.75597336331386
+   "mean": 1503.9444085954958,
+   "std": 73.74301807204647
   },
   {
    "feature": "win_pct_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 0.5007805616212696,
-   "std": 0.20840302427314789
+   "mean": 0.5008982377612952,
+   "std": 0.2084600200445242
   },
   {
    "feature": "win_pct_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 0.5008630681020061,
-   "std": 0.20572810828431984
+   "mean": 0.5008922507860937,
+   "std": 0.20569754319323777
   },
   {
    "feature": "ewm_net_pts_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -0.1595097054938385,
-   "std": 7.517585512080588
+   "mean": -0.15622495688822868,
+   "std": 7.5182829341269
   },
   {
    "feature": "ewm_net_pts_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 0.17160050508159125,
-   "std": 7.36919273680285
+   "mean": 0.17319589717225056,
+   "std": 7.368376451599973
   },
   {
    "feature": "ewm_ypp_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 4.202919587382141,
-   "std": 0.5026653431587638
+   "mean": 4.202962461816511,
+   "std": 0.5025815361115753
   },
   {
    "feature": "ewm_ypp_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 4.21081798320833,
-   "std": 0.49647283222153527
+   "mean": 4.210797762712505,
+   "std": 0.49638611702202007
   },
   {
    "feature": "rest_days_home",
-   "n_games": 2841,
-   "coverage_pct": 93.8,
-   "mean": 7.502063789868668,
-   "std": 2.1760226487795453
+   "n_games": 2842,
+   "coverage_pct": 93.81,
+   "mean": 7.501875468867217,
+   "std": 2.175636080257243
   },
   {
    "feature": "rest_days_away",
-   "n_games": 2841,
-   "coverage_pct": 93.8,
-   "mean": 7.463789868667917,
-   "std": 2.0697988944184305
+   "n_games": 2842,
+   "coverage_pct": 93.81,
+   "mean": 7.463615903975994,
+   "std": 2.0694300221056614
   },
   {
    "feature": "pace_plays_min_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 1.3552737803585853,
-   "std": 0.08913906640231321
+   "mean": 1.3552645421725653,
+   "std": 0.0891246412524816
   },
   {
    "feature": "pace_plays_min_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 1.3571638312656913,
-   "std": 0.08837616229950561
+   "mean": 1.3571568730805301,
+   "std": 0.08836129335346704
   },
   {
    "feature": "epa_qb_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 98.06,
-   "mean": 1.2085778251694046,
-   "std": 4.722498893125566
+   "mean": 1.2102330629892566,
+   "std": 4.722459806993523
   },
   {
    "feature": "epa_qb_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 97.99,
-   "mean": 1.1352049924625238,
-   "std": 4.690707118532807
+   "mean": 1.1350742904682174,
+   "std": 4.6898696748856095
   },
   {
    "feature": "epa_qb_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 96.69,
-   "mean": 0.06794029074756851,
-   "std": 6.492688020761128
+   "mean": 0.06975345865150959,
+   "std": 6.492201950638102
   },
   {
    "feature": "epa_wr_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": 4.567016732053889,
-   "std": 3.205110151360317
+   "mean": 4.568041899506583,
+   "std": 3.2050062018350283
   },
   {
    "feature": "epa_wr_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.4,
-   "mean": 4.534378244693607,
-   "std": 3.2186381433845996
+   "mean": 4.534342915549597,
+   "std": 3.218068768581258
   },
   {
    "feature": "epa_wr_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.4,
-   "mean": 0.033492241317848545,
-   "std": 4.36982933279923
+   "mean": 0.03455279859189581,
+   "std": 4.369419192068317
   },
   {
    "feature": "epa_te_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 98.7,
-   "mean": 1.5852053901014445,
-   "std": 1.6284606879653853
+   "mean": 1.5855558383871187,
+   "std": 1.628276068450614
   },
   {
    "feature": "epa_te_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 98.59,
-   "mean": 1.5649078297675665,
-   "std": 1.6179360284491062
+   "mean": 1.5657902579532612,
+   "std": 1.6183214411754918
   },
   {
    "feature": "epa_te_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 97.85,
-   "mean": 0.019417047945268166,
-   "std": 2.2920180183019845
+   "mean": 0.018881745599848256,
+   "std": 2.2917796130649513
   },
   {
    "feature": "epa_rb_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.44,
-   "mean": -1.3985755140461706,
-   "std": 2.2798720203632095
+   "mean": -1.3979657567817005,
+   "std": 2.279698930143671
   },
   {
    "feature": "epa_rb_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.4,
-   "mean": -1.4503939164992776,
-   "std": 2.2521405981939067
+   "mean": -1.450412708327917,
+   "std": 2.251742034299071
   },
   {
    "feature": "epa_rb_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 99.4,
-   "mean": 0.051812460177181704,
-   "std": 3.2297312313626683
+   "mean": 0.05244122721703092,
+   "std": 3.229332273089301
   },
   {
    "feature": "inj_ol_out_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 2.309398099260824,
-   "std": 1.5547563405347335
+   "mean": 2.3089373680506684,
+   "std": 1.5546767214276596
   },
   {
    "feature": "inj_ol_out_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 2.32242168250616,
-   "std": 1.5337358581857314
+   "mean": 2.322308233638283,
+   "std": 1.53347783220857
   },
   {
    "feature": "inj_ol_out_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.013023583245336149,
-   "std": 2.0160027148480313
+   "mean": -0.013370865587614356,
+   "std": 2.015732901346244
   },
   {
    "feature": "ol_snaps_lost_share_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 1.4681961457233368,
-   "std": 1.128334496804312
+   "mean": 1.4677226425052783,
+   "std": 1.1284182724677223
   },
   {
    "feature": "ol_snaps_lost_share_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 1.4860052044048877,
-   "std": 1.1153347384076864
+   "mean": 1.486006170202071,
+   "std": 1.1151384296874478
   },
   {
    "feature": "ol_snaps_lost_share_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.017809058681550763,
-   "std": 1.49673854717576
+   "mean": -0.018283527696793003,
+   "std": 1.4966888579896556
   },
   {
    "feature": "ol_key_out_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.7194649771207321,
-   "std": 0.44933972951761336
+   "mean": 0.7192118226600985,
+   "std": 0.44946330171175586
   },
   {
    "feature": "ol_key_out_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.7360084477296727,
-   "std": 0.4408723489828112
+   "mean": 0.7361013370865588,
+   "std": 0.44082256589896884
   },
   {
    "feature": "ol_key_out_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.016543470608940514,
-   "std": 0.6178741544464144
+   "mean": -0.01688951442646024,
+   "std": 0.6180407847246703
   },
   {
    "feature": "inj_def_out_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 7.142555438225977,
-   "std": 3.279968280050993
+   "mean": 7.141801548205489,
+   "std": 3.279637237092675
   },
   {
    "feature": "inj_def_out_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 7.189369940161915,
-   "std": 3.3322009270717308
+   "mean": 7.190358902181562,
+   "std": 3.332031556819665
   },
   {
    "feature": "inj_def_out_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.04681450193593805,
-   "std": 4.101046485789526
+   "mean": -0.048557353976073185,
+   "std": 4.101377207296734
   },
   {
    "feature": "def_snaps_lost_share_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 3.0804140183704596,
-   "std": 1.6088038609967614
+   "mean": 3.07991407794645,
+   "std": 1.6087414829780713
   },
   {
    "feature": "def_snaps_lost_share_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 3.112478130604583,
-   "std": 1.6146967250462507
+   "mean": 3.1125763086022586,
+   "std": 1.6144210066242715
   },
   {
    "feature": "def_snaps_lost_share_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.03206411223412281,
-   "std": 2.116188909111425
+   "mean": -0.03266223065580914,
+   "std": 2.116056690327308
   },
   {
    "feature": "def_key_out_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.853220696937698,
-   "std": 0.3539480698278509
+   "mean": 0.8532723434201267,
+   "std": 0.3538964818835365
   },
   {
    "feature": "def_key_out_away",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": 0.8585005279831045,
-   "std": 0.34859739694692315
+   "mean": 0.8585503166783955,
+   "std": 0.34854614688721824
   },
   {
    "feature": "def_key_out_diff",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
-   "mean": -0.005279831045406547,
-   "std": 0.4860449765219495
+   "mean": -0.005277973258268825,
+   "std": 0.48595943790689117
   },
   {
    "feature": "is_home",
-   "n_games": 2841,
+   "n_games": 2842,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
@@ -1620,12 +1620,12 @@
   "last_val_end": "2026-10-21",
   "min_train": 267,
   "max_train": 2840,
-  "total_val_games": 2574,
+  "total_val_games": 2575,
   "n_candidates": 201,
   "dropped_windows": 0,
   "dropped_games": 0,
   "provisional_windows": 93,
-  "provisional_games": 870,
+  "provisional_games": 871,
   "postseason_windows": 36,
   "min_val_fold_games": 15,
   "oof_regular": {
@@ -1645,19 +1645,19 @@
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 870,
-   "auc": 0.6836847178362028,
-   "logloss": 0.6379596071377397,
-   "brier": 0.22358671465838167,
-   "ece": 0.03036189675208698,
+   "n": 871,
+   "auc": 0.6823759388910727,
+   "logloss": 0.6388250065606238,
+   "brier": 0.22397815571007323,
+   "ece": 0.02946440506878951,
    "sufficient": true
   },
   "oof_all": {
-   "n": 2574,
-   "auc": 0.6943584931722744,
-   "logloss": 0.6318330400326854,
-   "brier": 0.22081754861020764,
-   "ece": 0.025389932335355733,
+   "n": 2575,
+   "auc": 0.6939196509672453,
+   "logloss": 0.6321281427373211,
+   "brier": 0.22095102990033247,
+   "ece": 0.025088284455070154,
    "sufficient": true
   }
  },
