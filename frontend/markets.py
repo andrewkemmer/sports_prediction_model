@@ -854,6 +854,68 @@ def _ec_indicator(raw: float | None, cal: float | None) -> str:
     return "🔴"
 
 
+def _fallback_pooled_crps(markets: pd.DataFrame, base: str, grid,
+                            outcome: pd.Series) -> float | None:
+    """Backend-identical pooled grid CRPS (fallback when the monitor
+    artifact's winner card lacks its ``crps`` key — e.g. a pipeline run
+    from a stale pre-migration checkout). Same population (ALL pooled
+    OOF rows with finite outcome + complete legs, not lean-gated) and
+    same formula as ``mlb-backend/backend/distributions._pooled_grid_crps``.
+    Returns None when the grid legs are absent so the cell keeps its "--".
+    """
+    try:
+        grid = [float(x) for x in grid]
+        if len(grid) < 2:
+            return None
+        step = grid[1] - grid[0]
+        cols = [f"{base}_{str(x).replace('.', '_')}" for x in grid]
+        if any(c not in markets.columns for c in cols):
+            return None
+        P = markets[cols].apply(pd.to_numeric, errors="coerce")
+        y = pd.to_numeric(outcome, errors="coerce")
+        ok = y.notna() & P.notna().all(axis=1)
+        if not ok.any():
+            return None
+        gap = P[ok].to_numpy(dtype=float) - (
+            y[ok].to_numpy(dtype=float)[:, None]
+            > [float(g) for g in grid]).astype(float)
+        return round(float(step * (gap ** 2).sum(axis=1).mean()), 4)
+    except Exception:
+        return None
+
+
+def _backfill_winner_crps(markets: pd.DataFrame,
+                           winner_cards: dict) -> bool:
+    """Fill missing card-level pooled CRPS in place from the markets grid.
+    Returns True when any card was backfilled (caller notes it under the
+    cards). Never overwrites a pipeline-shipped value."""
+    if markets is None or not len(markets) or not winner_cards:
+        return False
+    oof = markets[markets.get("kind") == "oof"]
+    if "total_runs" in oof.columns:
+        oof = oof[oof["total_runs"].notna()]
+    if not len(oof):
+        return False
+    want = {"over_under": ("p_over", [round(6.5 + .5 * i, 1) for i in range(13)],
+                             oof.get("total_runs")),
+            "run_line": ("p_home_cover", [.5, 1.5, 2.5, 3.5],
+                           pd.to_numeric(oof.get("home_score"), errors="coerce")
+                           - pd.to_numeric(oof.get("away_score"), errors="coerce")),
+            "derived_ml": ("p_home_cover", [.5, 1.5, 2.5, 3.5],
+                             pd.to_numeric(oof.get("home_score"), errors="coerce")
+                             - pd.to_numeric(oof.get("away_score"), errors="coerce"))}
+    filled = False
+    for key, (base, grid, outcome) in want.items():
+        card = winner_cards.get(key)
+        if not isinstance(card, dict) or card.get("crps") is not None:
+            continue
+        val = _fallback_pooled_crps(oof, base, grid, outcome)
+        if val is not None:
+            card["crps"] = val
+            filled = True
+    return filled
+
+
 def _render_winner_cards(winner_cards: dict) -> None:
     """Render the three binary winner cards in a row — over/under in pick
     framing, run line + derived ML in HOME-side framing (2026-10-12)."""
@@ -1491,6 +1553,10 @@ else:
     # Winner cards (v2 schema: three binary pick-framed cards)
     winner_cards = monitor.get("winner_cards") or {}
     if winner_cards:
+        if _backfill_winner_crps(markets, winner_cards):
+            st.caption("Pooled CRPS recomputed locally from the markets grid "
+                       "(monitor artifact predates the pooled-CRPS migration) — "
+                       "same whole-OOF population and formula as the pipeline.")
         _render_winner_cards(winner_cards)
     else:
         st.info("No winner-card data in this monitor artifact (v1 monitor "
