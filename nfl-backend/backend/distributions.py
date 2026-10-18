@@ -1617,20 +1617,11 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
             parts.append(margin["delta"])
         weight = np.clip(np.asarray(margin_ev["pmfs"], float).mean(axis=0),
                          0., None)
-        # Per-bin structural caps (2026-10-16 key-number alignment): the
-        # composed vector may reach family.LATTICE_SPIKE_CAP exactly at the
-        # bins where a preregistered spike admitted — each of those bins
-        # cleared its own one-sided held-out gate — while every other bin
-        # keeps the generic family.LATTICE_DELTA_CAP fix bound.
+        # Compose with no magnitude clamp (caps removed 2026-10-18): every
+        # component admitted behind its own held-out gate ships at full
+        # fitted size.
         _msup = np.asarray(margin_ev.get("support"))
-        caps = np.full(len(_msup), family.LATTICE_DELTA_CAP)
-        for _s in (margin.get("spike_report") or {}).get("spikes", []):
-            if _s.get("admitted"):
-                _j = int(np.searchsorted(_msup, _s["bin"]))
-                if 0 <= _j < len(_msup) and int(_msup[_j]) == int(_s["bin"]):
-                    caps[_j] = family.LATTICE_SPIKE_CAP
-        margin["delta"] = family.compose_lattice_deltas(parts, weight,
-                                                         caps=caps)
+        margin["delta"] = family.compose_lattice_deltas(parts, weight)
         margin["delta_l1"] = round(float(np.abs(margin["delta"]).sum()), 6)
         margin["delta_max"] = round(float(np.abs(margin["delta"]).max()), 6)
         margin["significant"] = True

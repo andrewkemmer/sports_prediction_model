@@ -1842,7 +1842,6 @@ def fit_keynumber_transfer(pmfs, outcomes, support,
               or {}).get("forbidden_bins", ()):
         if int(v) in index:
             delta[index[int(v)]] = 0.
-    delta = np.clip(delta, -family.LATTICE_DELTA_CAP, family.LATTICE_DELTA_CAP)
     delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, family.LATTICE_ROUND)
     report["significant"] = True
@@ -1925,9 +1924,8 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     if transfer_delta is not None:
         # Compose structural transfer + generic residual into the single
         # stored delta: family.compose_lattice_deltas' own contract (sum,
-        # mass-proportional zero-sum, clamp, eps-zero, round). Both
-        # components are far inside the LATTICE_DELTA_CAP fix bound, so the
-        # uniform clamp is not binding here and no per-bin cap is needed.
+        # mass-proportional zero-sum, eps-zero, round — no magnitude
+        # clamp; admitted components ship at full fitted size).
         parts = [np.asarray(transfer_delta, float)]
         if "delta" in margin:
             parts.append(np.asarray(margin["delta"], float))

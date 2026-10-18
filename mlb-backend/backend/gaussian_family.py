@@ -321,23 +321,21 @@ LATTICE_TARGETS = ("totals", "margin")
 # of the LOCAL model mass, so peak bins keep signal while empty tail bins
 # shrink to zero; per-bin binomial SEs supply the noise floor.
 LATTICE_PRIOR_FRAC = .1         # prior signal scale = frac * local model mass
-LATTICE_DELTA_CAP = .03         # |delta(k)| clamp: a lattice fix, not a refit
-# Structural spike headroom (2026-10-16, NFL key-number alignment): the
-# preregistered key-number spikes are individually held-out gated (one-sided
-# structural bar per bin), and their rule-derived residuals exceed the
-# generic fix bound — the NFL margin +/-3 baselines sit +0.049/+0.044 under
-# the observed frequencies (20261016 evidence, n=2574), where the shipped
-# composed vector pinned at the .03 cap and still shipped post-lattice z
-# 5.3/6.2 leftovers (run_diagnostics/nfl_keynumber_align_probe.log). The
-# STRUCTURAL spike component therefore carries its own clamp; every generic
-# component keeps LATTICE_DELTA_CAP, and the composed vector keeps it
-# everywhere except at admitted structural spike bins (per-bin caps at the
-# NFL compose site). No cap relief exists without a preregistered, individually
-# gated spike at that bin.
-LATTICE_SPIKE_CAP = .05
+# Magnitude caps REMOVED (2026-10-18, owner decision): an admitted lattice
+# correction ships at its full fitted size — every sub-gate (amplitude
+# positivity, donor capacity, collateral, MAE improvement, minimum
+# evidence, held-out z) still applies unchanged, and the zero-sum /
+# eps-zero / rounding post pipeline is unchanged. No per-bin clamp
+# exists anywhere in the lattice path.
 LATTICE_DELTA_EPS = 1e-9        # coefficients below this serialize as exact 0
-LATTICE_GATE_Z = 3.0            # generic bar: held-out, two-sided, + MAE + collateral
-LATTICE_STRUCTURAL_Z = 2.5      # preregistered one-sided bar (rule-derived
+# Uniform 1.5 cutoff (2026-10-18, owner decision): every lattice gate —
+# generic or structural — admits at held-out z >= 1.5 with improving loss.
+# The two tiers keep their MEANING (generic two-sided; structural one-sided
+# for preregistered rule-derived mechanisms only, direction enforced) and
+# the staged plumbing (generic first, structural second) is unchanged;
+# only the heights are equal.
+LATTICE_GATE_Z = 1.5            # generic bar: held-out, two-sided, + MAE + collateral
+LATTICE_STRUCTURAL_Z = 1.5      # preregistered one-sided bar (rule-derived
                                 # mechanisms only — never a generic fallback)
 LATTICE_TEST_FRACTION = .3      # time-ordered held-out tail of the evidence
 LATTICE_MIN_TEST = 100          # held-out rows below this: never admit delta
@@ -952,7 +950,8 @@ def fit_tie_rate(outcomes, model_p0, sport, bar=LATTICE_STRUCTURAL_Z,
 
     Returns (t | None, report): the posterior tie rate when the exact
     one-sided binomial test (observed ties significantly BELOW the mean
-    model tie mass, bar = structural 2.5) admits, else None with the
+    model tie mass, bar = structural 1.5, uniform cutoff 2026-10-18)
+    admits, else None with the
     refusal reason. Unadmitted callers keep exact passthrough — never a
     partial tie correction.
     """
@@ -1019,7 +1018,7 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
     contribute exact 0 — never a partial spike.
 
     Returns (delta | None, report): the combined spike delta (zero-sum,
-    clamped at the STRUCTURAL LATTICE_SPIKE_CAP, rounded) or None when no
+    rounded) or None when no
     spike admits, plus the per-spike verdict table for disclosure.
     """
     report: dict = {"estimator": "key_number_spikes", "sport": sport,
@@ -1104,15 +1103,9 @@ def fit_margin_spikes(pmfs, outcomes, support, sport,
         delta[i] += amp
         delta[sink] -= amp * pbar[sink] / sink_mass
     delta = _zero_sum_mass_proportional(delta, pbar)
-    # Structural clamp: the spike component alone may reach
-    # LATTICE_SPIKE_CAP (each bin already held-out gated above); the
-    # generic component keeps LATTICE_DELTA_CAP and the composed vector
-    # is capped per bin at the compose site.
-    delta = np.clip(delta, -LATTICE_SPIKE_CAP, LATTICE_SPIKE_CAP)
     delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, LATTICE_ROUND)
     report["significant"] = True
-    report["cap"] = float(LATTICE_SPIKE_CAP)
     report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
     return [float(v) for v in delta], report
 
@@ -1188,7 +1181,7 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
     the causal walk for rows already priced, never the row being priced. The
     pooled residual is projected on the low-order Fourier basis under a ridge
     penalty, forced zero-sum (a lattice fix moves mass, it never creates
-    it), clamped to +-LATTICE_DELTA_CAP and rounded so stored bundles
+    it) and rounded so stored bundles
     reprice byte-identically. The delta is admitted only when a time-ordered
     held-out tail of the SAME prior evidence shows a significant paired
     improvement (the NFL's "only if statistically significant" rule, applied
@@ -1249,7 +1242,6 @@ def fit_lattice_correction(pmfs, outcomes, support, sport, target,
         j = int(np.searchsorted(support, banned))
         if 0 <= j < len(delta):
             delta[j] = 0.
-    delta = np.clip(delta, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
     delta[np.abs(delta) < LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, LATTICE_ROUND)
     out.update(n_fit=int(len(train)), n_test=int(len(hold)),
@@ -1339,21 +1331,15 @@ def _collateral_excess(resid_pooled, delta, se_pool):
     return (np.abs(r - d) - np.abs(r)) - se
 
 
-def compose_lattice_deltas(deltas, weight=None, caps=None):
+def compose_lattice_deltas(deltas, weight=None):
     """Compose admitted delta components into one stored vector.
 
     Used where a structural component (NFL key-number spikes) and the
     generic residual are admitted separately and price as one delta: sum,
-    mass-proportional zero-sum, clamp, eps-zero, round — the same post
-    pipeline each fit applies alone, so a composed delta obeys the same
-    contract. Components stay disclosed in their own report keys.
-
-    ``caps`` optionally supplies a PER-BIN clamp instead of the uniform
-    LATTICE_DELTA_CAP (shape must match the composed vector): the NFL
-    margin compose site grants LATTICE_SPIKE_CAP only at bins where a
-    preregistered, individually held-out-gated spike admitted — every
-    other bin keeps the generic fix bound. ``None`` keeps the exact
-    pre-existing uniform behavior.
+    mass-proportional zero-sum, eps-zero, round — the same post pipeline
+    each fit applies alone, so a composed delta obeys the same contract.
+    Components stay disclosed in their own report keys. No magnitude
+    clamp is applied: admitted components ship at full fitted size.
     """
     if any(part is None for part in deltas):
         raise ValueError("compose_lattice_deltas requires admitted (non-None) components")
@@ -1363,14 +1349,6 @@ def compose_lattice_deltas(deltas, weight=None, caps=None):
     w = (np.clip(np.asarray(weight, float), 0., None) if weight is not None
          else np.ones_like(total))
     total = _zero_sum_mass_proportional(total, w)
-    if caps is None:
-        total = np.clip(total, -LATTICE_DELTA_CAP, LATTICE_DELTA_CAP)
-    else:
-        caps = np.asarray(caps, float)
-        if caps.shape != total.shape or not np.isfinite(caps).all():
-            raise ValueError("compose per-bin caps must be a finite vector "
-                             "matching the composed delta")
-        total = np.clip(total, -caps, caps)
     total[np.abs(total) < LATTICE_DELTA_EPS] = 0.
     return [float(v) for v in np.round(total, LATTICE_ROUND)]
 

@@ -3260,7 +3260,7 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     no-op — and the transfer amounts (the share-sized primary leg into M=+1
     plus the residual-sized secondary leg into M=-2), the donor capacities
     and every funding split are read from the fitted evidence, never
-    constant. Returns ``(delta | None, report)``: the zero-sum, capped,
+    constant. Returns ``(delta | None, report)``: the zero-sum,
     rounded transfer vector or None when the evidence, the direction, the
     collateral guard or the held-out gate refuses, plus the per-bin
     disclosure report.
@@ -3321,10 +3321,10 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     # Secondary leg (2026-10-17): M=-2 is the second spike the pooled
     # residual shows underfit. Its amount is the SE-shrunk train shortfall
     # AT -2 itself — one-sided by construction (a -2 the actuals show long
-    # or flat gets exact 0), capped at the lattice fix cap. The disclosed
-    # "capacity" is that shortfall before the cap.
+    # or flat gets exact 0), with no magnitude cap — the disclosed
+    # "capacity" is the shipped amount.
     secondary_capacity = max(0., float(shrunk[secondary]))
-    tilt2 = min(secondary_capacity, family.LATTICE_DELTA_CAP)
+    tilt2 = secondary_capacity
     report["amount"] = round(float(tilt), 6)
     report["secondary_residual"] = round(float(resid[secondary]), 6)
     report["secondary_capacity"] = round(secondary_capacity, 6)
@@ -3407,7 +3407,6 @@ def fit_one_run_spread_rebalance(pmfs, outcomes, support, share,
     else:
         report["reason"] = "held_out_not_significant"
         return None, report
-    delta = np.clip(delta, -family.LATTICE_DELTA_CAP, family.LATTICE_DELTA_CAP)
     delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, family.LATTICE_ROUND)
     report["significant"] = True

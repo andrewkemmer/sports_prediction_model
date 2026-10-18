@@ -284,10 +284,10 @@ def _spike_evidence(amplitude=.05, holdout7_frac=.5, n=2500, seed=7):
     holdout7_frac*.07 at +7. The spike gate scores the TAIL (2026-10-17
     tail-gate fix: flatnonzero on a tail slice is slice-relative, so the
     old stationary generator was scored in-sample), so a stationary truth
-    can no longer land bin 7 between the bars -- the split truth keeps +3
-    comfortably admitted and +7's tail verdict inside
-    [LATTICE_STRUCTURAL_Z, LATTICE_GATE_Z): exactly the structural bar's
-    jurisdiction this test pins."""
+    can no longer hide bin 7 -- the split truth keeps +3 comfortably
+    admitted and +7's tail verdict above the unified 1.5 bar (at the old
+    split bars this z sat in the structural-only window; the 2026-10-18
+    unification admits it at either tier)."""
     rng = np.random.default_rng(seed)
     support = np.arange(-30, 31)
     base = np.exp(-.5 * ((support - 1.5) / 13.) ** 2)
@@ -314,9 +314,8 @@ def test_structural_spikes_admit_primaries_individually_and_compose():
     by_bin = {s["bin"]: s for s in rep["spikes"]}
     assert by_bin[3]["admitted"] and by_bin[7]["admitted"]
     assert by_bin[3]["z"] >= fam.LATTICE_STRUCTURAL_Z
-    # Bin 7's evidence sits between the bars -- exactly the structural
-    # bar's jurisdiction: admitted here, rejected under the generic bar.
-    assert fam.LATTICE_STRUCTURAL_Z <= by_bin[7]["z"] < fam.LATTICE_GATE_Z
+    # Unified 1.5 bar (2026-10-18): bin 7's tail z clears it and admits.
+    assert by_bin[7]["z"] >= fam.LATTICE_GATE_Z
     # Secondary key numbers carry no excess here: each gated individually,
     # each rejected with its own verdict row.
     for v in (1, 4, 6, 10, 14, 17):
@@ -326,30 +325,22 @@ def test_structural_spikes_admit_primaries_individually_and_compose():
         assert ("z" in row) if row["admitted"] else ("reason" in row)
     d = np.asarray(delta, float)
     assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
-    # The STRUCTURAL spike component clamps at LATTICE_SPIKE_CAP (each
-    # bin held-out gated above); generic components keep LATTICE_DELTA_CAP.
-    assert (np.abs(d) <= fam.LATTICE_SPIKE_CAP + 1e-12).all()  # clamp
+    # No magnitude clamp (removed 2026-10-18): admitted spikes ship whole.
+    assert (np.abs(d) > 0.).any()
     assert d[support == 3] > 0. and d[support == 7] > 0.    # spike direction
     assert (d == np.round(d, fam.LATTICE_ROUND)).all()        # stored rounding
     # Compose keeps the contract: spike delta + zero generic residual gives
     # the spike vector back up to the stored rounding, still zero-sum —
-    # under the per-bin caps production passes (SPIKE_CAP at the admitted
-    # bins, the generic fix bound elsewhere).
-    caps = np.full(len(d), fam.LATTICE_DELTA_CAP)
-    caps[np.abs(d) > 0.] = fam.LATTICE_SPIKE_CAP
+    # with no magnitude clamp anywhere.
     combo = np.asarray(fam.compose_lattice_deltas(
-        [delta, [0.] * len(d)], caps=caps), float)
+        [delta, [0.] * len(d)]), float)
     np.testing.assert_allclose(combo, d, atol=1e-6)
     assert abs(combo.sum()) <= len(combo) * 5e-7 + 1e-9
-    # caps=None keeps the exact pre-existing uniform generic clamp.
-    combo_uniform = np.asarray(fam.compose_lattice_deltas(
-        [delta, [0.] * len(d)]), float)
-    assert (np.abs(combo_uniform) <= fam.LATTICE_DELTA_CAP + 1e-12).all()
     with pytest.raises(ValueError):
         fam.compose_lattice_deltas([delta, None])
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         fam.compose_lattice_deltas([delta, [0.] * len(d)],
-                                   caps=[fam.LATTICE_SPIKE_CAP])
+                                   caps=[0.05])
 
 
 def test_spike_fit_rejects_pure_noise_with_verdicts():
@@ -396,7 +387,8 @@ def test_structural_spikes_admit_mirror_bins_when_piled():
     d = np.asarray(delta, float)
     assert d[support == -3] > 0. and d[support == -7] > 0.  # spike direction
     assert abs(d.sum()) <= len(d) * 5e-7 + 1e-9              # zero-sum
-    assert (np.abs(d) <= fam.LATTICE_SPIKE_CAP + 1e-12).all()  # clamp
+    # No magnitude clamp (removed 2026-10-18): admitted spikes ship whole.
+    assert (np.abs(d) > 0.).any()
 
 
 def test_preregistered_table_covers_nfl_mirror_spikes():
@@ -425,42 +417,34 @@ def test_nfl_lattice_fit_passes_mirror_candidates_to_spikes():
     assert by_bin[-3]["admitted"] and by_bin[-7]["admitted"]
 
 
-def test_spike_report_discloses_structural_cap_and_relief():
-    """Disclosure: the spike report carries the structural clamp and the
-    registered relief boost it was fitted under."""
+def test_spike_report_discloses_relief_and_no_cap():
+    """Disclosure: the spike report carries the registered relief boost
+    it was fitted under — and no cap (magnitude caps removed 2026-10-18)."""
     pmfs, outcomes, support = _spike_evidence()
     _, rep = fam.fit_margin_spikes(pmfs, outcomes, support, SPORT)
-    assert rep["cap"] == fam.LATTICE_SPIKE_CAP
+    assert "cap" not in rep
     assert rep["relief_boost"] == fam.LATTICE_SPIKE_RELIEF_BOOST
 
 
-def test_compose_per_bin_caps_honored_and_validated():
-    """caps=None keeps the exact uniform generic clamp; a caps vector is
-    honored per bin and validated (shape/finite) — the NFL margin compose
-    site grants SPIKE_CAP only at admitted spike bins."""
+def test_compose_ships_full_size_with_no_caps():
+    """compose_lattice_deltas sums admitted components with no magnitude
+    clamp: a 0.04 component ships whole (minus the zero-sum spread), and
+    no caps argument exists."""
     base = [0.] * 9
     base[4] = 0.04
-    uniform = np.asarray(fam.compose_lattice_deltas([base]), float)
-    assert abs(uniform[4]) <= fam.LATTICE_DELTA_CAP + 1e-12
-    caps = np.full(9, fam.LATTICE_DELTA_CAP)
-    caps[4] = fam.LATTICE_SPIKE_CAP
-    capped = np.asarray(fam.compose_lattice_deltas([base], caps=caps), float)
-    assert capped[4] > fam.LATTICE_DELTA_CAP           # headroom honored
-    assert (np.abs(np.delete(capped, 4))
-            <= fam.LATTICE_DELTA_CAP + 1e-12).all()    # others unchanged
-    with pytest.raises(ValueError):
-        fam.compose_lattice_deltas([base], caps=[fam.LATTICE_SPIKE_CAP] * 5)
-    with pytest.raises(ValueError):
-        fam.compose_lattice_deltas([base],
-                                   caps=[float("nan")] * 9)
+    composed = np.asarray(fam.compose_lattice_deltas([base]), float)
+    assert composed[4] == pytest.approx(0.04 * 8 / 9, abs=1e-6)
+    assert composed[4] > 0.03  # the removed generic clamp pinned this at 0.03
+    with pytest.raises(TypeError):
+        fam.compose_lattice_deltas([base], caps=[0.05] * 9)
 
 
-def test_nfl_composed_delta_uses_spike_cap_only_at_admitted_bins():
-    """Wiring: the NFL compose site's per-bin caps grant LATTICE_SPIKE_CAP
-    exactly at admitted structural spike bins; every other bin of the
-    stored composed vector stays within the generic fix bound."""
+def test_nfl_composed_delta_ships_admitted_spikes_whole():
+    """Wiring: the NFL compose site applies no per-bin caps — admitted
+    structural spikes price whole with the correct sign, and the stored
+    vector carries no cap metadata."""
     if SPORT != "nfl":
-        pytest.skip("per-bin structural caps are an NFL-caller extension")
+        pytest.skip("spike compose wiring is an NFL-caller extension")
     pmfs, outcomes, support = _mirror_spike_evidence()
     maps = dist._fit_lattice_maps(
         {}, {}, {"margin": {"pmfs": pmfs, "outcomes": outcomes,
@@ -469,10 +453,8 @@ def test_nfl_composed_delta_uses_spike_cap_only_at_admitted_bins():
     admitted = {int(s["bin"]) for s in maps["margin"]["spike_report"]["spikes"]
                 if s.get("admitted")}
     assert {-3, -7} <= admitted
-    for j, b in enumerate(support):
-        bound = (fam.LATTICE_SPIKE_CAP if int(b) in admitted
-                 else fam.LATTICE_DELTA_CAP)
-        assert abs(delta[j]) <= bound + 1e-12, (int(b), delta[j], bound)
+    assert delta[support == -3] > 0. and delta[support == -7] > 0.
+    assert "caps" not in maps["margin"]
 
 
 def _share_evidence(tilt=.15, n=900, seed=2):
@@ -497,18 +479,20 @@ def test_pooled_share_admits_home_tilt_with_report():
     assert len(rep["blocks"]) >= 2 and "fallback" not in rep
 
 
-def test_structural_bar_admits_what_generic_rejects_and_enforces_direction():
+def test_unified_bar_admits_suggestive_tilt_and_enforces_direction():
+    # Unified 1.5 bar (2026-10-18): the tilt=.03 evidence the old split
+    # bars held at structural-only now admits at the default bar, generic
+    # stage first; the direction enforcement below is unchanged.
     pmfs, outcomes, support = _share_evidence(tilt=.03, n=500, seed=4)
-    generic, rep_g = fam.fit_pooled_home_share(outcomes, pmfs=pmfs,
-                                               support=support)
-    assert generic is None
-    assert rep_g["reason"] == "held_out_not_significant"
-    assert fam.LATTICE_STRUCTURAL_Z <= rep_g["z"] < fam.LATTICE_GATE_Z
+    share, rep = fam.fit_pooled_home_share(outcomes, pmfs=pmfs,
+                                           support=support)
+    assert share is not None and share > .5
+    assert rep["structural"] is False and rep["z"] >= fam.LATTICE_GATE_Z
     structural, rep_s = fam.fit_pooled_home_share(
         outcomes, pmfs=pmfs, support=support,
         bar=fam.LATTICE_STRUCTURAL_Z, structural=True)
     assert structural is not None and structural > .5
-    assert rep_s["structural"] is True and rep_s["bar"] == 2.5
+    assert rep_s["structural"] is True and rep_s["bar"] == fam.LATTICE_STRUCTURAL_Z
     # Pre-registered direction enforced BEFORE the test: an away tilt is a
     # structural no-op, never a two-sided retry.
     pmfs_a, outcomes_a, _ = _share_evidence(tilt=-.15, n=900, seed=2)
@@ -710,10 +694,10 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
     r_train[int(np.searchsorted(support, -3))] = 0.008
     out = {"residual_mae_before": 0.0008, "residual_mae_after": 0.0003,
            "collateral_ok": True}
-    d = np.array([-0.002] * 400 + [0.0] * 400)  # mean < 0, z >> 2.5
+    d = np.array([-0.002] * 400 + [0.0] * 400)  # mean < 0, z >> 1.5
     hit = fam._structural_lattice_fallback("nhl", "margin", support,
                                            r_train, d, 2.708, out)
-    assert hit == {"structural": True, "bar": 2.5,
+    assert hit == {"structural": True, "bar": fam.LATTICE_STRUCTURAL_Z,
                    "mechanism": "empty_net_2_to_3"}
     # Direction enforced on train evidence: no excess at -3, no fallback.
     r_train[int(np.searchsorted(support, -3))] = -0.001
@@ -722,7 +706,7 @@ def test_structural_lattice_fallback_is_nhl_margin_only_and_directional():
     # Below the structural bar: no fallback even with the direction held.
     r_train[int(np.searchsorted(support, -3))] = 0.008
     assert fam._structural_lattice_fallback("nhl", "margin", support,
-                                            r_train, d, 2.0, out) is None
+                                            r_train, d, 1.2, out) is None
     # Other pairs never take this path (NFL secondaries keep their own
     # spike gate; totals keep the generic bar).
     assert fam._structural_lattice_fallback("nfl", "margin", support,

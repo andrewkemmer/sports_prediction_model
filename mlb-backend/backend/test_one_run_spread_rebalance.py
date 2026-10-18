@@ -72,7 +72,7 @@ def test_amount_and_funding_are_read_from_the_evidence():
     assert _at(delta, support, RECIPIENT) == pytest.approx(rep["amount"],
                                                            abs=1e-5)
     # Secondary leg: sized by M=-2's OWN SE-shrunk shortfall in the train
-    # actuals — no constant, and capped at the lattice fix cap.
+    # actuals — no constant and no magnitude clamp (removed 2026-10-18).
     assert rep["secondary"] == SECONDARY == -2
     assert rep["secondary_residual"] > 0.            # actuals show -2 short
     assert rep["secondary_capacity"] >= rep["secondary_amount"] > 0.

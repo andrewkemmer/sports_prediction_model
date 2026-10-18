@@ -1727,13 +1727,10 @@ EMPTY_NET_TRANSFER_PAIRS = ((2, 3), (-2, -3))   # (donor, recipient) margins
 # path are untouched — relief changes only the proposed demand, and an
 # over-deep demand still loses to its supply cap or fails its own gate.
 EMPTY_NET_DEMAND_RELIEF = 3.
-# Per-bin clamp at the transfer bins — the NFL key-number precedent
-# (LATTICE_SPIKE_CAP, same value): a preregistered,
-# held-out-gated structural leg may exceed the generic LATTICE_DELTA_CAP
-# fix bound at ITS bins; every other composed bin keeps the generic cap.
-# The transfer itself never exceeds the donor's observed excess, so this
-# cap only bounds extreme single-origin evidence.
-EMPTY_NET_SPIKE_CAP = .05
+# Magnitude caps REMOVED (2026-10-18, owner decision): the admitted
+# transfer ships at its full fitted size. The transfer itself never
+# exceeds the donor's observed excess, and every leg still clears its
+# own one-sided held-out gate.
 
 
 def fit_empty_net_transfer(pmfs, outcomes, support,
@@ -1756,7 +1753,7 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
         the donor's OBSERVED excess. Actuals showing no excess at the
         donor (residual >= 0) supply exact zero, so mass is never taken
         from a bin the actuals do not over-predict;
-      t = min(demand, supply, EMPTY_NET_SPIKE_CAP).
+      t = min(demand, supply) — no magnitude cap.
 
     Direction checks (recipient under-predicted, donor over-predicted)
     run on TRAIN evidence only and are enforced per pair. Admission is
@@ -1777,8 +1774,8 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
     mechanism — no partial transfer ships.
 
     Returns (delta | None, report): the composed transfer delta
-    (zero-sum, clamped at EMPTY_NET_SPIKE_CAP, rounded — the generic post
-    pipeline) or None when the joint gate refuses, plus the per-pair
+    (zero-sum, rounded — the generic post pipeline) or None when the
+    joint gate refuses, plus the per-pair
     verdict table (demand/supply/transfer/z per pair) and the joint
     report["gate"] block for disclosure.
     """
@@ -1845,7 +1842,7 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
             row.update(admitted=False, reason="no_donor_excess")
             report["pairs"].append(row)
             continue
-        transfer = float(min(demand, supply, EMPTY_NET_SPIKE_CAP))
+        transfer = float(min(demand, supply))
         row["transfer"] = round(transfer, 6)
         trial = np.zeros(len(support))
         trial[i3], trial[i2] = transfer, -transfer
@@ -1896,11 +1893,9 @@ def fit_empty_net_transfer(pmfs, outcomes, support,
         delta[i3] += transfer
         delta[i2] -= transfer
     delta = family._zero_sum_mass_proportional(delta, pbar)
-    delta = np.clip(delta, -EMPTY_NET_SPIKE_CAP, EMPTY_NET_SPIKE_CAP)
     delta[np.abs(delta) < family.LATTICE_DELTA_EPS] = 0.
     delta = np.round(delta, family.LATTICE_ROUND)
     report["significant"] = True
-    report["cap"] = float(EMPTY_NET_SPIKE_CAP)
     report["delta_l1"] = round(float(np.abs(delta).sum()), 6)
     return [float(v) for v in delta], report
 
@@ -1919,8 +1914,8 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     from actuals behind one joint held-out gate on the composed two-pair
     delta at the structural bar); the
     generic residual then runs on transfer-adjusted pmfs and both
-    components price as one composed delta with per-bin caps — the NFL
-    key-number compose pattern. Every value is plain JSON so stored
+    components price as one composed delta with no magnitude clamp.
+    Every value is plain JSON so stored
     bundles reprice byte-identically.
     """
     totals: dict = {}
@@ -1982,11 +1977,10 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
         # Compose structural transfer + generic residual into the single
         # stored delta (same post pipeline each fit applies alone;
         # family.compose_lattice_deltas' own contract — sum,
-        # mass-proportional zero-sum, clamp, eps-zero, round — done here
-        # with PER-BIN caps because the shared family's compose predates
-        # the caps argument and its four backend copies must stay
-        # byte-identical). Generic-only metrics stay as fitted;
-        # delta_l1/delta_max describe the COMPOSED vector that prices.
+        # mass-proportional zero-sum, eps-zero, round — done here with no
+        # magnitude clamp (caps removed 2026-10-18). Generic-only metrics
+        # stay as fitted; delta_l1/delta_max describe the COMPOSED vector
+        # that prices.
         parts = [np.asarray(transfer_delta, float)]
         if "delta" in margin:
             parts.append(np.asarray(margin["delta"], float))
@@ -1994,20 +1988,7 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
                          0., None)
         composed = family._zero_sum_mass_proportional(np.sum(parts, axis=0),
                                                        weight)
-        # Per-bin caps: the composed vector may reach EMPTY_NET_SPIKE_CAP
-        # exactly at the four bins of an ADMITTED pair — each of those
-        # cleared its own one-sided held-out gate — while every other bin
-        # keeps the generic family.LATTICE_DELTA_CAP fix bound.
         _msup = np.asarray(margin_ev.get("support"))
-        caps = np.full(len(composed), family.LATTICE_DELTA_CAP)
-        for _p in (margin.get("empty_net_report") or {}).get("pairs", []):
-            if _p.get("admitted"):
-                for _key in ("donor", "recipient"):
-                    _j = int(np.searchsorted(_msup, _p[_key]))
-                    if (0 <= _j < len(_msup)
-                            and int(_msup[_j]) == int(_p[_key])):
-                        caps[_j] = EMPTY_NET_SPIKE_CAP
-        composed = np.clip(composed, -caps, caps)
         composed[np.abs(composed) < family.LATTICE_DELTA_EPS] = 0.
         margin["delta"] = [float(v)
                            for v in np.round(composed, family.LATTICE_ROUND)]
