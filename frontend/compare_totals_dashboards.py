@@ -65,7 +65,7 @@ REQUIRED_WIDGETS = ("selectbox", "TABLE", "metric", "TAB", "EXPANDER")
 # The winner-card metric row MLB renders (2026-10-11: every sport must show
 # the SAME seven metrics in the same slots — pooled AND sealed-holdout).
 REQUIRED_CARD_METRICS = ("Win rate", "AUC", "Pooled ECE-cal",
-                         "Holdout ECE-cal", "Pooled Brier",
+                         "Holdout CRPS", "Pooled Brier",
                          "Pooled Logloss", "Holdout AUC")
 # The two HTML blocks the monitor section must render (NBA shipped neither
 # before the 2026-10-11 structural repair).

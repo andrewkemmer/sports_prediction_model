@@ -515,8 +515,8 @@ def _render_winner_cards(cards: dict) -> None:
             c2.metric("AUC", _fmt(card.get("auc"), 4))
             c1, c2 = st.columns(2)
             c1.metric("Pooled ECE-cal", _fmt(card.get("ece_calibrated")))
-            c2.metric("Holdout ECE-cal",
-                      _fmt(h.get("ece_calibrated")) if h else "—")
+            c2.metric("Holdout CRPS",
+                      _fmt(h.get("crps")) if h else "—")
             c1, c2 = st.columns(2)
             c1.metric("Pooled Brier", _fmt(card.get("brier")))
             c2.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))

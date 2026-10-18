@@ -1133,6 +1133,39 @@ def _attach_full_pool_auc(card: dict, y: np.ndarray, p: np.ndarray,
             card["holdout"]["auc_n"] = hold_card.get("n")
 
 
+
+
+def _sealed_holdout_crps(df: pd.DataFrame, outcome_col: str,
+                         prob_base: str, grid) -> float | None:
+    """Mean grid CRPS over sealed-holdout rows (the "Holdout CRPS" cell).
+
+    CRPS = step * mean_rows(sum_lines((P(Y > line) - 1{y > line})^2)) over
+    the sport's integer unit grid (raw cover/over legs — no 2-way rescale;
+    push mass belongs to the CDF). Population: ALL sealed rows with a
+    finite outcome and complete grid legs — deliberately NOT lean-gated
+    (gating a distribution metric to P > 50% would range-restrict it, the
+    same reason AUC is re-pointed at the full pool). Returns None when the
+    grid is absent or no sealed row qualifies. Tails beyond the grid are
+    truncated (documented, identical every run — comparable across runs).
+    """
+    import pandas as pd  # noqa: F811 (module already imports numpy/pandas)
+    grid = np.asarray(grid, dtype=float)
+    if grid.size < 2:
+        return None
+    step = float(grid[1] - grid[0])
+    n = len(df)
+    y = pd.to_numeric(df.get(outcome_col), errors="coerce").to_numpy(float)         if df.get(outcome_col) is not None else np.full(n, np.nan)
+    P = _grid_values(df, prob_base, grid)
+    if P is None:
+        return None
+    sealed = (df.get("frame_view") == "sealed").to_numpy()         if "frame_view" in df.columns else np.zeros(n, bool)
+    ok = sealed & np.isfinite(y) & np.isfinite(P).all(axis=1)
+    if not ok.any():
+        return None
+    gap = P[ok] - (y[ok][:, None] > grid[None, :]).astype(float)
+    return round(float(step * (gap ** 2).sum(axis=1).mean()), 4)
+
+
 def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     """The three binary winner cards from the decided OOF market rows —
     MLB ``compute_winner_cards`` field shape on the NBA grids:
@@ -1240,6 +1273,16 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     cards["derived_ml"] = _build(y_home[lean], ml[lean], sealed[lean],
                                  auc_pool=(y_home[graded], ml[graded],
                                            sealed[graded]))
+
+    # Holdout CRPS (replaces the degenerate Holdout ECE-cal cell): totals
+    # CRPS on the O/U card, margin CRPS on the run-line + derived-ML cards.
+    _t = _sealed_holdout_crps(oof_rows, "total", "p_over", config.TOTAL_GRID)
+    _m = _sealed_holdout_crps(oof_rows, "margin", "p_home_cover", config.SPREAD_GRID)
+    if _t is not None and isinstance(cards.get("over_under", {}).get("holdout"), dict):
+        cards["over_under"]["holdout"]["crps"] = _t
+    for _k in ("run_line", "derived_ml"):
+        if _m is not None and isinstance(cards.get(_k, {}).get("holdout"), dict):
+            cards[_k]["holdout"]["crps"] = _m
     return cards
 
 
