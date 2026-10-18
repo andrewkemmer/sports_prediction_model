@@ -447,3 +447,37 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
 2026-10-18 14:50:48,606 WARNING Error lines received while fetching: error: failed to push some refs to 'https://github.com/andrewkemmer/sports_prediction_model.git'
   ⚠️  Push rejected (attempt 2/3) — re-syncing to the current remote tip and replaying this run
   synced clone to remote tip a77c70d607 (main)
+  ✅ Pushed and remotely verified 28 files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 6 — Stale artifact cleanup (final step)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  synced clone to remote tip ac093094e8 (main)
+  🛡️  Kept 57 protected file(s) (never deleted)
+  📅 Kept 188 artifact(s) within the retention window (anchor 20261018 -10d)
+  🧹 Removing 14 stale files:
+    mlb-backend/data_delivery/calibration_20261007.json
+    mlb-backend/data_delivery/feature_coverage_20261007.csv
+    mlb-backend/data_delivery/feature_drift_20261007.csv
+    mlb-backend/data_delivery/features_metadata_20261007.json
+    mlb-backend/data_delivery/mlb_input_quality_20261007.json
+    mlb-backend/data_delivery/model_monitor_20261007.json
+    mlb-backend/data_delivery/pbp_defense_20261007.meta.json
+    mlb-backend/data_delivery/pbp_defense_20261007.parquet
+    mlb-backend/data_delivery/pl_slate_20261007.parquet
+    mlb-backend/data_delivery/power_rankings_20261007.csv
+    mlb-backend/data_delivery/rolling_brier_20261007.json
+    mlb-backend/data_delivery/run_engine_feature_coverage_20261007.csv
+    mlb-backend/data_delivery/run_engine_feature_drift_20261007.csv
+    mlb-backend/data_delivery/todays_games_20261007.csv
+  ✅ Removed 14 stale files — confirmed on sports_prediction_model@main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DONE ✅ — 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Games: 7411  |  Pitches: 2,177,831  |  Columns: 290 game + 88 pbp
+  Output: /content/mlb_clean_data
+  📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
+  synced clone to remote tip 0fb43a2bb9 (main)
