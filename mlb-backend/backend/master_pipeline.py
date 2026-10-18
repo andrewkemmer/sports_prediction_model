@@ -232,6 +232,24 @@ try:
         logging.info("delivery root: %s", _root_cfg)
 except Exception as _roots_exc:  # noqa: BLE001 — observability only
     logging.warning("delivery roots unresolved (%s)", _roots_exc)
+# Code checkout (2026-10-18 pooled-CRPS review): announce the exact tree
+# this run executes, NEXT TO the tee so the pushed log always carries it.
+# Two same-day monitor regens shipped WITHOUT card-level pooled CRPS
+# because the remote host ran a pre-migration checkout — nothing in the
+# log identified the code, so the artifact had to prove it. The writer
+# marker names the active pooled-CRPS implementation directly.
+try:
+    import subprocess as _sp  # noqa: E402 — startup observability only
+    _sha = _sp.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                   text=True, timeout=15, cwd=Path.cwd()).stdout.strip()[:12]
+    _dirty = _sp.run(["git", "status", "--porcelain"], capture_output=True,
+                     text=True, timeout=15, cwd=Path.cwd()).stdout.strip()
+    from distributions import _pooled_grid_crps as _crps_writer  # noqa: E402,F401
+    logging.info("code checkout: %s (%s) pooled_crps_writer=%s",
+                 _sha or "unknown", "dirty" if _dirty else "clean",
+                 bool(_crps_writer))
+except Exception as _sha_exc:  # noqa: BLE001 — observability only
+    logging.warning("code checkout unresolved (%s)", _sha_exc)
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast, warn_missing_finals
 
