@@ -667,7 +667,7 @@ FEATURE_MANIFEST = {
     },
     "is_turf_home": {
         "description": "Home venue playing surface is artificial turf",
-        "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+        "definition": "1.0 when the schedule surface contains a turf token (turf/astro/a-turf/a_turf/matrix/fieldturf/sportturf/ubu/shaw/hellas/synthetic/artificial, case-insensitive substring); 0.0 when it contains a grass token (grass/natural/sod/bermuda, incl. hybrid SISGrass/Desso GrassMaster); NaN when blank/unknown/unlisted",
         "source": "nflverse schedule surface field",
         "lookback": 0,
         "aggregation": "static pre-game fact",
@@ -675,7 +675,7 @@ FEATURE_MANIFEST = {
         "missing_value_policy": "NaN when surface is unlisted/blank; never fabricated",
         "representation": "game-level flag (all model families)",
         "model_family_availability": ["linear", "tree", "mlp"],
-        "feature_version": 4,
+        "feature_version": 5,
     },
     "temp_f": {
         "description": "Hourly venue temperature immediately before kickoff (F)",

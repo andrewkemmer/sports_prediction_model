@@ -1359,12 +1359,36 @@ def _attach_static_team_facts(df: pd.DataFrame,
 
     # Playing surface of the HOME venue: normalize the schedule's messy
     # surface strings to a turf flag. NaN when unlisted — never fabricated.
+    # 2026-10-18 remote-log remediation: the exact-match set below missed
+    # real nflverse variants ("FieldTurf 360", "A-Turf Titan",
+    # "Hellas Matrix Turf", "UBU Sports Speed S5-M",
+    # "Shaw Sports Momentum Pro", "Natural Grass", "SISGrass", ...) so
+    # is_turf_home sat at ~75% coverage in the current window (LOW_COVERAGE).
+    # Substring rules classify every listed surface; truly blank/unknown
+    # strings stay NaN.
     surface = (df["surface"].astype(str).str.strip().str.lower()
                if "surface" in df.columns
                else pd.Series("", index=df.index))
-    turf_surfaces = {"fieldturf", "matrixturf", "sportturf", "astroturf", "a_turf"}
-    df["is_turf_home"] = np.where(surface.isin(turf_surfaces), 1.0,
-                                  np.where(surface.eq("grass"), 0.0, np.nan))
+    _s = surface.fillna("").astype(str)
+    _blank = _s.str.strip().isin({"", "nan", "none", "null", "unknown", "n/a", "na"})
+    _is_turf = (
+        _s.str.contains("turf", na=False)
+        | _s.str.contains("astro", na=False)
+        | _s.str.contains("a-turf", na=False)
+        | _s.str.contains("a_turf", na=False)
+        | _s.str.contains("matrix", na=False)
+        | _s.str.contains("fieldturf", na=False)
+        | _s.str.contains("sportturf", na=False)
+        | _s.str.contains("ubu", na=False)
+        | _s.str.contains("shaw", na=False)
+        | _s.str.contains("hellas", na=False)
+        | _s.str.contains("synthetic", na=False)
+        | _s.str.contains("artificial", na=False)
+    )
+    _is_grass = _s.str.contains("grass", na=False) | _s.str.contains("natural", na=False) | _s.str.contains("sod", na=False) | _s.str.contains("bermuda", na=False)
+    df["is_turf_home"] = np.where(_blank, np.nan,
+                                  np.where(_is_turf, 1.0,
+                                           np.where(_is_grass, 0.0, np.nan)))
 
     return _attach_weather(df, weather)
 

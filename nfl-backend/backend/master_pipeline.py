@@ -1676,7 +1676,11 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     # distribution coherence on the OOF market rows
     p = out_dir / config.MARKETS_CSV.format(date=date_c)
     if p.exists():
-        mk = pd.read_csv(p)
+        # 2026-10-18 remote-log remediation: the markets CSV mixes numeric
+        # grids with string slate columns, so the default chunked inference
+        # raised DtypeWarning (Columns (25) have mixed types). Parse the
+        # whole file at once; this is a small validation read, not a hot loop.
+        mk = pd.read_csv(p, low_memory=False)
         ok = True
         for L in config.SPREAD_GRID:
             label = f"m{-L}" if L < 0 else str(L)
