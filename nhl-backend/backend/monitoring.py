@@ -1009,18 +1009,20 @@ def _attach_full_pool_auc(card: dict, full: pd.DataFrame,
 
 
 
-def _sealed_holdout_crps(df: pd.DataFrame, outcome_col: str,
-                         prob_base: str, grid) -> float | None:
-    """Mean grid CRPS over sealed-holdout rows (the "Holdout CRPS" cell).
+def _pooled_grid_crps(df: pd.DataFrame, outcome_col: str,
+                      prob_base: str, grid,
+                      mask=None) -> float | None:
+    """Mean grid CRPS over pooled OOF rows (the "Pooled CRPS" cell).
 
     CRPS = step * mean_rows(sum_lines((P(Y > line) - 1{y > line})^2)) over
     the sport's integer unit grid (raw cover/over legs — no 2-way rescale;
-    push mass belongs to the CDF). Population: ALL sealed rows with a
+    push mass belongs to the CDF). Population: ALL pooled OOF rows with a
     finite outcome and complete grid legs — deliberately NOT lean-gated
     (gating a distribution metric to P > 50% would range-restrict it, the
-    same reason AUC is re-pointed at the full pool). Returns None when the
-    grid is absent or no sealed row qualifies. Tails beyond the grid are
-    truncated (documented, identical every run — comparable across runs).
+    same reason AUC is re-pointed at the full pool); pass mask to restrict
+    (e.g. sealed holdout). Returns None when the grid is absent or no row
+    qualifies. Tails beyond the grid are truncated (documented, identical
+    every run — comparable across runs).
     """
     import pandas as pd  # noqa: F811 (module already imports numpy/pandas)
     grid = np.asarray(grid, dtype=float)
@@ -1033,8 +1035,11 @@ def _sealed_holdout_crps(df: pd.DataFrame, outcome_col: str,
     if any(c not in df.columns for c in cols):
         return None
     P = df[cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-    sealed = (df.get("frame_view") == "sealed").to_numpy()         if "frame_view" in df.columns else np.zeros(n, bool)
-    ok = sealed & np.isfinite(y) & np.isfinite(P).all(axis=1)
+    if mask is None:
+        use = np.ones(n, bool)
+    else:
+        use = np.asarray(mask, bool)
+    ok = use & np.isfinite(y) & np.isfinite(P).all(axis=1)
     if not ok.any():
         return None
     gap = P[ok] - (y[ok][:, None] > grid[None, :]).astype(float)
@@ -1174,15 +1179,15 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
     cards = {"over_under": _build("over_under", oof_rows),
              "run_line": _build("run_line", oof_rows),
              "derived_ml": _build("derived_ml", oof_rows)}
-    # Holdout CRPS (replaces the degenerate Holdout ECE-cal cell): totals
-    # CRPS on the O/U card, margin CRPS on the run-line + derived-ML cards.
-    _t = _sealed_holdout_crps(oof_rows, "total", "p_over", config.TOTAL_GRID)
-    _m = _sealed_holdout_crps(oof_rows, "margin", "p_home_cover", config.SPREAD_GRID)
-    if _t is not None and isinstance(cards.get("over_under", {}).get("holdout"), dict):
-        cards["over_under"]["holdout"]["crps"] = _t
+    # Pooled CRPS (the whole-OOF distribution cell): totals CRPS on the
+    # O/U card, margin CRPS on the run-line + derived-ML cards.
+    _t = _pooled_grid_crps(oof_rows, "total", "p_over", config.TOTAL_GRID)
+    _m = _pooled_grid_crps(oof_rows, "margin", "p_home_cover", config.SPREAD_GRID)
+    if _t is not None and isinstance(cards.get("over_under"), dict):
+        cards["over_under"]["crps"] = _t
     for _k in ("run_line", "derived_ml"):
-        if _m is not None and isinstance(cards.get(_k, {}).get("holdout"), dict):
-            cards[_k]["holdout"]["crps"] = _m
+        if _m is not None and isinstance(cards.get(_k), dict):
+            cards[_k]["crps"] = _m
     return cards
 
 
