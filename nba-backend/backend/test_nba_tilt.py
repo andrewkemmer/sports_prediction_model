@@ -63,6 +63,47 @@ def test_non_nba_has_no_tilt():
         np.zeros(len(h)))
 
 
+def test_adopted_fit_maps_carries_tilt_when_flag_on(monkeypatch):
+    import distributions as dist
+    assert dist.DISTRIBUTION_SPORT == "nba"
+    # Patch the config object distributions.py actually reads (its own
+    # module reference), not a same-named import that may be a different
+    # module instance under pytest's import mode.
+    h, a, out = _synthetic(n=500)
+    monkeypatch.setattr(dist.config, "DISTRIBUTION_TOTAL_TILT_PACE", True)
+    maps = dist._distribution_fit_maps(h, a, out)
+    assert "total_tilt" in maps["variance"]
+    assert maps["variance"]["total_tilt"]["slope"] > 0.
+    monkeypatch.setattr(dist.config, "DISTRIBUTION_TOTAL_TILT_PACE", False)
+    maps = dist._distribution_fit_maps(h, a, out)
+    assert "total_tilt" not in maps["variance"]
+
+
+def test_tilt_watch_panel_reports_slope_and_gap(monkeypatch):
+    import pandas as pd
+    import distributions as dist
+    monkeypatch.setattr(dist.config, "DISTRIBUTION_TOTAL_TILT_PACE", True)
+    rng = np.random.default_rng(3)
+    n = 500
+    h = rng.normal(113., 5., n)
+    a = rng.normal(110., 5., n)
+    frame = pd.DataFrame({
+        "game_id": [f"g{i}" for i in range(n)],
+        "gameday": pd.date_range("2025-01-01", periods=n),
+        "mu_h": h, "mu_a": a,
+        "home_score": rng.poisson(np.clip(h, 1, None)),
+        "away_score": rng.poisson(np.clip(a, 1, None)),
+        "fold_id": (np.arange(n) // 60).astype(str)})
+    priced, bundle = dist.causal_distribution_frame(frame, n_draws=100)
+    assert "total_tilt" in bundle["maps"]["variance"]
+    rep = dist.distribution_score_report(priced, bundle)
+    watch = rep["tilt_watch"]
+    assert set(watch) == {"tilt", "top_quintile_over_230"}
+    assert set(watch["tilt"]) == {"slope", "intercept", "sign_ok",
+                                   "origin_slopes", "origin_sign_flips"}
+    assert watch["top_quintile_over_230"]["n"] >= 20
+
+
 def test_shift_is_capped():
     h = np.full(10, 150.)
     a = np.full(10, 150.)

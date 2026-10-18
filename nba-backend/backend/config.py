@@ -644,7 +644,11 @@ DISTRIBUTION_CONDVARIANCE_PACE = False
 # location before the Gaussian CDF is formed. Trial-only until a
 # walk-forward verdict clears the gate (run_diagnostics/nba_tilt_trial.py).
 # Other sports never read this flag.
-DISTRIBUTION_TOTAL_TILT_PACE = False
+# ADOPTED 2026-10-18 (V3a verdict: top-quintile over-230 gap +0.0438 ->
+# +0.0081, totals CRPS neutral, lift z=+52.3). Watched every run by the
+# tilt_watch panel (slope-sign guard + top-quintile gap) in
+# distribution_score_report.
+DISTRIBUTION_TOTAL_TILT_PACE = True
 
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the

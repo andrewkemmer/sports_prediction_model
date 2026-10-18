@@ -1642,6 +1642,12 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
 
 def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
     parameters = family.fit_variance(h, a, outcomes, DISTRIBUTION_SPORT)
+    if DISTRIBUTION_SPORT == "nba" and bool(getattr(config, "DISTRIBUTION_TOTAL_TILT_PACE", False)):
+        # Adopted 2026-10-18 (V3a verdict: top-quintile over-230 gap
+        # +0.0438 -> +0.0081, CRPS neutral). Totals pace-tilt location
+        # correction rides the variance params; raw_cdf shifts the TOTAL
+        # location only, so calibration refits against the tilted base.
+        parameters.update(family.fit_tilt(h, a, outcomes, DISTRIBUTION_SPORT))
     return {"variance": parameters,
             **{kind: _fit_distribution_map(h, a, y, kind, parameters)
                for kind, y in outcomes.items()},
@@ -1868,6 +1874,42 @@ def distribution_score_report(frame, bundle):
                 if mask.any():
                     result["conditional_crps"][f"{column}_{flag}"] = {
                         "n": int(mask.sum()), **{k: float(v[mask].mean()) for k, v in row_losses.items()}}
+    if DISTRIBUTION_SPORT == "nba":
+        # V3a tilt watch (adopted 2026-10-18): slope-sign guard on the
+        # serving fit plus the top-quintile over-230 gap panel, so the bias
+        # the tilt was adopted to fix stays watched every run. Absent tilt
+        # block (flag off) still reports the gap; other sports skip this.
+        tilt, gap = {}, {}
+        serving_var = (bundle.get("maps") or {}).get("variance") or {}
+        block = serving_var.get("total_tilt") or {}
+        if block:
+            slopes = []
+            for origin in bundle.get("origins") or []:
+                ob = ((origin.get("maps") or {}).get("variance") or {}).get("total_tilt") or {}
+                if ob.get("slope") is not None:
+                    slopes.append(float(ob["slope"]))
+            tilt = {"slope": round(float(block["slope"]), 3),
+                    "intercept": round(float(block["intercept"]), 3),
+                    "sign_ok": bool(float(block["slope"]) > 0),
+                    "origin_slopes": [round(s, 3) for s in slopes],
+                    "origin_sign_flips": int(sum(1 for s in slopes if s <= 0))}
+            if not tilt["sign_ok"]:
+                logger.warning("totals tilt slope flipped non-positive (%.3f); "
+                               "the pace-tilt correction is suspect", block["slope"])
+        if "mu_h" in frame and "mu_a" in frame and "p_over_230" in frame:
+            exp = frame.mu_h.to_numpy(float) + frame.mu_a.to_numpy(float)
+            ok = np.isfinite(exp)
+            if int(ok.sum()) >= 100:
+                q80 = float(np.quantile(exp[ok], 0.8))
+                hot = ok & (exp >= q80)
+                if int(hot.sum()) >= 20:
+                    p = np.clip(frame.p_over_230.to_numpy(float)[hot], 1e-7, 1 - 1e-7)
+                    y = ((frame.home_score + frame.away_score).to_numpy(float)[hot] > 230.).astype(float)
+                    gap = {"n": int(hot.sum()), "q80": round(q80, 2),
+                           "predicted": round(float(p.mean()), 4),
+                           "actual": round(float(y.mean()), 4),
+                           "gap": round(float(y.mean() - p.mean()), 4)}
+        result["tilt_watch"] = {"tilt": tilt, "top_quintile_over_230": gap}
     return result
 
 
