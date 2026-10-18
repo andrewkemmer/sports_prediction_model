@@ -765,7 +765,9 @@ class TestInputSemanticParity:
         _, ratings = feat._elo_apply(feat.team_events(games))
         expected = 1 / (1 + 10 ** (-config.ELO_HOME_ADV / config.ELO_SCALE))
         assert expected > .5
-        assert ratings["BOS"] == pytest.approx(config.ELO_PRIOR + config.ELO_K * (1 - expected))
+        mov_mult = ((10.0 + 3.0) ** 0.8) / (7.5 + 0.006 * config.ELO_HOME_ADV)
+        assert ratings["BOS"] == pytest.approx(
+            config.ELO_PRIOR + config.ELO_K * mov_mult * (1 - expected))
         assert sum(ratings.values()) == pytest.approx(2 * config.ELO_PRIOR)
 
     def test_efficiencies_use_paired_possessions_and_ot_duration(self):

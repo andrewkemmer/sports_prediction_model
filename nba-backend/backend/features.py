@@ -105,6 +105,17 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
     """
     ev = events.sort_values(["gameday", "game_id", "is_home"],
                             ascending=[True, True, False]).reset_index(drop=True)
+    # Adopted 2026-10-18 (z=1.5 gate): per-game home margin, precomputed from
+    # the home row so the itertuples loop never touches the "for" keyword
+    # column. Unsettled games have no margin and keep the binary K.
+    home_margin: dict[str, float] = {}
+    if {"is_home", "for", "against"} <= set(ev.columns):
+        _hm = ev[ev["is_home"].astype(bool)]
+        for _g, _f, _a in zip(_hm["game_id"], _hm["for"], _hm["against"]):
+            try:
+                home_margin[str(_g)] = float(_f) - float(_a)
+            except (TypeError, ValueError):
+                continue
     ratings: dict[str, float] = {}
     entering: dict[tuple[str, str], float] = {}
     last_season: float | None = None
@@ -131,8 +142,14 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
         entering[(str(gid), str(away.team))] = rb
         home_win, away_win = getattr(home, "team_win", np.nan), getattr(away, "team_win", np.nan)
         if pd.notna(home_win) and pd.notna(away_win):
-            ratings[home.team] = ra + config.ELO_K * (float(home_win) - exp_home)
-            ratings[away.team] = rb + config.ELO_K * (float(away_win) - exp_away)
+            k = config.ELO_K
+            if config.ELO_MARGIN_MULT:
+                mov = home_margin.get(str(gid))
+                if mov is not None and pd.notna(mov):
+                    k = (config.ELO_K * ((abs(mov) + 3.0) ** 0.8)
+                         / (7.5 + 0.006 * abs((ra + config.ELO_HOME_ADV) - rb)))
+            ratings[home.team] = ra + k * (float(home_win) - exp_home)
+            ratings[away.team] = rb + k * (float(away_win) - exp_away)
     ev["elo_entering"] = [entering.get((str(g), str(t)), config.ELO_PRIOR)
                           for g, t in zip(ev.game_id, ev.team)]
     return ev, ratings

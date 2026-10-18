@@ -90,6 +90,9 @@ ELO_PRIOR = 1500.0
 ELO_K = 32.0
 ELO_SCALE = 400.0
 ELO_SEASON_REVERT = 1 / 3  # toward ELO_PRIOR at each season flip (MLB/NHL/NBA parity)
+# Adopted 2026-10-18 (z=1.5 gate; walk-forward z=-1.75, n=1704): margin-of-
+# victory multiplier on the Elo K update. False restores the binary update.
+ELO_MARGIN_MULT = True
 # Season-boundary revert toward ELO_PRIOR (owner decision 2026-09-29, for
 # cross-sport alignment): MLB (ELO_REVERT_FACTOR), NHL and NBA all revert
 # 1/3 toward the prior at each season flip; NFL now matches. The gate was

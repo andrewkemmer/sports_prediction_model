@@ -193,6 +193,9 @@ ELO_SEED = 1500  # Starting Elo for every team
 ELO_K = 20  # Update factor
 ELO_HOME_ADV = 65  # Home-field advantage in Elo points
 ELO_REVERT_FACTOR = 1 / 3  # Season-to-season regression toward mean
+# Adopted 2026-10-18 (z=1.5 gate; walk-forward z=-1.62, n=7188): margin-of-
+# victory multiplier on the Elo K update. False restores the binary update.
+ELO_MARGIN_MULT = True
 
 # ---------------------------------------------------------------------------
 # Feature rolling windows

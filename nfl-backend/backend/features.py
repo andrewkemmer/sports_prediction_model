@@ -120,6 +120,18 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     revert = float(getattr(config, "ELO_SEASON_REVERT", 0.0))
     time_col = "kickoff_utc" if "kickoff_utc" in events.columns else "gameday"
     ev = events.sort_values([time_col, "game_id", "is_home"]).reset_index(drop=True)
+    # Adopted 2026-10-18 (z=1.5 gate): per-game home margin, precomputed from
+    # the home row so the itertuples loop never touches the "for" keyword
+    # column. Unsettled games have no margin and keep the binary K.
+    home_margin: dict = {}
+    if {"is_home", "for", "against"} <= set(ev.columns):
+        _hm = ev[ev["is_home"].astype(bool)]
+        for _g, _f, _a in zip(_hm["game_id"], _hm["for"], _hm["against"]):
+            try:
+                home_margin[str(_g)] = float(_f) - float(_a)
+            except (TypeError, ValueError):
+                continue
+    home_adv = float(getattr(config, "ELO_HOME_ADV", 0.0))
     rating: dict = {}
     entering: dict = {}
     last_season = None
@@ -144,8 +156,14 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             continue
         exp_a = 1.0 / (1.0 + 10.0 ** ((rb - ra) / scale))
         exp_b = 1.0 / (1.0 + 10.0 ** ((ra - rb) / scale))
-        rating[a.team] = ra + K * (a.team_win - exp_a)
-        rating[b.team] = rb + K * (b.team_win - exp_b)
+        k = K
+        if config.ELO_MARGIN_MULT:
+            mov = home_margin.get(str(game_id))
+            if mov is not None and pd.notna(mov):
+                k = (K * ((abs(mov) + 3.0) ** 0.8)
+                     / (7.5 + 0.006 * abs((ra + home_adv) - rb)))
+        rating[a.team] = ra + k * (a.team_win - exp_a)
+        rating[b.team] = rb + k * (b.team_win - exp_b)
     ev = ev.copy()
     ev["elo_entering"] = [entering.get((gid, team), prior)
                           for gid, team in zip(ev["game_id"], ev["team"])]

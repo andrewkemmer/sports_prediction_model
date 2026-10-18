@@ -1656,9 +1656,9 @@ class TestEloSeasonBoundary:
             * (config.ELO_PRIOR - s1_final["NYK"]), abs=1e-9)
 
     def test_the_flip_fires_once_not_every_boundary_game(self):
-        """Season 2's second entering rating is the plain one-step K update
-        from the run's own season-2 entering values - pinning that the
-        revert applied exactly once at the flip, never per boundary game.
+        """Season 2's second entering rating is the margin-scaled one-step
+        K update from the run's own season-2 entering values - pinning that
+        the revert applied exactly once at the flip, never per boundary game.
         """
         events = self._two_season_events()
         ev, _ = feat_mod._elo_apply(events)
@@ -1667,9 +1667,11 @@ class TestEloSeasonBoundary:
         ra, rb = float(a["BOS"]), float(a["LAL"])
         exp_home = 1.0 / (1.0 + 10.0 ** (
             (rb - ra - config.ELO_HOME_ADV) / config.ELO_SCALE))
-        # BOS lost s2-a at home (105-110).
+        # BOS lost s2-a at home (105-110): margin-of-victory multiplier on K.
+        mov_mult = ((5.0 + 3.0) ** 0.8) / (
+            7.5 + 0.006 * abs((ra + config.ELO_HOME_ADV) - rb))
         assert b["BOS"] == pytest.approx(
-            ra + config.ELO_K * (0.0 - exp_home), abs=1e-9)
+            ra + config.ELO_K * mov_mult * (0.0 - exp_home), abs=1e-9)
 
     def test_a_never_played_team_enters_at_1500(self):
         events = self._two_season_events()

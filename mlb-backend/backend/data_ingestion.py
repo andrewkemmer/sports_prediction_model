@@ -23,6 +23,7 @@ from config import (
     DATA_DELIVERY_DIR,
     ELO_HOME_ADV,
     ELO_K,
+    ELO_MARGIN_MULT,
     ELO_REVERT_FACTOR,
     RANDOM_SEED,
     SP_ERA_WINDOW,
@@ -192,6 +193,19 @@ def _revert_elo(elo: float) -> float:
     return elo + ELO_REVERT_FACTOR * (1500.0 - elo)
 
 
+def _margin_mult_elo(mov: float, elo_gap: float, k: float) -> float:
+    """Adopted 2026-10-18 (z=1.5 gate): scale K by ((|mov|+3)^0.8) /
+    (7.5 + 0.006*|gap|). Non-finite margins (unsettled games) keep K."""
+    if not ELO_MARGIN_MULT:
+        return k
+    try:
+        if not (np.isfinite(mov) and np.isfinite(elo_gap)):
+            return k
+    except TypeError:
+        return k
+    return k * ((abs(mov) + 3.0) ** 0.8) / (7.5 + 0.006 * abs(elo_gap))
+
+
 def _row_year(row) -> int | None:
     """Calendar year of a game row, from game_date or start_time_utc."""
     for col in ("game_date", "start_time_utc"):
@@ -255,8 +269,11 @@ def compute_elo_entries(games: pd.DataFrame) -> pd.DataFrame:
         # Expected score and update
         actual = float(row["home_win"])
         exp_home = 1.0 / (1.0 + 10 ** ((a_elo - h_elo - ELO_HOME_ADV) / 400))
-        elos[home] = h_elo + ELO_K * (actual - exp_home)
-        elos[away] = a_elo + ELO_K * ((1 - actual) - (1 - exp_home))
+        k = _margin_mult_elo(float(row.get("home_score", np.nan))
+                             - float(row.get("away_score", np.nan)),
+                             (h_elo + ELO_HOME_ADV) - a_elo, ELO_K)
+        elos[home] = h_elo + k * (actual - exp_home)
+        elos[away] = a_elo + k * ((1 - actual) - (1 - exp_home))
 
     return pd.DataFrame({"home_elo": home_elo_entry, "away_elo": away_elo_entry})
 
@@ -397,8 +414,11 @@ def compute_elos_up_to(games: pd.DataFrame, as_of: datetime) -> dict[str, float]
             continue
         actual = float(row["home_win"])
         exp_home = 1.0 / (1.0 + 10 ** ((a_elo - h_elo - ELO_HOME_ADV) / 400))
-        elos[home] = h_elo + ELO_K * (actual - exp_home)
-        elos[away] = a_elo + ELO_K * ((1 - actual) - (1 - exp_home))
+        k = _margin_mult_elo(float(row.get("home_score", np.nan))
+                             - float(row.get("away_score", np.nan)),
+                             (h_elo + ELO_HOME_ADV) - a_elo, ELO_K)
+        elos[home] = h_elo + k * (actual - exp_home)
+        elos[away] = a_elo + k * ((1 - actual) - (1 - exp_home))
     if prev_year is not None and pd.Timestamp(as_of).year > prev_year:
         elos = {t: _revert_elo(e) for t, e in elos.items()}
     return elos

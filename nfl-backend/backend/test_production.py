@@ -5152,7 +5152,8 @@ _sb_elo_i = _sb_elo.set_index(["game_id", "team"])
 _sb_ra = float(_sb_elo_i.loc[("SB-23-2", "A"), "elo_entering"])
 _sb_rb = float(_sb_elo_i.loc[("SB-23-2", "B"), "elo_entering"])
 _sb_exp_a = 1.0 / (1.0 + 10.0 ** ((_sb_rb - _sb_ra) / config.ELO_SCALE))
-_sb_after_a = _sb_ra + config.ELO_K * (1.0 - _sb_exp_a)   # A won SB-23-2
+_sb_mov_mult = ((20.0 + 3.0) ** 0.8) / (7.5 + 0.006 * abs(_sb_ra - _sb_rb))
+_sb_after_a = _sb_ra + config.ELO_K * _sb_mov_mult * (1.0 - _sb_exp_a)  # A won SB-23-2 30-10
 _sb_reverted_a = _sb_after_a + config.ELO_SEASON_REVERT * (
     config.ELO_PRIOR - _sb_after_a)
 check("Elo reverts ELO_SEASON_REVERT (1/3) toward ELO_PRIOR at the season "
