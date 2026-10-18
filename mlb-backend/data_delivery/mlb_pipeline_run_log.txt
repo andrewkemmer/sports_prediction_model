@@ -1,6 +1,6 @@
   📝 Run log tee: /content/sports_prediction_model/mlb-backend/data_delivery/mlb_pipeline_run_log.txt (one rolling master file, overwritten every run)
-2026-10-18 17:58:10,755 INFO delivery root: /content/sports_prediction_model/mlb-backend/data_delivery
-2026-10-18 17:58:12,247 INFO code checkout: 8b054b9df5e3 (dirty) pooled_crps_writer=True
+2026-10-18 18:55:24,546 INFO delivery root: /content/sports_prediction_model/mlb-backend/data_delivery
+2026-10-18 18:55:27,635 INFO code checkout: 2963af54db80 (dirty) pooled_crps_writer=True
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 1 — Statcast Data Ingestion
@@ -8,92 +8,83 @@
 
 📅 2024-01-01 → 2026-10-18
   ♻️  MLB_FULL_REPULL set — discarding cache and re-pulling full history
-2026-10-18 17:58:12,254 INFO Pulling Statcast: 2024-01-01 → 2026-10-18 (chunk_days=60)
-2026-10-18 17:58:14,235 INFO   Chunk: 2024-01-01 → 2024-02-29 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
-2026-10-18 17:58:14,235 INFO   Chunk: 2024-03-01 → 2024-04-29
+2026-10-18 18:55:27,642 INFO Pulling Statcast: 2024-01-01 → 2026-10-18 (chunk_days=60)
+2026-10-18 18:55:28,935 INFO   Chunk: 2024-01-01 → 2024-02-29 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
+2026-10-18 18:55:28,935 INFO   Chunk: 2024-03-01 → 2024-04-29
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 46/46 [00:49<00:00,  1.07s/it]
-2026-10-18 17:59:07,095 INFO     → 164216 pitches
-2026-10-18 17:59:09,096 INFO   Chunk: 2024-04-30 → 2024-06-28
+100%|##########| 46/46 [00:51<00:00,  1.12s/it]
+2026-10-18 18:56:24,407 INFO     → 164216 pitches
+2026-10-18 18:56:26,408 INFO   Chunk: 2024-04-30 → 2024-06-28
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:03<00:00,  1.06s/it]
-2026-10-18 18:00:15,894 INFO     → 230719 pitches
-2026-10-18 18:00:17,895 INFO   Chunk: 2024-06-29 → 2024-08-27
+100%|##########| 60/60 [01:06<00:00,  1.11s/it]
+2026-10-18 18:57:36,275 INFO     → 230719 pitches
+2026-10-18 18:57:38,276 INFO   Chunk: 2024-06-29 → 2024-08-27
+This is a large query, it may take a moment to complete
+100%|##########| 60/60 [01:06<00:00,  1.11s/it]
+2026-10-18 18:58:49,553 INFO     → 222680 pitches
+2026-10-18 18:58:51,554 INFO   Chunk: 2024-08-28 → 2024-10-26
+This is a large query, it may take a moment to complete
+100%|##########| 60/60 [00:41<00:00,  1.43it/s]
+2026-10-18 18:59:36,538 INFO     → 141645 pitches
+2026-10-18 18:59:38,538 INFO   Chunk: 2024-10-27 → 2024-12-25
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|##########| 20/20 [00:00<00:00, 27.89it/s]
+2026-10-18 18:59:39,309 INFO     → 989 pitches
+2026-10-18 18:59:41,309 INFO   Chunk: 2024-12-26 → 2025-02-23 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
+2026-10-18 18:59:41,309 INFO   Chunk: 2025-02-24 → 2025-04-24
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|##########| 41/41 [00:51<00:00,  1.25s/it]
+2026-10-18 19:00:36,080 INFO     → 154157 pitches
+2026-10-18 19:00:38,080 INFO   Chunk: 2025-04-25 → 2025-06-23
 This is a large query, it may take a moment to complete
 100%|##########| 60/60 [01:08<00:00,  1.15s/it]
-2026-10-18 18:01:31,971 INFO     → 222680 pitches
-2026-10-18 18:01:33,972 INFO   Chunk: 2024-08-28 → 2024-10-26
+2026-10-18 19:01:50,522 INFO     → 233471 pitches
+2026-10-18 19:01:52,523 INFO   Chunk: 2025-06-24 → 2025-08-22
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:45<00:00,  1.31it/s]
-2026-10-18 18:02:22,901 INFO     → 141645 pitches
-2026-10-18 18:02:24,902 INFO   Chunk: 2024-10-27 → 2024-12-25
+100%|##########| 60/60 [01:05<00:00,  1.10s/it]
+2026-10-18 19:03:03,441 INFO     → 221858 pitches
+2026-10-18 19:03:05,441 INFO   Chunk: 2025-08-23 → 2025-10-21
 This is a large query, it may take a moment to complete
-Skipping offseason dates
-100%|##########| 20/20 [00:03<00:00,  6.52it/s]
-2026-10-18 18:02:28,026 INFO     → 989 pitches
-2026-10-18 18:02:30,027 INFO   Chunk: 2024-12-26 → 2025-02-23 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
-2026-10-18 18:02:30,027 INFO   Chunk: 2025-02-24 → 2025-04-24
+100%|##########| 60/60 [00:48<00:00,  1.24it/s]
+2026-10-18 19:03:57,213 INFO     → 158880 pitches
+2026-10-18 19:03:59,214 INFO   Chunk: 2025-10-22 → 2025-12-20
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 41/41 [00:44<00:00,  1.08s/it]
-2026-10-18 18:03:18,062 INFO     → 154157 pitches
-2026-10-18 18:03:20,062 INFO   Chunk: 2025-04-25 → 2025-06-23
-This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:04<00:00,  1.08s/it]
-2026-10-18 18:04:28,368 INFO     → 233471 pitches
-2026-10-18 18:04:30,369 INFO   Chunk: 2025-06-24 → 2025-08-22
-This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:01<00:00,  1.02s/it]
-2026-10-18 18:05:36,878 INFO     → 221858 pitches
-2026-10-18 18:05:38,879 INFO   Chunk: 2025-08-23 → 2025-10-21
-This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:46<00:00,  1.28it/s]
-2026-10-18 18:06:29,103 INFO     → 158880 pitches
-2026-10-18 18:06:31,103 INFO   Chunk: 2025-10-22 → 2025-12-20
+100%|##########| 25/25 [00:01<00:00, 21.17it/s]
+2026-10-18 19:04:00,488 INFO     → 2429 pitches
+2026-10-18 19:04:02,489 INFO   Chunk: 2025-12-21 → 2026-02-18 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
+2026-10-18 19:04:02,489 INFO   Chunk: 2026-02-19 → 2026-04-19
 This is a large query, it may take a moment to complete
 Skipping offseason dates
-100%|##########| 25/25 [00:03<00:00,  7.53it/s]
-2026-10-18 18:06:34,514 INFO     → 2429 pitches
-2026-10-18 18:06:36,515 INFO   Chunk: 2025-12-21 → 2026-02-18 — skipped: known gameless window (deep offseason; no MLB games in any covered season)
-2026-10-18 18:06:36,515 INFO   Chunk: 2026-02-19 → 2026-04-19
+100%|##########| 36/36 [00:40<00:00,  1.13s/it]
+2026-10-18 19:04:45,147 INFO     → 136267 pitches
+2026-10-18 19:04:47,148 INFO   Chunk: 2026-04-20 → 2026-06-18
 This is a large query, it may take a moment to complete
-Skipping offseason dates
-  6%|5         | 2/36 [00:44<12:38, 22.31s/it]
-2026-10-18 18:07:21,136 WARNING     → Chunk 2026-02-19 → 2026-04-19 attempt 1/3 failed: Error tokenizing data. C error: Expected 1 fields in line 12, saw 2
-
-2026-10-18 18:07:21,136 INFO     ↻ retrying 2026-02-19 → 2026-04-19 (attempt 2/3, backoff 1.0s)
+100%|##########| 60/60 [01:00<00:00,  1.01s/it]
+2026-10-18 19:05:51,164 INFO     → 231114 pitches
+2026-10-18 19:05:53,164 INFO   Chunk: 2026-06-19 → 2026-08-17
 This is a large query, it may take a moment to complete
-Skipping offseason dates
-100%|##########| 36/36 [00:40<00:00,  1.14s/it]
-2026-10-18 18:08:05,058 INFO     → 136267 pitches
-2026-10-18 18:08:07,059 INFO   Chunk: 2026-04-20 → 2026-06-18
+100%|##########| 60/60 [01:08<00:00,  1.14s/it]
+2026-10-18 19:07:06,718 INFO     → 224816 pitches
+2026-10-18 19:07:08,719 INFO   Chunk: 2026-08-18 → 2026-10-16
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:15<00:00,  1.25s/it]
-2026-10-18 18:09:25,975 INFO     → 231114 pitches
-2026-10-18 18:09:27,975 INFO   Chunk: 2026-06-19 → 2026-08-17
+100%|##########| 60/60 [00:51<00:00,  1.17it/s]
+2026-10-18 19:08:03,961 INFO     → 171791 pitches
+2026-10-18 19:08:05,962 INFO   Chunk: 2026-10-17 → 2026-10-18
 This is a large query, it may take a moment to complete
-100%|##########| 60/60 [01:10<00:00,  1.17s/it]
-2026-10-18 18:10:43,495 INFO     → 224816 pitches
-2026-10-18 18:10:45,495 INFO   Chunk: 2026-08-18 → 2026-10-16
-This is a large query, it may take a moment to complete
-100%|##########| 60/60 [00:50<00:00,  1.18it/s]
-2026-10-18 18:11:40,089 INFO     → 171791 pitches
-2026-10-18 18:11:42,090 INFO   Chunk: 2026-10-17 → 2026-10-18
-This is a large query, it may take a moment to complete
-100%|##########| 2/2 [00:00<00:00, 10.39it/s]
-2026-10-18 18:11:42,311 INFO     → 300 pitches
-2026-10-18 18:11:46,672 INFO Total raw pitches: 2295332
-2026-10-18 18:11:49,495 INFO Dropped 117501 non-regular-season pitches (game_type S/E)
-2026-10-18 18:12:13,367 INFO Saved 2177831 pitches → /content/mlb_clean_data/pitches.parquet (219.9 MB)
+100%|##########| 2/2 [00:01<00:00,  1.51it/s]
+2026-10-18 19:08:07,309 INFO     → 300 pitches
+2026-10-18 19:08:11,401 INFO Total raw pitches: 2295332
+2026-10-18 19:08:14,440 INFO Dropped 117501 non-regular-season pitches (game_type S/E)
+2026-10-18 19:08:45,912 INFO Saved 2177831 pitches → /content/mlb_clean_data/pitches.parquet (219.9 MB)
   ✅ Raw pitches: /content/mlb_clean_data/pitches.parquet
-2026-10-18 18:12:14,383 INFO missing-finals guard: frame horizon 2026-10-17; no official finals beyond it through 2026-10-18
+2026-10-18 19:08:47,163 INFO missing-finals guard: frame horizon 2026-10-17; no official finals beyond it through 2026-10-18
   📁 IL ledgers → /content/mlb_clean_data/il_stints
 transactions 2023-01-01..2026-10-18 (4 season call(s)), cache=/content/mlb_clean_data
   auto-refreshing current-year cache: [2026] (use --offline to pin)
-  2023: 18,791 transactions -> il_tx_2023.json
-  2024: 14,866 transactions -> il_tx_2024.json
-  2025: 17,449 transactions -> il_tx_2025.json
   2026: 16,442 transactions -> il_tx_2026.json
 reconciled against pitches.parquet: 148,539 plate appearances, 10,537 -> 10,522 stints
 il stints: 10,522 over 2,239 batters (222 still open at window end)
@@ -112,38 +103,38 @@ lineups.parquet now: 7412 games
   PHASE 2-3 — DuckDB Feature Engineering (pure SQL)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-18 18:12:32,136 INFO === DuckDB Feature Engineering ===
-2026-10-18 18:12:32,136 INFO [MEM] Start: 685 MB
-2026-10-18 18:12:43,086 INFO [MEM] After DuckDB load: 2521 MB
-2026-10-18 18:12:43,086 INFO Building game-level features (corrected_outs=False)...
-2026-10-18 18:12:46,662 INFO pitcher availability ledger: 6816 stints, 1234 pitchers
-2026-10-18 18:12:46,718 INFO SP staleness gate: 63588 appearance rows, 2401 flagged stale (gap >= 10d overlapping an availability stint)
-2026-10-18 18:12:47,893 INFO injured list: 10522 stints, 2239 batters; coverage through 2026-10-18 (lag -1d vs data horizon 2026-10-17)
-2026-10-18 18:12:47,907 INFO player positions: 4381 rows, 2073 batters (source: /content/sports_prediction_model/mlb-backend/data_delivery/player_positions.parquet)
-2026-10-18 18:12:47,934 INFO lineups: 7412 games (7412 with a complete nine)
-2026-10-18 18:12:48,562 INFO pitcher availability ledger: 6816 stints, 1234 pitchers
-2026-10-18 18:12:49,321 INFO Bullpen shrinkage: k = 93.4 pitches (6.02 IP) = 20% of the mean reliever-season (20.0 pitch floor)
-2026-10-18 18:12:57,087 INFO Batter shrinkage arm: bayesian (k=120 PA/AB)
-2026-10-18 18:12:57,332 INFO pool_universe: 14824 team-games (2 upcoming/slate)
-2026-10-18 18:12:57,853 INFO lineup_effective: 133416 members across 7412 team-games (announced + projected)
-2026-10-18 18:13:02,079 INFO pl_* pool coverage: 100.0% non-NULL across 9 pools (8 served)
-2026-10-18 18:13:02,390 INFO slate pl_* pools: 2 team-games resolved across 1 date(s) (membership tiers {1: 2}; 1 with prior-fallback pools) → pl_slate_20261018.parquet
-2026-10-18 18:13:14,790 INFO game_level built: 7411 games
-2026-10-18 18:13:14,894 INFO [MEM] After game_level: 3480 MB
-2026-10-18 18:13:15,058 INFO Exported game_level: 9.1 MB
-2026-10-18 18:13:15,058 INFO Building PBP-level features...
-2026-10-18 18:13:39,204 INFO pbp_level built: 2177831 pitches
-2026-10-18 18:13:39,326 INFO [MEM] After pbp_level: 2984 MB
-2026-10-18 18:13:46,932 INFO Exported pbp_level: 52.4 MB
-2026-10-18 18:13:47,386 INFO [MEM] After DuckDB close: 670 MB
-2026-10-18 18:14:00,953 INFO Official results applied: 7411 games verified/corrected
-2026-10-18 18:14:01,488 INFO [MEM] After pandas load: 3723 MB
-2026-10-18 18:14:01,488 INFO === Complete: 7411 games, 2177831 pitches ===
+2026-10-18 19:08:56,167 INFO === DuckDB Feature Engineering ===
+2026-10-18 19:08:56,168 INFO [MEM] Start: 716 MB
+2026-10-18 19:09:08,651 INFO [MEM] After DuckDB load: 2552 MB
+2026-10-18 19:09:08,651 INFO Building game-level features (corrected_outs=False)...
+2026-10-18 19:09:12,237 INFO pitcher availability ledger: 6816 stints, 1234 pitchers
+2026-10-18 19:09:12,288 INFO SP staleness gate: 63588 appearance rows, 2401 flagged stale (gap >= 10d overlapping an availability stint)
+2026-10-18 19:09:13,458 INFO injured list: 10522 stints, 2239 batters; coverage through 2026-10-18 (lag -1d vs data horizon 2026-10-17)
+2026-10-18 19:09:13,472 INFO player positions: 4381 rows, 2073 batters (source: /content/sports_prediction_model/mlb-backend/data_delivery/player_positions.parquet)
+2026-10-18 19:09:13,542 INFO lineups: 7412 games (7412 with a complete nine)
+2026-10-18 19:09:14,098 INFO pitcher availability ledger: 6816 stints, 1234 pitchers
+2026-10-18 19:09:14,851 INFO Bullpen shrinkage: k = 93.4 pitches (6.02 IP) = 20% of the mean reliever-season (20.0 pitch floor)
+2026-10-18 19:09:22,723 INFO Batter shrinkage arm: bayesian (k=120 PA/AB)
+2026-10-18 19:09:22,979 INFO pool_universe: 14824 team-games (2 upcoming/slate)
+2026-10-18 19:09:23,527 INFO lineup_effective: 133416 members across 7412 team-games (announced + projected)
+2026-10-18 19:09:27,628 INFO pl_* pool coverage: 100.0% non-NULL across 9 pools (8 served)
+2026-10-18 19:09:27,936 INFO slate pl_* pools: 2 team-games resolved across 1 date(s) (membership tiers {1: 2}; 1 with prior-fallback pools) → pl_slate_20261018.parquet
+2026-10-18 19:09:40,232 INFO game_level built: 7411 games
+2026-10-18 19:09:40,339 INFO [MEM] After game_level: 3495 MB
+2026-10-18 19:09:40,502 INFO Exported game_level: 9.1 MB
+2026-10-18 19:09:40,502 INFO Building PBP-level features...
+2026-10-18 19:10:06,726 INFO pbp_level built: 2177831 pitches
+2026-10-18 19:10:06,849 INFO [MEM] After pbp_level: 3017 MB
+2026-10-18 19:10:14,576 INFO Exported pbp_level: 52.4 MB
+2026-10-18 19:10:15,034 INFO [MEM] After DuckDB close: 701 MB
+2026-10-18 19:10:28,851 INFO Official results applied: 7411 games verified/corrected
+2026-10-18 19:10:29,405 INFO [MEM] After pandas load: 3744 MB
+2026-10-18 19:10:29,406 INFO === Complete: 7411 games, 2177831 pitches ===
   ✅ Game: (7411, 201)
   ✅ PBP:  (2177831, 88)
-2026-10-18 18:14:03,651 INFO Computing diff features for 7411 games...
-2026-10-18 18:14:03,720 INFO Diff features complete: 53 columns added
-2026-10-18 18:14:03,765 INFO add_exp2_features: 8 candidates + 16 twins computed, coverage {'exp2_centered_k_diff': 0.87, 'exp2_cat_k_fastball_diff': 0.993, 'exp2_cat_k_breaking_diff': 0.993, 'exp2_cat_k_offspeed_diff': 0.991, 'exp2_cat_xwoba_fastball_diff': 0.993, 'exp2_cat_xwoba_breaking_diff': 0.993, 'exp2_cat_xwoba_offspeed_diff': 0.991, 'exp2_cat_platoon_k_fastball_diff': 0.992, 'exp2_centered_k_home': 0.92, 'exp2_centered_k_away': 0.919, 'exp2_cat_k_fastball_home': 0.994, 'exp2_cat_k_fastball_away': 0.994, 'exp2_cat_k_breaking_home': 0.993, 'exp2_cat_k_breaking_away': 0.994, 'exp2_cat_k_offspeed_home': 0.992, 'exp2_cat_k_offspeed_away': 0.993, 'exp2_cat_xwoba_fastball_home': 0.994, 'exp2_cat_xwoba_fastball_away': 0.994, 'exp2_cat_xwoba_breaking_home': 0.993, 'exp2_cat_xwoba_breaking_away': 0.994, 'exp2_cat_xwoba_offspeed_home': 0.992, 'exp2_cat_xwoba_offspeed_away': 0.993, 'exp2_cat_platoon_k_fastball_home': 0.993, 'exp2_cat_platoon_k_fastball_away': 0.993}
+2026-10-18 19:10:31,531 INFO Computing diff features for 7411 games...
+2026-10-18 19:10:31,600 INFO Diff features complete: 53 columns added
+2026-10-18 19:10:31,642 INFO add_exp2_features: 8 candidates + 16 twins computed, coverage {'exp2_centered_k_diff': 0.87, 'exp2_cat_k_fastball_diff': 0.993, 'exp2_cat_k_breaking_diff': 0.993, 'exp2_cat_k_offspeed_diff': 0.991, 'exp2_cat_xwoba_fastball_diff': 0.993, 'exp2_cat_xwoba_breaking_diff': 0.993, 'exp2_cat_xwoba_offspeed_diff': 0.991, 'exp2_cat_platoon_k_fastball_diff': 0.992, 'exp2_centered_k_home': 0.92, 'exp2_centered_k_away': 0.919, 'exp2_cat_k_fastball_home': 0.994, 'exp2_cat_k_fastball_away': 0.994, 'exp2_cat_k_breaking_home': 0.993, 'exp2_cat_k_breaking_away': 0.994, 'exp2_cat_k_offspeed_home': 0.992, 'exp2_cat_k_offspeed_away': 0.993, 'exp2_cat_xwoba_fastball_home': 0.994, 'exp2_cat_xwoba_fastball_away': 0.994, 'exp2_cat_xwoba_breaking_home': 0.993, 'exp2_cat_xwoba_breaking_away': 0.994, 'exp2_cat_xwoba_offspeed_home': 0.992, 'exp2_cat_xwoba_offspeed_away': 0.993, 'exp2_cat_platoon_k_fastball_home': 0.993, 'exp2_cat_platoon_k_fastball_away': 0.993}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   PHASE 3.5 — Save Features
@@ -157,229 +148,198 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   PHASE 4 — Training + Prediction
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-10-18 18:14:25,705 INFO Loaded 7411 games from game_level_features.csv (290 columns)
-2026-10-18 18:14:27,991 INFO Feature mapping complete: 7411 games, 293 columns
+2026-10-18 19:10:53,794 INFO Loaded 7411 games from game_level_features.csv (290 columns)
+2026-10-18 19:10:56,094 INFO Feature mapping complete: 7411 games, 293 columns
   📋 Training data: 7411 games, 293 features
   📊 Feature coverage: home_elo:100%, home_win_pct:99%, sp_xfip_5g_home:94%, woba_30g_home:100%, bullpen_kbb_10g_home:99%, rest_days_home:99%
-2026-10-18 18:14:28,018 INFO Applied adopted feature subset: 109/275 pool features
+2026-10-18 19:10:56,120 INFO Applied adopted feature subset: 109/275 pool features
   🎯 Feature width: RFE subset (109 cols)
   🛡️  Ingestion guard: 2177831 pitches, 7411 decided games (expected ≥2044874 pitches / 6960 decided)
-2026-10-18 18:14:28,048 INFO === Daily pipeline for 20261018 (model v2026.10.18) ===
-2026-10-18 18:14:28,048 INFO Step 1: Using pre-built game features (7411 games)
-2026-10-18 18:14:28,048 INFO Loaded 7411 games
-2026-10-18 18:14:36,824 INFO Official results applied: 7411 games verified/corrected
-2026-10-18 18:14:37,638 INFO StatsAPI schedule 2024-03-20→2024-05-18: 806 games (795 new)
-2026-10-18 18:14:38,317 INFO StatsAPI schedule 2024-05-19→2024-07-17: 772 games (762 new)
-2026-10-18 18:14:38,965 INFO StatsAPI schedule 2024-07-18→2024-09-15: 803 games (789 new)
-2026-10-18 18:14:39,520 INFO StatsAPI schedule 2024-09-16→2024-11-14: 232 games (228 new)
-2026-10-18 18:14:39,913 INFO StatsAPI schedule 2024-11-15→2025-01-13: 0 games (0 new)
-2026-10-18 18:14:40,416 INFO StatsAPI schedule 2025-01-14→2025-03-14: 322 games (322 new)
-2026-10-18 18:14:41,109 INFO StatsAPI schedule 2025-03-15→2025-05-13: 806 games (796 new)
-2026-10-18 18:14:41,733 INFO StatsAPI schedule 2025-05-14→2025-07-12: 817 games (801 new)
-2026-10-18 18:14:42,426 INFO StatsAPI schedule 2025-07-13→2025-09-10: 763 games (757 new)
-2026-10-18 18:14:43,003 INFO StatsAPI schedule 2025-09-11→2025-11-09: 287 games (285 new)
-2026-10-18 18:14:43,389 INFO StatsAPI schedule 2025-11-10→2026-01-08: 0 games (0 new)
-2026-10-18 18:14:43,858 INFO StatsAPI schedule 2026-01-09→2026-03-09: 277 games (277 new)
-2026-10-18 18:14:44,595 INFO StatsAPI schedule 2026-03-10→2026-05-08: 798 games (791 new)
-2026-10-18 18:14:45,247 INFO StatsAPI schedule 2026-05-09→2026-07-07: 806 games (801 new)
-2026-10-18 18:14:45,887 INFO StatsAPI schedule 2026-07-08→2026-09-05: 776 games (761 new)
-2026-10-18 18:14:46,463 INFO StatsAPI schedule 2026-09-06→2026-10-17: 326 games (324 new)
-2026-10-18 18:14:46,524 INFO Start-time refresh: 7411/7411 games now carry observed first pitches (StatsAPI schedule); 0 suspended-game resume slot(s) restored to their real first pitch
-2026-10-18 18:14:46,526 INFO Recomputing all diff features from raw home/away columns
-2026-10-18 18:14:46,530 INFO Computing diff features for 7411 games...
-2026-10-18 18:14:46,573 INFO Diff features complete: 0 columns added
-2026-10-18 18:14:47,096 INFO StatsAPI schedule 2024-03-20→2024-05-18: 806 games (795 new)
-2026-10-18 18:14:47,594 INFO StatsAPI schedule 2024-05-19→2024-07-17: 772 games (762 new)
-2026-10-18 18:14:48,041 INFO StatsAPI schedule 2024-07-18→2024-09-15: 803 games (789 new)
-2026-10-18 18:14:48,399 INFO StatsAPI schedule 2024-09-16→2024-11-14: 232 games (228 new)
-2026-10-18 18:14:48,770 INFO StatsAPI schedule 2024-11-15→2025-01-13: 0 games (0 new)
-2026-10-18 18:14:49,152 INFO StatsAPI schedule 2025-01-14→2025-03-14: 322 games (322 new)
-2026-10-18 18:14:49,637 INFO StatsAPI schedule 2025-03-15→2025-05-13: 806 games (796 new)
-2026-10-18 18:14:50,084 INFO StatsAPI schedule 2025-05-14→2025-07-12: 817 games (801 new)
-2026-10-18 18:14:50,593 INFO StatsAPI schedule 2025-07-13→2025-09-10: 763 games (757 new)
-2026-10-18 18:14:50,962 INFO StatsAPI schedule 2025-09-11→2025-11-09: 287 games (285 new)
-2026-10-18 18:14:51,295 INFO StatsAPI schedule 2025-11-10→2026-01-08: 0 games (0 new)
-2026-10-18 18:14:51,690 INFO StatsAPI schedule 2026-01-09→2026-03-09: 277 games (277 new)
-2026-10-18 18:14:52,177 INFO StatsAPI schedule 2026-03-10→2026-05-08: 798 games (791 new)
-2026-10-18 18:14:52,622 INFO StatsAPI schedule 2026-05-09→2026-07-07: 806 games (801 new)
-2026-10-18 18:14:53,070 INFO StatsAPI schedule 2026-07-08→2026-09-05: 776 games (761 new)
-2026-10-18 18:14:53,466 INFO StatsAPI schedule 2026-09-06→2026-10-17: 326 games (324 new)
-2026-10-18 18:14:53,472 INFO Weather history: start times 2024: 2472/2472 (100%)
-2026-10-18 18:14:53,474 INFO Weather history: start times 2025: 2477/2477 (100%)
-2026-10-18 18:14:53,476 INFO Weather history: start times 2026: 2462/2462 (100%)
-2026-10-18 18:15:49,250 WARNING Weather API 429 for archive — retrying in 1.0s (1/6)
-2026-10-18 18:15:50,354 WARNING Weather API 429 for archive — retrying in 2.1s (2/6)
-2026-10-18 18:15:52,524 WARNING Weather API 429 for archive — retrying in 4.3s (3/6)
-2026-10-18 18:15:56,892 WARNING Weather API 429 for archive — retrying in 8.1s (4/6)
-2026-10-18 18:16:52,155 WARNING Weather API 429 for archive — retrying in 1.3s (1/6)
-2026-10-18 18:16:53,568 WARNING Weather API 429 for archive — retrying in 2.2s (2/6)
-2026-10-18 18:16:55,848 WARNING Weather API 429 for archive — retrying in 4.1s (3/6)
-2026-10-18 18:16:59,980 WARNING Weather API 429 for archive — retrying in 8.4s (4/6)
-2026-10-18 18:17:25,732 INFO Weather batches: skipped 18 gameless window(s) (2024-03-19→2026-10-17 span) — no Open-Meteo requests sent for them
-2026-10-18 18:17:26,339 INFO Weather fetched: 7411/7411 games from batched observations
-2026-10-18 18:17:26,851 INFO Weather cache saved: 7411 games → /content/mlb_clean_data/weather_history.parquet
-2026-10-18 18:17:26,854 INFO Weather history: fetched 7411 new games (cache now 7411)
-2026-10-18 18:17:29,265 INFO Weather features applied to 7411/7411 games
-2026-10-18 18:17:29,294 INFO Weather history: 7411/7411 games with observed weather (cache)
-2026-10-18 18:17:29,806 INFO Dome refinement: 7411/7411 games resolved; 0 retractable games have UNKNOWN roof state (teams: {}) - venue fallback applied, never silently treated as closed
-2026-10-18 18:17:29,806 INFO Dome refinement: 6105 games play under real weather after refinement
-2026-10-18 18:17:29,844 INFO Env-level features (raw-derived): park_wind_factor 7411/7411, air_density_level 7411/7411, park_factor_slug 7411/7411
-2026-10-18 18:17:29,900 INFO Pipeline snapshot: 7411 decided games, hash=5c8f274f8976
-2026-10-18 18:17:29,901 INFO Re-exporting features CSV with applied weather (wind coverage 6644/7411, air-density 6720/7411)
-2026-10-18 18:17:32,530 INFO Refreshed game_level_features.csv with applied weather
-2026-10-18 18:17:32,578 INFO Umpire map: 8893 games, 139 umpires (fetched seasons none, gap-filled none, rows added 0)
-2026-10-18 18:17:32,935 INFO Step 2: Generating market lines
-2026-10-18 18:17:50,774 INFO Step 3: Walk-forward evaluation
-2026-10-18 18:17:54,885 INFO Applied adopted feature subset: 109/275 pool features
-2026-10-18 18:17:56,950 INFO Fold 0 [2024-04-25 → 2024-05-01]: train=371 val=96 auc=0.5923 brier=0.2448
-2026-10-18 18:17:57,482 INFO Fold 1 [2024-05-02 → 2024-05-08]: train=467 val=91 auc=0.5791 brier=0.2431
-2026-10-18 18:17:58,097 INFO Fold 2 [2024-05-09 → 2024-05-15]: train=558 val=95 auc=0.4778 brier=0.2582
-2026-10-18 18:17:58,760 INFO Fold 3 [2024-05-16 → 2024-05-22]: train=653 val=92 auc=0.4600 brier=0.2574
-2026-10-18 18:17:59,433 INFO Fold 4 [2024-05-23 → 2024-05-29]: train=745 val=93 auc=0.6068 brier=0.2444
-2026-10-18 18:18:00,093 INFO Fold 5 [2024-05-30 → 2024-06-05]: train=838 val=90 auc=0.5395 brier=0.2456
-2026-10-18 18:18:00,823 INFO Fold 6 [2024-06-06 → 2024-06-12]: train=928 val=91 auc=0.6512 brier=0.2394
-2026-10-18 18:18:01,578 INFO Fold 7 [2024-06-13 → 2024-06-19]: train=1019 val=95 auc=0.5633 brier=0.2427
-2026-10-18 18:18:02,409 INFO Fold 8 [2024-06-20 → 2024-06-26]: train=1114 val=94 auc=0.6062 brier=0.2392
-2026-10-18 18:18:03,403 INFO Fold 9 [2024-06-27 → 2024-07-03]: train=1208 val=87 auc=0.5629 brier=0.2494
-2026-10-18 18:18:04,155 INFO Fold 10 [2024-07-04 → 2024-07-10]: train=1295 val=97 auc=0.4834 brier=0.2553
-2026-10-18 18:18:04,980 INFO Fold 11 [2024-07-11 → 2024-07-21]: train=1392 val=102 auc=0.5675 brier=0.2441
-2026-10-18 18:18:06,020 INFO Fold 12 [2024-07-22 → 2024-07-28]: train=1494 val=96 auc=0.6196 brier=0.2440
-2026-10-18 18:18:06,956 INFO Fold 13 [2024-07-29 → 2024-08-04]: train=1590 val=91 auc=0.6388 brier=0.2409
-2026-10-18 18:18:07,841 INFO Fold 14 [2024-08-05 → 2024-08-11]: train=1681 val=93 auc=0.6041 brier=0.2449
-2026-10-18 18:18:08,834 INFO Fold 15 [2024-08-12 → 2024-08-18]: train=1774 val=92 auc=0.5902 brier=0.2402
-2026-10-18 18:18:09,829 INFO Fold 16 [2024-08-19 → 2024-08-25]: train=1866 val=95 auc=0.6400 brier=0.2356
-2026-10-18 18:18:10,799 INFO Fold 17 [2024-08-26 → 2024-09-01]: train=1961 val=98 auc=0.5850 brier=0.2472
-2026-10-18 18:18:11,709 INFO Fold 18 [2024-09-02 → 2024-09-08]: train=2059 val=93 auc=0.5549 brier=0.2494
-2026-10-18 18:18:12,982 INFO Fold 19 [2024-09-09 → 2024-09-15]: train=2152 val=92 auc=0.6193 brier=0.2371
-2026-10-18 18:18:14,262 INFO Fold 20 [2024-09-16 → 2024-09-22]: train=2244 val=97 auc=0.6239 brier=0.2392
-2026-10-18 18:18:15,254 INFO Fold 21 [2024-09-23 → 2024-09-29]: train=2341 val=86 auc=0.5471 brier=0.2542
-2026-10-18 18:18:15,304 INFO Fold 22 [2024-09-30 → 2024-10-07]: PROVISIONAL (19 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:16,239 INFO Fold 22 [2024-09-30 → 2024-10-07]: train=2427 val=19 auc=0.4432 brier=0.2630  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:16,288 INFO Fold 23 [2024-10-08 → 2024-10-14]: PROVISIONAL (13 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:17,395 INFO Fold 23 [2024-10-08 → 2024-10-14]: train=2446 val=13 auc=0.7000 brier=0.2339  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:17,445 INFO Fold 24 [2024-10-15 → 2024-10-25]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:18,440 INFO Fold 24 [2024-10-15 → 2024-10-25]: train=2459 val=9 auc=0.6500 brier=0.2389  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:18,492 INFO Fold 25 [2024-10-26 → 2025-03-27]: PROVISIONAL (20 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:19,538 INFO Fold 25 [2024-10-26 → 2025-03-27]: train=2468 val=20 auc=0.5900 brier=0.2428  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:20,590 INFO Fold 26 [2025-03-28 → 2025-04-03]: train=2488 val=84 auc=0.6023 brier=0.2401
-2026-10-18 18:18:21,620 INFO Fold 27 [2025-04-04 → 2025-04-10]: train=2572 val=90 auc=0.4876 brier=0.2516
-2026-10-18 18:18:23,286 INFO Fold 28 [2025-04-11 → 2025-04-17]: train=2662 val=94 auc=0.6743 brier=0.2282
-2026-10-18 18:18:24,464 INFO Fold 29 [2025-04-18 → 2025-04-24]: train=2756 val=91 auc=0.5795 brier=0.2350
-2026-10-18 18:18:25,911 INFO Fold 30 [2025-04-25 → 2025-05-01]: train=2847 val=94 auc=0.6114 brier=0.2402
-2026-10-18 18:18:27,620 INFO Fold 31 [2025-05-02 → 2025-05-08]: train=2941 val=93 auc=0.7049 brier=0.2236
-2026-10-18 18:18:28,863 INFO Fold 32 [2025-05-09 → 2025-05-15]: train=3034 val=92 auc=0.5593 brier=0.2496
-2026-10-18 18:18:30,092 INFO Fold 33 [2025-05-16 → 2025-05-22]: train=3126 val=93 auc=0.5375 brier=0.2488
-2026-10-18 18:18:31,671 INFO Fold 34 [2025-05-23 → 2025-05-29]: train=3219 val=92 auc=0.6059 brier=0.2342
-2026-10-18 18:18:33,211 INFO Fold 35 [2025-05-30 → 2025-06-05]: train=3311 val=94 auc=0.6105 brier=0.2433
-2026-10-18 18:18:34,580 INFO Fold 36 [2025-06-06 → 2025-06-12]: train=3405 val=92 auc=0.5447 brier=0.2475
-2026-10-18 18:18:35,823 INFO Fold 37 [2025-06-13 → 2025-06-19]: train=3497 val=95 auc=0.5602 brier=0.2457
-2026-10-18 18:18:37,067 INFO Fold 38 [2025-06-20 → 2025-06-26]: train=3592 val=93 auc=0.5588 brier=0.2508
-2026-10-18 18:18:38,342 INFO Fold 39 [2025-06-27 → 2025-07-03]: train=3685 val=93 auc=0.4691 brier=0.2545
-2026-10-18 18:18:39,791 INFO Fold 40 [2025-07-04 → 2025-07-10]: train=3778 val=94 auc=0.5449 brier=0.2460
-2026-10-18 18:18:41,053 INFO Fold 41 [2025-07-11 → 2025-07-21]: train=3872 val=106 auc=0.5057 brier=0.2532
-2026-10-18 18:18:42,368 INFO Fold 42 [2025-07-22 → 2025-07-28]: train=3978 val=95 auc=0.3956 brier=0.2684
-2026-10-18 18:18:43,857 INFO Fold 43 [2025-07-29 → 2025-08-04]: train=4073 val=91 auc=0.5318 brier=0.2441
-2026-10-18 18:18:45,434 INFO Fold 44 [2025-08-05 → 2025-08-11]: train=4164 val=91 auc=0.6725 brier=0.2335
-2026-10-18 18:18:46,764 INFO Fold 45 [2025-08-12 → 2025-08-18]: train=4255 val=94 auc=0.4524 brier=0.2639
-2026-10-18 18:18:48,335 INFO Fold 46 [2025-08-19 → 2025-08-25]: train=4349 val=96 auc=0.6352 brier=0.2362
-2026-10-18 18:18:49,731 INFO Fold 47 [2025-08-26 → 2025-09-01]: train=4445 val=96 auc=0.5756 brier=0.2493
-2026-10-18 18:18:51,146 INFO Fold 48 [2025-09-02 → 2025-09-08]: train=4541 val=91 auc=0.5159 brier=0.2491
-2026-10-18 18:18:52,827 INFO Fold 49 [2025-09-09 → 2025-09-15]: train=4632 val=93 auc=0.6416 brier=0.2282
-2026-10-18 18:18:54,624 INFO Fold 50 [2025-09-16 → 2025-09-22]: train=4725 val=90 auc=0.6351 brier=0.2421
-2026-10-18 18:18:56,376 INFO Fold 51 [2025-09-23 → 2025-09-30]: train=4815 val=91 auc=0.5889 brier=0.2365
-2026-10-18 18:18:56,456 INFO Fold 52 [2025-10-01 → 2025-10-08]: PROVISIONAL (21 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:57,883 INFO Fold 52 [2025-10-01 → 2025-10-08]: train=4906 val=21 auc=0.5000 brier=0.2405  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:57,945 INFO Fold 53 [2025-10-09 → 2025-10-15]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:18:59,272 INFO Fold 53 [2025-10-09 → 2025-10-15]: train=4927 val=9 auc=0.4500 brier=0.2564  [PROVISIONAL — excluded from grading]
-2026-10-18 18:18:59,335 INFO Fold 54 [2025-10-16 → 2025-10-27]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:19:01,117 INFO Fold 54 [2025-10-16 → 2025-10-27]: train=4936 val=9 auc=0.7857 brier=0.2013  [PROVISIONAL — excluded from grading]
-2026-10-18 18:19:01,180 INFO Fold 55 [2025-10-28 → 2026-03-27]: PROVISIONAL (24 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:19:02,536 INFO Fold 55 [2025-10-28 → 2026-03-27]: train=4945 val=24 auc=0.6434 brier=0.2445  [PROVISIONAL — excluded from grading]
-2026-10-18 18:19:04,102 INFO Fold 56 [2026-03-28 → 2026-04-03]: train=4969 val=88 auc=0.5272 brier=0.2436
-2026-10-18 18:19:05,587 INFO Fold 57 [2026-04-04 → 2026-04-10]: train=5057 val=95 auc=0.4681 brier=0.2568
-2026-10-18 18:19:07,087 INFO Fold 58 [2026-04-11 → 2026-04-17]: train=5152 val=95 auc=0.5130 brier=0.2474
-2026-10-18 18:19:08,881 INFO Fold 59 [2026-04-18 → 2026-04-24]: train=5247 val=93 auc=0.5802 brier=0.2482
-2026-10-18 18:19:10,459 INFO Fold 60 [2026-04-25 → 2026-05-01]: train=5340 val=92 auc=0.5494 brier=0.2498
-2026-10-18 18:19:12,501 INFO Fold 61 [2026-05-02 → 2026-05-08]: train=5432 val=95 auc=0.6707 brier=0.2331
-2026-10-18 18:19:14,215 INFO Fold 62 [2026-05-09 → 2026-05-15]: train=5527 val=91 auc=0.5520 brier=0.2425
-2026-10-18 18:19:16,175 INFO Fold 63 [2026-05-16 → 2026-05-22]: train=5618 val=95 auc=0.6337 brier=0.2430
-2026-10-18 18:19:17,911 INFO Fold 64 [2026-05-23 → 2026-05-29]: train=5713 val=93 auc=0.5379 brier=0.2493
-2026-10-18 18:19:19,491 INFO Fold 65 [2026-05-30 → 2026-06-05]: train=5806 val=93 auc=0.5343 brier=0.2502
-2026-10-18 18:19:21,140 INFO Fold 66 [2026-06-06 → 2026-06-12]: train=5899 val=89 auc=0.5021 brier=0.2507
-2026-10-18 18:19:23,233 INFO Fold 67 [2026-06-13 → 2026-06-19]: train=5988 val=90 auc=0.6007 brier=0.2396
-2026-10-18 18:19:24,995 INFO Fold 68 [2026-06-20 → 2026-06-26]: train=6078 val=94 auc=0.5064 brier=0.2554
-2026-10-18 18:19:26,786 INFO Fold 69 [2026-06-27 → 2026-07-03]: train=6172 val=94 auc=0.6279 brier=0.2416
-2026-10-18 18:19:28,728 INFO Fold 70 [2026-07-04 → 2026-07-10]: train=6266 val=96 auc=0.6022 brier=0.2447
-2026-10-18 18:19:30,578 INFO Fold 71 [2026-07-11 → 2026-07-20]: train=6362 val=92 auc=0.5614 brier=0.2438
-2026-10-18 18:19:32,651 INFO Fold 72 [2026-07-21 → 2026-07-27]: train=6454 val=91 auc=0.5734 brier=0.2477
-2026-10-18 18:19:34,637 INFO Fold 73 [2026-07-28 → 2026-08-03]: train=6545 val=94 auc=0.6268 brier=0.2399
-2026-10-18 18:19:36,435 INFO Fold 74 [2026-08-04 → 2026-08-10]: train=6639 val=96 auc=0.5402 brier=0.2445
-2026-10-18 18:19:38,319 INFO Fold 75 [2026-08-11 → 2026-08-17]: train=6735 val=94 auc=0.5159 brier=0.2508
-2026-10-18 18:19:40,540 INFO Fold 76 [2026-08-18 → 2026-08-24]: train=6829 val=94 auc=0.6804 brier=0.2230
-2026-10-18 18:19:42,751 INFO Fold 77 [2026-08-25 → 2026-08-31]: train=6923 val=95 auc=0.6444 brier=0.2350
-2026-10-18 18:19:44,805 INFO Fold 78 [2026-09-01 → 2026-09-07]: train=7018 val=96 auc=0.5761 brier=0.2444
-2026-10-18 18:19:46,969 INFO Fold 79 [2026-09-08 → 2026-09-14]: train=7114 val=90 auc=0.6210 brier=0.2391
-2026-10-18 18:19:49,530 INFO Fold 80 [2026-09-15 → 2026-09-21]: train=7204 val=87 auc=0.6896 brier=0.2275
-2026-10-18 18:19:51,529 INFO Fold 81 [2026-09-22 → 2026-09-29]: train=7291 val=91 auc=0.6300 brier=0.2393
-2026-10-18 18:19:51,598 INFO Fold 82 [2026-09-30 → 2026-10-07]: PROVISIONAL (19 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:19:53,509 INFO Fold 82 [2026-09-30 → 2026-10-07]: train=7382 val=19 auc=0.5222 brier=0.2536  [PROVISIONAL — excluded from grading]
-2026-10-18 18:19:53,575 INFO Fold 83 [2026-10-08 → 2026-10-15]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:19:55,399 INFO Fold 83 [2026-10-08 → 2026-10-15]: train=7401 val=9 auc=0.3000 brier=0.2616  [PROVISIONAL — excluded from grading]
-2026-10-18 18:19:55,465 INFO Fold 84 [2026-10-17 → 2026-10-17]: PROVISIONAL (1 val games < 40) — fit + scored, excluded from grading
-2026-10-18 18:19:57,261 INFO Fold 84 [2026-10-17 → 2026-10-17]: train=7410 val=1 auc=nan brier=0.2608  [PROVISIONAL — excluded from grading]
-2026-10-18 18:19:57,378 WARNING Calibration: degenerate Platt params (a=-0.20800406711787128, n=448) — identity map
-2026-10-18 18:19:57,885 INFO Published blend: 7040 OOF rows use strictly-prior rolling weights; deployed weights {'elasticnet': '41.9%', 'lightgbm': '33.0%', 'xgboost': '25.1%'} replay THE serving blend in a separate retrospective diagnostic — NOT OOF, never headline metrics
-2026-10-18 18:19:57,969 INFO Retrospective final-weight replay (NOT OOF): {'auc': 0.5761, 'brier': 0.244, 'logloss': 0.681, 'ece': 0.01}
-2026-10-18 18:19:57,986 INFO Calibration (OOF, prequential): ECE 0.0099 → 0.0099, log-loss 0.6815 → 0.6815
-2026-10-18 18:19:57,987 INFO Calibration final-origin gate: {'n_prior': 6879, 'decision': 'identity', 'reason': 'gated_no_gain', 'raw_logloss': 0.6782512089384584, 'calibrated_logloss': 0.6783947128270026}
-2026-10-18 18:19:59,455 INFO Rolling blend weights (last fold earned): {'elasticnet': '41.9%', 'lightgbm': '33.0%', 'xgboost': '25.1%'}
-2026-10-18 18:19:59,456 INFO XGBoost shipped rounds: 85 probe measurement(s), causal transfer 24 floored at the static budget — refit ships 150
-2026-10-18 18:19:59,528 INFO Walk-forward season split: 7040 OOF rows = 6879 grading + 161 non-grading (153 provisional incl. 115 postseason, 8 postseason outside provisional folds); blocks OVERLAP — grading n=6879, postseason n=123, provisional n=153
-2026-10-18 18:19:59,535 INFO Walk-forward metrics (causal rolling blend): {'auc': 0.5748, 'brier': 0.2443, 'logloss': 0.6815, 'ece': 0.0099, 'brier_calibrated': 0.2443, 'logloss_calibrated': 0.6815, 'ece_calibrated': 0.0099, 'calibrator_gated_out': True}
-2026-10-18 18:20:02,238 INFO Ensemble persisted to /content/sports_prediction_model/mlb-backend/data_delivery/models/ensemble_latest.joblib
-2026-10-18 18:20:02,253 INFO Version history: 20 versions recorded (v2026.10.18 latest)
-2026-10-18 18:20:02,253 INFO Step 4: Predicting games for 20261018
-2026-10-18 18:20:04,710 INFO slate pl_*: 2 team-date pool resolution(s) for 2026-10-18 (3-tier membership; carry only as fall-through)
-2026-10-18 18:20:07,517 WARNING SP slate staleness gate: 146 pitcher(s) enter 2026-10-18 off a >=10d availability-stint gap — announced starters among them have their carried SP lines withheld (pre-stint form)
-2026-10-18 18:20:10,516 INFO slate pl_* sources (home/away): {'pool-t1/pool-t1': 1}
-2026-10-18 18:20:10,517 INFO Upcoming slate built: 1 games for 2026-10-18
-2026-10-18 18:20:10,552 INFO No completed games in the pitch frame on 20261018 -- built 1-game upcoming slate (pre-game PIT features; official-results overlay follows)
-2026-10-18 18:20:10,686 INFO Weather batches: skipped 1 gameless window(s) (2026-10-17→2026-10-17 span) — no Open-Meteo requests sent for them
-2026-10-18 18:20:10,686 INFO Weather fetched: 1/1 games from batched observations
-2026-10-18 18:20:10,687 INFO Computing diff features for 1 games...
-2026-10-18 18:20:10,716 INFO Diff features complete: 16 columns added
-2026-10-18 18:20:10,723 INFO add_form_delta_features: computed 22 delta column(s) missing from the frame
-2026-10-18 18:20:10,747 INFO add_exp2_features: 8 candidates + 16 twins computed, coverage {'exp2_centered_k_diff': 1.0, 'exp2_cat_k_fastball_diff': 1.0, 'exp2_cat_k_breaking_diff': 1.0, 'exp2_cat_k_offspeed_diff': 1.0, 'exp2_cat_xwoba_fastball_diff': 1.0, 'exp2_cat_xwoba_breaking_diff': 1.0, 'exp2_cat_xwoba_offspeed_diff': 1.0, 'exp2_cat_platoon_k_fastball_diff': 1.0, 'exp2_centered_k_home': 1.0, 'exp2_centered_k_away': 1.0, 'exp2_cat_k_fastball_home': 1.0, 'exp2_cat_k_fastball_away': 1.0, 'exp2_cat_k_breaking_home': 1.0, 'exp2_cat_k_breaking_away': 1.0, 'exp2_cat_k_offspeed_home': 1.0, 'exp2_cat_k_offspeed_away': 1.0, 'exp2_cat_xwoba_fastball_home': 1.0, 'exp2_cat_xwoba_fastball_away': 1.0, 'exp2_cat_xwoba_breaking_home': 1.0, 'exp2_cat_xwoba_breaking_away': 1.0, 'exp2_cat_xwoba_offspeed_home': 1.0, 'exp2_cat_xwoba_offspeed_away': 1.0, 'exp2_cat_platoon_k_fastball_home': 1.0, 'exp2_cat_platoon_k_fastball_away': 1.0}
-2026-10-18 18:20:10,751 INFO Weather features applied to 1/1 games
-2026-10-18 18:20:11,704 INFO Today's board post-results: 0 post/Final + 1 pre/Scheduled (1 rows) -- reconciles with todays_games CSV
-2026-10-18 18:20:11,732 INFO Step 5: Writing artifacts
-2026-10-18 18:20:18,351 INFO Prediction history written: 7040 games -> predictions_history_20261018.csv
-2026-10-18 18:20:18,764 INFO Rolling Brier: 511 points (2024-04-25 → 2026-09-27), 6888 of 7040 games in-series (152 excluded on 78 sparse days, <5 games/day), all-game mean 0.2443
-2026-10-18 18:20:18,765 WARNING Rolling Brier: series is STALE — last point 2026-09-27 is 20 day(s) behind the newest decided game 2026-10-17; 33 later game(s) on 16 day(s) stay under the 5-game floor and enter NO series point, so the trailing monitor does not describe the current window
-2026-10-18 18:20:18,773 INFO Feature metadata: 109 features written -> features_metadata_20261018.json
-2026-10-18 18:20:19,780 INFO Run engine: 85 walk-forward folds, 7411 decided games
-2026-10-18 18:20:19,781 INFO Run engine: active moneyline feature view (109 features)
-2026-10-18 18:25:56,720 INFO Run engine OOF: 7040 rows -> run_engine_oof_20261018.csv
-2026-10-18 18:25:58,728 INFO Run engine markets: 7041 rows -> run_engine_markets_20261018.csv (+ meta json)
-2026-10-18 18:25:58,844 INFO Totals history store: 7342 rows (0 added this run, seeded=False) -> run_engine_totals_history.csv
-2026-10-18 18:26:02,660 INFO Run-engine monitor: 3 winner cards, rolling 45 days -> run_engine_monitor_20261018.json
-2026-10-18 18:26:02,661 INFO Step 6: Explainability
-2026-10-18 18:26:06,359 INFO SHAP stack in tested range (shap (0, 50), xgboost (3, 2))
-2026-10-18 18:26:06,552 INFO SHAP additivity [xgboost via native_pred_contribs]: worst |Σφ + base − log-odds| = 6.18e-08 over 1 games
-2026-10-18 18:26:06,552 INFO SHAP additivity [lightgbm via shap_TreeExplainer]: worst |Σφ + base − log-odds| = 1.94e-16 over 1 games
-2026-10-18 18:26:06,552 INFO SHAP attributions written for 1 games
-2026-10-18 18:26:06,556 INFO Drift decided frame: 7411 games, hash=5c8f274f8976
-2026-10-18 18:26:07,373 INFO Drift post-margin frame: 7411 games, hash=e2ab9df90bd9
-2026-10-18 18:26:07,389 INFO Drift current window widened: 7d → 21d (sparse tail) — 47 rows meets the judge floor 30; the floor is unchanged
-2026-10-18 18:26:07,632 INFO Feature drift [moneyline]: 109 features, 109 evaluated, 0 INSUFFICIENT, 0 warnings, 10 alerts, 5 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.115)
-2026-10-18 18:26:07,800 INFO Feature coverage [moneyline]: 218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms
-2026-10-18 18:26:07,801 INFO Feature coverage [moneyline]: STRUCTURAL (declared missing-value policy, not starvation): air_density_velocity_boost/baseline=75%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/current=79%, wind_advantage_flyball_factor/current=79% — declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed
-2026-10-18 18:26:07,802 INFO Run-engine monitoring view: 109 active moneyline features
-2026-10-18 18:26:08,030 INFO Feature drift [run-engine]: 109 features, 109 evaluated, 0 INSUFFICIENT, 0 warnings, 10 alerts, 5 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.115)
-2026-10-18 18:26:08,190 INFO Feature coverage [run-engine]: 218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms
-2026-10-18 18:26:08,192 INFO Feature coverage [run-engine]: STRUCTURAL (declared missing-value policy, not starvation): air_density_velocity_boost/baseline=75%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/current=79%, wind_advantage_flyball_factor/current=79% — declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed
-2026-10-18 18:26:09,858 INFO Step 7: Skipping GitHub sync (Phase 5 owns the artifact push)
-2026-10-18 18:26:09,859 INFO === Pipeline complete: ok ===
+2026-10-18 19:10:56,151 INFO === Daily pipeline for 20261018 (model v2026.10.18) ===
+2026-10-18 19:10:56,151 INFO Step 1: Using pre-built game features (7411 games)
+2026-10-18 19:10:56,152 INFO Loaded 7411 games
+2026-10-18 19:11:04,949 INFO Official results applied: 7411 games verified/corrected
+2026-10-18 19:11:05,746 INFO StatsAPI schedule 2024-03-20→2024-05-18: 806 games (795 new)
+2026-10-18 19:11:06,390 INFO StatsAPI schedule 2024-05-19→2024-07-17: 772 games (762 new)
+2026-10-18 19:11:07,012 INFO StatsAPI schedule 2024-07-18→2024-09-15: 803 games (789 new)
+2026-10-18 19:11:07,568 INFO StatsAPI schedule 2024-09-16→2024-11-14: 232 games (228 new)
+2026-10-18 19:11:07,928 INFO StatsAPI schedule 2024-11-15→2025-01-13: 0 games (0 new)
+2026-10-18 19:11:08,417 INFO StatsAPI schedule 2025-01-14→2025-03-14: 322 games (322 new)
+2026-10-18 19:11:09,124 INFO StatsAPI schedule 2025-03-15→2025-05-13: 806 games (796 new)
+2026-10-18 19:11:09,763 INFO StatsAPI schedule 2025-05-14→2025-07-12: 817 games (801 new)
+2026-10-18 19:11:10,374 INFO StatsAPI schedule 2025-07-13→2025-09-10: 763 games (757 new)
+2026-10-18 19:11:10,929 INFO StatsAPI schedule 2025-09-11→2025-11-09: 287 games (285 new)
+2026-10-18 19:11:11,281 INFO StatsAPI schedule 2025-11-10→2026-01-08: 0 games (0 new)
+2026-10-18 19:11:11,754 INFO StatsAPI schedule 2026-01-09→2026-03-09: 277 games (277 new)
+2026-10-18 19:11:12,451 INFO StatsAPI schedule 2026-03-10→2026-05-08: 798 games (791 new)
+2026-10-18 19:11:13,091 INFO StatsAPI schedule 2026-05-09→2026-07-07: 806 games (801 new)
+2026-10-18 19:11:13,783 INFO StatsAPI schedule 2026-07-08→2026-09-05: 776 games (761 new)
+2026-10-18 19:11:14,363 INFO StatsAPI schedule 2026-09-06→2026-10-17: 326 games (324 new)
+2026-10-18 19:11:14,423 INFO Start-time refresh: 7411/7411 games now carry observed first pitches (StatsAPI schedule); 0 suspended-game resume slot(s) restored to their real first pitch
+2026-10-18 19:11:14,424 INFO Recomputing all diff features from raw home/away columns
+2026-10-18 19:11:14,428 INFO Computing diff features for 7411 games...
+2026-10-18 19:11:14,471 INFO Diff features complete: 0 columns added
+2026-10-18 19:11:17,243 INFO Weather features applied to 7411/7411 games
+2026-10-18 19:11:17,273 INFO Weather history: 7411/7411 games with observed weather (cache)
+2026-10-18 19:11:17,791 INFO Dome refinement: 7411/7411 games resolved; 0 retractable games have UNKNOWN roof state (teams: {}) - venue fallback applied, never silently treated as closed
+2026-10-18 19:11:17,792 INFO Dome refinement: 6105 games play under real weather after refinement
+2026-10-18 19:11:17,830 INFO Env-level features (raw-derived): park_wind_factor 7411/7411, air_density_level 7411/7411, park_factor_slug 7411/7411
+2026-10-18 19:11:17,886 INFO Pipeline snapshot: 7411 decided games, hash=5c8f274f8976
+2026-10-18 19:11:17,887 INFO Re-exporting features CSV with applied weather (wind coverage 6644/7411, air-density 6720/7411)
+2026-10-18 19:11:20,634 INFO Refreshed game_level_features.csv with applied weather
+2026-10-18 19:11:20,683 INFO Umpire map: 8893 games, 139 umpires (fetched seasons none, gap-filled none, rows added 0)
+2026-10-18 19:11:21,034 INFO Step 2: Generating market lines
+2026-10-18 19:11:39,227 INFO Step 3: Walk-forward evaluation
+2026-10-18 19:11:40,857 INFO Applied adopted feature subset: 109/275 pool features
+2026-10-18 19:11:42,987 INFO Fold 0 [2024-04-25 → 2024-05-01]: train=371 val=96 auc=0.5923 brier=0.2448
+2026-10-18 19:11:43,664 INFO Fold 1 [2024-05-02 → 2024-05-08]: train=467 val=91 auc=0.5791 brier=0.2431
+2026-10-18 19:11:44,320 INFO Fold 2 [2024-05-09 → 2024-05-15]: train=558 val=95 auc=0.4778 brier=0.2582
+2026-10-18 19:11:45,111 INFO Fold 3 [2024-05-16 → 2024-05-22]: train=653 val=92 auc=0.4600 brier=0.2574
+2026-10-18 19:11:45,787 INFO Fold 4 [2024-05-23 → 2024-05-29]: train=745 val=93 auc=0.6068 brier=0.2444
+2026-10-18 19:11:46,445 INFO Fold 5 [2024-05-30 → 2024-06-05]: train=838 val=90 auc=0.5395 brier=0.2456
+2026-10-18 19:11:47,173 INFO Fold 6 [2024-06-06 → 2024-06-12]: train=928 val=91 auc=0.6512 brier=0.2394
+2026-10-18 19:11:47,930 INFO Fold 7 [2024-06-13 → 2024-06-19]: train=1019 val=95 auc=0.5633 brier=0.2427
+2026-10-18 19:11:48,754 INFO Fold 8 [2024-06-20 → 2024-06-26]: train=1114 val=94 auc=0.6062 brier=0.2392
+2026-10-18 19:11:49,605 INFO Fold 9 [2024-06-27 → 2024-07-03]: train=1208 val=87 auc=0.5629 brier=0.2494
+2026-10-18 19:11:50,364 INFO Fold 10 [2024-07-04 → 2024-07-10]: train=1295 val=97 auc=0.4834 brier=0.2553
+2026-10-18 19:11:51,190 INFO Fold 11 [2024-07-11 → 2024-07-21]: train=1392 val=102 auc=0.5675 brier=0.2441
+2026-10-18 19:11:52,240 INFO Fold 12 [2024-07-22 → 2024-07-28]: train=1494 val=96 auc=0.6196 brier=0.2440
+2026-10-18 19:11:53,301 INFO Fold 13 [2024-07-29 → 2024-08-04]: train=1590 val=91 auc=0.6388 brier=0.2409
+2026-10-18 19:11:54,192 INFO Fold 14 [2024-08-05 → 2024-08-11]: train=1681 val=93 auc=0.6041 brier=0.2449
+2026-10-18 19:11:55,199 INFO Fold 15 [2024-08-12 → 2024-08-18]: train=1774 val=92 auc=0.5902 brier=0.2402
+2026-10-18 19:11:56,196 INFO Fold 16 [2024-08-19 → 2024-08-25]: train=1866 val=95 auc=0.6400 brier=0.2356
+2026-10-18 19:11:57,181 INFO Fold 17 [2024-08-26 → 2024-09-01]: train=1961 val=98 auc=0.5850 brier=0.2472
+2026-10-18 19:11:58,113 INFO Fold 18 [2024-09-02 → 2024-09-08]: train=2059 val=93 auc=0.5549 brier=0.2494
+2026-10-18 19:11:59,384 INFO Fold 19 [2024-09-09 → 2024-09-15]: train=2152 val=92 auc=0.6193 brier=0.2371
+2026-10-18 19:12:00,546 INFO Fold 20 [2024-09-16 → 2024-09-22]: train=2244 val=97 auc=0.6239 brier=0.2392
+2026-10-18 19:12:01,526 INFO Fold 21 [2024-09-23 → 2024-09-29]: train=2341 val=86 auc=0.5471 brier=0.2542
+2026-10-18 19:12:01,577 INFO Fold 22 [2024-09-30 → 2024-10-07]: PROVISIONAL (19 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:02,509 INFO Fold 22 [2024-09-30 → 2024-10-07]: train=2427 val=19 auc=0.4432 brier=0.2630  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:02,559 INFO Fold 23 [2024-10-08 → 2024-10-14]: PROVISIONAL (13 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:03,785 INFO Fold 23 [2024-10-08 → 2024-10-14]: train=2446 val=13 auc=0.7000 brier=0.2339  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:03,836 INFO Fold 24 [2024-10-15 → 2024-10-25]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:04,813 INFO Fold 24 [2024-10-15 → 2024-10-25]: train=2459 val=9 auc=0.6500 brier=0.2389  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:04,862 INFO Fold 25 [2024-10-26 → 2025-03-27]: PROVISIONAL (20 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:05,846 INFO Fold 25 [2024-10-26 → 2025-03-27]: train=2468 val=20 auc=0.5900 brier=0.2428  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:06,836 INFO Fold 26 [2025-03-28 → 2025-04-03]: train=2488 val=84 auc=0.6023 brier=0.2401
+2026-10-18 19:12:07,844 INFO Fold 27 [2025-04-04 → 2025-04-10]: train=2572 val=90 auc=0.4876 brier=0.2516
+2026-10-18 19:12:09,390 INFO Fold 28 [2025-04-11 → 2025-04-17]: train=2662 val=94 auc=0.6743 brier=0.2282
+2026-10-18 19:12:10,468 INFO Fold 29 [2025-04-18 → 2025-04-24]: train=2756 val=91 auc=0.5795 brier=0.2350
+2026-10-18 19:12:11,748 INFO Fold 30 [2025-04-25 → 2025-05-01]: train=2847 val=94 auc=0.6114 brier=0.2402
+2026-10-18 19:12:13,377 INFO Fold 31 [2025-05-02 → 2025-05-08]: train=2941 val=93 auc=0.7049 brier=0.2236
+2026-10-18 19:12:14,531 INFO Fold 32 [2025-05-09 → 2025-05-15]: train=3034 val=92 auc=0.5593 brier=0.2496
+2026-10-18 19:12:15,680 INFO Fold 33 [2025-05-16 → 2025-05-22]: train=3126 val=93 auc=0.5375 brier=0.2488
+2026-10-18 19:12:17,141 INFO Fold 34 [2025-05-23 → 2025-05-29]: train=3219 val=92 auc=0.6059 brier=0.2342
+2026-10-18 19:12:19,115 INFO Fold 35 [2025-05-30 → 2025-06-05]: train=3311 val=94 auc=0.6105 brier=0.2433
+2026-10-18 19:12:20,344 INFO Fold 36 [2025-06-06 → 2025-06-12]: train=3405 val=92 auc=0.5447 brier=0.2475
+2026-10-18 19:12:21,672 INFO Fold 37 [2025-06-13 → 2025-06-19]: train=3497 val=95 auc=0.5602 brier=0.2457
+2026-10-18 19:12:22,915 INFO Fold 38 [2025-06-20 → 2025-06-26]: train=3592 val=93 auc=0.5588 brier=0.2508
+2026-10-18 19:12:24,269 INFO Fold 39 [2025-06-27 → 2025-07-03]: train=3685 val=93 auc=0.4691 brier=0.2545
+2026-10-18 19:12:25,692 INFO Fold 40 [2025-07-04 → 2025-07-10]: train=3778 val=94 auc=0.5449 brier=0.2460
+2026-10-18 19:12:26,930 INFO Fold 41 [2025-07-11 → 2025-07-21]: train=3872 val=106 auc=0.5057 brier=0.2532
+2026-10-18 19:12:28,218 INFO Fold 42 [2025-07-22 → 2025-07-28]: train=3978 val=95 auc=0.3956 brier=0.2684
+2026-10-18 19:12:29,556 INFO Fold 43 [2025-07-29 → 2025-08-04]: train=4073 val=91 auc=0.5318 brier=0.2441
+2026-10-18 19:12:31,082 INFO Fold 44 [2025-08-05 → 2025-08-11]: train=4164 val=91 auc=0.6725 brier=0.2335
+2026-10-18 19:12:32,381 INFO Fold 45 [2025-08-12 → 2025-08-18]: train=4255 val=94 auc=0.4524 brier=0.2639
+2026-10-18 19:12:34,040 INFO Fold 46 [2025-08-19 → 2025-08-25]: train=4349 val=96 auc=0.6352 brier=0.2362
+2026-10-18 19:12:35,421 INFO Fold 47 [2025-08-26 → 2025-09-01]: train=4445 val=96 auc=0.5756 brier=0.2493
+2026-10-18 19:12:36,808 INFO Fold 48 [2025-09-02 → 2025-09-08]: train=4541 val=91 auc=0.5159 brier=0.2491
+2026-10-18 19:12:38,434 INFO Fold 49 [2025-09-09 → 2025-09-15]: train=4632 val=93 auc=0.6416 brier=0.2282
+2026-10-18 19:12:40,039 INFO Fold 50 [2025-09-16 → 2025-09-22]: train=4725 val=90 auc=0.6351 brier=0.2421
+2026-10-18 19:12:41,705 INFO Fold 51 [2025-09-23 → 2025-09-30]: train=4815 val=91 auc=0.5889 brier=0.2365
+2026-10-18 19:12:41,770 INFO Fold 52 [2025-10-01 → 2025-10-08]: PROVISIONAL (21 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:43,213 INFO Fold 52 [2025-10-01 → 2025-10-08]: train=4906 val=21 auc=0.5000 brier=0.2405  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:43,280 INFO Fold 53 [2025-10-09 → 2025-10-15]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:44,665 INFO Fold 53 [2025-10-09 → 2025-10-15]: train=4927 val=9 auc=0.4500 brier=0.2564  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:44,729 INFO Fold 54 [2025-10-16 → 2025-10-27]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:46,557 INFO Fold 54 [2025-10-16 → 2025-10-27]: train=4936 val=9 auc=0.7857 brier=0.2013  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:46,620 INFO Fold 55 [2025-10-28 → 2026-03-27]: PROVISIONAL (24 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:12:48,006 INFO Fold 55 [2025-10-28 → 2026-03-27]: train=4945 val=24 auc=0.6434 brier=0.2445  [PROVISIONAL — excluded from grading]
+2026-10-18 19:12:49,478 INFO Fold 56 [2026-03-28 → 2026-04-03]: train=4969 val=88 auc=0.5272 brier=0.2436
+2026-10-18 19:12:50,948 INFO Fold 57 [2026-04-04 → 2026-04-10]: train=5057 val=95 auc=0.4681 brier=0.2568
+2026-10-18 19:12:52,438 INFO Fold 58 [2026-04-11 → 2026-04-17]: train=5152 val=95 auc=0.5130 brier=0.2474
+2026-10-18 19:12:54,275 INFO Fold 59 [2026-04-18 → 2026-04-24]: train=5247 val=93 auc=0.5802 brier=0.2482
+2026-10-18 19:12:55,786 INFO Fold 60 [2026-04-25 → 2026-05-01]: train=5340 val=92 auc=0.5494 brier=0.2498
+2026-10-18 19:12:57,752 INFO Fold 61 [2026-05-02 → 2026-05-08]: train=5432 val=95 auc=0.6707 brier=0.2331
+2026-10-18 19:12:59,258 INFO Fold 62 [2026-05-09 → 2026-05-15]: train=5527 val=91 auc=0.5520 brier=0.2425
+2026-10-18 19:13:01,196 INFO Fold 63 [2026-05-16 → 2026-05-22]: train=5618 val=95 auc=0.6337 brier=0.2430
+2026-10-18 19:13:02,929 INFO Fold 64 [2026-05-23 → 2026-05-29]: train=5713 val=93 auc=0.5379 brier=0.2493
+2026-10-18 19:13:04,663 INFO Fold 65 [2026-05-30 → 2026-06-05]: train=5806 val=93 auc=0.5343 brier=0.2502
+2026-10-18 19:13:06,297 INFO Fold 66 [2026-06-06 → 2026-06-12]: train=5899 val=89 auc=0.5021 brier=0.2507
+2026-10-18 19:13:08,365 INFO Fold 67 [2026-06-13 → 2026-06-19]: train=5988 val=90 auc=0.6007 brier=0.2396
+2026-10-18 19:13:10,124 INFO Fold 68 [2026-06-20 → 2026-06-26]: train=6078 val=94 auc=0.5064 brier=0.2554
+2026-10-18 19:13:11,914 INFO Fold 69 [2026-06-27 → 2026-07-03]: train=6172 val=94 auc=0.6279 brier=0.2416
+2026-10-18 19:13:13,813 INFO Fold 70 [2026-07-04 → 2026-07-10]: train=6266 val=96 auc=0.6022 brier=0.2447
+2026-10-18 19:13:15,594 INFO Fold 71 [2026-07-11 → 2026-07-20]: train=6362 val=92 auc=0.5614 brier=0.2438
+2026-10-18 19:13:17,562 INFO Fold 72 [2026-07-21 → 2026-07-27]: train=6454 val=91 auc=0.5734 brier=0.2477
+2026-10-18 19:13:19,464 INFO Fold 73 [2026-07-28 → 2026-08-03]: train=6545 val=94 auc=0.6268 brier=0.2399
+2026-10-18 19:13:21,192 INFO Fold 74 [2026-08-04 → 2026-08-10]: train=6639 val=96 auc=0.5402 brier=0.2445
+2026-10-18 19:13:23,044 INFO Fold 75 [2026-08-11 → 2026-08-17]: train=6735 val=94 auc=0.5159 brier=0.2508
+2026-10-18 19:13:25,189 INFO Fold 76 [2026-08-18 → 2026-08-24]: train=6829 val=94 auc=0.6804 brier=0.2230
+2026-10-18 19:13:27,333 INFO Fold 77 [2026-08-25 → 2026-08-31]: train=6923 val=95 auc=0.6444 brier=0.2350
+2026-10-18 19:13:29,282 INFO Fold 78 [2026-09-01 → 2026-09-07]: train=7018 val=96 auc=0.5761 brier=0.2444
+2026-10-18 19:13:31,351 INFO Fold 79 [2026-09-08 → 2026-09-14]: train=7114 val=90 auc=0.6210 brier=0.2391
+2026-10-18 19:13:33,914 INFO Fold 80 [2026-09-15 → 2026-09-21]: train=7204 val=87 auc=0.6896 brier=0.2275
+2026-10-18 19:13:35,849 INFO Fold 81 [2026-09-22 → 2026-09-29]: train=7291 val=91 auc=0.6300 brier=0.2393
+2026-10-18 19:13:35,917 INFO Fold 82 [2026-09-30 → 2026-10-07]: PROVISIONAL (19 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:13:37,599 INFO Fold 82 [2026-09-30 → 2026-10-07]: train=7382 val=19 auc=0.5222 brier=0.2536  [PROVISIONAL — excluded from grading]
+2026-10-18 19:13:37,667 INFO Fold 83 [2026-10-08 → 2026-10-15]: PROVISIONAL (9 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:13:39,475 INFO Fold 83 [2026-10-08 → 2026-10-15]: train=7401 val=9 auc=0.3000 brier=0.2616  [PROVISIONAL — excluded from grading]
+2026-10-18 19:13:39,542 INFO Fold 84 [2026-10-17 → 2026-10-17]: PROVISIONAL (1 val games < 40) — fit + scored, excluded from grading
+2026-10-18 19:13:41,354 INFO Fold 84 [2026-10-17 → 2026-10-17]: train=7410 val=1 auc=nan brier=0.2608  [PROVISIONAL — excluded from grading]
+2026-10-18 19:13:41,462 WARNING Calibration: degenerate Platt params (a=-0.20800406711787128, n=448) — identity map
+2026-10-18 19:13:41,915 INFO Published blend: 7040 OOF rows use strictly-prior rolling weights; deployed weights {'elasticnet': '41.9%', 'lightgbm': '33.0%', 'xgboost': '25.1%'} replay THE serving blend in a separate retrospective diagnostic — NOT OOF, never headline metrics
+2026-10-18 19:13:41,970 INFO Retrospective final-weight replay (NOT OOF): {'auc': 0.5761, 'brier': 0.244, 'logloss': 0.681, 'ece': 0.01}
+2026-10-18 19:13:41,983 INFO Calibration (OOF, prequential): ECE 0.0099 → 0.0099, log-loss 0.6815 → 0.6815
+2026-10-18 19:13:41,983 INFO Calibration final-origin gate: {'n_prior': 6879, 'decision': 'identity', 'reason': 'gated_no_gain', 'raw_logloss': 0.6782512089384584, 'calibrated_logloss': 0.6783947128270026}
+2026-10-18 19:13:43,605 INFO Rolling blend weights (last fold earned): {'elasticnet': '41.9%', 'lightgbm': '33.0%', 'xgboost': '25.1%'}
+2026-10-18 19:13:43,606 INFO XGBoost shipped rounds: 85 probe measurement(s), causal transfer 24 floored at the static budget — refit ships 150
+2026-10-18 19:13:43,680 INFO Walk-forward season split: 7040 OOF rows = 6879 grading + 161 non-grading (153 provisional incl. 115 postseason, 8 postseason outside provisional folds); blocks OVERLAP — grading n=6879, postseason n=123, provisional n=153
+2026-10-18 19:13:43,687 INFO Walk-forward metrics (causal rolling blend): {'auc': 0.5748, 'brier': 0.2443, 'logloss': 0.6815, 'ece': 0.0099, 'brier_calibrated': 0.2443, 'logloss_calibrated': 0.6815, 'ece_calibrated': 0.0099, 'calibrator_gated_out': True}
+2026-10-18 19:13:46,367 INFO Ensemble persisted to /content/sports_prediction_model/mlb-backend/data_delivery/models/ensemble_latest.joblib
+2026-10-18 19:13:46,380 INFO Version history: 20 versions recorded (v2026.10.18 latest)
+2026-10-18 19:13:46,380 INFO Step 4: Predicting games for 20261018
+2026-10-18 19:13:50,482 INFO slate pl_*: 2 team-date pool resolution(s) for 2026-10-18 (3-tier membership; carry only as fall-through)
+2026-10-18 19:13:53,326 WARNING SP slate staleness gate: 146 pitcher(s) enter 2026-10-18 off a >=10d availability-stint gap — announced starters among them have their carried SP lines withheld (pre-stint form)
+2026-10-18 19:13:56,728 INFO slate pl_* sources (home/away): {'pool-t1/pool-t1': 1}
+2026-10-18 19:13:56,729 INFO Upcoming slate built: 1 games for 2026-10-18
+2026-10-18 19:13:56,770 INFO No completed games in the pitch frame on 20261018 -- built 1-game upcoming slate (pre-game PIT features; official-results overlay follows)
+2026-10-18 19:13:56,909 INFO Weather batches: skipped 1 gameless window(s) (2026-10-17→2026-10-17 span) — no Open-Meteo requests sent for them
+2026-10-18 19:13:56,911 INFO Weather fetched: 1/1 games from batched observations
+2026-10-18 19:13:56,912 INFO Computing diff features for 1 games...
+2026-10-18 19:13:56,943 INFO Diff features complete: 16 columns added
+2026-10-18 19:13:56,950 INFO add_form_delta_features: computed 22 delta column(s) missing from the frame
+2026-10-18 19:13:56,974 INFO add_exp2_features: 8 candidates + 16 twins computed, coverage {'exp2_centered_k_diff': 1.0, 'exp2_cat_k_fastball_diff': 1.0, 'exp2_cat_k_breaking_diff': 1.0, 'exp2_cat_k_offspeed_diff': 1.0, 'exp2_cat_xwoba_fastball_diff': 1.0, 'exp2_cat_xwoba_breaking_diff': 1.0, 'exp2_cat_xwoba_offspeed_diff': 1.0, 'exp2_cat_platoon_k_fastball_diff': 1.0, 'exp2_centered_k_home': 1.0, 'exp2_centered_k_away': 1.0, 'exp2_cat_k_fastball_home': 1.0, 'exp2_cat_k_fastball_away': 1.0, 'exp2_cat_k_breaking_home': 1.0, 'exp2_cat_k_breaking_away': 1.0, 'exp2_cat_k_offspeed_home': 1.0, 'exp2_cat_k_offspeed_away': 1.0, 'exp2_cat_xwoba_fastball_home': 1.0, 'exp2_cat_xwoba_fastball_away': 1.0, 'exp2_cat_xwoba_breaking_home': 1.0, 'exp2_cat_xwoba_breaking_away': 1.0, 'exp2_cat_xwoba_offspeed_home': 1.0, 'exp2_cat_xwoba_offspeed_away': 1.0, 'exp2_cat_platoon_k_fastball_home': 1.0, 'exp2_cat_platoon_k_fastball_away': 1.0}
+2026-10-18 19:13:56,978 INFO Weather features applied to 1/1 games
+2026-10-18 19:13:57,963 INFO Today's board post-results: 0 post/Final + 1 pre/Scheduled (1 rows) -- reconciles with todays_games CSV
+2026-10-18 19:13:57,988 INFO Step 5: Writing artifacts
+2026-10-18 19:14:04,761 INFO Prediction history written: 7040 games -> predictions_history_20261018.csv
+2026-10-18 19:14:05,182 INFO Rolling Brier: 511 points (2024-04-25 → 2026-09-27), 6888 of 7040 games in-series (152 excluded on 78 sparse days, <5 games/day), all-game mean 0.2443
+2026-10-18 19:14:05,182 WARNING Rolling Brier: series is STALE — last point 2026-09-27 is 20 day(s) behind the newest decided game 2026-10-17; 33 later game(s) on 16 day(s) stay under the 5-game floor and enter NO series point, so the trailing monitor does not describe the current window
+2026-10-18 19:14:05,190 INFO Feature metadata: 109 features written -> features_metadata_20261018.json
+2026-10-18 19:14:06,287 INFO Run engine: 85 walk-forward folds, 7411 decided games
+2026-10-18 19:14:06,287 INFO Run engine: active moneyline feature view (109 features)
+2026-10-18 19:19:58,165 INFO Run engine OOF: 7040 rows -> run_engine_oof_20261018.csv
+2026-10-18 19:20:00,193 INFO Run engine markets: 7041 rows -> run_engine_markets_20261018.csv (+ meta json)
+2026-10-18 19:20:00,316 INFO Totals history store: 7342 rows (0 added this run, seeded=False) -> run_engine_totals_history.csv
+2026-10-18 19:20:04,295 INFO Run-engine monitor: 3 winner cards, rolling 45 days -> run_engine_monitor_20261018.json
+2026-10-18 19:20:04,296 INFO Step 6: Explainability
+2026-10-18 19:20:06,485 INFO SHAP stack in tested range (shap (0, 50), xgboost (3, 2))
+2026-10-18 19:20:06,675 INFO SHAP additivity [xgboost via native_pred_contribs]: worst |Σφ + base − log-odds| = 6.18e-08 over 1 games
+2026-10-18 19:20:06,676 INFO SHAP additivity [lightgbm via shap_TreeExplainer]: worst |Σφ + base − log-odds| = 1.94e-16 over 1 games
+2026-10-18 19:20:06,676 INFO SHAP attributions written for 1 games
+2026-10-18 19:20:06,678 INFO Drift decided frame: 7411 games, hash=5c8f274f8976
+2026-10-18 19:20:07,991 INFO Drift post-margin frame: 7411 games, hash=e2ab9df90bd9
+2026-10-18 19:20:08,008 INFO Drift current window widened: 7d → 21d (sparse tail) — 47 rows meets the judge floor 30; the floor is unchanged
+2026-10-18 19:20:08,248 INFO Feature drift [moneyline]: 109 features, 109 evaluated, 0 INSUFFICIENT, 0 warnings, 10 alerts, 5 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.115)
+2026-10-18 19:20:08,408 INFO Feature coverage [moneyline]: 218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms
+2026-10-18 19:20:08,410 INFO Feature coverage [moneyline]: STRUCTURAL (declared missing-value policy, not starvation): air_density_velocity_boost/baseline=75%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/current=79%, wind_advantage_flyball_factor/current=79% — declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed
+2026-10-18 19:20:08,410 INFO Run-engine monitoring view: 109 active moneyline features
+2026-10-18 19:20:08,809 INFO Feature drift [run-engine]: 109 features, 109 evaluated, 0 INSUFFICIENT, 0 warnings, 10 alerts, 5 seasonal (statuses on noise-adjusted PSI; mean noise floor 0.115)
+2026-10-18 19:20:08,969 INFO Feature coverage [run-engine]: 218 feature-window pairs — 214 OK, 4 STRUCTURAL by declared policy, 0 alarms
+2026-10-18 19:20:08,971 INFO Feature coverage [run-engine]: STRUCTURAL (declared missing-value policy, not starvation): air_density_velocity_boost/baseline=75%, wind_advantage_flyball_factor/baseline=75%, air_density_velocity_boost/current=79%, wind_advantage_flyball_factor/current=79% — declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 10 unmeasured row(s): 8 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 2 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_fbvelo_diff (SP staleness gate); every open-air row with a valid input is observed; declared missing-value policy on all 63 unmeasured row(s): 46 closed-roof policy zero(s) (indoor-neutral fill, never an observation) + 17 open-air NULL(s) gated by a missing sp_xfip_diff (SP staleness gate); every open-air row with a valid input is observed
+2026-10-18 19:20:11,065 INFO Step 7: Skipping GitHub sync (Phase 5 owns the artifact push)
+2026-10-18 19:20:11,065 INFO === Pipeline complete: ok ===
   📊 Status: ok
   📈 Metrics: {
   "auc": 0.5748,
@@ -413,51 +373,3 @@ wrote /content/sports_prediction_model/mlb-backend/data_delivery/pbp_defense_202
   PHASE 5 — GitHub Sync — push new artifacts
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  📋 Staging 28 files:
-    mlb-backend/data_delivery/game_level_features.csv
-    mlb-backend/data_delivery/calibration_20261018.json
-    mlb-backend/data_delivery/feature_coverage_20261018.csv
-    mlb-backend/data_delivery/feature_drift_20261018.csv
-    mlb-backend/data_delivery/features_metadata_20261018.json
-    mlb-backend/data_delivery/lineups.parquet
-    mlb-backend/data_delivery/mlb_pipeline_run_log.txt
-    mlb-backend/data_delivery/model_history.json
-    mlb-backend/data_delivery/model_monitor_20261018.json
-    mlb-backend/data_delivery/model_version_history.json
-    mlb-backend/data_delivery/models/ensemble_latest.joblib
-    mlb-backend/data_delivery/pbp_defense_20261018.meta.json
-    mlb-backend/data_delivery/pbp_defense_20261018.parquet
-    mlb-backend/data_delivery/pl_slate_20261018.parquet
-    mlb-backend/data_delivery/power_rankings_20261018.csv
-    mlb-backend/data_delivery/predictions_history_20261018.csv
-    mlb-backend/data_delivery/rolling_brier_20261018.json
-    mlb-backend/data_delivery/run_engine_feature_coverage_20261018.csv
-    mlb-backend/data_delivery/run_engine_feature_drift_20261018.csv
-    mlb-backend/data_delivery/run_engine_markets_20261018.csv
-    mlb-backend/data_delivery/run_engine_markets_20261018.meta.json
-    mlb-backend/data_delivery/run_engine_monitor_20261018.json
-    mlb-backend/data_delivery/run_engine_oof_20261018.csv
-    mlb-backend/data_delivery/run_engine_totals_history.csv
-    mlb-backend/data_delivery/run_engine_totals_history.meta.json
-    mlb-backend/data_delivery/shap_game_20261018_TB@CLE.csv
-    mlb-backend/data_delivery/todays_games_20261018.csv
-    mlb-backend/data_delivery/umpire_stats.csv
-  ✅ Pushed and remotely verified 28 files — confirmed on sports_prediction_model@main
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PHASE 6 — Stale artifact cleanup (final step)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  synced clone to remote tip 28530286ef (main)
-  🛡️  Kept 57 protected file(s) (never deleted)
-  📅 Kept 181 artifact(s) within the retention window (anchor 20261018 -10d)
-  ✅ No stale files — data_delivery holds exactly this run's artifacts
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DONE ✅ — 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Games: 7411  |  Pitches: 2,177,831  |  Columns: 290 game + 88 pbp
-  Output: /content/mlb_clean_data
-  📝 Final run-log delivery — pushing the complete log (Phase 5 staged a snapshot before Phase 5/6 finished)
-  synced clone to remote tip 28530286ef (main)
