@@ -266,6 +266,68 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
     return out
 
 
+def _score_means_stability(oof_markets: pd.DataFrame, out: Path,
+                           date_c: str) -> dict[str, Any]:
+    """Common-games stability of this run's score means vs the prior delivery.
+
+    Answers "did the new mus break derived ML?" on every run without
+    forensics: mean |Dmu| per side plus derived-ML AUC/logloss for the NEW
+    vs PRIOR mus on the SAME decided games. A material mu move with a
+    derived-ML loss is the signature the 2026-10-17 ensemble promotion left
+    (-2.8 bps AUC / +6.9 bps logloss on 2,400 common games, inside noise -
+    benign there, but the question deserved a standing answer, not a dig).
+    Best-effort diagnostic only: {} with a logged reason when no prior
+    delivery or no overlap exists. Never raises.
+    """
+    need = ("game_id", "mu_h", "mu_a", "p_home_win_derived", "y_home_win")
+    try:
+        if oof_markets is None or not len(oof_markets):
+            return {"status": "no_current_oof"}
+        if any(c not in oof_markets.columns for c in need):
+            return {"status": "missing_columns"}
+        prior = sorted(Path(out).glob("nba_run_engine_markets_*.csv"))
+        prior = [p for p in prior if f"_{date_c}.csv" not in p.name]
+        if not prior:
+            return {"status": "no_prior_delivery"}
+        prev = pd.read_csv(prior[-1],
+                           usecols=lambda c: c in set(need))
+        if any(c not in prev.columns for c in need):
+            return {"status": "prior_missing_columns",
+                    "file": prior[-1].name}
+        cur = oof_markets.loc[oof_markets.y_home_win.notna(), list(need)].copy()
+        cur["game_id"] = cur.game_id.astype(str)
+        prev = prev.loc[prev.y_home_win.notna()].copy()
+        prev["game_id"] = prev.game_id.astype(str)
+        m = cur.merge(prev, on="game_id", suffixes=("", "_prior"))
+        if len(m) < 100:
+            return {"status": "insufficient_overlap", "n_common": int(len(m))}
+        from sklearn.metrics import roc_auc_score, log_loss
+        out_d: dict[str, Any] = {
+            "status": "ok", "prior_file": prior[-1].name,
+            "n_common": int(len(m)),
+            "mean_abs_dmu_home": round(float(np.abs(
+                m.mu_h - m.mu_h_prior).mean()), 4),
+            "mean_abs_dmu_away": round(float(np.abs(
+                m.mu_a - m.mu_a_prior).mean()), 4),
+        }
+        for tag, pcol, ycol in (("new", "p_home_win_derived", "y_home_win"),
+                                ("prior", "p_home_win_derived_prior",
+                                 "y_home_win_prior")):
+            y = m[ycol].to_numpy(float)
+            p = np.clip(m[pcol].to_numpy(float), 1e-12, 1 - 1e-12)
+            out_d[f"derived_auc_{tag}"] = round(float(roc_auc_score(y, p)), 4)
+            out_d[f"derived_logloss_{tag}"] = round(float(log_loss(y, p)), 5)
+        out_d["derived_auc_delta_bps"] = round(
+            10000 * (out_d["derived_auc_new"] - out_d["derived_auc_prior"]), 2)
+        out_d["derived_logloss_delta_bps"] = round(
+            10000 * (out_d["derived_logloss_new"]
+                      - out_d["derived_logloss_prior"]), 2)
+        return out_d
+    except Exception as exc:  # noqa: BLE001 - diagnostic never fails a run
+        logger.warning("score-means stability check skipped (%s)", exc)
+        return {"status": "error", "reason": str(exc)[:200]}
+
+
 def _build_injury_stints(facts, games: pd.DataFrame) -> pd.DataFrame | None:
     """Build the injury-stint table for the run, or None when it cannot bind.
 
@@ -1723,9 +1785,13 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             "anything listed is in the published contract and in no row, so "
             "the model was fitted (and the slate scored) without it",
             ", ".join(empty_frame) or "none", ", ".join(empty_slate) or "none")
+    stability = _score_means_stability(
+        oof_markets if phase_error is None else None, out, date_c)
+    logger.info("score-means stability vs prior delivery: %s", stability)
     summary = {"status": "failed" if phase_error else "ok",
                "errors": [str(phase_error)] if phase_error else [],
                "run_date": run_day, "artifacts": artifacts,
+               "score_means_stability": stability,
                "weights": ml["member_weights"] if ml else {}, "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
                "n_features": len(config.active_moneyline_feature_cols()),
