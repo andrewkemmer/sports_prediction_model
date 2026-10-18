@@ -919,6 +919,15 @@ SCORE_ELASTICNET_PARAMS = {
     "alpha": 0.3, "l1_ratio": 0.5,
     "max_iter": 4000, "tol": 1e-4, "random_state": RANDOM_SEED,
 }
+# Totals pace-tilt trial (2026-10-18, DEFAULT OFF): per-origin totals-
+# location tilt on pace deviation, same mechanism as the NBA V3a adoption
+# (NBA diagnostic: top-quintile bias +2.81, z=+3.08; NFL diagnostic:
+# +1.39, z=+2.15, halves slopes +0.41/+0.32 both z>2). Trial-only until a
+# walk-forward verdict clears the gate (run_diagnostics/nfl_tilt_trial.py).
+# ADOPTED 2026-10-18 (trial verdict: top-quintile over-47 gap +0.0400 ->
+# -0.0053, hot lift z=+40.2, CRPS neutral at z=+0.12). Watched every run
+# by the tilt_watch panel (slope-sign guard + top-quintile gap at line 47).
+DISTRIBUTION_TOTAL_TILT_PACE = True
 
 # ---------------------------------------------------------------------------
 # Margin / total distribution grids (spec sections 21/23)

@@ -206,7 +206,8 @@ def resolve_widths(h, a, p, sport):
 
 
 def fit_tilt(h, a, outcomes, sport):
-    """Totals-location tilt on pace deviation (NBA trial, default off).
+    """Totals-location tilt on pace deviation (NBA adopted 2026-10-18;
+    NFL trial, both default-off unless enabled).
 
     Total residuals (actual minus expected total) regressed on the pace
     covariate the calibration design already uses ((h+a)/ref - 1). Returns
@@ -215,13 +216,13 @@ def fit_tilt(h, a, outcomes, sport):
     without enough evidence price exactly as today. The intercept absorbs
     season-level drift; the slope carries the stable within-season tilt.
     """
-    if sport != "nba":
+    if sport not in ("nba", "nfl"):
         return {}
     h = np.asarray(h, float)
     a = np.asarray(a, float)
     if len(h) < 2 * MIN_HISTORY:
         return {}
-    reference = SPORT_PRIORS["nba"][0]
+    reference = SPORT_PRIORS[sport][0]
     pace = np.clip((h + a) / reference - 1., -1., 2.)
     resid = np.asarray(outcomes["total"], float) - (h + a)
     ok = np.isfinite(pace) & np.isfinite(resid)
@@ -245,9 +246,9 @@ def tilt_shift(h, a, tilt, sport):
     """Per-game additive total-location shift (zeros when no block)."""
     h = np.asarray(h, float)
     a = np.asarray(a, float)
-    if not tilt or sport != "nba":
+    if not tilt or sport not in ("nba", "nfl"):
         return np.zeros(h.shape)
-    reference = SPORT_PRIORS["nba"][0]
+    reference = SPORT_PRIORS[sport][0]
     pace = np.clip((h + a) / reference - 1., -1., 2.)
     shift = (float(tilt["intercept"])
              + float(tilt["slope"]) * (pace - float(tilt["pace_mean"])))

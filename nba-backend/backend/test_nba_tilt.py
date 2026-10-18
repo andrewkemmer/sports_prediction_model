@@ -54,12 +54,18 @@ def test_thin_history_falls_back():
     assert family.fit_tilt(h, a, out, "nba") == {}
 
 
-def test_non_nba_has_no_tilt():
+def test_untilted_sports_have_no_tilt():
+    # MLB/NHL are outside the tilt gate. NFL reads NBA-scale inputs as a
+    # degenerate constant pace (clipped) and correctly falls back — NFL
+    # positive coverage lives in nfl-backend's test_nfl_tilt.py on NFL
+    # scale, where the same call returns a block.
     h, a, out = _synthetic()
     assert family.fit_tilt(h, a, out, "nfl") == {}
+    assert family.fit_tilt(h, a, out, "mlb") == {}
+    assert family.fit_tilt(h, a, out, "nhl") == {}
     np.testing.assert_array_equal(
         family.tilt_shift(h, a, {"slope": 50., "intercept": 1.,
-                                 "pace_mean": 0., "cap": 6.}, "nfl"),
+                                 "pace_mean": 0., "cap": 6.}, "mlb"),
         np.zeros(len(h)))
 
 
