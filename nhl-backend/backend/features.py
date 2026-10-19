@@ -873,6 +873,22 @@ def goalie_state(boxscores: pd.DataFrame | None,
         _names = _rows["player_name"].dropna().unique()
         if len(_names):
             _names_by_pid[_pid] = [str(x) for x in _names]
+    # Surname inverted name index (2026-10-19 run-log review): the name
+    # fallback below used to re-normalise and re-compare all ~553 exclusion
+    # identities for every goalie candidate of every game (~10ms a probe,
+    # minutes a run). Normalising each exclusion name once and indexing by
+    # surname makes every probe a dict lookup applying the SAME predicate
+    # and the SAME uniqueness rule — byte-identical verdicts, ~1/500 the
+    # string work.
+    _exact_name_to_pids: dict[str, set[str]] = {}
+    _surname_to_names: dict[str, list[tuple[str, str]]] = {}
+    for _pid, _nms in _names_by_pid.items():
+        for _nm in _nms:
+            _norm = injury_stints.normalise_player_name(_nm)
+            if not _norm:
+                continue
+            _exact_name_to_pids.setdefault(_norm, set()).add(_pid)
+            _surname_to_names.setdefault(_norm.split()[-1], []).append((_pid, _norm))
 
     def _goalie_excluded(gid_: str, cut, name: str) -> bool:
         """Is THIS goalie known unavailable at ``cut`` (strictly prior)?
@@ -896,19 +912,31 @@ def goalie_state(boxscores: pd.DataFrame | None,
         # the same wrong-person-is-worse-than-no-exclusion rule the bridge
         # applies to ambiguous names. Two matches on one surname+initial:
         # nobody is benched on a guess.
-        hits: list[str] = []
-        for pid in _ids:
-            names = _names_by_pid.get(pid)
-            if not names:
-                continue
-            for nm_row in names:
-                if injury_stints.names_match_player(nm, nm_row):
-                    hits.append(pid)
-                    break
+        # Same verdicts as the old scan via names_match_player: the boxscore
+        # side is normalised once per probe, the exclusion side once per run
+        # above. Exact normalised names hit directly; only same-surname rows
+        # can satisfy the initial-plus-surname rule — every (pid, name) the
+        # old scan could collect is still collected, so the uniqueness rule
+        # (exactly one pid, else nobody benched on a guess) is unchanged.
+        _norm_nm = injury_stints.normalise_player_name(nm)
+        if not _norm_nm:
+            return False
+        hits: set[str] = set(_exact_name_to_pids.get(_norm_nm, ()))
+        _parts = _norm_nm.split()
+        if len(_parts) >= 2:
+            for _pid_c, _norm_full in _surname_to_names.get(_parts[-1], ()):
+                if _pid_c in hits:
+                    continue
+                _full_parts = _norm_full.split()
+                if len(_full_parts) >= 2:
+                    _fa, _fb = _parts[0], _full_parts[0]
+                    if ((len(_fa) == 1 and _fb.startswith(_fa))
+                            or (len(_fb) == 1 and _fa.startswith(_fb))):
+                        hits.add(_pid_c)
         if len(hits) != 1:
             return False
         return bool(injury_stints.is_unavailable(
-            stints, hits[0], pd.Timestamp(cut), strict_start=True,
+            stints, next(iter(hits)), pd.Timestamp(cut), strict_start=True,
             by_player=_by_player))
 
     def _season_line(gid_: str, seas: float, n_before: int) -> tuple[float, float, float]:

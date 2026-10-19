@@ -111,7 +111,17 @@ def _is_il_status(status: object) -> bool:
 
 
 def _utc_naive(value) -> pd.Timestamp:
-    """Parse a timestamp as UTC and drop the timezone for safe comparisons."""
+    """Parse a timestamp as UTC and drop the timezone for safe comparisons.
+
+    Fast path (2026-10-19 run-log review): production frames already carry
+    naive Timestamps (snapshot lists, decision instants, stint bounds), and
+    this helper runs ~100x per availability probe — re-parsing each one
+    through ``to_datetime`` was the per-call cost behind the pool-build hang.
+    The shortcut returns the identical instant; every other input type takes
+    the original parse path unchanged.
+    """
+    if isinstance(value, pd.Timestamp) and value.tzinfo is None:
+        return value
     parsed = pd.to_datetime(value, errors="coerce", utc=True)
     if pd.isna(parsed):
         return pd.NaT
@@ -491,11 +501,38 @@ def stints_by_player(stints: Optional[pd.DataFrame]) -> dict:
     """
     if stints is None or not len(stints) or OUT_PLAYER not in stints.columns:
         return {}
+    # One vectorised datetime normalisation for the whole frame (2026-10-19
+    # run-log review): every availability probe reads its player's bounds
+    # through _utc_naive + iterrows, re-parsing the same instants ~1M times
+    # a run. Same instants, tz-naive datetime64 dtype only — verdicts below
+    # are unchanged, only the per-probe parse loop disappears.
+    stints = stints.copy()
+    for _bound_col in (STINT_START, STINT_END):
+        if _bound_col in stints.columns:
+            stints[_bound_col] = pd.to_datetime(
+                stints[_bound_col], errors="coerce", utc=True).dt.tz_localize(None)
     attrs = dict(getattr(stints, "attrs", {}) or {})
     out: dict = {}
     for key, rows in stints.groupby(OUT_PLAYER, sort=False):
         rows = rows.copy()
-        rows.attrs = attrs
+        rows.attrs = dict(attrs)
+        # Per-player probe payload (2026-10-19 run-log review): the int64
+        # interval bounds plus the leave flag, computed ONCE here instead of
+        # re-selected and re-parsed out of the group frame on every probe
+        # (~500us of pandas fixed costs per call on a 2-row frame).
+        # is_unavailable reads it straight from attrs; frames without one
+        # keep the legacy row walk with identical verdicts.
+        if (STINT_START in rows.columns and STINT_END in rows.columns
+                and rows[STINT_START].dtype.kind == "M"
+                and rows[STINT_END].dtype.kind == "M"
+                and rows[STINT_START].dt.tz is None
+                and rows[STINT_END].dt.tz is None):
+            rows.attrs["_probe"] = (
+                rows[STINT_START].to_numpy().astype("datetime64[ns]").astype("int64"),
+                rows[STINT_END].to_numpy().astype("datetime64[ns]").astype("int64"),
+                bool((rows["source"] == LEAVE_SOURCE).any())
+                if "source" in rows.columns else False,
+            )
         out[key] = rows
     return out
 
@@ -537,6 +574,11 @@ def is_unavailable(
             return False
     else:
         mine_all = stints[stints[OUT_PLAYER] == str(player_id)]
+    # Probe payload (2026-10-19 run-log review): per-player int64 bounds +
+    # leave flag precomputed once in stints_by_player and read straight from
+    # attrs — zero pandas per probe. Frames without one (tests, diagnostics)
+    # keep the legacy row walk below with identical verdicts.
+    _payload = (getattr(mine_all, "attrs", None) or {}).get("_probe")
     if strict_start:
         if snapshot_times is None:
             snapshot_times = stints.attrs.get("snapshot_times", ())
@@ -562,8 +604,11 @@ def is_unavailable(
             # frame-level PIT gate (assert_pit, per source) enforces that
             # attestation; the remedy for a stale ledger is re-review and a
             # new stamp, never a semantic hole.
-            if not ("source" in mine_all.columns
-                    and (mine_all["source"] == LEAVE_SOURCE).any()):
+            if _payload is not None:
+                if not _payload[2]:
+                    return False
+            elif not ("source" in mine_all.columns
+                      and (mine_all["source"] == LEAVE_SOURCE).any()):
                 return False
 
     def _covered(frame: pd.DataFrame) -> bool:
@@ -590,6 +635,15 @@ def is_unavailable(
                 return True
         return False
 
+    if _payload is not None:
+        _s_ns, _e_ns = _payload[0], _payload[1]
+        _d_ns = d.value
+        _INAT = np.int64(pd.NaT.value)
+        if strict_start:
+            return bool(((_s_ns != _INAT) & (_s_ns < _d_ns)
+                         & ((_e_ns == _INAT) | (_e_ns >= _d_ns))).any())
+        return bool(((_s_ns != _INAT) & (_s_ns <= _d_ns)
+                     & ((_e_ns == _INAT) | (_e_ns > _d_ns))).any())
     return _covered(mine_all)
 
 
@@ -1072,12 +1126,29 @@ def team_game_rates(
             at = agg["game_date"] if "game_date" in agg.columns else agg["_cand"]
         snapshot_times = stints.attrs.get("snapshot_times", ())
         by_player = stints_by_player(stints)
-        mask = pd.Series(
-            [is_unavailable(stints, p, d, strict_start=strict_start,
-                            snapshot_times=snapshot_times,
-                            by_player=by_player)
-             for p, d in zip(agg[OUT_PLAYER], at)],
-            index=agg.index)
+        # Probe dedupe (2026-10-19 run-log review): the exclusion verdict is
+        # a pure function of (player, decision instant) — stints, snapshots,
+        # and lag are fixed for the whole call — but each skater repeats ~8x
+        # per game (2 situations x 4 positions) with the same instant, so the
+        # old per-row loop re-proved the same probe ~1M times. Evaluating
+        # each distinct probe once is a byte-identical mask at ~1/8 the
+        # is_unavailable calls.
+        _verdicts: dict = {}
+        _flags = []
+        for _p, _d in zip(agg[OUT_PLAYER], at):
+            if pd.isna(_d):
+                # Matches is_unavailable's own missing-decision verdict
+                # (_utc_naive coerces to NaT -> False), and keeps NaT —
+                # which never equals itself — out of the dict keys.
+                _flags.append(False)
+                continue
+            _key = (_p, _d)
+            if _key not in _verdicts:
+                _verdicts[_key] = is_unavailable(
+                    stints, _p, _d, strict_start=strict_start,
+                    snapshot_times=snapshot_times, by_player=by_player)
+            _flags.append(_verdicts[_key])
+        mask = pd.Series(_flags, index=agg.index)
         audit["dropped_unavailable"] = int(mask.sum())
         # Counted PER SIDE, because "how much of this team's pool survived the
         # injury filter" is a per-game question and a frame total answers a
