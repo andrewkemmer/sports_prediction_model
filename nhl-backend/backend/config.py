@@ -606,6 +606,14 @@ RUN_ENGINE_FIXED_TOTALS = (5, 6, 7)
 RUN_ENGINE_CANONICAL_SPREADS = (1, 2)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
+# NHL totals slope-shrinkage (2026-10-19, DEFAULT ON): at each origin the
+# run-engine total location is shrunk toward the prior-history mean
+# (measured pooled-OOF slope of actual totals on mu_total ~0.14 at
+# correlation ~0.02 — the spread carries no signal and the fair-line
+# winner card ran 56.2% predicted vs 50.8% actual). Fitted causally on
+# strictly-prior OOF outcomes only; margin pricing untouched. Other
+# sports never read this flag.
+DISTRIBUTION_TOTAL_SHRINK_NHL = True
 
 # Drift windows (MONITORING ONLY — nothing in the fit or serve path reads
 # these): PSI compares the LAST N decided games ("current") against a

@@ -1144,11 +1144,21 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                         continue
                 if not np.isfinite(po):
                     continue
-                pp = r.get(_grid_col("p_push_total", u_int))
-                try:
-                    pp = float(pp)
-                except (TypeError, ValueError):
-                    pp = float("nan")
+                if float(U) == float(int(U)):
+                    pp = r.get(_grid_col("p_push_total", u_int))
+                    try:
+                        pp = float(pp)
+                    except (TypeError, ValueError):
+                        pp = float("nan")
+                else:
+                    # Half-line fair (the NHL median ladder): no push can
+                    # exist — the frontend prices Push = 0.0 here
+                    # (nhl_slate_view.price_total), so the card quotes the
+                    # model's own P(over). Voiding the modal integer mass
+                    # as if refunded inflated pick confidence ~1.2x and
+                    # flipped marginal unders into losing overs
+                    # (2026-10-19: 56.2% predicted vs 50.8% actual).
+                    pp = 0.0
                 pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
                 if po + pu <= 0:
                     continue

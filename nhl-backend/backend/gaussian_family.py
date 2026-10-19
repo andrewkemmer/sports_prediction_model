@@ -256,6 +256,62 @@ def tilt_shift(h, a, tilt, sport):
                     float(tilt.get("cap", 6.)))
 
 
+def fit_total_shrinkage(h, a, outcomes, sport):
+    """Totals-location slope shrinkage (NHL; other sports get {}).
+
+    Slope of actual totals on expected totals over strictly-prior history
+    (the caller passes prior outcomes only). Measured NHL pooled OOF slope
+    ~0.14 at correlation ~0.02: the spread-out mus carry no signal, so the
+    total location is shrunk toward the prior-history mean. Returns a
+    ``total_shrink`` block (shrinkage factor clipped to [.05, 1] — shrink
+    only, never amplify — plus the means and a per-game shift cap) or {}
+    when history is thin — so early origins price exactly as today.
+    """
+    if sport != "nhl":
+        return {}
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    if len(h) < 2 * MIN_HISTORY:
+        return {}
+    mu = h + a
+    y = np.asarray((outcomes or {}).get("total", []), float)
+    if y.shape != mu.shape:
+        return {}
+    ok = np.isfinite(mu) & np.isfinite(y)
+    if int(ok.sum()) < 2 * MIN_HISTORY:
+        return {}
+    mu, y = mu[ok], y[ok]
+    m = float(mu.mean())
+    ybar = float(y.mean())
+    var = float(((mu - m) ** 2).mean())
+    if var <= 1e-9:
+        return {}
+    factor = float(((mu - m) * (y - ybar)).mean() / var)
+    factor = float(min(1., max(.05, factor)))
+    # Cap the per-game shift at a sane hockey magnitude so a noisy
+    # early-origin factor cannot swing prices by multiple goals.
+    return {"total_shrink": {"factor": factor, "mean": m, "ref": ybar,
+                             "cap": 1.5}}
+
+
+def shrink_shift(mean_total, shrink):
+    """Per-game additive total-location shift from the shrinkage block.
+
+    Target = prior-outcome mean + factor * (expected - prior-expected
+    mean), margin untouched (only the total mean is warped). Zeros when
+    no block is present.
+    """
+    mean_total = np.asarray(mean_total, float)
+    if not shrink:
+        return np.zeros(mean_total.shape)
+    factor = float(shrink.get("factor", 1.))
+    m = float(shrink.get("mean", 0.))
+    ref = float(shrink.get("ref", m))
+    cap = float(shrink.get("cap", 1.5))
+    target = ref + factor * (mean_total - m)
+    return np.clip(target - mean_total, -cap, cap)
+
+
 def parity_correct(cdf, support, alpha):
     """NHL odd/even parity projection of a calibrated TOTAL CDF.
 
@@ -1388,6 +1444,10 @@ def raw_cdf(h, a, kind, sport, parameters=None):
         # NBA totals pace-tilt (trial, default off): additive location
         # shift from the variance params; absent block prices byte-identical.
         mean = mean + tilt_shift(h, a, (p or {}).get("total_tilt"), sport)
+        # NHL totals slope-shrinkage (2026-10-19): causal shrinkage of the
+        # total location toward the prior-history mean; absent block prices
+        # byte-identical. Margin branch untouched by construction.
+        mean = mean + shrink_shift(mean, (p or {}).get("total_shrink"))
     sd = np.sqrt(np.maximum(vh + va + (cross if kind == "total" else -cross), 1e-9))
     skew = float(p[f"{kind}_skew"])
     # Expand from predictions/parameters only, never from scored outcomes.

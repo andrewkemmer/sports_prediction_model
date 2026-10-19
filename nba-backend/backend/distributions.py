@@ -1948,6 +1948,15 @@ def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
         # correction rides the variance params; raw_cdf shifts the TOTAL
         # location only, so calibration refits against the tilted base.
         parameters.update(family.fit_tilt(h, a, outcomes, DISTRIBUTION_SPORT))
+    if DISTRIBUTION_SPORT == "nhl" and bool(getattr(config, "DISTRIBUTION_TOTAL_SHRINK_NHL", False)):
+        # 2026-10-19: totals slope-shrinkage (measured pooled-OOF slope of
+        # actual totals on mu_total ~0.14 at corr ~0.02 — the spread carries
+        # no signal and the fair-line card ran 56.2% predicted vs 50.8%
+        # actual). Rides the variance params like the NBA/NFL tilt;
+        # raw_cdf shrinks the TOTAL location only, so margin / run-line /
+        # derived-ML price byte-identical and calibration refits against
+        # the shrunk base.
+        parameters.update(family.fit_total_shrinkage(h, a, outcomes, DISTRIBUTION_SPORT))
     return {"variance": parameters,
             **{kind: _fit_distribution_map(h, a, y, kind, parameters)
                for kind, y in outcomes.items()},
