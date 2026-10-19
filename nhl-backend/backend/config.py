@@ -91,16 +91,15 @@ NUMPY_SEED = 42
 # ---------------------------------------------------------------------------
 # Historical eligibility policy
 # ---------------------------------------------------------------------------
-# Data starts season 2024 (the 2024-25 NHL season, the first with complete
-# official-API boxscore coverage for this pipeline). There is NO NFL-style
+# Data starts season 2023 (the 2023-24 NHL season). There is NO NFL-style
 # warm-up season; instead the walk-forward carries an MLB-style 30-DAY
-# warm-up: OOF validation windows begin only after the first 30 days of
-# core data, so every fold trains on at least ~30 days of settled history.
-# All of season 2024+ is OOF-eligible.
-NHL_FIRST_SEASON = 2024
+# warm-up: OOF validation windows begin only after the first 30 distinct
+# dates of core data, so every fold trains on at least ~30 days of settled
+# history. All of season 2023+ is OOF-eligible.
+NHL_FIRST_SEASON = 2023
 WARMUP_SEASONS: list[int] = []            # no warm-up season (30-day warm-up instead)
 OOF_FIRST_SEASON = NHL_FIRST_SEASON       # OOF population starts here
-CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2024..2026 inclusive
+CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2023..2026 inclusive
 ALL_SEASONS = CORE_SEASONS
 # gameType 2 = regular season, 3 = playoffs (official NHL API convention).
 GAME_TYPES = {2, 3}

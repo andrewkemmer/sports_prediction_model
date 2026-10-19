@@ -523,7 +523,7 @@ def test_config_pins_one_sigma_bar():
 
 
 def test_config_geometry_and_contract_pins():
-    assert config.NHL_FIRST_SEASON == 2024
+    assert config.NHL_FIRST_SEASON == 2023
     assert config.WARMUP_DAYS == 30
     assert config.MIN_VAL_FOLD_GAMES == 40  # disclosure threshold, not a filter
     assert config.RETRAIN_CADENCE_DAYS == 7
