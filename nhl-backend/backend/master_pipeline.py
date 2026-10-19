@@ -1096,6 +1096,14 @@ def main(argv: list[str] | None = None) -> int:
     # after the add lands in the working copy only). Never fatal: the
     # artifacts are already remotely verified, and a failed log push must
     # not fail a delivered run.
+    # 2026-10-19 lesson: the retry below used to push with no fetch/rebase
+    # and commit unconditionally, so any attempt-1 push failure (transient
+    # flake, or origin moving mid-run — three commits landed inside the
+    # 21:00–21:21 UTC window that night) was followed by pull --rebase +
+    # a guaranteed-EMPTY second commit (exit 1, "nothing to commit") once
+    # the rebase had replayed the already-committed log. The loop now
+    # mirrors _sync_data_delivery: rebase onto the tip BEFORE pushing and
+    # commit only when the add actually staged something.
     if _log_path and os.environ.get("GITHUB_TOKEN", "").strip() \
             and not _env_flag("NHL_NO_PUSH"):
         try:
@@ -1108,22 +1116,35 @@ def main(argv: list[str] | None = None) -> int:
                     ["git", *args], cwd=str(BACKEND_DIR.parent.parent),
                     check=True, capture_output=True, text=True)
 
+            def _log_has_staged_changes() -> bool:
+                probe = subprocess.run(
+                    ["git", "diff", "--cached", "--quiet"],
+                    cwd=str(BACKEND_DIR.parent.parent))
+                return probe.returncode != 0
+
             for _attempt in (1, 2):
                 try:
+                    _git_log("fetch", "origin", "main")
+                    _git_log("rebase", "origin/main")
                     _git_log("add", "--", _rel)
-                    _git_log("-c", "user.name=NHL Production Pipeline",
-                             "-c", "user.email=nhl-pipeline@users.noreply.github.com",
-                             "commit", "-m", "NHL pipeline run log (final delivery)")
+                    if _log_has_staged_changes():
+                        _git_log("-c", "user.name=NHL Production Pipeline",
+                                 "-c", "user.email=nhl-pipeline@users.noreply.github.com",
+                                 "commit", "-m", "NHL pipeline run log (final delivery)")
                     _git_log("push", "origin", "main")
                     break
                 except subprocess.CalledProcessError:
                     if _attempt == 2:
                         raise
-                    _git_log("pull", "--rebase", "origin", "main")
             print("  ✅ Run log pushed and remotely verified — sync output "
                   "included")
         except Exception as _log_exc:  # noqa: BLE001
-            print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}")
+            # CalledProcessError carries captured stderr (the plain str()
+            # shows only the argv + status, which is why the 2026-10-19
+            # warning named the commit but hid git's reason). Surface it.
+            _detail = (getattr(_log_exc, "stderr", "") or "").strip()
+            print(f"  ⚠️  Final run-log delivery did not complete: {_log_exc}"
+                  + (f" — {_detail}" if _detail else ""))
     return 0
 
 

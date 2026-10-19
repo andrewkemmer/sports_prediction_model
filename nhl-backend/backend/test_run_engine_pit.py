@@ -5208,6 +5208,26 @@ def test_final_run_log_delivery_repushes_the_complete_log():
         "a failed final log push must not fail a delivered run")
 
 
+def test_final_log_delivery_rebases_first_and_never_empty_commits():
+    """2026-10-19: the final-delivery retry pushed with no fetch/rebase and
+    committed unconditionally, so an attempt-1 push failure followed by a
+    rebase ended in a guaranteed-empty second commit (exit 1) — the exact
+    warning that night. The loop must rebase onto the tip before pushing,
+    commit only when the add staged something, and surface git's stderr
+    (the old warning named the argv but hid the reason)."""
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    block = src[src.index("Final run-log delivery"):src.index(
+        "def _sync_data_delivery")]
+    assert block.index('"fetch", "origin", "main"') < block.index(
+        '"push", "origin", "main"'), (
+        "rebase onto the tip must precede the push — a mid-run origin move "
+        "otherwise rejects it")
+    assert '"--cached", "--quiet"' in block, (
+        "commit must be conditional on staged changes")
+    assert "stderr" in block, (
+        "the failure warning must include git's stderr, not just argv")
+
+
 # ---------------------------------------------------------------------------
 # 2026-10-08 log review: drift visibility + season-seam re-check
 # ---------------------------------------------------------------------------
