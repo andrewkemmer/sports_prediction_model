@@ -717,8 +717,16 @@ class _SeasonDesign:
             # Cholesky instead of the general solver: a season's player
             # count solves in ~4ms versus ~430ms, which matters when a
             # whole-frame build asks for a solve per target date.
+            # (2026-10-19 log review: np.linalg.solve does NOT notice
+            # triangularity - each "triangular" substitution paid a full
+            # LU factorisation, ~135ms a side on a 570-player design, so
+            # a whole-frame build spent minutes re-factorising per date.
+            # The triangular solver below is the ~4ms the comment always
+            # meant; same system, same solution up to last-bit arithmetic.)
+            from scipy.linalg import solve_triangular
             chol = np.linalg.cholesky(M)
-            full = np.linalg.solve(chol.T, np.linalg.solve(chol, self.b))
+            _fwd = solve_triangular(chol, self.b, lower=True)
+            full = solve_triangular(chol.T, _fwd, lower=False)
         except np.linalg.LinAlgError:  # singular by pathology, not by design
             full = np.linalg.lstsq(M, self.b, rcond=None)[0]
         raw = full[:self.n]
