@@ -32,9 +32,9 @@ REPO_SUBDIR = SPORT_DIR_NAME
 RANDOM_SEED = 42
 NUMPY_SEED = 42
 
-# Historical eligibility starts with the 2024-25 season.  A season year is
-# normalized to its starting year (2024 for 2024-25).
-NBA_FIRST_SEASON = 2024
+# Historical eligibility starts with the 2023-24 season.  A season year is
+# normalized to its starting year (2023 for 2023-24).
+NBA_FIRST_SEASON = 2023
 OOF_FIRST_SEASON = NBA_FIRST_SEASON
 CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2100))
 ALL_SEASONS = CORE_SEASONS

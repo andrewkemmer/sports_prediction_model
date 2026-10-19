@@ -556,7 +556,13 @@ def window() -> tuple[date, date]:
     today = date.today()
     start_raw = _to_date(os.environ.get(WINDOW_START_ENV))
     end_raw = _to_date(os.environ.get(WINDOW_END_ENV))
-    start = start_raw or (today - timedelta(days=DEFAULT_WINDOW_DAYS))
+    # Default reaches back at least to the first eligible season (2026-10-19:
+    # the 900-day rolling default no longer reached the 2023-24 opener, so an
+    # unset NBA_START_DATE silently excluded it; the min() keeps the rolling
+    # cap meaningful if the OOF floor ever moves later). The max() below
+    # remains the floor for explicit early pins.
+    start = start_raw or min(today - timedelta(days=DEFAULT_WINDOW_DAYS),
+                             date(config.OOF_FIRST_SEASON, 1, 1))
     start = max(start, date(config.OOF_FIRST_SEASON, 1, 1))
     end = end_raw or today
     if end_raw is not None and end < today:
