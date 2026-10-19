@@ -5,7 +5,8 @@ per-batter trailing-30g shrunk xwOBA (Statcast
 estimated_woba_using_speedangle over PA-ending events, the exp2 non-null
 convention), pooled per position over the healthy roster, served as
 pl_<pos>_xwoba_{home,away,diff}. The frame computes all 9 pools; the
-2026-10-03 plan serves 8 (pl_dh computes but never enters the universe).
+2026-10-03 plan served 8, and pl_dh joined the universe 2026-10-19 on
+in-fold evidence (z +1.87; +1.51 over handedness) — all 9 serve.
 
 Pinned here:
   * batter_xwoba_rating_sql: both shrinkage arms evaluate to the shipped
@@ -301,8 +302,8 @@ def test_slate_carries_the_served_pl_pools_forward():
     no pl hits in data_ingestion) — every slate row shipped NaN levels, so
     add_diff_features could not compute any of the 24 model columns at serve
     time. The 8 served pools must ride the same _RAW_CARRY/_RAW_INPUTS path
-    as every other diff family, and pl_dh must NOT be carried (it generates
-    but never serves)."""
+    as every other diff family. 2026-10-19: pl_dh admitted (ninth pool) on
+    in-fold evidence — it rides the same carry path, 27 model columns."""
     from datetime import date
 
     from data_ingestion import build_upcoming_slate
@@ -317,6 +318,8 @@ def test_slate_carries_the_served_pl_pools_forward():
         "total_runs": [8],
         "pl_c_xwoba_home": [0.34],
         "pl_c_xwoba_away": [0.30],
+        "pl_dh_xwoba_home": [0.36],
+        "pl_dh_xwoba_away": [0.33],
     })
     sched = pd.DataFrame({
         "game_date": [pd.Timestamp(target)],
@@ -335,15 +338,14 @@ def test_slate_carries_the_served_pl_pools_forward():
     # serves carry, never an unmarked value (2026-10-03 alignment)
     assert slate["pl_source_home"].iloc[0] == "carry"
     assert slate["pl_source_away"].iloc[0] == "carry"
-    # the 16 served level inputs all exist on the slate row...
-    for p in ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf"):
+    # the 18 served level inputs all exist on the slate row (9 pools × sides)...
+    for p in ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf", "dh"):
         for side in ("home", "away"):
             assert f"pl_{p}_xwoba_{side}" in slate.columns, (p, side)
-    # ...while pl_dh is never carried (not a served pool): its level inputs
-    # are absent and its diff ships NaN through the normal missing-input path
-    assert "pl_dh_xwoba_home" not in slate.columns
-    assert "pl_dh_xwoba_diff" in out.columns
-    assert out["pl_dh_xwoba_diff"].isna().all()
+    # ...and the admitted dh pool resolves through the served path
+    assert float(slate["pl_dh_xwoba_home"].iloc[0]) == pytest.approx(0.36)
+    assert float(slate["pl_dh_xwoba_away"].iloc[0]) == pytest.approx(0.33)
+    assert float(out["pl_dh_xwoba_diff"].iloc[0]) == pytest.approx(0.03)
 
 
 def test_missing_position_map_degrades_loudly(monkeypatch):
@@ -468,7 +470,7 @@ def test_export_slate_pl_ships_resolved_pools_with_provenance(tmp_path):
         assert float(r["pl_c_xwoba"]) == pytest.approx(0.30)
         # every other served pool had no members -> named as prior fallback
         # (day one: no strictly-prior league mean exists, so they are NULL)
-        assert r["pl_prior_positions"] == "fb,sb,ss,tb,rf,cf,lf"
+        assert r["pl_prior_positions"] == "fb,sb,ss,tb,rf,cf,lf,dh"
         assert pd.isna(r["pl_fb_xwoba"])
     finally:
         con.close()

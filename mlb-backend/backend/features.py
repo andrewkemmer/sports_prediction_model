@@ -704,12 +704,12 @@ PL_POSITIONS = ("c", "fb", "sb", "ss", "tb", "rf", "cf", "lf", "dh")
 # at fetch time.
 PL_POS_SQL = ("CASE pos WHEN '1B' THEN 'fb' WHEN '2B' THEN 'sb' "
               "WHEN '3B' THEN 'tb' ELSE LOWER(pos) END")
-# The 8 pools the 2026-10-03 plan SERVES (3 cols each = 24 universe
-# members). pl_dh is still computed and pooled — season-level StatsAPI
-# positions put most clubs' DH at a defensive spot — it simply never
-# enters the serving universe, so neither the slate carry nor the
-# coverage tripwire below counts it.
-PL_SERVED_POSITIONS = tuple(p for p in PL_POSITIONS if p != "dh")
+# The 9 pools SERVED (3 cols each = 27 universe members). pl_dh admitted
+# 2026-10-19 on in-fold evidence (z +1.87 univariate, +1.51 residual over
+# handedness): the DH seat concentrates PA in one bat, so its shrunk
+# rating discriminates where pooled position means do not. The slate carry
+# and the coverage tripwire below both count it via PL_SERVED_POSITIONS.
+PL_SERVED_POSITIONS = tuple(PL_POSITIONS)
 # pos_agg must fill at least this share of its pool cells or the pl_*
 # family is effectively absent. A missing position map produces 0% and is
 # INVISIBLE to the drift gate (a median-imputed constant column has

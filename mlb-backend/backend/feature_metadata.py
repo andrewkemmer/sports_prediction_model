@@ -220,9 +220,15 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "xwOBA (0–1)",
         "direction": "higher = home lineup deeper in left field",
     },
-
-    # pl_dh_xwoba_diff is generated in the frame but NOT served (the plan
-    # sheet lists 8 pools; pl_dh rides TWP→DH only at the frame level).
+    "pl_dh_xwoba_diff": {
+        "summary": "Home lineup's DH-pool xwOBA − away lineup's",
+        "definition": "Position-pool batting quality for the DH seat, shrunk toward the position-segmented league prior. Admitted 2026-10-19 on in-fold evidence (z +1.87; +1.51 residual over handedness): the seat concentrates PA in one bat, so its shrunk rating discriminates.",
+        "formula": "pl_dh_xwoba_home − pl_dh_xwoba_away",
+        "source": "StatsAPI roster positions × Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+        "window": "season to date (shrunk, position-segmented prior)",
+        "units": "xwOBA (0–1)",
+        "direction": "higher = home lineup deeper at DH",
+    },
     "lineup_il_flag_home": {
         "summary": "Home projected nine includes an OUT/IR player (raw flag)",
         "definition": "1 when at least one of the home game-eligible top-9-by-PA candidates is on the injured list as of the game date, else 0. Sides with no eligible pool read 0. The injured player's own trailing RE24 rating is untouched — the flag marks eligibility, not quality.",
@@ -662,6 +668,7 @@ _PER_SIDE_FAMILIES = {
     "pl_rf_xwoba": ("Position-pool xwOBA — right-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
     "pl_cf_xwoba": ("Position-pool xwOBA — center-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
     "pl_lf_xwoba": ("Position-pool xwOBA — left-field seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
+    "pl_dh_xwoba": ("Position-pool xwOBA — DH seat", "xwOBA (0–1)", "higher = deeper lineup at the position", "season to date (shrunk toward position prior)"),
 }
 
 # 2026-09-27 per-side twin families the originals above don't cover.

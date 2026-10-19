@@ -694,10 +694,11 @@ def test_flag_columns_are_known_pool_candidates():
 
 
 def test_generation_universe_width_unchanged():
-    # The flags are candidates, NOT universe members: the 109-col serving
-    # contract (2026-10-03 pl_[pos] plan — 101 − 9 − 7 + 24) is untouched
-    # until an RFE adoption says otherwise.
-    assert len(training.MONEYLINE_FEATURE_COLS) == 109
+    # The flags are candidates, NOT universe members: the 112-col serving
+    # contract (2026-10-03 pl_[pos] plan — 101 − 9 − 7 + 24 = 109 — plus
+    # the 2026-10-19 pl_dh trio) is untouched until an RFE adoption says
+    # otherwise.
+    assert len(training.MONEYLINE_FEATURE_COLS) == 112
     assert "lineup_il_flag_home" not in training.MONEYLINE_FEATURE_COLS
 
 

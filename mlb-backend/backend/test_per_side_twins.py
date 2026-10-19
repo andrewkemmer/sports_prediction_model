@@ -393,8 +393,14 @@ def test_adopted_state_binds_the_new_width():
         assert diff in cols, f"adopted state missing {diff}"
         assert h in cols and a in cols, f"adopted state missing twins {h}/{a}"
     report = apply_adopted_subset()
-    assert report.get("applied") is True, report
-    assert len(training.active_moneyline_feature_cols()) == state["n_cols"]
+    try:
+        assert report.get("applied") is True, report
+        assert len(training.active_moneyline_feature_cols()) == state["n_cols"]
+    finally:
+        # Do not leak the adopted subset into sibling test files sharing
+        # this pytest session: serving-width pins elsewhere read the full
+        # universe (2026-10-19 — the stale 109-col state predates pl_dh).
+        training.reset_feature_subset()
 
 
 # ── D. metadata ─────────────────────────────────────────────────────────────

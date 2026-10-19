@@ -411,14 +411,16 @@ MONEYLINE_FEATURE_COLS += [
 # ── Position-pool adoption (2026-10-03): the pl_[pos] + removals plan ───────
 # add 24 (8 pools × home/away/diff), replace 9, remove 7:
 #   NEW      24  pl_<pos>_xwoba_{home,away,diff} for c/fb/sb/ss/tb/rf/cf/lf
-#                (the plan sheet's 8 pools; pl_dh is generated in the frame
-#                 but NOT served)
+#                (the plan sheet's 8 pools)
 #   REPLACE   9  the lineup re24 family (mean/top3/std × diff/home/away)
 #   REMOVE    7  lineup_depth_multiplier ×3, the plain sp_xfip trio ×3, and
 #                park_factor_slug_diff (built on lineup_re24_top3_diff)
 # → 101 − 9 − 7 + 24 = 109. RAW_PER_SIDE 60 − 10 + 16 = 66 (the 10
 # departed levels out, the 16 pl levels in); the logistic slice
-# 41 − 6 + 8 = 43 — pl levels tree-only, pl diffs join the slice. The
+# 41 − 6 + 8 = 43 — pl levels tree-only, pl diffs join the slice.
+# ── pl_dh admission (2026-10-19, structural + in-fold z +1.87 / +1.51 over
+# handedness): +3 (diff/home/away) → universe 109 + 3 = 112, RAW_PER_SIDE
+# 66 + 2 = 68, logistic slice 43 + 1 = 44. The
 # removed columns remain generated (features.py) and move to
 # config.RFE_CANDIDATE_COLS so RFE may re-trial them — the 2026-09-07
 # _EXP2_REMOVALS pattern.
@@ -450,9 +452,9 @@ MONEYLINE_FEATURE_COLS = [c for c in MONEYLINE_FEATURE_COLS
                           if c not in _PL_PLAN_REMOVALS]
 # NEW 2026-10-03: the eight position-pool xwOBA families, each serving its
 # two levels (tree-only via RAW_PER_SIDE_COLS) plus the matchup diff.
-# pl_dh is generated in the frame but NOT served (the plan sheet lists 8
-# pools). Literal names, owned here so the serving universe never depends
-# on a builder import (same contract as the exp2 twins above).
+# + pl_dh trio 2026-10-19 (ninth pool, same routing). Literal names, owned
+# here so the serving universe never depends on a builder import (same
+# contract as the exp2 twins above).
 MONEYLINE_FEATURE_COLS += [
     "pl_c_xwoba_home", "pl_c_xwoba_away", "pl_c_xwoba_diff",
     "pl_fb_xwoba_home", "pl_fb_xwoba_away", "pl_fb_xwoba_diff",
@@ -462,6 +464,7 @@ MONEYLINE_FEATURE_COLS += [
     "pl_rf_xwoba_home", "pl_rf_xwoba_away", "pl_rf_xwoba_diff",
     "pl_cf_xwoba_home", "pl_cf_xwoba_away", "pl_cf_xwoba_diff",
     "pl_lf_xwoba_home", "pl_lf_xwoba_away", "pl_lf_xwoba_diff",
+    "pl_dh_xwoba_home", "pl_dh_xwoba_away", "pl_dh_xwoba_diff",
 ]
 MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
 
@@ -1042,9 +1045,11 @@ RAW_PER_SIDE_COLS = [
 
 # 2026-10-03 (pl_[pos] plan): the re24 / sp_xfip / depth level twins left
 # this list with their families (universe filter _PL_PLAN_REMOVALS above);
-# the 16 pl position-pool levels (8 pools × home/away — no DH) take their
-# tree-only seat under the same mirror rule. 60 − 10 + 16 = 66; the
-# logistic slice moves 41 → 43.
+# the 16 pl position-pool levels (8 pools × home/away) take their tree-only
+# seat under the same mirror rule. 60 − 10 + 16 = 66; the logistic slice
+# moves 41 → 43.
+# 2026-10-19 (pl_dh admission): +2 dh levels → 66 + 2 = 68; the logistic
+# slice moves 43 → 44 (the dh diff joins; its levels stay tree-only).
 RAW_PER_SIDE_COLS += [
     "pl_c_xwoba_home", "pl_c_xwoba_away",
     "pl_fb_xwoba_home", "pl_fb_xwoba_away",
@@ -1054,6 +1059,7 @@ RAW_PER_SIDE_COLS += [
     "pl_rf_xwoba_home", "pl_rf_xwoba_away",
     "pl_cf_xwoba_home", "pl_cf_xwoba_away",
     "pl_lf_xwoba_home", "pl_lf_xwoba_away",
+    "pl_dh_xwoba_home", "pl_dh_xwoba_away",
 ]
 
 
