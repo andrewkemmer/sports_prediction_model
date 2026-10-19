@@ -1,6 +1,6 @@
 {
   "generated_for": "20261018",
-  "n_features": 109,
+  "n_features": 112,
   "warnings": [],
   "features": {
     "is_home": {
@@ -1680,6 +1680,52 @@
         "logistic"
       ],
       "tooltip": "What: Position-pool batting quality for the LF seat, shrunk toward the position-segmented league prior.\nFormula: pl_lf_xwoba_home \u2212 pl_lf_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper in left field\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "pl_dh_xwoba_home": {
+      "name": "pl_dh_xwoba_home",
+      "summary": "Position-pool xwOBA \u2014 DH seat \u2014 home team",
+      "definition": "Per-side level column: the home club's position-pool xwoba \u2014 dh seat. The corresponding 'pl_dh_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_dh_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's position-pool xwoba \u2014 dh seat. The corresponding 'pl_dh_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_dh_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the home side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_dh_xwoba_away": {
+      "name": "pl_dh_xwoba_away",
+      "summary": "Position-pool xwOBA \u2014 DH seat \u2014 away team",
+      "definition": "Per-side level column: the away club's position-pool xwoba \u2014 dh seat. The corresponding 'pl_dh_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "pl_dh_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date (shrunk toward position prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = deeper lineup at the position for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's position-pool xwoba \u2014 dh seat. The corresponding 'pl_dh_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: pl_dh_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date (shrunk toward position prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = deeper lineup at the position for the away side (level column)\nConsumed by: xgboost, lightgbm"
+    },
+    "pl_dh_xwoba_diff": {
+      "name": "pl_dh_xwoba_diff",
+      "summary": "Home lineup's DH-pool xwOBA \u2212 away lineup's",
+      "definition": "Position-pool batting quality for the DH seat, shrunk toward the position-segmented league prior. Admitted 2026-10-19 on in-fold evidence (z +1.87; +1.51 residual over handedness): the seat concentrates PA in one bat, so its shrunk rating discriminates.",
+      "formula": "pl_dh_xwoba_home \u2212 pl_dh_xwoba_away",
+      "source": "StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)",
+      "window": "season to date (shrunk, position-segmented prior)",
+      "units": "xwOBA (0\u20131)",
+      "direction": "higher = home lineup deeper at DH",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "logistic"
+      ],
+      "tooltip": "What: Position-pool batting quality for the DH seat, shrunk toward the position-segmented league prior. Admitted 2026-10-19 on in-fold evidence (z +1.87; +1.51 residual over handedness): the seat concentrates PA in one bat, so its shrunk rating discriminates.\nFormula: pl_dh_xwoba_home \u2212 pl_dh_xwoba_away\nSource: StatsAPI roster positions \u00d7 Statcast estimated_woba_using_speedangle (LAG-shifted position pools)\nWindow: season to date (shrunk, position-segmented prior) \u00b7 Units: xwOBA (0\u20131)\nDirection: higher = home lineup deeper at DH\nConsumed by: xgboost, lightgbm, logistic"
     }
   },
   "categorical_context": {
