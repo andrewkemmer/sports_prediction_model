@@ -163,8 +163,11 @@ MONEYLINE_FEATURE_COLS = [
     "team_barrel_diff",
     "team_hardhit_diff",
     "team_exitvelo_diff",
-    # 22. Lineup handedness matchup advantage (OPS vs tonight's starter hand)
-    "lineup_handedness_matchup_advantage",
+    # 22. Lineup handedness matchup trio (OPS vs tonight's starter hand;
+    # structural 2026-10-19: the _diff name plus tree-only per-side levels)
+    "lineup_handedness_matchup_advantage_diff",
+    "lineup_handedness_matchup_advantage_home",
+    "lineup_handedness_matchup_advantage_away",
     # 23. Travel fatigue (timezone crossings, last 3 days)
     "travel_fatigue_diff",
     # 24. Closer availability
@@ -1060,6 +1063,10 @@ RAW_PER_SIDE_COLS += [
     "pl_cf_xwoba_home", "pl_cf_xwoba_away",
     "pl_lf_xwoba_home", "pl_lf_xwoba_away",
     "pl_dh_xwoba_home", "pl_dh_xwoba_away",
+    # Handedness levels (structural 2026-10-19 trio) — tree-only like
+    # every other level twin.
+    "lineup_handedness_matchup_advantage_home",
+    "lineup_handedness_matchup_advantage_away",
 ]
 
 

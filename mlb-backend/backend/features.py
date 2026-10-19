@@ -4356,6 +4356,12 @@ RAW_COLUMN_ALIASES: dict[str, list[str]] = {
     "lineup_ops_vs_l_away": ["lineup_ops_vs_l_away", "lineup_ops_l_away"],
     "lineup_ops_vs_r_home": ["lineup_ops_vs_r_home", "lineup_ops_r_home"],
     "lineup_ops_vs_r_away": ["lineup_ops_vs_r_away", "lineup_ops_r_away"],
+    "lineup_handedness_matchup_advantage_home": [
+        "lineup_handedness_matchup_advantage_home",
+        "lineup_ops_vs_starter_hand_home"],
+    "lineup_handedness_matchup_advantage_away": [
+        "lineup_handedness_matchup_advantage_away",
+        "lineup_ops_vs_starter_hand_away"],
     "time_zones_crossed_last_3d_home": ["time_zones_crossed_last_3d_home",
                                         "travel_zones_crossed_last_3d_home"],
     "time_zones_crossed_last_3d_away": ["time_zones_crossed_last_3d_away",
@@ -5298,7 +5304,7 @@ def add_diff_features(
         22. team_barrel_diff   (trailing 15g barrel rate)
         23. team_hardhit_diff  (trailing 15g hard-hit rate)
         24. team_exitvelo_diff (trailing 15g avg exit velo)
-        25. lineup_handedness_matchup_advantage
+        25. lineup_handedness_matchup_advantage_diff (+ home/away levels)
                                home_lineup_ops_vs_starter_hand
                                − away_lineup_ops_vs_starter_hand
                                (replaces opp_lefty_share_diff)
@@ -5463,6 +5469,9 @@ def add_diff_features(
         ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
         ("team_hardhit_15g_home", "team_hardhit_15g_away"),
         ("time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away"),
+        # 25b. handedness levels (alias-sourced from the ops inputs above).
+        ("lineup_handedness_matchup_advantage_home",
+         "lineup_handedness_matchup_advantage_away"),
     ):
         for col in (h_col, a_col):
             res = _resolve_col(col)
@@ -5473,11 +5482,14 @@ def add_diff_features(
             else:
                 df[col] = np.nan
 
-    # ── 25. lineup_handedness_matchup_advantage
+    # ── 25. lineup_handedness_matchup_advantage_diff (+ tree-only levels)
     # Each lineup's OPS against the hand of the starter it faces (assembled
     # in SQL from per-batter L/R splits + tonight's starter throwing hand).
-    # Replaces the old opp_lefty_share_diff.
-    _diff("lineup_handedness_matchup_advantage",
+    # Replaces the old opp_lefty_share_diff. Structural 2026-10-19: the
+    # family takes the _diff name plus per-side level twins, served from
+    # the same ops inputs via RAW_COLUMN_ALIASES so home - away == diff by
+    # construction.
+    _diff("lineup_handedness_matchup_advantage_diff",
           "lineup_ops_vs_starter_hand_home", "lineup_ops_vs_starter_hand_away")
 
     # ── 26. travel_fatigue_diff (new schedule metric)

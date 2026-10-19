@@ -325,7 +325,7 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "higher = home advantage",
     },
     # ---- matchup context ----------------------------------------------------
-    "lineup_handedness_matchup_advantage": {
+    "lineup_handedness_matchup_advantage_diff": {
         "summary": "Lineup OPS vs tonight's opposing starter hand, home − away",
         "definition": "How productive each lineup is specifically against the handedness it faces tonight.",
         "formula": "ops_vs_starter_hand(home lineup) − ops_vs_starter_hand(away lineup)",
@@ -333,6 +333,31 @@ _RICH: dict[str, dict[str, str]] = {
         "window": "season to date",
         "units": "OPS",
         "direction": "higher = home advantage",
+    },
+    "lineup_handedness_matchup_advantage_home": {
+        "summary": "Home lineup OPS vs tonight's opposing starter hand (raw level)",
+        "definition": ("How productive the home lineup is specifically against "
+            "the handedness it faces tonight. The raw side-level companion to "
+            "lineup_handedness_matchup_advantage_diff: the diff alone maps "
+            "both-lineups-raking and both-lineups-cold to the same 0, so this "
+            "level restores the distinction for the home club."),
+        "formula": "ops_vs_starter_hand(home lineup)",
+        "source": "Statcast hitter splits vs LHP/RHP + confirmed starter hand",
+        "window": "season to date",
+        "units": "OPS",
+        "direction": "higher = home lineup stronger",
+    },
+    "lineup_handedness_matchup_advantage_away": {
+        "summary": "Away lineup OPS vs tonight's opposing starter hand (raw level)",
+        "definition": ("How productive the away lineup is specifically against "
+            "the handedness it faces tonight. Raw side-level companion to "
+            "lineup_handedness_matchup_advantage_diff; "
+            "see lineup_handedness_matchup_advantage_home."),
+        "formula": "ops_vs_starter_hand(away lineup)",
+        "source": "Statcast hitter splits vs LHP/RHP + confirmed starter hand",
+        "window": "season to date",
+        "units": "OPS",
+        "direction": "higher = away lineup stronger",
     },
     "travel_fatigue_diff": {
         "summary": "Home timezone crossings (last 3 days) − away (schedule fatigue)",

@@ -1,6 +1,6 @@
 {
- "record": "mlb_feature_selection_state (re-issued 2026-10-18 without a new RFE run: the pl_dh admission (2026-10-19 plan, served in universe 109 -> 112) appends the DH-seat trio pl_dh_xwoba_{home,away,diff} at canonical universe positions 109-111; admitted on in-fold evidence (z +1.87 univariate, +1.51 residual over handedness; cumulative ablation +0.00065 logloss/game over 5g + handedness). No add/remove decision was made by selection beyond the admitted trio; departed columns unchanged. Prior record follows: mlb_feature_selection_state (re-issued 2026-10-03 without a new RFE run: the pl_[pos] plan (add 24 = 8 pools x3, replace 9, remove 7) rebases the full-universe contract 101 -> 109; the prior re-issuance record follows: 2026-09-30: sp_k9_diff readmitted to the serving contract at its canonical universe position after sp_era_5g_diff - user-directed structural alignment, its raw twins sp_k9_home/away have served since 2026-09-27; prior re-issue: bullpen_whip_diff -> bullpen_whip_10g_diff and bullpen_meltdown_risk -> bullpen_meltdown_risk_diff renames applied in place; bullpen_meltdown_risk_home/away twins appended - value-preserving renames, no selection change)",
- "adopted_at": "2026-10-18",
+ "record": "mlb_feature_selection_state (re-issued 2026-10-19 without a new RFE run: the handedness structural trio (lineup_handedness_matchup_advantage takes the _diff name; _home/_away levels join serving width tree-only per the 2026-09-27 twin convention) rebases the serving contract 112 -> 114. Prior re-issuance record follows: re-issued 2026-10-18 without a new RFE run: the pl_dh admission (2026-10-19 plan, served in universe 109 -> 112) appends the DH-seat trio pl_dh_xwoba_{home,away,diff} at canonical universe positions 109-111; admitted on in-fold evidence (z +1.87 univariate, +1.51 residual over handedness; cumulative ablation +0.00065 logloss/game over 5g + handedness). No add/remove decision was made by selection beyond the admitted trio; departed columns unchanged. Prior record follows: mlb_feature_selection_state (re-issued 2026-10-03 without a new RFE run: the pl_[pos] plan (add 24 = 8 pools x3, replace 9, remove 7) rebases the full-universe contract 101 -> 109; the prior re-issuance record follows: 2026-09-30: sp_k9_diff readmitted to the serving contract at its canonical universe position after sp_era_5g_diff - user-directed structural alignment, its raw twins sp_k9_home/away have served since 2026-09-27; prior re-issue: bullpen_whip_diff -> bullpen_whip_10g_diff and bullpen_meltdown_risk -> bullpen_meltdown_risk_diff renames applied in place; bullpen_meltdown_risk_home/away twins appended - value-preserving renames, no selection change)",
+ "adopted_at": "2026-10-19",
  "trace_date": "2026-09-27",
  "cols": [
   "is_home",
@@ -17,7 +17,9 @@
   "team_barrel_diff",
   "team_hardhit_diff",
   "team_exitvelo_diff",
-  "lineup_handedness_matchup_advantage",
+  "lineup_handedness_matchup_advantage_diff",
+  "lineup_handedness_matchup_advantage_home",
+  "lineup_handedness_matchup_advantage_away",
   "travel_fatigue_diff",
   "closer_availability_diff",
   "dome_is_neutral",
@@ -116,7 +118,7 @@
   "pl_dh_xwoba_away",
   "pl_dh_xwoba_diff"
  ],
- "n_cols": 112,
+ "n_cols": 114,
  "baseline_metrics": {
   "auc": 0.5732,
   "brier": 0.2442,
@@ -137,5 +139,5 @@
  },
  "alt_geometry_confirmation": null,
  "slate_coverage": null,
- "note": "Re-issued 2026-10-18 (pl_dh admission): cols = the full 112-col universe = prior adopted 109 + pl_dh_xwoba_{home,away,diff}. No new RFE run. Prior note: Re-issued 2026-10-03 (pl_[pos] + removals plan): cols = the full 109-col universe \u2014 24 position-pool columns pl_<pos>_xwoba_{home,away,diff} (8 pools c/fb/sb/ss/tb/rf/cf/lf, no DH) in; lineup_re24 x9, lineup_depth_multiplier x3, sp_era x3, park_factor_slug_diff out. Departed columns stay generated and sit in config.RFE_CANDIDATE_COLS. No new RFE run. Prior note: Re-issued 2026-09-27 without a new RFE run: the three interaction composites took their *_diff names (same formulas, same signal) and the 36 per-side twins of the served diff families joined serving width per the structural expansion. Membership = prior adopted 62 (renamed) + twins; no add/remove decision was made by selection."
+ "note": "Re-issued 2026-10-19 (handedness structural trio): cols = the full 114-col universe = prior adopted 112 - old diff name + _diff/_home/_away. No new RFE run. Prior note: Re-issued 2026-10-18 (pl_dh admission): cols = the full 112-col universe = prior adopted 109 + pl_dh_xwoba_{home,away,diff}. No new RFE run. Prior note: Re-issued 2026-10-03 (pl_[pos] + removals plan): cols = the full 109-col universe \u2014 24 position-pool columns pl_<pos>_xwoba_{home,away,diff} (8 pools c/fb/sb/ss/tb/rf/cf/lf, no DH) in; lineup_re24 x9, lineup_depth_multiplier x3, sp_era x3, park_factor_slug_diff out. Departed columns stay generated and sit in config.RFE_CANDIDATE_COLS. No new RFE run. Prior note: Re-issued 2026-09-27 without a new RFE run: the three interaction composites took their *_diff names (same formulas, same signal) and the 36 per-side twins of the served diff families joined serving width per the structural expansion. Membership = prior adopted 62 (renamed) + twins; no add/remove decision was made by selection."
 }

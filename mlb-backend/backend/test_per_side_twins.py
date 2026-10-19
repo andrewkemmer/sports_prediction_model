@@ -42,7 +42,7 @@ import features
 import training
 import distributions as re_engine
 
-# ── the twin families (16 since 2026-10-03) ────────────────────────────────────────
+# ── the twin families (17 since 2026-10-19: +handedness trio) ────────────────────────────────────────
 # (diff_or_level_base, home_twin, away_twin) for the diff families plus
 # the renamed interactions. 16 families since 2026-10-03: the
 # lineup_re24_std and lineup_depth_multiplier triples left the serving
@@ -56,6 +56,11 @@ LEVEL_FAMILIES = {
     "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
     "travel_fatigue_diff": ("time_zones_crossed_last_3d_home",
                             "time_zones_crossed_last_3d_away"),
+    # Structural 2026-10-19: the handedness gap takes the _diff name plus
+    # passthrough level twins (alias-sourced from the ops inputs).
+    "lineup_handedness_matchup_advantage_diff": (
+        "lineup_handedness_matchup_advantage_home",
+        "lineup_handedness_matchup_advantage_away"),
 }
 RENAME_FAMILIES = {
     "pitcher_regression_indicator_diff": ("pitcher_regression_indicator_home",
@@ -78,12 +83,14 @@ EXP2_FAMILIES = {
        for c in ("fastball", "breaking", "offspeed")},
 }
 ALL_TWIN_DIFFS = {**LEVEL_FAMILIES, **RENAME_FAMILIES, **EXP2_FAMILIES}
-assert len(ALL_TWIN_DIFFS) == 16, sorted(ALL_TWIN_DIFFS)
+assert len(ALL_TWIN_DIFFS) == 17, sorted(ALL_TWIN_DIFFS)
 
 # Twin names that are raw LEVELS (pass through from the frame inputs, not
 # computed by add_diff_features/add_exp2_features themselves).
 PASSTHROUGH_TWINS = {
     "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
+    "lineup_handedness_matchup_advantage_home",
+    "lineup_handedness_matchup_advantage_away",
 }
 
 
@@ -371,11 +378,13 @@ def test_run_engine_side_view_carries_every_served_feature():
     # side views; per-side levels appear in their own side's view.
     for shared in ("win_pct_diff", "elo_diff", "bullpen_kbb_3g_diff",
                    "bullpen_meltdown_risk_diff",
-                   "lineup_handedness_matchup_advantage"):
+                   "lineup_handedness_matchup_advantage_diff"):
         assert shared in home_cols and shared in away_cols, shared
-    for twin in ("pitcher_regression_indicator_home", "exp2_centered_k_home"):
+    for twin in ("pitcher_regression_indicator_home", "exp2_centered_k_home",
+                   "lineup_handedness_matchup_advantage_home"):
         assert twin in home_cols, twin
-    for twin in ("pitcher_regression_indicator_away", "exp2_centered_k_away"):
+    for twin in ("pitcher_regression_indicator_away", "exp2_centered_k_away",
+                   "lineup_handedness_matchup_advantage_away"):
         assert twin in away_cols, twin
 
 

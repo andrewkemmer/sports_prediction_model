@@ -895,11 +895,11 @@ def test_slate_handedness_uses_opposing_probable_starter():
         "away_team": "BOS", "start_time_utc": pd.Timestamp("2026-09-02T19:00:00"),
         "sp_id_home": 101, "sp_id_away": 202}])
     slate = build_upcoming_slate(history, date(2026, 9, 2), schedule_df=schedule)
-    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage, 0.3)
+    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage_diff, 0.3)
     # Fresh probable-hand evidence takes priority over older observed starts.
     schedule["sp_hand_home"], schedule["sp_hand_away"] = "L", "R"
     slate = build_upcoming_slate(history, date(2026, 9, 2), schedule_df=schedule)
-    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage, 0.1)
+    np.testing.assert_allclose(add_diff_features(slate).lineup_handedness_matchup_advantage_diff, 0.1)
 
 
 def test_prior_filter_handles_nullable_strings_and_utc_boundaries():

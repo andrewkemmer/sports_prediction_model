@@ -243,7 +243,7 @@ def test_genuinely_orphaned_entry_still_warns(monkeypatch):
 def test_metadata_still_covers_the_full_serving_width():
     """The fix narrows the WARNING, not the metadata itself."""
     meta, _ = feature_metadata.build_features_metadata()
-    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 112  # +pl_dh trio
+    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 114  # 112 + handedness trio
     assert all(row.get("tooltip") for row in meta.values())
 
 
@@ -274,9 +274,10 @@ def test_diff_pass_creates_fifty_eight_columns():
     travel twins are new columns; the 16 exp2 twins belong to
     add_exp2_features), PLUS the 9 pl_<pos>_xwoba position-pool diffs
     added 2026-10-02 (absent inputs here → created NULL like the rest).
-    58 -> 67 with that family."""
+    58 -> 67 with that family, 67 -> 69 with the 2026-10-19 handedness
+    structural trio (diff rename + 2 level twins)."""
     _, created, _ = _diff_output()
-    assert len(created) == 67, sorted(created)
+    assert len(created) == 69, sorted(created)
 
 
 def test_created_set_carries_the_il_flag_diff():
@@ -286,7 +287,7 @@ def test_created_set_carries_the_il_flag_diff():
     # the eight non-`*_diff` interaction features are easy to forget —
     # renamed 2026-09-27 to their *_diff names, twins included
     extras = {
-        "lineup_handedness_matchup_advantage", "dome_is_neutral",
+        "lineup_handedness_matchup_advantage_diff", "dome_is_neutral",
         "wind_advantage_flyball_factor", "air_density_velocity_boost",
         "bullpen_meltdown_risk_diff", "pitcher_regression_indicator_diff",
         "lineup_depth_multiplier_diff", "ace_efficiency_factor_diff",

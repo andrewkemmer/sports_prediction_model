@@ -3658,7 +3658,9 @@ FEATURE_DESCRIPTIONS = {
     "team_hardhit_diff": "Home hard-hit% (15g) − away hard-hit%",
     "team_exitvelo_diff": "Home avg exit velo (15g) − away avg exit velo (mph)",
     # 23. Lineup handedness matchup advantage
-    "lineup_handedness_matchup_advantage": "Lineup OPS vs tonight's opposing starter hand, home − away",
+    "lineup_handedness_matchup_advantage_home": "Home lineup OPS vs tonight's opposing starter hand",
+    "lineup_handedness_matchup_advantage_away": "Away lineup OPS vs tonight's opposing starter hand",
+    "lineup_handedness_matchup_advantage_diff": "Lineup OPS vs tonight's opposing starter hand, home − away",
     # 24. Travel fatigue & closer availability
     "travel_fatigue_diff": "Home timezone crossings (last 3 days) − away (schedule fatigue)",
     "closer_availability_diff": "Home closer available − away closer available (late-inning edge)",

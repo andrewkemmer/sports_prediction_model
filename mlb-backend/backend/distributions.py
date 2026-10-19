@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # now SERVED — the side-view split prices each side from its own columns and
 # the tree members may use them freely.
 RUN_EXTRA_EXCLUSIONS = {
-    "lineup_handedness_matchup_advantage",
+    "lineup_handedness_matchup_advantage_diff",
     "bullpen_meltdown_risk_diff",     # pitches_diff × whip_10g_diff
     # RENAMED 2026-09-27: the three interaction composites take their *_diff
     # names; the run engine never consumed the composites, so the twins ride

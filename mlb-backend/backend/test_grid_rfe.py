@@ -239,9 +239,9 @@ def test_single_list_no_margin_in_any_enumeration():
     feature_selection.reset_feature_subset()
     active = training.active_moneyline_feature_cols()
     assert MARGIN_COL not in active
-    # 112 = the 2026-10-03 contract (101 − 9 − 7 + 24 = 109) plus the
-    # 2026-10-19 pl_dh trio (+3: diff/home/away).
-    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 112, (
+    # 114 = the 112-col contract (109 + 2026-10-19 pl_dh trio) minus the
+    # old handedness diff name plus the structural trio (+2 net).
+    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 114, (
         f"width drift: universe={len(training.MONEYLINE_FEATURE_COLS)} "
         f"active={len(active)} (expected 112 everywhere)")
 

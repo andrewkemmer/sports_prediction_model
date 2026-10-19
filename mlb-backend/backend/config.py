@@ -986,8 +986,9 @@ RFE_CANDIDATE_COLS = [
     "lineup_ops_vs_r_home",
     "lineup_ops_vs_l_away",
     "lineup_ops_vs_r_away",
-    "lineup_ops_vs_starter_hand_home",
-    "lineup_ops_vs_starter_hand_away",
+    # lineup_ops_vs_starter_hand_{home,away} LEFT 2026-10-19: served as the
+    # lineup_handedness_matchup_advantage_{home,away} tree-only twins, so
+    # candidacy under the ops names would double-name one signal.
     "time_zones_crossed_last_3d_home",
     "time_zones_crossed_last_3d_away",
     "closer_available_home",
