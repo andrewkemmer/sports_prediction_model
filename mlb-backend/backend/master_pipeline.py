@@ -78,7 +78,7 @@ SPORT_DIR_NAME = "mlb-backend"
 
 import warnings
 warnings.filterwarnings("ignore")
-import os, sys, subprocess, shutil, gc
+import os, sys, subprocess, shutil, gc, tempfile
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -88,7 +88,46 @@ pd.set_option("mode.chained_assignment", None)
 def _banner(phase, msg=""):
     print(f"\n{'━'*70}\n  {phase} — {msg}\n{'━'*70}\n")
 
-def _run(cmd, check=True, cwd="/content"):
+def _host_base() -> Path:
+    """Writable run-host base: /content on Colab, else the OS temp dir.
+
+    The pipeline was written for Colab, where /content exists; on Kaggle
+    (/kaggle/working) or a local checkout there is no /content, so scratch
+    dirs (clean-data cache, sync clone) live under the temp dir instead.
+    Colab behavior is unchanged: /content exists there and keeps winning.
+    """
+    if Path("/content").is_dir():
+        return Path("/content")
+    return Path(tempfile.gettempdir())
+
+
+def _find_checkout_root():
+    """Nearest enclosing checkout holding this sport's backend, if any.
+
+    The Kaggle notebook already clones the repo and launches this script
+    from inside it -- re-cloning to a host-fixed path would split the tree
+    (and crash where that path does not exist). Probe the live cwd first,
+    then this file's own location; either beats a fresh clone.
+    """
+    candidates = []
+    try:
+        candidates.append(Path.cwd())
+    except OSError:
+        pass
+    candidates.append(Path(__file__).resolve().parent)
+    for start in candidates:
+        for root in (start,) + tuple(start.parents):
+            if (root / SPORT_DIR_NAME / "backend").is_dir():
+                return root
+    return None
+
+
+def _run(cmd, check=True, cwd=None):
+    if cwd is None:
+        try:
+            cwd = os.getcwd()
+        except OSError:
+            cwd = str(_host_base())
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
     if check and r.returncode != 0:
         print(f"  ⚠️  {cmd}\n      {r.stderr[:300]}")
@@ -97,7 +136,7 @@ def _run(cmd, check=True, cwd="/content"):
 # CRITICAL: escape to a known-good directory FIRST, before anything else.
 # If a previous run deleted the cwd, every subprocess will fail with getcwd().
 try:
-    os.chdir("/content")
+    os.chdir(str(_host_base()))
 except OSError:
     pass  # already there or doesn't exist yet
 
@@ -110,16 +149,32 @@ print("📦 Installing dependencies...")
 _run('pip install -q pandas numpy scikit-learn "xgboost>=1.7,<4" lightgbm optuna "shap>=0.45,<0.51" joblib gitpython pybaseball requests tqdm pyarrow duckdb', check=False)
 print("  ✅ Done")
 
-# Clone fresh
-repo_dir = Path(f"/content/{CONFIG['github_repo']}")
-if repo_dir.exists():
-    print("  🔄 Removing old clone...")
-    shutil.rmtree(repo_dir, ignore_errors=True)
-print(f"📥 Cloning {CONFIG['github_repo']}...")
-_run(f"git clone -q https://github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git /content/{CONFIG['github_repo']}")
+# Checkout: reuse the enclosing checkout when launched from inside one
+# (Kaggle notebook flow, local runs); otherwise clone fresh to the host
+# base (Colab flow). The old code cloned to a hard-coded /content path,
+# which does not exist on Kaggle and died at the chdir below with
+# FileNotFoundError: '/content/sports_prediction_model/mlb-backend'.
+repo_dir = _find_checkout_root()
+if repo_dir is None:
+    repo_dir = _host_base() / CONFIG['github_repo']
+    if repo_dir.exists():
+        print("  🔄 Removing old clone...")
+        shutil.rmtree(repo_dir, ignore_errors=True)
+    print(f"📥 Cloning {CONFIG['github_repo']}...")
+    _run("git clone -q https://github.com/" + CONFIG['github_username'] + "/" + CONFIG['github_repo'] + ".git " + str(repo_dir))
+else:
+    print(f"  ♻️  Reusing enclosing checkout at {repo_dir} (no fresh clone)")
 sys.path.insert(0, str(repo_dir / SPORT_DIR_NAME / "backend"))
 os.chdir(str(repo_dir / SPORT_DIR_NAME))
 print(f"  📁 {os.getcwd()}")
+
+# Host-portable scratch dirs: keep /content paths on Colab; elsewhere
+# redirect under the host base so a missing /content never breaks the run.
+if not Path("/content").is_dir():
+    _base = str(_host_base())
+    if CONFIG.get("output_dir", "").startswith("/content"):
+        CONFIG["output_dir"] = _base + CONFIG["output_dir"][len("/content"):]
+
 
 # ── Delivery-root reconciliation (2026-10-07 run-log review, T1) ───────────
 # The kernel that launched this script may have imported `config` from ITS
@@ -267,7 +322,7 @@ from ingestion import pull_statcast, warn_missing_finals
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
-out_dir = Path(CONFIG.get("output_dir", "/content/mlb_clean_data"))
+out_dir = Path(CONFIG.get("output_dir", str(_host_base() / "mlb_clean_data")))
 out_dir.mkdir(parents=True, exist_ok=True)
 # The weather-history cache lives beside pitches.parquet (outside the git
 # repo) so Colab's per-run artifact sync never stages it.
@@ -2952,7 +3007,7 @@ if _rfe.get("ran"):
 # ── Phase 5: GitHub Sync — push this run's NEW files first ─────────────────
 _banner("PHASE 5", "GitHub Sync — push new artifacts")
 token = token or CONFIG.get("github_token", "")
-sync_dir = Path("/content/mlb_sync_tmp")
+sync_dir = _host_base() / "mlb_sync_tmp"
 # Race-resilient push machinery (lives in github_sync so it is importable
 # and unit-testable — master_pipeline is a run-once script).
 from github_sync import (
