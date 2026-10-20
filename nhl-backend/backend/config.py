@@ -119,6 +119,9 @@ ELO_K = 20.0
 ELO_SCALE = 400.0
 ELO_HOME_ADV = 65.0
 ELO_REVERT_FACTOR = 1 / 3     # applied at each season boundary
+# Adopted 2026-10-20 (z=1.5 gate; walk-forward z=-1.67, n=3796): margin-of-
+# victory multiplier on the Elo K update. False restores the binary update.
+ELO_MARGIN_MULT = True
 
 # ---------------------------------------------------------------------------
 # Trailing windows (NHL game cadence is dense; windows are game-count based

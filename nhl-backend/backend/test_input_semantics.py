@@ -320,7 +320,12 @@ def test_elo_positive_home_edge_and_rating_conservation(home_wins):
     g = pd.DataFrame([game("1", "2024-10-01", score=3 if home_wins else 0)])
     events, ratings = feat._elo_apply(feat.team_events(g))
     expected = 1 / (1 + 10 ** (-config.ELO_HOME_ADV / config.ELO_SCALE))
-    delta = config.ELO_K * (int(home_wins) - expected)
+    # Adopted 2026-10-20: the margin mult scales K (both clubs open at the
+    # prior, so the elo gap is exactly the home advantage). mov is +2 for a
+    # 3-1 home win, -1 for a 0-1 home loss.
+    mov = (3 if home_wins else 0) - 1
+    mov_mult = ((abs(mov) + 3.0) ** 0.8) / (7.5 + 0.006 * config.ELO_HOME_ADV)
+    delta = config.ELO_K * mov_mult * (int(home_wins) - expected)
     assert expected > .5
     assert ratings["ANA"] == pytest.approx(config.ELO_PRIOR + delta)
     assert ratings["BUF"] == pytest.approx(config.ELO_PRIOR - delta)
@@ -331,8 +336,22 @@ def test_elo_positive_home_edge_and_rating_conservation(home_wins):
 def test_elo_no_home_edge_is_symmetric(monkeypatch):
     monkeypatch.setattr(config, "ELO_HOME_ADV", 0)
     _, ratings = feat._elo_apply(feat.team_events(pd.DataFrame([game("1", "2024-10-01")])))
-    assert ratings["ANA"] == config.ELO_PRIOR + config.ELO_K / 2
-    assert ratings["BUF"] == config.ELO_PRIOR - config.ELO_K / 2
+    # 3-1 home win: mov mult ((2+3)^0.8)/7.5 on the symmetric binary update.
+    mov_mult = ((2.0 + 3.0) ** 0.8) / 7.5
+    assert ratings["ANA"] == config.ELO_PRIOR + config.ELO_K * mov_mult / 2
+    assert ratings["BUF"] == config.ELO_PRIOR - config.ELO_K * mov_mult / 2
+
+
+def test_elo_margin_mult_flag_off_restores_binary(monkeypatch):
+    """The adoption is a flag flip: False must restore the binary K update."""
+    monkeypatch.setattr(config, "ELO_MARGIN_MULT", False)
+    g = pd.DataFrame([game("1", "2024-10-01", score=3)])
+    _, ratings = feat._elo_apply(feat.team_events(g))
+    expected = 1 / (1 + 10 ** (-config.ELO_HOME_ADV / config.ELO_SCALE))
+    delta = config.ELO_K * (1 - expected)
+    assert ratings["ANA"] == pytest.approx(config.ELO_PRIOR + delta)
+    assert ratings["BUF"] == pytest.approx(config.ELO_PRIOR - delta)
+    assert sum(ratings.values()) == pytest.approx(2 * config.ELO_PRIOR)
 
 
 def test_elo_pending_games_do_not_update_skill_and_opener_matches_history():

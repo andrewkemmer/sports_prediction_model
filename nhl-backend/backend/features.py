@@ -130,11 +130,24 @@ def _season_boundary(prev_season: object, season: object) -> bool:
 def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Iterated Elo with MLB semantics: K=20, home advantage 65 (added to the
     home side's expected win), 400-point scale, and a 1/3 revert toward the
-    prior at each season boundary."""
+    prior at each season boundary. Since the 2026-10-20 adoption (z=1.5 gate)
+    the per-game K carries the cross-sport margin-of-victory multiplier
+    (config.ELO_MARGIN_MULT; False restores the binary update)."""
     K, prior, scale = config.ELO_K, config.ELO_PRIOR, config.ELO_SCALE
     home_adv = getattr(config, "ELO_HOME_ADV", 0.0)
     revert = getattr(config, "ELO_REVERT_FACTOR", 0.0)
     ev = events.sort_values(["gameday", "game_id", "is_home"]).reset_index(drop=True)
+    # Adopted 2026-10-20 (z=1.5 gate): per-game home margin, precomputed from
+    # the home row so the itertuples loop never touches the "for" keyword
+    # column. Unsettled games have no margin and keep the binary K.
+    home_margin: dict = {}
+    if {"is_home", "for", "against"} <= set(ev.columns):
+        _hm = ev[ev["is_home"].astype(bool)]
+        for _g, _f, _a in zip(_hm["game_id"], _hm["for"], _hm["against"]):
+            try:
+                home_margin[_g] = float(_f) - float(_a)
+            except (TypeError, ValueError):
+                continue
     rating: dict = {}
     entering: dict = {}
     last_season: object = None
@@ -158,8 +171,15 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         # Pending games may enter the slate timeline for season reversion,
         # but never update skill with a fabricated half-win.
         settled = rows[["for", "against"]].notna().all().all()
-        rating[a.team] = ra + K * (a.team_win - exp_a) if settled else ra
-        rating[b.team] = rb + K * (b.team_win - exp_b) if settled else rb
+        k = K
+        if settled and config.ELO_MARGIN_MULT:
+            mov = home_margin.get(game_id)
+            if mov is not None and pd.notna(mov):
+                h_elo, a_elo = (ra, rb) if a.is_home else (rb, ra)
+                k = (K * ((abs(mov) + 3.0) ** 0.8)
+                     / (7.5 + 0.006 * abs((h_elo + home_adv) - a_elo)))
+        rating[a.team] = ra + k * (a.team_win - exp_a) if settled else ra
+        rating[b.team] = rb + k * (b.team_win - exp_b) if settled else rb
     ev = ev.copy()
     ev["elo_entering"] = [entering.get((gid, team), prior)
                           for gid, team in zip(ev["game_id"], ev["team"])]
