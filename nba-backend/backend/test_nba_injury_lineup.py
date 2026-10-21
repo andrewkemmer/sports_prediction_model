@@ -1271,3 +1271,57 @@ def test_the_pipeline_refuses_to_run_without_the_filing_parser(
     with pytest.raises(RuntimeError, match="pdfplumber"):
         mp.run(run_date="2026-01-01", out_dir=tmp_path)
     assert not any(tmp_path.iterdir())
+
+
+# ===========================================================================
+# Cross-season membership evidence (2026-10-21 opening-week remediation)
+# ===========================================================================
+
+
+def _player_game(pid, day, minutes, share=1.0):
+    return {"player_id": pid, "gameday": pd.Timestamp(day),
+            "minutes": minutes, "share": share}
+
+
+class TestTrailingMembershipMinutes:
+    def test_last_n_participated_games_sum_across_the_season_boundary(self):
+        frame = pd.DataFrame([
+            _player_game("vet", "2026-04-10", 30),
+            _player_game("vet", "2026-04-12", 32),
+            _player_game("vet", "2026-10-20", 20),
+            _player_game("rookie", "2026-10-20", 15),
+        ])
+        out = proj.trailing_membership_minutes(frame, "2026-10-21", n_games=30)
+        assert out["vet"] == pytest.approx(82.0)
+        assert out["rookie"] == pytest.approx(15.0)
+
+    def test_nothing_at_or_after_the_target_counts(self):
+        frame = pd.DataFrame([
+            _player_game("a", "2026-10-20", 30),
+            _player_game("a", "2026-10-21", 35),
+            _player_game("b", "2026-10-22", 40),
+        ])
+        out = proj.trailing_membership_minutes(frame, "2026-10-21")
+        assert out["a"] == pytest.approx(30.0)
+        assert "b" not in out.index
+
+    def test_dnp_rows_are_not_participation(self):
+        frame = pd.DataFrame([
+            _player_game("a", "2026-10-15", 0, share=0.0),
+            _player_game("a", "2026-10-16", 25),
+        ])
+        out = proj.trailing_membership_minutes(frame, "2026-10-21")
+        assert out["a"] == pytest.approx(25.0)
+
+    def test_window_caps_at_n_games(self):
+        rows = [_player_game("a", f"2026-03-{d:02d}", 30) for d in range(1, 11)]
+        out = proj.trailing_membership_minutes(pd.DataFrame(rows), "2026-04-01",
+                                               n_games=3)
+        assert out["a"] == pytest.approx(90.0)
+
+    def test_bad_input_yields_an_empty_table_not_an_exception(self):
+        assert len(proj.trailing_membership_minutes(None, "2026-10-21")) == 0
+        assert len(proj.trailing_membership_minutes(
+            pd.DataFrame(), "2026-10-21")) == 0
+        assert len(proj.trailing_membership_minutes(
+            pd.DataFrame([{"player_id": "a"}]), "2026-10-21")) == 0

@@ -457,8 +457,15 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
 
         # The team-level aggregate: widen the pool, then filter, then rank.
         import lineup_projection as proj_mod
+        # Cross-season membership evidence for the opening-week ramp: the
+        # last-30 participated games per player, strictly before the target
+        # (same PIT floor as the rating prior, no season partition). Lets
+        # the pool tell veterans from rookies while the current season has
+        # produced no evidence yet. Never fatal: an empty table simply
+        # leaves the ramp's scaled floor as the only fallback.
+        trailing = proj_mod.trailing_membership_minutes(games_frame, target)
         aggregates = proj_mod.projected_lineup(
-            ratings, games=games, stints=stints)
+            ratings, games=games, stints=stints, trailing_minutes=trailing)
         if len(aggregates):
             agg_path = out / config.PLAYER_RAPM_AGG_CSV.format(date=date_c)
             aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)

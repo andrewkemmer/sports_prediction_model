@@ -340,10 +340,57 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
 #: with no evidence at all still refuses at the blend, honestly.
 _FLOOR_RAMP_TEAM_GAMES = 5
 
+#: Trailing window (in participated games) for the cross-season membership
+#: basis. Thirty games is roughly a quarter-season of a regular's workload:
+#: long enough that a rotation player clears any reasonable floor on it,
+#: short enough that a changed role is not buried under ancient minutes.
+_TRAILING_MEMBERSHIP_GAMES = 30
+
+
+def trailing_membership_minutes(player_games: pd.DataFrame | None, target,
+                                n_games: int = _TRAILING_MEMBERSHIP_GAMES
+                                ) -> pd.Series:
+    """Per-player minutes over the last ``n_games`` PARTICIPATED games
+    strictly before ``target``, across season boundaries.
+
+    The mirror of the rating prior without its season partition: the same
+    strictly-before-target PIT floor (nothing at or after the target counts),
+    the same DNP exclusion (a zero-share row is a game never played, not a
+    scoreless one), but no season filter - a veteran's 2025-26 rotation is
+    evidence he is a rotation candidate tonight even though the rating must
+    not be fit on it. Never raises: bad input yields an empty table, and an
+    absent player maps to zero minutes (refused) rather than erroring.
+    """
+    empty = pd.Series(dtype="float64", name="trailing_minutes")
+    try:
+        if player_games is None or not len(player_games):
+            return empty
+        need = {"player_id", "gameday", "minutes"}
+        if not need.issubset(player_games.columns):
+            return empty
+        frame = player_games.copy()
+        frame["gameday"] = pd.to_datetime(frame.gameday, errors="coerce")
+        frame = frame[frame.gameday.notna()
+                      & (frame.gameday < pd.Timestamp(target))]
+        if "share" in frame.columns:
+            played = pd.to_numeric(frame.share, errors="coerce").fillna(0.0) > 0
+            frame = frame[played]
+        if frame.empty:
+            return empty
+        frame["minutes"] = pd.to_numeric(frame.minutes,
+                                           errors="coerce").fillna(0.0)
+        key = frame.player_id.astype(str)
+        tail = frame.sort_values("gameday").groupby(key, sort=False).tail(n_games)
+        return (tail.groupby(tail.player_id.astype(str))["minutes"].sum()
+                .rename("trailing_minutes").astype(float))
+    except Exception:  # noqa: BLE001 - membership evidence must never fail a run
+        return empty
+
 
 def projected_lineup(ratings: pd.DataFrame | None,
                      games: pd.DataFrame | None = None,
                      stints=None,
+                     trailing_minutes: pd.Series | dict | None = None,
                      lookback_days: int = config.PLAYER_EPM_POOL_LOOKBACK_DAYS,
                      min_minutes: float = config.PLAYER_RAPM_MIN_MINUTES,
                      top_k: int = config.PLAYER_EPM_TOP_K,
@@ -434,7 +481,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
             row = _project_team(team_rows, str(team), gameday, stints,
                                 lookback_days, min_minutes, top_k,
                                 rest_minutes, top5_k,
-                                team_games_played=team_games_played)
+                                team_games_played=team_games_played,
+                                trailing_minutes=trailing_minutes)
             if row is not None:
                 rows.append(row)
     if not rows:
@@ -455,7 +503,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
 def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                   lookback_days: int, min_minutes: float, top_k: int,
                   rest_minutes: float, top5_k: int,
-                  team_games_played: int | None = None):
+                  team_games_played: int | None = None,
+                  trailing_minutes: pd.Series | dict | None = None):
     """Widen, filter, rank - in that order, for one team and one game."""
     window_start = pd.Timestamp(gameday) - pd.Timedelta(days=lookback_days)
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
@@ -508,8 +557,11 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # NaN means the season has not started for him yet, which is the
     # season-start carryover the min-minutes floor already governs, not
     # staleness.
-    def _membership(frame: pd.DataFrame, floor: float) -> pd.DataFrame:
-        gated = frame[frame.prior_minutes >= floor]
+    def _membership(frame: pd.DataFrame, floor: float,
+                    basis: np.ndarray | None = None) -> pd.DataFrame:
+        minutes = (frame.prior_minutes.to_numpy(dtype=float) if basis is None
+                   else np.asarray(basis, dtype=float))
+        gated = frame[minutes >= floor]
         if "days_since_appearance" in gated.columns:
             recency = gated["days_since_appearance"]
             gated = gated[recency.isna()
@@ -518,14 +570,29 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
 
     latest = _membership(tail, min_minutes)
     if latest.empty and pool_size and early_season:
-        # Early-season fallback: the full floor demands evidence no game has
-        # produced yet, so the whole roster refuses and the slate gate fails
-        # a run for the calendar, not the data (2026-10-21: max 40 prior
-        # minutes league-wide against a 50 floor). Ramp the floor linearly
-        # with decided games; the recency gate still applies, and a team
-        # with no evidence at all still refuses at the blend below.
-        ramped = min_minutes * team_games_played / _FLOOR_RAMP_TEAM_GAMES
-        latest = _membership(tail, ramped)
+        # Early-season fallback, tier 1: the full floor against CROSS-SEASON
+        # trailing evidence. A veteran's 2025-26 rotation proves he is a
+        # rotation candidate tonight (2026-10-21: 423/519 pool members clear
+        # 50 on their last 30); a rookie with no trailing history maps to
+        # zero and stays refused, which is the honest answer for him.
+        if trailing_minutes is not None:
+            try:
+                lookup = (trailing_minutes.to_dict()
+                          if hasattr(trailing_minutes, "to_dict")
+                          else dict(trailing_minutes))
+            except Exception:  # noqa: BLE001 - corrupt lookup refuses nothing extra
+                lookup = {}
+            basis = (tail.player_id.astype(str).map(lookup)
+                     .fillna(0.0).astype(float).to_numpy())
+            latest = _membership(tail, min_minutes, basis=basis)
+        if latest.empty:
+            # Tier 2: nobody clears even the trailing floor (all-rookie
+            # squads, or no trailing table at all). Admit the pool on the
+            # ramped floor so the run prices priors instead of dying for
+            # the calendar; the recency gate still applies, and a team
+            # with no evidence at all still refuses at the blend below.
+            ramped = min_minutes * team_games_played / _FLOOR_RAMP_TEAM_GAMES
+            latest = _membership(tail, ramped)
 
     # STEP 3 - FILTER. Injury removes the player from the pool entirely so a
     # replacement inherits the slot. Availability is re-evaluated AS OF the
