@@ -92,9 +92,11 @@ except ImportError:
     import config
 
 #: Columns this module reads out of the player-level season log. The
-#: rating needs the box-score triple that estimates possessions
-#: (attempts, free throws, turnovers), the participation measure
-#: (minutes) and the impact measure (plus-minus), plus the keys.
+#: rating needs the participation measure (minutes) plus the keys. An
+#: older revision of this comment listed a box-score triple (attempts,
+#: free throws, turnovers) and plus-minus; neither ever entered the fit -
+#: the design prices margin against minute shares, not possessions, and
+#: the PM column is untrusted on DNP rows (see the DNP gate below).
 _REQUIRED_COLS = ("player_id", "minutes")
 
 
@@ -638,9 +640,13 @@ class _SeasonDesign:
         self.b = np.zeros(1)
         self.eff = np.zeros(0)
         self.games = 0
+        self.yy = 0.0
         self._days: list = []
         self._ptr = 0
         self._cache = None
+        self._chol = None
+        self._se_cache = None
+        self._prior = None
         self.blocks: dict = {}
         work = entries.dropna(subset=["y", "sign"]).copy()
         if work.empty:
@@ -692,6 +698,7 @@ class _SeasonDesign:
                 self.b[cols] += x * y
                 self.b[self.n] += y
                 self.eff[cols] += x * x
+                self.yy += y * y
                 self.games += 1
             self._ptr += 1
 
@@ -710,6 +717,8 @@ class _SeasonDesign:
             return None
         if self._cache is not None and self._cache[0] == self.games:
             return self._cache[1], self._cache[2]
+        self._chol = None
+        self._se_cache = None
         M = self.A.copy()
         diag = np.arange(self.n)
         M[diag, diag] += self.lam
@@ -725,7 +734,9 @@ class _SeasonDesign:
             # meant; same system, same solution up to last-bit arithmetic.)
             from scipy.linalg import solve_triangular
             chol = np.linalg.cholesky(M)
-            _fwd = solve_triangular(chol, self.b, lower=True)
+            self._chol = chol
+            rhs = self._rhs()
+            _fwd = solve_triangular(chol, rhs, lower=True)
             full = solve_triangular(chol.T, _fwd, lower=False)
         except np.linalg.LinAlgError:  # singular by pathology, not by design
             full = np.linalg.lstsq(M, self.b, rcond=None)[0]
@@ -744,6 +755,62 @@ class _SeasonDesign:
                          dtype="float64")
         self._cache = (self.games, beta, float(full[self.n]))
         return beta, float(full[self.n])
+
+    def set_prior(self, m=None) -> None:
+        """Ridge center for an informative (carryover) prior, or None.
+
+        With a center installed, the solve prices ``(A + lam I) beta =
+        b + lam m`` on the player columns only; the intercept stays
+        unridged. The factor ``(A + lam I)`` does not move with the
+        center, so a cached Cholesky factor survives - only the cached
+        betas and bars are dropped. ``None`` restores the zero-center
+        ridge, which is the production default.
+        """
+        self._prior = (None if m is None else np.asarray(m, dtype=float))
+        self._cache = None
+        self._se_cache = None
+
+    def _rhs(self) -> np.ndarray:
+        rhs = self.b.copy()
+        if self._prior is not None:
+            rhs[:self.n] += self.lam * self._prior
+        return rhs
+
+    def posterior_se(self):
+        """Per-player posterior standard errors, keyed by player_id.
+
+        From the cached Cholesky factor of the last solve: ``Cov =
+        sigma^2 (A + lam I)^-1`` with ``sigma^2 = RSS / (N - p)`` over
+        the folded game rows. A +1.5 from 20 games and a +1.5 from 70
+        games no longer look identical - the first carries a wide bar.
+
+        Two honest approximations, stated not hidden. The errors describe
+        the UNCENTERED fit: the published betas are shifted by their
+        evidenced mean (a shared constant), which the diagonal ignores,
+        so these read a touch wide. And ridge errors are conditional on
+        lambda, the way ridge betas are conditional on lambda - a smaller
+        lam would buy narrower bars with more variance, not something
+        for nothing. Returns None when there is nothing to solve (or the
+        fallback path factored nothing to reuse).
+        """
+        if self.games == 0 or self.n == 0 or self._chol is None:
+            return None
+        if self._se_cache is not None and self._se_cache[0] == self.games:
+            return self._se_cache[1]
+        from scipy.linalg import cho_solve
+        n, dim = self.n, self.n + 1
+        M = self.A.copy()
+        M[np.arange(n), np.arange(n)] += self.lam
+        rhs = self._rhs()
+        full = cho_solve((self._chol, True), rhs)
+        resid = self.yy - 2.0 * float(full @ rhs) + float(full @ (M @ full))
+        sigma2 = max(resid, 0.0) / max(self.games - dim, 1)
+        inv = cho_solve((self._chol, True), np.eye(dim))
+        se = pd.Series(np.sqrt(np.maximum(np.diag(inv)[:n], 0.0) * sigma2),
+                       index=pd.Index(self.players, dtype="object"),
+                       dtype="float64")
+        self._se_cache = (self.games, se)
+        return se
 
 
 def fit_rapm(entries: pd.DataFrame, target=None,
@@ -823,7 +890,8 @@ def _roster_as_of(history, target):
     return chosen
 
 
-def _apply_roster_observation(snapshot, observed, known, target, lg, k):
+def _apply_roster_observation(snapshot, observed, known, target, lg, k,
+                            single_layer=False):
     """Replace membership only; preserve fit evidence and appearance recency.
 
     Complete observations establish exits as well as arrivals. A subsequent
@@ -864,9 +932,60 @@ def _apply_roster_observation(snapshot, observed, known, target, lg, k):
     out["prior_minutes_per_game"] = out.prior_minutes / out.prior_games.where(out.prior_games > 0)
     out["lg_rapm"] = out.position.map(lg)
     out["k_eff"] = out.position.map(k).astype(float)
-    out["rapm_shrunk"] = shrunk_rapm(out.prior_eff, out.rapm_raw, out.lg_rapm, out.k_eff)
+    if single_layer:
+        # The ridge already shrank toward the informative prior; a second
+        # pass toward lg would be the double shrinkage the carryover was
+        # built to replace. The rating stands as fitted.
+        out["rapm_shrunk"] = out["rapm_raw"]
+    else:
+        out["rapm_shrunk"] = shrunk_rapm(out.prior_eff, out.rapm_raw,
+                                         out.lg_rapm, out.k_eff)
     out["target_date"] = target
     return out
+
+
+def _game_carryover_prior(designs, season, carry_weight, pos_of, season_end):
+    """Ridge center for a game-level target season from the prior one.
+
+    Solves the previous completed season's design at its end (every one
+    of its rows predates any target in ``season``, so this is
+    point-in-time), centers exactly as published - raw beta minus the
+    fit's own end-of-season position mean - then blends each veteran's
+    centered beta with that mean: ``m = carry_weight * centered +
+    (1 - carry_weight) * pos_mean``. Rookies (no row in the prior solve)
+    are not in the returned vector; the caller centers them on the
+    previous position mean. Returns ``(m, info)`` aligned with the prior
+    season's players, or ``None`` when no earlier season finished.
+    """
+    cands = sorted(s for s in designs
+                   if s < season and len(getattr(designs[s], "players", ())))
+    prev_season = next((s for s in reversed(cands) if s in season_end), None)
+    if prev_season is None:
+        return None
+    prev = designs[prev_season]
+    solved = prev.solve()
+    if solved is None:
+        return None
+    beta = np.asarray(solved[0], dtype=float)
+    players = [str(pid) for pid in prev.players]
+    raw = {pid: float(b) for pid, b in zip(players, beta)}
+    lg_prev, pos_prev = season_end[prev_season]
+    lg_prev = {str(k): float(v) for k, v in dict(lg_prev).items()}
+    pos_prev = {str(k): str(v) for k, v in dict(pos_prev).items()}
+
+    def _center(pid):
+        pos = pos_prev.get(pid, pos_of.get(pid, ""))
+        return lg_prev.get(pos, 0.0)
+
+    m = np.array([carry_weight * (raw[pid] - _center(pid))
+                  + (1.0 - carry_weight) * _center(pid)
+                  for pid in players], dtype=float)
+    info = {"players": players,
+            "beta": raw,
+            "pos_mean": dict(lg_prev),
+            "prev_season": prev_season,
+            "carry_weight": float(carry_weight)}
+    return m, info
 
 
 def build_player_rapm(games: pd.DataFrame,
@@ -875,6 +994,7 @@ def build_player_rapm(games: pd.DataFrame,
                       team_stats: pd.DataFrame | None = None,
                       availability: pd.DataFrame | None = None,
                       roster_history: pd.DataFrame | None = None,
+                      carry_weight: float | None = None,
                       ) -> pd.DataFrame:
     """Player-level RAPM ratings as of each target date.
 
@@ -896,9 +1016,22 @@ def build_player_rapm(games: pd.DataFrame,
     (``net_points``/``is_home``); without it ``team_game_entries`` falls
     back to pairing each game's two teams out of the box score.
 
+    ``carry_weight`` installs a multi-season informative prior and
+    replaces the position-mean second layer with a single ridge:
+    ``(A + lam I) beta = b + lam m`` on player columns, intercept
+    unridged, where ``m = carry_weight * prev_end_beta +
+    (1 - carry_weight) * prev_position_mean`` from the previous completed
+    season (``None``, the default, keeps the production two-layer
+    behavior exactly). Rookies center on the previous position mean; a
+    first season with no earlier evidence centers on zero. ``lg_rapm``
+    records the prior actually used and ``k_eff`` is NaN - there is no
+    second layer to weigh. Gated, not default: promoting it needs its own
+    holdout A/B the way the nine passed theirs.
+
     ``availability`` and ``availability_multiplier`` were removed rather
-    than carried over: once the design moved to a stint table and a
-    removal-based pool filter, they emitted a constant "healthy" and 1.0
+    than carried over: once the pool filter moved to removal-based
+    filtering (and availability resolution moved to injury_stints.out_at),
+    they emitted a constant "healthy" and 1.0
     for every row - columns that look populated and carry nothing, and a
     multiplier that invites a future caller to reintroduce exactly the
     zero-weighting the pool deliberately avoids.
@@ -906,7 +1039,8 @@ def build_player_rapm(games: pd.DataFrame,
     columns = ["target_date", "player_id", "position", "positions", "team",
                "prior_eff", "prior_minutes", "prior_minutes_per_game",
                "prior_games", "lg_rapm", "k_eff",
-               "rapm_raw", "rapm_shrunk", "days_since_appearance",
+               "rapm_raw", "rapm_shrunk", "rapm_se",
+               "days_since_appearance",
                "roster_source", "roster_observed_at"]
     empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in columns})
     if games is None or not len(games):
@@ -961,6 +1095,12 @@ def build_player_rapm(games: pd.DataFrame,
                 games, shrink_fraction=shrink_fraction, through_season=season)
 
     designs: dict = {}
+    carry_priors: dict = {}
+    # End-of-season centering per fit season: (position-mean dict,
+    # player->position dict) from the LAST target date, which is the
+    # centering the published second layer actually used. Targets arrive
+    # ascending, so the last write wins and the carryover reads a final.
+    season_end: dict = {}
     rows = []
     for target in dates:
         # Box-score membership, team changes and recency are post-game
@@ -987,6 +1127,34 @@ def build_player_rapm(games: pd.DataFrame,
             design = _SeasonDesign(chunk)
             designs[fit_season] = design
         design.advance(target)
+        single_layer = carry_weight is not None
+        prior_info = None
+        if single_layer:
+            pos_of = dict(zip(
+                known.player_id.astype(str), known.position.astype(str)))
+            if fit_season not in carry_priors:
+                got = _game_carryover_prior(designs, fit_season,
+                                            float(carry_weight), pos_of,
+                                            season_end)
+                if got is None:
+                    carry_priors[fit_season] = (None, {})
+                else:
+                    carry_priors[fit_season] = got
+            m_full, prior_info = carry_priors[fit_season]
+            m = np.zeros(design.n)
+            if m_full is not None:
+                pmap = {pid: i
+                        for i, pid in enumerate(prior_info.get("players", []))}
+                for i, pid in enumerate(design.players):
+                    j = pmap.get(pid)
+                    if j is not None and j < len(m_full):
+                        m[i] = m_full[j]
+                    else:
+                        pos = pos_of.get(str(pid), "")
+                        m[i] = prior_info.get("pos_mean", {}).get(pos, 0.0)
+            design.set_prior(m)
+        else:
+            design.set_prior(None)
         solved = design.solve()
         beta = solved[0] if solved is not None else None
 
@@ -1031,6 +1199,18 @@ def build_player_rapm(games: pd.DataFrame,
             snapshot["rapm_raw"] = snapshot.player_id.map(beta)
         snapshot["rapm_raw"] = snapshot.rapm_raw.where(
             snapshot.prior_eff > 0)
+        # The posterior standard error rides along under the same
+        # evidence gate: no window evidence means no bar, not a zero bar.
+        # No downstream consumer reads it yet; it is the uncertainty
+        # output the rating always owed, priced for the confidence
+        # weighting the pools will eventually use.
+        se = design.posterior_se()
+        if se is None:
+            snapshot["rapm_se"] = np.nan
+        else:
+            snapshot["rapm_se"] = snapshot.player_id.map(se)
+        snapshot["rapm_se"] = snapshot.rapm_se.where(
+            snapshot.prior_eff > 0)
         # The position prior is the mean raw beta among the SAME fit's
         # evidenced members at that position: shrink target and thing
         # shrunk come out of one solve, so they can never disagree about
@@ -1039,13 +1219,32 @@ def build_player_rapm(games: pd.DataFrame,
         # invented for a cell with no data.
         evidenced = snapshot[snapshot.rapm_raw.notna()]
         lg = evidenced.groupby("position").rapm_raw.mean()
-        snapshot["lg_rapm"] = snapshot.position.map(lg)
-        k_for_target = _k_table_for_season(
-            k_by_season, k_table, _season_of(target))
-        snapshot["k_eff"] = snapshot.position.map(k_for_target).astype(float)
-        snapshot["rapm_shrunk"] = shrunk_rapm(
-            snapshot.prior_eff, snapshot.rapm_raw,
-            snapshot.lg_rapm, snapshot.k_eff)
+        season_end[fit_season] = (
+            {str(k): float(v) for k, v in dict(lg).items()},
+            dict(zip(snapshot.player_id.astype(str),
+                     snapshot.position.astype(str))))
+        if single_layer:
+            # No second pass: the ridge already shrank toward m, and
+            # shrinking its output again toward this fit's position mean
+            # would be the double shrinkage the carryover replaces.
+            # lg_rapm is the prior actually used; k_eff is NaN - there is
+            # no second layer to weigh.
+            pmap_ids = {pid: i for i, pid in enumerate(design.players)}
+            ms = (m if "m" in dir() else np.zeros(0))
+            snapshot["lg_rapm"] = snapshot.player_id.map(
+                lambda pid: float(ms[pmap_ids[pid]])
+                if pid in pmap_ids and len(ms) == design.n else np.nan)
+            snapshot["k_eff"] = np.nan
+            snapshot["rapm_shrunk"] = snapshot.rapm_raw
+        else:
+            snapshot["lg_rapm"] = snapshot.position.map(lg)
+            k_for_target = _k_table_for_season(
+                k_by_season, k_table, _season_of(target))
+            snapshot["k_eff"] = snapshot.position.map(
+                k_for_target).astype(float)
+            snapshot["rapm_shrunk"] = shrunk_rapm(
+                snapshot.prior_eff, snapshot.rapm_raw,
+                snapshot.lg_rapm, snapshot.k_eff)
         snapshot["target_date"] = target
         # Recency of the player's actual evidence, carried for the pool's
         # availability gate: days from the player's LAST strictly-prior

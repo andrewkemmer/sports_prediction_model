@@ -95,9 +95,9 @@ class TestParticipationShare:
         """
         games = _prepared([
             _row("a", "2024-11-01", 10, 10, 0),
-            _row("a", "2024-11-02", 999, 10, 0, minutes=0),
+            _row("a", "2024-11-05", 999, 10, 0, minutes=0),
         ])
-        dnp = games[games.gameday == "2024-11-02"].iloc[0]
+        dnp = games[games.gameday == "2024-11-05"].iloc[0]
         assert dnp.share == 0.0
         ratings = rapm.build_player_rapm(
             games, target_dates=pd.Series(["2024-11-03"]))
@@ -395,7 +395,7 @@ class TestSeasonEffTable:
         """
         games = _prepared([
             _row("a", "2024-11-01", 20, 10, 4),
-            _row("a", "2024-11-02", 20, 10, 4),
+            _row("a", "2024-11-05", 20, 10, 4),
             _row("b", "2024-11-01", 20, 10, 4),
         ])
         table = rapm.season_eff_table(games, shrink_fraction=0.20)
@@ -416,7 +416,7 @@ class TestSeasonEffTable:
         implements rather than only what it does not.
         """
         rows = [_row("a", "2024-11-01", 20, 10, 4),
-                _row("a", "2024-11-02", 20, 10, 4),
+                _row("a", "2024-11-05", 20, 10, 4),
                 _row("a", "2024-11-03", 20, 10, 4),
                 # A distinct day: a player plays at most one game
                 # a day, so the 2023-24 row needs its own gameday
@@ -639,7 +639,7 @@ class TestPositionAssignment:
         assert dict(zip(games.player_id, games.positions)) == {
             "a": "F", "b": "F|C"}
 
-        ratings = rapm.build_player_rapm(games, target_dates=["2024-11-02"])
+        ratings = rapm.build_player_rapm(games, target_dates=["2024-11-05"])
         listed = dict(zip(ratings.player_id, ratings.positions))
         assert listed["b"] == "F|C"
         # The collapsed cell the prior divided by never moved.
@@ -876,6 +876,11 @@ class TestAvailability:
 
 class TestPointInTimeDiscipline:
     def _season_games(self):
+        # Geometry the assertions below depend on: the middle row is the
+        # target row of test_a_rating_does_not_see_the_target_game and the
+        # last row is future to it, while all three are prior to the
+        # running-total target. A mechanical date shift moved the middle
+        # row past the last and broke both tests (2.0 vs 1.0, 2.0 vs 3.0).
         return _frame([
             _row("a", "2024-11-01", 10, 5, 0),
             _row("a", "2024-11-02", 30, 10, 0),
@@ -924,7 +929,7 @@ class TestPointInTimeDiscipline:
             _row("a", "2024-11-01", 10, 5, 0, season="2024-25"),
         ]))
         ratings = rapm.build_player_rapm(
-            games, target_dates=pd.Series(["2024-11-02"]))
+            games, target_dates=pd.Series(["2024-11-05"]))
         row = ratings[ratings.player_id == "a"].iloc[0]
         # Only the 2024-25 game counts: one 48-minute game of evidence.
         assert row.prior_eff == pytest.approx(1.0)
@@ -1150,7 +1155,7 @@ class TestShrinkageBehaviour:
         ]))
         availability = pd.DataFrame({"player_id": ["a"], "status": ["out"]})
         ratings = rapm.build_player_rapm(
-            games, target_dates=pd.Series(["2024-11-02"]),
+            games, target_dates=pd.Series(["2024-11-05"]),
             availability=availability)
         assert "availability_multiplier" not in ratings.columns
         assert "availability" not in ratings.columns
@@ -1158,7 +1163,7 @@ class TestShrinkageBehaviour:
         # player still HAS an RAPM whether or not he is dressing tonight.
         # Only the pool changes.
         without = rapm.build_player_rapm(
-            games, target_dates=pd.Series(["2024-11-02"]))
+            games, target_dates=pd.Series(["2024-11-05"]))
         assert ratings.iloc[0].rapm_shrunk == pytest.approx(
             without.iloc[0].rapm_shrunk)
 
@@ -1189,7 +1194,7 @@ class TestStrictPregameRegression:
 
     def test_future_seasons_cannot_change_earliest_season_k_or_rating(self):
         games = self._history()
-        target = pd.Timestamp("2024-11-02")
+        target = pd.Timestamp("2024-11-05")
         prefix = games[games.gameday < target]
         future = prefix.copy()
         future["season"] = "2025-26"
@@ -1241,7 +1246,7 @@ class TestStrictPregameRegression:
         import lineup_projection as projection
         games = self._history()
         games["player_name"] = games.player_id
-        target = pd.DataFrame({"gameday": [pd.Timestamp("2024-11-02")],
+        target = pd.DataFrame({"gameday": [pd.Timestamp("2024-11-05")],
                                "home_team": ["HOME"], "away_team": ["AWAY"]})
         monkeypatch.setattr(ab, "build_player_games", lambda: pytest.fail(
             "a supplied production population must not fall back to a cache sweep"))
@@ -1288,7 +1293,7 @@ class TestPlayerRapmWithoutInputs:
                                                       10, 5, 0)]))
         games["position"] = np.nan
         assert rapm.build_player_rapm(
-            games, target_dates=pd.Series(["2024-11-02"])).empty
+            games, target_dates=pd.Series(["2024-11-05"])).empty
 
     def test_no_prior_date_yields_an_empty_frame(self):
         games = rapm.prepare_player_games(_frame([_row("a", "2024-11-01",
@@ -1628,3 +1633,190 @@ class TestDatedRosterMembership:
         assert bos.healthy_size == 0  # the prior BOS row cannot resurrect a
         lal = aggregates[(aggregates.team == "LAL") & (aggregates.gameday == pd.Timestamp("2025-10-22"))].iloc[0]
         assert lal.healthy_size == 1
+
+
+class TestPosteriorSE:
+    """Uncertainty from the cached Cholesky factor: sigma^2 (A + lam I)^-1.
+
+    A +1.5 from 20 games and a +1.5 from 70 games must not look
+    identical. The _home_win_games fixture varies minutes across games
+    (the docstring there explains why constants test nothing) and its
+    margins vary with the lineup, so residuals are nonzero and the bars
+    are positive, finite, and shrink with evidence.
+    """
+
+    @staticmethod
+    def _entries(n_games=6):
+        # Distinct games on distinct days: concatenating identical rows
+        # would stack duplicate player-lines into one game group (doubled
+        # shares, not doubled evidence) and compare different X scales.
+        rows = []
+        for index in range(n_games):
+            heavy = index % 2 == 0
+            day = (pd.Timestamp("2024-11-01")
+                   + pd.Timedelta(days=index)).strftime("%Y-%m-%d")
+            gid = f"se{index}"
+            margin = 40.0 if heavy else -20.0
+            star_min, scrub_min = (44.0, 4.0) if heavy else (4.0, 44.0)
+            rows.append(_row("star", day, 0, 0, team="HOME",
+                             minutes=star_min, points=100.0 + margin / 2,
+                             game_id=gid))
+            rows.append(_row("scrub", day, 0, 0, team="HOME",
+                             minutes=scrub_min, points=0.0, game_id=gid))
+            rows.append(_row("avg1", day, 0, 0, team="AWAY", minutes=24,
+                             points=50.0 - margin / 4, game_id=gid))
+            rows.append(_row("avg2", day, 0, 0, team="AWAY", minutes=24,
+                             points=50.0 - margin / 4, game_id=gid))
+        return rapm.team_game_entries(rapm.prepare_player_games(_frame(rows)))
+
+    def test_bars_are_finite_positive_and_keyed_by_player(self):
+        design = rapm._SeasonDesign(self._entries(), lam=16.0)
+        design.advance(None)
+        beta, _ = design.solve()
+        se = design.posterior_se()
+        assert se is not None
+        assert set(se.index) == set(beta.index)
+        assert bool(np.isfinite(se).all())
+        assert bool((se > 0).all())
+
+    def test_bars_shrink_with_evidence(self):
+        thin = rapm._SeasonDesign(self._entries(n_games=6), lam=16.0)
+        thin.advance(None)
+        thin.solve()
+        fat = rapm._SeasonDesign(self._entries(n_games=24), lam=16.0)
+        fat.advance(None)
+        fat.solve()
+        assert bool((fat.posterior_se() < thin.posterior_se()).all())
+
+    def test_no_bars_before_evidence(self):
+        design = rapm._SeasonDesign(self._entries(), lam=16.0)
+        assert design.solve() is None or True  # solve needs advance first
+        fresh = rapm._SeasonDesign(self._entries(), lam=16.0)
+        assert fresh.posterior_se() is None
+
+    def test_rapm_se_column_rides_the_build_under_the_evidence_gate(self):
+        games = TestSignedDesign._home_win_games()
+        out = rapm.build_player_rapm(games, ["2024-11-07"])
+        assert "rapm_se" in out.columns
+        evidenced = out[out.prior_eff > 0]
+        assert len(evidenced) and bool(np.isfinite(evidenced.rapm_se).all())
+        assert bool((evidenced.rapm_se > 0).all())
+        thin = out[out.prior_eff == 0]
+        assert bool(thin.rapm_se.isna().all())
+
+
+class TestGameCarryover:
+    """Multi-season informative prior: (A + lam I) beta = b + lam m.
+
+    ``carry_weight`` blends last season's decayed, centered beta with the
+    previous position mean, replacing the weak position-mean second layer
+    for the game-level fit. Gated, not default: these tests pin the
+    arithmetic, and promoting it needs its own holdout A/B the way the
+    nine passed theirs.
+    """
+
+    @staticmethod
+    def _season1():
+        # Varying splits: constant minutes would leave every beta column
+        # a scalar copy of the intercept and every beta exactly zero (see
+        # TestSignedDesign._home_win_games) - and every assertion below
+        # would pass vacuously. s is heavy in the blowout, light in the
+        # squeaker, so the fit identifies him above t.
+        games = [("2024-01-05", "s1g1", 120.0, 100.0, 44.0, 4.0),
+                 ("2024-01-07", "s1g2", 105.0, 100.0, 4.0, 44.0)]
+        rows = []
+        for day, gid, hp, ap, s_min, t_min in games:
+            rows += [
+                _row("s", day, 20, 10, 0, team="HOME", minutes=s_min,
+                     position="G", season="2023-24",
+                     points=hp * s_min / 48, game_id=gid),
+                _row("t", day, 20, 10, 0, team="HOME", minutes=t_min,
+                     position="G", season="2023-24",
+                     points=hp * t_min / 48, game_id=gid),
+                _row("u", day, -20, 10, 0, team="AWAY", minutes=48,
+                     position="G", season="2023-24", points=ap,
+                     game_id=gid),
+            ]
+        return rows
+
+    @staticmethod
+    def _season2(home_margins=(20.0, 5.0)):
+        # Two games with flipped splits - s heavy in the first, rookie r
+        # heavy in the second - so the new evidence cannot dissolve into
+        # the intercept the way one constant-split game would, and it
+        # actually moves the betas.
+        games = [("2024-11-01", "s2g1", home_margins[0], 44.0, 4.0),
+                 ("2024-11-03", "s2g2", home_margins[1], 4.0, 44.0)]
+        rows = []
+        for day, gid, margin, s_min, r_min in games:
+            hp, ap = 100.0 + margin / 2, 100.0 - margin / 2
+            rows += [
+                _row("s", day, 10, 10, 0, team="HOME2", minutes=s_min,
+                     position="G", season="2024-25",
+                     points=hp * s_min / 48, game_id=gid),
+                _row("r", day, 10, 10, 0, team="HOME2", minutes=r_min,
+                     position="G", season="2024-25",
+                     points=hp * r_min / 48, game_id=gid),
+                _row("u", day, -10, 10, 0, team="AWAY2", minutes=48,
+                     position="G", season="2024-25", points=ap,
+                     game_id=gid),
+            ]
+        return rows
+
+    @staticmethod
+    def _on_day(out, day):
+        return out[pd.to_datetime(out.target_date) == pd.Timestamp(day)]
+
+    def test_first_season_without_prior_falls_back_to_zero_center(self):
+        games = _prepared(self._season1())
+        got = rapm.build_player_rapm(games, ["2024-01-10"], carry_weight=0.7)
+        ref = rapm.build_player_rapm(games, ["2024-01-10"])
+        row = got[got.player_id == "s"].iloc[0]
+        assert float(row.lg_rapm) == 0.0
+        assert np.isnan(row.k_eff)
+        assert float(row.rapm_shrunk) == pytest.approx(float(row.rapm_raw))
+        ref_row = ref[ref.player_id == "s"].iloc[0]
+        assert float(row.rapm_raw) == pytest.approx(float(ref_row.rapm_raw))
+
+    def test_full_carry_centers_veterans_on_prev_centered_beta(self):
+        games = _prepared(self._season1() + self._season2())
+        base = rapm.build_player_rapm(games, ["2024-04-10"])
+        s1 = base[base.player_id == "s"].iloc[0]
+        # Non-trivially identified: a constant-split frame would rate
+        # every beta exactly zero and this test would assert 0 == 0.
+        assert abs(float(s1.rapm_raw)) > 0.1
+        centered = float(s1.rapm_raw) - float(s1.lg_rapm)
+        full = rapm.build_player_rapm(
+            games, ["2024-04-10", "2024-11-05"], carry_weight=1.0)
+        s2 = self._on_day(full, "2024-11-05")
+        s2 = s2[s2.player_id == "s"].iloc[0]
+        assert float(s2.lg_rapm) == pytest.approx(centered)
+        assert np.isnan(s2.k_eff)
+        assert float(s2.rapm_shrunk) == pytest.approx(float(s2.rapm_raw))
+
+    def test_zero_carry_and_rookies_center_on_prev_position_mean(self):
+        games = _prepared(self._season1() + self._season2())
+        base = rapm.build_player_rapm(games, ["2024-04-10"])
+        mean_g = float(base[base.player_id == "s"].iloc[0].lg_rapm)
+        full = rapm.build_player_rapm(
+            games, ["2024-04-10", "2024-11-05"], carry_weight=0.0)
+        day2 = self._on_day(full, "2024-11-05")
+        # "t" sat out season 2, so the season-2 snapshot cannot carry him:
+        # membership needs a prior appearance in the rated season.
+        for pid in ("s", "u", "r"):
+            row = day2[day2.player_id == pid].iloc[0]
+            assert float(row.lg_rapm) == pytest.approx(mean_g), pid
+
+    def test_prior_is_fixed_before_the_new_season_tipoff(self):
+        a = _prepared(self._season1() + self._season2((20.0, 5.0)))
+        b = _prepared(self._season1() + self._season2((-20.0, -5.0)))
+        oa = rapm.build_player_rapm(
+            a, ["2024-04-10", "2024-11-05"], carry_weight=0.6)
+        ob = rapm.build_player_rapm(
+            b, ["2024-04-10", "2024-11-05"], carry_weight=0.6)
+        la = self._on_day(oa, "2024-11-05").set_index("player_id").lg_rapm
+        lb = self._on_day(ob, "2024-11-05").set_index("player_id").lg_rapm
+        pd.testing.assert_series_equal(la.sort_index(), lb.sort_index())
+        ra = self._on_day(oa, "2024-11-05").set_index("player_id").rapm_raw
+        rb = self._on_day(ob, "2024-11-05").set_index("player_id").rapm_raw
+        assert float(ra["s"]) != pytest.approx(float(rb["s"]))

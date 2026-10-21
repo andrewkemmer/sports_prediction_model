@@ -82,20 +82,19 @@ except ImportError:
         install_run_log_tee,
         RUN_LOG_NAME,
     )
-# The tee installs at import so a run - even one that dies before the
-# publish phase - carries its log. The test suite imports this module to
-# reach its functions - and test_nba_rapm_features imports it at MODULE
-# scope, i.e. during collection - and under pytest installing would
-# TRUNCATE the committed rolling log at its own banner (measured
-# 2026-10-04: one pytest batch left nba_pipeline_run_log.txt at 143
-# bytes), so the install is skipped whenever a test run is in progress:
-# PYTEST_CURRENT_TEST covers the in-test imports, pytest being loaded
-# covers collection, and a production launch has neither.
-if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
-    _log_path = None
-else:
-    _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
-    install_crash_log_pusher(_log_path)
+# The tee installs when run() starts - never at import. An import-time
+# install truncated the rolling log on every bare backend import, not
+# just under pytest: the guard below covers the suite (collection
+# imports this module at scope, and test files import it to reach its
+# functions - measured 2026-10-04: one pytest batch left
+# nba_pipeline_run_log.txt at 143 bytes), but a diagnostic
+# `python -c "import master_pipeline"` has neither marker and overwrote
+# data_delivery's log with its own two lines (2026-10-22: the
+# working-tree log was found at 3 lines - tee banner plus the importer's
+# own prints, the run's log destroyed). A production launch imports
+# this module and then calls run(), so installing there captures the
+# whole run exactly as before, including runs that die before publish.
+_log_path = None
 
 
 # The steps of a run, in order, for the phase bar.  Named once here so the bar
@@ -1195,6 +1194,14 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # instead of after an hour of ingest and fit.
     import nba_injury_report as ir_mod
     ir_mod.require_pdf_parser()
+    global _log_path
+    # PYTEST_CURRENT_TEST covers in-test run() calls, pytest being loaded
+    # covers collection-time imports; a production launch has neither.
+    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+        _log_path = None
+    else:
+        _log_path = install_run_log_tee(config.DATA_DELIVERY_DIR)
+        install_crash_log_pusher(_log_path)
     started = time.time()
     out = Path(out_dir) if out_dir else config.DATA_DELIVERY_DIR
     out.mkdir(parents=True, exist_ok=True)

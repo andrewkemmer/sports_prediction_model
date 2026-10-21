@@ -612,6 +612,92 @@ def linear_view(df: pd.DataFrame) -> pd.DataFrame:
     return df.reindex(columns=cols).astype(float)
 
 
+def sched_density_features(games: pd.DataFrame) -> pd.DataFrame:
+    """Schedule-density columns from the schedule alone (TRIAL ONLY).
+
+    Pure function of (game_id, gameday, home_team, away_team): for each
+    side, the 3-in-4 / 4-in-6 density flags count that team's games on the
+    strictly-prior 3 / 5 calendar days (so the game itself completes the
+    3rd-in-4 / 4th-in-6), and the road-trip leg counts the visitor's
+    trailing run of consecutive away games plus itself (home sides are
+    definitionally trip 0, so no home level exists). Team keys are the
+    frame's own home/away values, so both sides of every game share one
+    domain; seasons are never crossed by special case because every count
+    reads strictly-prior rows only. Returns one row per input game with
+    ``game_id`` plus ``config.SCHED_DENSITY_COLS``. Nothing calls this in
+    production until a walk-forward verdict clears the 2.5 gate.
+    """
+    out = pd.DataFrame({"game_id": games["game_id"].astype(str).to_numpy()})
+    for col in config.SCHED_DENSITY_COLS:
+        out[col] = np.nan
+    if not len(games):
+        return out
+    day = pd.to_datetime(games["gameday"], errors="coerce")
+    home = games["home_team"].astype(str)
+    away = games["away_team"].astype(str)
+    # Per-team chronological ledgers: sorted unique dates plus, per date,
+    # whether the team was away (a team plays at most once per day).
+    dates: dict[str, list] = {}
+    was_away: dict[str, dict] = {}
+    order = np.argsort(day.fillna(pd.Timestamp.min).to_numpy(), kind="stable")
+    for i in order:
+        d = day.iloc[i]
+        if pd.isna(d):
+            continue
+        d = d.normalize()
+        for team, is_aw in ((home.iloc[i], False), (away.iloc[i], True)):
+            if d not in was_away.setdefault(team, {}):
+                dates.setdefault(team, []).append(d)
+            was_away[team][d] = was_away[team].get(d, False) or is_aw
+    for team, ds in dates.items():
+        ds.sort()
+
+    def prior_dates(team: str, gday, n_days: int) -> int:
+        ds = dates.get(team, [])
+        lo = gday - pd.Timedelta(days=n_days)
+        return sum(1 for d in ds if lo <= d < gday)
+
+    def trip_no(team: str, gday, is_aw: bool) -> int:
+        if not is_aw:
+            return 0
+        ds = dates.get(team, [])
+        run = 0
+        for d in reversed(ds):
+            if d >= gday or not was_away[team].get(d, False):
+                if d < gday:
+                    break
+                continue
+            run += 1
+        return run + 1
+
+    f3h, f3a, f4h, f4a, trh, tra = [], [], [], [], [], []
+    for i in range(len(games)):
+        d = day.iloc[i]
+        if pd.isna(d):
+            f3h.append(np.nan); f3a.append(np.nan)
+            f4h.append(np.nan); f4a.append(np.nan)
+            trh.append(np.nan); tra.append(np.nan)
+            continue
+        d = d.normalize()
+        h, a = home.iloc[i], away.iloc[i]
+        h3 = prior_dates(h, d, 3) >= 2
+        a3 = prior_dates(a, d, 3) >= 2
+        h4 = prior_dates(h, d, 5) >= 3
+        a4 = prior_dates(a, d, 5) >= 3
+        f3h.append(float(h3)); f3a.append(float(a3))
+        f4h.append(float(h4)); f4a.append(float(a4))
+        trh.append(0.0); tra.append(float(trip_no(a, d, True)))
+    out["sched_3in4_home"] = f3h
+    out["sched_3in4_away"] = f3a
+    out["sched_3in4_diff"] = np.subtract(f3h, f3a)
+    out["sched_4in6_home"] = f4h
+    out["sched_4in6_away"] = f4a
+    out["sched_4in6_diff"] = np.subtract(f4h, f4a)
+    out["sched_trip_away"] = tra
+    out["sched_trip_diff"] = np.subtract(trh, tra)
+    return out
+
+
 def team_category_ids(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=df.index)
     home = df.get("home_team", pd.Series("", index=df.index))

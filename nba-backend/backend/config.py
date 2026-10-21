@@ -272,6 +272,15 @@ NBA_CANDIDATE_COLS = list(dict.fromkeys(
     for metric, windows in TEAM_CANDIDATE_TRAILING_SPECS.items()
     for window in windows for rep in ("diff", "home", "away")
 ))
+# Schedule-density levels route tree-only (diffs serve every family),
+# mirroring rest_days/back_to_back. Dormant: none of these names is in
+# MONEYLINE_FEATURE_COLS, so the linear view is unchanged until a trial
+# activates the family through set_feature_subset.
+SCHED_DENSITY_LEVEL_COLS = frozenset({
+    "sched_3in4_home", "sched_3in4_away",
+    "sched_4in6_home", "sched_4in6_away",
+    "sched_trip_away",
+})
 RAW_PER_SIDE_COLS = frozenset({
     "elo_home", "elo_away", "win_pct_home", "win_pct_away",
     "ewm_off_rating_home", "ewm_off_rating_away",
@@ -279,7 +288,8 @@ RAW_PER_SIDE_COLS = frozenset({
     "rest_days_away",
 } | set(PER_SIDE_FEATURE_COLS)
   | {f"nba_{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
-     for w in ws for s in ("home", "away")})
+     for w in ws for s in ("home", "away")}
+  | SCHED_DENSITY_LEVEL_COLS)
 RFE_CANDIDATE_COLS = [c for c in NBA_CANDIDATE_COLS
                       if c not in set(MONEYLINE_FEATURE_COLS)]
 _FEATURE_SUBSET: list[str] | None = None
@@ -563,6 +573,18 @@ ELASTICNET_PARAMS = {
     "solver": "saga", "max_iter": 4000, "tol": 1e-4,
     "random_state": RANDOM_SEED,
 }
+# Random-forest moneyline candidate (TRIAL ONLY, 2026-10-18 RF diversity
+# trial — NOT in ENSEMBLE_MEMBERS, so production never fits it until a
+# walk-forward verdict clears the 2.5 gate). Bagged trees against the
+# blend's two boosters (note: LIGHTGBM_PARAMS already sets extra_trees,
+# so the trial measures what bootstrap averaging adds beyond ExtraTrees-
+# style splits, not a first encounter with random thresholds). The trial
+# script overwrites the two swept keys per config; the rest stay pinned.
+RANDOMFOREST_PARAMS = {
+    "n_estimators": 500, "min_samples_leaf": 10,
+    "max_features": "sqrt", "bootstrap": True,
+    "random_state": RANDOM_SEED, "n_jobs": -1,
+}
 
 XGBOOST_REG_PARAMS = {
     "n_estimators": 300, "max_depth": 3, "learning_rate": 0.05,
@@ -805,6 +827,24 @@ PLAYER_RAPM_LAMBDA = 16.0
 #: with no data must still yield a complete prior table rather than raise
 #: at lookup time.
 PLAYER_RAPM_FALLBACK_K_EFF = 2.6
+#: Stint-level O/D RAPM ridge strength (lambda) on the player offense and
+#: defense columns of the two-row-per-stint design; the two side-intercept
+#: columns are NEVER ridged. Chosen by walk-forward cross-validation on held-out
+#: stint scoring rates (run_diagnostics/nba_stint_lambda.py); the grid, the
+#: dates and the winning value are on record there, not in this comment.
+#: 896.0, set 2026-10-20 from run_diagnostics/nba_stint_lambda.json:
+#: 13 month-boundary folds x 3 seasons, 2032 test games. Held-out RANKING
+#: (corr of 5x top-8 net diff vs margin) is flat ~0.062 from 32 to 1536,
+#: so lambda sets SCALE, not order; the slope of margin on the raw edge
+#: crosses 1.0 between 768 (0.85) and 1024 (1.13), and raw game-margin MSE
+#: beats the home-edge null (243.7 vs 244.4) only once the scale is
+#: calibrated. 896 interpolates slope 1. A downstream model refits scale
+#: anyway; what matters is that the published unit means what it says.
+STINT_RAPM_LAMBDA = 896.0
+#: Stint RAPM carryover blend: the ridge center for a season is
+#: ``carry_w * prev_season_end_beta + (1 - carry_w) * prev_position_mean``.
+#: 0.5 is the neutral midpoint, a tuning candidate rather than a measurement.
+STINT_RAPM_CARRY_WEIGHT = 0.5
 #: Minimum accumulated MINUTES before a player may be PROJECTED into a
 #: lineup, mirroring MLB's LINEUP_MIN_PA discipline. The NBA number is 50:
 #: the minutes equivalent of the 120-possession floor this replaced.
@@ -943,9 +983,39 @@ PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
     for position in ("c", "f", "g")
     for side in ("away", "home", "diff")]
 
+#: The fifteen stint-RAPM candidates - net sides + diff per position (nine,
+#: mirroring the game-level family) plus offense/defense diffs per position
+#: (six). Registered as CANDIDATES, not contract columns: the 2026-10-20
+#: holdout A/B (``ab_stint_rapm.py``) kept them out. Three arms, same 56
+#: folds, 2400 OOF rows: baseline 0.60141, +nine 0.60150, +nine+fifteen
+#: 0.60238 logloss; paired stint-vs-nine NOT distinguishable (49.9% of
+#: 2130 games), stint-vs-baseline NOT distinguishable (+0.00096 +-0.00221).
+#: Coverage was healthy (91-97%), so this is weak signal, not a build
+#: hole. See run_diagnostics/nba_stint_proxy.json for the standalone
+#: reason (corr 0.09 vs game-level 0.38). Do not promote without a new
+#: verdict from a re-run of that harness.
+STINT_RAPM_FEATURE_COLS: list[str] = (
+    [f"pl_srapm_net_{position}_{side}"
+     for position in ("c", "f", "g")
+     for side in ("away", "home", "diff")]
+    + [f"pl_srapm_{stem}_{position}_diff"
+       for stem in ("off", "def")
+       for position in ("c", "f", "g")])
+
+# Schedule-density family (TRIAL ONLY, 2026-10-18 density trial — NOT in
+# MONEYLINE_FEATURE_COLS, so production never serves it until a
+# walk-forward verdict clears the 2.5 gate). Column order: the 3-in-4 and
+# 4-in-6 triplets, then the visitor's road-trip leg and its diff (home
+# sides are definitionally trip 0, so no home level exists).
+SCHED_DENSITY_COLS = [
+    "sched_3in4_home", "sched_3in4_away", "sched_3in4_diff",
+    "sched_4in6_home", "sched_4in6_away", "sched_4in6_diff",
+    "sched_trip_away", "sched_trip_diff",
+]
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
-    + PLAYER_RAPM_POSITION_FEATURE_COLS))
+    + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
+    + SCHED_DENSITY_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is

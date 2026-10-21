@@ -57,6 +57,9 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
                "lineup_rapm_rest_count"] + [
     f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
+    f"pl_srapm_{stem}_{p.lower()}"
+    for stem in ("net", "off", "def")
+    for p in config.PLAYER_EPM_POSITIONS] + [
     # The per-position ELIGIBILITY MASK (2026-10-08 coverage audit): 1 when
     # the eligible pool listed at least one member at the position, 0 when
     # the gates (prior-minutes floor, 30-day recency, availability) or the
@@ -118,6 +121,23 @@ POSITION_RAPM_FEATURES = [
     f"pl_rapm_{position}_{side}"
     for position in _POSITION_PUBLISHED_ORDER
     for side in ("away", "home", "diff")]
+
+#: Stint-RAPM sources per team-game: net/offense/defense segment blends.
+#: Published as net sides + diff (nine, mirroring the game-level family)
+#: plus offense/defense diffs only (six): the off/def sides double the
+#: count for little extra signal, and the diff is the model-facing shape.
+STINT_RAPM_SOURCES = [
+    f"pl_srapm_{stem}_{p.lower()}"
+    for stem in ("net", "off", "def")
+    for p in config.PLAYER_EPM_POSITIONS]
+STINT_RAPM_FEATURES = (
+    [f"pl_srapm_net_{position}_{side}"
+     for position in _POSITION_PUBLISHED_ORDER
+     for side in ("away", "home", "diff")]
+    + [f"pl_srapm_{stem}_{position}_diff"
+       for stem in ("off", "def")
+       for position in _POSITION_PUBLISHED_ORDER])
+
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +346,8 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
     out["player_id"] = out.player_id.astype(str)
     out["team"] = out.team.astype(str)
     out["gameday"] = pd.to_datetime(out.gameday, errors="coerce")
-    for column in ("rapm_shrunk", "prior_minutes", "prior_minutes_per_game"):
+    for column in ("rapm_shrunk", "prior_minutes", "prior_minutes_per_game",
+                   "off_raw", "def_raw"):
         out[column] = pd.to_numeric(out.get(column), errors="coerce")
     return out
 
@@ -789,13 +810,13 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
-    def _blend(frame: pd.DataFrame) -> float:
-        """Minutes-per-game-weighted mean of rapm_shrunk over ``frame``."""
+    def _blend(frame: pd.DataFrame, col: str = "rapm_shrunk") -> float:
+        """Minutes-per-game-weighted mean of ``col`` over ``frame``."""
         w = frame["_w"]
         den = float(w.sum())
-        if not den:
+        if not den or col not in frame.columns:
             return np.nan
-        return float((w * frame.rapm_shrunk.fillna(0.0)).sum() / den)
+        return float((w * frame[col].fillna(0.0)).sum() / den)
 
     ratings = projected.rapm_shrunk.to_numpy(dtype=float)
 
@@ -852,6 +873,20 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 value = _blend(group)
                 if value == value:
                     segmented[f"pl_rapm_{str(position).lower()}"] = value
+                # Stint O/D parallels, priced on the same weights over the
+                # same members. Present only when the ratings frame carries
+                # the stint fit (off_raw/def_raw); a game-level frame simply
+                # emits none of these and the AGG_COLUMNS fill covers them
+                # with NaN. Net reuses rapm_shrunk, which the stint frame
+                # sets to the stint net outright.
+                if {"off_raw", "def_raw"}.issubset(healthy.columns):
+                    pos = str(position).lower()
+                    for stem, col in (("net", "rapm_shrunk"),
+                                      ("off", "off_raw"),
+                                      ("def", "def_raw")):
+                        svalue = _blend(group, col)
+                        if svalue == svalue:
+                            segmented[f"pl_srapm_{stem}_{pos}"] = svalue
         for position in config.PLAYER_EPM_POSITIONS:
             eligible.setdefault(f"pl_rapm_{position.lower()}_eligible", 0.0)
     else:
@@ -982,6 +1017,40 @@ def attach_position_rapm(slate: pd.DataFrame,
             out[f"_eligible_{column}_home"] = home_elig
             out[f"_eligible_{column}_diff"] = np.minimum(away_elig, home_elig)
     drop = [c for c in out.columns if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
+
+
+def attach_stint_rapm(slate: pd.DataFrame,
+                      aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the fifteen stint-RAPM features, same grain as the nine.
+
+    Same join, same (date, team) grain, same always-create-the-column rule
+    as :func:`attach_position_rapm`. Net keeps sides plus diff (nine);
+    offense and defense publish diffs only (six). Eligibility reuses the
+    position membership flags: the stint segments read the same members
+    with the same weights, so a separate mask would always agree.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in STINT_RAPM_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    out = _attach_sides(out, aggregates, STINT_RAPM_SOURCES)
+    for stem in ("net", "off", "def"):
+        for position in _POSITION_PUBLISHED_ORDER:
+            src_col = f"pl_srapm_{stem}_{position}"
+            away = f"_away_{src_col}"
+            home = f"_home_{src_col}"
+            if away not in out.columns or home not in out.columns:
+                continue
+            if stem == "net":
+                out[f"{src_col}_away"] = out[away]
+                out[f"{src_col}_home"] = out[home]
+                out[f"{src_col}_diff"] = out[home] - out[away]
+            else:
+                out[f"{src_col}_diff"] = out[home] - out[away]
+    drop = [c for c in out.columns if c.startswith("_home_")
+            or c.startswith("_away_")]
     return out.drop(columns=drop)
 
 

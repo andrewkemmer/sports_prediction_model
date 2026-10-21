@@ -32,6 +32,13 @@ except ImportError:  # pragma: no cover - direct script/import fallback
 logger = logging.getLogger(__name__)
 CLIP = 1e-7
 LINEAR_MEMBERS = {"elasticnet"}
+# Tree-view members that still need the train-fold preprocessor. Random
+# forest cannot ingest NaN (unlike the boosters' native missing handling)
+# or pandas.Categorical (unlike their native categorical support), so its
+# matrix codes the team IDs as plain ints and rides the preprocessor for
+# median imputation; the scaling the preprocessor also applies is
+# split-invariant, so tree geometry is unaffected. Dormant unless a trial
+# adds "randomforest" to ENSEMBLE_MEMBERS.
 
 
 class TrainFoldPreprocessor:
@@ -84,12 +91,24 @@ def _make_member(
     if name == "elasticnet":
         from sklearn.linear_model import LogisticRegression
         return LogisticRegression(**config.ELASTICNET_PARAMS)
+    if name == "randomforest":
+        from sklearn.ensemble import RandomForestClassifier
+        return RandomForestClassifier(**config.RANDOMFOREST_PARAMS)
     raise KeyError(f"unknown ensemble member {name!r}")
 
 
 def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
     """Return the named feature representation for one model family."""
-    return feat_mod.linear_view(df) if name in LINEAR_MEMBERS else feat_mod.tree_view(df)
+    if name in LINEAR_MEMBERS:
+        return feat_mod.linear_view(df)
+    out = feat_mod.tree_view(df)
+    if name == "randomforest":
+        out = out.copy()
+        for col in config.TREE_CATEGORICAL_COLS:
+            if col in out.columns:
+                out[col] = pd.to_numeric(out[col], errors="coerce")
+        out = out.astype(float)
+    return out
 
 
 def member_fit_input(
@@ -98,9 +117,9 @@ def member_fit_input(
     pre: TrainFoldPreprocessor | None = None,
 ):
     """Apply the one authoritative preprocessing path for a member."""
-    if name in LINEAR_MEMBERS:
+    if name in LINEAR_MEMBERS or name == "randomforest":
         if pre is None:
-            raise ValueError("linear member requires a fitted train-fold preprocessor")
+            raise ValueError(f"{name} requires a fitted train-fold preprocessor")
         return pre.transform(X)
     return X
 
@@ -180,7 +199,8 @@ def _fit_member(name: str, train: pd.DataFrame) -> tuple[Any, TrainFoldPreproces
         raise ValueError(f"{name} requires two labeled training classes")
 
     X_train = member_matrix(name, train)
-    pre = TrainFoldPreprocessor().fit(X_train) if name in LINEAR_MEMBERS else None
+    pre = (TrainFoldPreprocessor().fit(X_train)
+           if name in LINEAR_MEMBERS or name == "randomforest" else None)
     y_train = labels.to_numpy(dtype=int)
     if name == "xgboost":
         # Early stopping watches a chronological tail of the TRAINING fold,
