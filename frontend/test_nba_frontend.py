@@ -595,6 +595,23 @@ class TestCardStartTimeAndMatchup:
             self._frame(venue="Little Caesars Arena").iloc[0], None, "")
         assert "Little Caesars Arena" in card
 
+    def test_the_day_is_sorted_earliest_tipoff_first(self):
+        frame = pd.DataFrame([
+            {"game_id": "late", "start_time_utc": "2099-01-01T23:30:00Z"},
+            {"game_id": "early", "start_time_utc": "2099-01-01T19:00:00Z"},
+            {"game_id": "unknown", "start_time_utc": None},
+            {"game_id": "mid", "start_time_utc": "2099-01-01T21:00:00Z"},
+        ])
+        ordered = nba_todays_page._sort_by_tipoff(frame)
+        assert ordered.game_id.tolist() == ["early", "mid", "late", "unknown"]
+
+    def test_tipoff_ties_keep_artifact_order(self):
+        frame = pd.DataFrame([
+            {"game_id": "b", "start_time_utc": "2099-01-01T19:00:00Z"},
+            {"game_id": "a", "start_time_utc": "2099-01-01T19:00:00Z"},
+        ])
+        assert nba_todays_page._sort_by_tipoff(frame).game_id.tolist() == ["b", "a"]
+
 
 class TestRetentionWindow:
     """The NBA board's rolling 10-day truncation, matched to MLB's.

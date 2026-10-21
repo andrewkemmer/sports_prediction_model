@@ -2122,6 +2122,43 @@ class TestCardPresentationFields:
         assert record["ppg"] > record.get("apg", 0)
         assert record["games"] == config.PLAYER_WINDOW_GAMES
 
+    def test_a_traded_star_is_not_crowned_his_old_teams_leader(self):
+        """A star dealt mid-season owns his old team's window scoring lead,
+        but his latest appearance (any team, strictly before the target) was
+        for his NEW team - so he is not on the old roster anymore and must
+        not render as its key player. The loyal teammate inherits the card."""
+        import player_enrichment
+        games = pd.DataFrame([
+            {"game_id": f"c{n}", "gameday": pd.Timestamp(f"2026-01-0{n + 1}"),
+             "home_team": "CHA", "away_team": "DET",
+             "home_score": 110.0, "away_score": 100.0}
+            for n in range(config.PLAYER_WINDOW_GAMES)] + [
+            {"game_id": f"k{n}", "gameday": pd.Timestamp(f"2026-01-1{n}"),
+             "home_team": "NYK", "away_team": "DET",
+             "home_score": 110.0, "away_score": 100.0}
+            for n in range(5)])
+        rows = []
+        for n in range(config.PLAYER_WINDOW_GAMES):
+            rows.append({
+                "game_id": f"c{n}", "gameday": pd.Timestamp(f"2026-01-0{n + 1}"),
+                "team": "CHA", "player_id": "star", "player_name": "Traded Star",
+                "minutes": 36, "points": 30, "ast": 8})
+            rows.append({
+                "game_id": f"c{n}", "gameday": pd.Timestamp(f"2026-01-0{n + 1}"),
+                "team": "CHA", "player_id": "loyal", "player_name": "Loyal Star",
+                "minutes": 36, "points": 20, "ast": 5})
+        for n in range(5):
+            rows.append({
+                "game_id": f"k{n}", "gameday": pd.Timestamp(f"2026-01-1{n}"),
+                "team": "NYK", "player_id": "star", "player_name": "Traded Star",
+                "minutes": 36, "points": 30, "ast": 8})
+        record = player_enrichment._player_for_team(
+            pd.DataFrame(rows), "CHA", pd.Timestamp("2026-02-01"), games)
+        assert record.get("name") == "Loyal Star"
+        record = player_enrichment._player_for_team(
+            pd.DataFrame(rows), "NYK", pd.Timestamp("2026-02-01"), games)
+        assert record.get("name") == "Traded Star"
+
     def test_a_cached_day_from_an_older_parser_is_refetched(self, tmp_path):
         """A cache entry written before the frame gained a tipoff reads back as
         a hit and silently yields empty values, so a whole window reports no

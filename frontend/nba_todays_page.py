@@ -191,6 +191,22 @@ def _nba_shap_expander(row) -> None:
         st.caption("Positive values increase the favored team's win probability; negative values decrease it.")
 
 
+def _sort_by_tipoff(frame: pd.DataFrame) -> pd.DataFrame:
+    """Chronological card order: earliest tipoff first.
+
+    MLB's board renders artifact order; the NBA day is time-ordered so the
+    first card is the first game a viewer can watch. Stable sort: tipoff
+    ties keep artifact order, and rows with a missing/unparseable tipoff
+    render last (never dropped, never first). Applied after the status
+    filter so every tab shares the same chronological order.
+    """
+    if frame is None or frame.empty or "start_time_utc" not in frame.columns:
+        return frame
+    keys = frame["start_time_utc"].map(utils._parse_start_time_utc)
+    order = keys.map(lambda ts: ts.timestamp() if ts is not None and pd.notna(ts) else float("inf"))
+    return frame.iloc[order.argsort(kind="stable").to_numpy()].reset_index(drop=True)
+
+
 def _evening_count(frame: pd.DataFrame) -> int:
     count = 0
     for _, row in frame.iterrows():
@@ -245,6 +261,7 @@ def run() -> None:
     else:
         selected = st.segmented_control("Filter", options, format_func=lambda x: f"{x} ({counts[x]})", key="nba_game_filter", label_visibility="collapsed")
     filtered = day[day.game_status == selected] if selected in {"Final", "Live"} else day
+    filtered = _sort_by_tipoff(filtered)
     try: slate, _ = utils.load_nba_run_engine_markets("nba")
     except Exception: slate = pd.DataFrame()
     try: players = utils.load_nba_player_matchup("nba")

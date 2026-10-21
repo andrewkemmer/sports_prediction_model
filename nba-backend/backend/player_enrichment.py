@@ -108,6 +108,31 @@ def _player_for_team(stats: pd.DataFrame | None, team: str, target_date,
                            str(name or pid), appearances, str(pid)))
     if not candidates:
         return {}
+    # Trade guard: a candidate whose latest appearance strictly before the
+    # target (ANY team, by gameday) was for a different team has been traded
+    # or signed away - his old rows for this team sit inside its window but
+    # he is not on its roster anymore (e.g. a star dealt mid-season still
+    # owning the old team's scoring lead). Without this the card shows a
+    # departed player as the team's key man. Purely prior data, no new
+    # source; when the feed carries no gameday the check is skipped and the
+    # window behavior is unchanged.
+    if "gameday" in stats.columns:
+        prior = stats[["player_id", "team", "gameday"]].copy()
+        prior["player_id"] = prior["player_id"].astype(str)
+        prior["gameday"] = pd.to_datetime(prior["gameday"], errors="coerce")
+        target_ts = pd.to_datetime(target_date, errors="coerce")
+        prior = prior[prior["gameday"].lt(target_ts)]
+        if len(prior):
+            prior["team_key"] = prior.team.astype(str).map(
+                config.normalize_team_abbr)
+            latest = (prior.sort_values("gameday")
+                      .drop_duplicates("player_id", keep="last")
+                      .set_index("player_id")["team_key"])
+            team_key = config.normalize_team_abbr(team)
+            candidates = [c for c in candidates
+                          if latest.get(c[4], team_key) == team_key]
+            if not candidates:
+                return {}
     ppg, apg, name, games, _pid = max(candidates, key=lambda x: (x[0], x[4]))
     return {"name": name, "ppg": ppg, "apg": apg, "games": games}
 
