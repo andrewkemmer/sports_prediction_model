@@ -1124,13 +1124,20 @@ def main(argv: list[str] | None = None) -> int:
 
             for _attempt in (1, 2):
                 try:
-                    _git_log("fetch", "origin", "main")
-                    _git_log("rebase", "origin/main")
+                    # Stage and commit FIRST: the tee appends the sync
+                    # confirmation after the sync snapshot is staged, so the
+                    # checkout is dirty here by design and a rebase-before-add
+                    # refuses it ("cannot rebase: You have unstaged changes" —
+                    # the persistent failure this block exists to deliver).
+                    # Mirrors _sync_data_delivery: commit, then rebase, then
+                    # push. A committed tree rebases cleanly.
                     _git_log("add", "--", _rel)
                     if _log_has_staged_changes():
                         _git_log("-c", "user.name=NHL Production Pipeline",
                                  "-c", "user.email=nhl-pipeline@users.noreply.github.com",
                                  "commit", "-m", "NHL pipeline run log (final delivery)")
+                    _git_log("fetch", "origin", "main")
+                    _git_log("rebase", "origin/main")
                     _git_log("push", "origin", "main")
                     break
                 except subprocess.CalledProcessError:
