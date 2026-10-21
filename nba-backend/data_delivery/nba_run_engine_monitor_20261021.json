@@ -6,12 +6,12 @@
  "winner_cards": {
   "over_under": {
    "n": 3622,
-   "actual_win_rate": 0.516,
-   "win_rate": 0.516,
+   "actual_win_rate": 0.5166,
+   "win_rate": 0.5166,
    "predicted_mean": 0.5055,
-   "auc": 0.5086,
-   "ece_raw": 0.0302,
-   "ece_calibrated": 0.0302,
+   "auc": 0.5097,
+   "ece_raw": 0.0307,
+   "ece_calibrated": 0.0307,
    "brier": 0.2498,
    "logloss": 0.6928,
    "holdout": {
@@ -29,13 +29,13 @@
    "crps": 10.453
   },
   "run_line": {
-   "n": 1803,
-   "actual_win_rate": 0.5247,
-   "win_rate": 0.5247,
+   "n": 1804,
+   "actual_win_rate": 0.5244,
+   "win_rate": 0.5244,
    "predicted_mean": 0.5075,
    "auc": 0.5204,
-   "ece_raw": 0.0282,
-   "ece_calibrated": 0.0282,
+   "ece_raw": 0.0284,
+   "ece_calibrated": 0.0284,
    "brier": 0.2496,
    "logloss": 0.6924,
    "holdout": {
@@ -91,7 +91,7 @@
   {
    "card": "over_under",
    "date": "2026-10-21",
-   "ece_calibrated": 0.0302,
+   "ece_calibrated": 0.0307,
    "brier": 0.2498,
    "logloss": 0.6928,
    "predicted_mean": 0.5055,
@@ -100,11 +100,11 @@
   {
    "card": "run_line",
    "date": "2026-10-21",
-   "ece_calibrated": 0.0282,
+   "ece_calibrated": 0.0284,
    "brier": 0.2496,
    "logloss": 0.6924,
    "predicted_mean": 0.5075,
-   "n": 1803
+   "n": 1804
   },
   {
    "card": "derived_ml",
@@ -121,16 +121,16 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.2122927570865314,
-   "away_variance": 1.2395480349930825,
-   "correlation": 0.2503771295666502,
-   "total_skew": 0.028983882169432415,
-   "margin_skew": -0.0026679010475280144,
+   "home_variance": 1.2122926510560714,
+   "away_variance": 1.2395477538123172,
+   "correlation": 0.25037709360074434,
+   "total_skew": 0.02898392844416825,
+   "margin_skew": -0.0026678563281998277,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 19.59935277297262,
-    "intercept": 0.2170105336394816,
-    "pace_mean": 0.036275545696948845,
+    "slope": 19.599844409817834,
+    "intercept": 0.21701434529089186,
+    "pace_mean": 0.03627552837126063,
     "cap": 6.0
    }
   },
@@ -142,9 +142,9 @@
     "n_test": 1114,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.00019666400501934896,
-    "residual_mae_after": 0.00016399493674517054,
-    "delta_l1": 0.030245,
+    "residual_mae_before": 0.0001966640103001847,
+    "residual_mae_after": 0.0001639933005063062,
+    "delta_l1": 0.030246000000000002,
     "delta_max": 0.001438,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
@@ -245,7 +245,7 @@
        "role": "donor",
        "residual": -0.011567,
        "capacity": 0.011567,
-       "drawn": 0.008633
+       "drawn": 0.008632
       },
       {
        "bin": -6,
@@ -282,13 +282,13 @@
      "template": "equal_per_active_recipient",
      "funded_by_donors": 0.012872,
      "funded_by_sink": 0.0,
-     "zero_sum_free": -0.0,
+     "zero_sum_free": 0.0,
      "collateral_max_excess": 0.0,
      "z": 1.625,
      "n_test": 1114,
      "significant": true,
-     "delta_l1": 0.025742,
-     "delta_max": 0.008633
+     "delta_l1": 0.025741,
+     "delta_max": 0.008632
     },
     "target": "margin",
     "sport": "nba",
@@ -296,9 +296,9 @@
     "n_test": 1114,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 7.95023908382282e-05,
-    "residual_mae_after": 6.126648118502269e-05,
-    "delta_l1": 0.075809,
+    "residual_mae_before": 7.95031780742655e-05,
+    "residual_mae_after": 6.12680165736137e-05,
+    "delta_l1": 0.075812,
     "delta_max": 0.005014,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
