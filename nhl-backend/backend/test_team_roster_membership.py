@@ -371,3 +371,21 @@ class TestRosterLoader:
         complete = ing.load_team_roster_snapshot(["chi", "bos"])
         assert calls["n"] == 2
         assert set(complete["team"]) == {"chi", "bos"}
+
+    def test_relocated_franchise_folds_to_the_live_label(
+            self, cache_dir, monkeypatch):
+        """ARI has no 2026-27 roster endpoint (404): one UTA fetch covers
+        the franchise instead of stamping every capture incomplete."""
+        calls = []
+
+        def fake_http(url, **kwargs):
+            calls.append(url)
+            assert "/ARI/" not in url, f"dead label requested: {url}"
+            return self._payload()
+
+        monkeypatch.setattr(ing, "_http_json", fake_http)
+        frame = ing.load_team_roster_snapshot(["ARI", "UTA", "CHI"])
+        assert frame is not None
+        assert set(frame["team"]) == {"UTA", "CHI"}
+        assert bool(frame["complete"].all())
+        assert len(calls) == 2  # UTA + CHI, never the dead ARI label

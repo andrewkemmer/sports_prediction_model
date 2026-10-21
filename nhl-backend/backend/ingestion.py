@@ -1865,7 +1865,12 @@ def load_team_roster_snapshot(teams, *, use_cache: bool = True,
     MoneyPuck playerId), ``team`` (abbr), ``snapshot_at`` (UTC), ``complete``
     (bool — every requested team present in this capture).
     """
-    requested = sorted({str(t) for t in teams if t is not None and str(t)})
+    # Relocated franchises (ARI -> UTA) have no roster endpoint under the
+    # old label -- the API 404s, stamping every capture "incomplete". Fold
+    # through the repo-wide canonical_team alias so one live fetch covers
+    # the franchise (config documents the ARI/UTA reconciliation).
+    requested = sorted({config.canonical_team(str(t))
+                        for t in teams if t is not None and str(t)})
     if not requested:
         return None
     rows_path = _cache_path(f"nhl_roster_{ROSTER_VERSION}_latest.parquet")
