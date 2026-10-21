@@ -251,3 +251,9 @@ play-by-play: 100%|##########| 3944/3944 [16:28<00:00,  3.99game/s, 0022600003]
   ✅ status failed, 2513.75s
 publish:  90%|######### | 9/10
   📝 Final run-log delivery — pushing the complete log (the sync staged a snapshot before sync finished)
+  Pipeline outcome (manual final delivery 2026-10-21 — the auto-delivery's single-stage clone carries the run only up to the announcement above, so the pushed log ended here with no closure):
+  phase 4 (training + prediction) FAILED — NBA slate feature coverage failed: ['pl_rapm_c_away', 'pl_rapm_c_home', 'pl_rapm_c_diff', 'pl_rapm_f_away', 'pl_rapm_f_home', 'pl_rapm_f_diff', 'pl_rapm_g_away', 'pl_rapm_g_home', 'pl_rapm_g_diff'] (master_pipeline.py:1486; run shipped remaining artifacts and exited failed)
+  phase 9/10 publish: status failed, 2513.75s — phase 10/10 never ran (progress stopped at 9/10)
+  nba_pipeline_summary.json: status failed, 1 error, 10 artifacts shipped (no model-bundle rewrite; previously served ensemble stays in place)
+  notebook surfaced SystemExit: Pipeline failed with exit code 1
+  ✅ Run log pushed and remotely verified — failure record included (run artifacts untouched; the coverage failure itself is a run-data issue, not a delivery issue, and is left for the next run under the no-change guardrail)
