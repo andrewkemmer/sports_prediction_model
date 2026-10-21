@@ -2451,10 +2451,11 @@ def _attach_season_records(df: pd.DataFrame,
     carried INTO the game — wins/losses of its OWN season only, strictly
     prior, resetting across the offseason, ties as the third counter).
 
-    Sport-shared (NFL/NHL): only the season calendar differs — NFL seasons
-    run Sep→Jan/Feb, NHL seasons run Oct→Jun (the July boundary
-    ``features._nhl_season_of`` uses), so a Jan game belongs to the prior
-    season on both.
+    Sport-shared (NFL/NHL/NBA): only the season calendar differs — NFL
+    seasons run Sep→Jan/Feb, NHL seasons run Oct→Jun (the July boundary
+    ``features._nhl_season_of`` uses), NBA seasons run Oct→Jun (the
+    October boundary), so a Jan game belongs to the prior season on all
+    three.
 
     Why the card derives it here: the delivered board/moneyline artifacts
     carry the backend's multi-season cumulative tally (a career number like
@@ -2494,6 +2495,12 @@ def _attach_season_records(df: pd.DataFrame,
             # season that STARTED the prior calendar year. The key is the
             # season start year, matching NHL game ids (2026… = 2026-27).
             return int(stamp.year) - (1 if int(stamp.month) < 7 else 0)
+        if sport == "nba":
+            # NBA seasons run Oct→Jun (October boundary): an Oct–Dec game
+            # belongs to the season starting that year (2026-27 → 2026),
+            # a Jan–Jun game to the season that started the prior year.
+            # No NBA games fall in the Jul–Sep offseason window.
+            return int(stamp.year) if int(stamp.month) >= 10 else int(stamp.year) - 1
         # NFL seasons run Sep→Jan/Feb: a Jan/Feb game belongs to the PRIOR
         # season (the same offseason-reset rule MLB applies by year).
         return int(stamp.year) if stamp.month >= 9 else int(stamp.year) - 1
@@ -2587,6 +2594,15 @@ def _attach_nhl_season_records(df: pd.DataFrame,
     game-card record is the team's CURRENT-SEASON entering W-L — never the
     artifact's multi-season career tally)."""
     return _attach_season_records(df, store=store, sport="nhl")
+
+
+def _attach_nba_season_records(df: pd.DataFrame,
+                               store: pd.DataFrame | None = None) -> pd.DataFrame:
+    """NBA call-site wrapper for the shared season-record attach (the
+    game-card record is the team's CURRENT-SEASON entering W-L — never the
+    artifact's multi-season career tally from the backend's unseasoned
+    ``_prior_records`` counter)."""
+    return _attach_season_records(df, store=store, sport="nba")
 
 
 def _cards_store_to_board_frame(store: pd.DataFrame,
@@ -2693,11 +2709,11 @@ def load_history_games_v1(date_str: str,
     if frozen.empty:
         frozen = _history_to_board_frame(load_nfl_prediction_history(s),
                                          date_str, sport=s)
-    # NFL/NHL cards render the store-derived current-season entering
+    # NFL/NHL/NBA cards render the store-derived current-season entering
     # record (MLB compute_season_records parity); the MLB v1 family keeps
     # its artifact's own record columns.
     return (_attach_season_records(frozen, store=store, sport=s)
-            if s in ("nfl", "nhl") else frozen)
+            if s in ("nfl", "nhl", "nba") else frozen)
 
 
 def load_nfl_history_games(date_str: str) -> pd.DataFrame:
@@ -4550,7 +4566,10 @@ def _load_nba_moneyline_record(sport: str | None = "nba") -> dict:
 
 
 def load_nba_moneyline(sport: str | None = "nba") -> pd.DataFrame:
-    return nba_moneyline_to_frame(_load_nba_moneyline_record(sport))
+    # Cards render each team's CURRENT-SEASON entering W-L (NFL/NHL
+    # parity) — never the artifact's multi-season career tally.
+    return _attach_nba_season_records(
+        nba_moneyline_to_frame(_load_nba_moneyline_record(sport)))
 
 
 def load_nba_moneyline_record(sport: str | None = "nba") -> dict:

@@ -431,6 +431,76 @@ def test_nba_card_ou_ladder_offers_half_point_rungs(nba_artifacts) -> None:
     assert float(str(default.value)) == 220.0, "fair total stays the default"
 
 
+def test_nba_cards_render_current_season_entering_records() -> None:
+    """Game cards show each team's CURRENT-SEASON entering W-L (NFL/NHL
+    parity) — never the artifact's multi-season career tally.
+
+    The backend's ``_prior_records`` counter never resets, so a slate
+    frame can carry career numbers like 127-128; the loader must replace
+    them with the store-derived season record: own season only, strictly
+    prior, resetting across the October offseason boundary."""
+    frame = pd.DataFrame([{
+        "game_id": "401909834", "game_date": "2026-10-21",
+        "home_team": "MIA", "away_team": "MIN",
+        "home_record": "127-128", "away_record": "178-111",
+    }, {
+        "game_id": "401909835", "game_date": "2026-10-21",
+        "home_team": "WAS", "away_team": "MIL",
+        "home_record": "50-196", "away_record": "133-125",
+    }, {
+        "game_id": "401909900", "game_date": "2027-01-06",
+        "home_team": "MIA", "away_team": "BOS",
+        "home_record": "127-128", "away_record": "200-90",
+    }])
+    store = pd.DataFrame([
+        # Current 2026-27 season evidence (counts toward the Oct slate).
+        {"game_id": "401909000", "game_date": "2026-10-18",
+         "home_team": "MIA", "away_team": "CHI",
+         "home_score": 110, "away_score": 100},
+        {"game_id": "401909001", "game_date": "2026-10-19",
+         "home_team": "DAL", "away_team": "MIN",
+         "home_score": 120, "away_score": 115},
+        # Prior season (2025-26): must never leak across the offseason.
+        {"game_id": "401705090", "game_date": "2026-04-10",
+         "home_team": "MIA", "away_team": "CHI",
+         "home_score": 130, "away_score": 100},
+        # Later in the 2026-27 season: counts toward the January slate.
+        {"game_id": "401909500", "game_date": "2026-11-01",
+         "home_team": "MIA", "away_team": "NYK",
+         "home_score": 105, "away_score": 100},
+        {"game_id": "401909501", "game_date": "2027-01-05",
+         "home_team": "BOS", "away_team": "NYK",
+         "home_score": 100, "away_score": 110},
+        # The slate games themselves are undecided: no row's own result
+        # may enter its own record.
+        {"game_id": "401909834", "game_date": "2026-10-21",
+         "home_team": "MIA", "away_team": "MIN",
+         "home_score": float("nan"), "away_score": float("nan")},
+        {"game_id": "401909835", "game_date": "2026-10-21",
+         "home_team": "WAS", "away_team": "MIL",
+         "home_score": float("nan"), "away_score": float("nan")},
+        {"game_id": "401909900", "game_date": "2027-01-06",
+         "home_team": "MIA", "away_team": "BOS",
+         "home_score": float("nan"), "away_score": float("nan")},
+    ])
+    out = utils._attach_nba_season_records(frame, store=store)
+    october = out[out["game_id"] == "401909834"].iloc[0]
+    assert october["home_record"] == "1-0", october.to_dict()
+    assert october["away_record"] == "0-1", october.to_dict()
+    # No decided games for WAS/MIL this season yet: honest 0-0 debut.
+    debut = out[out["game_id"] == "401909835"].iloc[0]
+    assert debut["home_record"] == "0-0", debut.to_dict()
+    assert debut["away_record"] == "0-0", debut.to_dict()
+    # January belongs to the season that started the prior October:
+    # MIA's Nov win counts, BOS's Jan-5 loss to NYK counts against them.
+    january = out[out["game_id"] == "401909900"].iloc[0]
+    assert january["home_record"] == "2-0", january.to_dict()
+    assert january["away_record"] == "0-1", january.to_dict()
+    # The career tallies must be gone from every rendered row.
+    for stale in ("127-128", "178-111", "50-196", "133-125", "200-90"):
+        assert stale not in set(out["home_record"]) | set(out["away_record"])
+
+
 def test_nba_power_rankings_tab_renders_point_diff(nba_artifacts) -> None:
     app = _run_page("power_rankings.py")
     text = _all_text(app)
