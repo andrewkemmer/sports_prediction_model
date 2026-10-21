@@ -213,11 +213,17 @@ def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFram
 
 
 def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
-                mc_meta_out: dict | None = None) -> pd.DataFrame:
+                mc_meta_out: dict | None = None, expand: bool = True) -> pd.DataFrame:
     """Attach a complete NBA score/line distribution to a base game frame.
 
     The challenger samples its calibrated CDF; ``mc_meta_out`` records
     the draw count, seed and precision guard used by this grid expansion.
+
+    ``expand`` prices the line grid with the challenger's identity maps.
+    Both production callers reprice immediately after (OOF calibration,
+    slate serving maps), which overwrites every price column, so they pass
+    ``expand=False`` and skip a full Monte Carlo pass over discarded
+    prices. The merge and bookkeeping columns are unaffected.
     """
     if base is None or not len(base) or dist is None or not len(dist):
         return pd.DataFrame()
@@ -235,7 +241,7 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
     # be the slate frame itself.  In both cases expand it into the complete
     # line grid when no priced spread column is present yet.
     has_grid = any(str(c).startswith("p_home_cover_") for c in out.columns)
-    if "mu_h" not in out or "mu_a" not in out or not has_grid:
+    if expand and ("mu_h" not in out or "mu_a" not in out or not has_grid):
         out = dist_mod.apply_distribution(out, meta_out=mc_meta_out)
     out["kind"] = kind
     out["decided"] = kind == "oof"
@@ -253,6 +259,14 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
                 "p_under_offered", "p_push_total_offered"):
         out[col] = np.nan
     if "margin" in out:
+        # The moneyline outcome label rides the merged base columns, never
+        # the Monte Carlo pass, so it is written unconditionally.
+        out["y_home_win"] = out.get("home_win", np.nan)
+    # Settlement legs need priced fair lines; an unexpanded frame (expand=
+    # False) has none yet and the repricing step below writes these legs
+    # from its own prices. Gating on the columns keeps the pre-gridded
+    # input path (grid present, expansion skipped) byte-identical.
+    if "margin" in out and "fair_spread" in out and "fair_total" in out:
         out["y_cover_fair"] = (pd.to_numeric(out.margin, errors="coerce") >
                                pd.to_numeric(out.fair_spread, errors="coerce")).astype(float)
         out["y_push_spread_fair"] = (pd.to_numeric(out.margin, errors="coerce") ==
@@ -262,7 +276,6 @@ def _marketize(base: pd.DataFrame, dist: pd.DataFrame, kind: str,
         out["y_push_fair"] = (pd.to_numeric(out.total, errors="coerce") ==
                               pd.to_numeric(out.fair_total, errors="coerce")).astype(float)
         out["y_under_fair"] = 1 - out.y_over_fair - out.y_push_fair
-        out["y_home_win"] = out.get("home_win", np.nan)
     return out
 
 
@@ -1467,7 +1480,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                     _fit_check["away"]["pearson"], _fit_check["away"]["deviance_model"],
                     _fit_check["away"]["deviance_baseline"])
         # Learn variance/skew and coherent calibration only from prior origins.
-        oof_markets = _marketize(ml_oof, dist_oof, "oof", mc_meta_out=_mc_meta)
+        # expand=False: calibrate_market_frame reprices every row below,
+        # overwriting all price columns, so pricing here is discarded work.
+        oof_markets = _marketize(ml_oof, dist_oof, "oof", mc_meta_out=_mc_meta,
+                                 expand=False)
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
         # Delivery disclosure parity (NFL/NHL pipelines): the markets-meta
         # writer reads the lattice summary off this attrs bundle, so without
@@ -1497,7 +1513,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             slate["p_ensemble_calibrated"] = ml_mod.moneyline_apply(
                 slate.home_win_prob_model.to_numpy(float), platt)
             slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-            slate_markets = _marketize(slate, slate, "slate")
+            # expand=False: apply_market_calibration reprices every row
+            # below, so pricing here is discarded work.
+            slate_markets = _marketize(slate, slate, "slate", expand=False)
             slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                                market_calibration)
             leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)

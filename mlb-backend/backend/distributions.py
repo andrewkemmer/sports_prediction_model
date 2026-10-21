@@ -3089,13 +3089,24 @@ def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
     return out
 
 
-def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=None):
+def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=None,
+                        cdfs_out: dict | None = None):
     """All prices and settlement legs from the same sampled challenger CDFs."""
     mc_meta = {}
     cdfs = _distribution_cdfs(frame, maps, sampled=True, n_draws=n_draws,
                                seed=seed, meta_out=mc_meta)
     if meta_out is not None:
         meta_out.update(mc_meta)
+    if cdfs_out is not None:
+        # Runtime-only handles for the OOF score report, which rebuilds
+        # these same sampled CDFs from the same maps/seed/draws. The
+        # report prefers the handles (byte-identical values, no recompute)
+        # and recomputes when they are absent, so direct callers are
+        # unaffected. Plain lists: numpy arrays in frame attrs break
+        # pd.concat (its attrs-equality check cannot compare arrays).
+        for kind, (support, cdf) in cdfs.items():
+            cdfs_out[kind] = (np.asarray(support).tolist(),
+                              np.asarray(cdf).tolist())
     h, a = _distribution_inputs(frame)
     updates = {"mu_margin": h - a, "mu_total": h + a}
     for kind, (support, cdf) in cdfs.items():
@@ -3546,7 +3557,7 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     cutoff = dates.max() - pd.Timedelta(days=HOLDOUT_DAYS)
     pre_holdout = (dates < cutoff).to_numpy()
     history = np.zeros(len(frame), dtype=bool)
-    parts, origins = [], []
+    parts, origins, issued_cdfs = [], [], []
     evidence = {"total": [], "margin": []}
     # BASE-model pmfs (post-calibration + structural rules, PRE-lattice) of
     # already-priced prior blocks, per target: the causal evidence the next
@@ -3581,7 +3592,10 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
                                   and differences.mean() < 0.)
             if not admitted[kind]: maps[kind] = [0.] * len(maps[kind])
         current = frame.iloc[np.flatnonzero(mask)]
-        part = _distribution_price(current, maps, n_draws=n_draws, seed=seed)
+        block_cdfs: dict = {}
+        part = _distribution_price(current, maps, n_draws=n_draws, seed=seed,
+                                   cdfs_out=block_cdfs)
+        issued_cdfs.append(block_cdfs)
         baseline = dict(candidate,
                         total=[0.] * len(candidate["total"]),
                         margin=[0.] * len(candidate["margin"]))
@@ -3638,6 +3652,10 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
               "admission": "negative_mean_paired_crps_on_prior_issued_origins"}
     priced = pd.concat(parts).reindex(original_index)
     priced.attrs["mc_meta"] = bundle["monte_carlo"]
+    # Runtime-only, parallel to ``origins``: the issued sampled CDFs per
+    # block for distribution_score_report. Never serialized (writers pluck
+    # named keys); the NBA calibrate_market_frame drops it after the report.
+    priced.attrs["_issued_cdfs"] = issued_cdfs
     return priced, bundle
 
 

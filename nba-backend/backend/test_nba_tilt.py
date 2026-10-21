@@ -116,3 +116,29 @@ def test_shift_is_capped():
     tilt = {"slope": 500., "intercept": 0., "pace_mean": 0., "cap": 6.}
     np.testing.assert_array_equal(family.tilt_shift(h, a, tilt, "nba"),
                                   np.full(10, 6.))
+
+
+def test_issued_cdf_cache_matches_rebuild():
+    # Runtime-only speedup contract: the score report reuses the issued
+    # sampled CDFs attached by causal_distribution_frame instead of
+    # re-sampling them, and the numbers are byte-identical either way.
+    import pandas as pd
+    import distributions as dist
+    rng = np.random.default_rng(3)
+    n = 240
+    h = rng.normal(113., 5., n)
+    a = rng.normal(110., 5., n)
+    frame = pd.DataFrame({
+        "game_id": [f"g{i}" for i in range(n)],
+        "gameday": pd.date_range("2025-01-01", periods=n),
+        "mu_h": h, "mu_a": a,
+        "home_score": rng.poisson(np.clip(h, 1, None)),
+        "away_score": rng.poisson(np.clip(a, 1, None)),
+        "fold_id": (np.arange(n) // 60).astype(str)})
+    priced, bundle = dist.causal_distribution_frame(frame, n_draws=100)
+    assert priced.attrs.get("_issued_cdfs") is not None
+    cached = dist.distribution_score_report(priced, bundle)
+    ref = priced.copy()
+    ref.attrs.pop("_issued_cdfs", None)
+    rebuilt = dist.distribution_score_report(ref, bundle)
+    assert cached == rebuilt
