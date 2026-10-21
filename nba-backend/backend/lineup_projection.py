@@ -396,6 +396,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
                      top_k: int = config.PLAYER_EPM_TOP_K,
                      rest_minutes: float = config.PLAYER_RAPM_REST_MINUTES,
                      top5_k: int = config.PLAYER_EPM_TOP5_K,
+                     reweight: str = "legacy",
+                     diagnostics: dict | None = None,
                      ) -> pd.DataFrame:
     """One row per (game, team) describing the projected healthy lineup.
 
@@ -482,7 +484,9 @@ def projected_lineup(ratings: pd.DataFrame | None,
                                 lookback_days, min_minutes, top_k,
                                 rest_minutes, top5_k,
                                 team_games_played=team_games_played,
-                                trailing_minutes=trailing_minutes)
+                                trailing_minutes=trailing_minutes,
+                                reweight=reweight,
+                                diagnostics=diagnostics)
             if row is not None:
                 rows.append(row)
     if not rows:
@@ -500,11 +504,114 @@ def projected_lineup(ratings: pd.DataFrame | None,
     return out[AGG_COLUMNS].sort_values(["gameday", "team"]).reset_index(drop=True)
 
 
+#: Cap (minutes per game) on a survivor's FINAL weight under the capped
+#: waterfall. The league's minutes leaders sit around 37-38 MPG; 40+ is
+#: overtime or emergency territory, so 40 says "nobody is projected for more
+#: than the league's heaviest realistic workload" and the excess spills to
+#: the next man - which is what rotations actually do when they shorten.
+#: The cap governs the REDISTRIBUTION, not the measurement: a trailing
+#: average already above 40 is left alone.
+NEXT_MAN_UP_MINUTES_CAP = 40.0
+
+
+def _position_label_sets(frame: pd.DataFrame):
+    """Per-row position sets from the feed listing ``_position_segments`` reads."""
+    if "positions" in frame.columns:
+        labels = frame["positions"].where(
+            frame["positions"].notna(), frame.get("position"))
+    else:
+        labels = frame.get("position")
+    if labels is None:
+        return None
+    return (labels.astype("object").str.split("|", regex=False)
+            .map(lambda parts: {str(p).strip() for p in parts
+                                 if str(p).strip()}))
+
+
+def _next_man_up_absorption(healthy: pd.DataFrame,
+                            latest: pd.DataFrame,
+                            cap=None) -> tuple[pd.Series, dict]:
+    """Donate each removed member's weight to same-position survivor(s).
+
+    The challenger to the legacy survivor-mean: a removed (Out/Doubtful/
+    Recovery) member's opportunity weight does not vanish - it is absorbed in
+    full by the healthy same-position member with the most trailing minutes
+    (ties broken by player_id, so the choice is deterministic); with a cap
+    each survivor is filled only up to ``cap`` final weight and the remainder
+    waterfalls to the next same-position survivor in minutes order. A uniform
+    proportional rescale of the survivors would be a no-op here: every blend
+    divides by its weight sum, so only a NON-uniform transfer moves the
+    means. Position matching reads the same feed listing ``_position_segments``
+    does (multi-label ``positions`` with the collapsed ``position`` fallback),
+    so a donor and his absorber always agree with the segments about who
+    plays where. A donor with no same-position survivor (or no finite weight)
+    vanishes exactly as in legacy; the counts say how often each happened.
+    """
+    absorbed = pd.Series(0.0, index=healthy.index)
+    stats = {"donors": 0, "absorbed_weight": 0.0, "vanished_weight": 0.0,
+             "vanished_no_survivor": 0, "spills": 0}
+    if healthy.empty:
+        return absorbed, stats
+    healthy_sets = _position_label_sets(healthy)
+    if healthy_sets is None:
+        return absorbed, stats
+    removed = latest[~latest.is_available.astype(bool)]
+    if removed.empty:
+        return absorbed, stats
+    removed_sets = _position_label_sets(removed)
+    order = (healthy.assign(_mpg=pd.to_numeric(healthy["prior_minutes"],
+                                                errors="coerce"))
+             .sort_values(["_mpg", "player_id"], ascending=[False, True]))
+    running = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
+    for idx, donor in removed.iterrows():
+        rating = pd.to_numeric(pd.Series([donor.get("rapm_shrunk")]),
+                               errors="coerce").iloc[0]
+        weight = pd.to_numeric(pd.Series([donor.get("prior_minutes_per_game")]),
+                               errors="coerce").iloc[0]
+        if not np.isfinite(rating) or not np.isfinite(weight) or weight <= 0:
+            continue
+        parts = (removed_sets.loc[idx]
+                 if removed_sets is not None and idx in removed_sets.index
+                 else set())
+        donor_set = set(parts)
+        if not donor_set:
+            stats["vanished_weight"] += float(weight)
+            stats["vanished_no_survivor"] += 1
+            continue
+        stats["donors"] += 1
+        remaining = float(weight)
+        for _, cand in order.iterrows():
+            if not donor_set & healthy_sets.loc[cand.name]:
+                continue
+            if cap is not None:
+                room = float(cap) - float(running.loc[cand.name])
+                if room <= 0:
+                    continue
+                take = min(remaining, room)
+            else:
+                take = remaining
+            running.loc[cand.name] += take
+            absorbed.loc[cand.name] += take
+            stats["absorbed_weight"] += take
+            remaining -= take
+            if take < float(weight):
+                stats["spills"] += 1
+            if remaining <= 0:
+                break
+        if remaining > 0:
+            stats["vanished_weight"] += remaining
+            if remaining == float(weight):
+                stats["vanished_no_survivor"] += 1
+    return absorbed, stats
+
+
 def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                   lookback_days: int, min_minutes: float, top_k: int,
                   rest_minutes: float, top5_k: int,
                   team_games_played: int | None = None,
-                  trailing_minutes: pd.Series | dict | None = None):
+                  trailing_minutes: pd.Series | dict | None = None,
+                  reweight: str = "legacy",
+                  diagnostics: dict | None = None):
     """Widen, filter, rank - in that order, for one team and one game."""
     window_start = pd.Timestamp(gameday) - pd.Timedelta(days=lookback_days)
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
@@ -665,6 +772,20 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         # Only fires where the old code returned NaN, and only before the
         # ramp fills; a mid-season weight hole keeps its NaN alarm.
         healthy["_w"] = healthy.rapm_shrunk.notna().astype(float)
+    if reweight in ("next_man_up", "waterfall"):
+        # The challenger: each removed member's weight is absorbed by
+        # same-position survivor(s) - one absorber uncapped, or a capped
+        # waterfall spilling down the minutes order (see
+        # _next_man_up_absorption for why a proportional rescale would be a
+        # no-op). Unknown modes fall through to legacy weights rather than
+        # failing the run: an experimental knob must never break the
+        # shipping path.
+        cap = NEXT_MAN_UP_MINUTES_CAP if reweight == "waterfall" else None
+        absorbed, stats = _next_man_up_absorption(healthy, latest, cap=cap)
+        healthy["_w"] = healthy["_w"] + absorbed
+        if diagnostics is not None:
+            for key, value in stats.items():
+                diagnostics[key] = diagnostics.get(key, 0) + value
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
