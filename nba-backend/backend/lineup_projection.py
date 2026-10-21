@@ -331,6 +331,16 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+#: Season-aware membership ramp (2026-10-21 opening-week remediation). The
+#: prior-minutes floor measures evidence that cannot exist yet in the first
+#: games of a season (priors are season-partitioned and strictly prior), so
+#: a team with fewer than this many decided games ramps the floor linearly
+#: instead of refusing the whole roster. Full strength by game 5; the
+#: rating layer still shrinks thin evidence toward its priors, so an opener
+#: with no evidence at all still refuses at the blend, honestly.
+_FLOOR_RAMP_TEAM_GAMES = 5
+
+
 def projected_lineup(ratings: pd.DataFrame | None,
                      games: pd.DataFrame | None = None,
                      stints=None,
@@ -377,6 +387,30 @@ def projected_lineup(ratings: pd.DataFrame | None,
     # same rows, just no longer re-finding them each time.
     by_team = {str(team): slice_ for team, slice_
                in work.groupby("team", sort=False)}
+    # Decided games per team in the trailing window, for the season-aware
+    # membership ramp. The window (not the season label) is the clock: a
+    # mid-season team always has a full window behind it, so the full floor
+    # applies, while an opening-week team has one or none. A schedule-only
+    # frame (no scores yet) contributes no history, so the ramp arms exactly
+    # when the calendar says it should; without a schedule there is no
+    # count and the full floor always applies.
+    window_days = config.PLAYER_EPM_RECENCY_DAYS
+    played_days: dict = {}
+    if games is not None and len(games) and {"gameday"} <= set(games.columns) \
+            and {"home_team", "away_team"} <= set(games.columns):
+        sched = games.copy()
+        sched["gameday"] = pd.to_datetime(sched["gameday"], errors="coerce")
+        decided = sched[sched.gameday.notna()]
+        if {"home_score", "away_score"} <= set(decided.columns):
+            decided = decided[decided.home_score.notna()
+                              & decided.away_score.notna()]
+        sides = pd.concat([
+            decided[["gameday", "home_team"]].rename(columns={"home_team": "team"}),
+            decided[["gameday", "away_team"]].rename(columns={"away_team": "team"}),
+        ], ignore_index=True)
+        for side_team, grp in sides.groupby("team", sort=False):
+            played_days[str(side_team)] = np.sort(
+                grp.gameday.dropna().to_numpy(dtype="datetime64[ns]"))
     for gameday, day_games in targets.groupby("gameday", sort=False):
         teams = []
         for column in ("home_team", "away_team"):
@@ -388,9 +422,19 @@ def projected_lineup(ratings: pd.DataFrame | None,
             team_rows = by_team.get(str(team))
             if team_rows is None or team_rows.empty:
                 continue
+            days = played_days.get(str(team))
+            if days is None:
+                team_games_played = None
+            else:
+                moment = np.datetime64(pd.Timestamp(gameday))
+                floor = np.datetime64(
+                    pd.Timestamp(gameday) - pd.Timedelta(days=window_days))
+                team_games_played = int(((days < moment)
+                                         & (days >= floor)).sum())
             row = _project_team(team_rows, str(team), gameday, stints,
                                 lookback_days, min_minutes, top_k,
-                                rest_minutes, top5_k)
+                                rest_minutes, top5_k,
+                                team_games_played=team_games_played)
             if row is not None:
                 rows.append(row)
     if not rows:
@@ -410,7 +454,8 @@ def projected_lineup(ratings: pd.DataFrame | None,
 
 def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                   lookback_days: int, min_minutes: float, top_k: int,
-                  rest_minutes: float, top5_k: int):
+                  rest_minutes: float, top5_k: int,
+                  team_games_played: int | None = None):
     """Widen, filter, rank - in that order, for one team and one game."""
     window_start = pd.Timestamp(gameday) - pd.Timedelta(days=lookback_days)
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
@@ -441,9 +486,15 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # One row per player: the most recent rating at or before the game. A
     # player's own current game can supply his prior rating but never a rating
     # that includes the game being projected.
-    latest = (pool.sort_values(["player_id", "gameday"])
-              .groupby("player_id", as_index=False).tail(1))
-    pool_size = len(latest)
+    tail = (pool.sort_values(["player_id", "gameday"])
+            .groupby("player_id", as_index=False).tail(1))
+    pool_size = len(tail)
+    # Opening-week signal, shared by the membership fallback and the weight
+    # fallback below: fewer ramp games than the floor's full strength means
+    # the calendar, not the data, is why evidence is thin. Unknown calendar
+    # (no schedule) keeps the conservative full-floor, no-rescue behavior.
+    early_season = (team_games_played is not None
+                    and 0 <= team_games_played < _FLOOR_RAMP_TEAM_GAMES)
 
     # STEP 2 - ELIGIBILITY. The min-minutes floor is about POOL MEMBERSHIP,
     # not about the rating: shrinkage already handles a thin rating, but a
@@ -457,11 +508,24 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # NaN means the season has not started for him yet, which is the
     # season-start carryover the min-minutes floor already governs, not
     # staleness.
-    latest = latest[latest.prior_minutes >= min_minutes]
-    if "days_since_appearance" in latest.columns:
-        recency = latest["days_since_appearance"]
-        latest = latest[recency.isna()
-                        | (recency <= config.PLAYER_EPM_RECENCY_DAYS)]
+    def _membership(frame: pd.DataFrame, floor: float) -> pd.DataFrame:
+        gated = frame[frame.prior_minutes >= floor]
+        if "days_since_appearance" in gated.columns:
+            recency = gated["days_since_appearance"]
+            gated = gated[recency.isna()
+                          | (recency <= config.PLAYER_EPM_RECENCY_DAYS)]
+        return gated
+
+    latest = _membership(tail, min_minutes)
+    if latest.empty and pool_size and early_season:
+        # Early-season fallback: the full floor demands evidence no game has
+        # produced yet, so the whole roster refuses and the slate gate fails
+        # a run for the calendar, not the data (2026-10-21: max 40 prior
+        # minutes league-wide against a 50 floor). Ramp the floor linearly
+        # with decided games; the recency gate still applies, and a team
+        # with no evidence at all still refuses at the blend below.
+        ramped = min_minutes * team_games_played / _FLOOR_RAMP_TEAM_GAMES
+        latest = _membership(tail, ramped)
 
     # STEP 3 - FILTER. Injury removes the player from the pool entirely so a
     # replacement inherits the slot. Availability is re-evaluated AS OF the
@@ -517,12 +581,23 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # regular. Weights are the same strictly-prior per-player totals the pool
     # ranking already reads; nothing new is fetched and nothing leaks. A NaN
     # rating contributes no weight and no rating (removal, not zeroing); a
-    # family with no finite-weight member keeps NaN. The weights are assigned
+    # family with no finite-weight member keeps NaN, except in the
+    # opening-week ramp where the whole pool is unweighted by calendar, not
+    # by data (see below). The weights are assigned
     # on the whole ELIGIBLE roster before the top-k slice so the lineup
     # aggregates and the position segments price members identically.
     healthy = healthy.copy()
     healthy["_w"] = healthy["prior_minutes_per_game"].where(
         healthy.rapm_shrunk.notna(), other=0.0).astype(float)
+    if early_season and not float(healthy["_w"].sum()):
+        # No measurable per-game opportunity anywhere in the pool: every
+        # per-game weight is NaN (no one has played) or zero. Average the
+        # finite ratings equally rather than refusing - the values are
+        # already shrunk toward their priors, so this prices the priors,
+        # honestly, instead of failing the slate gate for the calendar.
+        # Only fires where the old code returned NaN, and only before the
+        # ramp fills; a mid-season weight hole keeps its NaN alarm.
+        healthy["_w"] = healthy.rapm_shrunk.notna().astype(float)
     projected = healthy.head(top_k)
     w_sum = float(projected["_w"].sum())
 
