@@ -217,6 +217,35 @@ def _evening_count(frame: pd.DataFrame) -> int:
     return count
 
 
+def _load_day(date: str) -> tuple[pd.DataFrame, bool]:
+    """Resolve one NBA board date — the NHL ``_load_day`` structural twin.
+
+    Returns ``(frame, history_view)``: the current moneyline record filtered
+    to ``date`` when it covers that date (production view), otherwise THIS
+    date's published slate — the rolling-window ``nba_moneyline_v1_*``
+    family union (the production prediction as published, never an OOF
+    re-price) with the settled result overlaid from retained history
+    outcome columns; OOF history only seeds dates no published family
+    member ever covered (``utils.load_nba_board_games``'s resolution order).
+    """
+    try:
+        frame = utils.load_nba_moneyline("nba")
+    except Exception:
+        frame = pd.DataFrame()
+    frame = frame.dropna(subset=["home_team", "away_team"]) if frame is not None else pd.DataFrame()
+    if len(frame):
+        day = frame[frame.game_date.astype(str).str.replace("-", "") == date]
+        if not day.empty:
+            return day, False
+    try:
+        day = utils.load_nba_board_games(date)
+    except Exception:
+        day = pd.DataFrame()
+    if day is None or day.empty:
+        return pd.DataFrame(), False
+    return day, True
+
+
 def run() -> None:
     valid = list(utils.valid_dates("nba"))
     if not valid:
@@ -230,19 +259,7 @@ def run() -> None:
     if date not in set(valid):
         _render_nearest_valid_fallback(valid, date)
         st.stop()
-    try:
-        frame = utils.load_nba_moneyline("nba")
-    except Exception:
-        frame = pd.DataFrame()
-    frame = frame.dropna(subset=["home_team", "away_team"]) if frame is not None else pd.DataFrame()
-    day = frame[frame.game_date.astype(str).str.replace("-", "") == date] if len(frame) else pd.DataFrame()
-    history = False
-    if day.empty:
-        try:
-            day = utils.load_nba_history_games(date)
-        except Exception:
-            day = pd.DataFrame()
-        history = not day.empty
+    day, history = _load_day(date)
     if day.empty:
         _render_nearest_valid_fallback(valid, date)
         st.stop()

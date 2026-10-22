@@ -760,7 +760,13 @@ class TestRetentionWindow:
         frame["game_date"] = f"{history[:4]}-{history[4:6]}-{history[6:]}"
         frame.to_csv(NBA_DD / f"nba_predictions_history_{DATE}.csv", index=False)
         st.cache_data.clear()
-        assert list(utils.valid_dates("nba")) == [slate]
+        valid = list(utils.valid_dates("nba"))
+        # Membership, not equality: the 10-day retention window also keeps
+        # any other in-window served dates (neighbour dated families,
+        # real local artifacts) alongside the slate — the guarantee is
+        # the slate is offered and the out-of-window history date is not.
+        assert slate in valid
+        assert history not in valid
         app = _run_page("todays_games.py")
         text = _all_text(app)
         assert "Archive view" not in text

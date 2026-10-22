@@ -1147,7 +1147,7 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     s = normalize_sport_key(sport_key)
     if s in ("nfl", "nhl", "nba"):
         dates = set(_distinct_game_dates(nfl_frame))
-        if s in ("nfl", "nhl"):
+        if s in ("nfl", "nhl", "nba"):
             # The dated board family IS a date source for both (MLB parity:
             # a dated member carrying a published slate defines a navigable
             # window day; the board-supported families already hold these
@@ -1274,6 +1274,17 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
         board_family_dates |= set(_family_dated_dates(
             "nhl", [("nhl_moneyline_v1_", ".json"),
                     ("nhl_run_engine_markets_", ".csv")], cfg))
+    if s == "nba":
+        # The DATED moneyline family is a date source for the NBA (the NHL
+        # parity above): the newest-record resolver only covers the current
+        # slate, and prediction history only gains a game day when a later
+        # run republishes decided rows for it — without this fold an archive
+        # date can fall out of both sources while its dated publication is
+        # still inside retention. Every dated member is a genuinely
+        # navigable archive day; _valid_dates_impl's rolling 10-day window
+        # still bounds the rail, so old slates age out exactly as before.
+        board_family_dates |= set(_family_dated_dates(
+            "nba", [("nba_moneyline_v1_", ".json")], cfg))
     return tuple(_valid_dates_impl(
         s, contents, LOCAL_DATA_DIR, board_frame,
         list(history or ()) + list(history_dates),
@@ -4574,6 +4585,109 @@ def load_nba_moneyline(sport: str | None = "nba") -> pd.DataFrame:
 
 def load_nba_moneyline_record(sport: str | None = "nba") -> dict:
     return _load_nba_moneyline_record(sport)
+
+
+def _nba_published_slate_rows(date_str: str) -> list[dict]:
+    """THIS date's published slate rows — the rolling-window
+    ``nba_moneyline_v1_*`` family union (latest retained publication wins
+    per game id).
+
+    NHL structural twin (``_nhl_published_slate_rows``): each run publishes
+    the games its serving horizon prices (games not yet started at run
+    time), so a date's slate can span several family files — and a same-day
+    re-run can overwrite its own record with a narrower late slate, dropping
+    games earlier runs had published. Walking the family restores every
+    published row while each game keeps the LATEST retained publication —
+    rows the delivered artifacts carry stay byte-identical; only dropped
+    games are added back. Never an OOF re-price.
+    """
+    requested = str(date_str or "").replace("-", "")
+    if len(requested) != 8 or not requested.isdigit():
+        return []
+    cfg = get_source_config()
+    rows: dict[str, dict] = {}
+    for d in _family_dated_dates("nba", [("nba_moneyline_v1_", ".json")], cfg):
+        raw, _src = _fetch_bytes(f"nba_moneyline_v1_{d}.json", **cfg, sport="nba")
+        if raw is None:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        games = rec.get("games") if isinstance(rec, dict) else None
+        for g in games or []:
+            if not isinstance(g, dict):
+                continue
+            gd = _norm_game_date(g.get("game_date") or g.get("gameday") or "")
+            if gd.replace("-", "") != requested:
+                continue
+            gid = str(g.get("game_id") or "")
+            if gid and gid not in rows:
+                rows[gid] = g
+    return list(rows.values())
+
+
+def load_nba_board_games(date_str: str) -> pd.DataFrame:
+    """NBA game board for a date — the MLB ``todays_games_<date>.csv`` /
+    NFL ``load_nfl_board_games`` structural twin over the NBA families.
+
+    Resolution order (SLATE-first — the rolling-window NHL parity):
+      1. DATED PUBLISHED SLATE: this date's own rows across the
+         ``nba_moneyline_v1_*`` family (``_nba_published_slate_rows``)
+         — the production SLATE predictions as published, never an OOF
+         re-price. The records freeze at ``pre`` (Scheduled), so the settled
+         result (score/status) fills display-only from the retained
+         prediction-history OUTCOME columns (scores only — its OOF probs
+         never touch the card) and the grade derives from the PUBLISHED
+         pick against that result (the as-first-published grade).
+      2. CURRENT SLATE: the newest moneyline record when it covers the date.
+      3-4. FROZEN STORE → OOF history: the shared ``load_nba_history_games``
+         tail (store-first, self-healing; OOF is the legacy/pre-seeding
+         fallback only).
+    """
+    requested = str(date_str or "").replace("-", "")
+    if len(requested) != 8 or not requested.isdigit():
+        return pd.DataFrame(columns=NBA_CARD_COLUMNS)
+    rows = _nba_published_slate_rows(requested)
+    if rows:
+        day = nba_moneyline_to_frame({"games": rows})
+        if not day.empty:
+            try:
+                hist = load_nfl_prediction_history("nba")
+            except Exception:
+                hist = pd.DataFrame()
+            if (hist is not None and not hist.empty
+                    and {"game_id", "home_score", "away_score"}.issubset(hist.columns)):
+                src = hist.dropna(subset=["game_id"]).drop_duplicates("game_id")
+                src = src.set_index(src["game_id"].astype(str))
+                ids = day["game_id"].astype(str)
+                for col in ("home_score", "away_score"):
+                    fill = ids.map(src[col])
+                    cur = (day[col] if col in day.columns
+                           else pd.Series(None, index=day.index))
+                    blank = pd.to_numeric(cur, errors="coerce").isna()
+                    day[col] = cur.mask(blank, fill)
+                hs = pd.to_numeric(day["home_score"], errors="coerce")
+                as_ = pd.to_numeric(day["away_score"], errors="coerce")
+                decided = hs.notna() & as_.notna()
+                home_win = pd.Series(float("nan"), index=day.index, dtype="float64")
+                home_win[decided & (hs > as_)] = 1.0
+                home_win[decided & (hs < as_)] = 0.0
+                home_win[decided & (hs == as_)] = 0.5
+                day["home_win"] = home_win
+                day["game_status"] = day["game_status"].mask(decided, "Final")
+            return _attach_nba_season_records(normalize_games(day, sport="nba"))
+    # 2. CURRENT SLATE: the newest record covers the requested date.
+    try:
+        current = load_nba_moneyline("nba")
+    except Exception:
+        current = pd.DataFrame()
+    if current is not None and not current.empty:
+        cand = current[current["game_date"].astype(str).str.replace("-", "") == requested]
+        if not cand.empty:
+            return cand
+    # 3-4. Frozen store → OOF (shared self-healing tail).
+    return load_nba_history_games(requested)
 
 
 def load_nba_player_matchup(sport: str | None = "nba") -> pd.DataFrame:
