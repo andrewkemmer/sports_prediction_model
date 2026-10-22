@@ -22,7 +22,7 @@ parity tests pin the same order/labels/wording/table schemas):
      — that bespoke panel is REMOVED.
   4. "### Prediction History — Totals & Run Lines" — empty → MLB's wording
      info; decided rows → the same date-range + side-filter widgets and
-     the same fb-table schema (DATE | MATCHUP | SCORE (H–A) | LINE |
+     the same fb-table schema (DATE | MATCHUP | SCORE (A–H) | LINE |
      MODEL PICK | WINNER | RESULT) over the NFL columns.
   5. "---" + "### Run-Line & Totals Monitor" + the honesty caption →
      winner cards (computed from the decided OOF store, the NFL monitor's
@@ -97,7 +97,7 @@ DIAG_TABS = nd.DIAG_TABS
 FALLBACK_DATE = "20260903"
 
 # The history table schema (byte-identical to the MLB fb-table header).
-HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th><th>LINE"
+HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th><th>LINE"
                    "</th><th>MODEL PICK</th><th>WINNER</th><th>RESULT")
 
 # The three winner cards (MLB _WINNER_CARDS structure, NFL rules).
@@ -544,9 +544,10 @@ def _totals_row(r) -> dict | None:
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
-    # SCORE renders HOME–AWAY (2026-10-16), matching the H–A header.
+    # SCORE renders AWAY–HOME, matching the A–H header and the MATCHUP's
+    # away-first order.
     score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
-             else f"{int(h_s)}–{int(a_s)}")
+             else f"{int(a_s)}–{int(h_s)}")
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
@@ -592,9 +593,10 @@ def _runline_row(r) -> dict | None:
     away = str(r.get("away_team", "") or "")
     home = str(r.get("home_team", "") or "")
     h_s, a_s = r.get("home_score"), r.get("away_score")
-    # SCORE renders HOME–AWAY (2026-10-16), matching the H–A header.
+    # SCORE renders AWAY–HOME, matching the A–H header and the MATCHUP's
+    # away-first order.
     score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
-             else f"{int(h_s)}–{int(a_s)}")
+             else f"{int(a_s)}–{int(h_s)}")
     winner = "—"
     if pd.notna(h_s) and pd.notna(a_s):
         winner = home if h_s > a_s else (away if a_s > h_s else "Tie")

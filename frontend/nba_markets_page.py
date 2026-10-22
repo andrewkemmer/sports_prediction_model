@@ -17,7 +17,7 @@ import nba_market_diagnostics as nd
 import utils
 
 DIAG_TABS = nd.DIAG_TABS
-HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th><th>LINE</th>"
+HISTORY_HEADERS = ("DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th><th>LINE</th>"
                    "</th><th>MODEL PICK</th><th>WINNER</th><th>RESULT</th>")
 FALLBACK_DATE = "20260924"
 PRIMARY, RED = utils.PRIMARY, utils.RED
@@ -39,12 +39,11 @@ def _date_str(raw) -> str:
 
 
 def _score_cell(row) -> str:
-    # SCORE renders HOME–AWAY (2026-10-16): the home side leads the cell,
-    # matching the H–A header (the old A–H order read backwards on a card
-    # whose MATCHUP lists the away team first).
+    # SCORE renders AWAY–HOME: the away side leads the cell, matching the
+    # A–H header and the MATCHUP's away-first order ("away @ home").
     h, a = row.get("home_score"), row.get("away_score")
     if pd.notna(h) and pd.notna(a):
-        return f"{int(h)}–{int(a)}"
+        return f"{int(a)}–{int(h)}"
     return "—"
 
 
@@ -374,7 +373,7 @@ def _cal_note(monitor: dict | None) -> str:
 
 
 def _render_totals_history(decided, monitor, start_d, end_d) -> None:
-    """Game-totals history: DATE | MATCHUP | SCORE (H–A) | LINE (O/U X.5) |
+    """Game-totals history: DATE | MATCHUP | SCORE (A–H) | LINE (O/U X.5) |
     MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT — MLB's anatomy.
 
     The LINE is the game's own fair line on the 0.5 ladder

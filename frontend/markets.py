@@ -548,11 +548,10 @@ def _result_cell(correct) -> str:
 
 
 def _score_cell(row) -> str:
-    # SCORE renders HOME–AWAY (2026-10-16): the home side leads the cell,
-    # matching the H–A header (the old A–H order read backwards on a card
-    # whose MATCHUP lists the away team first).
+    # SCORE renders AWAY–HOME: the away side leads the cell, matching the
+    # A–H header and the MATCHUP's away-first order ("away @ home").
     if pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")):
-        return f"{int(row['home_score'])}–{int(row['away_score'])}"
+        return f"{int(row['away_score'])}–{int(row['home_score'])}"
     return "—"
 
 
@@ -563,7 +562,7 @@ def _date_str(raw) -> str:
 
 def _render_totals_history(tot: pd.DataFrame, teams: dict,
                            start_d, end_d, cal_note: str) -> None:
-    """Game-totals prediction history: DATE | MATCHUP | SCORE (H–A) |
+    """Game-totals prediction history: DATE | MATCHUP | SCORE (A–H) |
     LINE (O/U X.5) | MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT.
     Most recent first in a fixed-height scroll container; header win rate
     recomputes from the filtered rows; pushes excluded from the win rate
@@ -615,7 +614,7 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
-            <table class="fb-table">              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
+            <table class="fb-table">              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
@@ -631,7 +630,7 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
 def _render_runline_history(rl: pd.DataFrame, teams: dict,
                             start_d, end_d, cal_note: str) -> None:
     """Run-line (−1.5/+1.5) prediction history: DATE | MATCHUP |
-    SCORE (H–A) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
+    SCORE (A–H) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
     WINNER | RESULT. Half-run lines never push, so every decided game
     counts toward the win rate (noted in the caption)."""
     view = diag.filter_history_frame(rl, start_d, end_d)
@@ -672,7 +671,7 @@ def _render_runline_history(rl: pd.DataFrame, teams: dict,
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
             <table class="fb-table">
-              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
@@ -687,7 +686,7 @@ def _render_runline_history(rl: pd.DataFrame, teams: dict,
 def _render_runline_cut_history(rl: pd.DataFrame, teams: dict,
                                 start_d, end_d, cal_note: str) -> None:
     """Run-line prediction history — the CUT line (favored side at its
-    deepest line with cover >= 50%). DATE | MATCHUP | SCORE (H–A) |
+    deepest line with cover >= 50%). DATE | MATCHUP | SCORE (A–H) |
     LINE (favored side's cut, e.g. −1.5/+1.5) | MODEL PICK | WINNER |
     RESULT. Whole-line pushes resolved 3-way: push rows render '—' and are
     excluded from the W/(W+L) win rate (unified convention).
@@ -737,7 +736,7 @@ def _render_runline_cut_history(rl: pd.DataFrame, teams: dict,
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
             <table class="fb-table">
-              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (H–A)</th>
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
               <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
               <th>RESULT</th></tr></thead>
               <tbody>{''.join(rows)}</tbody>
