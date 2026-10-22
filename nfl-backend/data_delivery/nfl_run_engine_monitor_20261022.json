@@ -9,9 +9,9 @@
    "actual_win_rate": 0.4855,
    "win_rate": 0.4855,
    "predicted_mean": 0.5151,
-   "auc": 0.5073,
-   "ece_raw": 0.0344,
-   "ece_calibrated": 0.0344,
+   "auc": 0.5072,
+   "ece_raw": 0.0351,
+   "ece_calibrated": 0.0351,
    "brier": 0.2506,
    "logloss": 0.6944,
    "holdout": {},
@@ -23,7 +23,7 @@
    "actual_win_rate": 0.5437,
    "win_rate": 0.5437,
    "predicted_mean": 0.5181,
-   "auc": 0.5558,
+   "auc": 0.5556,
    "ece_raw": 0.0383,
    "ece_calibrated": 0.0383,
    "brier": 0.2482,
@@ -31,14 +31,14 @@
    "holdout": {},
    "source": "oof_decided_store",
    "auc_n": 2495,
-   "crps": 5.1828
+   "crps": 5.1829
   },
   "derived_ml": {
    "n": 1580,
    "actual_win_rate": 0.6608,
    "win_rate": 0.6608,
    "predicted_mean": 0.6297,
-   "auc": 0.6989,
+   "auc": 0.6988,
    "ece_raw": 0.039,
    "ece_calibrated": 0.039,
    "brier": 0.2146,
@@ -46,7 +46,7 @@
    "holdout": {},
    "source": "oof_decided_store",
    "auc_n": 2578,
-   "crps": 5.1828,
+   "crps": 5.1829,
    "ml_reference": {
     "source": "ml_win_prob",
     "n": 2587,
@@ -59,7 +59,7 @@
   {
    "card": "over_under",
    "date": "2026-10-22",
-   "ece_calibrated": 0.0344,
+   "ece_calibrated": 0.0351,
    "brier": 0.2506,
    "logloss": 0.6944,
    "predicted_mean": 0.5151,
@@ -107,15 +107,15 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "variance": {
    "home_variance": 3.81280633859954,
-   "away_variance": 4.035154869659414,
-   "correlation": 0.03352666248365959,
-   "total_skew": 0.0696698664689439,
-   "margin_skew": 0.020444115277336958,
+   "away_variance": 4.035240733260641,
+   "correlation": 0.03351977056562051,
+   "total_skew": 0.06967135984466194,
+   "margin_skew": 0.020447227365704375,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 16.04864323529891,
-    "intercept": -0.0011978753274639034,
-    "pace_mean": 0.03859418511677399,
+    "slope": 16.053262426086853,
+    "intercept": -0.0010759731946787144,
+    "pace_mean": 0.03859141461375615,
     "cap": 6.0
    }
   },
@@ -127,9 +127,9 @@
     "n_test": 776,
     "significant": true,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.000948299688343398,
-    "residual_mae_after": 0.0007038427458606884,
-    "delta_l1": 0.06551599999999999,
+    "residual_mae_before": 0.0009482887211866101,
+    "residual_mae_after": 0.0007038254613877687,
+    "delta_l1": 0.06551799999999999,
     "delta_max": 0.005548,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
@@ -153,7 +153,7 @@
      "k_ties": 9,
      "n": 2587,
      "model_p0": 0.02903,
-     "p_value": 2.422515200726476e-22,
+     "p_value": 2.4233616032892903e-22,
      "t": 0.003389,
      "significant": true
     },
@@ -252,7 +252,7 @@
        "bin": -6,
        "secondary": true,
        "amplitude": 0.000252,
-       "z": 1.541,
+       "z": 1.542,
        "admitted": true
       },
       {
@@ -288,8 +288,8 @@
     "n_test": 776,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 0.0006836600700980881,
-    "residual_mae_after": 0.00025981385578454865,
+    "residual_mae_before": 0.0006836577952453259,
+    "residual_mae_after": 0.00025981263415080945,
     "delta_l1": 0.316848,
     "delta_max": 0.046008,
     "collateral_max_excess": 0.0,
@@ -335,8 +335,8 @@
    "n": 2540
   },
   "over_46": {
-   "engine_ece_raw": 0.0249,
-   "engine_ece_calibrated": 0.0249,
+   "engine_ece_raw": 0.0254,
+   "engine_ece_calibrated": 0.0254,
    "engine_brier": 0.2401,
    "engine_logloss": 0.6731,
    "n": 2524
@@ -345,7 +345,7 @@
    "engine_ece_raw": 0.0305,
    "engine_ece_calibrated": 0.0305,
    "engine_brier": 0.2205,
-   "engine_logloss": 0.632,
+   "engine_logloss": 0.6321,
    "n": 2527
   },
   "over_54": {
@@ -2309,7 +2309,7 @@
      "decision": "identity",
      "reason": "gated_no_gain",
      "nested_holdout_logloss": 0.614424,
-     "raw_logloss": 0.614425,
+     "raw_logloss": 0.614424,
      "params": null,
      "fold_id": 199
     },
@@ -2317,8 +2317,8 @@
      "n_prior": 1704,
      "decision": "identity",
      "reason": "gated_no_gain",
-     "nested_holdout_logloss": 0.614825,
-     "raw_logloss": 0.614776,
+     "nested_holdout_logloss": 0.614823,
+     "raw_logloss": 0.614774,
      "params": null,
      "fold_id": 200
     }
@@ -2327,8 +2327,8 @@
     "n_prior": 1704,
     "decision": "identity",
     "reason": "gated_no_gain",
-    "nested_holdout_logloss": 0.614825,
-    "raw_logloss": 0.614776,
+    "nested_holdout_logloss": 0.614823,
+    "raw_logloss": 0.614774,
     "params": null
    }
   }
