@@ -1850,10 +1850,212 @@ def _projected_opportunities_per_game(den: pd.Series,
     return den / n_games.where(n_games > 0)
 
 
+# Phase-1 availability redistribution (2026-10-22, unvalidated challenger):
+# same-position proportional absorption of an Out player's projected
+# volume, with partial conservation. The shrunk RATE (epa_q) is frozen;
+# only the per-game volume (_tpg) is adjusted, per-group (one team-game).
+# QB defaults to full conservation (backup takes the dropbacks); skill
+# spots default to 0.7 (the rest vanishes = worse offense, fewer plays).
+# Caps are p95 trailing _tpg ceilings supplied by the caller; excess
+# waterfalls to under-cap same-position survivors, remainder vanishes.
+# Cross-position spill is explicitly out of scope (phase 2).
+PHASE1_ALPHA_DEFAULT = {"QB": 1.0, "WR": 0.7, "TE": 0.7, "RB": 0.7}
+# Adopted production setting (2026-10-22, moneyline OOF: AUC +0.0017,
+# logloss -0.00075 inside noise, ECE 0.0405 -> 0.0390): full conservation
+# for QB, 90% same-position redistribution for skill, rest vanishes.
+PHASE1_ALPHA_ADOPTED = {"QB": 1.0, "WR": 0.9, "TE": 1.0, "RB": 0.9}
+
+
+def _phase1_redistribute_tpg(survivors: pd.DataFrame,
+                             donors: pd.DataFrame,
+                             alpha: dict | None = None,
+                             caps: dict | None = None) -> pd.Series:
+    """Phase-1 volume redistribution for one (game, team) pool.
+
+    ``survivors`` needs ``position`` + ``_tpg``; ``donors`` needs
+    ``position`` + ``_tpg`` (removed Out players' trailing per-game
+    volume). Returns adjusted ``_tpg`` aligned to ``survivors.index``.
+    Donor rates are never read, survivor rates are never touched.
+    """
+    base = pd.to_numeric(survivors["_tpg"], errors="coerce")
+    out = base.copy()
+    if survivors.empty or donors is None or donors.empty:
+        return out
+    a = dict(PHASE1_ALPHA_DEFAULT)
+    if alpha:
+        a.update(alpha)
+    d = donors.copy()
+    d["_tpg"] = pd.to_numeric(d["_tpg"], errors="coerce")
+    d["position"] = _normalize_epa_lineup_positions(
+        d["position"].astype("string"))
+    s_pos = _normalize_epa_lineup_positions(
+        survivors["position"].astype("string"))
+    for pos in ("QB", "WR", "TE", "RB"):
+        missing = float(d.loc[d["position"].eq(pos), "_tpg"]
+                        .dropna().clip(lower=0.0).sum())
+        if not np.isfinite(missing) or missing <= 0:
+            continue
+        pool = float(a.get(pos, 0.7)) * missing
+        if not np.isfinite(pool) or pool <= 0:
+            continue
+        mask = s_pos.eq(pos) & base.notna() & (base >= 0)
+        if not mask.any():
+            continue  # no same-position survivor: pool vanishes
+        cap = None if not caps else caps.get(pos)
+        add = _waterfall_allocate(base[mask], pool, cap)
+        out.loc[add.index] = (base[mask] + add).to_numpy()
+    return out
+
+
+def _waterfall_allocate(group_base: pd.Series, pool: float,
+                        cap: float | None) -> pd.Series:
+    """Split ``pool`` over one same-position survivor group.
+
+    Proportional to trailing volume; a finite ``cap`` fills each member
+    up to the ceiling in trailing-volume order and the remainder
+    waterfalls to the next member. Anything still not fitting vanishes.
+    Returns added volume aligned to ``group_base.index``.
+    """
+    added = pd.Series(0.0, index=group_base.index)
+    vals = group_base.fillna(0.0).to_numpy(dtype=float)
+    if not np.isfinite(pool) or pool <= 0 or len(vals) == 0:
+        return added
+    w = vals.copy()
+    if w.sum() <= 0:
+        w = np.full(len(w), 1.0 / len(w))
+    else:
+        w = w / w.sum()
+    alloc = pool * w
+    if cap is None or not np.isfinite(cap):
+        return pd.Series(alloc, index=group_base.index)
+    room = np.maximum(float(cap) - vals, 0.0)
+    take = np.minimum(alloc, room)
+    prop = take.copy()
+    excess = float(pool - take.sum())
+    if excess > 1e-12:
+        order = np.argsort(-vals, kind="stable")
+        for k in order:
+            if excess <= 1e-12:
+                break
+            head = float(cap) - (vals[k] + prop[k])
+            if head <= 0:
+                continue
+            step = min(excess, head)
+            prop[k] += step
+            excess -= step
+    return pd.Series(prop, index=group_base.index)
+
+
+# Phase-2 spill matrix (2026-10-22 DiD estimator, 2020-2024 REG,
+# single-donor-position team-games, no-donor baseline subtracted): share of
+# a donor position's missing trailing _tpg that reappears in each absorber
+# position. Remainder vanishes. WR row is the best measured (n=409);
+# TE row normalized to sum 1 (raw sums to 1.17, small-volume noise).
+# QB has no row: backup-QB takeover stays the phase-1 full-conservation rule.
+PHASE2_SPILL_ESTIMATE = {
+    "WR": {"WR": 0.61, "TE": 0.22, "RB": 0.08},
+    "TE": {"WR": 0.44, "TE": 0.44, "RB": 0.12},
+    "RB": {"WR": 0.38, "TE": 0.06, "RB": 0.29},
+}
+
+
+def _phase2_redistribute_tpg(survivors: pd.DataFrame,
+                             donors: pd.DataFrame,
+                             matrix: dict | None = None,
+                             caps: dict | None = None,
+                             qb_alpha: float = 1.0) -> pd.Series:
+    """Phase-2 volume redistribution for one (game, team) pool.
+
+    Each donor position's missing volume is split across absorber
+    positions by ``matrix`` (DiD-estimated shares; remainder vanishes),
+    then within each absorber position proportionally with p95-cap
+    waterfall. QB donors fall back to the phase-1 same-position rule.
+    Rates are never read or touched; returns adjusted ``_tpg``.
+    """
+    base = pd.to_numeric(survivors["_tpg"], errors="coerce")
+    out = base.copy()
+    if survivors.empty or donors is None or donors.empty:
+        return out
+    m = PHASE2_SPILL_ESTIMATE if matrix is None else matrix
+    d = donors.copy()
+    d["_tpg"] = pd.to_numeric(d["_tpg"], errors="coerce")
+    d["position"] = _normalize_epa_lineup_positions(
+        d["position"].astype("string"))
+    s_pos = _normalize_epa_lineup_positions(
+        survivors["position"].astype("string"))
+    # QB: backup takes the dropbacks (phase-1 rule, no cross-position).
+    qb_missing = float(d.loc[d["position"].eq("QB"), "_tpg"]
+                       .dropna().clip(lower=0.0).sum())
+    if np.isfinite(qb_missing) and qb_missing > 0 and qb_alpha > 0:
+        qb_mask = s_pos.eq("QB") & base.notna() & (base >= 0)
+        if qb_mask.any():
+            cap = None if not caps else caps.get("QB")
+            add = _waterfall_allocate(base[qb_mask], qb_alpha * qb_missing,
+                                      cap)
+            out.loc[add.index] = (base[qb_mask] + add).to_numpy()
+    for donor_pos in ("WR", "TE", "RB"):
+        missing = float(d.loc[d["position"].eq(donor_pos), "_tpg"]
+                        .dropna().clip(lower=0.0).sum())
+        if not np.isfinite(missing) or missing <= 0:
+            continue
+        row = m.get(donor_pos, {})
+        for absorber in ("WR", "TE", "RB"):
+            share = float(row.get(absorber, 0.0))
+            if not np.isfinite(share) or share <= 0:
+                continue
+            pool = share * missing
+            mask = s_pos.eq(absorber) & base.notna() & (base >= 0)
+            if not mask.any():
+                continue  # no absorber: share vanishes
+            cap = None if not caps else caps.get(absorber)
+            add = _waterfall_allocate(base[mask], pool, cap)
+            out.loc[add.index] = (out.loc[add.index] + add).to_numpy()
+    return out
+
+
+def _phase1_tpg_caps(history: pd.DataFrame) -> dict:
+    """p95 trailing per-game opportunities per position (phase-1 caps).
+
+    Computed from the player rating panel (``_den / _n_games``); positions
+    with no finite volume get no cap (unbounded). Callers may override
+    with hand-picked ceilings; this is the data-driven default.
+    """
+    if history is None or history.empty:
+        return {}
+    need = {"position", "_den", "_n_games"}
+    if not need.issubset(history.columns):
+        return {}
+    h = history.copy()
+    h["position"] = _normalize_epa_lineup_positions(
+        h["position"].astype("string"))
+    den = pd.to_numeric(h["_den"], errors="coerce")
+    ng = pd.to_numeric(h["_n_games"], errors="coerce")
+    tpg = den / ng.where(ng > 0)
+    h["_tpg_hist"] = tpg
+    h = h[h["_tpg_hist"].notna() & np.isfinite(h["_tpg_hist"].to_numpy())
+            & (h["_tpg_hist"] > 0)]
+    if h.empty:
+        return {}
+    caps: dict = {}
+    for pos, grp in h.groupby("position"):
+        if pos not in ("QB", "WR", "TE", "RB") or grp.empty:
+            continue
+        try:
+            caps[str(pos)] = float(np.quantile(
+                grp["_tpg_hist"].to_numpy(dtype=float), 0.95))
+        except (TypeError, ValueError):
+            continue
+    return caps
+
+
 def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
                          injuries: pd.DataFrame | None = None,
                          roster_unavailable: pd.DataFrame | None = None,
-                         weekly_injuries: pd.DataFrame | None = None
+                         weekly_injuries: pd.DataFrame | None = None,
+                         redistribute_phase1: bool = False,
+                         phase1_caps: dict | None = None,
+                         phase1_alpha: dict | None = None,
+                         spill_matrix: dict | None = None
                          ) -> pd.DataFrame:
     """Per-(game, team, position) EPA per GAME of the projected lineup.
 
@@ -1948,6 +2150,20 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     j = (j.sort_values(["game_id", "team", "player_id", "rating_day",
                         "history_game_id"])
          .drop_duplicates(["game_id", "team", "player_id"], keep="last"))
+    # Pre-exclusion snapshot for phase-1 donor volume: the three removal
+    # channels below can only shrink j, so donors = pre minus post.
+    # (Post = the pool AFTER exclusions but BEFORE the top-11 cut: a
+    # healthy rank-12 player cut by the cap is depth, not a donor.)
+    _pre_vol = None
+    _post_excl_vol = None
+    if redistribute_phase1:
+        _pre_vol = j[["game_id", "team", "player_id", "position",
+                      "_den", "_n_games"]].copy()
+        _pre_vol["_tpg_pre"] = _projected_opportunities_per_game(
+            pd.to_numeric(_pre_vol["_den"], errors="coerce"),
+            pd.to_numeric(_pre_vol["_n_games"], errors="coerce"))
+        _pre_keys = (_pre_vol[["game_id", "team", "player_id"]]
+                     .astype(str))
 
     if injuries is not None and not injuries.empty:
         pit_cols = {"game_id", "team", "player_id", "availability_weight",
@@ -2045,6 +2261,9 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
             on=["season", "week", "team", "player_id"], how="left")
         j = j[~j["_roster_out"].eq(True)]
 
+    if redistribute_phase1 and _pre_vol is not None:
+        _post_excl_vol = j[["game_id", "team", "player_id"]].copy()
+
     if j.empty:
         return pd.DataFrame(columns=cols)
     # Mirror MLB's candidate-roster -> injury filter -> lineup-rank structure:
@@ -2078,6 +2297,35 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     # membership semantics as before: no rating, no contribution.
     top["_tpg"] = _projected_opportunities_per_game(top["_den"],
                                                      top["_n_games"])
+    if redistribute_phase1 and _pre_vol is not None:
+        if phase1_caps is None:
+            phase1_caps = _phase1_tpg_caps(d)
+        _post_set = set(map(tuple, _post_excl_vol.astype(str).to_numpy()))
+        if not _post_set:  # every candidate removed: nothing to absorb with
+            _post_set = set(map(tuple, top[["game_id", "team",
+                                              "player_id"]].astype(str).to_numpy()))
+        _is_post = _pre_vol.apply(
+            lambda r: (str(r["game_id"]), str(r["team"]),
+                       str(r["player_id"])) in _post_set, axis=1)
+        donors_all = _pre_vol[~_is_post.to_numpy()].copy()
+        donors_all = donors_all.rename(columns={"_tpg_pre": "_tpg"})
+        for (_gid, _team), _gidx in top.groupby(["game_id", "team"]).groups.items():
+            _surv = top.loc[_gidx, ["player_id", "position", "_tpg"]]
+            _don = donors_all[(donors_all["game_id"].astype(str) == str(_gid))
+                              & (donors_all["team"].astype(str) == str(_team))]
+            if _don.empty:
+                continue
+            if spill_matrix is not None:
+                adj = _phase2_redistribute_tpg(
+                    _surv, _don[["position", "_tpg"]],
+                    matrix=spill_matrix, caps=phase1_caps,
+                    qb_alpha=(phase1_alpha or {}).get("QB", 1.0)
+                    if phase1_alpha else 1.0)
+            else:
+                adj = _phase1_redistribute_tpg(
+                    _surv, _don[["position", "_tpg"]],
+                    alpha=phase1_alpha, caps=phase1_caps)
+            top.loc[_gidx, "_tpg"] = adj.to_numpy()
     top["_epa_per_game"] = top["_tpg"] * top["epa_q"]
     out = (top.groupby(["game_id", "team", "position"], as_index=False)
            ["_epa_per_game"].sum(min_count=1)
@@ -2089,7 +2337,11 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
                      ps: pd.DataFrame | None,
                      injuries: pd.DataFrame | None,
                      roster_unavailable: pd.DataFrame | None = None,
-                     weekly_injuries: pd.DataFrame | None = None
+                     weekly_injuries: pd.DataFrame | None = None,
+                     redistribute_phase1: bool = False,
+                     phase1_caps: dict | None = None,
+                     phase1_alpha: dict | None = None,
+                     spill_matrix: dict | None = None
                      ) -> pd.DataFrame:
     """Build PIT per-position player quality aggregates, degrading to NaN
     when play-by-play, player IDs/positions, or exact schedule kickoff is
@@ -2123,7 +2375,8 @@ def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
     obs = obs.dropna(subset=["gameday", "kickoff_utc"])
     history = epa_quality_ratings(obs)
     return epa_quality_team_agg(history, games, injuries, roster_unavailable,
-                                weekly_injuries)
+                                weekly_injuries, redistribute_phase1,
+                                phase1_caps, phase1_alpha, spill_matrix)
 
 
 def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
@@ -2582,7 +2835,11 @@ def build_game_features(games: pd.DataFrame,
                         weekly_injuries: pd.DataFrame | None = None,
                         crosswalk: pd.DataFrame | None = None,
                         roster_unavailable: pd.DataFrame | None = None,
-                        weekly_rosters: pd.DataFrame | None = None
+                        weekly_rosters: pd.DataFrame | None = None,
+                        redistribute_phase1: bool = True,
+                        phase1_caps: dict | None = None,
+                        phase1_alpha: dict | None = None,
+                        spill_matrix: dict | None = None
                         ) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
@@ -2649,9 +2906,12 @@ def build_game_features(games: pd.DataFrame,
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
     df = _attach_record_fields(df, ev)
+    if redistribute_phase1 and phase1_alpha is None:
+        phase1_alpha = dict(PHASE1_ALPHA_ADOPTED)
     df = _attach_epa_quality_features(
         df, _epa_quality_agg(games, pbp, ps, injuries, roster_unavailable,
-                             weekly_injuries),
+                             weekly_injuries, redistribute_phase1,
+                             phase1_caps, phase1_alpha, spill_matrix),
         games)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
@@ -2688,7 +2948,11 @@ def build_slate_features(schedule: pd.DataFrame,
                          crosswalk: pd.DataFrame | None = None,
                          roster_unavailable: pd.DataFrame | None = None,
                          weekly_rosters: pd.DataFrame | None = None,
-                         serve_from=None) -> pd.DataFrame:
+                         serve_from=None,
+                         redistribute_phase1: bool = True,
+                         phase1_caps: dict | None = None,
+                         phase1_alpha: dict | None = None,
+                         spill_matrix: dict | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full schedule timeline. A pending row's trailing
@@ -2780,9 +3044,12 @@ def build_slate_features(schedule: pd.DataFrame,
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
     df = _attach_record_fields(df, combined)
+    if redistribute_phase1 and phase1_alpha is None:
+        phase1_alpha = dict(PHASE1_ALPHA_ADOPTED)
     df = _attach_epa_quality_features(
         df, _epa_quality_agg(sched, pbp, ps, injuries, roster_unavailable,
-                             weekly_injuries),
+                             weekly_injuries, redistribute_phase1,
+                             phase1_caps, phase1_alpha, spill_matrix),
         sched)
     df = _attach_injury_share_features(
         df, injury_share_table(snaps, weekly_injuries, crosswalk,
