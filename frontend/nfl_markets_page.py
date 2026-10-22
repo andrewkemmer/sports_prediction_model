@@ -947,21 +947,25 @@ def _render_winner_cards(cards: dict) -> None:
 def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
     st.markdown("**Totals — Over/Under calibration card**")
     c1, c2 = st.columns([1, 1])
-    thresh = c1.selectbox("Confidence (pick_prob > …)",
-                          nd.TOTALS_CONF_THRESHOLDS, index=0,
-                          key="nfl_totals_card_conf")
+    _dflt = (list(nd.TOTALS_LINE_CHOICES).index(nd.DEFAULT_TOTAL)
+             if nd.DEFAULT_TOTAL in list(nd.TOTALS_LINE_CHOICES) else 0)
+    line = c1.selectbox("Line (total U)", nd.TOTALS_LINE_CHOICES,
+                        index=_dflt, key="nfl_totals_card_line")
     side = c2.selectbox("Side", ["All", "Over", "Under"], index=0,
                         key="nfl_totals_card_side")
-    s = nd.totals_monitor_stats(decided, min_pct=float(thresh), side=side)
+    s = nd.totals_line_monitor_stats(decided, line, side=side)
     if not s["n"]:
-        st.caption("No priced games at this confidence / side.")
+        st.caption("No priced games at this line / side.")
         return
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Games", f"{s['n']:,}")
+    cp = s.get("predicted_2way")
+    m2.metric("Model predicted",
+              f"{cp * 100:.1f}%" if cp is not None else "--")
     wr = s["win_rate"]
-    m2.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
-    m3.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
-    m4.metric("Pushes excluded", f"{s['n_pushes']:,}")
+    m3.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
+    m4.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
+    m5.metric("Pushes", f"{s['n_pushes']:,}")
     if s["sides"]:
         rows = []
         for name, r in s["sides"].items():
@@ -975,11 +979,13 @@ def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
         st.dataframe(pd.DataFrame(rows), hide_index=True,
                      use_container_width=True)
     st.caption(
-        f"Thresh: pick_prob > {thresh}% (cumulative — nested subsets). "
-        "Win rate is 2-way re-normalized: whole-number-line pushes are "
-        "neither wins nor losses (excluded from both). This side split is "
-        "the Scoring-Mean diagnostic — compare each side vs its own mean "
-        "predicted P."
+        f"Line {float(line):g}: every decided game graded at this total "
+        "(Over if 2-way P(over) >= 50%, else Under). Model predicted and "
+        "Win rate are BOTH 2-way re-normalized, so a whole-line card is "
+        "never read as a large under-prediction. Whole-number-line pushes "
+        "are neither wins nor losses (excluded from both). This side split "
+        "is the Scoring-Mean diagnostic — compare each side vs its own "
+        "mean predicted P."
     )
 
 

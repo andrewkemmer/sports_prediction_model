@@ -545,23 +545,23 @@ def _render_winner_cards(cards: dict) -> None:
 
 
 def _render_totals_calibration_card(decided) -> None:
-    """Interactive totals card — MLB's 4-metric layout + side split."""
+    """Interactive totals card — fixed-line grading like the run-line card."""
     st.markdown("**Totals — Over/Under calibration card**")
     c1, c2 = st.columns([1, 1])
-    thresh = c1.selectbox("Confidence (pick_prob > …)",
-                          nd.TOTALS_CONF_THRESHOLDS, index=0,
-                          key="nba_totals_card_conf")
+    line = c1.selectbox("Line (total U)", nd.TOTALS_LINE_CHOICES, index=3,
+                        key="nba_totals_card_line")
     side = c2.selectbox("Side", ["All", "Over", "Under"], index=0,
                         key="nba_totals_card_side")
-    s = nd.totals_monitor_stats(decided, min_pct=thresh, side=side)
+    s = nd.totals_line_monitor_stats(decided, line, side=side)
     if not s["n"]:
-        st.caption("No priced games at this confidence / side.")
+        st.caption("No priced games at this line / side.")
         return
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Games", f"{s['n']:,}")
-    m2.metric("Win rate (W/(W+L))", _fmt_pct(s["win_rate"]))
-    m3.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
-    m4.metric("Pushes excluded", f"{s['n_pushes']:,}")
+    m2.metric("Model predicted", _fmt_pct(s["predicted_2way"]))
+    m3.metric("Win rate (W/(W+L))", _fmt_pct(s["win_rate"]))
+    m4.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
+    m5.metric("Pushes", f"{s['n_pushes']:,}")
     if s["sides"]:
         rows = [{"Side": name, "n": r["n"],
                  "Win rate": _fmt_pct(r["win_rate"]), "Pushes": r["n_pushes"]}
@@ -569,11 +569,13 @@ def _render_totals_calibration_card(decided) -> None:
         st.dataframe(pd.DataFrame(rows), hide_index=True,
                      use_container_width=True)
     st.caption(
-        f"Thresh: pick_prob > {thresh}% (cumulative — nested subsets). "
-        "Win rate is 2-way re-normalized: whole-number-line pushes are "
-        "neither wins nor losses (excluded from both). This side split is "
-        "the Scoring-Mean diagnostic — compare each side vs its own mean "
-        "predicted P."
+        f"Line {float(line):g}: every decided game graded at this total "
+        "(Over if 2-way P(over) >= 50%, else Under). Model predicted and "
+        "Win rate are BOTH 2-way re-normalized, so a whole-line card is "
+        "never read as a large under-prediction. Whole-number-line pushes "
+        "are neither wins nor losses (excluded from both); half lines "
+        "never push. This side split is the Scoring-Mean diagnostic — "
+        "compare each side vs its own mean predicted P."
     )
 
 

@@ -85,6 +85,10 @@ OFFSET_EDGES = [-2, -1, 0, 1, 2]
 # MLB never shipped, and its 0 default meant "no confidence filter at all"
 # while MLB opens at pick_prob > 50% and steps one point at a time.
 TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
+# Fixed-line totals calibration choices — the run-line card's analogue: every
+# decided game is graded at the SELECTED total U (not at its own fair line),
+# so the card shows all games at each cut. The full priced grid (4..12).
+TOTALS_LINE_CHOICES = list(TOTAL_GRID)
 
 # Pooled fixed lines for the "Pooled lines" tab — the canonical totals the
 # monitor's per-line metrics score (config.RUN_ENGINE_FIXED_TOTALS).
@@ -1184,6 +1188,87 @@ def fold_slate_history(monitors: list[dict]) -> dict[str, list[dict]]:
             out.setdefault(str(card), []).append(entry)
     for series in out.values():
         series.sort(key=lambda pt: str(pt.get("date") or ""))
+    return out
+
+
+def totals_line_monitor_stats(decided: pd.DataFrame, line: float,
+                              side: str = "All") -> dict[str, Any]:
+    """Fixed-line totals calibration: grade EVERY decided game at total U.
+
+    The run-line card's analogue — at the selected line U each game's 2-way
+    P(over) = p_over_U / (p_over_U + p_under_U) picks its favored side
+    (Over when >= 0.5, ties to Over; pick_prob is that side's probability,
+    always >= 50%), and the grade is winner == pick with whole-line pushes
+    (total == U) folded out of both. Model predicted (mean favored 2-way P
+    over scored rows) and Win rate are on the SAME scored basis, so a
+    whole-line card is never read as a large under-prediction. ``side``
+    filters by PICKED side.
+    """
+    s = (str(side) or "All").strip()
+    empty = {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+             "win_rate": None, "predicted_2way": None, "side": s,
+             "line": line, "sides": {}}
+    if decided is None or not len(decided):
+        return empty
+    try:
+        u = int(round(float(line)))
+    except (TypeError, ValueError):
+        return empty
+    over_col, under_col = _col("p_over", u), _col("p_under", u)
+    if over_col not in decided.columns or under_col not in decided.columns:
+        return empty
+    po = pd.to_numeric(decided[over_col], errors="coerce").to_numpy(float)
+    pu = pd.to_numeric(decided[under_col], errors="coerce").to_numpy(float)
+    if "total" in decided.columns:
+        tot = pd.to_numeric(decided["total"], errors="coerce").to_numpy(float)
+    elif {"home_score", "away_score"}.issubset(decided.columns):
+        tot = (pd.to_numeric(decided["home_score"], errors="coerce").to_numpy(float)
+               + pd.to_numeric(decided["away_score"], errors="coerce").to_numpy(float))
+    else:
+        return empty
+    denom = po + pu
+    valid = (np.isfinite(po) & np.isfinite(pu) & np.isfinite(tot)
+             & (denom > 0))
+    n_wins = n_losses = n_pushes = 0
+    p2_sum = 0.0
+    n_scored = 0
+    sides = {"Over": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+                       "win_rate": None},
+             "Under": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+                        "win_rate": None}}
+    for i in range(len(decided)):
+        if not valid[i]:
+            continue
+        p2 = float(po[i] / denom[i])
+        pick_over = p2 >= 0.5
+        pick = "Over" if pick_over else "Under"
+        if s != "All" and pick != s:
+            continue
+        fav = p2 if pick_over else 1.0 - p2
+        if tot[i] == u:
+            n_pushes += 1
+            sides[pick]["n_pushes"] += 1
+            continue
+        won = pick_over == (tot[i] > u)
+        n_wins += won
+        n_losses += (not won)
+        p2_sum += fav
+        n_scored += 1
+        sides[pick]["n_wins"] += won
+        sides[pick]["n_losses"] += (not won)
+    n = n_wins + n_losses
+    out = {"n": n, "n_wins": int(n_wins), "n_losses": int(n_losses),
+           "n_pushes": int(n_pushes),
+           "win_rate": (round(n_wins / n, 4) if n else None),
+           "predicted_2way": (round(p2_sum / n_scored, 4)
+                               if n_scored else None),
+           "side": s, "line": u, "sides": {}}
+    for name, sd in sides.items():
+        sw, sl = sd["n_wins"], sd["n_losses"]
+        out["sides"][name] = {
+            "n": sw + sl,
+            "win_rate": (round(sw / (sw + sl), 4) if (sw + sl) else None),
+            "n_pushes": sd["n_pushes"]}
     return out
 
 

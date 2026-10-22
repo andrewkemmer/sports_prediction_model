@@ -230,23 +230,13 @@ def check(sport: str, lines: list[str]) -> list[str]:
         if want not in html:
             failures.append(f"{sport}: monitor is missing {want!r}")
 
-    # Totals-calibration confidence ladder (MLB's 1-point steps from 50).
-    conf = [_label_of(l) for l in lines if _kind_of(l) == "selectbox"
-            and "Confidence (pick_prob" in _label_of(l)]
-    if not conf:
-        failures.append(f"{sport}: no confidence selectbox rendered")
-    else:
-        match = re.search(r"opts=(\[.*?\])", conf[0])
-        opts = None
-        if match:
-            try:
-                # AppTest may hand the options back as ints or strings.
-                opts = [int(x) for x in ast.literal_eval(match.group(1))]
-            except (ValueError, SyntaxError):
-                opts = None
-        if opts != CONFIDENCE_LADDER:
-            failures.append(f"{sport}: confidence ladder {opts} != MLB's "
-                            f"{CONFIDENCE_LADDER}")
+    # Totals-calibration fixed-line selector (2026-10-22: all four sports
+    # grade EVERY decided game at the selected total U — the run-line card's
+    # analogue — so the confidence ladder is gone by design).
+    tot_line = [_label_of(l) for l in lines if _kind_of(l) == "selectbox"
+                and "Line (total U)" in _label_of(l)]
+    if not tot_line:
+        failures.append(f"{sport}: no totals line selectbox rendered")
 
     for line in lines:
         if "RAW ARTIFACT DUMP" in line:
@@ -336,7 +326,7 @@ def main() -> int:
     else:
         print("PARITY CONTRACT: PASS — all four pages satisfy MLB's section, "
               "tab, expander, widget, winner-card, model-card, rolling-"
-              "history and confidence-ladder contract")
+              "history and fixed-line-totals contract")
     return 1 if (failures and args.strict) else 0
 
 

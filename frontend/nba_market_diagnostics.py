@@ -92,6 +92,12 @@ OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 
 # Monitor-card contracts (MLB's).
 TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
+# Fixed-line totals calibration choices — the run-line card's analogue: every
+# decided game is graded at the SELECTED total U (not at its own fair line),
+# so the card shows all games at each cut. Nine rungs around the ~226 mean,
+# mixing whole lines (push-capable) with a half line (never pushes).
+TOTALS_LINE_CHOICES = [210.0, 215.0, 220.0, 225.0, 225.5, 230.0, 235.0,
+                       240.0, 245.0]
 WINNER_CARDS = (
     ("over_under", "Over/Under",
      "Pick Over if P(over the game's line) > 50%, else Under"),
@@ -1437,6 +1443,71 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: int = 50,
     if side == "All":
         out["sides"] = {s: _side_block(view[view["pick"] == s])
                         for s in ("Over", "Under")}
+    return out
+
+
+def totals_line_monitor_stats(decided: pd.DataFrame, line: float,
+                              side: str = "All") -> dict:
+    """Fixed-line totals calibration: grade EVERY decided game at total U.
+
+    The run-line card's analogue — at the selected line U each game's 2-way
+    P(over) = p_over_U / (p_over_U + p_under_U) picks its favored side
+    (Over when >= 0.5, ties to Over — MLB's rule; pick_prob is that side's
+    probability, always >= 50%), and the grade is winner == pick with
+    whole-line pushes (total == U) folded out of both. Half lines never
+    push. Model predicted (mean favored 2-way P over scored rows) and Win
+    rate are on the SAME scored basis, so a whole-line card is never read
+    as a large under-prediction. ``side`` filters by PICKED side.
+    """
+    s = (str(side) or "All").strip()
+    if decided is None or not len(decided):
+        return _empty_card()
+    try:
+        u = float(line)
+    except (TypeError, ValueError):
+        return _empty_card()
+    over_col, under_col = grid_over_under_cols(u)
+    if over_col not in decided.columns or under_col not in decided.columns:
+        return _empty_card()
+    po = pd.to_numeric(decided[over_col], errors="coerce").to_numpy(float)
+    pu = pd.to_numeric(decided[under_col], errors="coerce").to_numpy(float)
+    total = pd.to_numeric(decided.get("total"), errors="coerce")
+    if total is None:
+        return _empty_card()
+    if total.isna().all() and {"home_score", "away_score"}.issubset(
+            decided.columns):
+        hs = pd.to_numeric(decided["home_score"], errors="coerce")
+        a_s = pd.to_numeric(decided["away_score"], errors="coerce")
+        total = hs + a_s
+    total = total.to_numpy(float)
+    denom = po + pu
+    valid = (np.isfinite(po) & np.isfinite(pu) & np.isfinite(total)
+             & (denom > 0))
+    rows: list[dict] = []
+    for i in range(len(decided)):
+        if not valid[i]:
+            continue
+        p2 = float(po[i] / denom[i])
+        over = p2 >= 0.5
+        pick = "Over" if over else "Under"
+        if s != "All" and pick != s:
+            continue
+        pick_prob = p2 if over else 1.0 - p2
+        if total[i] == u:
+            rows.append({"pick": pick, "pick_prob": pick_prob,
+                         "winner": "Push", "correct": np.nan})
+        else:
+            winner = "Over" if total[i] > u else "Under"
+            rows.append({"pick": pick, "pick_prob": pick_prob,
+                         "winner": winner, "correct": bool(winner == pick)})
+    if not rows:
+        return _empty_card()
+    vdf = pd.DataFrame(rows)
+    out = _roll_up_favorite(vdf)
+    out["sides"] = {name: _side_block(vdf[vdf["pick"] == name])
+                    for name in ("Over", "Under")}
+    out["line"] = u
+    out["side"] = s
     return out
 
 

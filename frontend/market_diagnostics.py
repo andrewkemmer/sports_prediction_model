@@ -1667,6 +1667,10 @@ RUN_LINE_CHOICES = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4.0]
 # side with P > 50%, so 40/45 were no-ops (every pick qualified) and 55+
 # was empty; 1-point steps show the population fall-off vs confidence.
 TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
+# Fixed-line totals calibration choices — the run-line card's analogue: every
+# decided game is graded at the SELECTED total U (not at its own fair line),
+# so the card shows all games at each cut. The full priced grid (all halves).
+TOTALS_LINE_CHOICES = list(TOTAL_GRID)
 
 
 def map_run_line_zero(line: float) -> float:
@@ -1866,6 +1870,90 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: int = 50,
             out["sides"][s] = {"n": st["n_games"],
                                "win_rate": st["win_rate"],
                                "n_pushes": st["n_pushes"]}
+    return out
+
+
+def totals_line_monitor_stats(decided: pd.DataFrame, line: float,
+                              side: str = "All") -> dict:
+    """Fixed-line totals calibration: grade EVERY decided game at total U.
+
+    The run-line card's analogue — at the selected line U each game's 2-way
+    P(over) = p_over_U / (p_over_U + p_under_U) picks its favored side
+    (Over when >= 0.5, ties to Over; pick_prob is that side's probability,
+    always >= 50%), and the grade is winner == pick with whole-line pushes
+    (total == U) folded out of both. Half lines never push. Model predicted
+    (mean favored 2-way P over scored rows) and Win rate are on the SAME
+    scored basis, so a whole-line card is never read as a large
+    under-prediction. ``side`` filters by PICKED side.
+    """
+    s = (str(side) or "All").strip()
+    empty = {"n": 0, "win_rate": None, "n_wins": 0, "n_losses": 0,
+             "n_pushes": 0, "predicted_2way": None, "side": s,
+             "line": line, "sides": {}}
+    if decided is None or not len(decided):
+        return empty
+    try:
+        u = float(line)
+    except (TypeError, ValueError):
+        return empty
+    over_col, under_col = grid_over_under_cols(u)
+    if over_col not in decided.columns or under_col not in decided.columns:
+        return empty
+    po = pd.to_numeric(decided[over_col], errors="coerce").to_numpy(float)
+    pu = pd.to_numeric(decided[under_col], errors="coerce").to_numpy(float)
+    if "total_runs" in decided.columns:
+        tot = pd.to_numeric(decided["total_runs"], errors="coerce"
+                            ).to_numpy(float)
+    elif "total" in decided.columns:
+        tot = pd.to_numeric(decided["total"], errors="coerce").to_numpy(float)
+    elif {"home_score", "away_score"}.issubset(decided.columns):
+        tot = (pd.to_numeric(decided["home_score"], errors="coerce").to_numpy(float)
+               + pd.to_numeric(decided["away_score"], errors="coerce").to_numpy(float))
+    else:
+        return empty
+    denom = po + pu
+    valid = (np.isfinite(po) & np.isfinite(pu) & np.isfinite(tot)
+             & (denom > 0))
+    n_wins = n_losses = n_pushes = 0
+    p2_sum = 0.0
+    n_scored = 0
+    sides = {"Over": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+                       "win_rate": None},
+             "Under": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+                        "win_rate": None}}
+    for i in range(len(decided)):
+        if not valid[i]:
+            continue
+        p2 = float(po[i] / denom[i])
+        pick_over = p2 >= 0.5
+        pick = "Over" if pick_over else "Under"
+        if s != "All" and pick != s:
+            continue
+        fav = p2 if pick_over else 1.0 - p2
+        if tot[i] == u:
+            n_pushes += 1
+            sides[pick]["n_pushes"] += 1
+            continue
+        won = pick_over == (tot[i] > u)
+        n_wins += won
+        n_losses += (not won)
+        p2_sum += fav
+        n_scored += 1
+        sides[pick]["n_wins"] += won
+        sides[pick]["n_losses"] += (not won)
+    n = n_wins + n_losses
+    out = {"n": n, "win_rate": (round(n_wins / n, 6) if n else None),
+           "n_wins": int(n_wins), "n_losses": int(n_losses),
+           "n_pushes": int(n_pushes),
+           "predicted_2way": (round(p2_sum / n_scored, 6)
+                               if n_scored else None),
+           "side": s, "line": u, "sides": {}}
+    for name, sd in sides.items():
+        sw, sl = sd["n_wins"], sd["n_losses"]
+        out["sides"][name] = {
+            "n": sw + sl,
+            "win_rate": (round(sw / (sw + sl), 6) if (sw + sl) else None),
+            "n_pushes": sd["n_pushes"]}
     return out
 
 
