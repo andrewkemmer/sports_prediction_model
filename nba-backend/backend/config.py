@@ -554,6 +554,39 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # 2026-10-03 trial28 adoption this replaces (whose min tune delta, +11.7,
 # was likewise inside its floor). Its space also searched
 # feature_fraction_bynode (used at 0.3885).
+#
+# FULL FROM-SCRATCH RETUNE 2026-10-21 (owner directive: every hyperparameter
+# and tuning option considered from scratch for xgboost and lightgbm,
+# machine-neutral num_threads=1 on every fit). Harness
+# nba-backend/backend/scratch/nba_ml_tune.py (untracked, never commit):
+# frame rebuilt from the warm cache + a 2-day ESPN schedule refresh and
+# verified production-identical (85 folds, 3944 rows, 71 features, val
+# 2023-11-25..2026-10-20, train 230..3937, 3714 val games - EXACT vs the
+# shipped summary); member-only OOF fast path proven bit-identical to
+# production (max|diff|=0.0) and deterministic; noise floor first (xgb
+# 18.0 bps tune / 104.2 sealed, lgbm 8.2 / 138.0, seeds 42-46); 30-trial
+# TPE screen per member on folds[:-4] seed 42; top-3 verified paired vs
+# the incumbent re-run at the same seed, seeds 42/43/44, tune + sealed;
+# served-blend gate as a full 3-member walk_forward_oof with every member
+# pinned to 1 thread in both arms. Threading note: xgboost 3.x's sklearn
+# API ignores the native num_threads key, so its pin is n_jobs=1 (native
+# nthread) - one thread per fit either way; the first xgb screen ran
+# unpinned and was discarded and rerun clean.
+#
+# XGBoost REJECTED at the served gate. trial22 (depthwise, max_depth 2,
+# min_child_weight 19.72, gamma 0.551, subsample 0.668, colsample_bytree
+# 0.831, colsample_bylevel 0.444, lr 0.01844, reg_lambda 3.732, reg_alpha
+# 1.735, max_bin 847) was the only finalist winning paired on every seed
+# on both populations (tune -9.3/-19.6/-20.7 bps, sealed
+# -181.7/-45.5/-24.7 bps), but the served blend moved the wrong way:
+# calibrated logloss 0.60197 -> 0.60204 (+0.7 bps), Brier +0.3 bps, xgb
+# weight still exactly 0.0 - the 2026-10-04 trial27 precedent verbatim.
+# (The local incumbent serve reproduces the shipped run: weights
+# 0.9162/0.0838/0.0 and n=3369 exact, logloss within 0.4 bps.)
+# LightGBM REJECTED at the pairing gate: the screen-best (+15.7 bps)
+# and both other finalists lost tune on a majority of seeds (up to +34.3
+# bps, t +2.88) - the screen edge reversed under pairing, the 09-29/10-03
+# pattern. Both members' params stand.
 LIGHTGBM_PARAMS = {
     # 2026-10-04 from-scratch winner (scratch/nba_tune.py, stage "verify"):
     # supersedes the 2026-10-03 trial28, which beat 2026-10-01 the same way.
