@@ -2069,6 +2069,27 @@ class TestCardPresentationFields:
         assert not src.is_postponed_detail("7:30 PM ET")
         assert not src.is_postponed_detail("")
 
+    def test_an_underway_game_is_recognised_by_state_or_detail(self):
+        """The 2026-10-22 remote delivery scored three 10pm-ET games as
+        pre-game predictions while they were mid-3rd-quarter: the feed knew
+        ("8:33 - 3rd Quarter") but nothing read it."""
+        assert src.is_underway("in", "8:33 - 3rd Quarter")
+        assert src.is_underway("in", "")
+        assert src.is_underway(None, "7:11 - 3rd Quarter")
+        assert src.is_underway(None, "Halftime")
+        assert src.is_underway("", "End of 3rd Quarter")
+        # A finished game whose final has not posted yet is delayed, not
+        # underway, and stays out of neither frame by this predicate.
+        assert not src.is_underway("post", "")
+        assert not src.is_underway("pre", "7:30 PM ET")
+        assert not src.is_underway("pre", "8:33 - 3rd Quarter")
+        assert not src.is_underway("post", "Final")
+        assert not src.is_underway(None, "Final/OT")
+        assert not src.is_underway(None, "Postponed")
+        assert not src.is_underway("pre", "Delayed")
+        assert not src.is_underway(None, "7:30 PM ET")
+        assert not src.is_underway(None, "")
+
     def test_serving_refuses_to_invent_a_tipoff(self):
         """Mirrors the NHL rule: a date with no time is not a tipoff."""
         import serving
@@ -2088,6 +2109,37 @@ class TestCardPresentationFields:
         record = serving.write_moneyline_json(tmp_path / "m.json", slate,
                                               [0.6], [0.6])
         assert record["games"][0]["game_status"] == "Postponed"
+
+    def test_an_underway_game_is_labelled_live_on_the_card(self, tmp_path):
+        """A mid-game row must never render a PRE-GAME pill: the 2026-10-22
+        delivery shipped "Scheduled" cards with "8:33 - 3rd Quarter" in
+        the detail. The frontend already renders a LIVE pill for this."""
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-21"),
+            "home_team": "LAL", "away_team": "GSW",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_state": "in",
+            "game_status_detail": "8:33 - 3rd Quarter"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Live"
+
+    def test_an_underway_game_without_state_is_still_labelled_live(
+            self, tmp_path):
+        """Older caches predate the ``game_state`` column; the detail text
+        alone has to carry the label."""
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-21"),
+            "home_team": "POR", "away_team": "PHX",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_status_detail": "7:11 - 3rd Quarter"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Live"
 
     def test_an_unplayed_game_with_no_detail_is_still_scheduled(self, tmp_path):
         import serving
@@ -2205,6 +2257,44 @@ class TestCardPresentationFields:
             "game_type": config.GAME_TYPE_REG,
             "game_status_detail": "7:30 PM ET"}])
         assert len(feat.build_slate_features(games)) == 1
+
+    def test_an_underway_game_is_not_offered_as_upcoming(self):
+        """A game already in progress is neither decided nor upcoming.
+        Reproduces the 2026-10-22 delivery: three live Oct-21 games plus
+        two genuine Oct-22 games must slate to the two, not the five."""
+        games = pd.DataFrame([
+            {"game_id": "401909092", "gameday": pd.Timestamp("2026-10-21"),
+             "home_team": "LAL", "away_team": "GSW", "season": 2026,
+             "home_score": np.nan, "away_score": np.nan,
+             "game_type": config.GAME_TYPE_REG,
+             "game_state": "in",
+             "game_status_detail": "8:33 - 3rd Quarter"},
+            {"game_id": "401909841", "gameday": pd.Timestamp("2026-10-21"),
+             "home_team": "POR", "away_team": "PHX", "season": 2026,
+             "home_score": np.nan, "away_score": np.nan,
+             "game_type": config.GAME_TYPE_REG,
+             "game_state": "in",
+             "game_status_detail": "7:11 - 3rd Quarter"},
+            {"game_id": "401909093", "gameday": pd.Timestamp("2026-10-22"),
+             "home_team": "PHI", "away_team": "CLE", "season": 2026,
+             "home_score": np.nan, "away_score": np.nan,
+             "game_type": config.GAME_TYPE_REG,
+             "game_state": "pre",
+             "game_status_detail": "7:00 PM ET"},
+        ])
+        slate = feat.build_slate_features(games)
+        assert sorted(slate.game_id.astype(str)) == ["401909093"]
+
+    def test_an_underway_game_without_state_is_still_not_offered(self):
+        """Older caches predate the ``game_state`` column; the detail text
+        alone has to exclude the row."""
+        games = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-21"),
+            "home_team": "LAC", "away_team": "SAC", "season": 2026,
+            "home_score": np.nan, "away_score": np.nan,
+            "game_type": config.GAME_TYPE_REG,
+            "game_status_detail": "4:12 - 4th Quarter"}])
+        assert feat.build_slate_features(games).empty
 
 
 class TestSixtyDaySlices:

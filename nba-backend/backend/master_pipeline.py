@@ -1273,6 +1273,35 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
             logger.info("excluding %d postponed game(s) from the slate: %s",
                         len(ids), shown)
             pending = pending[~postponed].copy()
+    # The slate is "games with no result yet", and a game already underway
+    # has no result *because it is being played right now*. Scoring it mints
+    # a pre-game prediction mid-game, and a run that sweeps a late-evening
+    # slate re-prices finished games into the next day's delivery under a
+    # stale slate_date (2026-10-22 remote review: three 10pm-ET games
+    # entered the slate at "8:33 - 3rd Quarter" and shipped as Scheduled
+    # cards). The same rule as ``build_slate_features``, and deliberately
+    # so: the count this line reports and the rows that get written have
+    # to agree.
+    if len(pending):
+        _uw_state = (pending["game_state"]
+                      if "game_state" in pending.columns else None)
+        _uw_detail = (pending["game_status_detail"].astype(str)
+                       if "game_status_detail" in pending.columns else None)
+        if _uw_detail is not None:
+            _uw_states = (_uw_state if _uw_state is not None
+                           else [None] * len(pending))
+            underway = pd.Series(
+                [ingestion.sources.is_underway(s, d)
+                 for s, d in zip(_uw_states, _uw_detail)],
+                index=pending.index)
+            if underway.any():
+                ids = sorted(pending.loc[underway, "game_id"].astype(str))
+                shown = ", ".join(ids[:25])
+                if len(ids) > 25:
+                    shown += f" (+{len(ids) - 25} more)"
+                logger.info("excluding %d underway game(s) from the slate: %s",
+                            len(ids), shown)
+                pending = pending[~underway].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
 

@@ -586,6 +586,24 @@ def build_slate_features(schedule: pd.DataFrame,
         if postponed.any():
             sched = sched[~(sched.index.isin(pending.index[postponed]))].copy()
             pending = pending[~postponed].copy()
+    if len(pending):
+        # A game already underway is neither decided nor upcoming, and the
+        # same indistinguishability argument as postponements applies: left
+        # in ``pending`` it prices as a pre-game prediction while it is
+        # being played, and a run that sweeps a late-evening slate re-prices
+        # finished games into the next day's delivery under a stale
+        # slate_date (2026-10-22: three 10pm-ET games scored mid-3rd-quarter).
+        state = (pending["game_state"] if "game_state" in pending.columns
+                 else pd.Series([None] * len(pending), index=pending.index))
+        raw = (pending.game_status_detail.astype(str)
+               if "game_status_detail" in pending.columns
+               else pd.Series([""] * len(pending), index=pending.index))
+        underway = pd.Series(
+            [sources.is_underway(s, d) for s, d in zip(state, raw)],
+            index=pending.index)
+        if underway.any():
+            sched = sched[~(sched.index.isin(pending.index[underway]))].copy()
+            pending = pending[~underway].copy()
     if pending.empty:
         return pd.DataFrame()
     # One chronological engine for history and slate: season reversion and

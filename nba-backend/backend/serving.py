@@ -135,8 +135,14 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
             # labelling it either way misleads.  When ESPN reschedules it the
             # event keeps its id, moves to the new date and settles there, so it
             # reappears on the card for the day it is actually played.
+            # "Live" is the same honesty for a game already underway: the
+            # slate excludes those before they reach a card, but a stale or
+            # hand-built frame must never render a mid-game row as PRE-GAME.
+            # The frontend already renders a LIVE pill for this status.
             "game_status": ("Postponed" if postponed else
                             "Final" if final else
+                            "Live" if sources.is_underway(game.get("game_state"),
+                                                           detail) else
                             (game.get("game_status") or "Scheduled")),
             "game_status_detail": detail,
             "home_score": _clean(hs), "away_score": _clean(as_),

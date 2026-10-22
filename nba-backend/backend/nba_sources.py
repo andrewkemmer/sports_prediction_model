@@ -712,6 +712,49 @@ def is_postponed_detail(detail) -> bool:
     return any(word in text for word in POSTPONED_WORDS)
 
 
+#: Detail fragments ESPN reports while a game is underway but not final: a
+#: clock plus a quarter ("8:33 - 3rd Quarter"), the intermission
+#: ("Halftime"), or overtime. Matched against the lowercased detail, so
+#: the call sites never grow their own case handling.
+_UNDERWAY_RE = re.compile(
+    r"\b\d\s*(?:st|nd|rd|th)\s*quarter\b|halftime|\bot\b|\bend of\b")
+
+
+def is_underway_detail(detail) -> bool:
+    """Whether an ESPN status detail describes a game already in progress.
+
+    A ``Final`` (including ``Final/OT``) is never underway no matter what
+    else the text carries: a finished game belongs to the decided frame,
+    not the slate, and the score-presence split already routes it there.
+    Anything without a tipoff-clock shape ("7:30 PM ET", "", a
+    postponement word) is not underway either - that verdict belongs to
+    the postponed predicate and the pre-game default.
+    """
+    text = str(detail or "").lower()
+    if "final" in text:
+        return False
+    return bool(_UNDERWAY_RE.search(text))
+
+
+def is_underway(game_state, detail="") -> bool:
+    """Whether a schedule row describes a game already in progress.
+
+    The ``game_state`` column (ESPN ``status.type.state``) is exact when
+    present - ``"in"`` is the league's own underway flag - and the detail
+    text above is the fallback for rows whose state is missing or
+    unrecognised (older caches predate the column). A ``pre``/``post``
+    state is trusted over the text: a finished game whose final has not
+    been posted yet is delayed, not underway, and stays out of neither
+    frame by this predicate's hand.
+    """
+    state = str(game_state or "").strip().lower()
+    if state == "in":
+        return True
+    if state in ("pre", "post"):
+        return False
+    return is_underway_detail(detail)
+
+
 def _utc_iso(stamp) -> str:
     """A UTC instant as ``...Z``, or "" when there is no instant to report.
 
