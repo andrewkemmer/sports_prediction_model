@@ -1121,104 +1121,115 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
         """One (p, y) row per graded game. ``graded=False`` skips the
         home-lean gate and returns the FULL population — the pool AUC must
         be ranked over (see ``_attach_full_pool_auc``); calibration
-        metrics keep using the gated default."""
-        rows: list[dict] = []
-        for _, r in df.iterrows():
-            if kind == "over_under":
-                po = r.get("p_over_fair")
-                U = r.get("fair_total")
-                tot = r.get("total")
-                try:
-                    po, U, tot = float(po), float(U), float(tot)
-                except (TypeError, ValueError):
+        metrics keep using the gated default.
+
+        Vectorized over the frame (2026-10-22 run-log review): the
+        per-row ``iterrows`` loop re-ran ~4k Python iterations per call
+        and is invoked up to 4x per card (full + sealed + full-pool
+        re-points). Same predicates and same float expressions, grouped
+        by the row's own fair line so each grid column is read once —
+        the emitted (p, y) pairs are identical, only the loop is gone.
+        """
+        _empty = pd.DataFrame({"p": [], "y": []})
+        if df is None or not len(df):
+            return _empty
+
+        def _num(col: str) -> np.ndarray | None:
+            if col not in df.columns:
+                return None
+            return pd.to_numeric(df[col], errors="coerce").to_numpy(float)
+
+        if kind == "over_under":
+            po = _num("p_over_fair")
+            U = _num("fair_total")
+            tot = _num("total")
+            if po is None or U is None or tot is None:
+                return _empty
+            ok = np.isfinite(U) & np.isfinite(tot)
+            # Row's own fair line, clipped to the grid (banker's round on
+            # both sides, matching the loop's ``round()``).
+            with np.errstate(invalid="ignore"):
+                u_int = np.clip(np.round(U),
+                                float(config.TOTAL_GRID[0]),
+                                float(config.TOTAL_GRID[-1])).astype(int)
+            po_fix = np.full(len(df), np.nan)
+            for _u in np.unique(u_int[ok]):
+                col = _grid_col("p_over", int(_u))
+                if col not in df.columns:
                     continue
-                if not (np.isfinite(U) and np.isfinite(tot)):
+                _m = ok & (u_int == _u)
+                po_fix[_m] = pd.to_numeric(df[col],
+                                           errors="coerce").to_numpy(float)[_m]
+            use_fix = ok & ~np.isfinite(po)
+            po = np.where(use_fix, po_fix, po)
+            ok &= np.isfinite(po)
+            # Half-line fair (the NHL median ladder): no push can exist —
+            # the frontend prices Push = 0.0 here
+            # (nhl_slate_view.price_total), so the card quotes the model's
+            # own P(over). (2026-10-19: 56.2% predicted vs 50.8% actual.)
+            integral = U == np.floor(U)
+            pp = np.zeros(len(df))
+            for _u in np.unique(u_int[ok & integral]):
+                col = _grid_col("p_push_total", int(_u))
+                if col not in df.columns:
+                    # Missing/non-numeric push reads as NaN -> 0.0 below,
+                    # exactly like the loop's ``except: pp = nan``.
                     continue
-                u_int = int(np.clip(round(U), config.TOTAL_GRID[0],
-                                    config.TOTAL_GRID[-1]))
-                if not np.isfinite(po):
-                    po = r.get(_grid_col("p_over", u_int))
-                    try:
-                        po = float(po)
-                    except (TypeError, ValueError):
-                        continue
-                if not np.isfinite(po):
+                _m = ok & integral & (u_int == _u)
+                pp[_m] = pd.to_numeric(df[col],
+                                        errors="coerce").to_numpy(float)[_m]
+            pp = np.where(integral & np.isfinite(pp), pp, 0.0)
+            pu = 1.0 - po - pp
+            ok &= (po + pu) > 0
+            ok &= tot != U          # whole-line push — 2-way excluded
+            return pd.DataFrame({"p": po[ok] / (po[ok] + pu[ok]),
+                                 "y": (tot[ok] > U[ok]).astype(float)})
+        if kind == "run_line":
+            # HOME-side (2026-10-12): the HOME cover at the game's own
+            # fair spread. Only home-lean rows (2-way P > 50%) are graded.
+            fs, margin = _num("fair_spread"), _num("margin")
+            if fs is None or margin is None:
+                return _empty
+            ok = np.isfinite(fs) & np.isfinite(margin)
+            with np.errstate(invalid="ignore"):
+                mag = np.maximum(np.abs(fs), 0.5).astype(int)
+            m = np.where(fs < 0, -mag, mag)
+            cov = np.full(len(df), np.nan)
+            push = np.full(len(df), np.nan)
+            for _m in np.unique(m[ok]):
+                cc, pc = (_grid_col("p_home_cover", int(_m)),
+                          _grid_col("p_push", int(_m)))
+                if cc not in df.columns or pc not in df.columns:
+                    # A missing grid leg skipped the row (``float(None)``).
                     continue
-                if float(U) == float(int(U)):
-                    pp = r.get(_grid_col("p_push_total", u_int))
-                    try:
-                        pp = float(pp)
-                    except (TypeError, ValueError):
-                        pp = float("nan")
-                else:
-                    # Half-line fair (the NHL median ladder): no push can
-                    # exist — the frontend prices Push = 0.0 here
-                    # (nhl_slate_view.price_total), so the card quotes the
-                    # model's own P(over). Voiding the modal integer mass
-                    # as if refunded inflated pick confidence ~1.2x and
-                    # flipped marginal unders into losing overs
-                    # (2026-10-19: 56.2% predicted vs 50.8% actual).
-                    pp = 0.0
-                pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
-                if po + pu <= 0:
-                    continue
-                if tot == U:          # whole-line push — 2-way excluded
-                    continue
-                rows.append({"p": po / (po + pu), "y": float(tot > U)})
-            elif kind == "run_line":
-                # HOME-side (2026-10-12): the HOME cover at the game's own
-                # fair spread — ``fair_spread`` is the signed grid argmin
-                # |P(home cover) - 0.5| (the step closest to a coin flip,
-                # positive = home favored). Only home-lean rows (2-way P >
-                # 50%) are graded; no-lean rows and whole-line pushes
-                # (margin == line) are excluded — the binary moneyline KPI
-                # population, home orientation.
-                fs, margin = r.get("fair_spread"), r.get("margin")
-                try:
-                    fs, margin = float(fs), float(margin)
-                except (TypeError, ValueError):
-                    continue
-                if not (np.isfinite(fs) and np.isfinite(margin)):
-                    continue
-                m = int(max(abs(fs), 0.5))
-                if fs < 0:
-                    m = -m
-                cov = r.get(_grid_col("p_home_cover", m))
-                push_p = r.get(_grid_col("p_push", m))
-                try:
-                    cov, push_p = float(cov), float(push_p)
-                except (TypeError, ValueError):
-                    continue
-                if not all(np.isfinite(v) for v in (cov, push_p)):
-                    continue
-                if cov < 0 or cov > 1 or push_p < 0:
-                    continue
-                away = 1.0 - cov - push_p
-                if not (cov + away) > 0:
-                    continue
-                if margin == m:        # whole-line push (home orientation)
-                    continue
+                _sel = ok & (m == _m)
+                cov[_sel] = pd.to_numeric(
+                    df[cc], errors="coerce").to_numpy(float)[_sel]
+                push[_sel] = pd.to_numeric(
+                    df[pc], errors="coerce").to_numpy(float)[_sel]
+            ok &= (np.isfinite(cov) & np.isfinite(push)
+                     & (cov >= 0) & (cov <= 1) & (push >= 0))
+            away = 1.0 - cov - push
+            with np.errstate(divide="ignore", invalid="ignore"):
                 p2 = cov / (cov + away)
-                if p2 <= 0.5 and graded:   # no home lean -> no pick
-                    continue
-                rows.append({"p": p2, "y": float(margin > m)})
-            else:  # derived_ml — HOME-side: the run engine's own HOME win
-                # probability at the +-0.5 dead cut (ties excluded). Only
-                # home-lean rows (P > 50%) are counted — no pick is made
-                # on the away side.
-                ml, margin = r.get("derived_ml"), r.get("margin")
-                try:
-                    ml, margin = float(ml), float(margin)
-                except (TypeError, ValueError):
-                    continue
-                if not (np.isfinite(ml) and np.isfinite(margin)):
-                    continue
-                if margin == 0:        # tie — dead mass at the +-0.5 cut
-                    continue
-                if ml <= 0.5 and graded:  # no home lean -> no pick
-                    continue
-                rows.append({"p": ml, "y": float(margin > 0)})
-        return pd.DataFrame(rows)
+            ok &= (cov + away) > 0
+            ok &= margin != m        # whole-line push (home orientation)
+            if graded:
+                ok &= p2 > 0.5       # no home lean -> no pick
+            return pd.DataFrame({"p": p2[ok],
+                                 "y": (margin[ok] > m[ok]).astype(float)})
+        # derived_ml — HOME-side: the run engine's own HOME win
+        # probability at the +-0.5 dead cut (ties excluded). Only
+        # home-lean rows (P > 50%) are counted — no pick is made
+        # on the away side.
+        ml, margin = _num("derived_ml"), _num("margin")
+        if ml is None or margin is None:
+            return _empty
+        ok = np.isfinite(ml) & np.isfinite(margin) & (margin != 0)
+        if graded:
+            ok &= ml > 0.5           # no home lean -> no pick
+        return pd.DataFrame({"p": ml[ok],
+                             "y": (margin[ok] > 0).astype(float)})
 
     def _build(kind: str, df: pd.DataFrame) -> dict:
         view = _pairs(kind, df)
@@ -1329,55 +1340,58 @@ def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
                            line: float) -> tuple[np.ndarray, np.ndarray]:
     """(y, p) for one market line, 2-way push-excluded — outcomes first,
     probabilities second (the caller contract; see the return-order note
-    at the bottom of this function)."""
-    ps: list[float] = []
-    ys: list[float] = []
-    for _, r in df.iterrows():
-        if line_kind == "over":
-            tot = r.get("total")
-            po = r.get(_grid_col("p_over", line))
-            pp = r.get(_grid_col("p_push_total", line))
-            try:
-                tot, po, pp = float(tot), float(po), float(pp)
-            except (TypeError, ValueError):
-                continue
-            if not (np.isfinite(tot) and np.isfinite(po)):
-                continue
-            pu = (1.0 - po - pp) if np.isfinite(pp) else (1.0 - po)
-            if po + pu <= 0:
-                continue
-            if tot == line:
-                continue
-            ps.append(po / (po + pu))
-            ys.append(float(tot > line))
-        elif line_kind == "spread":
-            margin = r.get("margin")
-            ph = r.get(_grid_col("p_home_cover", line))
-            pp = r.get(_grid_col("p_push", line))
-            try:
-                margin, ph, pp = float(margin), float(ph), float(pp)
-            except (TypeError, ValueError):
-                continue
-            if not (np.isfinite(margin) and np.isfinite(ph)):
-                continue
-            pa = (1.0 - ph - pp) if np.isfinite(pp) else (1.0 - ph)
-            if ph + pa <= 0:
-                continue
-            if margin == line:
-                continue
-            ps.append(ph / (ph + pa))
-            ys.append(float(margin > line))
-        else:  # derived moneyline — ties excluded, 2-way re-scaled
-            margin = r.get("margin")
-            ml = r.get("derived_ml")
-            try:
-                margin, ml = float(margin), float(ml)
-            except (TypeError, ValueError):
-                continue
-            if not (np.isfinite(margin) and np.isfinite(ml)) or margin == 0:
-                continue
-            ps.append(ml / (ml + (1.0 - ml)))
-            ys.append(float(margin > 0))
+    at the bottom of this function).
+
+    Vectorized over the frame (2026-10-22 run-log review): the per-row
+    ``iterrows`` + ``float()`` + per-row ``_grid_col`` loop re-ran ~5k
+    Python iterations per line (~100k across the full + holdout card set)
+    on the 4151-row OOF. Same predicates and same float expressions, so
+    the emitted (y, p) pairs are identical — only the loop is gone.
+    """
+    _empty = (np.empty(0, dtype=float), np.empty(0, dtype=float))
+    if df is None or not len(df):
+        return _empty
+
+    def _num(col: str) -> np.ndarray | None:
+        # ``float(x)`` on a missing/non-numeric cell raised and skipped the
+        # row; ``to_numeric(..., coerce)`` lands those cells on NaN, which
+        # the same finiteness gates below then exclude. A wholly absent
+        # column skipped EVERY row (``float(None)`` always raises), so it
+        # maps to None -> empty, exactly like the old loop.
+        if col not in df.columns:
+            return None
+        return pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+
+    if line_kind == "over":
+        tot, po = _num("total"), _num(_grid_col("p_over", line))
+        pp = _num(_grid_col("p_push_total", line))
+        if tot is None or po is None or pp is None:
+            return _empty
+        ok = np.isfinite(tot) & np.isfinite(po)
+        pu = np.where(np.isfinite(pp), 1.0 - po - pp, 1.0 - po)
+        ok &= (po + pu) > 0
+        ok &= tot != line
+        denom = po + pu
+        return (tot[ok] > line).astype(float), (po[ok] / denom[ok])
+    if line_kind == "spread":
+        margin, ph = _num("margin"), _num(_grid_col("p_home_cover", line))
+        pp = _num(_grid_col("p_push", line))
+        if margin is None or ph is None or pp is None:
+            return _empty
+        ok = np.isfinite(margin) & np.isfinite(ph)
+        pa = np.where(np.isfinite(pp), 1.0 - ph - pp, 1.0 - ph)
+        ok &= (ph + pa) > 0
+        ok &= margin != line
+        denom = ph + pa
+        return (margin[ok] > line).astype(float), (ph[ok] / denom[ok])
+    # derived moneyline — ties excluded, 2-way re-scaled
+    margin, ml = _num("margin"), _num("derived_ml")
+    if margin is None or ml is None:
+        return _empty
+    ok = np.isfinite(margin) & np.isfinite(ml) & (margin != 0)
+    # The re-scale is the identity up to 1ulp; keep the exact expression
+    # so the served probabilities are bit-identical to the loop version.
+    return (margin[ok] > 0).astype(float), (ml[ok] / (ml[ok] + (1.0 - ml[ok])))
     # Return order is (y, p) — outcomes first, model probabilities second —
     # the contract every _run_engine_market_metrics / write_markets_monitor
     # call site unpacks (NFL monitoring.py carries the same note for its

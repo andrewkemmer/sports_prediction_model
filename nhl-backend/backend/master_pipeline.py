@@ -748,6 +748,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
+    # Slate timer (2026-10-22 run-log review): the 2026-10-21 run logged
+    # nothing between the final refit and the slate pool build (~90s).
+    _t11 = time.monotonic()
     slate = feat_mod.build_slate_features(schedule, boxscores)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
@@ -756,6 +759,8 @@ def main(argv: list[str] | None = None) -> int:
                       if np.isfinite(p_home).any() else p_home)
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
         slate = dist_mod.apply_distribution(slate)
+        logger.info("slate build + predict + distribution: %d game(s) %.1fs",
+                    len(slate), time.monotonic() - _t11)
         slate["p_home_win"] = p_home_cal
         slate["p_away_win"] = 1.0 - p_home_cal
         slate["p_tie"] = slate["p_push_0"]
@@ -873,6 +878,12 @@ def main(argv: list[str] | None = None) -> int:
     if _inj_artifact:
         artifacts.append(_inj_artifact)
 
+    # Phase-12 section timers (2026-10-22 run-log review, mirroring the
+    # phase-5 timers): the 2026-10-21 run went silent for ~13 minutes
+    # between the injury-history write and the SHAP completion line, and
+    # nothing in the log says which writer owned the gap. Each silent
+    # section below reports its own elapsed time.
+    _t12 = time.monotonic()
     p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
     _write_power_rankings(p, game_df)
     artifacts.append(p.name)
@@ -882,6 +893,9 @@ def main(argv: list[str] | None = None) -> int:
     serve_mod.write_markets_csv(p, mp_path, oof_market_rows, slate, config_meta,
                                 mc_meta=_mc_meta, run_line_fit_check=_fit_check)
     artifacts.append(p.name)
+    logger.info("phase-12 writers: power-rankings + markets csv %.1fs",
+                time.monotonic() - _t12)
+    _t12 = time.monotonic()
 
     ml_ref: dict = {}
     if "p_ensemble" in oof_ml.columns and "home_win" in oof_ml.columns:
@@ -900,6 +914,9 @@ def main(argv: list[str] | None = None) -> int:
     monitoring.write_markets_monitor_json(p, date_c, oof_market_rows,
                                           config_meta, ml_reference=ml_ref)
     artifacts.append(p.name)
+    logger.info("phase-12 writers: monitor json %.1fs",
+                time.monotonic() - _t12)
+    _t12 = time.monotonic()
 
     # Training/diagnostic residue is NOT delivery (2026-09-30 retention
     # audit): the OOF member/distribution stores and the fold table are
@@ -916,6 +933,9 @@ def main(argv: list[str] | None = None) -> int:
     p = out_dir / config.FEATURE_JSON.format(date=date_c)
     _write_feature_json(p, cov, config_meta, fold_info)
     artifacts.append(p.name)
+    logger.info("phase-12 writers: oof stores + feature json %.1fs",
+                time.monotonic() - _t12)
+    _t12 = time.monotonic()
 
     # Per-game SHAP attributions for the current slate (display only).
     try:
@@ -929,7 +949,8 @@ def main(argv: list[str] | None = None) -> int:
             slate_serving = slate.copy()
             slate_serving["home_win_prob_model"] = p_home_cal
             n_shap = compute_nhl_shap_per_game(bundle_view, slate_serving, out_dir)
-            logger.info("SHAP attributions written: %d", n_shap)
+            logger.info("SHAP attributions written: %d (%.1fs)", n_shap,
+                        time.monotonic() - _t12)
     except Exception as exc:  # noqa: BLE001 — SHAP is display-only
         logger.warning("SHAP attribution pass skipped (non-fatal): %s", exc)
 

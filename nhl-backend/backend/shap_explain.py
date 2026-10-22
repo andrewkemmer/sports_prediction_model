@@ -18,6 +18,8 @@ Output: data_delivery/nhl_shap_game_<game_id>.csv (one file per slate game).
 from __future__ import annotations
 
 import logging
+import os
+import time
 import warnings
 from pathlib import Path
 
@@ -37,6 +39,25 @@ logger = logging.getLogger(__name__)
 
 TREE_MEMBERS = ("xgboost", "lightgbm")
 SHAP_GAME_PREFIX = config.SHAP_GAME_PREFIX
+
+
+def _shap_budget_s() -> float:
+    """Wall-clock budget for the whole SHAP pass (2026-10-22 remediation).
+
+    The 2026-10-21 remote run spent ~13 silent minutes between the injury
+    history write and the SHAP completion line for a 2-game slate — the
+    identical block took ~10s on 2026-10-05 with the same code path, so
+    the cost is host-level (CPU steal on the shared Kaggle host), not the
+    models. SHAP is display-only and every caller already tolerates its
+    absence (the frontend renders a 'no file' state), so a stalled pass
+    must degrade to missing files, never to a blown pipeline budget.
+    ``NHL_SHAP_BUDGET_S`` overrides the default for a run that needs more
+    (or 0/negative to skip the pass entirely with a loud log line).
+    """
+    try:
+        return float(os.environ.get("NHL_SHAP_BUDGET_S", "") or 300.0)
+    except (TypeError, ValueError):
+        return 300.0
 
 
 def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
@@ -61,11 +82,23 @@ def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
     if not models or not len(games):
         return 0
 
+    if _shap_budget_s() <= 0:
+        logger.warning("SHAP pass skipped: NHL_SHAP_BUDGET_S=%s (non-positive) "
+                        "— display-only attributions off for this run", 
+                        os.environ.get("NHL_SHAP_BUDGET_S", ""))
+        return 0
+    _deadline = time.monotonic() + _shap_budget_s()
+    written = 0
     # Explainers built ONCE per tree member (the MLB pattern). Feature
     # columns come from the full games frame via the shared member_matrix
     # builder — the exact matrix the members consume at predict time.
     explainers: dict[str, object] = {}
     for name in TREE_MEMBERS:
+        if time.monotonic() > _deadline:
+            logger.warning("SHAP pass ran out of budget (%.0fs) during "
+                            "explainer init — %d game(s) unattributed",
+                            _shap_budget_s(), len(games))
+            return written
         model = models.get(name)
         if model is None:
             continue
@@ -85,8 +118,13 @@ def compute_nhl_shap_per_game(bundle: dict, games: pd.DataFrame,
         return 0
     feature_cols = list(ml_mod.member_matrix("xgboost", games).columns)
 
-    written = 0
     for idx, row in games.iterrows():
+        if time.monotonic() > _deadline:
+            logger.warning("SHAP pass ran out of budget (%.0fs) — "
+                            "attributed %d of %d slate game(s), the rest "
+                            "keep the frontend 'no file' state",
+                            _shap_budget_s(), written, len(games))
+            break
         one = games.loc[[idx]]
         per_member = []
         for name, ex in explainers.items():
