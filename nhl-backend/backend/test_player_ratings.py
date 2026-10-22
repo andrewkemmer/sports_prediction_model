@@ -623,3 +623,130 @@ class TestLatestRatings:
 
     def test_empty_is_safe(self):
         assert len(pr.latest_ratings(pd.DataFrame())) == 0
+
+
+# ---------------------------------------------------------------------------
+# Rating metric arm (xg default, xpm gated)
+# ---------------------------------------------------------------------------
+def make_xpm_games(rows):
+    """rows: (player_id, date, situation, position, onice_for, onice_against,
+    ice_seconds). The xg column is deliberately 0.0: under metric='xpm' the
+    engine must read the on-ice pair and never the individual column."""
+    return pd.DataFrame([
+        {
+            "player_id": str(p), "player_name": f"P{p}", "team": "T",
+            "game_date": pd.Timestamp(dt), "game_id": f"G{p}_{dt}_{s}",
+            "position": pos, "situation": s, "season": pd.Timestamp(dt).year,
+            "xg": 0.0, "ice_seconds": float(ice),
+            "onice_for": float(of), "onice_against": float(oa),
+        }
+        for p, dt, s, pos, of, oa, ice in rows
+    ])
+
+
+class TestMetricArm:
+    def test_invalid_metric_raises_in_prepare_and_build(self):
+        games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0)])
+        with pytest.raises(ValueError):
+            pr.prepare_player_games(games, id_col="player_id", metric="bogus")
+        with pytest.raises(ValueError):
+            pr.build_player_ratings(games, id_col="player_id", metric="bogus")
+
+    def test_default_metric_ignores_onice_columns(self):
+        """The shipped path is byte-identical with the pair present.
+
+        Garbage on-ice values must not move any number while metric='xg' is
+        the default — otherwise adding the ingestion columns would silently
+        re-rate production before the gate adopts xpm.
+        """
+        games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0),
+                            ("1", "2024-04-21", EVO, "C", 20.0, 1000.0)])
+        plain, _ = pr.build_player_ratings(games, id_col="player_id")
+        with_pair = games.assign(onice_for=999.0, onice_against=999.0)
+        gated, audit = pr.build_player_ratings(with_pair, id_col="player_id")
+        assert audit["metric"] == "xg"
+        assert gated["prior_xg"].tolist() == plain["prior_xg"].tolist()
+        assert np.allclose(gated["final_rate_per60"].astype(float),
+                           plain["final_rate_per60"].astype(float),
+                           equal_nan=True)
+
+    def test_xpm_value_is_the_onice_differential(self):
+        games = make_xpm_games([("1", "2024-04-20", EVO, "C", 1.5, 4.5, 1000.0)])
+        prepared, audit = pr.prepare_player_games(
+            games, id_col="player_id", metric="xpm")
+        assert audit["metric"] == "xpm"
+        assert prepared["xg"].iloc[0] == pytest.approx(1.5 - 4.5)
+
+    def test_xpm_missing_onice_pair_drops_rows_loudly(self):
+        """No on-ice feed reads as no ratings, never as zeros.
+
+        A zero differential is a measured claim that the player's shifts
+        broke even; an absent column is unknown and must empty the frame
+        through the counted bad-values gate.
+        """
+        games = make_games([("1", "2024-04-20", EVO, "C", 10.0, 1000.0)])
+        prepared, audit = pr.prepare_player_games(
+            games, id_col="player_id", metric="xpm")
+        assert len(prepared) == 0
+        assert audit["dropped_bad_values"] == 1
+        ratings, _ = pr.build_player_ratings(
+            games, id_col="player_id", metric="xpm")
+        assert len(ratings) == 0
+
+    def test_signed_prior_gate_keeps_negative_observed(self):
+        """The unsigned positivity gate would erase losing-team evidence.
+
+        Day one is out-chanced (-3.0 xG on 1000 s = -10.8/60). The signed
+        prior for day two keeps it; the default gate reads it as no evidence.
+        """
+        games = make_xpm_games([
+            ("1", "2024-04-20", EVO, "C", 1.0, 4.0, 1000.0),
+            ("1", "2024-04-21", EVO, "C", 2.0, 2.0, 1000.0),
+        ])
+        prepared, _ = pr.prepare_player_games(
+            games, id_col="player_id", metric="xpm")
+        signed = pr.league_prior_table(prepared, signed=True)
+        unsigned = pr.league_prior_table(prepared)
+        got_signed = signed.set_index("game_date")["league_rate_per60"]
+        got_unsigned = unsigned.set_index("game_date")["league_rate_per60"]
+        assert got_signed[pd.Timestamp("2024-04-21")] == pytest.approx(-10.8)
+        assert pd.isna(got_unsigned[pd.Timestamp("2024-04-21")])
+
+    def test_losing_player_rating_flips_negative(self):
+        """End to end: out-chanced every game -> negative served rate.
+
+        One skater, two seasons (prior season supplies k = 0.2 * 8000 s and
+        the -1.35/60 league prior). The second-season trailing rate is
+        (-6.0 xG on 16,000 s) shrunk toward the -1.35 prior — hand-computable
+        at exactly -1.35/60, and crucially below zero, which individual xG
+        can never produce.
+        """
+        games = make_xpm_games([
+            ("1", "2023-04-20", EVO, "C", 1.0, 4.0, 8000.0),
+            ("1", "2024-04-20", EVO, "C", 2.0, 5.0, 8000.0),
+        ])
+        ratings, audit = pr.build_player_ratings(
+            games, id_col="player_id", metric="xpm")
+        assert audit["metric"] == "xpm"
+        first = ratings[ratings["game_date"] == pd.Timestamp("2023-04-20")]
+        assert first["final_rate_per60"].isna().all()  # no history yet
+        second = ratings[ratings["game_date"] == pd.Timestamp("2024-04-20")]
+        assert second["final_rate_per60"].notna().all()
+        assert second["final_rate_per60"].iloc[0] == pytest.approx(-1.35)
+        assert (second["final_rate_per60"] < 0).all()
+
+    def test_measured_zero_stays_zero_not_unknown(self):
+        """Even shifts are evidence of averageness, not of missing data.
+
+        A 0.0 differential on real ice must serve 0.0 — the value a pool mean
+        needs from a break-even player — rather than falling back to NaN.
+        """
+        games = make_xpm_games([
+            ("1", "2023-04-20", EVO, "C", 2.0, 2.0, 8000.0),
+            ("1", "2024-04-20", EVO, "C", 2.0, 2.0, 8000.0),
+        ])
+        ratings, _ = pr.build_player_ratings(
+            games, id_col="player_id", metric="xpm")
+        second = ratings[ratings["game_date"] == pd.Timestamp("2024-04-20")]
+        assert second["final_rate_per60"].notna().all()
+        assert second["final_rate_per60"].iloc[0] == pytest.approx(0.0)

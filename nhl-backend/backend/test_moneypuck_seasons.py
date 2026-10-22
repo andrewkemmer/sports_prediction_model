@@ -97,15 +97,21 @@ def _zip_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue()
 
 
+# Mirrors ingestion.load_moneypuck_player_games' keep-list (v3 adds the on-ice
+# expected-goals pair behind the gated NHL_PLAYER_METRIC=xpm arm — verified
+# against the live 2026 archive header). Doubles missing a kept column fail
+# the loader's cache-column check, exactly as a stale production cache does.
 REQUIRED = ["playerId", "name", "gameId", "season", "playerTeam", "gameDate",
-            "position", "situation", "icetime", "I_F_xGoals"]
+            "position", "situation", "icetime", "I_F_xGoals",
+            "OnIce_F_xGoals", "OnIce_A_xGoals"]
 
 
 def _row(season: int, day: str) -> dict:
     return {"playerId": "8474141", "name": "Patrick Kane",
             "gameId": f"{season}020001", "season": season, "playerTeam": "CHI",
             "gameDate": day.replace("-", ""), "position": "R",
-            "situation": "5on5", "icetime": 600.0, "I_F_xGoals": 0.25}
+            "situation": "5on5", "icetime": 600.0, "I_F_xGoals": 0.25,
+            "OnIce_F_xGoals": 0.30, "OnIce_A_xGoals": 0.20}
 
 
 class TestLiveSeasonCache:

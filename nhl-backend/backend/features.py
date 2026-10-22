@@ -1473,10 +1473,21 @@ def _load_team_rosters(grid: pd.DataFrame | None) -> pd.DataFrame | None:
 
 
 def _load_player_ratings() -> pd.DataFrame:
-    """MoneyPuck skater game logs -> trailing, shrunk EVO/PPO ratings."""
+    """MoneyPuck skater game logs -> trailing, shrunk EVO/PPO ratings.
+
+    The rated value follows ``player_ratings.NHL_PLAYER_METRIC`` (``'xg'``
+    shipped default, ``'xpm'`` gated): the on-ice expected-goals pair is
+    fetched only when the gate is on (v3 cache filenames), so the shipped
+    arm never pays the multi-GB re-pull that pair would otherwise force.
+    """
     try:
+        # The on-ice pair (and its v3 cache filenames) is fetched only
+        # behind the gated xpm arm. The shipped xg path keeps the v2 cache
+        # and never forces the multi-GB historical re-download — the silent
+        # window that reads as a hang on the injury step of a cold run.
         games = ingestion.load_moneypuck_player_games(
-            seasons=list(config.player_rating_seasons()), use_cache=True)
+            seasons=list(config.player_rating_seasons()), use_cache=True,
+            require_onice=(_pr.NHL_PLAYER_METRIC == _pr.METRIC_XPM))
     except Exception as exc:  # noqa: BLE001
         logger.warning("player ratings unavailable (%s); pool columns use "
                        "position priors", exc)
@@ -1497,9 +1508,18 @@ def _load_player_ratings() -> pd.DataFrame:
             games.gameDate.astype(str), format="%Y%m%d", errors="coerce"),
         "xg": pd.to_numeric(games["I_F_xGoals"], errors="coerce"),
         "ice_seconds": pd.to_numeric(games.icetime, errors="coerce"),
+        # Guarded: offline stubs and hand-built frames may carry no on-ice
+        # pair. Under the shipped 'xg' metric prepare ignores these entirely;
+        # under 'xpm' a missing pair drops rows through the bad-values gate
+        # (audited), never silently zeroes them.
+        "onice_for": pd.to_numeric(games["OnIce_F_xGoals"], errors="coerce")
+        if "OnIce_F_xGoals" in games.columns else np.nan,
+        "onice_against": pd.to_numeric(games["OnIce_A_xGoals"], errors="coerce")
+        if "OnIce_A_xGoals" in games.columns else np.nan,
     })
     ratings, audit = _pr.build_player_ratings(
-        frame, id_col="player_id", window=config.PLAYER_RATING_PRIOR_ROWS)
+        frame, id_col="player_id", window=config.PLAYER_RATING_PRIOR_ROWS,
+        metric=_pr.NHL_PLAYER_METRIC)
     _log_once(logging.INFO, "player ratings: %d raw game rows -> %d rolling rows across "
               "%d players (%d bad/dropped source rows)",
               len(frame), len(ratings), ratings["player_id"].nunique()
@@ -1512,6 +1532,9 @@ def _load_player_ratings() -> pd.DataFrame:
               audit.get("shrink_arm", _pr.NHL_SHRINK_ARM),
               float(audit.get("shrink_fraction_of_season",
                               _pr.SHRINK_FRACTION_OF_SEASON)))
+    _log_once(logging.INFO, "player rating metric: %s (xg = individual "
+              "offense; xpm = on-ice expected differential, signed)",
+              audit.get("metric", _pr.NHL_PLAYER_METRIC))
     return ratings
 
 

@@ -765,10 +765,10 @@ for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
                     f"MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 "
                     f"dressed skaters contribute in hockey. The rating itself "
                     f"is never modified; the flag removes a row, it does not "
-                    f"discount a value. diff = home - away.",
-                "source": "MoneyPuck regular-season skater game-by-game "
-                          "archives (xGoals, icetime) + ESPN timestamped "
-                          "injury status snapshots",
+                    f"discount a value. diff = home - away.",                 "source": "MoneyPuck regular-season skater game-by-game "
+                          "archives (xGoals, icetime; on-ice xGoals pair only "
+                          "under the gated xpm arm) + ESPN "
+                          "timestamped injury status snapshots",
                 "lookback": "trailing 30 played games per player and situation "
                             "(game grain); source games within "
                             "injury_stints.POOL_LOOKBACK_DAYS = 45 of the "

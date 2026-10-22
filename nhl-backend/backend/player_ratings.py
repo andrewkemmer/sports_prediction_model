@@ -56,6 +56,17 @@ player's rolling rating is retained unchanged for prior games; exact Out,
 Injured Reserve, IR, and Doubtful snapshots remove the candidate only from a
 target game's pool when captured strictly before puck drop.
 
+METRIC. The engine rates one per-game event VALUE per player and situation,
+carried in the ``xg`` slot end to end (``prior_xg`` is a trailing sum of that
+value, the league prior is its position/situation mean rate). Under
+``metric='xg'`` (SHIPPED default) the value is individual xGoals — offense
+only, never negative. Under ``metric='xpm'`` (GATED — selectable via
+``NHL_PLAYER_METRIC=xpm``) the value is the on-ice expected differential
+``OnIce_F_xGoals - OnIce_A_xGoals`` — two-way impact that flips negative
+when a player's shifts are out-chanced, so a losing team's pool means can
+read below zero. The rolling, shrinkage, and PIT machinery is metric-blind;
+only the value derivation and the prior's sign gate know the difference.
+
 This module is PURE: it takes frames and returns frames, with no network or
 filesystem access. ``ingestion.py`` owns the pulls.
 """
@@ -86,6 +97,21 @@ SITUATION_LABELS = {SITUATION_EVO: "EVO", SITUATION_PPO: "PPO"}
 # rather than folded into F/D, because the whole point of the position prior is
 # that C/L/R/D do not share a mean.
 POSITIONS: tuple[str, ...] = ("C", "L", "R", "D")
+
+# ---------------------------------------------------------------------------
+# Rating metric
+# ---------------------------------------------------------------------------
+# xg (SHIPPED default): individual expected goals per 60 — offense only.
+# xpm (GATED — NOT adopted for now; selectable via NHL_PLAYER_METRIC=xpm):
+# expected plus-minus per 60 = (OnIce_F_xGoals - OnIce_A_xGoals) per 60 —
+# the two-way analogue that flips negative when a player is out-chanced on
+# his shifts. Same 24 pl_* columns, same pool machinery; the OOF/logloss
+# gate that adopts it mirrors the 2026-10-02 shrink-arm gate. Unknown
+# metrics raise: a typo must never silently ship the wrong value.
+METRIC_XG = "xg"
+METRIC_XPM = "xpm"
+METRICS: tuple[str, ...] = (METRIC_XG, METRIC_XPM)
+NHL_PLAYER_METRIC = os.getenv("NHL_PLAYER_METRIC", "xg").strip().lower() or "xg"
 
 _POSITION_ALIASES = {
     "c": "C", "l": "L", "r": "R", "d": "D",
@@ -164,6 +190,8 @@ IN_XG = "xg"
 IN_ICE = "ice_seconds"
 IN_SEASON = "season"
 IN_POOL_DATE = "pool_date"
+IN_ONICE_FOR = "onice_for"
+IN_ONICE_AGAINST = "onice_against"
 
 # -- Derived rolling-window columns; the selected candidate date must precede
 #    the target game date, making every included raw game strictly prior. -----
@@ -231,6 +259,9 @@ def prepare_player_games(
     ice_col: str = "ice_seconds",
     id_col: Optional[str] = None,
     season_col: str = "season",
+    metric: str = METRIC_XG,
+    onice_for_col: str = "onice_for",
+    onice_against_col: str = "onice_against",
 ) -> tuple[pd.DataFrame, dict]:
     """Normalize a long-format player frame into the engine's input contract.
 
@@ -238,9 +269,20 @@ def prepare_player_games(
     way this step can quietly lose data — an unknown position code, a name that
     never resolved to an id, a zero-ice-time row — produces a SMALLER,
     plausible-looking output rather than an error.
+
+    ``metric`` selects the per-game event value carried in the ``xg`` slot:
+    ``'xg'`` keeps the caller's xg column (offense only); ``'xpm'`` derives
+    the on-ice expected differential from the on-ice for/against columns
+    (signed — negative when a player's shifts are out-chanced). Anything
+    else raises. Under ``'xpm'`` a missing/non-numeric on-ice column drops
+    the row through the bad-values gate and counts it; under ``'xg'`` the
+    on-ice columns are ignored entirely.
     """
+    if metric not in METRICS:
+        raise ValueError(
+            f"metric must be one of {METRICS}, got {metric!r}")
     audit = {
-        "rows_in": 0, "rows_out": 0,
+        "rows_in": 0, "rows_out": 0, "metric": str(metric),
         "dropped_unknown_position": 0, "dropped_no_player_id": 0,
         "dropped_bad_situation": 0, "dropped_bad_values": 0,
         "dropped_duplicate": 0,
@@ -257,7 +299,8 @@ def prepare_player_games(
         player_col: IN_NAME, date_col: IN_GAME_DATE, game_col: IN_GAME_ID,
         team_col: IN_TEAM, position_col: IN_POSITION,
         situation_col: IN_SITUATION, xg_col: IN_XG, ice_col: IN_ICE,
-        season_col: IN_SEASON,
+        season_col: IN_SEASON, onice_for_col: IN_ONICE_FOR,
+        onice_against_col: IN_ONICE_AGAINST,
     }
     if id_col:
         rename[id_col] = IN_PLAYER
@@ -276,6 +319,18 @@ def prepare_player_games(
         if col not in df.columns:
             df[col] = np.nan
         df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if metric == METRIC_XPM:
+        # Two-way value: on-ice expected differential for this player's
+        # shifts. Absent columns become NaN here and drop every row through
+        # the bad-values gate below — a missing on-ice feed must read as "no
+        # ratings", never as zeros (a zero differential is a measured claim
+        # that the player's shifts broke even).
+        for col in (IN_ONICE_FOR, IN_ONICE_AGAINST):
+            if col not in df.columns:
+                df[col] = np.nan
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[IN_XG] = df[IN_ONICE_FOR] - df[IN_ONICE_AGAINST]
 
     df[IN_GAME_DATE] = pd.to_datetime(df[IN_GAME_DATE], errors="coerce").dt.normalize()
     # Date grain is the authoritative NHL-season key. MoneyPuck labels seasons
@@ -424,12 +479,18 @@ def league_prior_table(
     df: pd.DataFrame,
     *,
     fallback_rate: Mapping[tuple[str, str], float] | None = None,
+    signed: bool = False,
 ) -> pd.DataFrame:
     """Point-in-time (date, position, situation) league rate per 60 minutes.
 
     The daily source-game rows are accumulated by date, then the entire current
     date is subtracted. A value keyed to date D therefore uses only earlier
     dates; same-day games cannot enter the prior.
+
+    ``signed`` marks a two-way value (metric='xpm'): strictly-prior observed
+    rates keep ANY finite value, including zero and negatives — a negative
+    on-ice differential is measured evidence, not a missing cell. The default
+    unsigned path keeps the historical positivity gate untouched.
     """
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=[IN_GAME_DATE, IN_POSITION, IN_SITUATION,
@@ -455,7 +516,7 @@ def league_prior_table(
     # seasons.
     fb = dict(fallback_rate or {})
     daily[OUT_LEAGUE_RATE] = [
-        _fallback_rate(fb, sit, pos, val)
+        _fallback_rate(fb, sit, pos, val, signed=signed)
         for sit, pos, val in zip(daily[IN_SITUATION], daily[IN_POSITION],
                                  daily[OUT_LEAGUE_RATE])
     ]
@@ -468,13 +529,22 @@ def _fallback_rate(
     situation: object,
     position: object,
     observed: object,
+    *,
+    signed: bool = False,
 ) -> float:
-    """Observed strictly prior rate, else an explicitly supplied PIT fallback."""
+    """Observed strictly prior rate, else an explicitly supplied PIT fallback.
+
+    Unsigned metrics (individual xG) keep the historical positivity gate: a
+    zero or negative observed cell is treated as no evidence. Signed metrics
+    (expected plus-minus) accept any finite observed value — negativity is
+    the signal there, and gating it would erase exactly the losing-team
+    information the metric exists to carry.
+    """
     try:
         val = float(observed)
     except (TypeError, ValueError):
         val = float("nan")
-    if np.isfinite(val) and val > 0:
+    if np.isfinite(val) and (signed or val > 0):
         return val
     pos = normalize_position(position)
     if pos is None:
@@ -547,6 +617,7 @@ def build_player_ratings(
     shrink_arm: str = NHL_SHRINK_ARM,
     id_col: Optional[str] = None,
     as_of: Optional[object] = None,
+    metric: str = NHL_PLAYER_METRIC,
 ) -> tuple[pd.DataFrame, dict]:
     """Build per-player EVO/PPO ratings.
 
@@ -557,6 +628,11 @@ def build_player_ratings(
     compatibility but never alter a player's rating: availability removes the
     player from the target game's aggregation only.
 
+    ``metric`` selects the rated value (``'xg'`` shipped default, ``'xpm'``
+    gated): it flows into input preparation and into the prior's sign gate,
+    and is recorded in the audit. Rolling, shrinkage, and PIT shape are
+    identical under either metric.
+
     League rates are built from strictly earlier calendar dates and shrinkage
     strength uses completed seasons before the source game's season. ``as_of``
     drops raw game rows on or after that date.
@@ -564,7 +640,7 @@ def build_player_ratings(
     if shrink_arm not in SHRINK_ARMS:
         raise ValueError(
             f"NHL_SHRINK_ARM must be 'bayesian' or 'ramp', got {shrink_arm!r}")
-    prepared, audit = prepare_player_games(games, id_col=id_col)
+    prepared, audit = prepare_player_games(games, id_col=id_col, metric=metric)
     audit["window_rows"] = int(window)
     audit["shrink_fraction_of_season"] = float(shrink_fraction)
     audit["shrink_arm"] = str(shrink_arm)
@@ -596,7 +672,7 @@ def build_player_ratings(
         for season in rating_seasons
     }
     k_table = k_by_season[rating_seasons[-1]] if rating_seasons else {}
-    league = league_prior_table(rolled)
+    league = league_prior_table(rolled, signed=(metric == METRIC_XPM))
 
     merged = rolled.merge(league, on=[IN_GAME_DATE, IN_POSITION, IN_SITUATION],
                           how="left", validate="many_to_one")

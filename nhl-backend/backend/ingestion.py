@@ -149,7 +149,20 @@ SCORE_CACHE_VERSION = "v2"
 # percentages. Never consume those cached proxies under the corrected schema.
 BOXSCORE_CACHE_VERSION = "v5"
 # Cache schema version for the player-game archive family (pl_* ratings).
+# v2 is the shipped shape (individual xG + icetime). The gated
+# NHL_PLAYER_METRIC=xpm arm additionally needs the on-ice expected-goals
+# pair (OnIce_F/A_xGoals), which lives under MP_PLAYER_GAME_ONICE_VERSION
+# filenames — so enabling the gate never invalidates the daily driver's
+# cache, and, symmetrically, the daily driver never forces the multi-GB
+# historical re-download the pair would otherwise require on a cold host.
 MP_PLAYER_GAME_VERSION = "v2"
+MP_PLAYER_GAME_ONICE_VERSION = "v3"
+#: Keep-list for the shipped player-game shape (individual xG + icetime).
+MP_PLAYER_GAME_BASE_COLUMNS = ["playerId", "name", "gameId", "season",
+                               "playerTeam", "gameDate", "position",
+                               "situation", "icetime", "I_F_xGoals"]
+#: Extra keep-list for the gated xpm arm (on-ice expected-goals pair).
+MP_PLAYER_GAME_ONICE_COLUMNS = ["OnIce_F_xGoals", "OnIce_A_xGoals"]
 MP_PLAYER_GAME_CHUNK_SIZE = 100_000
 INJURY_VERSION = "v2"
 # A same-day cache may still be obsolete by puck drop. Refresh within a run at
@@ -1397,6 +1410,13 @@ def _download_moneypuck_player_game_archive(
     """Stream the published ZIP to a temporary cache-local file before parsing."""
     import requests
 
+    # The historical archive is multi-GB on a cold host and this is the
+    # longest silent window ahead of the player-injury section: log start,
+    # periodic MB progress and the final byte count so a stalled CDN reads
+    # as a stuck progress line within minutes, not a hung kernel after hours.
+    started = time.monotonic()
+    logger.info("MoneyPuck download start: %d season(s) %s", len(seasons),
+                sorted(seasons))
     response = requests.get(
         url, timeout=(10, 300), stream=True,
         headers={"User-Agent": "sports-prediction-model/1.0"})
@@ -1408,13 +1428,25 @@ def _download_moneypuck_player_game_archive(
                 mode="wb", suffix=".zip", prefix="moneypuck_player_games_",
                 dir=cache_dir, delete=False) as target:
             archive_path = Path(target.name)
+            downloaded = 0
+            next_mark = 256 * 1024 * 1024
             iter_content = getattr(response, "iter_content", None)
             if callable(iter_content):
                 for block in iter_content(chunk_size=1024 * 1024):
                     if block:
                         target.write(block)
+                        downloaded += len(block)
+                        if downloaded >= next_mark:
+                            logger.info(
+                                "MoneyPuck download progress: %.0f MB in %.0fs",
+                                downloaded / (1024 * 1024),
+                                time.monotonic() - started)
+                            next_mark += 256 * 1024 * 1024
             else:  # simple in-memory response doubles in offline tests
                 target.write(response.content)
+                downloaded = len(response.content)
+            logger.info("MoneyPuck download complete: %.1f MB in %.0fs",
+                        downloaded / (1024 * 1024), time.monotonic() - started)
         with zipfile.ZipFile(archive_path) as archive:
             return _read_moneypuck_player_game_archive(
                 archive, seasons, required)
@@ -1429,6 +1461,7 @@ def _download_moneypuck_player_game_archive(
 def load_moneypuck_player_games(
     seasons: list[int] | None = None,
     use_cache: bool = True,
+    require_onice: bool = False,
 ) -> pd.DataFrame | None:
     """Load MoneyPuck's published regular-season player-game CSV archives.
 
@@ -1458,8 +1491,15 @@ def load_moneypuck_player_games(
     # history, so it must not take the whole family down.
     live_from = config.current_nhl_season()
 
-    required = ["playerId", "name", "gameId", "season", "playerTeam",
-                "gameDate", "position", "situation", "icetime", "I_F_xGoals"]
+    # The on-ice pair is required only behind the gated xpm arm. Requiring
+    # it unconditionally would discard every v2 cache on disk and force a
+    # multi-GB historical re-download on the next run — including on a cold
+    # host where that download is the longest silent window in Phase 3.
+    required = list(MP_PLAYER_GAME_BASE_COLUMNS)
+    if require_onice:
+        required = required + list(MP_PLAYER_GAME_ONICE_COLUMNS)
+    version = (MP_PLAYER_GAME_ONICE_VERSION if require_onice
+               else MP_PLAYER_GAME_VERSION)
     frames: list[pd.DataFrame] = []
     missing: list[int] = []
     unpublished: list[int] = []
@@ -1485,7 +1525,7 @@ def load_moneypuck_player_games(
 
     if historical:
         path = _cache_path(
-            f"moneypuck_player_games_{MP_PLAYER_GAME_VERSION}_2008_to_2024.parquet")
+            f"moneypuck_player_games_{version}_2008_to_2024.parquet")
         history_frame: pd.DataFrame | None = None
         if use_cache and path.exists():
             try:
@@ -1520,7 +1560,7 @@ def load_moneypuck_player_games(
     for season in (s for s in requested
                    if s not in MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS):
         path = _cache_path(
-            f"moneypuck_player_games_{MP_PLAYER_GAME_VERSION}_{season}.parquet")
+            f"moneypuck_player_games_{version}_{season}.parquet")
         # A finished season's archive is immutable, so it caches forever. The
         # live season gains games after every game day: serving its cached copy
         # would freeze ratings at the day the cache was written, silently and
