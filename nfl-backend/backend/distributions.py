@@ -1270,6 +1270,10 @@ def calibrate_market_frame(df, n_draws=MC_DRAWS, seed=MC_SEED):
         metrics = distribution_score_report(priced, bundle)
         bundle["oof_metrics"] = metrics
         priced.attrs["distribution_metrics"] = metrics
+        # The issued-CDF handles served the report; drop them so the
+        # runtime-only payload never rides the bundle into delivery
+        # attrs further (challenger_bundle is attrs-housed downstream).
+        bundle.pop("_issued_cdfs", None)
     return priced, bundle
 
 
@@ -1665,7 +1669,8 @@ def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
             "lattice": _fit_lattice_maps(outcomes, parameters, lattice_evidence)}
 
 
-def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
+def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
+                              progress_every: int = 25):
     """Fit distribution mechanics at each origin on PRIOR OOF outcomes only.
 
     Final serving maps may use all settled past OOF; NEVER apply those maps
@@ -1694,6 +1699,11 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     pre_holdout = (dates < cutoff).to_numpy()
     history = np.zeros(len(frame), dtype=bool)
     parts, origins, issued_cdfs = [], [], []
+    import time as _time
+    _t0 = _time.time()
+    n_blocks = len(blocks)
+    logger.info("causal_distribution_frame: %d rows over %d origins "
+                "(n_draws=%d)", len(frame), n_blocks, n_draws)
     evidence = {"total": [], "margin": []}
     # BASE-model pmfs (post-calibration + structural rules, PRE-lattice) of
     # already-priced prior blocks, per target: the causal evidence the next
@@ -1760,6 +1770,10 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
         part["distribution_fit_n"] = int(history.sum())
         part["distribution_fit_end"] = str(origins[-1]["end"]) if origins else None
         parts.append(part)
+        if progress_every and (len(origins) % progress_every == 0
+                               or len(origins) == n_blocks):
+            logger.info("causal_distribution_frame: origin %d/%d (%.1fs)",
+                        len(origins), n_blocks, _time.time() - _t0)
         origins.append({"start": str(start.date()), "end": str(end.date()),
                         "n_prior": int(history.sum()), "n_scored": int(mask.sum()),
                         "maps": maps, "candidate_maps": candidate,
@@ -1789,9 +1803,14 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED):
     priced = pd.concat(parts).reindex(original_index)
     priced.attrs["mc_meta"] = bundle["monte_carlo"]
     # Runtime-only, parallel to ``origins``: the issued sampled CDFs per
-    # block for distribution_score_report. Never serialized (writers pluck
-    # named keys); the NBA calibrate_market_frame drops it after the report.
-    priced.attrs["_issued_cdfs"] = issued_cdfs
+    # block for distribution_score_report. They ride the BUNDLE, never
+    # frame attrs: pandas __finalize__ deep-copies attrs on EVERY op
+    # (column getitem, iloc, arithmetic), so megabytes of nested CDF
+    # lists in attrs make every downstream op O(payload) -- the 2026-10-22
+    # remote run spent ~35 min in marketize+calibrate on this alone.
+    # Never serialized (writers pluck named keys); calibrate_market_frame
+    # drops it after the report.
+    bundle["_issued_cdfs"] = issued_cdfs
     return priced, bundle
 
 

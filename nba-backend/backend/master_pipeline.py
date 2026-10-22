@@ -1489,9 +1489,19 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # Learn variance/skew and coherent calibration only from prior origins.
         # expand=False: calibrate_market_frame reprices every row below,
         # overwriting all price columns, so pricing here is discarded work.
+        # Section timers (2026-10-22: the remote run spent ~35 min between
+        # the run-line fit check and the phase-5 banner with zero log
+        # output — marketize+calibrate must account for itself per run).
+        _mk0 = time.time()
         oof_markets = _marketize(ml_oof, dist_oof, "oof", mc_meta_out=_mc_meta,
                                  expand=False)
+        logger.info("marketize (expand=False merge): %.1fs over %d rows",
+                    time.time() - _mk0, len(oof_markets))
+        _cal0 = time.time()
         oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+        logger.info("calibrate_market_frame: %.1fs over %d rows (%d origins)",
+                    time.time() - _cal0, len(oof_markets),
+                    len((market_calibration or {}).get("origins", [])))
         # Delivery disclosure parity (NFL/NHL pipelines): the markets-meta
         # writer reads the lattice summary off this attrs bundle, so without
         # it every pipeline run ships "lattice": {} even though the columns

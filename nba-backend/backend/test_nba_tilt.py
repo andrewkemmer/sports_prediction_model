@@ -136,9 +136,12 @@ def test_issued_cdf_cache_matches_rebuild():
         "away_score": rng.poisson(np.clip(a, 1, None)),
         "fold_id": (np.arange(n) // 60).astype(str)})
     priced, bundle = dist.causal_distribution_frame(frame, n_draws=100)
-    assert priced.attrs.get("_issued_cdfs") is not None
+    # The handles ride the bundle, never frame attrs (attrs payloads are
+    # deep-copied on every pandas op — the 2026-10-22 remote blowup).
+    assert bundle.get("_issued_cdfs") is not None
+    assert priced.attrs.get("_issued_cdfs") is None
     cached = dist.distribution_score_report(priced, bundle)
-    ref = priced.copy()
-    ref.attrs.pop("_issued_cdfs", None)
-    rebuilt = dist.distribution_score_report(ref, bundle)
+    ref_bundle = dict(bundle)
+    ref_bundle.pop("_issued_cdfs", None)
+    rebuilt = dist.distribution_score_report(priced, ref_bundle)
     assert cached == rebuilt
