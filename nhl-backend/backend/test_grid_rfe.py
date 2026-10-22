@@ -476,7 +476,11 @@ def test_member_params_nhl_tuned_xgb_plus_mlb_copies():
     seeds +33.1/+35.2/+16.2 (all hold), member sealed last-4 +6.3, blend
     full −5.3. The LGBM v2 candidate REVERSED on the sealed last-4
     (−106.4 bps; third documented tune-gain-does-not-survive-the-holdout)
-    so the LGBM v1 block stands. Elastic-net remains the shared MLB block."""
+    so the LGBM v1 block stands. Elastic-net remains the shared MLB block.
+    v3 (2026-10-21, 30 Optuna trials from scratch, num_threads=1, 5-fold
+    tune + sealed last-4 x seeds 42/43/44): LGBM trial1 adopted — 6/6
+    paired WINs (tune −17/−17/−22, sealed −33/−88/−61 bps), blend serve
+    0.66953 vs 0.66981 (−2.8 bps). XGB: no challenger passed the gate."""
     xg = config.XGBOOST_PARAMS
     assert (xg["max_depth"], xg["min_child_weight"],
             round(xg["gamma"], 10), round(xg["subsample"], 10),
@@ -493,9 +497,13 @@ def test_member_params_nhl_tuned_xgb_plus_mlb_copies():
     lg = config.LIGHTGBM_PARAMS
     assert (lg["n_estimators"], lg["max_depth"], lg["num_leaves"],
             lg["min_child_samples"], round(lg["min_gain_to_split"], 10),
-            round(lg["bagging_fraction"], 10), round(lg["feature_fraction"], 10),
-            round(lg["learning_rate"], 10)) == \
-        (89, 6, 4, 46, 1.8659364383, 0.4672738887, 0.5577715029, 0.0224531099)
+            round(lg["bagging_fraction"], 10), lg["bagging_freq"],
+            round(lg["feature_fraction"], 10),
+            round(lg["learning_rate"], 10), lg["extra_trees"],
+            lg["max_bin"], round(lg["reg_lambda"], 10),
+            round(lg["reg_alpha"], 10)) == \
+        (150, 3, 80, 58, 0.8638900373, 0.5747374841, 4, 0.3976457025,
+         0.0135052639, False, 817, 0.0009962513, 0.0085232777)
     en = config.ELASTICNET_PARAMS
     assert (en["l1_ratio"], en["C"], en["max_iter"]) == (0.5, 0.03, 4000)
     # Elastic-net numeric parity against the MLB source of truth, verified

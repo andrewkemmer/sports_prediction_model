@@ -492,16 +492,27 @@ XGBOOST_EARLY_STOP = 61
 # its own median from fold 1 onward, so 50 is only the fold-0/refit prior.
 XGBOOST_FOLD0_ROUNDS = 50
 XGBOOST_REFIT_ROUNDS = 50
+# v3 (2026-10-21 full from-scratch retune, 30 Optuna trials, num_threads=1,
+#     5-fold tune + sealed last-4 holdout x seeds 42/43/44, logloss objective):
+#     trial1 adopted — 6/6 paired WINs vs the v1 block (tune −17/−17/−22
+#     bps, sealed −33/−88/−61 bps; gate mean −39.7 bps). Full-blend serve:
+#     0.66953 vs incumbent 0.66981 (−2.8 bps), brier −1.3 bps, lgbm weight
+#     share 0.198 -> 0.335. XGB: no challenger passed the gate (best won
+#     5/6 with a sealed reversal) — XGB block unchanged.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 89,
-    "max_depth": 6,
-    "num_leaves": 4,
-    "min_child_samples": 46,
-    "min_gain_to_split": 1.8659364383348447,
-    "bagging_fraction": 0.467273888656067,
-    "bagging_freq": 1,
-    "feature_fraction": 0.5577715028801845,
-    "learning_rate": 0.022453109860137974,
+    "n_estimators": 150,
+    "max_depth": 3,
+    "num_leaves": 80,
+    "min_child_samples": 58,
+    "min_gain_to_split": 0.8638900372842315,
+    "bagging_fraction": 0.5747374841188252,
+    "bagging_freq": 4,
+    "feature_fraction": 0.3976457024564293,
+    "learning_rate": 0.013505263874802732,
+    "extra_trees": False,
+    "max_bin": 817,
+    "reg_lambda": 0.0009962513222055108,
+    "reg_alpha": 0.008523277722308596,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
@@ -674,12 +685,17 @@ GOALIE_FIELDS = [
 COIN_FLIP_THRESHOLD = 0.02
 
 # ---------------------------------------------------------------------------
-# Player-level offense ratings (EVO / PPO) — the NHL analogue of MLB's wOBA
+# Player-level ratings (EVO / PPO) — the NHL analogue of MLB's wOBA
 # ---------------------------------------------------------------------------
 # Built by backend/player_ratings.py from MoneyPuck's regular-season skater
 # game logs. These per-game rolling ratings feed the 24 pl_* production
 # features and therefore require a fresh OOF validation/model refit under the
 # feature version above before new bundles can safely serve them.
+#
+# Rated value follows player_ratings.NHL_PLAYER_METRIC: 'xg' (shipped
+# default, individual offense) or 'xpm' (gated two-way arm, on-ice expected
+# differential — signed, so losing-team pools can read negative). Either arm
+# ships the same 24 columns through the same pool machinery.
 #
 # Shrinkage: each rating is pulled toward a POSITION-SEGMENTED league prior.
 # A single league mean is wrong for hockey because the situations do not share
