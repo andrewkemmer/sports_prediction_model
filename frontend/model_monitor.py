@@ -25,12 +25,14 @@ utils.inject_css()
 # ``nfl_model_monitor_*.json`` — both MLB-shaped, so this one page renders
 # each sport unchanged (the NFL backend emits the same contract).
 dates = utils.available_dates(**utils.get_source_config())
-# selected_date (set by the shared date navigation, and by the smoke tests'
-# fixture pins) wins over the default newest-artifact date — the same
-# contract power_rankings.py runs. Without this, a staged test fixture
-# older than the newest committed artifact is silently bypassed.
-date_str = st.session_state.get("selected_date",
-                                dates[0] if dates else "20260809")
+# Cumulative-OOS parity with the Calibration tab (2026-10-25): the pooled
+# headline metrics must come from the SAME newest artifact the Calibration
+# page serves (model_calibration.py pins dates[0] and ignores the board
+# date). Respecting selected_date here served a stale monitor (e.g. 20261023
+# AUC 0.5787) beside Calibration's current pooled view (20261025 AUC
+# 0.5657), reading as a dashboard disagreement over identical backend
+# artifacts. Smoke-test fixture pins still work: they stage dates[0] itself.
+date_str = dates[0] if dates else "20260809"
 mon = utils.load_model_monitor(date_str)
 if not mon:
     st.warning(f"No model monitor artifacts found for {date_str}.")

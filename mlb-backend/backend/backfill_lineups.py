@@ -69,11 +69,37 @@ SNAPSHOT_LINEUP_FIELDS = (
     "gameData,status,abstractGameState,teams,team,abbreviation,"
     "liveData,boxscore,teams,battingOrder,metaData,timeStamp"
 )
-# Full-repopulation parallelism. The timestamp-index and snapshot calls are
+# Full-repopulation parallelism (NHL/NBA structural pattern: their
+# ingestion resolves workers via env with a parallel default and uses the
+# pool for EVERY pull, not just full rebuilds — NHL PULL_WORKERS=8,
+# NBA PULL_WORKERS=4. The timestamp-index and snapshot calls are
 # independent across games; this keeps a complete corpus rebuild inside the
-# normal sub-hour pipeline budget. Each game is still retried per-game and
-# failures degrade loudly rather than aborting the run.
+# normal sub-hour pipeline budget and drops the daily incremental repair
+# (limit=200 → 400 HTTP calls) from minutes to seconds. Each game is still
+# retried per-game and failures degrade loudly rather than aborting.
 FULL_SNAPSHOT_WORKERS = 8
+SNAPSHOT_WORKERS_ENV = "MLB_SNAPSHOT_WORKERS"
+SNAPSHOT_WORKERS_DEFAULT = 8
+
+
+def resolve_snapshot_workers(workers: int | None = None) -> int:
+    """Worker count for snapshot repair: explicit arg > env > default.
+
+    Mirrors NBA _resolve_workers / NHL _resolve_workers so a future
+    ``MLB_SNAPSHOT_WORKERS=16`` can overlap more games without a code
+    change, and a constrained host can pin it down the same way.
+    """
+    import os
+    if workers is not None:
+        try:
+            workers = int(workers)
+        except (TypeError, ValueError):
+            return SNAPSHOT_WORKERS_DEFAULT
+        return max(1, workers)
+    try:
+        return max(1, int(os.environ.get(SNAPSHOT_WORKERS_ENV, "") or SNAPSHOT_WORKERS_DEFAULT))
+    except (TypeError, ValueError):
+        return SNAPSHOT_WORKERS_DEFAULT
 LINEUPS_COLUMNS = ["game_pk", "game_date", "home_team", "away_team",
                    "home_order", "away_order", "complete_home",
                    "complete_away", "state",

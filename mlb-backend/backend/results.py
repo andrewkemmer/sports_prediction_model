@@ -254,6 +254,15 @@ def apply_official_results(games: pd.DataFrame,
     return df
 
 
+# In-process StatsAPI schedule cache (NHL/NBA structural pattern: the
+# same full-history window is requested 3x per run — Phase-1 snapshot
+# backfill, Phase-4 official-results/start-time refresh, weather backfill.
+# Without a cache every daily run pays 3x15 chunked schedule fetches.
+# Keyed by (start, end); values are immutable copies so callers cannot
+# mutate the cached dict through the returned reference.
+_START_TIMES_CACHE: dict[tuple[str, str], dict[int, str]] = {}
+
+
 def fetch_game_start_times(start_date: date, end_date: date,
                            timeout: int = 20) -> dict[int, str]:
     """Authoritative first-pitch UTC timestamps from the StatsAPI schedule.
@@ -269,6 +278,14 @@ def fetch_game_start_times(start_date: date, end_date: date,
     weather features null for an entire season while every log line looked
     healthy. Query in bounded chunks and merge so coverage is complete.
     """
+    try:
+        _ck = (str(start_date), str(end_date))
+    except Exception:
+        _ck = None
+    if _ck is not None and _ck in _START_TIMES_CACHE:
+        logger.info("StatsAPI schedule %s→%s: cache hit (%d games, 0 fetched)",
+                    start_date, end_date, len(_START_TIMES_CACHE[_ck]))
+        return dict(_START_TIMES_CACHE[_ck])
     out: dict[int, str] = {}
     chunk_start = start_date
     while chunk_start <= end_date:
@@ -312,6 +329,12 @@ def fetch_game_start_times(start_date: date, end_date: date,
                     sum(len(d.get("games", [])) for d in data.get("dates", [])),
                     len(out) - n_before)
         chunk_start = chunk_end + timedelta(days=1)
+    try:
+        _ck = (str(start_date), str(end_date))
+        if _ck is not None:
+            _START_TIMES_CACHE[_ck] = dict(out)
+    except Exception:
+        pass
     return out
 
 

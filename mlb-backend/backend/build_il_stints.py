@@ -737,15 +737,35 @@ def main() -> None:
     if auto:
         print(f"  auto-refreshing current-year cache: {auto} "
               "(use --offline to pin)")
-    for y in years:
-        if args.offline:
+    if args.offline:
+        for y in years:
             p = cache / f"il_tx_{y}.json"
             if not p.exists():
                 raise SystemExit(f"--offline but {p} is missing")
             with open(p, encoding="utf-8") as fh:
                 tx += json.load(fh)
+    else:
+        # NHL/NBA parity: per-season transaction fetches are independent
+        # I/O — overlap them like their parallel pulls instead of paying
+        # 4 sequential StatsAPI calls + exponential backoff serially.
+        # Order preserved (years order) so the merged tx list is identical
+        # to the serial path; any fetch failure still raises loudly.
+        from concurrent.futures import ThreadPoolExecutor
+        _workers = max(1, min(len(years), 4))
+        if _workers < 2:
+            for y in years:
+                tx += fetch_year(y, cache, refresh=refresh_plan[y])
         else:
-            tx += fetch_year(y, cache, refresh=refresh_plan[y])
+            with ThreadPoolExecutor(max_workers=_workers) as _pool:
+                _futs = [_pool.submit(fetch_year, y, cache, refresh_plan[y])
+                         for y in years]
+                for y, _f in zip(years, _futs):
+                    try:
+                        tx += _f.result()
+                    except SystemExit:
+                        raise
+                    except Exception as _e:
+                        raise SystemExit(f"could not fetch {y} transactions: {_e}")
 
     iv = stints_from_events(build_events(tx))
     pbp = args.pbp or default_pbp_source()

@@ -1160,10 +1160,24 @@ def walk_forward_oof_ensemble(
         game_pk = (pd.to_numeric(va["game_pk"], errors="coerce")
                    if "game_pk" in va.columns
                    else pd.Series(np.arange(len(va)), index=va.index))
+        # Identity parity with run_oof (2026-10-25 off-day: the ensemble
+        # OOF dropped home_team/away_team/game_id, so derive_markets_v3
+        # priced identity-less markets and persist_markets refused the
+        # artifact). Mirror rec_base so markets carry the join contract.
+        _d = pd.to_datetime(va["game_date"]).dt.strftime("%Y%m%d")
+        if "game_id" in va.columns:
+            _gid = va["game_id"]
+        elif {"home_team", "away_team"}.issubset(va.columns):
+            _gid = _d + "_" + va["away_team"].astype(str) + "@" + va["home_team"].astype(str)
+        else:
+            _gid = pd.Series([""] * len(va), index=va.index)
         row = pd.DataFrame({
             "game_pk": game_pk.to_numpy(),
             "game_date": pd.to_datetime(va["game_date"]).to_numpy(),
             "fold_idx": fold_idx,
+            "home_team": va["home_team"].to_numpy() if "home_team" in va.columns else np.array([pd.NA] * len(va)),
+            "away_team": va["away_team"].to_numpy() if "away_team" in va.columns else np.array([pd.NA] * len(va)),
+            "game_id": _gid.to_numpy() if hasattr(_gid, "to_numpy") else np.asarray(_gid),
             _MLB_MU_H: mu_h, _MLB_MU_A: mu_a,
             "home_score": y_h.to_numpy(float),
             "away_score": y_a.to_numpy(float),
@@ -1850,6 +1864,19 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
     for column in ("fold_idx", "fair_total", "fair_spread", "p_over_fair", "p_cover_fair",
                    "distribution_fit_n", "distribution_fit_end", "p_tie"):
         if column not in markets: markets[column] = np.nan
+    # Identity backfill BEFORE the strict contract check (2026-10-25
+    # off-day: the OOF score frame carries game_pk/game_date/scores but no
+    # team names; the check used to raise "missing game_id/home_team/
+    # away_team" before the fill below could derive game_id from game_pk).
+    # Derive game_id from the stable game_pk; team names stay NA here and
+    # are attached from the decided frame by run_engine_daily before this
+    # boundary (legacy direct callers keep the nullable path).
+    for _c in ("game_id", "home_team", "away_team"):
+        if _c not in markets.columns:
+            if _c == "game_id" and "game_pk" in markets.columns:
+                markets[_c] = markets["game_pk"].astype(str)
+            else:
+                markets[_c] = pd.NA
     missing = [c for c in MARKET_COLUMNS_V3 if c not in markets.columns]
     if missing:
         raise ValueError(f"markets frame missing required columns: {missing}")

@@ -414,11 +414,11 @@ except (Exception, SystemExit) as e:
 #      schedule — posted nines land NOW so an overnight rebuild of tonight's
 #      games resolves tier 1 instead of projecting (the 2026-10-03 audit's
 #      "wire daily pre-game fetch").
-from backfill_lineups import (FULL_SNAPSHOT_WORKERS,
-                              SNAPSHOT_LINEUP_FIELDS,
+from backfill_lineups import (SNAPSHOT_LINEUP_FIELDS,
                               backfill_pregame_snapshots,
                               fetch_scheduled_lineups,
-                              main as _backfill_lineups)
+                              main as _backfill_lineups,
+                              resolve_snapshot_workers)
 sys.argv = ["backfill_lineups.py", "--limit", "500"]
 try:
     _backfill_lineups()
@@ -426,10 +426,14 @@ except (Exception, SystemExit) as e:
     print(f"  ⚠️  lineups decided-gap backfill failed (non-fatal; "
           f"membership degrades to projection): {e}")
 try:
+    # NHL/NBA parity: snapshot repair is parallel on BOTH paths (daily
+    # incremental limit=200 was single-worker → ~4 min of sequential
+    # timestamp+snapshot HTTP; with 8 workers it is <1 min). Full rebuild
+    # keeps the same pool; MLB_SNAPSHOT_WORKERS overrides either.
     _n_snap = backfill_pregame_snapshots(
         limit=None if full_repull else 200,
         full_rebuild=full_repull,
-        max_workers=FULL_SNAPSHOT_WORKERS if full_repull else 1,
+        max_workers=resolve_snapshot_workers(),
         snapshot_fields=SNAPSHOT_LINEUP_FIELDS if full_repull else None,
     )
     print(f"  🧾 lineups: {_n_snap} official posted nine(s) restored from "
