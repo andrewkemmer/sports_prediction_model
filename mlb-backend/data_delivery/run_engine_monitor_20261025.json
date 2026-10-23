@@ -1,8 +1,8 @@
 {
   "schema": "run-engine-monitor/v2",
   "date": "20261025",
-  "markets_persisted": false,
-  "markets_persist_error": "ValueError: markets frame missing required columns: ['game_id', 'home_team', 'away_team']",
+  "markets_persisted": true,
+  "markets_persist_error": null,
   "winner_cards": {
     "over_under": {
       "n": 6763,
@@ -123,7 +123,12 @@
           }
         }
       },
-      "ml_reference": null
+      "ml_reference": {
+        "source": "ml_win_prob",
+        "n": 4655,
+        "win_rate": 0.5615,
+        "predicted_mean": 0.567
+      }
     }
   },
   "rolling": {
