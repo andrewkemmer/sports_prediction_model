@@ -1793,13 +1793,15 @@ def test_the_lineup_inventory_log_splits_priced_from_refusal_rows():
     assert "over priced rows" in src
 
 
-def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_path, monkeypatch):
+def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_path, monkeypatch, caplog):
     """Exercise the real production join and CSV interfaces, not source text."""
     from types import SimpleNamespace
     import ingestion as ing
     import player_rapm as rapm
     import master_pipeline as pipeline
     from test_nba_player_rapm import TestDatedRosterMembership
+    import logging
+    caplog.set_level(logging.INFO, logger="nba_master_pipeline")
 
     games_frame = TestDatedRosterMembership.games()
     games_frame["player_name"] = games_frame.player_id
@@ -1823,6 +1825,9 @@ def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_
     assert np.isfinite(pending.pl_rapm_g_diff).all()
     assert pending.game_id.tolist() == ["pending"]
     assert pipeline._write_player_rapm(tmp_path, "20251022", facts, slate) == "nba_player_rapm_20251022.csv"
+    assert caplog.text.count("waterfall minutes redistribution") == 2
+    assert "waterfall minutes redistribution (position-feature build)" in caplog.text
+    assert "waterfall minutes redistribution (rating writer)" in caplog.text
     published = pd.read_csv(tmp_path / "nba_player_rapm_20251022.csv", keep_default_na=False)
     assert published.set_index("player_id").loc["a", "team"] == "LAL"
     assert published.set_index("player_id").loc["a", "roster_source"] == "nba_playerindex"

@@ -278,6 +278,27 @@ def run_engine_feature_cols(reg: "ScoreRegressor | None" = None) -> list[str]:
     return [c for c in cols if c not in config.TREE_CATEGORICAL_COLS]
 
 
+def _normalized_percentage_map(raw: dict[str, float], precision: int = 6) -> dict[str, float]:
+    """Normalize non-negative importances to six-decimal percentages.
+
+    Rounding each share independently can leave the published map a few
+    micro-percentage-points away from 100 (the fitted ensemble width hits
+    this deterministically). Put the rounding residual on the largest
+    contributor so the returned map keeps its six-decimal shape and still
+    honors the sum-to-100 contract the drift caption promises.
+    """
+    total = sum(raw.values())
+    scaled = {name: 100.0 * value / total for name, value in raw.items()}
+    rounded = {name: round(value, precision) for name, value in scaled.items()}
+    residual = round(100.0 - sum(rounded.values()), precision)
+    if residual:
+        # Ties cannot occur on genuine floating-point importances often, but
+        # max() is deterministic in insertion order if they do.
+        target = max(raw, key=raw.get)
+        rounded[target] = round(rounded[target] + residual, precision)
+    return rounded
+
+
 def distribution_feature_weights(
         reg: "ScoreRegressor | None") -> dict[str, float] | None:
     """Per-feature MODEL WEIGHT (%) of the distribution model.
@@ -316,8 +337,7 @@ def distribution_feature_weights(
     total = sum(hv + av for _, hv, av in keep)
     if not keep or total <= 0:
         return None
-    return {name: round(100.0 * (hv + av) / total, 6)
-            for name, hv, av in keep}
+    return _normalized_percentage_map({name: hv + av for name, hv, av in keep})
 
 
 
@@ -374,11 +394,9 @@ def _ensemble_feature_weights(reg) -> dict[str, float] | None:
                 if col in config.TREE_CATEGORICAL_COLS:
                     continue
                 acc[col] = acc.get(col, 0.0) + w * val
-    total = sum(acc.values())
-    if not acc or total <= 0:
+    if not acc or sum(acc.values()) <= 0:
         return None
-    return {col: round(100.0 * val / total, 6)
-            for col, val in acc.items()}
+    return _normalized_percentage_map(acc)
 
 
 def pearson_poisson_adequacy(y: np.ndarray, mu: np.ndarray) -> float:

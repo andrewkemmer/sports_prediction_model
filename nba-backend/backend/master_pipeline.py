@@ -398,6 +398,22 @@ def _build_injury_stints(facts, games: pd.DataFrame) -> pd.DataFrame | None:
     return stints
 
 
+def _log_waterfall_redistribution(context: str, diagnostics: dict | None) -> None:
+    """State the production waterfall outcome in the run log.
+
+    The reweight mode is only a call argument, so without this line a review
+    cannot distinguish waterfall pricing from legacy pricing. The call itself
+    is behavior-tested; this log is its production receipt.
+    """
+    stats = diagnostics or {}
+    logger.info(
+        "waterfall minutes redistribution (%s): %d donor(s), %.1f minute(s) "
+        "absorbed, %.1f vanished (%d no-survivor), %d spill(s)", context,
+        int(stats.get("donors", 0)), float(stats.get("absorbed_weight", 0.0)),
+        float(stats.get("vanished_weight", 0.0)),
+        int(stats.get("vanished_no_survivor", 0)), int(stats.get("spills", 0)))
+
+
 def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
                       stints=None) -> str | None:
     """Build and write the player-level RAPM ratings, or report why not.
@@ -476,9 +492,11 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
         # produced no evidence yet. Never fatal: an empty table simply
         # leaves the ramp's scaled floor as the only fallback.
         trailing = proj_mod.trailing_membership_minutes(games_frame, target)
+        _waterfall = {}
         aggregates = proj_mod.projected_lineup(
             ratings, games=games, stints=stints, trailing_minutes=trailing,
-            reweight="waterfall")
+            reweight="waterfall", diagnostics=_waterfall)
+        _log_waterfall_redistribution("rating writer", _waterfall)
         if len(aggregates):
             agg_path = out / config.PLAYER_RAPM_AGG_CSV.format(date=date_c)
             aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)
@@ -720,8 +738,10 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
         ratings["is_available"] = True
     ratings = proj_mod.apply_pit_designations(ratings, designations, name_by_id)
 
+    _waterfall = {}
     aggregates = proj_mod.projected_lineup(
-        ratings, games=games, reweight="waterfall")
+        ratings, games=games, reweight="waterfall", diagnostics=_waterfall)
+    _log_waterfall_redistribution("position-feature build", _waterfall)
     if not len(aggregates):
         logger.warning("pl_rapm features skipped: no team-game aggregates")
         return None, None

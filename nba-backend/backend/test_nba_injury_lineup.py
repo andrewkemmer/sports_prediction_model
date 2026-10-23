@@ -1109,6 +1109,75 @@ class TestDesignationShardUnion:
         assert len(out) == 2
         assert set(out.player_report) == {"A, B", "C, D"}
 
+    def test_a_legacy_opponent_tag_is_repaired_from_team_full(self, tmp_path):
+        """The 2024-01-03 Phoenix filing is the production counterexample.
+
+        Kevin Durant's row was archived under the away tag because Phoenix's
+        home block printed second. Availability joins on team, so the legacy
+        tag points at the wrong club and the removal never binds. Loading
+        repairs the tag from the authoritative club name."""
+        _shard(tmp_path / "nba_designations.parquet", [{
+            "gameday": "2024-01-03",
+            "matchup": "LAC@PHX",
+            "team": "LAC",
+            "team_full": "Phoenix Suns",
+            "player": "Kevin Durant",
+            "status": "Out",
+        }])
+        out = proj.load_designations(tmp_path)
+        assert out.iloc[0]["team"] == "PHX"
+        assert out.iloc[0]["team_full"] == "Phoenix Suns"
+
+    def test_a_repaired_tag_removes_the_player_and_waterfalls_minutes(self, tmp_path):
+        """The repair is load-bearing for the minutes challenger.
+
+        The legacy LAC tag would leave Durant priced as available, so the
+        waterfall would have no donor. After the team_full repair, the Out
+        binds to Phoenix and Durant's minutes move to the next healthy
+        forward instead of vanishing."""
+        _shard(tmp_path / "nba_designations.parquet", [{
+            "gameday": "2024-01-03",
+            "matchup": "LAC@PHX",
+            "team": "LAC",
+            "team_full": "Phoenix Suns",
+            "player": "Kevin Durant",
+            "status": "Out",
+        }])
+        designations = proj.load_designations(tmp_path)
+        ratings = pd.DataFrame([{
+            "team": "PHX", "gameday": pd.Timestamp("2024-01-03"),
+            "player_id": "durant", "rapm_shrunk": 5.0,
+            "prior_minutes": 300.0, "prior_minutes_per_game": 30.0,
+            "is_available": True, "position": "F",
+        }, {
+            "team": "PHX", "gameday": pd.Timestamp("2024-01-03"),
+            "player_id": "booker", "rapm_shrunk": 1.0,
+            "prior_minutes": 280.0, "prior_minutes_per_game": 28.0,
+            "is_available": True, "position": "F",
+        }, {
+            "team": "PHX", "gameday": pd.Timestamp("2024-01-03"),
+            "player_id": "beal", "rapm_shrunk": 0.0,
+            "prior_minutes": 200.0, "prior_minutes_per_game": 20.0,
+            "is_available": True, "position": "F",
+        }])
+        rated = proj.apply_pit_designations(
+            ratings, designations,
+            {"durant": "Kevin Durant", "booker": "Devin Booker",
+             "beal": "Bradley Beal"})
+        assert bool(rated.loc[rated.player_id == "durant",
+                              "is_available"].iloc[0]) is False
+        diagnostics = {}
+        row = proj._project_team(
+            rated, "PHX", pd.Timestamp("2024-01-03"), None,
+            30, 1.0, 8, 100.0, 5, reweight="waterfall",
+            diagnostics=diagnostics)
+        assert diagnostics["donors"] == 1
+        assert diagnostics["absorbed_weight"] == 30.0
+        assert diagnostics["vanished_no_survivor"] == 0
+        # Booker takes 12 to the 40 cap and Beal takes the remaining 18 for
+        # a 78-minute forward pool and a 40/78 mean.
+        assert row["pl_rapm_f"] == 40.0 / 78.0
+
     def test_an_overlapping_window_is_idempotent(self, tmp_path):
         """A designation is a (date, team, player) removal read as a set, so a
         record in two shards must remove once, not twice."""

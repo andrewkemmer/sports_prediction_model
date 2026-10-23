@@ -50,6 +50,10 @@ try:
     from backend import config
 except ImportError:
     import config
+try:
+    from backend import nba_injury_report as injury_report_mod
+except ImportError:
+    import nba_injury_report as injury_report_mod
 
 AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_out_count", "lineup_healthy_frac",
@@ -229,7 +233,7 @@ def load_designations(root) -> "pd.DataFrame | None":
             if len(frame):
                 logger.info("PIT designations: %d record(s) from the "
                             "published archive", len(frame))
-                return frame
+                return injury_report_mod.normalize_designation_teams(frame)
         except Exception as exc:  # noqa: BLE001
             logger.warning("published designation archive unreadable (%s); "
                            "falling back to shards", exc)
@@ -250,7 +254,7 @@ def load_designations(root) -> "pd.DataFrame | None":
     logger.info("PIT designations: %d record(s) from %d shard(s) [%s]",
                 len(designations), len(frames),
                 ", ".join(p.name for p in shards))
-    return designations
+    return injury_report_mod.normalize_designation_teams(designations)
 
 
 def apply_pit_designations(ratings: pd.DataFrame, designations,

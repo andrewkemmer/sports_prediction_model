@@ -889,32 +889,94 @@ def canonical_name(report_name: str) -> str:
     return f"{first.strip()} {last.strip()}"
 
 
-def _team_abbreviations(records: Sequence[Designation],
-                        matchup: str) -> dict[str, str]:
-    """Full club names as printed -> the matchup's abbreviations.
+#: Full club name as the report prints it -> abbreviation.  The report's
+#: team header IS the full name (verified: exactly these 30 distinct
+#: ``team_full`` values across the full designation archive, zero blanks),
+#: so the abbreviation is derived from the name itself - never from the
+#: order the clubs' blocks happen to appear in a filing.  Reading it off
+#: block order mis-tagged 850 rows (2.28%): 378 opponent swaps - 239 Out
+#: + 12 Doubtful that silently never bound - and 472 blank teams on
+#: tip-only additions (e.g. 2026-03-12 DEN@SAS filed Victor Wembanyama
+#: under team=DEN instead of his own SAS).
+TEAM_FULL_TO_ABBR: dict[str, str] = {
+    "Atlanta Hawks": "ATL", "Boston Celtics": "BOS",
+    "Brooklyn Nets": "BKN", "Charlotte Hornets": "CHA",
+    "Chicago Bulls": "CHI", "Cleveland Cavaliers": "CLE",
+    "Dallas Mavericks": "DAL", "Denver Nuggets": "DEN",
+    "Detroit Pistons": "DET", "Golden State Warriors": "GSW",
+    "Houston Rockets": "HOU", "Indiana Pacers": "IND",
+    "LA Clippers": "LAC", "Los Angeles Lakers": "LAL",
+    "Memphis Grizzlies": "MEM", "Miami Heat": "MIA",
+    "Milwaukee Bucks": "MIL", "Minnesota Timberwolves": "MIN",
+    "New Orleans Pelicans": "NOP", "New York Knicks": "NYK",
+    "Oklahoma City Thunder": "OKC", "Orlando Magic": "ORL",
+    "Philadelphia 76ers": "PHI", "Phoenix Suns": "PHX",
+    "Portland Trail Blazers": "POR", "Sacramento Kings": "SAC",
+    "San Antonio Spurs": "SAS", "Toronto Raptors": "TOR",
+    "Utah Jazz": "UTA", "Washington Wizards": "WAS",
+}
 
-    The report prints the away block before the home block, so a full club
-    name's abbreviation is read off the order of first appearance - and
-    then CHECKED: a full name resolving to two different abbreviations on
-    different nights means the assumption broke, which is logged rather
-    than zip-truncated into a wrong club.
+
+def _abbr_for_team_full(full: object) -> "str | None":
+    """The matchup abbreviation for a report team header, or None.
+
+    Exact match first, then case-insensitive, then a unique trailing-token
+    match ("Celtics" -> BOS: every club's last token is unique, so a
+    short header still resolves exactly once).  None means the header is
+    outside the 30-club vocabulary - the caller quarantines and logs the
+    row instead of inventing a key for it.
     """
-    abbrs = matchup.split("@", 1)
-    order: list[str] = []
-    for record in records:
-        if record.team and record.team not in order:
-            order.append(record.team)
-    mapping: dict[str, str] = {}
-    for index, full in enumerate(order):
-        if index >= len(abbrs):
-            break
-        prior = mapping.get(full)
-        if prior is not None and prior != abbrs[index]:
-            logger.warning("team order conflict: %r seen as %s and %s (%s)",
-                           full, prior, abbrs[index], matchup)
-            continue
-        mapping[full] = abbrs[index]
-    return mapping
+    key = str(full or "").strip()
+    if not key:
+        return None
+    hit = TEAM_FULL_TO_ABBR.get(key)
+    if hit is not None:
+        return hit
+    lowered = key.lower()
+    for full_name, abbr in TEAM_FULL_TO_ABBR.items():
+        if full_name.lower() == lowered:
+            return abbr
+    token = lowered.split()[-1]
+    hits = {abbr for full_name, abbr in TEAM_FULL_TO_ABBR.items()
+            if full_name.lower().split()[-1] == token}
+    if len(hits) == 1:
+        return next(iter(hits))
+    return None
+
+
+def normalize_designation_teams(frame: pd.DataFrame) -> pd.DataFrame:
+    """Repair legacy team tags from the source's own club name.
+
+    Older archives derived the abbreviation from filing block order, which
+    assigns the opponent whenever the home block prints first and leaves
+    tip-only additions blank. ``team_full`` is the authoritative club name,
+    so a resolvable name that belongs to the row's matchup replaces the
+    stored tag. Rows without a resolvable or matchup-member club are left
+    untouched: an unknown vocabulary must stay visible, not be invented.
+    """
+    if frame is None or not len(frame):
+        return frame
+    if not {"team", "team_full", "matchup"}.issubset(frame.columns):
+        return frame
+    out = frame.copy()
+    canonical = out["team_full"].map(_abbr_for_team_full)
+    matchup = out["matchup"].astype(str)
+    away = matchup.str.split("@", n=1).str[0]
+    home = matchup.str.split("@", n=1).str[1]
+    usable = (
+        canonical.notna()
+        & matchup.str.contains("@", na=False)
+        & ((canonical.astype(str) == away) | (canonical.astype(str) == home))
+    )
+    if not usable.any():
+        return out
+    corrected = canonical.where(usable, out["team"])
+    fixed = int((out["team"].astype(str) != corrected.astype(str)).sum())
+    out["team"] = corrected
+    if fixed:
+        logger.info("normalized %d archived designation team(s) from team_full",
+                    fixed)
+    return out
 
 
 def _empty_designations() -> pd.DataFrame:
@@ -981,6 +1043,7 @@ def game_day_designations(day: date, cache_dir: Path,
         return parsed[when]
 
     rows: list[dict] = []
+    quarantined: list[str] = []
     for matchup, tipoff in sorted(slate.items(), key=lambda kv: kv[1]):
         home = matchup.split("@", 1)[1] if "@" in matchup else ""
         window = submission_window(day, tipoff, home)
@@ -1071,7 +1134,6 @@ def game_day_designations(day: date, cache_dir: Path,
                 logger.warning("no filing lists %s before tipoff on %s: "
                                "game uncovered", matchup, day)
             continue
-        abbreviations = _team_abbreviations(submission_records, matchup)
         # The pre-tip-off filing feeds status_tipoff ONLY.  Shared across
         # games of the day through the same parse cache.
         tip_filing = _last_filing_before(tipoff, cache_dir, how_far_back,
@@ -1093,10 +1155,18 @@ def game_day_designations(day: date, cache_dir: Path,
             if tip_filing is not None else []
         for record in submission_records + tip_only:
             is_submission = (record.team, record.player) in submission_keys
+            # The abbreviation is derived from the club NAME, never from
+            # block order: block order mis-tagged 378 rows with the
+            # opponent and left 472 tip-only rows blank.
+            team_abbr = _abbr_for_team_full(record.team)
+            if team_abbr is None:
+                quarantined.append(
+                    f"{record.team!r} / {record.player} ({matchup})")
+                team_abbr = ""
             rows.append({
                 "gameday": pd.Timestamp(day),
                 "matchup": matchup,
-                "team": abbreviations.get(record.team, ""),
+                "team": team_abbr,
                 "team_full": record.team,
                 "player": canonical_name(record.player),
                 "player_report": record.player,
@@ -1113,6 +1183,16 @@ def game_day_designations(day: date, cache_dir: Path,
                 "published_at_tipoff": (tip_filing.isoformat()
                                         if tip_filing is not None else ""),
             })
+    if quarantined:
+        # Quarantine, don't invent: the row prices as available (today's
+        # miss behavior for exactly these rows), but counted and visible
+        # instead of silent.  The run proceeds - nothing downstream changes
+        # shape.  A burst of these means the report's vocabulary drifted,
+        # which is the tripwire this line exists to catch.
+        logger.warning("quarantined %d designation row(s) with underivable "
+                       "team_full (priced as available): %s%s", len(quarantined),
+                       "; ".join(quarantined[:10]),
+                       " ..." if len(quarantined) > 10 else "")
     if not rows:
         return _empty_designations()
     return pd.DataFrame(rows, columns=DESIGNATION_COLUMNS)

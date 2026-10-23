@@ -790,3 +790,148 @@ def test_require_pdf_parser_passes_where_the_parser_is_installed():
     # The suite parses real filings, so this environment has it; this is
     # the healthy path of the guard above.
     ir.require_pdf_parser()
+
+
+# ---------------------------------------------------------------------------
+# team comes from team_full, never from block order
+# ---------------------------------------------------------------------------
+
+
+def test_team_is_derived_from_the_club_name_not_block_order(monkeypatch,
+                                                            tmp_path):
+    """2026-03-12 DEN@SAS: Wembanyama's filing read team=DEN (the away
+    block printed first) instead of his own SAS, so an Out there would
+    never have bound.  The abbreviation is derived from the club name, so
+    block order cannot move a player to the wrong team."""
+    when = datetime(2026, 1, 10, 13, 0)
+    late = datetime(2026, 1, 10, 18, 15)
+    # ET home (BOS) so the window close is 13:00 ET and the submission
+    # filing is deterministically the 13:00 one.
+    records = {
+        ir._stamp_path(when): [
+            # Home block FIRST - the order that used to mis-tag.
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Boston Celtics",
+                           player="Tatum, Jayson", status="Out",
+                           reason="", published_at=when),
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Denver Nuggets",
+                           player="Jokic, Nikola", status="Available",
+                           reason="", published_at=when),
+        ],
+        ir._stamp_path(late): [
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Boston Celtics",
+                           player="Tatum, Jayson", status="Out",
+                           reason="", published_at=late),
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Denver Nuggets",
+                           player="Jokic, Nikola", status="Available",
+                           reason="", published_at=late),
+        ],
+    }
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_06_15PM"}, records)
+    archive.install(monkeypatch)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("DEN@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert len(frame) == 2
+    tatum = frame[frame.player == "Jayson Tatum"].iloc[0]
+    assert tatum.team == "BOS"
+    assert tatum.team_full == "Boston Celtics"
+    assert tatum.status == "Out"
+    jokic = frame[frame.player == "Nikola Jokic"].iloc[0]
+    assert jokic.team == "DEN"
+
+
+def test_a_tip_only_addition_gets_its_own_team_not_a_blank(monkeypatch,
+                                                          tmp_path):
+    """Players added after the close (status="") used to carry team=""
+    because only the submission's clubs were mapped.  They still remove
+    nothing, but they now carry their own club."""
+    when = datetime(2026, 1, 10, 13, 0)
+    late = datetime(2026, 1, 10, 18, 15)
+    records = {
+        ir._stamp_path(when): [
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Denver Nuggets",
+                           player="Jokic, Nikola", status="Available",
+                           reason="", published_at=when),
+        ],
+        ir._stamp_path(late): [
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Denver Nuggets",
+                           player="Jokic, Nikola", status="Available",
+                           reason="", published_at=late),
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="DEN@BOS",
+                           team="Boston Celtics",
+                           player="Tatum, Jayson", status="Out",
+                           reason="", published_at=late),
+        ],
+    }
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_06_15PM"}, records)
+    archive.install(monkeypatch)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("DEN@BOS", datetime(2026, 1, 10, 19, 0))])
+    tatum = frame[frame.player == "Jayson Tatum"].iloc[0]
+    assert tatum.status == ""  # added after the close: removes nothing
+    assert tatum.team == "BOS"
+    assert tatum.team_full == "Boston Celtics"
+
+
+def test_an_unknown_team_header_is_quarantined_not_invented(monkeypatch,
+                                                            tmp_path, caplog):
+    """A header outside the 30-club vocabulary prices as available with
+    a counted warning - the run proceeds, nothing downstream changes
+    shape, and the drift is visible instead of silent."""
+    import logging
+    when = datetime(2026, 1, 10, 13, 0)
+    late = datetime(2026, 1, 10, 18, 15)
+    records = {
+        ir._stamp_path(when): [
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="NYK@BOS",
+                           team="Seattle Supersonics",
+                           player="Doe, John", status="Out",
+                           reason="", published_at=when),
+        ],
+        ir._stamp_path(late): [
+            ir.Designation(game_date=date(2026, 1, 10),
+                           game_time_et="07:00", matchup="NYK@BOS",
+                           team="Seattle Supersonics",
+                           player="Doe, John", status="Out",
+                           reason="", published_at=late),
+        ],
+    }
+    archive = _FakeArchive({"2026-01-10_12_00PM", "2026-01-10_01_00PM",
+                            "2026-01-10_06_15PM"}, records)
+    archive.install(monkeypatch)
+    caplog.set_level(logging.WARNING)
+    frame = ir.game_day_designations(
+        date(2026, 1, 10), tmp_path,
+        games=[("NYK@BOS", datetime(2026, 1, 10, 19, 0))])
+    assert len(frame) == 1
+    assert frame.iloc[0].team == ""
+    assert frame.iloc[0].team_full == "Seattle Supersonics"
+    assert "quarantined 1 designation row" in caplog.text
+
+
+def test_abbr_resolver_covers_the_full_thirty_club_vocabulary():
+    """The derivation is total: every canonical full name resolves, and
+    the map holds exactly the 30 clubs (measured over the full archive)."""
+    assert len(ir.TEAM_FULL_TO_ABBR) == 30
+    for full, abbr in ir.TEAM_FULL_TO_ABBR.items():
+        assert ir._abbr_for_team_full(full) == abbr
+    assert ir._abbr_for_team_full("Celtics") == "BOS"  # short headers
+    assert ir._abbr_for_team_full("Seattle Supersonics") is None
+    assert ir._abbr_for_team_full("") is None
