@@ -478,7 +478,7 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
         trailing = proj_mod.trailing_membership_minutes(games_frame, target)
         aggregates = proj_mod.projected_lineup(
             ratings, games=games, stints=stints, trailing_minutes=trailing,
-            reweight="next_man_up")
+            reweight="waterfall")
         if len(aggregates):
             agg_path = out / config.PLAYER_RAPM_AGG_CSV.format(date=date_c)
             aggregates.assign(gameday=pd.to_datetime(aggregates.gameday)
@@ -721,7 +721,7 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
     ratings = proj_mod.apply_pit_designations(ratings, designations, name_by_id)
 
     aggregates = proj_mod.projected_lineup(
-        ratings, games=games, reweight="next_man_up")
+        ratings, games=games, reweight="waterfall")
     if not len(aggregates):
         logger.warning("pl_rapm features skipped: no team-game aggregates")
         return None, None
