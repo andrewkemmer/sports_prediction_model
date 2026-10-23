@@ -1890,7 +1890,19 @@ def _phase1_redistribute_tpg(survivors: pd.DataFrame,
         d["position"].astype("string"))
     s_pos = _normalize_epa_lineup_positions(
         survivors["position"].astype("string"))
-    for pos in ("QB", "WR", "TE", "RB"):
+    # QB first: top-survivor takeover, no spillover (see _qb_takeover_allocate).
+    qb_missing = float(d.loc[d["position"].eq("QB"), "_tpg"]
+                        .dropna().clip(lower=0.0).sum())
+    if np.isfinite(qb_missing) and qb_missing > 0:
+        qb_pool = float(a.get("QB", 0.7)) * qb_missing
+        if np.isfinite(qb_pool) and qb_pool > 0:
+            qb_mask = s_pos.eq("QB") & base.notna() & (base >= 0)
+            if qb_mask.any():
+                qb_cap = None if not caps else caps.get("QB")
+                add = _qb_takeover_allocate(base[qb_mask], qb_pool, qb_cap)
+                out.loc[add.index] = (base[qb_mask] + add).to_numpy()
+            # no QB survivor: pool vanishes (same as below)
+    for pos in ("WR", "TE", "RB"):
         missing = float(d.loc[d["position"].eq(pos), "_tpg"]
                         .dropna().clip(lower=0.0).sum())
         if not np.isfinite(missing) or missing <= 0:
@@ -1905,6 +1917,32 @@ def _phase1_redistribute_tpg(survivors: pd.DataFrame,
         add = _waterfall_allocate(base[mask], pool, cap)
         out.loc[add.index] = (base[mask] + add).to_numpy()
     return out
+
+
+def _qb_takeover_allocate(group_base: pd.Series, pool: float,
+                          cap: float | None) -> pd.Series:
+    """One backup takes the job: the top trailing-volume survivor absorbs
+    the pool up to the cap and the rest vanishes.
+
+    QB is a one-man position - validated 2026-10-23 on BAL@CLE week 6
+    (Lamar Jackson Out, Huntley 34/34 attempts + 3/3 sacks, no other QB
+    took a dropback). Dressed backups don't rotate on cap grounds, so
+    unlike skill spots there is no waterfall to the next survivor.
+    Ties break to the first member (stable order), which is deterministic
+    for a given pool frame; tied members are low-volume and heavily
+    shrunk anyway, so the pick barely moves the number.
+    """
+    added = pd.Series(0.0, index=group_base.index)
+    if not np.isfinite(pool) or pool <= 0 or len(group_base) == 0:
+        return added
+    vals = group_base.fillna(0.0).to_numpy(dtype=float)
+    top = int(np.argsort(-vals, kind="stable")[0])
+    if cap is None or not np.isfinite(cap):
+        take = float(pool)
+    else:
+        take = min(float(pool), max(float(cap) - vals[top], 0.0))
+    added.iloc[top] = take
+    return added
 
 
 def _waterfall_allocate(group_base: pd.Series, pool: float,
@@ -1983,15 +2021,16 @@ def _phase2_redistribute_tpg(survivors: pd.DataFrame,
         d["position"].astype("string"))
     s_pos = _normalize_epa_lineup_positions(
         survivors["position"].astype("string"))
-    # QB: backup takes the dropbacks (phase-1 rule, no cross-position).
+    # QB: one backup takes the dropbacks (takeover, no spillover - see
+    # _qb_takeover_allocate). No cross-position involvement either way.
     qb_missing = float(d.loc[d["position"].eq("QB"), "_tpg"]
                        .dropna().clip(lower=0.0).sum())
     if np.isfinite(qb_missing) and qb_missing > 0 and qb_alpha > 0:
         qb_mask = s_pos.eq("QB") & base.notna() & (base >= 0)
         if qb_mask.any():
             cap = None if not caps else caps.get("QB")
-            add = _waterfall_allocate(base[qb_mask], qb_alpha * qb_missing,
-                                      cap)
+            add = _qb_takeover_allocate(base[qb_mask],
+                                        qb_alpha * qb_missing, cap)
             out.loc[add.index] = (base[qb_mask] + add).to_numpy()
     for donor_pos in ("WR", "TE", "RB"):
         missing = float(d.loc[d["position"].eq(donor_pos), "_tpg"]

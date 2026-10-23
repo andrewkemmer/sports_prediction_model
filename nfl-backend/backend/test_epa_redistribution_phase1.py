@@ -58,6 +58,57 @@ def test_cap_waterfall_and_vanish():
     assert got.sum() - surv["_tpg"].sum() < 14.0  # capped: part vanished
 
 
+def test_qb_takeover_no_spillover_top_survivor_takes_all():
+    # BAL@CLE week 6 shape (Jackson out, Huntley the established backup):
+    # the top trailing-volume survivor absorbs up to the cap and QB2/QB3
+    # see nothing - the old waterfall would have spilled onto them.
+    surv = _surv([
+        {"player_id": "QB2", "position": "QB", "_tpg": 8.0},
+        {"player_id": "QB3", "position": "QB", "_tpg": 1.0},
+    ])
+    don = _donors([{"player_id": "QB1", "position": "QB", "_tpg": 35.0}])
+    got = feat_mod._phase1_redistribute_tpg(
+        surv, don, alpha={"QB": 1.0}, caps={"QB": 37.0})
+    # top takes min(35, 37-8)=29 -> 37.0; second untouched; rest vanishes
+    assert np.isclose(got.iloc[0], 37.0)
+    assert np.isclose(got.iloc[1], 1.0)
+    assert np.isclose(got.sum() - surv["_tpg"].sum(), 29.0)
+
+
+def test_qb_takeover_excess_vanishes_when_cap_binds():
+    surv = _surv([{"player_id": "QB2", "position": "QB", "_tpg": 30.0}])
+    don = _donors([{"player_id": "QB1", "position": "QB", "_tpg": 30.0}])
+    got = feat_mod._phase1_redistribute_tpg(
+        surv, don, alpha={"QB": 1.0}, caps={"QB": 45.0})
+    assert np.isclose(got.iloc[0], 45.0)  # 15 vanishes, no second QB fed
+
+
+def test_qb_takeover_tiebreak_is_deterministic():
+    surv = _surv([
+        {"player_id": "QBa", "position": "QB", "_tpg": 2.0},
+        {"player_id": "QBb", "position": "QB", "_tpg": 2.0},
+    ])
+    don = _donors([{"player_id": "QB1", "position": "QB", "_tpg": 20.0}])
+    first = feat_mod._phase1_redistribute_tpg(surv, don, caps=None)
+    again = feat_mod._phase1_redistribute_tpg(
+        surv.iloc[::-1].reset_index(drop=True), don, caps=None)
+    # first-listed takes all both ways: the rule is index-order stable
+    assert np.isclose(first.iloc[0], 22.0) and np.isclose(first.iloc[1], 2.0)
+    assert np.isclose(again.iloc[0], 22.0) and np.isclose(again.iloc[1], 2.0)
+
+
+def test_phase2_qb_takeover_no_spillover():
+    surv = _surv([
+        {"player_id": "QB2", "position": "QB", "_tpg": 8.0},
+        {"player_id": "QB3", "position": "QB", "_tpg": 1.0},
+    ])
+    don = _donors([{"player_id": "QB1", "position": "QB", "_tpg": 35.0}])
+    got = feat_mod._phase2_redistribute_tpg(
+        surv, don, caps={"QB": 37.0})
+    assert np.isclose(got.iloc[0], 37.0)
+    assert np.isclose(got.iloc[1], 1.0)
+
+
 def test_no_same_position_survivor_vanishes():
     surv = _surv([{"player_id": "T1", "position": "TE", "_tpg": 5.0}])
     don = _donors([{"player_id": "W1", "position": "WR", "_tpg": 9.0}])
