@@ -766,9 +766,14 @@ def run_oof(games: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Score ensemble + level-2 CDF mixture (NBA structural port).
 #
-# Production stays the single-LightGBM side models (run_oof) until an
-# ablation admits the blend. This section adds, without touching the
-# served path:
+# STRUCTURALLY ADOPTED 2026-10-23 (owner-directed NBA alignment):
+# run_engine_daily serves walk_forward_oof_ensemble (earned
+# Poisson-deviance blends, full-view elastic net — DIFFS_ONLY=False) plus
+# fit_final_ensemble/predict_ensemble_slate for the slate. Trial verdict
+# (7,039 games: B z=+1.38 favors the single-LGBM incumbent, C identical
+# to B) did NOT clear the 2.5 gate; this is structural parity with
+# NBA-C, not a gate promotion. run_oof (single LightGBM) is retained
+# for the margin-round derivation and diagnostics only:
 #   * ScoreEnsembleRegressor: per-side xgboost / lightgbm / elasticnet
 #     regressors on the SAME strict-active-moneyline side view the run
 #     engine uses (build_side_frame + _apply_categorical_ids for the tree
@@ -2372,12 +2377,24 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        final_fit_rounds: dict[str, int],
                        n_draws: int = MC_DRAWS,
                        seed: int = MARKET_SEED,
-                       calibration: Optional[dict] = None) -> pd.DataFrame:
+                       calibration: Optional[dict] = None,
+                       ensemble_models: Optional[dict] = None,
+                       ensemble_weights: Optional[dict[str, float]] = None
+                       ) -> pd.DataFrame:
     """λ + full market grid for TODAY'S SLATE.
 
-    Side models refit on ALL decided games at fixed rounds (median fold
-    early-stopping iteration — no early stopping against the future), then
-    priced through the same split-skew calibrated Monte Carlo as OOF rows."""
+    Default (legacy) path: side models refit on ALL decided games at fixed
+    rounds (median fold early-stopping iteration — no early stopping
+    against the future), then priced through the same split-skew
+    calibrated Monte Carlo as OOF rows.
+
+    Ensemble path (STRUCTURAL ADOPTION 2026-10-23, NBA-C parity): when
+    ensemble_models + ensemble_weights are given, slate means come from
+    predict_ensemble_slate (full-view blend at OOF-earned weights) instead
+    of the single-LGBM refit. The run-line drift weight stays the
+    diagnostic single-model refit so the monitor column keeps its
+    definition; the served mus are the blend.
+    """
     # Run line's own MODEL WEIGHT (2026-09-27): pooled split-gain from the
     # side models, computed on the DECIDED frame — BEFORE the empty-slate
     # early return, so an off-day run weights exactly like a game day (the
@@ -2440,23 +2457,31 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     for tc in ("home_team", "away_team"):
         if tc in slate_games.columns:
             out[tc] = slate_games[tc]
-    for side in ("home", "away"):
-        _, cols = build_side_frame(decided_games, side,
-                                   strict_feature_parity=True)
-        tr = decided_games.reindex(columns=cols).astype(float)
-        va = slate_games.reindex(columns=cols).astype(float)
-        # Team-ID categoricals (2026-09-23 ADOPT): attach AFTER the float
-        # reindex, resolved from each frame's own team abbreviations. Slate
-        # rows carry abbreviations (ESPN slates) or nothing at all —
-        # _add_team_ids degrades to the reserved UNK slot per the
-        # moneyline's own contract.
-        _apply_categorical_ids(tr, rows=decided_games)
-        _apply_categorical_ids(va, rows=slate_games)
-        model = LGBMRegressor(**RUN_LGBM_PARAMS)
-        model.set_params(n_estimators=int(final_fit_rounds[side]))
-        model.fit(tr, decided_games[f"{side}_score"].to_numpy(dtype=float))
-        out[f"{side}_expected_runs"] = np.round(
-            np.clip(model.predict(va), 1e-6, None), 4)
+    if ensemble_models is not None and ensemble_weights is not None:
+        # Served path (2026-10-23 adoption): full-view ensemble blend at
+        # OOF-earned weights — the single-LGBM refit below is skipped.
+        mu_h, mu_a = predict_ensemble_slate(
+            ensemble_models, slate_games, ensemble_weights)
+        out["home_expected_runs"] = np.round(np.clip(mu_h, 1e-6, None), 4)
+        out["away_expected_runs"] = np.round(np.clip(mu_a, 1e-6, None), 4)
+    else:
+        for side in ("home", "away"):
+            _, cols = build_side_frame(decided_games, side,
+                                       strict_feature_parity=True)
+            tr = decided_games.reindex(columns=cols).astype(float)
+            va = slate_games.reindex(columns=cols).astype(float)
+            # Team-ID categoricals (2026-09-23 ADOPT): attach AFTER the float
+            # reindex, resolved from each frame's own team abbreviations. Slate
+            # rows carry abbreviations (ESPN slates) or nothing at all —
+            # _add_team_ids degrades to the reserved UNK slot per the
+            # moneyline's own contract.
+            _apply_categorical_ids(tr, rows=decided_games)
+            _apply_categorical_ids(va, rows=slate_games)
+            model = LGBMRegressor(**RUN_LGBM_PARAMS)
+            model.set_params(n_estimators=int(final_fit_rounds[side]))
+            model.fit(tr, decided_games[f"{side}_score"].to_numpy(dtype=float))
+            out[f"{side}_expected_runs"] = np.round(
+                np.clip(model.predict(va), 1e-6, None), 4)
     if not calibration or calibration.get("method") != family.METHOD:
         raise ValueError("MLB slate requires a fitted split-skew challenger bundle")
     out["kind"] = "slate"
@@ -2520,8 +2545,14 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     # prices on exactly the moneyline's active feature list. (The P1
     # projection attach adopted by gate 7e4c529 was removed here so both
     # models see identical features.)
-    result = run_oof(decided, decided_snapshot=decided)
+    # STRUCTURALLY ADOPTED 2026-10-23: the served means come from the
+    # full-view score ensemble (earned prior-fold blend weights), not the
+    # single-LightGBM run_oof — NBA-C parity (verdict: not a gate pass).
+    result = walk_forward_oof_ensemble(decided)
     oof = result["oof"]
+    member_weights = dict(result["member_weights"])
+    logger.info("score-ensemble serving weights (OOF-earned): %s",
+                {k: round(float(v), 4) for k, v in member_weights.items()})
 
     history_path = DATA_DELIVERY_DIR / f"predictions_history_{target_date_str}.csv"
     if not history_path.exists():
@@ -2535,10 +2566,17 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     summary = mk["summary"]
     markets = mk["markets"]
 
+    # Serving slate means come from the ensemble fitted on all decided
+    # games, blended with the walk's OOF-earned weights — never equal
+    # priors, never an in-sample optimum (moneyline fit_final convention).
+    _final_ensemble = fit_final_ensemble(decided)
     slate_frame = predict_slate_runs(
-        decided, target_games, result["summary"]["final_fit_rounds"],
+        decided, target_games, {"home": RUN_FIXED_FIT_ROUNDS,
+                               "away": RUN_FIXED_FIT_ROUNDS},
         n_draws=n_draws,
-        calibration=summary.get("calibration", {}).get("calibrators"))
+        calibration=summary.get("calibration", {}).get("calibrators"),
+        ensemble_models=_final_ensemble,
+        ensemble_weights=member_weights)
     if (not slate_frame.empty and ml_probs is not None
             and "home_win_prob_model" in target_games.columns):
         # Use whichever key exists: game_pk (StatsAPI) or game_id (ESPN).
@@ -2605,7 +2643,17 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                      exc_info=True)
     totals_brier = compute_rolling_totals_brier(combined)
 
-    s1 = result["summary"]
+    # Phase-1 monitor shim: the ensemble walk carries member_weights, not
+    # the single-model summary (final_fit_rounds/dispersion). Report the
+    # walk geometry + served blend; downstream readers must tolerate the
+    # ensemble shape (rounds/dispersion None when serving the blend).
+    _ft = result.get("fold_table")
+    s1 = {"n_folds": int(len(_ft)) if _ft is not None else 0,
+          "n_games": int(len(oof)),
+          "member_weights": member_weights,
+          "final_fit_rounds": {},
+          "home_dispersion_ratio": None,
+          "away_dispersion_ratio": None}
     holdout_markets = {
         k.replace("market_", ""): v.get("holdout")
         for k, v in summary.items()
@@ -2916,7 +2964,8 @@ def main() -> None:
 
     df = pd.read_csv(args.data)
     decided = get_decided_frame(df)
-    result = run_oof(decided, decided_snapshot=decided)
+    # Served path (2026-10-23 adoption): full-view ensemble, not run_oof.
+    result = walk_forward_oof_ensemble(decided)
 
     # Phase 2 consumes Phase 1's OOF λ directly (same process, no retrain).
     history_path = DATA_DELIVERY_DIR / f"predictions_history_{date_stamp}.csv"
@@ -2928,21 +2977,16 @@ def main() -> None:
     oof_path = persist_oof(result["oof"], date_stamp)
     mkt_path = persist_markets(mk["markets"], date_stamp, mk["summary"])
 
-    s = result["summary"]
-    print("\n================ RUN ENGINE PHASE 1 ================")
-    print(f"folds={s['n_folds']}  oof games={s['n_games']}")
-    print(f"\n{'metric':<18}{'home model':>12}{'away model':>12}{'baseline':>10}")
-    for metric in ("poisson_deviance", "rmse", "mae"):
-        print(f"{metric:<18}"
-              f"{s['home_pooled'][metric]:>12.4f}"
-              f"{s['away_pooled'][metric]:>12.4f}"
-              f"{s['home_baseline'][metric]:>10.4f}"
-              f"  (away base {s['away_baseline'][metric]:.4f})")
-    for side in ("home", "away"):
-        ratio = s[f"{side}_dispersion_ratio"]
-        verdict = "Poisson OK" if ratio < 1.3 else (
-            "MILD over-dispersion" if ratio < 1.8 else "STRONG over-dispersion")
-        print(f"{side} dispersion ratio (Pearson χ²/df): {ratio:.3f} → {verdict}")
+    oof_cli = result["oof"]
+    print("\n================ RUN ENGINE PHASE 1 (ensemble) ================")
+    print(f"folds={len(result['fold_table'])}  oof games={len(oof_cli)}")
+    print(f"serving weights: {result['member_weights']}")
+    for side, mu_col, y_col in (
+            ("home", _MLB_MU_H, "home_score"),
+            ("away", _MLB_MU_A, "away_score")):
+        y = oof_cli[y_col].to_numpy(float)
+        mu = oof_cli[mu_col].to_numpy(float)
+        print(f"{side} pooled deviance: {poisson_deviance(y, mu):.5f}")
     print(f"\nOOF artifact: {oof_path}")
     _print_phase2(mk["summary"])
     print(f"Markets artifact: {mkt_path}")

@@ -414,9 +414,12 @@ XGBOOST_PARAMS = {
 # view, same causal expanding OOF, but the blending objective is pooled
 # Poisson deviance (the count-data logloss) in log space. Weights start
 # equal and are earned per fold on strictly-prior OOF; the simplex is
-# plain (no caps/floors). NBA structural port: production run_oof stays
-# the served path until the ablation admits the blend (tune under the
-# noise-floor-first, two-gate protocol before changing).
+# plain (no caps/floors). STRUCTURALLY ADOPTED 2026-10-23 (owner-directed
+# NBA alignment): production run_engine_daily serves the ensemble walk
+# (earned Poisson-deviance blends, full-view elastic net) — not the
+# single-LightGBM run_oof. Trial verdict (7,039 games: B z=+1.38 favors
+# the incumbent, C identical to B) did NOT clear the 2.5 gate; this is
+# structural parity, not a gate promotion.
 SCORE_ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 SCORE_ENSEMBLE_WEIGHTS = {"xgboost": 0.3333, "lightgbm": 0.3333,
                           "elasticnet": 0.3334}
@@ -447,8 +450,10 @@ SCORE_ELASTICNET_PARAMS = {
 # NOTE the reversed direction vs NBA (2026-10-17): MLB's EN already sees
 # all 66 raw levels (no linear/tree view split exists here), so the
 # ablation tests whether the levels matter by REMOVING them. Default False
-# is byte-identical arm B; arm C sets it True for the walk-forward trial
-# only. Promotion requires the trial verdict.
+# is the NBA-C-equivalent full view (arm B) and the SERVED setting as of
+# the 2026-10-23 structural adoption; True is the trial-only diffs-only
+# arm C, which matched B exactly (C-vs-B NaN) while losing to the
+# incumbent — do not serve True without a passing verdict.
 SCORE_EN_ELASTICNET_DIFFS_ONLY = False
 # RETUNE 2026-09-30 (max_depth 3 -> 1) — adopted, then PROVENANCE-
 # CORRECTED 2026-09-30 after the first production run under the new
