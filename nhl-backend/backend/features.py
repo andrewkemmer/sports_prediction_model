@@ -592,6 +592,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
                  team_source: pd.DataFrame | None = None,
                  stints: pd.DataFrame | None = None,
                  rosters: pd.DataFrame | None = None,
+                 confirmed: pd.DataFrame | dict | None = None,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-goalie rolling SV% / GAA state + per-game expected-starter frame.
 
@@ -617,9 +618,16 @@ def goalie_state(boxscores: pd.DataFrame | None,
 
     The EXPECTED STARTER entering game t is the AVAILABLE goalie with the
     most STARTS for that team strictly before t WITHIN t's SEASON
-    (season-to-date workload) — resolved purely from prior starts, never
-    from game t's own boxscore, so the same rule serves decided history and
-    a scheduled slate alike. Scoping the vote to t's season is what keeps a
+    (season-to-date workload) — UNLESS a PIT-confirmed starter exists for
+    (t, side): the preview's first-listed goalie, frozen strictly pre-game
+    and bound to exactly t, jumps the workload queue (still gated on
+    availability, so a scratched confirmed man honestly falls back). The
+    confirmation table is the frozen ``nhl_pregame_goalie_starters``
+    artifact, loaded identically for decided history and the scheduled
+    slate — one rule, one source, both paths. Everything else is resolved
+    purely from prior starts, never from game t's own boxscore, so the same
+    rule serves decided history and a scheduled slate alike. Scoping the
+    vote to t's season is what keeps a
     prior-season workhorse (129 career starts, 0 this season) from being
     served as tonight's starter over the goalies the team is actually using
     (the 2026-10-04 FLA@ANA card named S. Bobrovsky over Markstrom/Schmid
@@ -959,6 +967,79 @@ def goalie_state(boxscores: pd.DataFrame | None,
             stints, next(iter(hits)), pd.Timestamp(cut), strict_start=True,
             by_player=_by_player))
 
+    # ------------------------------------------------------------------
+    # PIT-CONFIRMED STARTERS (preview goalie order, game-scoped).
+    #
+    # ``confirmed`` is the frozen ``nhl_pregame_goalie_starters`` table
+    # (or a {(game_id, side): starter_name} dict in tests). ``None`` loads
+    # the artifact here, inside the function, so the decided-history path
+    # and the slate path resolve confirmations through the identical
+    # source with zero call-site divergence. A confirmation binds exactly
+    # one (game_id, side); the announcement < puck-drop gate already held
+    # at freeze time, and is re-checked against the game's own start below.
+    # ------------------------------------------------------------------
+    _confirmed: dict[tuple[str, str], tuple[str, object]] = {}
+    try:
+        _conf_src = confirmed
+        if _conf_src is None:
+            try:
+                from . import pit_availability as _pa
+            except Exception:  # noqa: BLE001
+                import pit_availability as _pa  # type: ignore
+            _conf_src = _pa.load_confirmed_goalies()
+        if isinstance(_conf_src, pd.DataFrame) and len(_conf_src):
+            for _r in _conf_src.itertuples(index=False):
+                _gid = str(getattr(_r, "game_id", "") or "")
+                _side = str(getattr(_r, "side", "") or "")
+                _nm = str(getattr(_r, "starter_name", "") or "")
+                if _gid and _side and _nm:
+                    _confirmed.setdefault(
+                        (_gid, _side),
+                        (_nm, getattr(_r, "announced_at_utc", None)))
+        elif isinstance(_conf_src, dict):
+            for (_kg, _ks), _vn in _conf_src.items():
+                if _vn:
+                    _confirmed.setdefault((str(_kg), str(_ks)),
+                                          (str(_vn), None))
+    except Exception:  # noqa: BLE001
+        _confirmed = {}
+
+    def _confirmed_starter(game_id, side, decision):
+        """The PIT-confirmed starter name for (game, side), or None."""
+        hit = _confirmed.get((str(game_id), str(side)))
+        if not hit:
+            return None
+        name, announced = hit
+        if announced is not None and decision is not None:
+            try:
+                if pd.Timestamp(announced) >= pd.Timestamp(decision):
+                    return None
+            except Exception:  # noqa: BLE001
+                pass
+        return name
+
+    def _name_bridges(cand: str, conf: str) -> bool:
+        """Does the boxscore name resolve to the preview's confirmed name?
+
+        Exact normalised match, else initial-plus-surname ("J. Dobes" ==
+        "Jakub Dobes"). The uniqueness rule lives with the caller: among a
+        team's 2-3 candidates the bridge must hit exactly one, else nobody
+        jumps the queue on a guess.
+        """
+        a = injury_stints.normalise_player_name(cand)
+        b = injury_stints.normalise_player_name(conf)
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        pa_ = a.split()
+        pb_ = b.split()
+        if len(pa_) < 2 or len(pb_) < 2 or pa_[-1] != pb_[-1]:
+            return False
+        fa, fb = pa_[0], pb_[0]
+        return ((len(fa) == 1 and fb.startswith(fa))
+                or (len(fb) == 1 and fa.startswith(fb)))
+
     def _season_line(gid_: str, seas: float, n_before: int) -> tuple[float, float, float]:
         """(sv_pct, gaa, starts) of ``gid_`` in season ``seas`` over his
         strictly-prior start prefix — pooled counts, so the line a reader
@@ -976,17 +1057,20 @@ def goalie_state(boxscores: pd.DataFrame | None,
         gaa = ga / (toi / 60.0) if toi > 0 else np.nan
         return float(sv), float(gaa), float(n_season)
 
-    def _expected(team: str, when, seas=float("nan"), decision=None):
+    def _expected(team: str, when, seas=float("nan"), decision=None,
+                  game_id=None, side=None):
         """(name, form_sv, form_gaa, season_sv, season_gaa, season_starts) of
         the AVAILABLE expected starter entering ``when`` for ``team``.
 
-        Strictly-prior SEASON-scoped workload vote (most starts in t's own
-        season before t), gated by strictly-prior availability; the fallback
-        follows the same opportunity order over the remaining goalies. A
-        team with no start this season yet (opening night) resolves honest
-        NaN — the manifest's "opening-night unknown starter" — rather than
-        naming last season's workhorse who may not even be on the roster
-        anymore. Every candidate excluded -> honest NaN.
+        A PIT-confirmed starter for (game_id, side) jumps the workload
+        queue (still availability-gated); otherwise the strictly-prior
+        SEASON-scoped workload vote (most starts in t's own season before
+        t), gated by strictly-prior availability; the fallback follows the
+        same opportunity order over the remaining goalies. A team with no
+        start this season yet (opening night) resolves honest NaN — the
+        manifest's "opening-night unknown starter" — rather than naming
+        last season's workhorse who may not even be on the roster anymore.
+        Every candidate excluded -> honest NaN.
         """
         entries = team_goals.get(str(team) or "")
         if not entries or when is None or pd.isna(when):
@@ -1009,7 +1093,18 @@ def goalie_state(boxscores: pd.DataFrame | None,
             candidates.append(((count, last_day, gid_), gid_, n_before))
         # Opportunity order: most season starts first, then recency, then id.
         candidates.sort(key=lambda c: c[0], reverse=True)
-        for _, gid_, n_before in candidates:
+        order = candidates
+        if game_id is not None and side is not None:
+            conf = _confirmed_starter(game_id, side, decision)
+            if conf is not None:
+                hits = [c for c in candidates
+                        if _name_bridges(g_names[c[1]][c[2] - 1], conf)]
+                if len(hits) == 1:
+                    # The confirmed man jumps the queue; the loop below
+                    # still gates him on availability, so a scratched
+                    # confirmed starter honestly falls back to the vote.
+                    order = hits + [c for c in candidates if c != hits[0]]
+        for _, gid_, n_before in order:
             name = g_names[gid_][n_before - 1]
             exclusion_cut = injury_stints._utc_naive(decision) if decision is not None else pd.NaT
             if pd.isna(exclusion_cut):
@@ -1035,7 +1130,8 @@ def goalie_state(boxscores: pd.DataFrame | None,
             seas_num = pd.to_numeric(getattr(r, "season", None), errors="coerce")
             seas = float(seas_num) if pd.notna(seas_num) else _nhl_season_of(when)
             nm_, form_sv, form_gaa, ss, sg, ns = _expected(
-                team, when, seas, getattr(r, "start_time_utc", None))
+                team, when, seas, getattr(r, "start_time_utc", None),
+                gid, side)
             f_sv.append(form_sv); f_gaa.append(form_gaa); names.append(nm_)
             s_sv.append(ss); s_gaa.append(sg); s_starts.append(ns)
             if pd.notna(ns):

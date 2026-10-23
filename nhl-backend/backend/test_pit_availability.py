@@ -260,6 +260,17 @@ class TestPipelineScheduleCompat:
         assert pa.preview_slug_candidates(row)[0].endswith(
             "utah-mammoth-new-york-rangers-game-preview-october-4-2026")
 
+    def test_slug_uses_local_game_date_not_utc_puck_drop(self):
+        """An 8pm ET Oct-23 game drops the puck on Oct-24 UTC, but the NHL
+        preview slug is dated by the local game date. A UTC-derived slug
+        fetches NHL's HTTP-200 not-found page, which parses as NO_EVIDENCE
+        and silently drops the whole game's pre-game availability."""
+        row = {"game_id": "2026020166", "away_team": "MTL", "home_team": "CHI",
+               "game_date": "2026-10-23",
+               "start_time_utc": "2026-10-24T00:00:00Z"}
+        assert pa.preview_slug_candidates(row)[0].endswith(
+            "montreal-canadiens-chicago-blackhawks-game-preview-october-23-2026")
+
 
 class TestCoverageGateFailsLoudly:
     def _rep(self, gid, coverage):
@@ -322,10 +333,12 @@ class TestCoverageGateFailsLoudly:
 
 
 class _FakeResp:
-    def __init__(self, status_code=200, text="", headers=None):
+    def __init__(self, status_code=200, text="", headers=None, content=None, encoding=None):
         self.status_code = status_code
         self.text = text
         self.headers = headers or {}
+        self.content = content
+        self.encoding = encoding
 
 
 class _FakeSession:
@@ -384,6 +397,17 @@ class TestRateLimitBackoff:
         sess = _FakeSession([_FakeResp(404)])
         assert pa.fetch_with_backoff(sess, "http://x", base_delay=0.01) is None
         assert len(sess.calls) == 1
+
+    def test_undeclared_utf8_bytes_are_not_latin1_mojibake(self):
+        raw = "Zachary L’Heureux".encode("utf-8")
+        sess = _FakeSession([_FakeResp(
+            200,
+            raw.decode("latin-1"),
+            headers={"Content-Type": "text/html"},
+            content=raw,
+            encoding="ISO-8859-1",
+        )])
+        assert pa.fetch_with_backoff(sess, "http://x", base_delay=0.01) == "Zachary L’Heureux"
 
 
 class TestResumableBackfill:
@@ -663,3 +687,97 @@ class TestTkachukPressureTest:
         r2 = pa.resolve_availability(pre_game, appearances, games).sort_values(
             ["game_id", "player_id"]).reset_index(drop=True)
         pd.testing.assert_frame_equal(r1, r2)
+
+
+ARTICLE_GOALIE_ORDER = """
+<html><head><title>Canadiens at Blackhawks projected lineups | NHL.com</title></head>
+<body>
+<div>Canadiens at Blackhawks projected lineups</div>
+<div>Canadiens projected lineup</div>
+<div>Cole Caufield -- Oliver Kapanen -- Juraj Slafkovsky</div>
+<div>Lane Hutson -- Noah Dobson</div>
+<div>Jacob Fowler</div>
+<div>Jakub Dobes</div>
+<div>Scratched: Adam Engstrom</div>
+<div>Injured: Samuel Montembeault (lower body)</div>
+<div>Blackhawks projected lineup</div>
+<div>Connor Bedard -- Frank Nazar -- Teuvo Teravainen</div>
+<div>Alex Vlasic -- Ian Cole</div>
+<div>Spencer Knight</div>
+<div>Arvid Soderblom</div>
+<div>Scratched: Kevin Korchinski</div>
+<div>Status report</div>
+<div>The Canadiens did not hold a morning skate</div>
+</body></html>
+"""
+
+
+class TestConfirmedGoalieOrder:
+    def test_goalie_order_parsed_with_away_home_sides(self):
+        game = _game("2025-01-02", away="Montreal Canadiens",
+                      home="Chicago Blackhawks")
+        pub = datetime(2025, 1, 2, 13, 24, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        assert rep.coverage == "PREVIEW"
+        by_side = {g.side: g for g in rep.confirmed_goalies}
+        assert set(by_side) == {"away", "home"}
+        assert by_side["away"].starter == "Jacob Fowler"
+        assert by_side["away"].backup == "Jakub Dobes"
+        assert by_side["home"].starter == "Spencer Knight"
+        assert by_side["home"].backup == "Arvid Soderblom"
+
+    def test_page_title_does_not_eat_the_side_slots(self):
+        """The <title> ('... projected lineups | NHL.com') must not match
+        the section heading, or the sides misattribute to extra_N."""
+        game = _game("2025-01-02")
+        pub = datetime(2025, 1, 2, 13, 24, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        assert {g.side for g in rep.confirmed_goalies} == {"away", "home"}
+
+    def test_status_report_tail_is_not_a_goalie(self):
+        """Sentences after the last absence block must never read as goalies."""
+        game = _game("2025-01-02")
+        pub = datetime(2025, 1, 2, 13, 24, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        names = [n for g in rep.confirmed_goalies for n in g.order]
+        assert "The Canadiens did not hold a morning skate" not in names
+        assert all(len(n.split()) <= 3 for n in names)
+
+    def test_refused_article_carries_no_confirmation(self):
+        """A post-hoc article binds neither absences nor a starter."""
+        game = _game("2025-01-02")
+        pub = datetime(2025, 1, 2, 22, 5, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        assert rep.coverage == "NO_EVIDENCE"
+        assert rep.confirmed_goalies == []
+        assert len(pa.build_confirmed_goalie_events([rep])) == 0
+
+    def test_confirmed_events_are_game_scoped_and_pre_game(self):
+        game = _game("2025-01-02", game_id="G7")
+        pub = datetime(2025, 1, 2, 13, 24, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        ev = pa.build_confirmed_goalie_events([rep])
+        assert set(ev["game_id"]) == {"G7"}
+        assert set(ev["side"]) == {"away", "home"}
+        puck = datetime(2025, 1, 2, 22, 0, 0, tzinfo=timezone.utc)
+        assert (ev["announced_at_utc"] < pd.Timestamp(puck)).all()
+        assert (ev["puck_drop_utc"] == pd.Timestamp(puck)).all()
+
+    def test_loader_round_trips_through_parquet(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        game = _game("2025-01-02", game_id="G7")
+        pub = datetime(2025, 1, 2, 13, 24, 0, tzinfo=timezone.utc)
+        rep = pa.parse_pregame_article(ARTICLE_GOALIE_ORDER, game,
+                                       "http://x", pub)
+        ev = pa.build_confirmed_goalie_events([rep])
+        ev.to_parquet(tmp_path / pa.PREGAME_GOALIE_ARTIFACT, index=False)
+        loaded = pa.load_confirmed_goalies()
+        assert set(loaded["game_id"]) == {"G7"}
+        assert (loaded.set_index(["game_id", "side"]).loc[
+            ("G7", "away"), "starter_name"] == "Jacob Fowler")

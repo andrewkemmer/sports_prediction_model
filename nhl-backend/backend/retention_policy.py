@@ -65,6 +65,13 @@ EXACT_MASTER_NAMES = frozenset({
     # same pruning hazard as the leave ledger: unregistered and dateless it
     # classifies "stale" and Phase 14 deletes the backfill mid-run.
     "nhl_pregame_availability_events.parquet",
+    # PIT pre-game CONFIRMED-GOALIE backfill (preview goalie order, one row
+    # per (game, side), replayed as the starter override by goalie_state).
+    # Dateless cumulative SOURCE OF RECORD, same contract and same pruning
+    # hazard as the absence backfill above: unregistered and dateless it
+    # classifies "stale" and Phase 14 deletes it mid-run, silently
+    # reverting every confirmed net to the workload vote.
+    "nhl_pregame_goalie_starters.parquet",
     # PIT pre-game availability COVERAGE STATUS — coverage_gate's per-run
     # verdict (games by label, coverage fraction, uncovered game_ids), the
     # human-readable half of the availability gap (2026-10-05 run-log

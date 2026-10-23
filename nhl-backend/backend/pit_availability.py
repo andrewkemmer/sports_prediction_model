@@ -88,6 +88,19 @@ CATEGORY_SCRATCHED = "scratched"
 CATEGORY_INJURED = "injured"
 CATEGORY_SUSPENDED = "suspended"
 
+#: Bare-name goalie lines: 2-3 tokens, no digits/punctuation beyond names.
+#: Filters sentences and broadcast lines ("8 p.m. ET; CHSN, ...") while
+#: accepting hyphenated/apostrophized names ("Charle-Edouard D'Astous").
+_GOALIE_NAME_RE = re.compile(
+    r"^[A-Za-z\u00c0-\u00ff'\u2019.\-]+"
+    r"(?:\s+[A-Za-z\u00c0-\u00ff'\u2019.\-]+){1,2}$")
+
+#: Section tail markers that freeze goalie collection for the open section.
+#: The "Status report" tail follows the last side's absence blocks; without
+#: this freeze its two-word lines would read as goalies in a preview that
+#: carries no absence blocks at all.
+_GOALIE_STOP_RE = re.compile(r"^status report\b", re.IGNORECASE)
+
 #: Canonical name -> slug form used in NHL.com preview URLs. NHL.com does
 #: not expose this as data, so it is part of the source's URL grammar.
 TEAM_SLUGS: Dict[str, str] = {
@@ -166,6 +179,25 @@ class PregameAbsence:
 
 
 @dataclass
+class PregameGoalie:
+    """PIT-known goalie order for one team in one game.
+
+    NHL.com previews list each side's goalies as bare names after the last
+    skater line of that side's projected-lineup block (e.g. "Jacob Fowler"
+    then "Jakub Dobes"). Order is the confirmation: the first name is the
+    expected starter, the rest are the backups. ``side`` is by section
+    order (first block = away, second = home), matching the article's
+    away-then-home layout, so no short-name -> franchise guessing is needed.
+    """
+
+    team: str
+    side: str
+    starter: str
+    backup: str = ""
+    order: List[str] = field(default_factory=list)
+
+
+@dataclass
 class PregameReport:
     """The parsed availability of one game, with its PIT evidence."""
 
@@ -175,6 +207,7 @@ class PregameReport:
     date_published_utc: Optional[datetime]
     lead_time_minutes: Optional[float]
     absences: List[PregameAbsence] = field(default_factory=list)
+    confirmed_goalies: List[PregameGoalie] = field(default_factory=list)
     coverage: str = "NO_EVIDENCE"
     notes: List[str] = field(default_factory=list)
 
@@ -300,9 +333,35 @@ def parse_pregame_article(html: str,
 
     lines = text.split("\n")
     current_team = None
-    heading_re = re.compile(r"^(.+?)\s+projected lineup", re.IGNORECASE)
+    # Anchored singular: the page <title> ("Canadiens at Blackhawks
+    # projected lineups | NHL.com") otherwise matches the prefix and eats
+    # the away/home section slots, misattributing every side that follows.
+    heading_re = re.compile(r"^(.+?)\s+projected lineup\s*$", re.IGNORECASE)
     block_re = re.compile(
         r"^(scratched|injured|suspended)\s*:\s*(.*)$", re.IGNORECASE)
+
+    # Goalie-order sections: the first projected-lineup block is the away
+    # side, the second the home side (the article's away-then-home layout).
+    # Each side's goalies are the bare names after its last skater line:
+    # every skater line carries "--", the goalies do not, and they sit
+    # immediately before the Scratched:/Injured:/Suspended blocks. Bare
+    # names are collected only before the section's first absence block
+    # (so the "Status report" tail can never bleed in) and capped, so a
+    # layout without an absence break cannot swallow the document either.
+    sections: List[Dict] = []
+
+    def _looks_like_goalie_line(s: str) -> bool:
+        if not s or len(s) > 40:
+            return False
+        if any(ch.isdigit() for ch in s):
+            return False
+        if any(ch in s for ch in (":", ";", "\u2014")):
+            return False
+        if "--" in s:
+            return False
+        if _GOALIE_STOP_RE.match(s):
+            return False
+        return bool(_GOALIE_NAME_RE.match(s))
 
     # NHL renders the category label and the names on separate lines
     # (``Scratched:`` then ``Liam O'Brien, ...``), so a block header with an
@@ -317,12 +376,31 @@ def parse_pregame_article(html: str,
         h = heading_re.match(line)
         if h:
             current_team = h.group(1).strip()
+            side = ("away" if len(sections) == 0 else
+                    "home" if len(sections) == 1 else
+                    f"extra_{len(sections)}")
+            sections.append({"team": current_team, "side": side,
+                             "goalies": [], "seen_dash": False,
+                             "abs_started": False})
+            i += 1
+            continue
+        if _GOALIE_STOP_RE.match(line) and sections:
+            sections[-1]["abs_started"] = True
             i += 1
             continue
         m = block_re.match(line)
         if not m:
+            if sections and not sections[-1]["abs_started"]:
+                sec = sections[-1]
+                if "--" in line:
+                    sec["seen_dash"] = True
+                elif sec["seen_dash"] and len(sec["goalies"]) < 3:
+                    if _looks_like_goalie_line(line):
+                        sec["goalies"].append(line)
             i += 1
             continue
+        if sections:
+            sections[-1]["abs_started"] = True
         category = m.group(1).strip().lower()
         payload = m.group(2).strip()
         if not payload:
@@ -359,6 +437,18 @@ def parse_pregame_article(html: str,
                 detail=detail,
                 game_id=report.game_id,
             ))
+
+    for sec in sections:
+        order = [g for g in sec["goalies"] if g]
+        if not order:
+            continue
+        report.confirmed_goalies.append(PregameGoalie(
+            team=sec["team"],
+            side=sec["side"],
+            starter=order[0],
+            backup=order[1] if len(order) > 1 else "",
+            order=order,
+        ))
 
     report.coverage = "PREVIEW" if report.absences else "PREVIEW_NO_ABSENCES"
     return report
@@ -432,6 +522,82 @@ def build_pregame_stints(events: pd.DataFrame,
     # decay, correct because a game-scoped interval closes itself).
     stints, _audit = injury_stints.build_leave_stints(events, ratings)
     return stints
+
+
+#: Repo-carried backfill artifact: one row per (game, side) PIT-known goalie
+#: order, frozen by the same backfill pass that freezes absences. The rows
+#: carry the article's ``datePublished`` as ``announced_at_utc`` (the PIT
+#: boundary) and bind exactly one game_id, so training replay and the live
+#: slate resolve the same confirmed starter through the identical rule.
+PREGAME_GOALIE_ARTIFACT = "nhl_pregame_goalie_starters.parquet"
+
+GOALIE_EVENT_COLUMNS = ["game_id", "side", "team_raw", "starter_name",
+                        "backup_name", "goalie_order", "announced_at_utc",
+                        "puck_drop_utc", "source_url"]
+
+
+def build_confirmed_goalie_events(reports: List[PregameReport]) -> pd.DataFrame:
+    """Turn PIT goalie orders into game-scoped confirmation rows.
+
+    One row per (game, side): the preview's first-listed goalie is the
+    confirmed starter, the second the backup. Rows bind exactly the target
+    game_id (never a season, never a streak), the same game-scoping the
+    absence channel uses so a confirmation cannot over-reach into the next
+    game. A report refused on PIT grounds (``NO_EVIDENCE``) contributes
+    nothing — an unconfirmed net reads as unknown, never as a guess.
+    """
+    rows = []
+    for rep in reports:
+        if rep.coverage == "NO_EVIDENCE":
+            continue
+        if rep.date_published_utc is None or rep.puck_drop_utc is None:
+            continue
+        for goal in rep.confirmed_goalies:
+            if not goal.starter:
+                continue
+            rows.append({
+                "game_id": rep.game_id,
+                "side": goal.side,
+                "team_raw": goal.team,
+                "starter_name": goal.starter,
+                "backup_name": goal.backup,
+                "goalie_order": " | ".join(goal.order),
+                "announced_at_utc": rep.date_published_utc,
+                "puck_drop_utc": rep.puck_drop_utc,
+                "source_url": rep.source_url,
+            })
+    return pd.DataFrame(rows, columns=GOALIE_EVENT_COLUMNS)
+
+
+def load_confirmed_goalies() -> pd.DataFrame:
+    """Load the frozen PIT-known goalie confirmations from the repo.
+
+    Returns an empty frame when the artifact is absent (the channel is
+    simply unpopulated, not an error). The PIT contract lives in the rows:
+    ``announced_at_utc`` is each article's ``datePublished`` and each row
+    binds exactly one game_id + side.
+    """
+    try:
+        from . import config
+    except Exception:  # noqa: BLE001
+        import config  # type: ignore
+    path = config.DATA_DELIVERY_DIR / PREGAME_GOALIE_ARTIFACT
+    if not path.exists():
+        return pd.DataFrame(columns=GOALIE_EVENT_COLUMNS)
+    try:
+        events = pd.read_parquet(path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("confirmed-goalie artifact unreadable (%s)", exc)
+        return pd.DataFrame(columns=GOALIE_EVENT_COLUMNS)
+    if not len(events):
+        return events
+    for col in ("announced_at_utc", "puck_drop_utc"):
+        if col in events.columns:
+            events[col] = pd.to_datetime(events[col], errors="coerce", utc=True)
+    events.attrs["ledger_updated_utc"] = (
+        events["announced_at_utc"].max()
+        if "announced_at_utc" in events.columns else None)
+    return events
 
 
 def coverage_report(reports: List[PregameReport]) -> pd.DataFrame:
@@ -762,6 +928,35 @@ def _nearest_badge(img) -> Optional[str]:
     return None
 
 
+def _decode_response_text(resp) -> str:
+    """Decode response bytes as UTF-8 when no charset was actually sent.
+
+    ``requests`` falls back to ISO-8859-1 for ``text/html`` without a charset
+    parameter, while NHL.com sends UTF-8 bytes without declaring them. Using
+    ``resp.text`` verbatim would therefore mojibake characters such as the
+    right single quotation mark in ``L’Heureux`` and break downstream name
+    matching. Prefer the raw bytes decoded as UTF-8 in exactly that
+    undeclared-charset case; otherwise preserve ``resp.text``.
+    """
+    raw = getattr(resp, "content", None)
+    if isinstance(raw, (bytes, bytearray)) and raw:
+        headers = getattr(resp, "headers", None) or {}
+        try:
+            content_type = str(headers.get("Content-Type", ""))
+        except Exception:  # noqa: BLE001
+            content_type = ""
+        encoding = str(getattr(resp, "encoding", "") or "").lower()
+        if "charset=" not in content_type.lower() and encoding in {
+            "iso-8859-1", "latin-1", "latin1", "ascii",
+        }:
+            try:
+                return bytes(raw).decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+    text = getattr(resp, "text", "")
+    return text if isinstance(text, str) else ""
+
+
 def fetch_with_backoff(session, url: str, *, timeout: int = 15,
                        max_retries: int = 4, base_delay: float = 2.0,
                        ) -> Optional[str]:
@@ -783,7 +978,7 @@ def fetch_with_backoff(session, url: str, *, timeout: int = 15,
             delay *= 2
             continue
         if resp.status_code == 200:
-            return resp.text
+            return _decode_response_text(resp)
         if resp.status_code in (429, 403, 500, 502, 503):
             # honor Retry-After when present
             ra = resp.headers.get("Retry-After")
@@ -1017,9 +1212,24 @@ def preview_slug_candidates(game: Dict) -> List[str]:
     when = _game_puck_drop(game)
     if when is None:
         return []
-    month = when.strftime("%B").lower()
-    day = when.day
-    year = when.year
+    # NHL preview slugs use the local game date, while start_time_utc is an
+    # exact UTC instant: an 8pm ET game on Oct 23 drops the puck on Oct 24
+    # UTC, and the UTC-derived slug then fetches a not-found page that still
+    # answers HTTP 200. Prefer the schedule's calendar game date when the
+    # caller carries one; exact puck drop remains the PIT boundary elsewhere.
+    slug_date = None
+    for key in ("gameday", "game_date"):
+        try:
+            if game.get(key) not in (None, ""):
+                slug_date = pd.Timestamp(game[key]).date()
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if slug_date is None:
+        slug_date = when.date()
+    month = slug_date.strftime("%B").lower()
+    day = slug_date.day
+    year = slug_date.year
     base = f"https://www.nhl.com/news/{away}-{home}-game-preview-{month}-{day}"
     return [f"{base}-{year}", base]
 
@@ -1097,6 +1307,26 @@ def backfill(games, session, *, write_artifact: bool = True,
                 events.to_parquet(path, index=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not persist pre-game availability: %s", exc)
+    goalie_events = build_confirmed_goalie_events(reports)
+    if write_artifact and len(goalie_events):
+        try:
+            from . import config as _goalie_cfg
+        except Exception:  # noqa: BLE001
+            import config as _goalie_cfg  # type: ignore
+        gpath = _goalie_cfg.DATA_DELIVERY_DIR / PREGAME_GOALIE_ARTIFACT
+        try:
+            gprior = (pd.read_parquet(gpath)
+                      if gpath.exists() else None)
+            if gprior is not None and len(gprior):
+                goalie_events = pd.concat(
+                    [gprior, goalie_events], ignore_index=True, sort=False
+                ).drop_duplicates(subset=["game_id", "side"], keep="first")
+            if len(goalie_events):
+                goalie_events.to_parquet(gpath, index=False)
+                logger.info("confirmed-goalie channel: %d row(s)",
+                            len(goalie_events))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not persist confirmed goalies: %s", exc)
     # 2026-10-05 run-log review: coverage_gate — the machinery whose own
     # docstring promises the gap is "LOUD, never silent" and the status
     # artifact "written every run" — was reachable only from tests, so the

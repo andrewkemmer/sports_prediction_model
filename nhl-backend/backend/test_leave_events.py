@@ -336,3 +336,79 @@ def test_all_candidates_excluded_serves_honest_nan():
     # the excluded man's stats.
     assert pd.isna(per_game.loc[0, "goalie_sv_pct_home"])
     assert pd.isna(per_game.loc[0, "goalie_gaa_home"])
+
+
+def _target_g5(*, start_time_utc=None):
+    row = {"game_id": "G5", "gameday": "2025-11-21",
+           "home_team": "WPG", "away_team": "EDM"}
+    if start_time_utc is not None:
+        row["start_time_utc"] = start_time_utc
+    return _games([row])
+
+
+def test_confirmed_backup_jumps_the_workload_queue():
+    # By 11-21 Hellebuyck has 3 prior starts to Comrie's 1, so the vote
+    # names Hellebuyck — but the preview confirmed the backup.
+    bs = _two_goalie_boxscores()
+    per_game, _ = feat.goalie_state(
+        bs, _target_g5(), _team_map(),
+        confirmed={("G5", "home"): "Eric Comrie"})
+    assert per_game.loc[0, "g_home_name"] == "E. Comrie"
+    assert pd.notna(per_game.loc[0, "goalie_sv_pct_home"])
+
+
+def test_confirmation_for_another_game_never_leaks():
+    bs = _two_goalie_boxscores()
+    per_game, _ = feat.goalie_state(
+        bs, _target_g5(), _team_map(),
+        confirmed={("G9", "home"): "Eric Comrie"})
+    assert per_game.loc[0, "g_home_name"] == "C. Hellebuyck"
+
+
+def test_ambiguous_confirmation_leaves_the_workload_vote_standing():
+    # Two WPG candidates share surname+initial with the confirmation:
+    # nobody jumps the queue on a guess.
+    bs = _two_goalie_boxscores()
+    mask = (bs["game_id"] == "G3")
+    bs = bs.copy()
+    bs.loc[mask, "home_goalie_id"] = "g-cameron"
+    bs.loc[mask, "home_goalie_name"] = "Cameron Hellebuyck"
+    # The confirmation names the TRAILING man exactly, but the workload
+    # winner bridges it too (initial + surname): 2 hits, no jump.
+    per_game, _ = feat.goalie_state(
+        bs, _target_g5(), _team_map(),
+        confirmed={("G5", "home"): "Cameron Hellebuyck"})
+    assert per_game.loc[0, "g_home_name"] == "C. Hellebuyck"
+
+
+def test_excluded_confirmed_starter_falls_back_to_the_vote():
+    # The preview confirmed Comrie, but a strictly-prior stint has him out:
+    # the fallback serves Hellebuyck's own form, never Comrie's.
+    bs = _two_goalie_boxscores()
+    stints = pd.DataFrame([
+        {"player_id": "g-comrie", "stint_start": "2025-11-19T20:00:00Z",
+         "stint_end": pd.NaT}])
+    stints.attrs["snapshot_based"] = True
+    stints.attrs["snapshot_times"] = [pd.Timestamp("2025-11-19 20:00:00")]
+    stints.attrs["window_end"] = pd.Timestamp("2025-11-19 20:00:00")
+    per_game, _ = feat.goalie_state(
+        bs, _target_g5(), _team_map(), stints=stints,
+        confirmed={("G5", "home"): "Eric Comrie"})
+    assert per_game.loc[0, "g_home_name"] == "C. Hellebuyck"
+
+
+def test_post_game_announcement_cannot_confirm():
+    # Announced after the game's own start: not pre-game, no override.
+    bs = _two_goalie_boxscores()
+    games = _target_g5(start_time_utc="2025-11-21T00:00:00Z")
+    confirmed = pd.DataFrame([{
+        "game_id": "G5", "side": "home", "team_raw": "WPG",
+        "starter_name": "Eric Comrie", "backup_name": "C. Hellebuyck",
+        "goalie_order": "Eric Comrie | C. Hellebuyck",
+        "announced_at_utc": "2025-11-22T00:00:00Z",
+        "puck_drop_utc": "2025-11-21T00:00:00Z",
+        "source_url": "http://x",
+    }])
+    per_game, _ = feat.goalie_state(
+        bs, games, _team_map(), confirmed=confirmed)
+    assert per_game.loc[0, "g_home_name"] == "C. Hellebuyck"

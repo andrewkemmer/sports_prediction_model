@@ -659,6 +659,8 @@ def test_retention_board_families_age_out_on_the_10_day_window():
         "nhl-backend/data_delivery/nhl_pipeline_summary.json",
         "nhl-backend/data_delivery/nhl_injury_snapshot_history.parquet",
         "nhl-backend/data_delivery/nhl_leave_events.json",
+        "nhl-backend/data_delivery/nhl_pregame_availability_events.parquet",
+        "nhl-backend/data_delivery/nhl_pregame_goalie_starters.parquet",
     ):
         verdict = rp.classify_artifact(
             rel, seen=set(), retention_dates=set(), recent_dates=set(),
