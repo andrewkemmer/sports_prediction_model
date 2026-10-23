@@ -530,9 +530,18 @@ def main(argv: list[str] | None = None) -> int:
     # ── 6/7. Run-line + totals OOF (joint distribution model) ─────────────
     _banner("PHASE 6-7", "margin/total distribution OOF")
     _dist_bar = ingestion.StageProgress(len(fold_list), "distribution OOF folds")
-    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list,
-                                     progress=_dist_bar.advance)
+    # STRUCTURALLY ADOPTED 2026-10-23 (owner-directed NBA alignment): the
+    # distribution walk IS the score ensemble (earned Poisson-deviance
+    # blends, full-view elastic net) — not the single-LGBM incumbent.
+    # Trial verdict (B z=-0.77 / C z=-0.72) did NOT clear the 2.5 gate;
+    # this is structural parity, not a gate promotion. The ensemble walk
+    # has no per-fold progress hook (progress_every logging only), so the
+    # bar advances once on completion.
+    dist = dist_mod.walk_forward_oof_ensemble(game_df, fold_list=fold_list)
     _dist_bar.close()
+    logger.info("score-ensemble serving weights (OOF-earned): %s",
+                  {k: round(float(v), 4)
+                   for k, v in dist["member_weights"].items()})
     oof_dist = dist["oof"]
 
     # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ──────────────────
@@ -758,11 +767,18 @@ def main(argv: list[str] | None = None) -> int:
         2, "final full-history refit")
     final_models, _ = ml_mod.fit_final_models(game_df)
     _fit_bar.advance()
-    final_reg = dist_mod.fit_final(game_df)
+    # Serving score means come from the ensemble, fitted on the full frame
+    # and blended with the walk's OOF-earned weights — never equal priors,
+    # never an in-sample optimum (moneyline fit_final_models convention).
+    final_reg = dist_mod.ScoreEnsembleRegressor().fit(game_df)
+    final_reg.set_weights(dist["member_weights"])
     _fit_bar.advance()
     _fit_bar.close()
-    logger.info("final refit: %d members + run-line regressors on %d games",
-                len(final_models), len(game_df))
+    logger.info("final refit: %d members + score-ensemble regressors on %d games "
+                "(weights %s)",
+                len(final_models), len(game_df),
+                {k: round(float(v), 4)
+                 for k, v in dist["member_weights"].items()})
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
@@ -1000,7 +1016,15 @@ def main(argv: list[str] | None = None) -> int:
     # Without this the artifact is self-describing but never verified, and a
     # narrower-than-serve frame fails deep inside predict() instead of here.
     _served_cols = list(config.active_moneyline_feature_cols())
-    _runline_cols = list(getattr(final_reg, "feature_columns", []) or [])
+    # Ensemble has no single feature_columns (per-member matrices); the
+    # contract check uses the tree-leg columns (lightgbm preferred).
+    _runline_cols = list(getattr(final_reg, "feature_columns", None) or
+                         (final_reg.columns.get("lightgbm")
+                          if isinstance(getattr(final_reg, "columns", None), dict)
+                          else None) or
+                         (final_reg.columns.get("xgboost")
+                          if isinstance(getattr(final_reg, "columns", None), dict)
+                          else None) or [])
     if _runline_cols[:len(_served_cols)] != _served_cols:
         raise RuntimeError(
             "refusing to persist a bundle whose run line does not match the "

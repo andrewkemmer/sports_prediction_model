@@ -1544,8 +1544,7 @@ check("master_pipeline passes fold_list to moneyline OOF",
       "ml_mod.walk_forward_oof(game_df, fold_list=fold_list," in mp_src
       and "progress=_ml_bar.advance" in mp_src)
 check("master_pipeline passes fold_list to distribution OOF",
-      "dist_mod.walk_forward_oof(game_df, fold_list=fold_list," in mp_src
-      and "progress=_dist_bar.advance" in mp_src)
+      "dist_mod.walk_forward_oof_ensemble(game_df, fold_list=fold_list" in mp_src)
 check("master_pipeline fetches PIT weather before feature construction",
       "weather_mod.fetch_games_weather(schedule)" in mp_src
       and mp_src.index("weather_mod.fetch_games_weather(schedule)")
