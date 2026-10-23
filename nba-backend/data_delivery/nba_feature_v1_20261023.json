@@ -1,0 +1,1847 @@
+{
+ "created_utc": "2026-10-23T05:47:58.354708+00:00",
+ "feature_set_version": "nba-prod-v2.9-rapm-dated-rosters",
+ "manifest": {
+  "elo_diff": {
+   "description": "Home minus away entering Elo",
+   "definition": "Elo rating before the target game",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "iterative team state",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_diff": {
+   "description": "Home minus away trailing win percentage",
+   "definition": "prior-game win rate",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "rolling(12)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_diff": {
+   "description": "Home minus away rest days",
+   "definition": "days since each team's prior game",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "schedule",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "back_to_back_diff": {
+   "description": "Home minus away back-to-back indicator",
+   "definition": "rest <= 1 day",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "schedule",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_points_diff": {
+   "description": "Home minus away EWM point differential",
+   "definition": "exponentially weighted points for minus against",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_off_rating_diff": {
+   "description": "Home minus away EWM offensive rating",
+   "definition": "EWM of 100 * points scored / paired estimated possessions",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_def_rating_diff": {
+   "description": "Home minus away EWM defensive rating",
+   "definition": "EWM of 100 * points allowed / paired estimated possessions",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_pace_diff": {
+   "description": "Home minus away EWM pace",
+   "definition": "EWM of paired estimated possessions * 48 / (team player minutes / 5)",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_efg_pct_diff": {
+   "description": "Home minus away EWM effective shooting",
+   "definition": "exponentially weighted eFG%",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_turnover_margin_diff": {
+   "description": "Home minus away turnover margin",
+   "definition": "exponentially weighted TOV margin",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_rebound_margin_diff": {
+   "description": "Home minus away rebound margin",
+   "definition": "exponentially weighted rebound margin",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ast_per_game_diff": {
+   "description": "Home minus away assists per game",
+   "definition": "exponentially weighted assists",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "EWM(3 games)",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "difference",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "is_playoffs": {
+   "description": "Playoff indicator",
+   "definition": "1 for postseason game type",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "schedule",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
+   "missing_value_policy": "NaN when unavailable; train-fold median imputation for linear members and native NaN for tree members",
+   "representation": "shared",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "elo_home": {
+   "description": "Home entering Elo",
+   "definition": "The home team's entering Elo entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_home": {
+   "description": "Home trailing win percentage",
+   "definition": "The home team's trailing win percentage entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_off_rating_home": {
+   "description": "Home EWM offensive rating",
+   "definition": "The home team's EWM offensive rating entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_def_rating_home": {
+   "description": "Home EWM defensive rating",
+   "definition": "The home team's EWM defensive rating entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_home": {
+   "description": "Home rest days",
+   "definition": "The home team's rest days entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "elo_away": {
+   "description": "Away entering Elo",
+   "definition": "The away team's entering Elo entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_away": {
+   "description": "Away trailing win percentage",
+   "definition": "The away team's trailing win percentage entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_off_rating_away": {
+   "description": "Away EWM offensive rating",
+   "definition": "The away team's EWM offensive rating entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_def_rating_away": {
+   "description": "Away EWM defensive rating",
+   "definition": "The away team's EWM defensive rating entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_away": {
+   "description": "Away rest days",
+   "definition": "The away team's rest days entering the target game.",
+   "source": "normalized NBA game/team box-score facts",
+   "lookback": "team chronology",
+   "aggregation": "point-in-time team aggregate",
+   "point_in_time_rule": "strictly prior games only",
+   "missing_value_policy": "NaN when unavailable",
+   "representation": "raw side level",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "is_home": {
+   "description": "Home-team anchor",
+   "definition": "Constant 1.0 for the home side.",
+   "source": "schedule",
+   "lookback": 0,
+   "aggregation": "constant",
+   "point_in_time_rule": "pre-game schedule fact",
+   "missing_value_policy": "never missing",
+   "representation": "shared",
+   "model_family_availability": [
+    "linear",
+    "tree"
+   ],
+   "feature_version": 1
+  }
+ },
+ "served_columns": [
+  "elo_diff",
+  "win_pct_diff",
+  "rest_days_diff",
+  "back_to_back_diff",
+  "ewm_net_points_diff",
+  "ewm_off_rating_diff",
+  "ewm_def_rating_diff",
+  "ewm_pace_diff",
+  "ewm_efg_pct_diff",
+  "ewm_turnover_margin_diff",
+  "ewm_rebound_margin_diff",
+  "ewm_ast_per_game_diff",
+  "is_playoffs",
+  "elo_home",
+  "elo_away",
+  "win_pct_home",
+  "win_pct_away",
+  "ewm_off_rating_home",
+  "ewm_off_rating_away",
+  "ewm_def_rating_home",
+  "ewm_def_rating_away",
+  "rest_days_home",
+  "rest_days_away",
+  "back_to_back_home",
+  "back_to_back_away",
+  "ewm_net_points_home",
+  "ewm_net_points_away",
+  "ewm_pace_home",
+  "ewm_pace_away",
+  "ewm_efg_pct_home",
+  "ewm_efg_pct_away",
+  "ewm_turnover_margin_home",
+  "ewm_turnover_margin_away",
+  "ewm_rebound_margin_home",
+  "ewm_rebound_margin_away",
+  "ewm_ast_per_game_home",
+  "ewm_ast_per_game_away",
+  "event_three_rate_home",
+  "event_three_rate_away",
+  "event_rim_rate_home",
+  "event_rim_rate_away",
+  "event_live_tov_rate_home",
+  "event_live_tov_rate_away",
+  "event_and_in_rate_home",
+  "event_and_in_rate_away",
+  "event_shot_distance_home",
+  "event_shot_distance_away",
+  "event_possessions_home",
+  "event_possessions_away",
+  "event_shooting_fouls_home",
+  "event_shooting_fouls_away",
+  "event_q4_points_home",
+  "event_q4_points_away",
+  "is_home",
+  "event_three_rate_diff",
+  "event_rim_rate_diff",
+  "event_live_tov_rate_diff",
+  "event_and_in_rate_diff",
+  "event_shot_distance_diff",
+  "event_possessions_diff",
+  "event_shooting_fouls_diff",
+  "event_q4_points_diff",
+  "pl_rapm_c_away",
+  "pl_rapm_c_home",
+  "pl_rapm_c_diff",
+  "pl_rapm_f_away",
+  "pl_rapm_f_home",
+  "pl_rapm_f_diff",
+  "pl_rapm_g_away",
+  "pl_rapm_g_home",
+  "pl_rapm_g_diff"
+ ],
+ "coverage": [
+  {
+   "feature": "elo_diff",
+   "n_games": 3957,
+   "coverage_pct": 100.0,
+   "n_measured": 3957,
+   "n_carried": 0,
+   "mean": 0.7310898573016308,
+   "std": 163.90162918185484
+  },
+  {
+   "feature": "win_pct_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.0004423538860372967,
+   "std": 0.2917991192036306
+  },
+  {
+   "feature": "rest_days_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.020801623541349568,
+   "std": 6.906345876354245
+  },
+  {
+   "feature": "back_to_back_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.008878741755454084,
+   "std": 0.4822895482306632
+  },
+  {
+   "feature": "ewm_net_points_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.14530912321367861,
+   "std": 11.135170045664378
+  },
+  {
+   "feature": "ewm_off_rating_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.09515408831909405,
+   "std": 7.281590721938989
+  },
+  {
+   "feature": "ewm_def_rating_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.05654100129472033,
+   "std": 7.095120883036297
+  },
+  {
+   "feature": "ewm_pace_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.05583514804557242,
+   "std": 3.635856111344086
+  },
+  {
+   "feature": "ewm_efg_pct_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.0005868765141039488,
+   "std": 0.0401725521482348
+  },
+  {
+   "feature": "ewm_turnover_margin_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.05693735405286213,
+   "std": 3.5297693699949577
+  },
+  {
+   "feature": "ewm_rebound_margin_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.11724539377266431,
+   "std": 6.437918646597563
+  },
+  {
+   "feature": "ewm_ast_per_game_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.06200604173870383,
+   "std": 3.69744538022575
+  },
+  {
+   "feature": "is_playoffs",
+   "n_games": 3957,
+   "coverage_pct": 100.0,
+   "n_measured": 3957,
+   "n_carried": 0,
+   "mean": 0.06343189284811726,
+   "std": 0.2437689584004779
+  },
+  {
+   "feature": "elo_home",
+   "n_games": 3957,
+   "coverage_pct": 100.0,
+   "n_measured": 3957,
+   "n_carried": 0,
+   "mean": 1509.6686345079236,
+   "std": 120.45972396676278
+  },
+  {
+   "feature": "elo_away",
+   "n_games": 3957,
+   "coverage_pct": 100.0,
+   "n_measured": 3957,
+   "n_carried": 0,
+   "mean": 1508.937544650622,
+   "std": 120.52964852784227
+  },
+  {
+   "feature": "win_pct_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.503510946604554,
+   "std": 0.20775166296235065
+  },
+  {
+   "feature": "win_pct_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.5030685927185167,
+   "std": 0.21208222791423736
+  },
+  {
+   "feature": "ewm_off_rating_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 112.95738390907351,
+   "std": 5.276445983300821
+  },
+  {
+   "feature": "ewm_off_rating_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 113.05253799739262,
+   "std": 5.350436481657593
+  },
+  {
+   "feature": "ewm_def_rating_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 112.94258815961764,
+   "std": 5.150361107950975
+  },
+  {
+   "feature": "ewm_def_rating_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 112.88604715832294,
+   "std": 5.148448095986746
+  },
+  {
+   "feature": "rest_days_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 4.165905631659056,
+   "std": 18.470805109407987
+  },
+  {
+   "feature": "rest_days_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 4.145104008117706,
+   "std": 18.669394959997334
+  },
+  {
+   "feature": "back_to_back_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.16210045662100456,
+   "std": 0.3685896945218057
+  },
+  {
+   "feature": "back_to_back_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.17097919837645864,
+   "std": 0.3765385490728614
+  },
+  {
+   "feature": "ewm_net_points_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.0181178513931619,
+   "std": 7.778441109069657
+  },
+  {
+   "feature": "ewm_net_points_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.16342697460684047,
+   "std": 7.846352176522304
+  },
+  {
+   "feature": "ewm_pace_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 100.43377250090576,
+   "std": 2.8086275723232736
+  },
+  {
+   "feature": "ewm_pace_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 100.48960764895133,
+   "std": 2.830164750434362
+  },
+  {
+   "feature": "ewm_efg_pct_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.5448263770984615,
+   "std": 0.028281822364998085
+  },
+  {
+   "feature": "ewm_efg_pct_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.5454132536125655,
+   "std": 0.02884573888767889
+  },
+  {
+   "feature": "ewm_turnover_margin_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.02187216990597441,
+   "std": 2.3912834359242034
+  },
+  {
+   "feature": "ewm_turnover_margin_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.0350651841468877,
+   "std": 2.433629732388493
+  },
+  {
+   "feature": "ewm_rebound_margin_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.09902941959851405,
+   "std": 4.423925060310248
+  },
+  {
+   "feature": "ewm_rebound_margin_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.018215974174150284,
+   "std": 4.567683004012454
+  },
+  {
+   "feature": "ewm_ast_per_game_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 26.39874225640957,
+   "std": 2.6390405145846945
+  },
+  {
+   "feature": "ewm_ast_per_game_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 26.460748298148268,
+   "std": 2.6422644751951254
+  },
+  {
+   "feature": "event_three_rate_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.4093633738051971,
+   "std": 0.04548938757818099
+  },
+  {
+   "feature": "event_three_rate_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.41024628711234545,
+   "std": 0.04493576332302197
+  },
+  {
+   "feature": "event_rim_rate_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.40398258879310495,
+   "std": 0.04378340214590429
+  },
+  {
+   "feature": "event_rim_rate_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.40374777037688914,
+   "std": 0.04370733775460894
+  },
+  {
+   "feature": "event_live_tov_rate_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.08718696356504778,
+   "std": 0.013210632292367144
+  },
+  {
+   "feature": "event_live_tov_rate_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.08718275052217345,
+   "std": 0.01317146257670489
+  },
+  {
+   "feature": "event_and_in_rate_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.013714625459550107,
+   "std": 0.004225767840007873
+  },
+  {
+   "feature": "event_and_in_rate_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.013919803975752603,
+   "std": 0.004253243744925863
+  },
+  {
+   "feature": "event_shot_distance_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 14.20899603755521,
+   "std": 1.0027008288859462
+  },
+  {
+   "feature": "event_shot_distance_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 14.225516718745467,
+   "std": 0.9814214975646236
+  },
+  {
+   "feature": "event_possessions_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 101.01622215247308,
+   "std": 2.9488628909939014
+  },
+  {
+   "feature": "event_possessions_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 101.10439105625913,
+   "std": 2.9520623946039337
+  },
+  {
+   "feature": "event_shooting_fouls_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 9.974823257908843,
+   "std": 1.2984303861172737
+  },
+  {
+   "feature": "event_shooting_fouls_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 9.969801052482316,
+   "std": 1.299878485572971
+  },
+  {
+   "feature": "event_q4_points_home",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 27.52475051921206,
+   "std": 2.3865152966711043
+  },
+  {
+   "feature": "event_q4_points_away",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 27.554412651742904,
+   "std": 2.342436828812416
+  },
+  {
+   "feature": "is_home",
+   "n_games": 3957,
+   "coverage_pct": 100.0,
+   "n_measured": 3957,
+   "n_carried": 0,
+   "mean": 1.0,
+   "std": 0.0
+  },
+  {
+   "feature": "event_three_rate_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.0008829133071483062,
+   "std": 0.06287711395254685
+  },
+  {
+   "feature": "event_rim_rate_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.00023481841621580688,
+   "std": 0.060594895160809174
+  },
+  {
+   "feature": "event_live_tov_rate_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 4.213042874322427e-06,
+   "std": 0.01787422052120682
+  },
+  {
+   "feature": "event_and_in_rate_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.00020517851620249634,
+   "std": 0.0059398911213632
+  },
+  {
+   "feature": "event_shot_distance_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.016520681190258135,
+   "std": 1.381297205443156
+  },
+  {
+   "feature": "event_possessions_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.08816890378605954,
+   "std": 3.8148046247157135
+  },
+  {
+   "feature": "event_shooting_fouls_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": 0.0050222054265273075,
+   "std": 1.732063231254375
+  },
+  {
+   "feature": "event_q4_points_diff",
+   "n_games": 3957,
+   "coverage_pct": 99.62,
+   "n_measured": 3942,
+   "n_carried": 0,
+   "mean": -0.02966213253084468,
+   "std": 3.229476091168679
+  },
+  {
+   "feature": "pl_rapm_c_away",
+   "n_games": 3957,
+   "coverage_pct": 96.16,
+   "n_measured": 3805,
+   "n_carried": 0,
+   "mean": 0.24419057213534648,
+   "std": 0.8599790618824036
+  },
+  {
+   "feature": "pl_rapm_c_home",
+   "n_games": 3957,
+   "coverage_pct": 96.03,
+   "n_measured": 3800,
+   "n_carried": 0,
+   "mean": 0.24800993872502652,
+   "std": 0.851212116143931
+  },
+  {
+   "feature": "pl_rapm_c_diff",
+   "n_games": 3957,
+   "coverage_pct": 93.25,
+   "n_measured": 3690,
+   "n_carried": 0,
+   "mean": 0.005288022108455103,
+   "std": 1.1366010861251665
+  },
+  {
+   "feature": "pl_rapm_f_away",
+   "n_games": 3957,
+   "coverage_pct": 98.96,
+   "n_measured": 3916,
+   "n_carried": 0,
+   "mean": 0.11979823060889365,
+   "std": 0.6975832619913881
+  },
+  {
+   "feature": "pl_rapm_f_home",
+   "n_games": 3957,
+   "coverage_pct": 98.91,
+   "n_measured": 3914,
+   "n_carried": 0,
+   "mean": 0.12192921189487453,
+   "std": 0.6935096013062592
+  },
+  {
+   "feature": "pl_rapm_f_diff",
+   "n_games": 3957,
+   "coverage_pct": 98.86,
+   "n_measured": 3912,
+   "n_carried": 0,
+   "mean": 0.0020869785048402336,
+   "std": 0.9476186929325459
+  },
+  {
+   "feature": "pl_rapm_g_away",
+   "n_games": 3957,
+   "coverage_pct": 98.99,
+   "n_measured": 3917,
+   "n_carried": 0,
+   "mean": 0.19144084515087856,
+   "std": 0.7136741925726254
+  },
+  {
+   "feature": "pl_rapm_g_home",
+   "n_games": 3957,
+   "coverage_pct": 98.94,
+   "n_measured": 3915,
+   "n_carried": 0,
+   "mean": 0.1972411171280394,
+   "std": 0.7120797071774932
+  },
+  {
+   "feature": "pl_rapm_g_diff",
+   "n_games": 3957,
+   "coverage_pct": 98.91,
+   "n_measured": 3914,
+   "n_carried": 0,
+   "mean": 0.0057067468357453535,
+   "std": 0.9589645224149734
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 85,
+  "partial_tail_folds": 0,
+  "first_val_start": "2023-11-25",
+  "last_val_end": "2026-10-22",
+  "min_train": 230,
+  "max_train": 3937,
+  "total_val_games": 3727,
+  "n_candidates": 85,
+  "dropped_windows": 0,
+  "dropped_games": 0,
+  "provisional_windows": 21,
+  "provisional_games": 331,
+  "postseason_windows": 21,
+  "min_val_fold_games": 40,
+  "oof_regular": {
+   "n": 3369,
+   "auc": 0.7316851491248728,
+   "logloss": 0.6018839600021828,
+   "brier": 0.20760194548297226,
+   "ece": 0.011738763302916249,
+   "sufficient": true
+  },
+  "oof_postseason": {
+   "n": 251,
+   "auc": 0.6328671328671329,
+   "logloss": 0.6626149306360988,
+   "brier": 0.2340216477942489,
+   "ece": 0.07458042032554925,
+   "sufficient": true
+  },
+  "oof_provisional": {
+   "n": 331,
+   "auc": 0.6675953079178887,
+   "logloss": 0.6501192396774549,
+   "brier": 0.22863743018239535,
+   "ece": 0.0510119215107141,
+   "sufficient": true
+  },
+  "oof_all": {
+   "n": 3727,
+   "auc": 0.7255020074483456,
+   "logloss": 0.6062702404313187,
+   "brier": 0.20947732364547014,
+   "ece": 0.009224534993993406,
+   "sufficient": true
+  },
+  "calibration_gate": {
+   "folds": [
+    {
+     "n_prior": 0,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 0
+    },
+    {
+     "n_prior": 49,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 1
+    },
+    {
+     "n_prior": 104,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 2
+    },
+    {
+     "n_prior": 159,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 3
+    },
+    {
+     "n_prior": 214,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 4
+    },
+    {
+     "n_prior": 264,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 5
+    },
+    {
+     "n_prior": 316,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 6
+    },
+    {
+     "n_prior": 368,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 7
+    },
+    {
+     "n_prior": 416,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 8
+    },
+    {
+     "n_prior": 471,
+     "decision": "identity",
+     "reason": "insufficient_prior_evidence",
+     "raw_logloss": null,
+     "nested_holdout_logloss": null,
+     "fold_id": 9
+    },
+    {
+     "n_prior": 523,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6014139700782871,
+     "nested_holdout_logloss": 0.6051802338318989,
+     "fold_id": 10
+    },
+    {
+     "n_prior": 574,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6371424330196918,
+     "nested_holdout_logloss": 0.6539351497261321,
+     "fold_id": 11
+    },
+    {
+     "n_prior": 630,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6368253755923343,
+     "nested_holdout_logloss": 0.6442638339005924,
+     "fold_id": 12
+    },
+    {
+     "n_prior": 683,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6207375767131577,
+     "nested_holdout_logloss": 0.6257424183331977,
+     "fold_id": 13
+    },
+    {
+     "n_prior": 737,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6500119972877559,
+     "nested_holdout_logloss": 0.65291246350742,
+     "fold_id": 14
+    },
+    {
+     "n_prior": 789,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6277908026838961,
+     "nested_holdout_logloss": 0.6273609011490698,
+     "fold_id": 15
+    },
+    {
+     "n_prior": 842,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5998817379189738,
+     "nested_holdout_logloss": 0.5987007150054007,
+     "fold_id": 16
+    },
+    {
+     "n_prior": 891,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6113130939808605,
+     "nested_holdout_logloss": 0.6094094980318969,
+     "fold_id": 17
+    },
+    {
+     "n_prior": 957,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5885349293408798,
+     "nested_holdout_logloss": 0.5868259779824633,
+     "fold_id": 18
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 19
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 20
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 21
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 22
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 23
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 24
+    },
+    {
+     "n_prior": 1000,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5816165553398007,
+     "nested_holdout_logloss": 0.5810708081792456,
+     "fold_id": 25
+    },
+    {
+     "n_prior": 1054,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6091840820056105,
+     "nested_holdout_logloss": 0.6081845259089739,
+     "fold_id": 26
+    },
+    {
+     "n_prior": 1118,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6292418022629097,
+     "nested_holdout_logloss": 0.6282140444848158,
+     "fold_id": 27
+    },
+    {
+     "n_prior": 1173,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6246818340231964,
+     "nested_holdout_logloss": 0.6265074780131445,
+     "fold_id": 28
+    },
+    {
+     "n_prior": 1223,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6152989192081081,
+     "nested_holdout_logloss": 0.6176081096387591,
+     "fold_id": 29
+    },
+    {
+     "n_prior": 1276,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.627877430945674,
+     "nested_holdout_logloss": 0.6306795785071675,
+     "fold_id": 30
+    },
+    {
+     "n_prior": 1330,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6115473472507655,
+     "nested_holdout_logloss": 0.6137905818683165,
+     "fold_id": 31
+    },
+    {
+     "n_prior": 1330,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6115473472507655,
+     "nested_holdout_logloss": 0.6137905818683165,
+     "fold_id": 32
+    },
+    {
+     "n_prior": 1381,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6069608331464396,
+     "nested_holdout_logloss": 0.6088777441047512,
+     "fold_id": 33
+    },
+    {
+     "n_prior": 1435,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6058286259338463,
+     "nested_holdout_logloss": 0.6074758705489763,
+     "fold_id": 34
+    },
+    {
+     "n_prior": 1486,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6091396345123072,
+     "nested_holdout_logloss": 0.6115872213445386,
+     "fold_id": 35
+    },
+    {
+     "n_prior": 1537,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6093380696285332,
+     "nested_holdout_logloss": 0.6117184021213155,
+     "fold_id": 36
+    },
+    {
+     "n_prior": 1588,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6122816840143677,
+     "nested_holdout_logloss": 0.6138316098657276,
+     "fold_id": 37
+    },
+    {
+     "n_prior": 1636,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6186332875021322,
+     "nested_holdout_logloss": 0.6192403658026994,
+     "fold_id": 38
+    },
+    {
+     "n_prior": 1689,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6219781388682434,
+     "nested_holdout_logloss": 0.6221422964455018,
+     "fold_id": 39
+    },
+    {
+     "n_prior": 1744,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6235919449205415,
+     "nested_holdout_logloss": 0.623794318572327,
+     "fold_id": 40
+    },
+    {
+     "n_prior": 1797,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6260099627672205,
+     "nested_holdout_logloss": 0.6270019994190777,
+     "fold_id": 41
+    },
+    {
+     "n_prior": 1851,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6195964805173703,
+     "nested_holdout_logloss": 0.6203616354069753,
+     "fold_id": 42
+    },
+    {
+     "n_prior": 1904,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6064955171310598,
+     "nested_holdout_logloss": 0.6065084236169193,
+     "fold_id": 43
+    },
+    {
+     "n_prior": 1960,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.610386100271973,
+     "nested_holdout_logloss": 0.6108850591837984,
+     "fold_id": 44
+    },
+    {
+     "n_prior": 2016,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6079737331694549,
+     "nested_holdout_logloss": 0.6079027092073693,
+     "fold_id": 45
+    },
+    {
+     "n_prior": 2066,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5998524454663637,
+     "nested_holdout_logloss": 0.5993720367887656,
+     "fold_id": 46
+    },
+    {
+     "n_prior": 2121,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5893899586371971,
+     "nested_holdout_logloss": 0.5888460201515419,
+     "fold_id": 47
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 48
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 49
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 50
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 51
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 52
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 53
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 54
+    },
+    {
+     "n_prior": 2179,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5797136926509207,
+     "nested_holdout_logloss": 0.5793870657224254,
+     "fold_id": 55
+    },
+    {
+     "n_prior": 2235,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.586124988953281,
+     "nested_holdout_logloss": 0.5862951817954764,
+     "fold_id": 56
+    },
+    {
+     "n_prior": 2286,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5811175357732165,
+     "nested_holdout_logloss": 0.5825402197895331,
+     "fold_id": 57
+    },
+    {
+     "n_prior": 2339,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5807505013380787,
+     "nested_holdout_logloss": 0.5821712246988858,
+     "fold_id": 58
+    },
+    {
+     "n_prior": 2390,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5758589947223132,
+     "nested_holdout_logloss": 0.5768339465098469,
+     "fold_id": 59
+    },
+    {
+     "n_prior": 2440,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5742619735428288,
+     "nested_holdout_logloss": 0.5752488378831448,
+     "fold_id": 60
+    },
+    {
+     "n_prior": 2500,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5793800295288535,
+     "nested_holdout_logloss": 0.5805884082495857,
+     "fold_id": 61
+    },
+    {
+     "n_prior": 2500,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5793800295288535,
+     "nested_holdout_logloss": 0.5805884082495857,
+     "fold_id": 62
+    },
+    {
+     "n_prior": 2540,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5942321145844806,
+     "nested_holdout_logloss": 0.5952419110761388,
+     "fold_id": 63
+    },
+    {
+     "n_prior": 2596,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5976607234843644,
+     "nested_holdout_logloss": 0.5987112498028562,
+     "fold_id": 64
+    },
+    {
+     "n_prior": 2650,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6070078899893263,
+     "nested_holdout_logloss": 0.607438763210577,
+     "fold_id": 65
+    },
+    {
+     "n_prior": 2705,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6106761735855973,
+     "nested_holdout_logloss": 0.611455679789883,
+     "fold_id": 66
+    },
+    {
+     "n_prior": 2756,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6204036274274646,
+     "nested_holdout_logloss": 0.6219095138127696,
+     "fold_id": 67
+    },
+    {
+     "n_prior": 2810,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6261448045135736,
+     "nested_holdout_logloss": 0.6274964509759274,
+     "fold_id": 68
+    },
+    {
+     "n_prior": 2862,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.63430577541652,
+     "nested_holdout_logloss": 0.6357281151725902,
+     "fold_id": 69
+    },
+    {
+     "n_prior": 2913,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6369731262404101,
+     "nested_holdout_logloss": 0.6379948329329278,
+     "fold_id": 70
+    },
+    {
+     "n_prior": 2968,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6389051345747316,
+     "nested_holdout_logloss": 0.6398436770277043,
+     "fold_id": 71
+    },
+    {
+     "n_prior": 3024,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6357679681676767,
+     "nested_holdout_logloss": 0.6364998675193679,
+     "fold_id": 72
+    },
+    {
+     "n_prior": 3074,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.628579027277126,
+     "nested_holdout_logloss": 0.6291917632832474,
+     "fold_id": 73
+    },
+    {
+     "n_prior": 3128,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6275732975828481,
+     "nested_holdout_logloss": 0.6285065998493092,
+     "fold_id": 74
+    },
+    {
+     "n_prior": 3183,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6235169429302153,
+     "nested_holdout_logloss": 0.6246015377238545,
+     "fold_id": 75
+    },
+    {
+     "n_prior": 3233,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.620609423416938,
+     "nested_holdout_logloss": 0.621632422113449,
+     "fold_id": 76
+    },
+    {
+     "n_prior": 3288,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.6110917305857291,
+     "nested_holdout_logloss": 0.6118177397700407,
+     "fold_id": 77
+    },
+    {
+     "n_prior": 3339,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5963954895244813,
+     "nested_holdout_logloss": 0.5963681551788381,
+     "fold_id": 78
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 79
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 80
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 81
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 82
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 83
+    },
+    {
+     "n_prior": 3369,
+     "decision": "identity",
+     "reason": "gated_no_gain",
+     "raw_logloss": 0.5865077857087996,
+     "nested_holdout_logloss": 0.5862774993679599,
+     "fold_id": 84
+    }
+   ],
+   "final_serving": {
+    "n_prior": 3369,
+    "decision": "identity",
+    "reason": "gated_no_gain",
+    "raw_logloss": 0.5865077857087996,
+    "nested_holdout_logloss": 0.5862774993679599
+   }
+  },
+  "moneyline_retrospective_not_oof": {
+   "n": 3369,
+   "auc": 0.7322372394912515,
+   "logloss": 0.6013916695524909,
+   "brier": 0.20740780817664653,
+   "ece": 0.012376113705101183
+  }
+ },
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.9-rapm-dated-rosters",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "moneyline_evaluation": {
+   "headline": "causal_rolling_blend",
+   "retrospective": "diagnostic_only_not_oof",
+   "calibration": "nested_prior_evidence_gate_at_every_origin",
+   "xgb_round_policy": "train_tail_probe_then_all_train_refit"
+  },
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 85135,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 1959165,
+  "event_rows": 7914
+ }
+}
