@@ -360,6 +360,54 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
+    # Pregame-channel refresh (availability + PIT-confirmed starting
+    # goalies). Phase 3 replays the frozen ``nhl_pregame_availability_*``
+    # parquets verbatim, so without this step a FULL_REPULL rebuild
+    # refetches scores/boxscores/MoneyPuck yet serves identical pre-game
+    # evidence — channel-backed logic then applies to zero training games
+    # (verified 2026-10-24: 4 confirmation rows, both in the serving slate,
+    # 0 of 4165 OOF games). resume=True only attempts unfrozen games, so
+    # frozen PIT evidence is never rewritten; scope is the full schedule
+    # window on FULL_REPULL, else just the upcoming serving tail (cheap,
+    # and it keeps tonight's confirmations fresh without a manual
+    # backfill). --skip-pull implies no network anywhere, so it skips too;
+    # any failure degrades to replaying the frozen channel, never a crash.
+    if not args.skip_pull:
+        try:
+            from pit_availability import backfill as _pregame_backfill
+            from pit_availability import refresh_scope as _refresh_scope
+            import requests as _requests
+            _scope = _refresh_scope(schedule, run_date, window_end,
+                                    full_repull)
+            if len(_scope):
+                _sess = _requests.Session()
+                _sess.headers.update(
+                    {"User-Agent": "Mozilla/5.0 (compatible; NHL-PIT-backfill)"})
+                try:
+                    _rate = float(os.environ.get(
+                        "NHL_PREGAME_RATE_LIMIT_SEC", "0.5") or 0.5)
+                except (TypeError, ValueError):
+                    _rate = 0.5
+                _cov = _pregame_backfill(
+                    [dict(r) for r in _scope.to_dict("records")],
+                    _sess, write_artifact=True, resume=True,
+                    rate_limit_seconds=_rate)
+                try:
+                    _n_cov = len(_cov)
+                    _n_ev = int((_cov["coverage"] != "NO_EVIDENCE").sum()) \
+                        if "coverage" in _cov.columns else -1
+                except Exception:  # noqa: BLE001
+                    _n_cov, _n_ev = -1, -1
+                logger.info("pregame refresh: %d game(s) due, %d report(s) "
+                            "(%d with evidence) — frozen PIT rows untouched",
+                            len(_scope), _n_cov, _n_ev)
+            else:
+                logger.info("pregame refresh: nothing due in scope")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("pregame refresh failed (frozen channel replayed): %s",
+                           exc)
+    else:
+        logger.info("pregame refresh skipped (--skip-pull: no network)")
     decided_ids = decided_all["game_id"].astype(str).tolist()
     # The gameday mapping only groups the pull into 60-day windows for
     # progress reporting (MLB's _chunked_statcast shape); load_boxscores
@@ -530,10 +578,10 @@ def main(argv: list[str] | None = None) -> int:
     # contract, but only the declared count was logged, so a frame that
     # resolved a narrower matrix read exactly like a healthy run and the
     # train/serve-skew audit this contract exists for was invisible in the log.
-    logger.info("run-line feature contract: %s, %d active moneyline feature(s) "
-                "+ %d tree categorical(s) = %d fitted column(s), resolved via %s",
+    logger.info("run-line feature contract: %s, %s active moneyline feature(s) "
+                "+ %s tree categorical(s) = %s fitted column(s), resolved via %s",
                 fcontract.get("mode"), fcontract.get("n_features"),
-                len(fcontract.get("tree_categorical_cols", [])),
+                len(fcontract.get("tree_categorical_cols", []) or []),
                 fcontract.get("n_features_fitted", fcontract.get("n_features")),
                 fcontract.get("resolved_via"))
     logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",

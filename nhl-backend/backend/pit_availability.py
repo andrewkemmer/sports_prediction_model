@@ -1339,6 +1339,50 @@ def backfill(games, session, *, write_artifact: bool = True,
     return coverage_report(reports)
 
 
+def refresh_scope(schedule: pd.DataFrame, run_date, window_end,
+                  full: bool) -> pd.DataFrame:
+    """Rows of the pipeline schedule due for a pregame-channel refresh.
+
+    The daily pipeline replays the frozen ``nhl_pregame_availability_*``
+    artifacts; without a refresh step a ``NHL_FULL_REPULL=1`` rebuild
+    refetches scores/boxscores/MoneyPuck yet serves byte-identical pre-game
+    evidence, so channel-backed logic (e.g. PIT-confirmed starting goalies)
+    applies to zero training games. This selects the games the pipeline
+    must (re)attempt: the full schedule window on a full repull, else just
+    the upcoming serving tail (yesterday onward — cheap, and it keeps
+    tonight's confirmations fresh without a manual backfill).
+
+    ``backfill(..., resume=True)`` still skips already-frozen games, so
+    frozen PIT evidence is never rewritten — a refresh only fills gaps.
+    Returns an empty frame when there is nothing due (or no usable dates).
+    """
+    empty = pd.DataFrame()
+    if schedule is None or len(schedule) == 0:
+        return empty
+    if full:
+        return schedule.copy()
+    col = ("gameday" if "gameday" in schedule.columns
+           else "game_date" if "game_date" in schedule.columns else None)
+    if col is None:
+        return empty
+    try:
+        lo = pd.Timestamp(run_date) - pd.Timedelta(days=1)
+    except Exception:  # noqa: BLE001
+        return empty
+    try:
+        gd = pd.to_datetime(schedule[col], errors="coerce")
+    except Exception:  # noqa: BLE001
+        return empty
+    out = schedule[gd >= lo].copy()
+    if window_end is not None:
+        try:
+            out = out[pd.to_datetime(out[col], errors="coerce")
+                        <= pd.Timestamp(window_end)].copy()
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
 def _peek_date_published(html: str) -> Optional[datetime]:
     """Extract the article's ``datePublished`` without full parse."""
     import re as _re

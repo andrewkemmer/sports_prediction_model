@@ -781,3 +781,34 @@ class TestConfirmedGoalieOrder:
         assert set(loaded["game_id"]) == {"G7"}
         assert (loaded.set_index(["game_id", "side"]).loc[
             ("G7", "away"), "starter_name"] == "Jacob Fowler")
+
+
+class TestRefreshScope:
+    """The pipeline's pregame refresh must cover the training set on repull."""
+
+    def _sched(self):
+        return pd.DataFrame([
+            {"game_id": "OLD", "gameday": pd.Timestamp("2024-01-02"),
+             "home_team": "BOS", "away_team": "NYI",
+             "start_time_utc": "2024-01-02T22:00:00Z"},
+            {"game_id": "NEW", "gameday": pd.Timestamp("2026-10-23"),
+             "home_team": "CHI", "away_team": "MTL",
+             "start_time_utc": "2026-10-24T00:00:00Z"},
+        ])
+
+    def test_full_repull_covers_the_whole_schedule(self):
+        out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
+                               full=True)
+        assert set(out["game_id"]) == {"OLD", "NEW"}
+
+    def test_daily_run_covers_only_the_upcoming_tail(self):
+        out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
+                               full=False)
+        assert set(out["game_id"]) == {"NEW"}
+
+    def test_empty_or_dateless_schedule_is_nothing_due(self):
+        assert len(pa.refresh_scope(pd.DataFrame(), "2026-10-23",
+                                    "2026-10-25", full=True)) == 0
+        nodates = pd.DataFrame([{"game_id": "X", "home_team": "BOS"}])
+        assert len(pa.refresh_scope(nodates, "2026-10-23", "2026-10-25",
+                                    full=False)) == 0

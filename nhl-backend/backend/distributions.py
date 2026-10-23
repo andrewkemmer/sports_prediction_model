@@ -1016,7 +1016,8 @@ def walk_forward_oof_ensemble(game_df: pd.DataFrame, date_col: str = "gameday",
         oof["margin"] = oof.home_score - oof.away_score
         oof["total"] = oof.home_score + oof.away_score
     return {"oof": oof, "member_weights": prior_weights,
-            "fold_table": pd.DataFrame(fold_rows)}
+            "fold_table": pd.DataFrame(fold_rows),
+            "feature_contract": feature_contract(df)}
 
 
 def fit_final_ensemble(game_df: pd.DataFrame) -> dict[str, dict[str, tuple[Any, Any]]]:
