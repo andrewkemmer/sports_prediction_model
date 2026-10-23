@@ -129,3 +129,570 @@ def test_complete_resume_set_excludes_partial_and_error_rows(tmp_path):
 
 def test_missing_cache_resume_set_is_empty(tmp_path):
     assert bl.complete_game_pks(_path(tmp_path)) == set()
+
+
+# ── trust + validation (2026-10-23, Sep-16 NYY case) ─────────────────────────
+
+def _row(pk, date="2026-09-16", home_ids=_NINE_H, away_ids=_NINE_A, **kw):
+    return bl.order_row(pk, date, "NYY", "BOS", _feed(home_ids, away_ids),
+                        **kw)
+
+
+# September 2026 Yankees evidence pin (2026-10-26).
+#
+# These fixtures replay the batting-order IDs and resolved player names
+# observed in the archived pre-pitch snapshots. They run offline: the
+# constants carry the evidence, while the exercised selectors/gates verify
+# the snapshot is strictly pre-pitch and the orders survive the current
+# Live-feed provenance gate unchanged (as backfill-grade reference data).
+_PINNED_SEP_2026_NYY = (
+    {
+        "game_pk": 823654,
+        "game_date": "2026-09-15",
+        "home": "MIN",
+        "away": "NYY",
+        "snapshot": "20260915_231837",
+        "first_pitch": "2026-09-15T23:40:00+00:00",
+        "home_order": [807712, 701785, 605137, 665019, 668904,
+                         686797, 605170, 691181, 668885],
+        "home_names": ["Luke Keaschall", "Kaelen Culpepper",
+                         "Josh Bell", "Kody Clemens", "Royce Lewis",
+                         "Brooks Lee", "Victor Caratini",
+                         "Emmanuel Rodriguez", "Austin Martin"],
+        "away_order": [700250, 641355, 671218, 671277, 682987,
+                         806146, 683011, 645305, 676609],
+        "away_names": ["Ben Rice", "Cody Bellinger", "Heliot Ramos",
+                         "Luis Garc\u00eda Jr.", "Spencer Jones",
+                         "George Lombard Jr.", "Anthony Volpe",
+                         "Ali S\u00e1nchez", "Jos\u00e9 Caballero"],
+    },
+    {
+        "game_pk": 823655,
+        "game_date": "2026-09-16",
+        "home": "MIN",
+        "away": "NYY",
+        "snapshot": "20260916_171821",
+        "first_pitch": "2026-09-16T17:40:00+00:00",
+        "home_order": [807712, 668885, 680777, 605137, 665019,
+                         668904, 691181, 668952, 805346],
+        "home_names": ["Luke Keaschall", "Austin Martin",
+                         "Ryan Jeffers", "Josh Bell", "Kody Clemens",
+                         "Royce Lewis", "Emmanuel Rodriguez",
+                         "Ryan Kreidler", "Ben Ross"],
+        "away_order": [700250, 641355, 592450, 671277, 682987,
+                         806146, 641857, 669224, 683011],
+        "away_names": ["Ben Rice", "Cody Bellinger", "Aaron Judge",
+                         "Luis Garc\u00eda Jr.", "Spencer Jones",
+                         "George Lombard Jr.", "Ryan McMahon",
+                         "Austin Wells", "Anthony Volpe"],
+    },
+    {
+        "game_pk": 825032,
+        "game_date": "2026-09-18",
+        "home": "AZ",
+        "away": "NYY",
+        "snapshot": "20260919_013952",
+        "first_pitch": "2026-09-19T01:40:00+00:00",
+        "home_order": [663457, 606466, 672515, 672695, 656976,
+                         571448, 682998, 660821, 694374],
+        "home_names": ["Lars Nootbaar", "Ketel Marte",
+                         "Gabriel Moreno", "Geraldo Perdomo",
+                         "Pavin Smith", "Nolan Arenado",
+                         "Corbin Carroll", "Jes\u00fas S\u00e1nchez",
+                         "Tim Tawa"],
+        "away_order": [502671, 641355, 671218, 700250, 642708,
+                         682987, 806146, 669224, 683011],
+        "away_names": ["Paul Goldschmidt", "Cody Bellinger",
+                         "Heliot Ramos", "Ben Rice", "Amed Rosario",
+                         "Spencer Jones", "George Lombard Jr.",
+                         "Austin Wells", "Anthony Volpe"],
+    },
+)
+
+
+def _pinned_archived_feed(case):
+    def _players(order, names):
+        return {
+            f"ID{pid}": {"person": {"id": pid, "fullName": name}}
+            for pid, name in zip(order, names)
+        }
+
+    return {
+        "gameData": {
+            "status": {"abstractGameState": "Live"},
+            "teams": {
+                "home": {"abbreviation": case["home"]},
+                "away": {"abbreviation": case["away"]},
+            },
+        },
+        "metaData": {"timeStamp": case["snapshot"]},
+        "liveData": {"boxscore": {"teams": {
+            "home": {"battingOrder": list(case["home_order"]),
+                       "players": _players(case["home_order"],
+                                            case["home_names"])},
+            "away": {"battingOrder": list(case["away_order"]),
+                       "players": _players(case["away_order"],
+                                            case["away_names"])},
+        }}},
+    }
+
+
+def test_archived_sep_2026_nyy_lineups_are_pinned():
+    for case in _PINNED_SEP_2026_NYY:
+        feed = _pinned_archived_feed(case)
+        parsed = bl.parse_batting_orders(feed)
+        assert parsed["home"] == case["home_order"]
+        assert parsed["away"] == case["away_order"]
+        assert [parsed["home_players"][pid] for pid in case["home_order"]] == \
+            case["home_names"]
+        assert [parsed["away_players"][pid] for pid in case["away_order"]] == \
+            case["away_names"]
+        assert bl.select_pregame_timecode([case["snapshot"]],
+                                          case["first_pitch"]) == case["snapshot"]
+        row = bl.order_row(case["game_pk"], case["game_date"],
+                           case["home"], case["away"], feed,
+                           captured_utc=bl.parse_feed_timecode(case["snapshot"]),
+                           first_pitch_utc=case["first_pitch"],
+                           source="pregame",
+                           feed_timecode=case["snapshot"])
+        # The archived feeds report Live state, so the present gate keeps
+        # these snapshots as backfill-grade reference evidence. The pinned
+        # nine must nevertheless survive unchanged.
+        assert row["state"] == "Live"
+        assert row["source"] == "backfill"
+        assert row["pit_valid"] is False
+        assert row["complete_home"] and row["complete_away"]
+        assert list(row["home_order"]) == case["home_order"]
+        assert list(row["away_order"]) == case["away_order"]
+
+
+def test_validate_orders_tristate():
+    trips = {(7, "home"): list(_NINE_H), (7, "away"): list(_NINE_A)}
+    # agreement on both sides
+    assert bl.validate_orders(_NINE_H, _NINE_A, trips, 7) == (True, True)
+    # Sep-16 shape: 2 false inclusions + 2 false exclusions on one side
+    bad_home = [901, 902, *_NINE_H[2:]]
+    assert bl.validate_orders(bad_home, _NINE_A, trips, 7) == (False, True)
+    # no first-trip coverage -> cannot check (NULL, never a sticky FALSE)
+    assert bl.validate_orders(_NINE_H, _NINE_A, {}, 7) == (None, None)
+    assert bl.validate_orders(_NINE_H, _NINE_A, {(7, "home"): list(_NINE_H)},
+                              7) == (True, None)
+    # missing stored order -> cannot check that side
+    assert bl.validate_orders(None, _NINE_A, trips, 7) == (None, True)
+
+
+def test_order_row_state_gate_voids_postgame_pregame_claims():
+    # only a Preview feed may claim pre-game provenance — a post-game read
+    # keeps its orders as backfill-grade, never pre-game provenance.
+    pre = _row(1, state="Preview", captured_utc="2026-09-16T18:00:00+00:00",
+                first_pitch_utc="2026-09-16T23:05:00+00:00",
+                source="pregame")
+    assert pre["source"] == "pregame" and pre["pit_valid"] is True
+    for state in ("Final", "Live", "unknown"):
+        post = _row(1, state=state,
+                    captured_utc="2026-09-16T18:00:00+00:00",
+                    first_pitch_utc="2026-09-16T23:05:00+00:00",
+                    source="pregame")
+        assert post["source"] == "backfill" and post["pit_valid"] is False
+        assert list(post["home_order"]) == _NINE_H  # orders kept
+
+
+def test_provenance_void_applies_on_every_normalize_path():
+    # the safety net behind the constructor gate: hand-built frames with a
+    # self-contradicting claim void to backfill-grade, orders untouched.
+    df = pd.DataFrame([{
+        "game_pk": 1, "game_date": "2026-09-16", "home_team": "NYY",
+        "away_team": "BOS", "home_order": _NINE_H, "away_order": _NINE_A,
+        "complete_home": True, "complete_away": False,
+        "state": "Final", "source": "pregame", "pit_valid": True,
+        "validated_home": None, "validated_away": None,
+    }])
+    out = bl.apply_provenance_void(df)
+    assert out.loc[0, "source"] == "backfill"
+    assert bool(out.loc[0, "pit_valid"]) is False
+    assert list(out.loc[0, "home_order"]) == _NINE_H
+    # a genuine pre-game claim is untouched; without a recorded state there
+    # is no contradiction to judge (the pit_valid flag decides, as in SQL)
+    df2 = df.copy()
+    df2.loc[0, "state"] = "Preview"
+    assert bl.apply_provenance_void(df2).loc[0, "source"] == "pregame"
+    df3 = df.drop(columns=["state"])
+    assert bl.apply_provenance_void(df3).loc[0, "source"] == "pregame"
+
+
+def test_upsert_never_clobbers_pit_valid_pregame_row(tmp_path):
+    p = _path(tmp_path)
+    morning = _row(1, state="Preview",
+                   captured_utc="2026-09-16T18:00:00+00:00",
+                   first_pitch_utc="2026-09-16T23:05:00+00:00",
+                   source="pregame")
+    assert morning["pit_valid"] is True
+    bl.upsert_lineups(pd.DataFrame([morning]), out_path=p)
+    # an evening re-run re-reads the post-game field with contradicting
+    # orders — a Final-feed read can only land as backfill-grade, and the
+    # morning nine must survive it.
+    late = _row(1, state="Final",
+                home_ids=list(reversed(_NINE_H)),
+                away_ids=list(reversed(_NINE_A)),
+                captured_utc="2026-09-17T02:00:00+00:00",
+                first_pitch_utc="2026-09-16T23:05:00+00:00",
+                source="pregame")
+    assert late["source"] == "backfill" and late["pit_valid"] is False
+    assert bl.upsert_lineups(pd.DataFrame([late]), out_path=p) == 0
+    row = pd.read_parquet(p).loc[lambda d: d.game_pk == 1].iloc[0]
+    assert list(row.home_order) == _NINE_H
+    assert list(row.away_order) == _NINE_A
+    assert row["source"] == "pregame" and bool(row["pit_valid"])
+    # a NEWER pit-valid pre-game capture still upgrades (latest wins among
+    # the trustworthy).
+    update = _row(1, state="Preview", home_ids=[*list(_NINE_H[:8]), 999],
+                  captured_utc="2026-09-16T19:00:00+00:00",
+                  first_pitch_utc="2026-09-16T23:05:00+00:00",
+                  source="pregame")
+    assert bl.upsert_lineups(pd.DataFrame([update]), out_path=p) == 1
+    row = pd.read_parquet(p).loc[lambda d: d.game_pk == 1].iloc[0]
+    assert list(row.home_order)[-1] == 999
+
+
+def _pbp_trip(game_pk, home_ids, away_ids):
+    rows = []
+    n = 1
+    for side, ids in (("Bot", home_ids), ("Top", away_ids)):
+        for b in ids:
+            rows.append({"game_pk": game_pk, "inning_topbot": side,
+                         "at_bat_number": n, "batter": b})
+            n += 1
+    return rows
+
+
+def test_main_stamps_only_decisive_sides_and_never_rewrites_orders(
+        tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setattr(bl, "DATA_DELIVERY_DIR", tmp_path)
+    day = "2026-09-16"
+    # game 1 agrees; game 2 is the Sep-16 shape (2 swapped on the home side);
+    # game 3 has no pbp coverage (stays NULL, retries later).
+    g2_home = [901, 902, *_NINE_H[2:]]
+    cache = pd.DataFrame([
+        _row(1, date=day),
+        _row(2, date=day, home_ids=g2_home),
+        _row(3, date=day),
+    ])
+    # game 4: a hand-built self-contradicting claim ('pregame' from a Final
+    # feed — the constructor gate can no longer produce this, the normalize
+    # safety net must) with agreeing orders.
+    g4 = pd.DataFrame([{
+        "game_pk": 4, "game_date": day, "home_team": "NYY",
+        "away_team": "BOS", "home_order": _NINE_H, "away_order": _NINE_A,
+        "complete_home": True, "complete_away": True, "state": "Final",
+        "captured_utc": "2026-09-16T18:00:00+00:00",
+        "first_pitch_utc": "2026-09-16T23:05:00+00:00",
+        "source": "pregame", "pit_valid": True,
+        "validated_home": None, "validated_away": None,
+        "home_starter_hand": "R", "away_starter_hand": "L",
+    }])
+    cache = pd.concat([cache, g4], ignore_index=True)
+    bl.upsert_lineups(cache, out_path=tmp_path / "lineups.parquet")
+    pd.DataFrame([
+        {"game_pk": 1, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+        {"game_pk": 2, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 0},
+        {"game_pk": 3, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+        {"game_pk": 4, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+    ]).to_csv(tmp_path / "game_level_features.csv", index=False)
+    pd.DataFrame(
+        _pbp_trip(1, _NINE_H, _NINE_A)
+        + _pbp_trip(2, _NINE_H, _NINE_A)
+        + _pbp_trip(4, _NINE_H, _NINE_A)
+    ).to_parquet(tmp_path / "pbp.parquet", index=False)
+    monkeypatch.setattr(sys, "argv", ["backfill_lineups.py", "--limit", "10",
+                                        "--csv", str(tmp_path / "game_level_features.csv"),
+                                        "--pbp", str(tmp_path / "pbp.parquet")])
+    bl.main()
+    df = pd.read_parquet(tmp_path / "lineups.parquet")
+    r1 = df.loc[df.game_pk == 1].iloc[0]
+    assert (bool(r1.validated_home), bool(r1.validated_away)) == (True, True)
+    r2 = df.loc[df.game_pk == 2].iloc[0]
+    assert (bool(r2.validated_home), bool(r2.validated_away)) == (False, True)
+    r3 = df.loc[df.game_pk == 3].iloc[0]
+    assert pd.isna(r3.validated_home) and pd.isna(r3.validated_away)
+    # orders are NEVER rewritten by validation (row selection, not repair)
+    assert list(r2.home_order) == g2_home
+    assert list(r1.home_order) == _NINE_H
+    r4 = df.loc[df.game_pk == 4].iloc[0]
+    assert r4["source"] == "backfill" and bool(r4["pit_valid"]) is False
+    assert list(r4.home_order) == _NINE_H  # orders kept, claim voided
+    assert (bool(r4.validated_home), bool(r4.validated_away)) == (True, True)
+
+
+def test_state_column_survives_normalize_round_trip(tmp_path):
+    p = _path(tmp_path)
+    bl.upsert_lineups(pd.DataFrame([_row(1)]), out_path=p)
+    assert pd.read_parquet(p).loc[0, "state"] == "Final"
+
+
+def test_parse_feed_timecode():
+    assert bl.parse_feed_timecode("20260916_155450") == \
+        "2026-09-16T15:54:50+00:00"
+    assert bl.parse_feed_timecode(None) is None
+    assert bl.parse_feed_timecode("not-a-timecode") is None
+    assert bl.parse_feed_timecode("") is None
+
+
+def test_select_pregame_timecode_picks_latest_strictly_before_first_pitch():
+    # the real Sep-16 timeline: snapshots 12:00/15:54/17:41, first pitch 17:42:43
+    fp = "2026-09-16T17:42:43+00:00"
+    tcs = ["20260916_120000", "20260916_155450", "20260916_174112"]
+    assert bl.select_pregame_timecode(tcs, fp) == "20260916_174112"
+    # strict: a snapshot AT first pitch is already post-pitch knowledge
+    assert bl.select_pregame_timecode(["20260916_174243"], fp) is None
+    assert bl.select_pregame_timecode([], fp) is None
+    assert bl.select_pregame_timecode(tcs, None) is None
+    assert bl.select_pregame_timecode(tcs, "garbage") is None
+    # unparseable entries are skipped, never selected
+    assert bl.select_pregame_timecode(["garbage", "20260916_120000"],
+                                      fp) == "20260916_120000"
+
+
+def _snap_feed(ho, ao, home="BOS", away="NYY", state="Preview",
+               tc="20260916_155450"):
+    return {"gameData": {"status": {"abstractGameState": state},
+                           "teams": {"home": {"abbreviation": home},
+                                     "away": {"abbreviation": away}}},
+            "metaData": {"timeStamp": tc},
+            "liveData": {"boxscore": {"teams": {
+                "home": {"battingOrder": ho},
+                "away": {"battingOrder": ao}}}}}
+
+
+def test_snapshot_order_row_carries_feed_attested_provenance():
+    row = bl.order_row(9001, "2026-09-16", "BOS", "NYY",
+                       _snap_feed(_NINE_H, _NINE_A),
+                       captured_utc="2026-09-16T15:54:50+00:00",
+                       first_pitch_utc="2026-09-16T17:40:00+00:00",
+                       source="pregame", feed_timecode="20260916_155450")
+    assert row["source"] == "pregame" and row["pit_valid"] is True
+    assert row["feed_timecode"] == "20260916_155450"
+    assert row["state"] == "Preview"
+    assert list(row["home_order"]) == _NINE_H
+
+
+def test_backfill_pregame_snapshots_repairs_only_unproven_rows(
+        tmp_path, monkeypatch):
+    import results
+    # game 1: legacy backfill-grade (repair me); game 2: already PIT-valid
+    # (hands off); game 3: no qualifying snapshot (untouched, counted).
+    seed = pd.DataFrame([
+        _row(1, date="2026-09-16", home_starter_hand="R",
+             away_starter_hand="L"),
+        _row(2, date="2026-09-16", state="Preview",
+             captured_utc="2026-09-16T14:00:00+00:00",
+             first_pitch_utc="2026-09-16T23:05:00+00:00",
+             source="pregame"),
+        _row(3, date="2026-09-16"),
+    ])
+    bl.upsert_lineups(seed, out_path=_path(tmp_path))
+    pd.DataFrame([
+        {"game_pk": 1, "game_date": "2026-09-16", "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+        {"game_pk": 2, "game_date": "2026-09-16", "home_team": "NYY",
+         "away_team": "BOS", "home_win": 0},
+        {"game_pk": 3, "game_date": "2026-09-16", "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+    ]).to_csv(tmp_path / "game_level_features.csv", index=False)
+    snap9_h = [901, 902, 903, 904, 905, 906, 907, 908, 909]
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: (["20260916_120000", "20260916_155450"]
+                                     if pk == 1 else []))
+    monkeypatch.setattr(bl, "fetch_snapshot",
+                          lambda pk, tc, pause_sec=0.15: (
+                              _snap_feed(snap9_h, _NINE_A), ""))
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {1: "2026-09-16T17:40:00+00:00",
+                                       2: "2026-09-16T17:40:00+00:00",
+                                       3: "2026-09-16T17:40:00+00:00"})
+    monkeypatch.setattr(bl, "DATA_DELIVERY_DIR", tmp_path)
+    import sys
+    monkeypatch.setattr(sys, "argv", ["backfill_lineups.py"])
+    n = bl.backfill_pregame_snapshots(
+        limit=10, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path))
+    assert n == 1
+    df = pd.read_parquet(_path(tmp_path))
+    r1 = df.loc[df.game_pk == 1].iloc[0]
+    assert r1["source"] == "pregame" and bool(r1["pit_valid"])
+    assert r1["feed_timecode"] == "20260916_155450"
+    assert list(r1.home_order) == snap9_h  # official snapshot wins
+    assert r1["home_starter_hand"] == "R"  # hands preserved across repair
+    r2 = df.loc[df.game_pk == 2].iloc[0]
+    assert list(r2.home_order) == _NINE_H  # PIT-valid row untouched
+    r3 = df.loc[df.game_pk == 3].iloc[0]
+    assert r3["source"] == "backfill"  # no snapshot: stays grandfathered
+
+
+def test_load_pregame_orders_reads_only_requested_pks(tmp_path, monkeypatch):
+    monkeypatch.setattr(bl, "DATA_DELIVERY_DIR", tmp_path)
+    assert bl.load_pregame_orders([1]).empty  # absent cache, never raises
+    bl.upsert_lineups(pd.DataFrame([_row(1), _row(2)]), out_path=_path(tmp_path))
+    got = bl.load_pregame_orders([2, 999])
+    assert set(got.game_pk) == {2}
+    assert list(got.iloc[0].home_order) == _NINE_H
+    for c in ("source", "pit_valid", "validated_home", "validated_away",
+              "complete_home", "complete_away"):
+        assert c in got.columns, c
+
+
+def _snapshot_csv(path, pks):
+    pd.DataFrame([
+        {"game_pk": pk, "game_date": "2026-09-16", "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1}
+        for pk in pks
+    ]).to_csv(path, index=False)
+
+
+def test_snapshot_repair_limit_none_processes_all_eligible_games_in_order(
+        tmp_path, monkeypatch):
+    import results
+    seed = pd.DataFrame([
+        _row(1),
+        _row(2, state="Preview",
+              captured_utc="2026-09-16T14:00:00+00:00",
+              first_pitch_utc="2026-09-16T23:05:00+00:00",
+              source="pregame"),
+        _row(3),
+        _row(4),
+    ])
+    bl.upsert_lineups(seed, out_path=_path(tmp_path))
+    _snapshot_csv(tmp_path / "game_level_features.csv", [1, 2, 3, 4])
+
+    def fake_snapshot(pk, tc, pause_sec=0.15):
+        home = [900 + pk * 10 + i for i in range(9)]
+        return _snap_feed(home, _NINE_A, tc=tc), ""
+
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: (["20260916_120000", "20260916_155450"]
+                                     if pk in (1, 4) else []))
+    monkeypatch.setattr(bl, "fetch_snapshot", fake_snapshot)
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {pk: "2026-09-16T17:40:00+00:00"
+                                       for pk in (1, 2, 3, 4)})
+    n = bl.backfill_pregame_snapshots(
+        limit=None, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path), max_workers=2)
+    assert n == 2
+    df = pd.read_parquet(_path(tmp_path))
+    # Input order is preserved even though two workers check games.
+    assert df.sort_values("game_pk").loc[
+        lambda d: d.game_pk.isin([1, 4]), "feed_timecode"].tolist() == \
+        ["20260916_155450", "20260916_155450"]
+    r2 = df.loc[df.game_pk == 2].iloc[0]
+    assert r2["source"] == "pregame" and bool(r2["pit_valid"])
+    assert list(r2.home_order) == _NINE_H  # already-proven row untouched
+
+
+def test_snapshot_full_rebuild_reprocesses_provenance_and_preserves_audit(
+        tmp_path, monkeypatch):
+    import results
+    seed = pd.DataFrame([_row(
+        1, state="Preview", captured_utc="2026-09-16T14:00:00+00:00",
+        first_pitch_utc="2026-09-16T23:05:00+00:00", source="pregame",
+        validated_home=True, validated_away=False,
+        home_starter_hand="R", away_starter_hand="L")])
+    bl.upsert_lineups(seed, out_path=_path(tmp_path))
+    _snapshot_csv(tmp_path / "game_level_features.csv", [1])
+    repaired_home = [901, 902, 903, 904, 905, 906, 907, 908, 909]
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: ["20260916_120000", "20260916_155450"])
+    monkeypatch.setattr(bl, "fetch_snapshot",
+                          lambda pk, tc, pause_sec=0.15: (
+                              _snap_feed(repaired_home, _NINE_A, tc=tc), ""))
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {1: "2026-09-16T17:40:00+00:00"})
+    n = bl.backfill_pregame_snapshots(
+        limit=None, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path), full_rebuild=True, max_workers=2)
+    assert n == 1
+    row = pd.read_parquet(_path(tmp_path)).iloc[0]
+    assert list(row.home_order) == repaired_home
+    assert row["source"] == "pregame" and bool(row["pit_valid"])
+    assert bool(row.validated_home) is True
+    assert bool(row.validated_away) is False
+    assert row["home_starter_hand"] == "R"
+    assert row["away_starter_hand"] == "L"
+
+
+def test_snapshot_repair_forwards_sparse_fields(tmp_path, monkeypatch):
+    import results
+    bl.upsert_lineups(pd.DataFrame([_row(1)]), out_path=_path(tmp_path))
+    _snapshot_csv(tmp_path / "game_level_features.csv", [1])
+    seen = {}
+
+    def fake_snapshot(pk, tc, pause_sec=0.15, fields=None):
+        seen["fields"] = fields
+        return _snap_feed(_NINE_H, _NINE_A, tc=tc), ""
+
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: ["20260916_155450"])
+    monkeypatch.setattr(bl, "fetch_snapshot", fake_snapshot)
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {1: "2026-09-16T17:40:00+00:00"})
+    n = bl.backfill_pregame_snapshots(
+        limit=1, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path), snapshot_fields="CUSTOM_FIELDS")
+    assert n == 1
+    assert seen["fields"] == "CUSTOM_FIELDS"
+
+
+def test_snapshot_repair_names_every_grandfathered_game(tmp_path, monkeypatch,
+                                                       capsys):
+    import results
+    bl.upsert_lineups(pd.DataFrame([_row(1), _row(3)]),
+                      out_path=_path(tmp_path))
+    _snapshot_csv(tmp_path / "game_level_features.csv", [1, 3])
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: ["20260916_155450"] if pk == 1 else [])
+    monkeypatch.setattr(bl, "fetch_snapshot",
+                          lambda pk, tc, pause_sec=0.15: (None, "boom"))
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {1: "2026-09-16T17:40:00+00:00",
+                                       3: "2026-09-16T17:40:00+00:00"})
+    n = bl.backfill_pregame_snapshots(
+        limit=None, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path))
+    assert n == 0
+    out = capsys.readouterr().out
+    assert "grandfathered game_pks by reason" in out
+    assert "fetch_failed=[1]" in out
+    assert "no_snapshot=[3]" in out
+
+
+def test_snapshot_full_rebuild_does_not_list_retained_proven_games(
+        tmp_path, monkeypatch, capsys):
+    import results
+    bl.upsert_lineups(pd.DataFrame([
+        _row(1),
+        _row(2, state="Preview",
+              captured_utc="2026-09-16T14:00:00+00:00",
+              first_pitch_utc="2026-09-16T23:05:00+00:00",
+              source="pregame"),
+    ]), out_path=_path(tmp_path))
+    _snapshot_csv(tmp_path / "game_level_features.csv", [1, 2])
+    monkeypatch.setattr(bl, "fetch_timecodes",
+                          lambda pk: ["20260916_155450"])
+    monkeypatch.setattr(bl, "fetch_snapshot",
+                          lambda pk, tc, pause_sec=0.15: (
+                              (None, "boom") if pk == 2
+                              else (_snap_feed(_NINE_H, _NINE_A, tc=tc), "")))
+    monkeypatch.setattr(results, "fetch_game_start_times",
+                          lambda a, b: {1: "2026-09-16T17:40:00+00:00",
+                                       2: "2026-09-16T17:40:00+00:00"})
+    n = bl.backfill_pregame_snapshots(
+        limit=None, csv_path=tmp_path / "game_level_features.csv",
+        out_path=_path(tmp_path), full_rebuild=True)
+    assert n == 1
+    out = capsys.readouterr().out
+    assert "1 snapshot fetches failed" in out
+    assert "fetch_failed=[2]" not in out

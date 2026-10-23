@@ -161,13 +161,32 @@ def sample_decided_games(games: pd.DataFrame, n: int = 200) -> pd.DataFrame:
 
 # ── Paced live-feed fetch (mirrors fetch_statsapi_weather pacing) ───────────
 
-def fetch_feed(game_pk: int, pause_sec: float = PAUSE_SEC) -> tuple[dict | None, str]:
+def fetch_feed(game_pk: int, pause_sec: float = PAUSE_SEC,
+               timecode: str | None = None,
+               fields: str | None = None) -> tuple[dict | None, str]:
+    """Fetch one live-feed payload; ``timecode`` replays an archived snapshot.
+
+    Without a timecode this is the mutable live edge (pre-game capture for
+    tonight's slate). With a ``YYYYMMDD_HHMMSS`` timecode it replays the
+    feed's immutable archived snapshot — the training-side source of
+    official posted nines (see backfill_lineups timecode backfill).
+    ``fields`` optionally requests a sparse StatsAPI projection with the
+    same batting-order/state/timestamp shape at a small fraction of the
+    full-payload cost."""
     import requests
     last_err = ""
+    params = {}
+    if timecode:
+        params["timecode"] = timecode
+    if fields:
+        params["fields"] = fields
+    if not params:
+        params = None
     for attempt in (1, 2):
         try:
             resp = requests.get(
-                STATSAPI_GAME_FEED_URL.format(pk=game_pk), timeout=15)
+                STATSAPI_GAME_FEED_URL.format(pk=game_pk), timeout=15,
+                params=params)
             if resp.status_code == 200:
                 return resp.json(), ""
             last_err = f"http_{resp.status_code}"

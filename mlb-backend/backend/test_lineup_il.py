@@ -750,8 +750,9 @@ _GAMES = {
     8998: "2025-05-28",
     8999: "2025-05-30",
     9001: "2025-06-01",
-    # tier-1-only game: dated OUTSIDE the 10-day projection window so it
-    # can never double as projection history for the target
+    # 9003 carries a FOREIGN order ([201..209]) vs LHP: it votes only for
+    # LHP targets, so RHP-target tests isolate on hand-conditioning (the
+    # old 10-day calendar window is gone — tier 2 counts games, not days).
     9003: "2025-05-20",
     9002: "2025-06-05",  # the TARGET: no announced order — projects
 }
@@ -767,8 +768,9 @@ _ANNOUNCED = {
 def _eff_con() -> duckdb.DuckDBPyConnection:
     """Fixture for _build_lineup_effective: universe + orders + starters.
 
-    Prior-window lineups (10 days back from 2025-06-05): 8998/8999 were
-    announced vs LHP with 999 batting ninth; 9001 vs RHP with 109 ninth.
+    Announced history: 8998/8999/9003 vs LHP (999 ninth, except 9003's
+    foreign [201..209]); 9001 vs RHP with 109 ninth. Target 9002 (no
+    announced order) projects.
     """
     con = duckdb.connect(database=":memory:")
     # Universe: 20 rated batters per team-game (superset of every order,
@@ -793,9 +795,9 @@ def _eff_con() -> duckdb.DuckDBPyConnection:
              home_starter_hand, away_starter_hand)""")
     srows = []
     for pk in _GAMES:
-        # BOS (away) bats vs the HOME starter; the two 2025-05 games were
-        # vs LHP, everything later vs RHP.
-        hand = "L" if pk in (8998, 8999) else "R"
+        # BOS (away) bats vs the HOME starter; 8998/8999/9003 were vs
+        # LHP, everything later vs RHP.
+        hand = "L" if pk in (8998, 8999, 9003) else "R"
         srows.append(f"({pk}, 'NYY', 'BOS', '{hand}', 'R')")
     con.execute(f"""CREATE TABLE starters AS
         SELECT * FROM (VALUES {', '.join(srows)})
@@ -832,9 +834,9 @@ def test_lineup_effective_tier2_is_the_hand_conditioned_modal_slot():
     con = _eff_con()
     try:
         features._build_lineup_effective(con, batters_ok=False)
-        # Target vs RHP: only the RHP game (9001) counts. 999's two LHP
-        # votes must lose to 109's single RHP vote — conditioning, not
-        # raw vote count, decides the slot.
+        # Target vs RHP: only same-hand games vote — 9001 alone (8998/
+        # 8999/9003 are LHP). 999's LHP votes must lose to 109's single
+        # RHP vote — conditioning, not raw vote count, decides the slot.
         assert _eff_members(con, 9002) == set(_BOS_ORDER_R)
         assert 999 not in _eff_members(con, 9002)
         assert con.execute(
@@ -852,7 +854,8 @@ def test_lineup_effective_tier2_il_filter_drops_the_unavailable_slot():
                    NULL::DATE AS il_end""")
         features._build_lineup_effective(con, batters_ok=True)
         # 109 is unavailable as of the target date and the LHP games can't
-        # fill an RHP slot -> slot 9 has no eligible candidate: 8 members.
+        # fill an RHP slot (9003's 209 is LHP-only) -> slot 9 has no
+        # eligible candidate: 8 members.
         assert _eff_members(con, 9002) == set(range(101, 109))
         # the ANNOUNCED order is factual — the IL filter never rewrites it
         assert _eff_members(con, 9003) == set(range(201, 210))
@@ -931,6 +934,171 @@ def test_slate_tier2_conditions_on_lineups_raw_probable_hand():
         assert con.execute(
             "SELECT DISTINCT tier FROM lineup_effective WHERE game_pk = 9101"
         ).fetchone()[0] == 2
+    finally:
+        con.close()
+
+
+def _t2_con(history, target_pk, target_date, target_hand):
+    """Minimal tier-2/3 fixture. history: [(pk, date, [9 ids], hand|None)]
+    (BOS away @ NYY home; hand None = unknown opposing hand). The target
+    is an unposted BOS side; target_hand None = unknown tonight hand
+    (no starters row, NULL probable hands). Returns an open connection."""
+    con = duckdb.connect(database=":memory:")
+    pool = set()
+    for _, _, order, _ in history:
+        pool.update(order)
+    vals = []
+    for pk, d, _, _ in history:
+        for b in sorted(pool):
+            vals.append(f"(DATE '{d}', {pk}, 'BOS', {b}, 0.300, 50.0)")
+    for b in sorted(pool):
+        vals.append(f"(DATE '{target_date}', {target_pk}, 'BOS', {b}, "
+                    f"0.300, 50.0)")
+    con.execute("CREATE TABLE batter_ratings AS SELECT * FROM (VALUES "
+                + ", ".join(vals) + ") AS t(game_date, game_pk, "
+                "batting_team, batter, shrunk_re24, _pa30)")
+    lrows = []
+    for pk, d, order, _ in history:
+        lrows.append(
+            f"({pk}, DATE '{d}', 'NYY', 'BOS', {_NYY_ORDER}::BIGINT[], "
+            f"{order}::BIGINT[], true, true, NULL::VARCHAR, NULL::VARCHAR)")
+    lrows.append(
+        f"({target_pk}, DATE '{target_date}', 'NYY', 'BOS', "
+        f"NULL::BIGINT[], NULL::BIGINT[], false, false, "
+        f"NULL::VARCHAR, NULL::VARCHAR)")
+    con.execute("CREATE TABLE lineups_raw AS SELECT * FROM (VALUES "
+                + ", ".join(lrows) + ") AS t(game_pk, game_date, "
+                "home_team, away_team, home_order, away_order, "
+                "complete_home, complete_away, home_starter_hand, "
+                "away_starter_hand)")
+    srows = []
+    for pk, _, _, hand in history:
+        h = f"'{hand}'" if hand else "NULL"
+        srows.append(f"({pk}, 'NYY', 'BOS', {h}, 'R')")
+    if target_hand is not None:
+        srows.append(f"({target_pk}, 'NYY', 'BOS', '{target_hand}', 'R')")
+    con.execute("CREATE TABLE starters AS SELECT * FROM (VALUES "
+                + ", ".join(srows) + ") AS t(game_pk, home_team, "
+                "away_team, home_starter_hand, away_starter_hand)")
+    prows = [f"({pk}, 'NYY', 'BOS')"
+             for pk, _, _, _ in history] + [f"({target_pk}, 'NYY', 'BOS')"]
+    con.execute("CREATE TABLE pitches AS SELECT * FROM (VALUES "
+                + ", ".join(prows) + ") AS t(game_pk, home_team, "
+                "away_team)")
+    return con
+
+
+def _t2_members(con, pk, team="BOS"):
+    return {b for (b,) in con.execute(
+        "SELECT batter FROM lineup_effective "
+        "WHERE game_pk = ? AND team = ?", [pk, team]).fetchall()}
+
+
+def _t2_tier(con, pk, team="BOS"):
+    return con.execute(
+        "SELECT DISTINCT tier FROM lineup_effective "
+        "WHERE game_pk = ? AND team = ?", [pk, team]).fetchone()[0]
+
+
+def test_tier2_window_holds_exactly_the_last_10_distinct_games():
+    """Tier 2 counts games, not days: 14 RHP games every 2 days, slot 9
+    900 for the oldest ten, 901 for the newest four. The last-10 window
+    (D5..D14) votes 900x6 vs 901x4 -> 900 wins. A 10-day calendar window
+    (D10..D14) would vote 901x4 vs 900x1 -> 901. Expect 900."""
+    hist = []
+    base = pd.Timestamp("2025-03-16")
+    for i in range(14):
+        d = (base + pd.Timedelta(days=2 * i)).date().isoformat()
+        ninth = 900 if i < 10 else 901
+        hist.append((9600 + i, d, [101, 102, 103, 104, 105, 106, 107,
+                                   108, ninth], "R"))
+    con = _t2_con(hist, 9700, "2025-04-13", "R")
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        got = _t2_members(con, 9700)
+        assert got == {101, 102, 103, 104, 105, 106, 107, 108, 900}, got
+        assert _t2_tier(con, 9700) == 2
+    finally:
+        con.close()
+
+
+def test_tier2_skips_unknown_hand_games_entirely():
+    """A history game with an unknown opposing hand neither votes nor
+    counts toward the 10: D1..D5 (R, slot9=900), D6..D9 (R, slot9=901),
+    U newest with UNKNOWN hand (slot9=901). Excluded -> 900 wins 5-4.
+    Counted/voting -> 5-5 tie broken by U's recency -> 901. Expect 900."""
+    hist = []
+    for i, d in enumerate(["2025-05-01", "2025-05-02", "2025-05-03",
+                           "2025-05-04", "2025-05-05"]):
+        hist.append((9800 + i, d, [101, 102, 103, 104, 105, 106, 107,
+                                   108, 900], "R"))
+    for i, d in enumerate(["2025-05-06", "2025-05-07", "2025-05-08",
+                           "2025-05-09"]):
+        hist.append((9810 + i, d, [101, 102, 103, 104, 105, 106, 107,
+                                   108, 901], "R"))
+    hist.append((9820, "2025-05-10",
+                 [101, 102, 103, 104, 105, 106, 107, 108, 901], None))
+    con = _t2_con(hist, 9830, "2025-05-11", "R")
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        got = _t2_members(con, 9830)
+        assert got == {101, 102, 103, 104, 105, 106, 107, 108, 900}, got
+        assert _t2_tier(con, 9830) == 2
+    finally:
+        con.close()
+
+
+def test_tier3_unknown_tonight_hand_uses_unconditioned_modal():
+    """Unknown tonight hand -> no L/R classification -> no tier 2; tier 3
+    projects the modal slot over ALL recent announced games: 3x LHP order
+    (999 ninth) vs 2x RHP order (109 ninth) -> 999 wins 3-2, tier 3."""
+    hist = [(9901, "2025-06-01", _BOS_ORDER_L, "L"),
+            (9902, "2025-06-02", _BOS_ORDER_R, "R"),
+            (9903, "2025-06-03", _BOS_ORDER_L, "L"),
+            (9904, "2025-06-04", _BOS_ORDER_R, "R"),
+            (9905, "2025-06-05", _BOS_ORDER_L, "L")]
+    con = _t2_con(hist, 9910, "2025-06-06", None)
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        assert _t2_members(con, 9910) == set(_BOS_ORDER_L)
+        assert _t2_tier(con, 9910) == 3
+        n2 = con.execute(
+            "SELECT count(*) FROM lineup_effective "
+            "WHERE game_pk = 9910 AND team = 'BOS' AND tier = 2"
+        ).fetchone()[0]
+        assert n2 == 0, "no classification, no tier-2 rows"
+    finally:
+        con.close()
+
+
+def test_tier3_covers_zero_same_hand_history():
+    """Known tonight hand but no same-hand history (target vs LHP, all
+    history RHP) -> tier 2 empty, tier 3 serves the RHP modal."""
+    hist = [(9921, "2025-06-01", _BOS_ORDER_R, "R"),
+            (9922, "2025-06-02", _BOS_ORDER_R, "R"),
+            (9923, "2025-06-03", _BOS_ORDER_R, "R")]
+    con = _t2_con(hist, 9930, "2025-06-04", "L")
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        assert _t2_members(con, 9930) == set(_BOS_ORDER_R)
+        assert _t2_tier(con, 9930) == 3
+    finally:
+        con.close()
+
+
+def test_no_tier3_rows_when_tier2_covers():
+    """The fallback only fills team-games the conditioned tier could not
+    cover: 9002 (RHP, RHP history) binds tier 2 with zero tier-3 rows."""
+    con = _eff_con()
+    try:
+        features._build_lineup_effective(con, batters_ok=False)
+        n3 = con.execute(
+            "SELECT count(*) FROM lineup_effective "
+            "WHERE game_pk = 9002 AND tier = 3").fetchone()[0]
+        n2 = con.execute(
+            "SELECT count(*) FROM lineup_effective "
+            "WHERE game_pk = 9002 AND tier = 2").fetchone()[0]
+        assert (n2, n3) == (9, 0)
     finally:
         con.close()
 

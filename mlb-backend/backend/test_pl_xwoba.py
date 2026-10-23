@@ -215,10 +215,11 @@ def _pool_con(effective=None) -> duckdb.DuckDBPyConnection:
     con.execute("""
         CREATE TABLE batter_ratings AS
         SELECT * FROM (VALUES
-            (DATE '2026-06-01', 1, 'AAA', 100, 0.30, 30),
-            (DATE '2026-06-01', 1, 'AAA', 200, 0.40, 90),
-            (DATE '2026-06-14', 2, 'AAA', 100, 0.33, 60)
-        ) t(game_date, game_pk, batting_team, batter, shrunk_xwoba, _pa30)
+            (DATE '2026-06-01', 1, 'AAA', 100, 0.30, 30, 10),
+            (DATE '2026-06-01', 1, 'AAA', 200, 0.40, 90, 30),
+            (DATE '2026-06-14', 2, 'AAA', 100, 0.33, 60, 20)
+        ) t(game_date, game_pk, batting_team, batter, shrunk_xwoba,
+            _pa30, _g30)
     """)
     con.execute("""
         CREATE TABLE player_positions AS
@@ -384,9 +385,9 @@ def test_pool_universe_extends_the_grid_to_unplayed_slate_games():
     try:
         con.execute("""CREATE TABLE batter_ratings AS
             SELECT * FROM (VALUES
-                (DATE '2026-06-01', 1, 'AAA', 100, 0.30, 30)
+                (DATE '2026-06-01', 1, 'AAA', 100, 0.30, 30, 10)
             ) AS t(game_date, game_pk, batting_team, batter,
-                   shrunk_xwoba, _pa30)""")
+                   shrunk_xwoba, _pa30, _g30)""")
         con.execute("""CREATE TABLE pitches AS
             SELECT * FROM (VALUES (1, 'AAA', 'BBB'), (2, 'AAA', 'BBB'))
             AS t(game_pk, home_team, away_team)""")
@@ -426,10 +427,10 @@ def test_export_slate_pl_ships_resolved_pools_with_provenance(tmp_path):
         # nine, 200 NOT in the announced order).
         con.execute("""CREATE TABLE batter_ratings AS
             SELECT * FROM (VALUES
-                (DATE '2026-06-15', 1, 'AAA', 100, 0.30, 30),
-                (DATE '2026-06-15', 1, 'AAA', 200, 0.40, 90)
+                (DATE '2026-06-15', 1, 'AAA', 100, 0.30, 30, 10),
+                (DATE '2026-06-15', 1, 'AAA', 200, 0.40, 90, 30)
             ) AS t(game_date, game_pk, batting_team, batter,
-                   shrunk_xwoba, _pa30)""")
+                   shrunk_xwoba, _pa30, _g30)""")
         con.execute("""CREATE TABLE player_positions AS
             SELECT * FROM (VALUES (100, 2026, 'C'), (200, 2026, 'C'))
             AS t(batter, season, pos)""")

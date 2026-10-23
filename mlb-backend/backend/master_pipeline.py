@@ -396,16 +396,28 @@ except (Exception, SystemExit) as e:
 # ── Phase 1.6: Announced lineups — membership tier 1 (tonight's nine) ──────
 # lineups.parquet feeds lineup_effective (features.py): the membership set
 # BOTH candidate pools bind — tonight's nine (tier 1), else the
-# hand-conditioned 10-day projection (tier 2), else the full roster. Two
+# hand-conditioned 10-game modal (tier 2), else the unconditioned 10-game
+# modal (tier 3; full roster only with no history at all). Two
 # incremental passes, both NON-FATAL (a gap degrades membership to the
 # projection — worse information, never a crash):
 #   1) decided-game gaps: every finished game still missing (or incomplete)
 #      in the cache, driven by the PREVIOUS run's game_level_features.csv;
-#   2) pre-game capture: today's scheduled game_pks via the StatsAPI
+#   2) snapshot repair (2026-10-24): decided games whose rows lack a
+#      PIT-valid pre-game nine are repaired from the feed's archived
+#      snapshots (latest timecode strictly before first pitch) — the
+#      official posted nine, replacing corruptible legacy boxscore reads.
+#      Under MLB_FULL_REPULL this becomes a complete corpus rebuild: every
+#      decided game is reprocessed from its pre-pitch snapshot with a sparse
+#      payload and controlled parallelism, so the run does not merely fill
+#      gaps around a stale cache.
+#   3) pre-game capture: today's scheduled game_pks via the StatsAPI
 #      schedule — posted nines land NOW so an overnight rebuild of tonight's
 #      games resolves tier 1 instead of projecting (the 2026-10-03 audit's
 #      "wire daily pre-game fetch").
-from backfill_lineups import (fetch_scheduled_lineups,
+from backfill_lineups import (FULL_SNAPSHOT_WORKERS,
+                              SNAPSHOT_LINEUP_FIELDS,
+                              backfill_pregame_snapshots,
+                              fetch_scheduled_lineups,
                               main as _backfill_lineups)
 sys.argv = ["backfill_lineups.py", "--limit", "500"]
 try:
@@ -413,6 +425,18 @@ try:
 except (Exception, SystemExit) as e:
     print(f"  ⚠️  lineups decided-gap backfill failed (non-fatal; "
           f"membership degrades to projection): {e}")
+try:
+    _n_snap = backfill_pregame_snapshots(
+        limit=None if full_repull else 200,
+        full_rebuild=full_repull,
+        max_workers=FULL_SNAPSHOT_WORKERS if full_repull else 1,
+        snapshot_fields=SNAPSHOT_LINEUP_FIELDS if full_repull else None,
+    )
+    print(f"  🧾 lineups: {_n_snap} official posted nine(s) restored from "
+          f"pre-pitch snapshots")
+except (Exception, SystemExit) as e:
+    print(f"  ⚠️  lineup snapshot repair failed (non-fatal; legacy reads "
+          f"stand until a later run): {e}")
 try:
     _n_lineups = fetch_scheduled_lineups(CONFIG["end_date"])
     print(f"  🧾 lineups: {_n_lineups} posted row(s) captured for "
@@ -957,11 +981,14 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     """Attach the 6 lineup-delta columns to today's slate from posted lineups.
 
     Resolution: StatsAPI schedule for target_date maps (home, away) → game_pk
-    (the slate carries no StatsAPI game_pk -- ESPN's game_id only), then the
-    live feed per game, paced like the roof fetcher (~2.2 req/s, one retry).
-    Games with a complete 9+9 battingOrder get REAL lineup-delta features
-    (same point-in-time math as training: batter/team sd-wOBA through games
-    strictly before today -- no lookahead).
+    (the slate carries no StatsAPI game_pk -- ESPN's game_id only), then
+    orders come from the PRE-GAME capture in lineups.parquet — the same
+    cache file training's tier 1 reads. NEVER a serve-time live feed read:
+    after first pitch the feed's battingOrder is post-pitch information and
+    it bypasses the validation quarantine. Games with a TRUSTED complete
+    9+9 (the single tier-1 rule, shared with training) get REAL
+    lineup-delta features (same point-in-time math as training: batter/team
+    sd-wOBA through games strictly before today -- no lookahead).
 
     Projected fallback for games not yet posted (per the 2026-08-25 posting-
     curve probe, away sides generally post ~2-3h before first pitch; a morning
@@ -979,9 +1006,7 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
         return slate
     slate = slate.reset_index(drop=True)  # posted-mask aligns by position below
     import requests
-    import time as _time
     from results import STATSAPI_SCHEDULE_URL  # same endpoint the weather backfill uses
-    _FEED = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
 
     # 1) game_pk resolution from the StatsAPI schedule (one day, no chunking).
     # A matchup can hold MULTIPLE games (doubleheader legs with their own
@@ -1014,45 +1039,39 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
         logger.warning("_fetch_slate_lineups: schedule resolution failed (%s); slate stays projected", e)
         pk_by_teams = {}
 
-    # 2) per-game feed fetch (paced, one retry, cached per run)
-    def _feed(pk: int) -> dict | None:
-        for attempt in (0, 1):
+    # 2) orders from the PRE-GAME capture (lineups.parquet) — the same cache
+    # file training's tier 1 reads. NEVER a serve-time live feed read: after
+    # first pitch the feed's battingOrder is post-pitch information wearing
+    # a pre-game name (the exact 2026-08-29 skew vector), and it bypasses
+    # the validation quarantine. The capture job (fetch_scheduled_lineups,
+    # run pre-game by the orchestrator) is the SOLE writer of orders; this
+    # path only READS. Games missing from the cache (not yet posted when the
+    # capture ran) carry None orders and fall through to the projected-NULL
+    # fallback below — honest unknown, never fabricated.
+    from backfill_lineups import load_pregame_orders
+    _slate_pks = [
+        _nearest_slate_pk(pk_by_teams.get(
+            (r.get("home_team"), r.get("away_team"))), r.get("start_time_utc"))
+        for _, r in slate.iterrows()
+    ]
+    _avail: dict = {}
+    _cached = load_pregame_orders(_slate_pks)
+    if not _cached.empty and "game_pk" in _cached.columns:
+        for _rec in _cached.to_dict("records"):
             try:
-                r = requests.get(_FEED.format(pk=pk), timeout=15)
-                if r.status_code == 200:
-                    return r.json()
-            except Exception:
+                _avail[int(_rec["game_pk"])] = _rec
+            except (TypeError, ValueError):
                 pass
-            if attempt == 0:
-                _time.sleep(_LINEUP_PAUSE_SEC * 3)
-            _time.sleep(_LINEUP_PAUSE_SEC)
-        return None
-
-    def _orders(feed: dict | None) -> tuple[list[int], list[int]]:
-        out = []
-        if feed:
-            bs = ((feed.get("liveData") or {}).get("boxscore") or {})
-            teams_bs = bs.get("teams") or {}
-            for side in ("home", "away"):
-                try:
-                    order = [p["person"]["id"]
-                             for p in (teams_bs[side].get("battingOrder") or [])]
-                except Exception:
-                    order = []
-                out.append(order)
-        return (out[0] if out else [], out[1] if len(out) > 1 else [])
-
+    _LU_COLS = ("home_order", "away_order", "complete_home", "complete_away",
+                "source", "pit_valid", "validated_home", "validated_away")
     rows = []
-    for _, r in slate.iterrows():
-        teams_key = (r.get("home_team"), r.get("away_team"))
-        pk = _nearest_slate_pk(pk_by_teams.get(teams_key), r.get("start_time_utc"))
-        if pk is None:
-            rows.append({"game_pk": pd.NA, "home_order": None, "away_order": None})
-            continue
-        feed = _feed(pk)
-        ho, ao = _orders(feed)
-        rows.append({"game_pk": int(pk), "home_order": ho or None,
-                     "away_order": ao or None})
+    for pk in _slate_pks:
+        rec = _avail.get(pk) if pk is not None else None
+        if rec is None:
+            rows.append({"game_pk": pk, **{c: None for c in _LU_COLS}})
+        else:
+            rows.append({"game_pk": rec["game_pk"],
+                         **{c: rec.get(c) for c in _LU_COLS}})
     lu = pd.DataFrame(rows)
     # game_pk must be TYPED before any join: rows mix resolved ints with
     # pd.NA (games whose StatsAPI identity has not resolved yet), so the
@@ -1073,7 +1092,13 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     # 3) real features where both sides posted; projected fallback otherwise
     slate = add_lineup_delta_features(slate, lineups_override=lu)
     from features import LINEUP_DELTA_COLS, LINEUP_TOP5_K
-    posted = lu["home_order"].notna() & lu["away_order"].notna()
+    from features import _tier1_eligible_lineups
+    # THE SAME membership both pools bind: the pandas twin of the SQL tier-1
+    # predicate — a side binds when complete AND provably pre-game
+    # (pit_valid IS NOT FALSE, or a grandfathered backfill/NULL source).
+    # Unknown at bet time → all six NULL (see below).
+    _trusted = _tier1_eligible_lineups(lu)
+    posted = _trusted["home_order"].notna() & _trusted["away_order"].notna()
     n_actual = int(posted.sum())
     for idx, r in slate.iterrows():
         if not posted.iloc[idx]:

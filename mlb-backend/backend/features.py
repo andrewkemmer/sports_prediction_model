@@ -195,9 +195,14 @@ def _batter_excl(alias: str, date: str, ledger_ok: bool) -> str:
 # into the game. The agreed membership set is the EFFECTIVE nine per
 # team-game, resolved in lineup_effective:
 #   tier 1  the announced batting order (lineups.parquet, complete nine)
-#   tier 2  projected: each slot's MODAL starter over the last {lookback}
-#           days of announced orders, conditioned on the opposing starter's
-#           handedness (starters table) and IL-filtered as of the target date
+#   tier 2  projected: each slot's MODAL starter over the last 10 DISTINCT
+#           team games with a KNOWN opposing-starter hand equal to
+#           tonight's (separate L/R lookups; unknown-hand games skipped),
+#           IL-filtered as of the target date
+#   tier 3  fallback projection: the modal slot over the most recent 10
+#           announced games available regardless of hand (unknown tonight
+#           hand, or no same-hand history) — the full roster only when
+#           the team has no announced history at all
 #   (no row) full roster — the exact pre-audit semantics, so an absent or
 #           unreadable lineup cache never shrinks coverage below what shipped
 #           before (2024's horizon, lineups.parquet does not cover)
@@ -224,8 +229,23 @@ _EMPTY_LINEUPS_RAW_SQL = """CREATE OR REPLACE TEMP TABLE lineups_raw AS
            CAST(NULL AS BOOLEAN) AS complete_home,
            CAST(NULL AS BOOLEAN) AS complete_away,
            CAST(NULL AS VARCHAR) AS home_starter_hand,
-           CAST(NULL AS VARCHAR) AS away_starter_hand
+           CAST(NULL AS VARCHAR) AS away_starter_hand,
+           CAST(NULL AS VARCHAR) AS source,
+           CAST(NULL AS BOOLEAN) AS pit_valid,
+           CAST(NULL AS BOOLEAN) AS validated_home,
+           CAST(NULL AS BOOLEAN) AS validated_away,
+           CAST(NULL AS VARCHAR) AS captured_utc,
+           CAST(NULL AS VARCHAR) AS first_pitch_utc
     WHERE false"""
+
+# NOTE (2026-10-24, Sep-16 NYY): there is exactly ONE tier-1 trust rule —
+# the predicate inlined in _LINEUP_EFFECTIVE_SQL's order_sides CTE below —
+# and exactly ONE pandas twin (_tier1_eligible_lineups, next to
+# add_lineup_delta_features). A side binds when complete AND provably
+# pre-game: pit_valid IS NOT FALSE, or a legacy grandfathered read
+# (source 'backfill'/NULL). Agreement with the actual starters
+# (validated_*) is deliberately NOT a gate — the bet-time truth is the
+# official posted nine, scratches included. Do NOT add a second spelling.
 _EMPTY_LINEUP_EFFECTIVE_SQL = """CREATE OR REPLACE TABLE lineup_effective AS
     SELECT CAST(NULL AS BIGINT) AS game_pk,
            CAST(NULL AS VARCHAR) AS team,
@@ -338,6 +358,19 @@ _LINEUP_EFFECTIVE_SQL = """
         FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_home
           AND list_extract(l.home_order, r.slot) IS NOT NULL
+          -- Tier-1 trust (2026-10-24): the announced nine binds when its
+          -- PROVENANCE proves pre-game knowledge — complete AND captured
+          -- pre-pitch (pit_valid) or a legacy grandfathered read
+          -- (source='backfill'/NULL, written before capture timestamps
+          -- existed). Deliberately NOT gated on agreement with who actually
+          -- started: a late scratch makes the official posted nine differ
+          -- from the starters, and the model at bet time only ever sees
+          -- the posted nine — judging the announcement by the actuals
+          -- would trade the Sep-16 error for train-serve skew on every
+          -- scratched game. Posted-vs-actual agreement is an AUDIT signal
+          -- (validated_*, stamped by backfill_lineups.main), never a gate.
+          AND (l.pit_valid IS NOT FALSE OR l.source = 'backfill'
+               OR l.source IS NULL)
         UNION ALL
         SELECT l.game_pk, l.game_date, 'away' AS side,
                l.home_team, l.away_team,
@@ -345,6 +378,8 @@ _LINEUP_EFFECTIVE_SQL = """
         FROM lineups_raw l, range(1, 10) AS r(slot)
         WHERE l.complete_away
           AND list_extract(l.away_order, r.slot) IS NOT NULL
+          AND (l.pit_valid IS NOT FALSE OR l.source = 'backfill'
+               OR l.source IS NULL)
     ),
     slots AS (
         -- Team vocabulary: PITCHES' codes first — the feed's own
@@ -375,8 +410,11 @@ _LINEUP_EFFECTIVE_SQL = """
     ),
     -- team-games with no announced nine need a projection. The target row
     -- carries the opposing starter's hand (home team bats vs the AWAY
-    -- starter, and vice versa); a missing/NULL hand cannot condition and
-    -- falls back to the unconditioned window below.
+    -- starter, and vice versa): starters-table throw hand for played
+    -- games, carried probable-starter hand for games with no played
+    -- frame (tonight's slate). A NULL hand cannot condition: the tier-2
+    -- chain below yields nothing and the unconditioned tier-3 modal
+    -- covers instead (most recent 10 announced games available).
     need AS (
         -- Target's opposing-starter hand: the STARTERS table's real throw
         -- hand for played games; the lineups_raw PROBABLE-starter hand for
@@ -399,32 +437,49 @@ _LINEUP_EFFECTIVE_SQL = """
         LEFT JOIN lineups_raw l ON l.game_pk = u.game_pk
         WHERE a.team IS NULL
     ),
-    -- prior announced lineups of that team inside the 10-day window,
-    -- tagged with the opposing hand THEY actually faced. The IL filter
-    -- binds as of the TARGET date (availability must never look ahead).
+    -- CONDITIONED corpus (tier 2): the last 10 DISTINCT team games
+    -- strictly before the target whose opposing-starter hand is KNOWN
+    -- and EQUALS tonight's hand — separate L/R lookups, game-counted,
+    -- never calendar-windowed. A historical game whose opposing hand is
+    -- unknown is skipped entirely: it neither counts toward the 10 nor
+    -- votes (measured 2026-10-24: Statcast inning-1 hands resolve 100%
+    -- of 1,054 sampled sides Apr-Sep, so skips are gap games, not the
+    -- common case). The IL filter binds as of the TARGET date
+    -- (availability must never look ahead). NULL opp_hand tonight
+    -- matches nothing here — the unconditioned tier below covers.
     hist AS (
         SELECT n.game_pk, n.team, n.opp_hand, s.batter, s.slot,
-               s.game_date AS hist_date,
-               COALESCE(
-                   CASE WHEN s.team = hs.home_team THEN hs.away_starter_hand
-                        ELSE hs.home_starter_hand END,
-                   CASE WHEN s.team = hl.home_team THEN hl.away_starter_hand
-                        ELSE hl.home_starter_hand END) AS hist_hand
+               s.game_date AS hist_date, s.game_pk AS hist_pk
         FROM need n
         JOIN slots s
           ON s.team = n.team
          AND s.game_date < n.game_date
-         AND s.game_date >= n.game_date - INTERVAL {lookback} DAY
         LEFT JOIN starters hs ON hs.game_pk = s.game_pk
         LEFT JOIN lineups_raw hl ON hl.game_pk = s.game_pk
         WHERE {il_filter}
+          AND COALESCE(
+                  CASE WHEN s.team = hs.home_team THEN hs.away_starter_hand
+                       ELSE hs.home_starter_hand END,
+                  CASE WHEN s.team = hl.home_team THEN hl.away_starter_hand
+                       ELSE hl.home_starter_hand END) = n.opp_hand
+    ),
+    hist10 AS (
+        -- DENSE_RANK over (date, game_pk): one rank per DISTINCT game
+        -- (all 9 slot-rows share it), so doubleheaders count as two
+        -- games and the window holds exactly the last 10 known-hand
+        -- same-hand games, however far back the 10th sits.
+        SELECT game_pk, team, opp_hand, batter, slot, hist_date
+        FROM (SELECT h.*,
+                     DENSE_RANK() OVER (PARTITION BY game_pk, team
+                                        ORDER BY hist_date DESC,
+                                                 hist_pk DESC) AS g
+              FROM hist h)
+        WHERE g <= 10
     ),
     votes AS (
         SELECT game_pk, team, slot, batter,
                count(*) AS votes, max(hist_date) AS last_seen
-        FROM hist
-        WHERE hist_hand = opp_hand
-           OR hist_hand IS NULL OR opp_hand IS NULL
+        FROM hist10
         GROUP BY game_pk, team, slot, batter
     ),
     -- one batter per slot: most votes, then most recent appearance
@@ -436,10 +491,54 @@ _LINEUP_EFFECTIVE_SQL = """
                                                batter) AS rn
             FROM votes)
         WHERE rn = 1
+    ),
+    -- UNCONDITIONED fallback (tier 3): team-games the conditioned tier
+    -- could not cover (unknown tonight hand, or no same-hand history)
+    -- project the modal slot over the most recent 10 announced games
+    -- AVAILABLE, regardless of hand — never the full roster while any
+    -- history exists. Only a team with no announced history at all
+    -- degrades to the full-roster membership (no rows anywhere).
+    hist_any AS (
+        SELECT n.game_pk, n.team, s.batter, s.slot,
+               s.game_date AS hist_date, s.game_pk AS hist_pk
+        FROM need n
+        JOIN slots s
+          ON s.team = n.team
+         AND s.game_date < n.game_date
+        LEFT JOIN (SELECT DISTINCT game_pk, team FROM t2) t
+          ON t.game_pk = n.game_pk AND t.team = n.team
+        WHERE {il_filter}
+          AND t.team IS NULL
+    ),
+    hist_any10 AS (
+        SELECT game_pk, team, batter, slot, hist_date
+        FROM (SELECT h.*,
+                     DENSE_RANK() OVER (PARTITION BY game_pk, team
+                                        ORDER BY hist_date DESC,
+                                                 hist_pk DESC) AS g
+              FROM hist_any h)
+        WHERE g <= 10
+    ),
+    votes_any AS (
+        SELECT game_pk, team, slot, batter,
+               count(*) AS votes, max(hist_date) AS last_seen
+        FROM hist_any10
+        GROUP BY game_pk, team, slot, batter
+    ),
+    t3 AS (
+        SELECT game_pk, team, batter FROM (
+            SELECT game_pk, team, slot, batter,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk, team, slot
+                                      ORDER BY votes DESC, last_seen DESC,
+                                               batter) AS rn
+            FROM votes_any)
+        WHERE rn = 1
     )
     SELECT game_pk, team, batter, 1 AS tier FROM t1
     UNION ALL
     SELECT game_pk, team, batter, 2 AS tier FROM t2
+    UNION ALL
+    SELECT game_pk, team, batter, 3 AS tier FROM t3
 """
 
 
@@ -481,7 +580,7 @@ def _export_slate_pl(con: "duckdb.DuckDBPyConnection",
 
     Serving half of the 2026-10-03 slate structural alignment: while history
     resolves pl_* through the 3-tier chain (tier 1 announced nine, tier 2
-    hand-conditioned 10-day projection, tier 3 full-roster degrade) + the
+    hand-conditioned 10-game modal, tier 3 unconditioned 10-game modal) + the
     position pools + the strictly-prior league fallback, the slate used to
     ship an UNMARKED stale carry-forward of each team's last completed game
     (lineup_effective/pos_agg never saw tonight's game_pk — batter_ratings
@@ -489,7 +588,10 @@ def _export_slate_pl(con: "duckdb.DuckDBPyConnection",
     upcoming game_date with, per team-game:
 
       pl_<pos>_xwoba         the SAME pos_agg values history serves (8 served)
-      pl_tier                membership tier that bound (1/2/3 degrade)
+      pl_tier                membership tier that bound (1 announced /
+                             2 hand-conditioned / 3 unconditioned modal —
+                             or no-history full roster, which also reports
+                             3 since no tier-1/2 rows bound)
       pl_prior_positions     served pools that resolved to the league-by-
                              position prior instead of real pool data
 
@@ -568,12 +670,25 @@ def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
     (never a missing-table error, never a fabricated nine).
     """
     try:
+        # Provenance columns for the tier-1 trust predicate: fixture-built
+        # lineups_raw tables predate them, so add as NULL (unchecked but
+        # bindable — the predicate quarantines only on explicit FALSE).
+        # Production tables from _register_lineups always carry real values.
+        for _col, _typ in (("source", "VARCHAR"), ("pit_valid", "BOOLEAN"),
+                           ("validated_home", "BOOLEAN"),
+                           ("validated_away", "BOOLEAN"),
+                           ("captured_utc", "VARCHAR"),
+                           ("first_pitch_utc", "VARCHAR")):
+            try:
+                con.execute(f"ALTER TABLE lineups_raw ADD COLUMN IF NOT "
+                            f"EXISTS {_col} {_typ}")
+            except Exception:
+                pass  # noqa: BLE — a missing table fails loudly below
         # The grid membership resolves against (and the position pools will
         # aggregate) — built HERE so lineup_effective and pos_pool can never
         # disagree on which team-games exist: history AND tonight's slate.
         _build_pool_universe(con)
         con.execute(_LINEUP_EFFECTIVE_SQL.format(
-            lookback=LINEUP_POOL_LOOKBACK_DAYS,
             il_filter=(_EFFECTIVE_IL_FILTER if batters_ok else "TRUE")))
         n, ngames = con.execute(
             "SELECT count(*), count(DISTINCT game_pk) "
@@ -724,7 +839,7 @@ _POS_POOL_SQL = """
     WITH pool AS (
         SELECT g.game_date, g.game_pk, g.batting_team,
                CAST(r.batter AS BIGINT) AS batter,
-               r.shrunk_xwoba, r._pa30,
+               r.shrunk_xwoba, r._pa30, r._g30,
                {pos_case} AS pos
         -- pool_universe = historical + tonight's slate team-games
         -- (_build_pool_universe): tonight's game_pk aggregates through the
@@ -746,9 +861,100 @@ _POS_POOL_SQL = """
             ORDER BY r.game_date DESC) = 1
     )
     SELECT p.game_date, p.game_pk, p.batting_team,
-           p.batter, p.shrunk_xwoba, p._pa30, p.pos,
+           p.batter, p.shrunk_xwoba, p._pa30, p._g30, p.pos,
            {on_il} AS on_il
     FROM pool p
+"""
+
+# Rate-weight challenger variants (Challenger 2 trial-only, NEVER shipped
+# silently): identical shape to the _POS_* tables above, but the pool weight
+# is the PA/G TRIPS RATE (_pa30 / _g30) instead of raw trailing-30g PA
+# totals. Totals conflate durability with lineup role (a 9-hole everyday
+# plodder outvotes a star back from a 2-week absence); the rate isolates
+# who actually takes more trips per game. _g30 counts trailing window game
+# rows from LAG-shifted batter_shifted, so the weight stays strictly prior.
+# Selected only via build_features(pl_rate_weights=True); the default path
+# executes the base strings byte-identically.
+_POS_LEAGUE_SQL_RATE = """
+    CREATE TABLE pos_league AS
+    WITH weighted AS (
+        SELECT game_date, pos, shrunk_xwoba,
+               _pa30 / NULLIF(_g30, 0) AS w
+        FROM pos_pool WHERE on_il = 0
+    ),
+    daily AS (
+        SELECT game_date, pos,
+               SUM(w * shrunk_xwoba) AS num,
+               SUM(w) AS den
+        FROM weighted
+        GROUP BY game_date, pos
+    ),
+    grid AS (
+        SELECT d.game_date, p.pos,
+               COALESCE(daily.num, 0) AS num,
+               COALESCE(daily.den, 0) AS den
+        FROM (SELECT DISTINCT game_date FROM pos_pool) d
+        CROSS JOIN (SELECT DISTINCT pos FROM pos_pool) p
+        LEFT JOIN daily
+          ON daily.game_date = d.game_date AND daily.pos = p.pos
+    )
+    SELECT game_date,
+           MAX(CASE WHEN pos = 'c'  THEN prior END) AS pr_c,
+           MAX(CASE WHEN pos = 'fb' THEN prior END) AS pr_fb,
+           MAX(CASE WHEN pos = 'sb' THEN prior END) AS pr_sb,
+           MAX(CASE WHEN pos = 'ss' THEN prior END) AS pr_ss,
+           MAX(CASE WHEN pos = 'tb' THEN prior END) AS pr_tb,
+           MAX(CASE WHEN pos = 'rf' THEN prior END) AS pr_rf,
+           MAX(CASE WHEN pos = 'cf' THEN prior END) AS pr_cf,
+           MAX(CASE WHEN pos = 'lf' THEN prior END) AS pr_lf,
+           MAX(CASE WHEN pos = 'dh' THEN prior END) AS pr_dh
+    FROM (
+        SELECT game_date, pos,
+               SUM(num) OVER w / NULLIF(SUM(den) OVER w, 0) AS prior
+        FROM grid
+        WINDOW w AS (PARTITION BY pos ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ) e
+    GROUP BY game_date
+"""
+_POS_AGG_SQL_RATE = """
+    CREATE TABLE pos_agg AS
+    WITH weighted AS (
+        SELECT game_date, game_pk, batting_team, pos, shrunk_xwoba,
+               _pa30 / NULLIF(_g30, 0) AS w
+        FROM pos_pool WHERE on_il = 0
+    ),
+    pooled AS (
+        SELECT game_date, game_pk, batting_team, pos,
+               SUM(w * shrunk_xwoba) / NULLIF(SUM(w), 0) AS px
+        FROM weighted
+        GROUP BY game_date, game_pk, batting_team, pos
+    ),
+    wide AS (
+        SELECT game_date, game_pk, batting_team,
+               MAX(CASE WHEN pos = 'c'  THEN px END) AS pl_c_xwoba,
+               MAX(CASE WHEN pos = 'fb' THEN px END) AS pl_fb_xwoba,
+               MAX(CASE WHEN pos = 'sb' THEN px END) AS pl_sb_xwoba,
+               MAX(CASE WHEN pos = 'ss' THEN px END) AS pl_ss_xwoba,
+               MAX(CASE WHEN pos = 'tb' THEN px END) AS pl_tb_xwoba,
+               MAX(CASE WHEN pos = 'rf' THEN px END) AS pl_rf_xwoba,
+               MAX(CASE WHEN pos = 'cf' THEN px END) AS pl_cf_xwoba,
+               MAX(CASE WHEN pos = 'lf' THEN px END) AS pl_lf_xwoba,
+               MAX(CASE WHEN pos = 'dh' THEN px END) AS pl_dh_xwoba
+        FROM pooled
+        GROUP BY game_date, game_pk, batting_team
+    )
+    SELECT w.game_date, w.game_pk, w.batting_team,
+           COALESCE(w.pl_c_xwoba,  lg.pr_c)  AS pl_c_xwoba,
+           COALESCE(w.pl_fb_xwoba, lg.pr_fb) AS pl_fb_xwoba,
+           COALESCE(w.pl_sb_xwoba, lg.pr_sb) AS pl_sb_xwoba,
+           COALESCE(w.pl_ss_xwoba, lg.pr_ss) AS pl_ss_xwoba,
+           COALESCE(w.pl_tb_xwoba, lg.pr_tb) AS pl_tb_xwoba,
+           COALESCE(w.pl_rf_xwoba, lg.pr_rf) AS pl_rf_xwoba,
+           COALESCE(w.pl_cf_xwoba, lg.pr_cf) AS pl_cf_xwoba,
+           COALESCE(w.pl_lf_xwoba, lg.pr_lf) AS pl_lf_xwoba,
+           COALESCE(w.pl_dh_xwoba, lg.pr_dh) AS pl_dh_xwoba
+    FROM wide w LEFT JOIN pos_league lg USING (game_date)
 """
 
 # League-by-position prior — the healthy-pool PA-weighted mean over every
@@ -1630,14 +1836,43 @@ def _register_lineups(con: "duckdb.DuckDBPyConnection") -> bool:
         # than fail the whole membership build over two optional booleans.
         have = set()
         try:
-            have = {r[0] for r in con.execute(
-                f"SELECT name FROM (DESCRIBE SELECT * FROM read_parquet('{lit}'))")}
+            # LIMIT-0 probe: DESCRIBE-as-subquery names its output column
+            # differently across DuckDB versions (column_name vs name), so a
+            # DESCRIBE probe fails closed to have=set() — silently
+            # grandfathering EVERY row to backfill and flattening all PIT
+            # provenance (caught 2026-10-24: the Live-attested exception
+            # could never fire). Cursor description is version-proof.
+            cur = con.execute(f"SELECT * FROM read_parquet('{lit}') LIMIT 0")
+            have = {d[0] for d in (cur.description or [])}
         except Exception:  # noqa: BLE001 — unreadable cache handled below
             have = set()
         _hand_cols = ("home_starter_hand, away_starter_hand"
                       if {"home_starter_hand", "away_starter_hand"} <= have
                       else "CAST(NULL AS VARCHAR) AS home_starter_hand, "
                           "CAST(NULL AS VARCHAR) AS away_starter_hand")
+        # Trust columns (2026-10-23): legacy caches predate them. A legacy
+        # cache is a post-game backfill read — grandfathered (binds; the
+        # announced-nine corpus) via source='backfill' + pit_valid FALSE,
+        # exactly the _normalize defaults for rows written before
+        # provenance existed.
+        _state_col = (", state"
+                      if "state" in have
+                      else ", CAST(NULL AS VARCHAR) AS state")
+        # Feed-attested snapshot time (audit column; never gates). Legacy
+        # caches predate it.
+        _tc_col = (", feed_timecode"
+                   if "feed_timecode" in have
+                   else ", CAST(NULL AS VARCHAR) AS feed_timecode")
+        _trust_cols = ("source, pit_valid, validated_home, validated_away, "
+                       "captured_utc, first_pitch_utc"
+                       if {"source", "pit_valid", "validated_home",
+                           "validated_away"} <= have
+                       else "CAST('backfill' AS VARCHAR) AS source, "
+                            "CAST(FALSE AS BOOLEAN) AS pit_valid, "
+                            "CAST(NULL AS BOOLEAN) AS validated_home, "
+                            "CAST(NULL AS BOOLEAN) AS validated_away, "
+                            "CAST(NULL AS VARCHAR) AS captured_utc, "
+                            "CAST(NULL AS VARCHAR) AS first_pitch_utc")
         con.execute(f"""
             CREATE OR REPLACE TEMP TABLE lineups_raw AS
             SELECT CAST(game_pk AS BIGINT) AS game_pk,
@@ -1645,8 +1880,23 @@ def _register_lineups(con: "duckdb.DuckDBPyConnection") -> bool:
                    home_team, away_team,
                    home_order, away_order,
                    complete_home, complete_away,
-                   {_hand_cols}
+                   {_hand_cols},
+                   {_trust_cols}
+                   {_state_col}
+                   {_tc_col}
             FROM read_parquet('{lit}')
+        """)
+        # Provenance-contradiction void (SQL mirror of
+        # backfill_lineups.apply_provenance_void): only a Preview feed may
+        # claim pre-game provenance — Live never qualifies (not pre-game
+        # point-in-time, even pre-pitch). No recorded state (NULL) voids
+        # nothing — the pit flag decides, exactly as the twin does — so
+        # the pools and the pandas twin can never disagree on tier 1.
+        con.execute("""
+            UPDATE lineups_raw
+            SET source = 'backfill', pit_valid = FALSE
+            WHERE source = 'pregame'
+              AND (state IS NULL OR LOWER(state) != 'preview')
         """)
         n, n_complete = con.execute(
             "SELECT count(*), count(*) FILTER (WHERE complete_home "
@@ -2047,7 +2297,8 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
 def _build_game_level(con: duckdb.DuckDBPyConnection,
-                       corrected_outs: bool = False) -> None:
+                       corrected_outs: bool = False,
+                       pl_rate_weights: bool = False) -> None:
     """Build game_level table via pure DuckDB SQL.  All intermediate tables
     are dropped after assembly to free RAM.
 
@@ -2060,10 +2311,16 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     bullpen family) re-derives from the corrected pitcher_game_stats.
     When False, the SQL produced is byte-identical to the pre-flag
     production path.
+
+    pl_rate_weights: Challenger 2 trial-only (NEVER shipped silently).
+    The pl_<pos>_xwoba pools weight by PA/G trips rate (_pa30 / _g30)
+    instead of raw trailing-30g PA totals. Same width, value swap.
+    When False, the pos_* tables execute the base strings byte-identically.
     """
 
-    logger.info("Building game-level features (corrected_outs=%s)...",
-                corrected_outs)
+    logger.info("Building game-level features (corrected_outs=%s, "
+                "pl_rate_weights=%s)...",
+                corrected_outs, pl_rate_weights)
 
     # 1. Game winners (last pitch of each game)
     con.execute("""
@@ -3282,6 +3539,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                 + 1.568*_t + 2.007*_hr) OVER w30 AS _woba_num,
             SUM(_pa - _bb - _hbp) OVER w30 AS _ab,
             SUM(_pa) OVER w30 AS _pa30,
+            COUNT(*) OVER w30 AS _g30,
             SUM(_re24) OVER w30 AS _re24_num,
             SUM(_xwoba_num) OVER w30 AS _xwoba_num30,
             SUM(_xwoba_den) OVER w30 AS _xwoba_den30
@@ -3328,7 +3586,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                {_woba_expr} AS shrunk_woba,
                {_re24_expr} AS shrunk_re24,
                {_xwoba_expr} AS shrunk_xwoba,
-               r._pa30
+               r._pa30, r._g30
         FROM batter_rolling r
         LEFT JOIN batter_league l USING (game_date)
         LEFT JOIN player_positions pp
@@ -3384,8 +3642,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         pos_case=PL_POS_SQL,
         restrict=("" if _batters_ok else "AND r.game_pk = g.game_pk"),
         on_il=(_IL_EXISTS_PREDICATE if _batters_ok else "0")))
-    con.execute(_POS_LEAGUE_SQL)
-    con.execute(_POS_AGG_SQL)
+    if pl_rate_weights:
+        logger.info("pl_ pools: PA/G rate weights (Challenger 2 trial)")
+        con.execute(_POS_LEAGUE_SQL_RATE)
+        con.execute(_POS_AGG_SQL_RATE)
+    else:
+        con.execute(_POS_LEAGUE_SQL)
+        con.execute(_POS_AGG_SQL)
     # 2026-10-03 production incident: a missing position map silently
     # emptied pos_agg and the run still reported "ok" with 24 dead
     # universe columns. Name the production symptom, not the cause.
@@ -5079,6 +5342,45 @@ def _load_lineup_cache() -> dict:
     return _lineup_cache
 
 
+def _tier1_eligible_lineups(lineups: pd.DataFrame) -> pd.DataFrame:
+    """Null out untrusted sides' orders — the pandas twin of the SQL tier-1
+    trust predicate in order_sides (same rule, both paths).
+
+    A side binds when complete AND provably pre-game: pit_valid IS NOT
+    FALSE, or a legacy grandfathered read (source 'backfill'/missing).
+    validated_* (posted-vs-actual agreement) is deliberately IGNORED —
+    the bet-time truth is the official posted nine, scratches included.
+    Missing columns (fixtures predating provenance) read as eligible.
+    Returns a copy; ineligible home_order / away_order entries become None
+    so both the delta merge and any other consumer degrade to
+    projected/NaN instead of pricing an unknowable nine.
+    """
+    df = lineups.copy()
+    # Provenance-contradiction void — THE single spelling, imported from
+    # backfill_lineups (lazy: avoids any import-cycle risk at module load).
+    # A 'pregame' claim from a non-Preview feed state voids to
+    # backfill-grade, exactly as _normalize and _register_lineups apply it.
+    from backfill_lineups import apply_provenance_void
+    df = apply_provenance_void(df)
+    for order_col, compl_col in (("home_order", "complete_home"),
+                                  ("away_order", "complete_away")):
+        if order_col not in df.columns:
+            continue
+        eligible = (df[compl_col].fillna(False).astype(bool)
+                    if compl_col in df.columns
+                    else pd.Series(True, index=df.index))
+        if "pit_valid" in df.columns or "source" in df.columns:
+            ok_pit = (df["pit_valid"].fillna(True).astype(bool)
+                      if "pit_valid" in df.columns
+                      else pd.Series(True, index=df.index))
+            ok_src = (df["source"].fillna("backfill").eq("backfill")
+                      if "source" in df.columns
+                      else pd.Series(True, index=df.index))
+            eligible &= (ok_pit | ok_src)
+        df.loc[~eligible.to_numpy(), order_col] = None
+    return df
+
+
 def add_lineup_delta_features(game_df: pd.DataFrame,
                               inplace: bool = False,
                               lineups_override: pd.DataFrame | None = None,
@@ -5152,6 +5454,11 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
     batters, teams = caches["batter"].copy(), caches["team"].copy()
     lineups = (lineups_override if lineups_override is not None
                else caches["lineups"])
+    # Tier-1 trust, same rule as the pool SQL: sides without pre-game
+    # provenance fall back to NaN here (never a fabricated nine). Applies
+    # equally to the cache frame and to slate overrides — one source,
+    # one rule.
+    lineups = _tier1_eligible_lineups(lineups)
     if lineups is not None and "game_pk" in lineups.columns:
         # dtype-safe by construction: an override keyed by a mixed int/NA
         # column lands as object dtype, and pandas refuses an object-vs-Int64
@@ -5737,6 +6044,7 @@ def build_features(
     output_dir: str | Path = ".",
     validate: bool = True,
     corrected_outs: bool = False,
+    pl_rate_weights: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run pure-DuckDB feature engineering on a pitches Parquet file.
 
@@ -5752,6 +6060,9 @@ def build_features(
             batter_interference outs and keeps intent_walk / truncated_pa
             PAs as boundaries (see _build_game_level). Default False = the
             byte-identical production path.
+        pl_rate_weights: Challenger 2 trial-only. When True, the
+            pl_<pos>_xwoba pools weight by PA/G trips rate instead of raw
+            trailing PA totals. Default False = byte-identical production.
 
     Returns:
         (game_df, pbp_df) as pandas DataFrames.
@@ -5787,7 +6098,8 @@ def build_features(
     logger.info("[MEM] After DuckDB load: %.0f MB", _mem_mb())
 
     try:
-        _build_game_level(con, corrected_outs=corrected_outs)
+        _build_game_level(con, corrected_outs=corrected_outs,
+                          pl_rate_weights=pl_rate_weights)
         logger.info("[MEM] After game_level: %.0f MB", _mem_mb())
 
         # Export game_level BEFORE pbp_level (pbp_level drops game_level)
