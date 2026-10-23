@@ -2298,8 +2298,10 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     top["_tpg"] = _projected_opportunities_per_game(top["_den"],
                                                      top["_n_games"])
     if redistribute_phase1 and _pre_vol is not None:
-        if phase1_caps is None:
-            phase1_caps = _phase1_tpg_caps(d)
+        # Caps are fitted inputs too: later player-games must not change an
+        # earlier lineup. Cache the expanding, strictly-prior estimate per
+        # target day; explicit caller-supplied caps remain fixed overrides.
+        caps_by_day: dict = {}
         _post_set = set(map(tuple, _post_excl_vol.astype(str).to_numpy()))
         if not _post_set:  # every candidate removed: nothing to absorb with
             _post_set = set(map(tuple, top[["game_id", "team",
@@ -2315,16 +2317,23 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
                               & (donors_all["team"].astype(str) == str(_team))]
             if _don.empty:
                 continue
+            group_caps = phase1_caps
+            if group_caps is None:
+                target_day = top.loc[_gidx, "target_day"].iloc[0]
+                if target_day not in caps_by_day:
+                    caps_by_day[target_day] = _phase1_tpg_caps(
+                        d[d["gameday"] < target_day])
+                group_caps = caps_by_day[target_day]
             if spill_matrix is not None:
                 adj = _phase2_redistribute_tpg(
                     _surv, _don[["position", "_tpg"]],
-                    matrix=spill_matrix, caps=phase1_caps,
+                    matrix=spill_matrix, caps=group_caps,
                     qb_alpha=(phase1_alpha or {}).get("QB", 1.0)
                     if phase1_alpha else 1.0)
             else:
                 adj = _phase1_redistribute_tpg(
                     _surv, _don[["position", "_tpg"]],
-                    alpha=phase1_alpha, caps=phase1_caps)
+                    alpha=phase1_alpha, caps=group_caps)
             top.loc[_gidx, "_tpg"] = adj.to_numpy()
     top["_epa_per_game"] = top["_tpg"] * top["epa_q"]
     out = (top.groupby(["game_id", "team", "position"], as_index=False)

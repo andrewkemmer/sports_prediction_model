@@ -51,12 +51,13 @@ common = dict(pbp=pbp, ps=ps, ngs=ngs, snaps=snaps, ftn=ftn, weather=pit_weather
               injuries=injuries, weekly_injuries=weekly_injuries, crosswalk=crosswalk,
               roster_unavailable=roster_unavailable)
 log.info("building base features ...")
-base_df = feat_mod.build_game_features(schedule, **common)
+base_df = feat_mod.build_game_features(
+    schedule, **common, redistribute_phase1=False)
 log.info("base frame: %s", base_df.shape)
-# Full-history measured p95 caps (2016-2025 rating panel, 54k player-games):
-# QB 45.9 / RB 22.2 / WR 10.0 / TE 7.9 (2023-24 subset agrees within 0.7).
-caps = {"QB": 45.9, "RB": 22.2, "TE": 7.9, "WR": 10.0}
-log.info("caps: %s", caps)
+# Match production: estimate caps from strictly-prior player-games at
+# each target date, never from the full evaluation window.
+caps = None
+log.info("caps: expanding strictly-prior p95 per target date")
 log.info("building a=0.9 features ...")
 a09_df = feat_mod.build_game_features(
     schedule, **common, redistribute_phase1=True,
@@ -107,6 +108,8 @@ for name, df in (("base", base_df), ("a09", a09_df)):
         yb = base_oof["home_win"].astype(float).to_numpy()
         pb = pd.to_numeric(base_oof["p_ensemble"], errors="coerce").to_numpy(dtype=float)
         gb = base_oof["grades_pooled"].astype(bool).to_numpy()
+        assert base_oof["game_id"].equals(oof["game_id"])
+        assert base_oof["gameday"].equals(oof["gameday"])
         assert (yb == yo).all() and (gb == grade).all()
         ll = lambda yy, pp: -(yy * np.log(np.clip(pp, 1e-7, 1 - 1e-7)) + (1 - yy) * np.log(np.clip(1 - pp, 1e-7, 1 - 1e-7)))
         d = ll(yo[grade], po[grade]) - ll(yb[gb], pb[gb])

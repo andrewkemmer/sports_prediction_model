@@ -198,6 +198,69 @@ def test_phase2_wired_lifts_te_on_wr_out():
     assert _pos(ph2, "WR") > _pos(base, "WR")
 
 
+def test_default_caps_are_strictly_prior_for_each_target():
+    hist, games, inj = _wired_frames()
+    later = hist.iloc[[0]].copy()
+    later["game_id"] = "H2"
+    later["gameday"] = pd.Timestamp("2024-09-15")
+    later["kickoff_utc"] = pd.Timestamp("2024-09-15 17:00Z")
+    later["_den"] = 0.1
+    later["_n_games"] = 1.0
+    later["opp"] = 0.1
+    later = pd.concat([
+        later.assign(player_id=f"future_{i}") for i in range(100)
+    ], ignore_index=True)
+    combined = pd.concat([hist, later], ignore_index=True)
+    next_game = games.assign(game_id="T2", gameday="2024-09-22")
+    targets = pd.concat([games, next_game], ignore_index=True)
+    reports = pd.concat([
+        inj, inj.assign(game_id="T2", published="2024-09-22T15:00:00Z")
+    ], ignore_index=True)
+    multi = feat_mod.epa_quality_team_agg(
+        combined, targets, reports, redistribute_phase1=True,
+        phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    for gid, day in (("T1", "2024-09-08"), ("T2", "2024-09-22")):
+        prior = combined[combined.gameday < pd.Timestamp(day)]
+        expected = feat_mod.epa_quality_team_agg(
+            prior, targets[targets.game_id == gid], reports,
+            redistribute_phase1=True,
+            phase1_caps=feat_mod._phase1_tpg_caps(prior),
+            phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+        pd.testing.assert_frame_equal(
+            multi[multi.game_id == gid].reset_index(drop=True),
+            expected.reset_index(drop=True))
+
+
+def test_default_caps_ignore_target_day_history():
+    hist, games, inj = _wired_frames()
+    same_day = pd.concat([
+        hist.iloc[[0]].assign(
+            player_id=f"same_day_{i}", game_id="SAME_DAY",
+            gameday=pd.Timestamp("2024-09-08"),
+            kickoff_utc=pd.Timestamp("2024-09-08 12:00Z"),
+            _den=0.1, _n_games=1.0, opp=0.1)
+        for i in range(100)
+    ], ignore_index=True)
+    kwargs = dict(redistribute_phase1=True,
+                  phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    expected = feat_mod.epa_quality_team_agg(hist, games, inj, **kwargs)
+    actual = feat_mod.epa_quality_team_agg(
+        pd.concat([hist, same_day], ignore_index=True), games, inj, **kwargs)
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_explicit_caps_override_estimation():
+    hist, games, inj = _wired_frames()
+    actual = feat_mod.epa_quality_team_agg(
+        hist, games, inj, redistribute_phase1=True,
+        phase1_caps={"WR": 6.0},
+        phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    uncapped = feat_mod.epa_quality_team_agg(
+        hist, games, inj, redistribute_phase1=True, phase1_caps={},
+        phase1_alpha=feat_mod.PHASE1_ALPHA_ADOPTED)
+    assert _wr_epa(actual) < _wr_epa(uncapped)
+
+
 def test_rate_frozen_call_pattern():
     # Helper returns volume only; EPA math stays rate x adjusted volume.
     surv = _surv([
