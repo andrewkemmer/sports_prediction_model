@@ -595,14 +595,16 @@ SCORE_XGBOOST_PARAMS = {
     "random_state": RANDOM_SEED, "eval_metric": "poisson-nloglik",
     "enable_categorical": True, "tree_method": "hist",
 }
-# Elastic-net full-view challenger flag (trial-only, default OFF): when True
-# the score ensemble's elastic net trains on the linear view PLUS the
-# standardized raw per-side columns (team-ID categoricals stay excluded —
-# arbitrary IDs as linear ordinals would be a bug, not a feature). Default
-# False is byte-identical arm B; arm C sets it True for the walk-forward
-# trial only. Promotion (default True) requires the trial verdict (NBA
-# precedent, 2026-10-17: B z=-2.34 fails, C z=-3.18 passes).
-SCORE_EN_ELASTICNET_FULL_VIEW = False
+# Elastic-net full-view (STRUCTURALLY ADOPTED 2026-10-23, owner-directed
+# NBA alignment): when True the score ensemble's elastic net trains on
+# the linear view PLUS the standardized raw per-side columns (team-ID
+# categoricals stay excluded —
+# arbitrary IDs as linear ordinals would be a bug, not a feature).
+# Trial verdict (2,518 games): B/C identical, z=+0.28 favors A — neither
+# clears the 2.5 gate. Adopted anyway 2026-10-23 (owner-directed) for
+# cross-sport structural parity with NBA-C; served path switches to the
+# ensemble below. NOT a gate promotion.
+SCORE_EN_ELASTICNET_FULL_VIEW = True
 # Elastic-net regression leg (standardized features, raw-count target).
 SCORE_ELASTICNET_PARAMS = {
     "alpha": 1.0, "l1_ratio": 0.5,

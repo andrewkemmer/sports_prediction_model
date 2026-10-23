@@ -515,9 +515,17 @@ def main(argv: list[str] | None = None) -> int:
     # The SAME fold_list object the moneyline just walked. Expected-scoring
     # folds and moneyline folds are one geometry (MLB parity) — logged so a
     # future divergence is visible in the run log rather than silent.
-    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
+    # STRUCTURALLY ADOPTED 2026-10-23 (owner-directed NBA alignment): the
+    # distribution walk IS the score ensemble (earned Poisson-deviance
+    # blends, full-view elastic net) — not the single-LGBM incumbent.
+    # Trial verdict (B/C identical, z=+0.28 favors A) did NOT clear the
+    # 2.5 gate; this is structural parity, not a gate promotion.
+    dist = dist_mod.walk_forward_oof_ensemble(game_df, fold_list=fold_list)
+    logger.info("score-ensemble serving weights (OOF-earned): %s",
+                  {k: round(float(v), 4)
+                   for k, v in dist["member_weights"].items()})
     oof_dist = dist["oof"]
-    fcontract = dist.get("feature_contract", {})
+    fcontract = dist.get("feature_contract", {}) or {}
     # Report the FITTED width next to the declared one. Both are in the
     # contract, but only the declared count was logged, so a frame that
     # resolved a narrower matrix read exactly like a healthy run and the
@@ -733,7 +741,11 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 10", "final full-history refit")
     final_models, _ = ml_mod.fit_final_models(game_df,
                                              xgb_best_rounds=ml["xgb_best_rounds"])
-    final_reg = dist_mod.fit_final(game_df)
+    # Serving score means come from the ensemble, fitted on the full frame
+    # and blended with the walk's OOF-earned weights — never equal priors,
+    # never an in-sample optimum (moneyline fit_final_models convention).
+    final_reg = dist_mod.ScoreEnsembleRegressor().fit(game_df)
+    final_reg.set_weights(dist["member_weights"])
     # This phase builds the models that ACTUALLY SERVE tonight. It used to log
     # nothing at all, so a silently degraded refit (an all-NaN regressor, a
     # member that failed to fit) left no trace in the run log even though the
