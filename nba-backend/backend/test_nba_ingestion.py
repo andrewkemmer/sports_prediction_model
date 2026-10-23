@@ -2710,6 +2710,42 @@ class TestChunkedSweepBars:
             ing._PROBED.discard("espn")
         assert asked == [f"{start + timedelta(days=n):%Y%m%d}" for n in range(10)]
 
+    def test_full_repull_ignores_stale_empty_cache(self, monkeypatch, tmp_path):
+        """The 2026-10-23 crash: 1,098 cached EMPTY day files plus
+        NBA_FULL_REPULL served every stale empty as a "refetch" (0 fetched,
+        N from cache) because the flag only emptied the in-memory frame while
+        _schedule_hit still saw the file — then the all-empty sweep died in
+        pd.concat with "No objects to concatenate". A repull must reach the
+        network for every day, and an all-empty sweep must return empty
+        (load_ingested then raises the actionable ScheduleUnavailable)."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        ing._PROBED.add("espn")
+        start = date(2024, 1, 1)
+        try:
+            # Poison the cache the way the crashed host had it: every day
+            # present but empty.
+            for n in range(10):
+                ing._write_parquet(pd.DataFrame(),
+                                   ing._schedule_path(start + timedelta(days=n)))
+            # All-empty sweep, no repull flag: empty out, never a crash.
+            assert ing._fetch_schedule(start, start + timedelta(days=9)).empty
+            # Repull flag with a live host: every day refetched.
+            monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+            calls: list = []
+
+            def fake_frame(_events):
+                calls.append(1)
+                return pd.DataFrame([{"game_id": f"g{len(calls)}"}])
+
+            monkeypatch.setattr(ing.sources, "espn_schedule_frame", fake_frame)
+            monkeypatch.setattr(ing, "http_json",
+                                lambda *_a, **_k: {"events": [{}]})
+            out = ing._fetch_schedule(start, start + timedelta(days=9))
+            assert len(out) == 10
+            assert len(calls) == 10
+        finally:
+            ing._PROBED.discard("espn")
+
     def test_a_budget_break_closes_the_open_window(self, caplog):
         """A sweep that stops mid-window still reports the window it stopped
         in, rather than leaving the last bar undrawn and the count unsaid."""

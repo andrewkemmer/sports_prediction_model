@@ -2723,6 +2723,17 @@ def load_history_games_v1(date_str: str,
     # NFL/NHL/NBA cards render the store-derived current-season entering
     # record (MLB compute_season_records parity); the MLB v1 family keeps
     # its artifact's own record columns.
+    if s == "nba":
+        # The frozen NBA first-publication store never mutates with final
+        # scores, so on its own every historical card also reads 0-0. Prefer
+        # the retained prediction history (settled scores) as the record
+        # authority; fall back to the production store when unusable.
+        try:
+            _rec = _nba_record_store()
+        except Exception:
+            _rec = None
+        if _rec is not None:
+            store = _rec
     return (_attach_season_records(frozen, store=store, sport=s)
             if s in ("nfl", "nhl", "nba") else frozen)
 
@@ -4576,11 +4587,46 @@ def _load_nba_moneyline_record(sport: str | None = "nba") -> dict:
     return {}
 
 
+def _nba_record_store() -> pd.DataFrame | None:
+    """Decided-results authority for NBA entering W-L records.
+
+    The frozen first-publication store (``nba_production_cards_history``)
+    is priced once at publication and never mutated, so it carries no
+    final scores and ``_attach_season_records`` from it alone renders
+    every card 0-0 once the season starts. The retained prediction
+    history DOES carry settled scores, so it is the record authority
+    here (outcome columns only — its OOF probs never touch the card).
+    Returns None when unusable so the caller falls back to the default
+    production store instead of fabricating.
+    """
+    try:
+        hist = load_nfl_prediction_history("nba")
+    except Exception:
+        return None
+    if hist is None or hist.empty:
+        return None
+    need = {"game_id", "game_date", "home_team", "away_team",
+            "home_score", "away_score"}
+    if not need.issubset(set(hist.columns)):
+        return None
+    try:
+        decided = hist[
+            pd.to_numeric(hist["home_score"], errors="coerce").notna()
+            & pd.to_numeric(hist["away_score"], errors="coerce").notna()
+        ]
+    except Exception:
+        return None
+    if decided.empty:
+        return None
+    return hist
+
+
 def load_nba_moneyline(sport: str | None = "nba") -> pd.DataFrame:
     # Cards render each team's CURRENT-SEASON entering W-L (NFL/NHL
     # parity) — never the artifact's multi-season career tally.
     return _attach_nba_season_records(
-        nba_moneyline_to_frame(_load_nba_moneyline_record(sport)))
+        nba_moneyline_to_frame(_load_nba_moneyline_record(sport)),
+        store=_nba_record_store())
 
 
 def load_nba_moneyline_record(sport: str | None = "nba") -> dict:
@@ -4676,7 +4722,23 @@ def load_nba_board_games(date_str: str) -> pd.DataFrame:
                 home_win[decided & (hs == as_)] = 0.5
                 day["home_win"] = home_win
                 day["game_status"] = day["game_status"].mask(decided, "Final")
-            return _attach_nba_season_records(normalize_games(day, sport="nba"))
+            record_store = None
+            try:
+                if (hist is not None and not hist.empty
+                        and {"game_id", "game_date", "home_team",
+                             "away_team", "home_score",
+                             "away_score"}.issubset(set(hist.columns))):
+                    _dec = hist[
+                        pd.to_numeric(hist["home_score"],
+                                      errors="coerce").notna()
+                        & pd.to_numeric(hist["away_score"],
+                                        errors="coerce").notna()
+                    ]
+                    record_store = hist if not _dec.empty else None
+            except Exception:
+                record_store = None
+            return _attach_nba_season_records(
+                normalize_games(day, sport="nba"), store=record_store)
     # 2. CURRENT SLATE: the newest record covers the requested date.
     try:
         current = load_nba_moneyline("nba")

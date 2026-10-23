@@ -1512,10 +1512,18 @@ def _fetch_schedule(start: date, end: date,
         budget has already spent must not be asked about or counted.
         """
         path = _schedule_path(day)
-        existing = (pd.DataFrame() if _flag(FULL_REPULL_ENV)
-                    else _read_parquet(path))
-        if _schedule_hit(existing, path):
-            return _ServeOutcome("cached", existing)
+        if _flag(FULL_REPULL_ENV):
+            # A repull must reach the network for every day. _schedule_hit
+            # reports an existing empty file as a hit (an empty day stays
+            # cached), so feeding it an emptied frame still serves the
+            # stale file — the 2026-10-23 crash served 1,098 cached empties
+            # as a "refetch" (0 fetched, 1,098 from cache) and died in
+            # pd.concat. Bypass the hit check entirely under the flag.
+            existing = None
+        else:
+            existing = _read_parquet(path)
+            if _schedule_hit(existing, path):
+                return _ServeOutcome("cached", existing)
         if time.time() > deadline:
             return _ServeOutcome("budget")
         try:
@@ -1619,9 +1627,15 @@ def _fetch_schedule(start: date, end: date,
             # Ends the lookahead deterministically: in-flight days finish, and
             # days never submitted are never requested.
             queue.close()
+    # Frames can hold only empties (every day cached-empty or fetched with
+    # no games): the pre-filtered list is then empty and pd.concat raises
+    # "No objects to concatenate" — the 2026-10-23 crash. Filter first so
+    # the empty sweep returns empty and load_ingested raises the actionable
+    # ScheduleUnavailable instead of a bare ValueError.
+    frames = [f for f in frames if not f.empty]
     if not frames:
         return pd.DataFrame()
-    games = pd.concat([f for f in frames if not f.empty], ignore_index=True)
+    games = pd.concat(frames, ignore_index=True)
     games = games.drop_duplicates("game_id", keep="last")
     logger.info("schedule: %d games over %d days (%d fetched, %d from cache)%s",
                 len(games), days, fetched, cached,
@@ -1835,13 +1849,15 @@ def _fetch_season_logs(start: date, end: date,
             f"{stopped} There is no second feature source, so a missing "
             "season log is a stopped run rather than a thinner one. Re-run "
             "where stats.nba.com is reachable, or warm the cache.")
+    # Same all-empty guard as the schedule sweep: pd.concat on a
+    # fully-filtered list raises "No objects to concatenate".
+    frames = [f for f in frames if not f.empty]
     if not frames:
         return pd.DataFrame()
     logger.info("season log: %d player row(s) over %d slice(s)%s",
                 sum(len(f) for f in frames), len(units),
                 _gate_note(fetched, len(units), started, pause, "slice"))
-    return _dedupe_player_games(
-        pd.concat([f for f in frames if not f.empty], ignore_index=True))
+    return _dedupe_player_games(pd.concat(frames, ignore_index=True))
 
 
 #: The identity of a player line: one row per player per game per season.
