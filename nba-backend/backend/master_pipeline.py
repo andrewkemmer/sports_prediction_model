@@ -613,6 +613,181 @@ def _empty_contract_columns(frame: pd.DataFrame | None) -> list[str]:
                 pd.to_numeric(frame[col], errors="coerce")).any()]
 
 
+def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
+                                 delivery_dir=None, today=None) -> dict:
+    """Repopulate or top off the PIT designation archive inside the run.
+
+    The training frame must never depend on a static committed archive:
+    ``nba_designations.parquet`` in delivery is a seed for cold caches,
+    not the source of record. Every run brings it up to date first -
+    fully re-resolved when ``NBA_FULL_REPULL=1`` (every decided game day
+    in the window is re-read through ``game_day_designations``, ignoring
+    existing shards), otherwise incrementally topped off (only decided
+    days the archive does not yet cover are fetched, then merged).
+
+    Only strictly-past game days enter the archive; pending dates stay
+    live-only via ``_slate_designations``. Shards remain the source of
+    truth (rewritten from the merged frame, then ``consolidate`` rebuilds
+    the cache archive and the shipped delivery copy), so a later manual
+    backfill can neither clobber nor duplicate this run's rows.
+
+    Never raises: a fetch failure keeps the existing archive under a loud
+    warning, because an unfiltered pool is a degraded run, not a failed
+    one. Returns a small stats dict for the run summary.
+    """
+    import backfill_injury_designations as bf_mod
+    import nba_injury_report as ir_mod
+
+    stats: dict = {"mode": None, "target_days": 0, "resolved_days": 0,
+                    "rows": 0, "archive_rows": 0, "delivery": None,
+                    "error": None}
+    try:
+        delivery = Path(delivery_dir).expanduser() if delivery_dir \
+            is not None else Path(config.DATA_DELIVERY_DIR)
+        if games is None or not len(games) \
+                or "gameday" not in games.columns:
+            logger.info("designation refresh skipped: no game days in frame")
+            return stats
+        now_day = today or datetime.now(timezone.utc).date()
+        gamedays = pd.to_datetime(games.gameday, errors="coerce").dt.date \
+            .dropna()
+        decided = sorted({d for d in gamedays if d < now_day})
+        if not decided:
+            logger.info("designation refresh skipped: no decided game days")
+            return stats
+        # Per-day schedule cards for the resolver (matchup + ET tipoff),
+        # the same schedule the backfill hands it - never the filing-based
+        # seed that drops games whose clubs had not filed yet.
+        sched: dict = {}
+        if "start_time_utc" in games.columns:
+            for gd, away, home, stu in zip(
+                    gamedays,
+                    games.get("away_team", pd.Series(dtype=object)),
+                    games.get("home_team", pd.Series(dtype=object)),
+                    games["start_time_utc"]):
+                try:
+                    tip = (pd.Timestamp(stu, tz="UTC")
+                           .tz_convert("America/New_York")
+                           .tz_localize(None).to_pydatetime())
+                    sched.setdefault(gd, []).append(
+                        (f"{away}@{home}", tip))
+                except Exception:  # noqa: BLE001 - that day resolves
+                    continue  # via filing discovery instead
+        # Current coverage from the cache archive, else the shipped copy.
+        archive = pd.DataFrame()
+        for cand in (bf_mod.ARCHIVE,
+                     delivery / "nba_designations.parquet"):
+            try:
+                if Path(cand).exists():
+                    cand_frame = pd.read_parquet(cand)
+                    if len(cand_frame):
+                        archive = cand_frame
+                        break
+            except Exception:  # noqa: BLE001 - try the next copy
+                continue
+        covered = set(pd.to_datetime(archive.gameday, errors="coerce")
+                      .dt.date.dropna()) if len(archive) else set()
+        full = _flag(ingestion.FULL_REPULL_ENV)
+        if full:
+            target = decided
+            stats["mode"] = "full"
+        else:
+            target = [d for d in decided if d not in covered]
+            stats["mode"] = "incremental"
+            if not target:
+                logger.info("designation archive top-off: %d decided day(s) "
+                            "already covered (%d rows) - nothing to fetch",
+                            len(decided), len(archive))
+                stats["archive_rows"] = int(len(archive))
+                return stats
+        stats["target_days"] = len(target)
+        logger.info("designation archive %s: resolving %d decided day(s) "
+                    "%s..%s (archive covers %d day(s))",
+                    "repopulate" if full else "top-off", len(target),
+                    target[0], target[-1], len(covered))
+        try:
+            ir_mod.require_pdf_parser()
+        except Exception as exc:  # noqa: BLE001 - keep the old archive
+            logger.warning("designation refresh unavailable (%s); keeping "
+                           "the existing archive (%d rows)", exc,
+                           len(archive))
+            stats["error"] = str(exc)
+            stats["archive_rows"] = int(len(archive))
+            return stats
+        frames: list = []
+        for day in target:
+            try:
+                frame = ir_mod.game_day_designations(
+                    day, bf_mod.CACHE, games=sched.get(day) or None)
+            except Exception as exc:  # noqa: BLE001 - one bad day skips
+                logger.warning("designation refresh: %s unresolved (%s); "
+                               "that day keeps its prior coverage", day, exc)
+                continue
+            if len(frame):
+                frames.append(frame)
+        if not frames:
+            logger.warning("designation refresh resolved nothing; keeping "
+                           "the existing archive (%d rows)", len(archive))
+            stats["error"] = "no days resolved"
+            stats["archive_rows"] = int(len(archive))
+            return stats
+        new = pd.concat(frames, ignore_index=True)
+        stats["resolved_days"] = len(frames)
+        stats["rows"] = int(len(new))
+        merged = new if full or not len(archive) else pd.concat(
+            [archive, new], ignore_index=True)
+        merged = merged.drop_duplicates().reset_index(drop=True)
+        sort_cols = [c for c in ("gameday", "matchup", "player_report",
+                                 "team") if c in merged.columns]
+        if sort_cols:
+            merged = merged.sort_values(sort_cols).reset_index(drop=True)
+        # Shards stay the source of truth: rewrite the touched windows from
+        # the merged frame, then consolidate rebuilds the cache archive and
+        # the shipped copy from them (a later manual backfill unions the
+        # same shards, so nothing is clobbered or doubled).
+        lo = pd.to_datetime(merged.gameday,
+                            errors="coerce").dt.date.min()
+        hi = pd.to_datetime(merged.gameday,
+                            errors="coerce").dt.date.max()
+        bf_mod.SHARD_DIR.mkdir(parents=True, exist_ok=True)
+        if full:
+            for stale in bf_mod.SHARD_DIR.glob(
+                    "nba_designations_*.parquet"):
+                try:
+                    stale.unlink()
+                except OSError:  # noqa: BLE001 - consolidate overwrites
+                    pass  # what remains anyway
+        mgd = pd.to_datetime(merged.gameday, errors="coerce").dt.date
+        for a, b in bf_mod.chunks(lo, hi, bf_mod.CHUNK_DAYS):
+            window = merged[(mgd >= a) & (mgd <= b)]
+            if not len(window):
+                continue
+            window.to_parquet(bf_mod.shard_path(bf_mod.SHARD_DIR, a, b),
+                              index=False)
+        try:
+            out = bf_mod.consolidate(delivery=delivery)
+        except Exception as exc:  # noqa: BLE001 - shards are fresh, so
+            logger.warning("designation consolidate failed (%s); writing "
+                           "the archive directly from the merged frame", exc)
+            out = merged
+            out.to_parquet(bf_mod.ARCHIVE, index=False)
+            delivery.mkdir(parents=True, exist_ok=True)
+            out.to_parquet(delivery / "nba_designations.parquet",
+                           index=False)
+        stats["archive_rows"] = int(len(out))
+        stats["delivery"] = str(delivery / "nba_designations.parquet")
+        logger.info("designation archive %s: %d day(s) resolved, %d new "
+                    "row(s), archive now %d row(s) -> %s",
+                    stats["mode"], stats["resolved_days"], stats["rows"],
+                    stats["archive_rows"], stats["delivery"])
+        return stats
+    except Exception as exc:  # noqa: BLE001 - never fail the run here
+        logger.warning("designation archive refresh failed (%s); training "
+                       "uses the existing archive", exc)
+        stats["error"] = str(exc)
+        return stats
+
+
 def _build_position_rapm_features(facts, games: pd.DataFrame,
                                  cache_dir: Path | None = None
                                  ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
@@ -677,12 +852,18 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
         name_by_id.setdefault(str(pid), str(pname))
 
     # The PIT designations: the official report's last filing strictly before
-    # each tipoff, as backfilled across the decided window. Read from cache;
-    # fetching the whole archive inside a run is a backfill job, not a serve
-    # job. Every shard is read, never one of them - see
-    # ``lineup_projection.load_designations`` for what picking a single file
-    # did to the coverage. No artifact at all means no removals, and that is
-    # logged rather than left to look like a healthy league.
+    # each tipoff, refreshed in-pipeline BEFORE it is read (see
+    # ``_refresh_designation_archive``) - the training frame must never
+    # depend on a static committed archive. Every shard is read, never one
+    # of them - see ``lineup_projection.load_designations`` for what picking
+    # a single file did to the coverage. No artifact at all means no
+    # removals, and that is logged rather than left to look like a healthy
+    # league.
+    try:
+        _refresh_designation_archive(games)
+    except Exception as exc:  # noqa: BLE001 - the refresh never raises;
+        logger.warning("designation archive refresh failed (%s); training "
+                       "uses the existing archive", exc)
     root = _cache_root(cache_dir)
     designations = proj_mod.load_designations(root)
     if designations is None:
