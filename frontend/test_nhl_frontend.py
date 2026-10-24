@@ -23,6 +23,7 @@ if str(FRONTEND_DIR) not in sys.path:
 
 import nhl_slate_view as nsv  # noqa: E402
 import utils  # noqa: E402
+import nhl_todays_page  # noqa: E402
 
 NHL_DD = REPO_ROOT / "nhl-backend" / "data_delivery"
 DATE = "20990101"
@@ -906,6 +907,28 @@ def test_side_line_is_shared_by_the_nfl_and_nhl_re_exports():
         gap = mod.team_score_distribution(frame, "home")
         assert all(v != v for v in gap["modeled"]), mod.__name__
         assert diag.distribution_noise_band(gap).empty, mod.__name__
+
+
+def test_the_day_is_sorted_earliest_puck_drop_first():
+    """Cards render chronologically (NBA parity): a later game listed first
+    in the artifact still renders after the earlier game, and a row with a
+    missing puck drop renders last instead of first."""
+    frame = pd.DataFrame([
+        {"game_id": "late", "start_time_utc": "2099-01-01T23:30:00Z"},
+        {"game_id": "early", "start_time_utc": "2099-01-01T19:00:00Z"},
+        {"game_id": "unknown", "start_time_utc": None},
+        {"game_id": "mid", "start_time_utc": "2099-01-01T21:00:00Z"},
+    ])
+    ordered = nhl_todays_page._sort_by_puck_drop(frame)
+    assert ordered.game_id.tolist() == ["early", "mid", "late", "unknown"]
+
+
+def test_puck_drop_ties_keep_artifact_order():
+    frame = pd.DataFrame([
+        {"game_id": "b", "start_time_utc": "2099-01-01T19:00:00Z"},
+        {"game_id": "a", "start_time_utc": "2099-01-01T19:00:00Z"},
+    ])
+    assert nhl_todays_page._sort_by_puck_drop(frame).game_id.tolist() == ["b", "a"]
 
 
 def test_side_line_chart_layers_the_band_behind_the_line():

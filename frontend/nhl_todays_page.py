@@ -34,7 +34,9 @@ marked ⟐):
      namespaced ``nhl_game_filter`` key, same counts math.
   7. ``st.divider()`` → two-per-row card loop: ⟐ run-engine O/U + spread
      selectors (``_nhl_run_engine_selectors``) → card HTML → per-card SHAP
-     expander (current-slate ONLY).
+     expander (current-slate ONLY). Cards render earliest puck drop first
+     (``_sort_by_puck_drop``, NBA parity — artifact order carries no time
+     ordering, so the render sorts after the status filter).
   8. ENRICHMENT SPLIT (NFL parity): run-engine markets and goalie matchup
      are DATED in both views — the current view takes the newest artifact;
      an archive card takes THIS date's own
@@ -407,6 +409,24 @@ def _evening_count(day: pd.DataFrame) -> int:
     return n
 
 
+def _sort_by_puck_drop(frame: pd.DataFrame) -> pd.DataFrame:
+    """Chronological card order: earliest puck drop first (NBA parity).
+
+    The artifact families carry no time ordering (the moneyline record, the
+    dated family union, and the kind='slate' filter all preserve file
+    order), so a later game can arrive first and render above an earlier
+    one. Stable sort on the true-UTC ``start_time_utc`` instant: ties keep
+    artifact order, and rows with a missing/unparseable puck drop render
+    last (never dropped, never first). Applied after the status filter so
+    every tab shares the same chronological order.
+    """
+    if frame is None or frame.empty or "start_time_utc" not in frame.columns:
+        return frame
+    keys = frame["start_time_utc"].map(utils._parse_start_time_utc)
+    order = keys.map(lambda ts: ts.timestamp() if ts is not None and pd.notna(ts) else float("inf"))
+    return frame.iloc[order.argsort(kind="stable").to_numpy()].reset_index(drop=True)
+
+
 # MLB's quiet run-engine fallbacks (todays_games._runengine_html) — the
 # SAME markup an MLB card renders when no slate row resolves (including an
 # archive date whose dated markets artifact is missing), so a card keeps the
@@ -749,6 +769,7 @@ def _render_board(day: pd.DataFrame, date_str: str, valid,
         filtered = day[day["game_status"] == "Final"]
     elif selected == "Live":
         filtered = day[day["game_status"] == "Live"]
+    filtered = _sort_by_puck_drop(filtered)
 
     st.divider()
 

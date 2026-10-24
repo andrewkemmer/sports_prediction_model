@@ -99,24 +99,14 @@ def _moneyline_today() -> dict:
     are the regressions the card must NOT render: the season-record attach
     and the NHL display-name map both win over the record's own fields.
     """
+    # Artifact order is deliberately LATE-FIRST: the board must render
+    # earliest puck drop first (the card-order pin below), never file order.
     return {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "config": {"feature_set": "smoke"},
         "slate_date": _TODAY.isoformat(),
         "n_games": 2,
         "games": [
-            {
-                "game_id": "SMOKE_NHL_T1", "game_date": _TODAY.isoformat(),
-                "start_time_utc": _iso(_TODAY, 13),
-                "home_team": "TBL", "away_team": "PHI",
-                "home_team_name": "Tampa Bay Baseball Club",
-                "away_team_name": "Philadelphia Phillies",
-                "home_record": "102-76-5", "away_record": "88-79-3",
-                "venue": "Amalie Arena", "game_status": "pre",
-                "home_score": None, "away_score": None,
-                "home_win_prob_model": 0.575, "away_win_prob_model": 0.425,
-                "model_pick": "TBL", "model_correct": None,
-            },
             {
                 "game_id": "SMOKE_NHL_T2", "game_date": _TODAY.isoformat(),
                 "start_time_utc": _iso(_TODAY, 20),
@@ -128,6 +118,18 @@ def _moneyline_today() -> dict:
                 "home_score": None, "away_score": None,
                 "home_win_prob_model": 0.640, "away_win_prob_model": 0.360,
                 "model_pick": "COL", "model_correct": None,
+            },
+            {
+                "game_id": "SMOKE_NHL_T1", "game_date": _TODAY.isoformat(),
+                "start_time_utc": _iso(_TODAY, 13),
+                "home_team": "TBL", "away_team": "PHI",
+                "home_team_name": "Tampa Bay Baseball Club",
+                "away_team_name": "Philadelphia Phillies",
+                "home_record": "102-76-5", "away_record": "88-79-3",
+                "venue": "Amalie Arena", "game_status": "pre",
+                "home_score": None, "away_score": None,
+                "home_win_prob_model": 0.575, "away_win_prob_model": 0.425,
+                "model_pick": "TBL", "model_correct": None,
             },
         ],
     }
@@ -390,6 +392,15 @@ def run() -> int:
                                 f"multi-season tally '{stale}'")
         if "57%" not in text or "64%" not in text:
             problems.append("today's cards lost the current-slate probabilities")
+        # CHRONOLOGICAL card order: the fixture lists the 8 PM game first,
+        # but the 1 PM card (Amalie Arena) must render before Ball Arena.
+        tcards = [m.value for m in at.markdown
+                  if isinstance(m.value, str) and '<div class="fb-top">' in m.value]
+        if len(tcards) != 2:
+            problems.append(f"today's board rendered {len(tcards)} cards, want 2")
+        elif "Amalie Arena" not in tcards[0] or "Ball Arena" not in tcards[1]:
+            problems.append("today's cards are not in puck-drop order "
+                            "(later game listed before the earlier one)")
 
         # ---- Archive date: published slate, dated enrichment, no banner ----
         import utils
