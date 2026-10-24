@@ -1132,12 +1132,22 @@ def _render_nfl_board() -> None:
     _render_nfl_cards(frame, slate)
 
 
-def _render_nearest_valid_fallback(valid, current: str) -> None:
+def _render_nearest_valid_fallback(valid, current: str,
+                                     off_day: bool = False) -> None:
     """Missing-date fallback: never crash on a date with no board. Offer a
     one-click jump to the nearest valid game date; if there are none, this
-    sport simply has no game-date artifacts yet."""
-    st.warning(f"No game board exists for {utils.format_date_long(current)} "
-               f"on this sport ({current}).")
+    sport simply has no game-date artifacts yet.
+
+    ``off_day=True`` is the genuine off-day variant: the pipeline shipped an
+    existing-but-empty snapshot for this date (header-only CSV), so the
+    message says so instead of implying a missing/failed board."""
+    if off_day:
+        st.info(f"\U0001f5d3 No games scheduled for "
+                f"{utils.format_date_long(current)} — league off-day "
+                f"(the pipeline shipped an empty board, {current}).")
+    else:
+        st.warning(f"No game board exists for {utils.format_date_long(current)} "
+                   f"on this sport ({current}).")
     if valid:
         target = utils.nearest_valid_date(valid, current)
         if target and st.button(
@@ -1597,6 +1607,18 @@ def main() -> None:
 
     games = utils.load_todays_games(date_str)
     if games.empty:
+        # Genuine off-day: the pipeline shipped an existing-but-empty
+        # snapshot for this date (header-only CSV — "never recycling
+        # decided games as today's slate"). That is a real answer, not a
+        # fetch failure, so skip the history rebuild AND the recovery walk:
+        # walking would resurrect another date's board under this header
+        # (2026-10-25 walked to the 10-23 pre-game slate and presented an
+        # already-decided game as tonight's pick). Dead-end honestly with
+        # a one-click jump instead. A missing/unreadable snapshot still
+        # falls through to the rebuild + walk below (CDN lag healing).
+        if utils.board_snapshot_exists_but_empty(date_str):
+            _render_nearest_valid_fallback(valid, date_str, off_day=True)
+            st.stop()
         # Union-listed date whose snapshot fetch failed (CDN lag): try the
         # history rebuild, then the recovery walk, before the empty state.
         # Safe for any valid date: the history rebuild filters to rows whose

@@ -1728,6 +1728,34 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     return normalize_games(df)
 
 
+def board_snapshot_exists_but_empty(date_str: str,
+                                      sport: str | None = None) -> bool:
+    """True when the board snapshot for ``date_str`` resolves but ships zero rows.
+
+    A header-only ``todays_games_<date>.csv`` is the pipeline's honest
+    off-day signal ("never recycling decided games as today's slate") — a
+    real answer, not a fetch failure. Callers use this to skip the
+    CDN-lag recovery walk for such dates: walking would resurrect another
+    date's (possibly already-decided) board under this date's header
+    (2026-10-25 walked to the 10-23 pre-game slate). A missing artifact
+    (None bytes), an unreadable file, or any data row all return False —
+    only a resolved-but-empty snapshot counts as an off-day."""
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return False
+    cfg = get_source_config()
+    try:
+        data, _src = _fetch_bytes(f"todays_games_{date_str}.csv", **cfg)
+    except Exception:
+        return False
+    if data is None:
+        return False
+    try:
+        df = pd.read_csv(io.BytesIO(data))
+    except Exception:
+        return False
+    return len(df) == 0
+
+
 def load_run_engine_markets(date_str: str,
                              sport: str | None = None) -> pd.DataFrame:
     """Run-engine markets artifact for a date; empty frame when missing.
