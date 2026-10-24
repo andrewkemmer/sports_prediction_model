@@ -85,8 +85,18 @@ def main() -> int:
         "10-23 slate content leaked into the 10-25 off-day view"
     assert "American Family Field" not in text, \
         "10-23 venue leaked into the 10-25 off-day view"
-    print("B PASS  20261025 renders the honest off-day state: no recovery "
-          "banner, no 10-23 slate content")
+    # No games on the date means NO game cards at all — not this date's
+    # (none exist), not another date's (no recovery on off-days). The
+    # page is the honest notice plus the dates-available navigator, so
+    # cards render only on dates inside the window that have games.
+    assert '<div class="fb-card">' not in text, \
+        "off-day view must not render any game card markup"
+    assert '<div class="fb-score">' not in text, \
+        "off-day view must not render any scoreboard markup"
+    assert "Henderson" not in text and "Rasmussen" not in text, \
+        "10-24 WS content leaked into the 10-25 off-day view"
+    print("B PASS  20261025 renders the honest off-day state: no cards, "
+          "no recovery banner, no 10-23/10-24 slate content")
 
     # ---- C: NFL structural parity — NO jump button on the MLB board.
     # The off-day view renders the honest notice plus the dates-available
