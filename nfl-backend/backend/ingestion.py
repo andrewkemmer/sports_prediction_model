@@ -241,6 +241,12 @@ def load_schedule(seasons: list[int] | None = None,
         "home_qb_id", "away_qb_id", "home_qb_name", "away_qb_name",
     ) if c in df.columns]
     df = df[keep]
+    if df.empty:
+        logger.warning("schedule pull for %s returned no rows; not overwriting cache", seasons)
+        stale = _stale_cache(path)
+        if stale is not None:
+            return stale
+        return df
     df.to_parquet(path, index=False)
     return df
 
@@ -339,6 +345,13 @@ def load_pbp(seasons: list[int] | None = None,
                 continue
             keep = [c for c in PBP_NEEDS if c in df.columns]
             df = df[keep]
+            if df.empty:
+                logger.warning("pbp pull for %s returned no rows; not overwriting cache", season)
+                stale = _stale_cache(_cache_path(
+                    f"pbp_{PBP_CACHE_VERSION}_{season}.parquet"))
+                if stale is not None:
+                    frames.append(stale)
+                continue
             df.to_parquet(_cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet"),
                           index=False)
             frames.append(df)
@@ -512,6 +525,11 @@ def load_injuries_pit(games: pd.DataFrame,
                 if c not in df.columns:
                     df[c] = pd.NA
             df = df[list(INJ_PIT_NEEDS)]
+            if df.empty:
+                logger.warning("injury PIT pull for %s returned no rows; not overwriting cache", s)
+                if cached is not None:
+                    frames.append(cached)
+                continue
             df.to_parquet(path, index=False)
             frames.append(df)
         finally:
@@ -657,6 +675,12 @@ def load_player_stats(seasons: list[int] | None = None,
             continue
         keep = [c for c in PS_NEEDS if c in df.columns]
         df = df[keep]
+        if df.empty:
+            logger.warning("player stats pull for %s returned no rows; not overwriting cache", season)
+            stale = _stale_cache(path)
+            if stale is not None:
+                frames.append(stale)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:
@@ -724,6 +748,12 @@ def load_nextgen(seasons: list[int] | None = None,
             df = df[keep]
             if "week" in df.columns:
                 df = df[pd.to_numeric(df["week"], errors="coerce").fillna(0) > 0]
+            if df.empty:
+                logger.warning("ngs %s pull for %s returned no rows; not overwriting cache", group, season)
+                stale = _stale_cache(path)
+                if stale is not None:
+                    frames.append(stale)
+                continue
             df.to_parquet(path, index=False)
             frames.append(df)
     if not frames:
@@ -795,6 +825,12 @@ def load_snap_counts(seasons: list[int] | None = None,
             continue
         keep = [c for c in SNAPS_NEEDS if c in df.columns]
         df = df[keep]
+        if df.empty:
+            logger.warning("snap counts pull for %s returned no rows; not overwriting cache", season)
+            stale = _stale_cache(path)
+            if stale is not None:
+                frames.append(stale)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:
@@ -850,6 +886,12 @@ def load_ftn_charting(seasons: list[int] | None = None,
             continue
         keep = [c for c in FTN_NEEDS if c in df.columns]
         df = df[keep]
+        if df.empty:
+            logger.warning("ftn charting pull for %s returned no rows; not overwriting cache", season)
+            stale = _stale_cache(path)
+            if stale is not None:
+                frames.append(stale)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:
@@ -895,6 +937,10 @@ def load_player_id_crosswalk(use_cache: bool = True) -> pd.DataFrame:
         logger.warning("player crosswalk source missing id columns; empty")
         return empty
     df = df[keep].dropna(how="any").drop_duplicates("gsis_id", keep="first")
+    if df.empty:
+        logger.warning("player crosswalk pull returned no rows; not overwriting cache")
+        stale = _stale_cache(path)
+        return stale if stale is not None else empty
     df.to_parquet(path, index=False)
     return df
 
@@ -962,6 +1008,12 @@ def load_injuries_weekly(seasons: list[int] | None = None,
             if c not in df.columns:
                 df[c] = pd.NA
         df = df[list(INJ_WEEKLY_NEEDS)]
+        if df.empty:
+            logger.warning("weekly injury pull for %s returned no rows; not overwriting cache", season)
+            stale = _stale_cache(path)
+            if stale is not None:
+                frames.append(stale)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:
@@ -1053,6 +1105,12 @@ def load_weekly_rosters(seasons: list[int] | None = None,
             if c not in df.columns:
                 df[c] = pd.NA
         df = df[list(ROSTER_WEEKLY_NEEDS)]
+        if df.empty:
+            logger.warning("weekly roster pull for %s returned no rows; not overwriting cache", season)
+            stale = _stale_cache(path)
+            if stale is not None:
+                frames.append(stale)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:
@@ -1110,10 +1168,10 @@ def roster_unavailable_table(weekly_rosters: pd.DataFrame | None
     return out.drop_duplicates(["season", "week", "team", "player_id"])[cols]
 
 
-def load_team_names() -> dict[str, str]:
+def load_team_names(use_cache: bool = True) -> dict[str, str]:
     """team abbr -> full team name (frontend games[] display fields)."""
     path = _cache_path("teams.parquet")
-    if path.exists():
+    if use_cache and path.exists():
         df = pd.read_parquet(path)
     else:
         from nflreadpy import load_teams

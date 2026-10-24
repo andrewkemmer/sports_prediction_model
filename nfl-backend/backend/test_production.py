@@ -5903,6 +5903,85 @@ check("the row walkers receive an ATTRS-FREE frame (the 200-origin bundle "
       f"metrics={_seen.get('metrics')} (0 expected; each non-zero row "
       f"deep-copies the bundle)")
 
+# Train-vs-slate availability parity + repopulation + FULL_REPULL (2026-10-26):
+# the training set must use the same player-availability methodology as the
+# slate, empty pulls must never poison the cache, and FULL_REPULL must
+# rebuild from sources with no stored-history dependence.
+_src_gf2 = inspect.getsource(feat_mod.build_game_features)
+_src_sf2 = inspect.getsource(feat_mod.build_slate_features)
+check("train and slate call the EPA quality agg with the same availability inputs",
+      _src_gf2.count("_epa_quality_agg(") == 1
+      and _src_sf2.count("_epa_quality_agg(") == 1
+      and "injuries, roster_unavailable," in _src_gf2
+      and "injuries, roster_unavailable," in _src_sf2
+      and "weekly_injuries, redistribute_phase1," in _src_gf2
+      and "weekly_injuries, redistribute_phase1," in _src_sf2,
+      "training and serving must price the same projected lineups")
+check("train and slate call the injury-share family with the same inputs",
+      "injury_share_table(snaps, weekly_injuries, crosswalk," in _src_gf2
+      and "injury_share_table(snaps, weekly_injuries, crosswalk," in _src_sf2
+      and "roster_unavailable, weekly_rosters)" in _src_gf2
+      and "roster_unavailable, weekly_rosters)" in _src_sf2,
+      "one family, both frames")
+_ing_src = inspect.getsource(ingest_mod)
+for _loader in ("load_schedule", "load_pbp", "load_player_stats",
+                "load_nextgen", "load_snap_counts", "load_ftn_charting",
+                "load_injuries_pit", "load_injuries_weekly",
+                "load_weekly_rosters", "load_player_id_crosswalk"):
+    _fn_src = inspect.getsource(getattr(ingest_mod, _loader))
+    check(f"{_loader} never overwrites a good cache with an empty pull",
+          "not overwriting cache" in _fn_src,
+          "an empty source pull must repopulate next run, not persist")
+# Functional repopulation: a pre-existing good weekly cache survives an
+# empty source pull (network-free: the source is mocked to return nothing).
+with tempfile.TemporaryDirectory() as _repop_dir:
+    _good_weekly = pd.DataFrame([{
+        "gsis_id": "G1", "season": 2024, "game_type": "REG", "team": "HOME",
+        "week": 3, "report_status": "Out",
+    }])
+    _good_weekly.to_parquet(
+        Path(_repop_dir) / "inj_weekly_v1_2024.parquet", index=False)
+    _fake_nflreadpy = mock.MagicMock()
+    _fake_nflreadpy.load_injuries.return_value = pd.DataFrame()
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_repop_dir)):
+        with mock.patch.dict(sys.modules, {"nflreadpy": _fake_nflreadpy}):
+            # Treat 2024 as a mutable season so the loader consults the
+            # source (instead of serving the cache outright) and the empty
+            # pull must fall back to the good cached rows.
+            with mock.patch.object(ingest_mod, "mutable_seasons",
+                                   return_value={2024}):
+                _repop_out = ingest_mod.load_injuries_weekly(
+                    seasons=[2024], use_cache=True)
+    check("an empty weekly pull repopulates from the good cache",
+          len(_repop_out) == 1 and _repop_out.iloc[0]["gsis_id"] == "G1",
+          f"rows={len(_repop_out)}")
+    check("an empty pull does not overwrite the good cache file",
+          len(pd.read_parquet(
+              Path(_repop_dir) / "inj_weekly_v1_2024.parquet")) == 1)
+check("FULL_REPULL clears the nflverse cache before repopulating",
+      "ingestion.clear_cache()" in mp_src
+      and "full_repull" in mp_src,
+      "a full rebuild starts from sources, not stored history")
+check("every nflverse loader repulls under FULL_REPULL",
+      mp_src.count("use_cache=not full_repull") >= 9
+      and "args.skip_pull and not full_repull" in mp_src,
+      f"use_cache=not full_repull x{mp_src.count('use_cache=not full_repull')}")
+check("display-only team names repull under FULL_REPULL too",
+      mp_src.count("_team_names(use_cache=not full_repull)") == 2
+      and "_team_names(use_cache=use_cache)" in mp_src
+      and "_write_power_rankings(p, game_df, use_cache=not full_repull)" in mp_src
+      and "def load_team_names(use_cache" in _ing_src)
+_train_prefix = mp_src.split("feat_mod.build_game_features(")[0]
+check("no stored-history artifact feeds training (sources only)",
+      "read_csv" not in _train_prefix
+      and "read_parquet" not in _train_prefix
+      and ".glob(" not in _train_prefix,
+      "cards/boards are write-only display; the game frame comes from pulls")
+check("weather full-repulls every run; the cache serves --skip-pull only",
+      "fetch_games_weather(schedule)" in mp_src
+      and "cached_weather_for_games" in mp_src,
+      "delivery is what this run observed, never a top-off of old files")
+
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     print("FAILED:", FAIL)

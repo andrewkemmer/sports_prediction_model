@@ -902,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
         serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
-                                       _team_names(), config_meta)
+                                       _team_names(use_cache=not full_repull), config_meta)
         artifacts.append(p.name)
 
         p = out_dir / config.QB_MATCHUP_JSON.format(date=date_c)
@@ -952,7 +952,8 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         try:
             _board_files = serve_mod.write_board_csv(
-                out_dir, slate, p_home, p_home_cal, _team_names())
+                out_dir, slate, p_home, p_home_cal,
+                _team_names(use_cache=not full_repull))
             artifacts.extend(sorted(_board_files))
             if _board_files:
                 logger.info("dated board snapshots: %d date(s) -> %s",
@@ -964,7 +965,7 @@ def main(argv: list[str] | None = None) -> int:
                          exc, exc_info=True)
 
     p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
-    _write_power_rankings(p, game_df)
+    _write_power_rankings(p, game_df, use_cache=not full_repull)
     artifacts.append(p.name)
 
     p = out_dir / config.MARKETS_CSV.format(date=date_c)
@@ -1415,9 +1416,9 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
     )
 
 
-def _team_names() -> dict[str, str]:
+def _team_names(use_cache: bool = True) -> dict[str, str]:
     try:
-        return ingestion.load_team_names()
+        return ingestion.load_team_names(use_cache=use_cache)
     except Exception:
         return {}
 
@@ -1477,7 +1478,8 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     return df
 
 
-def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
+def _write_power_rankings(path: Path, game_df: pd.DataFrame,
+                          use_cache: bool = True) -> None:
     """Elo-based power rankings from the feature engine's state.
 
     The row-building is ``serve_mod.write_power_rankings_csv``'s job: it was
@@ -1533,7 +1535,8 @@ def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
         "away_pct": [round(float(away_w.get(t, 0.0)) / max(int(away_n.get(t, 0)), 1), 3)
                      if int(away_n.get(t, 0)) else np.nan for t in rec.index],
     })
-    serve_mod.write_power_rankings_csv(path, ratings, records, _team_names(),
+    serve_mod.write_power_rankings_csv(path, ratings, records,
+                                       _team_names(use_cache=use_cache),
                                        derived=derived)
 
 
