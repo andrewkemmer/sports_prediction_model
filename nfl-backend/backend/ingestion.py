@@ -243,7 +243,9 @@ def load_schedule(seasons: list[int] | None = None,
     df = df[keep]
     if df.empty:
         logger.warning("schedule pull for %s returned no rows; not overwriting cache", seasons)
-        stale = _stale_cache(path)
+        # Gated on use_cache so NFL_FULL_REPULL=1 holds by construction:
+        # an empty pull under a repull serves nothing, never disk.
+        stale = _stale_cache(path) if use_cache else None
         if stale is not None:
             return stale
         return df
@@ -348,7 +350,7 @@ def load_pbp(seasons: list[int] | None = None,
             if df.empty:
                 logger.warning("pbp pull for %s returned no rows; not overwriting cache", season)
                 stale = _stale_cache(_cache_path(
-                    f"pbp_{PBP_CACHE_VERSION}_{season}.parquet"))
+                    f"pbp_{PBP_CACHE_VERSION}_{season}.parquet")) if use_cache else None
                 if stale is not None:
                     frames.append(stale)
                 continue
@@ -677,7 +679,7 @@ def load_player_stats(seasons: list[int] | None = None,
         df = df[keep]
         if df.empty:
             logger.warning("player stats pull for %s returned no rows; not overwriting cache", season)
-            stale = _stale_cache(path)
+            stale = _stale_cache(path) if use_cache else None
             if stale is not None:
                 frames.append(stale)
             continue
@@ -750,7 +752,7 @@ def load_nextgen(seasons: list[int] | None = None,
                 df = df[pd.to_numeric(df["week"], errors="coerce").fillna(0) > 0]
             if df.empty:
                 logger.warning("ngs %s pull for %s returned no rows; not overwriting cache", group, season)
-                stale = _stale_cache(path)
+                stale = _stale_cache(path) if use_cache else None
                 if stale is not None:
                     frames.append(stale)
                 continue
@@ -827,7 +829,7 @@ def load_snap_counts(seasons: list[int] | None = None,
         df = df[keep]
         if df.empty:
             logger.warning("snap counts pull for %s returned no rows; not overwriting cache", season)
-            stale = _stale_cache(path)
+            stale = _stale_cache(path) if use_cache else None
             if stale is not None:
                 frames.append(stale)
             continue
@@ -888,7 +890,7 @@ def load_ftn_charting(seasons: list[int] | None = None,
         df = df[keep]
         if df.empty:
             logger.warning("ftn charting pull for %s returned no rows; not overwriting cache", season)
-            stale = _stale_cache(path)
+            stale = _stale_cache(path) if use_cache else None
             if stale is not None:
                 frames.append(stale)
             continue
@@ -939,7 +941,7 @@ def load_player_id_crosswalk(use_cache: bool = True) -> pd.DataFrame:
     df = df[keep].dropna(how="any").drop_duplicates("gsis_id", keep="first")
     if df.empty:
         logger.warning("player crosswalk pull returned no rows; not overwriting cache")
-        stale = _stale_cache(path)
+        stale = _stale_cache(path) if use_cache else None
         return stale if stale is not None else empty
     df.to_parquet(path, index=False)
     return df
@@ -1010,7 +1012,7 @@ def load_injuries_weekly(seasons: list[int] | None = None,
         df = df[list(INJ_WEEKLY_NEEDS)]
         if df.empty:
             logger.warning("weekly injury pull for %s returned no rows; not overwriting cache", season)
-            stale = _stale_cache(path)
+            stale = _stale_cache(path) if use_cache else None
             if stale is not None:
                 frames.append(stale)
             continue
@@ -1107,7 +1109,7 @@ def load_weekly_rosters(seasons: list[int] | None = None,
         df = df[list(ROSTER_WEEKLY_NEEDS)]
         if df.empty:
             logger.warning("weekly roster pull for %s returned no rows; not overwriting cache", season)
-            stale = _stale_cache(path)
+            stale = _stale_cache(path) if use_cache else None
             if stale is not None:
                 frames.append(stale)
             continue

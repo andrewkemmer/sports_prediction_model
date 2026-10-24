@@ -5958,6 +5958,26 @@ with tempfile.TemporaryDirectory() as _repop_dir:
     check("an empty pull does not overwrite the good cache file",
           len(pd.read_parquet(
               Path(_repop_dir) / "inj_weekly_v1_2024.parquet")) == 1)
+# FULL_REPULL holds by construction (2026-10-26): an empty pull under
+# use_cache=False serves nothing from disk, even when a good cache file
+# is present. In production clear_cache() deletes these files first, but
+# the loaders must not depend on that ordering — a stale row served here
+# would be stored history dressed as a fresh pull.
+with tempfile.TemporaryDirectory() as _fr_dir:
+    _good_pbp = pd.DataFrame([{"game_id": "2016_01_MIN_TEN", "season": 2016}])
+    _fr_cache = (Path(_fr_dir)
+                 / f"pbp_{ingest_mod.PBP_CACHE_VERSION}_2016.parquet")
+    _good_pbp.to_parquet(_fr_cache, index=False)
+    _fake_empty = mock.MagicMock()
+    _fake_empty.load_pbp.return_value = pd.DataFrame()
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_fr_dir)):
+        with mock.patch.dict(sys.modules, {"nflreadpy": _fake_empty}):
+            _fr_out = ingest_mod.load_pbp(seasons=[2016], use_cache=False)
+    check("an empty pull under use_cache=False serves no stale rows",
+          _fr_out is None,
+          f"expected None, got {0 if _fr_out is None else len(_fr_out)} rows")
+    check("the full-repull empty pull leaves the cache file untouched",
+          len(pd.read_parquet(_fr_cache)) == 1)
 check("FULL_REPULL clears the nflverse cache before repopulating",
       "ingestion.clear_cache()" in mp_src
       and "full_repull" in mp_src,
