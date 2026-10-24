@@ -5611,7 +5611,10 @@ def add_diff_features(
         17. woba_30g_diff      home_woba_30g − away_woba_30g
         18. bullpen_kbb_10g_diff  home_bullpen_kbb_10g − away_bullpen_kbb_10g
         19. bullpen_kbb_3g_diff
-        20. bullpen_pitches_diff  (home_bullpen_pitches_3d − away_…)
+        20. bullpen_pitches_3d_diff  (home_bullpen_pitches_3d − away_…)
+                               (RENAMED 2026-10-24: the name now carries
+                               its 3-day window like its _home/_away twins;
+                               values unchanged)
         21. bullpen_ip_diff       (home_bullpen_ip_3d − away_…)
         22. team_barrel_diff   (trailing 15g barrel rate)
         23. team_hardhit_diff  (trailing 15g hard-hit rate)
@@ -5631,7 +5634,7 @@ def add_diff_features(
                                wind_direction_multiplier (Out=1, In=-1, Dome=0)
                                × sp_xfip_diff
         31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
-        32. bullpen_meltdown_risk_diff  bullpen_pitches_diff × bullpen_kbb_10g_diff
+        32. bullpen_meltdown_risk_diff  bullpen_pitches_3d_diff × bullpen_kbb_10g_diff
         33. pitcher_regression_indicator_diff
                                         sp_fbvelo_diff × sp_xfip_5g_diff
         34. lineup_depth_multiplier_diff
@@ -5757,7 +5760,7 @@ def add_diff_features(
         ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
         ("bullpen_kbb_10g_diff", "bullpen_kbb_10g_home", "bullpen_kbb_10g_away"),  # 18 (RENAMED 2026-09-30)
         ("bullpen_kbb_3g_diff", "bullpen_kbb_3g_home", "bullpen_kbb_3g_away"),     # 19
-        ("bullpen_pitches_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20
+        ("bullpen_pitches_3d_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20 (RENAMED 2026-10-24)
         ("bullpen_ip_diff", "bullpen_ip_3d_home", "bullpen_ip_3d_away"),         # 21
         ("team_barrel_diff", "team_barrel_15g_home", "team_barrel_15g_away"),    # 22
         ("team_hardhit_diff", "team_hardhit_15g_home", "team_hardhit_15g_away"), # 23
@@ -5938,10 +5941,10 @@ def add_diff_features(
     apply_indoor_neutral_fills(df)
 
     # ── 32. bullpen_meltdown_risk_diff (RENAMED 2026-09-30): the family's
-    # cross-side form, bullpen_pitches_diff × bullpen_kbb_10g_diff.
+    # cross-side form, bullpen_pitches_3d_diff × bullpen_kbb_10g_diff.
     # Overworked + low quality bullpen = elevated meltdown risk.
     df["bullpen_meltdown_risk_diff"] = (
-        df["bullpen_pitches_diff"] * df["bullpen_kbb_10g_diff"])
+        df["bullpen_pitches_3d_diff"] * df["bullpen_kbb_10g_diff"])
 
     # Interaction twins: each side's OWN product of the interaction's
     # factors (the within-side form the cross-side gap only summarizes).

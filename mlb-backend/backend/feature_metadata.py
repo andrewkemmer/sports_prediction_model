@@ -287,7 +287,7 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "K-BB%",
         "direction": "higher = home advantage",
     },
-    "bullpen_pitches_diff": {
+    "bullpen_pitches_3d_diff": {
         "summary": "Home bullpen 3-day pitch count − away (fatigue signal)",
         "definition": "Cumulative relief workload over the last three days — availability and fatigue.",
         "formula": "bullpen_pitches_3d_home − bullpen_pitches_3d_away",
@@ -450,7 +450,7 @@ _RICH: dict[str, dict[str, str]] = {
     "bullpen_meltdown_risk_diff": {
         "summary": "Bullpen pitches 3d diff × K-BB% 10g diff (overworked + low quality = meltdown)",
         "definition": "Flags games where a pen fatigued over the prior 3 calendar days is also performing poorly over its last 10 games — late-inning blowup potential.",
-        "formula": "bullpen_pitches_diff × bullpen_kbb_10g_diff",
+        "formula": "bullpen_pitches_3d_diff × bullpen_kbb_10g_diff",
         "source": "DuckDB feature engineering: workload × form interaction",
         "window": "3d × 10g",
         "units": "index",

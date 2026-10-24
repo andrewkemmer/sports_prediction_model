@@ -3717,7 +3717,7 @@ FEATURE_DESCRIPTIONS = {
     # (K − BB)/batters-faced; labels spell the metric out.
     "bullpen_kbb_10g_diff": "Home bullpen 10-game K-BB% − away bullpen (higher = better)",
     "bullpen_kbb_3g_diff": "Home bullpen 3-game K-BB% − away bullpen (short-term form)",
-    "bullpen_pitches_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
+    "bullpen_pitches_3d_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
     "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
     # 20–22. Team contact form diffs (trailing 15g, balls in play only)
     "team_barrel_diff": "Home barrel% (15g) − away barrel% (quality of contact)",

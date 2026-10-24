@@ -52,7 +52,7 @@ LEVEL_FAMILIES = {
     "rest_days_diff": ("rest_days_home", "rest_days_away"),
     "sp_xfip_5g_diff": ("sp_xfip_5g_home", "sp_xfip_5g_away"),
     "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
-    "bullpen_pitches_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
+    "bullpen_pitches_3d_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
     "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
     "travel_fatigue_diff": ("time_zones_crossed_last_3d_home",
                             "time_zones_crossed_last_3d_away"),

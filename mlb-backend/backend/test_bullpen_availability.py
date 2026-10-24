@@ -41,7 +41,7 @@ BACKEND = Path(__file__).resolve().parent
 def test_contract_carries_the_renamed_bullpen_family():
     cols = set(training.MONEYLINE_FEATURE_COLS)
     for c in ("bullpen_kbb_10g_diff", "bullpen_kbb_3g_diff",
-              "bullpen_pitches_diff", "bullpen_meltdown_risk_diff",
+              "bullpen_pitches_3d_diff", "bullpen_meltdown_risk_diff",
               "bullpen_meltdown_risk_home", "bullpen_meltdown_risk_away"):
         assert c in cols, f"{c} missing from the serving contract"
     assert "bullpen_whip_diff" not in cols
@@ -84,7 +84,7 @@ def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):
         equal_nan=True)
     assert np.allclose(
         out["bullpen_meltdown_risk_diff"],
-        out["bullpen_pitches_diff"] * out["bullpen_kbb_10g_diff"],
+        out["bullpen_pitches_3d_diff"] * out["bullpen_kbb_10g_diff"],
         equal_nan=True)
 
 

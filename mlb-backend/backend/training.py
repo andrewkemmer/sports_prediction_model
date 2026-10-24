@@ -122,8 +122,7 @@ def get_last_fold_signature() -> str | None:
 # Pruned 2026-08-23 (feature_audit):
 #   wind/air_density factors         constant 0 (weather backfill covers only
 #                                    ~7% of games; starved, not broken —
-#                                    re-add when coverage improves)
-#   bullpen_ip_diff                  r=0.87 with bullpen_pitches_diff, weaker
+#                                    re-add when coverage improves)    #   bullpen_ip_diff                  r=0.87 with bullpen_pitches_3d_diff, weaker
 #
 # Wave-2 ablation candidates (univariate |lift| < ~0.01, need walk-forward
 # retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_re24_std_diff,
@@ -155,10 +154,12 @@ MONEYLINE_FEATURE_COLS = [
     # 15. Team rolling wOBA diff
     "woba_30g_diff",
     # 16–18. Bullpen diffs (whip_diff RENAMED 2026-09-30: the name now
-    # carries its window; values unchanged — it was always the 10g form)
+    # carries its window; values unchanged — it was always the 10g form.
+    # pitches_diff RENAMED 2026-10-24: now bullpen_pitches_3d_diff, carrying
+    # its 3-day window like the _home/_away twins; values unchanged)
     "bullpen_kbb_10g_diff",
     "bullpen_kbb_3g_diff",
-    "bullpen_pitches_diff",
+    "bullpen_pitches_3d_diff",
     # 19–21. Team contact form diffs (trailing 15g)
     "team_barrel_diff",
     "team_hardhit_diff",
