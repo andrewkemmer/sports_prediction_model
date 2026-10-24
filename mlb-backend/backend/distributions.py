@@ -202,8 +202,8 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
     "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff", "lineup_re24_mean_diff", "lineup_re24_top3_diff",
     "lineup_re24_std_diff", "woba_30g_diff", "bullpen_kbb_10g_diff",
-    "bullpen_kbb_3g_diff", "bullpen_pitches_3d_diff", "team_barrel_diff",
-    "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
+    "bullpen_kbb_3g_diff", "bullpen_pitches_3d_diff", "team_barrel_15g_diff",
+    "team_hardhit_15g_diff", "team_exitvelo_15g_diff", "travel_fatigue_diff",
     "closer_availability_diff",
 })
 

@@ -1771,6 +1771,210 @@ def _load_slate_pl(target_date: date,
     return out
 
 
+def _warn_missing_slate_lineup(name: str, target_date: date,
+                                roots: list[Path]) -> None:
+    """Warn only when a NEARBY-DATED lineup slate artifact exists somewhere.
+
+    Same contract as ``_warn_missing_slate_pl`` (the 2026-10-07 defect
+    applies identically here): a missing artifact is normal when no
+    upcoming team-games resolved — stay silent. But a
+    ``lineup_slate_*.parquet`` within ±3 days of ``target_date`` under any
+    searched root means the export just ran and its output is invisible to
+    this loader (mis-dated or written to the wrong root): the whole slate
+    then prices last game's hand splits instead of tonight's nine.
+    """
+    try:
+        target = pd.Timestamp(target_date).normalize()
+    except Exception:  # noqa: BLE001 — unparseable target: no diagnosis
+        return
+    nearest: list[tuple[int, Path]] = []
+    for r in roots:
+        try:
+            siblings = sorted(Path(r).glob("lineup_slate_*.parquet"))
+        except OSError:
+            continue
+        for f in siblings:
+            try:
+                stamp = pd.Timestamp(f.stem.split("lineup_slate_", 1)[1])
+            except Exception:  # noqa: BLE001 — not a dated sibling
+                continue
+            delta = abs(int((stamp.normalize() - target).days))
+            if delta <= 3:
+                nearest.append((delta, f))
+    if not nearest:
+        return
+    nearest.sort(key=lambda t: t[0])
+    delta, hit = nearest[0]
+    logger.warning(
+        "slate lineup ops artifact %s not found in %d root(s); nearest is %s at "
+        "%s (%d day(s) off) — a mis-dated or misplaced export prices the "
+        "whole slate on the carried hand splits (2026-10-07 log review)",
+        name, len(roots), hit.name, hit.parent, delta)
+
+
+def _load_slate_lineup(target_date: date,
+                        base: Optional[Path] = None) -> dict:
+    """``lineup_slate_<YYYYMMDD>.parquet`` → {(game_date, team): row mapping}.
+
+    Written by features._export_slate_lineup during the feature build — the
+    SAME 3-tier membership (announced nine / hand-conditioned projection /
+    full-roster degrade) the historical lineup_ops_agg uses. build_upcoming_slate
+    reads it so tonight's hand splits are RESOLVED instead of carried: the
+    artifact's per-team-game values override the last-game carry, and only
+    sides the artifact does not cover fall back to the carry (marked
+    ``lineup_source_* = 'carry'``). The probable-hand matchup selection
+    downstream is unchanged — it now selects over tonight's population.
+
+    Absent/unreadable → {} (the slate builds exactly as before — never a
+    build failure). Keyed by (game_date, team); a doubleheader's two legs
+    share a team-date, so the first row (the file is ordered by game_pk)
+    wins and a warning names the collision. Same delivery-root search as
+    the pl_* artifact (an explicit ``base`` is searched alone).
+    """
+    name = f"lineup_slate_{pd.Timestamp(target_date):%Y%m%d}.parquet"
+    roots = _slate_pl_roots(base)
+    path: Optional[Path] = None
+    for _root in roots:
+        _cand = _root / name
+        if _cand.exists():
+            path = _cand
+            break
+    if path is None:
+        _warn_missing_slate_lineup(name, target_date, roots)
+        return {}
+    try:
+        _primary = roots[0].resolve()
+        _served = path.parent.resolve()
+    except OSError:
+        _primary, _served = roots[0], path.parent
+    if _served != _primary:
+        logger.warning(
+            "slate lineup ops artifact %s served from alternate delivery root %s "
+            "(primary %s lacks it) — delivery roots are split "
+            "(2026-10-07 log review)", path.name, _served, _primary)
+    try:
+        df = pd.read_parquet(path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate lineup ops artifact %s unreadable (%s) — every side "
+                       "serves the marked carry", path.name, e)
+        return {}
+    out: dict = {}
+    for _, r in df.iterrows():
+        try:
+            key = (pd.Timestamp(r["game_date"]).date(), str(r["team"]))
+        except Exception:  # noqa: BLE001 — malformed row: skip, stay honest
+            continue
+        if key in out:
+            logger.warning(
+                "slate lineup ops artifact %s: duplicate team-date %s — keeping "
+                "the first game's resolution", path.name, key)
+            continue
+        out[key] = r.to_dict()
+    return out
+
+
+def _warn_missing_slate_exp2(name: str, target_date: date,
+                              roots: list[Path]) -> None:
+    """Warn only when a NEARBY-DATED exp2 slate artifact exists somewhere.
+
+    Same contract as ``_warn_missing_slate_pl`` (the 2026-10-07 defect
+    applies identically here): a missing artifact is normal when no
+    upcoming team-games resolved — stay silent. But an
+    ``exp2_slate_*.parquet`` within ±3 days of ``target_date`` under any
+    searched root means the export just ran and its output is invisible to
+    this loader: the whole slate then prices last game's priors instead of
+    tonight's nine.
+    """
+    try:
+        target = pd.Timestamp(target_date).normalize()
+    except Exception:  # noqa: BLE001 — unparseable target: no diagnosis
+        return
+    nearest: list[tuple[int, Path]] = []
+    for r in roots:
+        try:
+            siblings = sorted(Path(r).glob("exp2_slate_*.parquet"))
+        except OSError:
+            continue
+        for f in siblings:
+            try:
+                stamp = pd.Timestamp(f.stem.split("exp2_slate_", 1)[1])
+            except Exception:  # noqa: BLE001 — not a dated sibling
+                continue
+            delta = abs(int((stamp.normalize() - target).days))
+            if delta <= 3:
+                nearest.append((delta, f))
+    if not nearest:
+        return
+    nearest.sort(key=lambda t: t[0])
+    delta, hit = nearest[0]
+    logger.warning(
+        "slate exp2 team-inputs artifact %s not found in %d root(s); nearest is %s at "
+        "%s (%d day(s) off) — a mis-dated or misplaced export prices the "
+        "whole slate on the carried priors (2026-10-07 log review)",
+        name, len(roots), hit.name, hit.parent, delta)
+
+
+def _load_slate_exp2(target_date: date,
+                      base: Optional[Path] = None) -> dict:
+    """``exp2_slate_<YYYYMMDD>.parquet`` → {(game_date, team): row mapping}.
+
+    Written by features._export_slate_exp2 during the feature build — the
+    SAME 3-tier membership (announced nine / hand-conditioned projection /
+    full-roster degrade) the historical team-side exp2 builders use.
+    build_upcoming_slate reads it so tonight's team inputs (per-category
+    K/xwOBA, fastball K% by batter hand, opposing-lineup lefty share) are
+    RESOLVED instead of carried: the artifact's per-team-game values
+    override the last-game carry, and only sides the artifact does not
+    cover fall back to the carry (marked ``exp2_source_* = 'carry'``).
+
+    Absent/unreadable → {} (the slate builds exactly as before — never a
+    build failure). Keyed by (game_date, team); a doubleheader's two legs
+    share a team-date, so the first row (the file is ordered by game_pk)
+    wins and a warning names the collision. Same delivery-root search as
+    the pl_* artifact (an explicit ``base`` is searched alone).
+    """
+    name = f"exp2_slate_{pd.Timestamp(target_date):%Y%m%d}.parquet"
+    roots = _slate_pl_roots(base)
+    path: Optional[Path] = None
+    for _root in roots:
+        _cand = _root / name
+        if _cand.exists():
+            path = _cand
+            break
+    if path is None:
+        _warn_missing_slate_exp2(name, target_date, roots)
+        return {}
+    try:
+        _primary = roots[0].resolve()
+        _served = path.parent.resolve()
+    except OSError:
+        _primary, _served = roots[0], path.parent
+    if _served != _primary:
+        logger.warning(
+            "slate exp2 team-inputs artifact %s served from alternate delivery root %s "
+            "(primary %s lacks it) — delivery roots are split "
+            "(2026-10-07 log review)", path.name, _served, _primary)
+    try:
+        df = pd.read_parquet(path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate exp2 team-inputs artifact %s unreadable (%s) — every side "
+                       "serves the marked carry", path.name, e)
+        return {}
+    out: dict = {}
+    for _, r in df.iterrows():
+        try:
+            key = (pd.Timestamp(r["game_date"]).date(), str(r["team"]))
+        except Exception:  # noqa: BLE001 — malformed row: skip, stay honest
+            continue
+        if key in out:
+            logger.warning(
+                "slate exp2 team-inputs artifact %s: duplicate team-date %s — keeping "
+                "the first game's resolution", path.name, key)
+            continue
+        out[key] = r.to_dict()
+    return out
+
+
 def enforce_board_date_invariant(board: pd.DataFrame, target_date: date,
                                  *, what: str = "board") -> pd.DataFrame:
     """Filter a slate/board frame to EXACTLY ``target_date``'s games.
@@ -1931,11 +2135,31 @@ def build_upcoming_slate(
     # does not cover keep the strict-PIT carry and are MARKED as such —
     # previously the whole pl_* slate shipped unmarked stale carry.
     slate_pl = _load_slate_pl(target_date)
+    # lineup_* structural alignment (2026-10-26): tonight's membership-bound
+    # hand splits (features._export_slate_lineup writes the artifact during
+    # the feature build). Same override-and-mark contract as pl_* below.
+    slate_lineup = _load_slate_lineup(target_date)
+    if slate_lineup:
+        logger.info("slate lineup ops: %d team-date resolution(s) for %s "
+                    "(3-tier membership; carry only as fall-through)",
+                    len(slate_lineup), target_date)
     if slate_pl:
         logger.info("slate pl_*: %d team-date pool resolution(s) for %s "
                     "(3-tier membership; carry only as fall-through)",
                     len(slate_pl), target_date)
     exp2_team_state = _latest_exp2_team_state(hist, _EXP2_TEAM_COLS)
+    # exp2_* structural alignment (2026-10-26): tonight's membership-bound
+    # team inputs (features._export_slate_exp2 writes the artifact during
+    # the feature build). Same override-and-mark contract as pl_* above.
+    slate_exp2 = _load_slate_exp2(target_date)
+    if slate_exp2:
+        logger.info("slate exp2 team inputs: %d team-date resolution(s) for %s "
+                    "(3-tier membership; carry only as fall-through)",
+                    len(slate_exp2), target_date)
+    # Membership tier per team (artifact-covered teams only) — the slot
+    # marks below resolve through the opponent mapping, so each slot is
+    # marked from the team whose state it actually carries.
+    exp2_tier_by_team: dict = {}
     exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
@@ -2119,6 +2343,46 @@ def build_upcoming_slate(
                                for _p in _pl_pools)
                 row[f"pl_source_{side}"] = "carry" if _carried else "missing"
                 row[f"pl_prior_{side}"] = ""
+            # lineup ops: the resolved 3-tier hand splits OVERRIDE the carry
+            # for this team-date (a NULL artifact split stays NaN — an
+            # honestly unresolved hand must not silently re-inherit the
+            # stale carry). No artifact row → the carry above stands and
+            # the side is MARKED, so resolved-vs-carried is inspectable
+            # wherever the frame ships. The probable-hand matchup selection
+            # below then selects over tonight's population.
+            _lu = slate_lineup.get((pd.Timestamp(row["game_date"]).date(), team))
+            if _lu is not None:
+                for _base in ("lineup_ops_vs_l", "lineup_ops_vs_r"):
+                    _v = _lu.get(_base)
+                    row[f"{_base}_{side}"] = (
+                        float(_v) if _v is not None and pd.notna(_v)
+                        else np.nan)
+                _tier = _lu.get("lineup_tier")
+                try:
+                    _tier = int(_tier)
+                except (TypeError, ValueError):
+                    _tier = 3
+                row[f"lineup_source_{side}"] = f"pool-t{_tier}"
+            else:
+                _lu_carried = any(pd.notna(row.get(f"{_b}_{side}"))
+                                  for _b in ("lineup_ops_vs_l", "lineup_ops_vs_r"))
+                row[f"lineup_source_{side}"] = "carry" if _lu_carried else "missing"
+            # exp2 team inputs: the resolved 3-tier priors OVERRIDE the carry
+            # for this team-date (a NULL artifact input stays NaN — an
+            # honestly unresolved input must not silently re-inherit the
+            # stale carry). No artifact row → the carry stands; the slot
+            # mark below records it.
+            _ex = slate_exp2.get((pd.Timestamp(row["game_date"]).date(), team))
+            if _ex is not None:
+                for _b in _EXP2_TEAM_BASES:
+                    _v = _ex.get(_b)
+                    exp2_team_state.setdefault(team, {})[_b] = (
+                        float(_v) if _v is not None and pd.notna(_v)
+                        else np.nan)
+                try:
+                    exp2_tier_by_team[team] = int(_ex.get("exp2_tier"))
+                except (TypeError, ValueError):
+                    exp2_tier_by_team[team] = 3
             # Exp2 team inputs describe the lineup faced by the starter in
             # this slot. Historical *_home values come from away_team rows and
             # *_away values from home_team rows, so carry the opponent's state
@@ -2126,6 +2390,14 @@ def build_upcoming_slate(
             opponent = away if side == "home" else home
             for base, val in exp2_team_state.get(str(opponent), {}).items():
                 row[f"{base}_{side}"] = val
+            _ex_tier = exp2_tier_by_team.get(str(opponent))
+            if _ex_tier is not None:
+                row[f"exp2_source_{side}"] = f"pool-t{_ex_tier}"
+            else:
+                _ex_carried = any(pd.notna(row.get(f"{_b}_{side}"))
+                                  for _b in _EXP2_TEAM_BASES)
+                row[f"exp2_source_{side}"] = ("carry" if _ex_carried
+                                               else "missing")
             row[f"time_zones_crossed_last_3d_{side}"] = travel_crossings.get(team, 0)
         row.update(exp2_global_state)
         row["home_elo"] = elos.get(home, 1500.0)
@@ -2210,6 +2482,19 @@ def build_upcoming_slate(
                    + slate["pl_source_away"].astype(str))
         logger.info("slate pl_* sources (home/away): %s",
                     _pl_src.value_counts().to_dict())
+    if "lineup_source_home" in slate.columns and len(slate):
+        # Mirrors the pl_* convention above: resolved-vs-carried per side.
+        _lu_src = (slate["lineup_source_home"].astype(str) + "/"
+                    + slate["lineup_source_away"].astype(str))
+        logger.info("slate lineup ops sources (home/away): %s",
+                    _lu_src.value_counts().to_dict())
+    if "exp2_source_home" in slate.columns and len(slate):
+        # Mirrors the pl_*/lineup conventions above: resolved-vs-carried
+        # per slot (each slot carries the OPPONENT's team state).
+        _ex_src = (slate["exp2_source_home"].astype(str) + "/"
+                     + slate["exp2_source_away"].astype(str))
+        logger.info("slate exp2 team-input sources (home/away): %s",
+                    _ex_src.value_counts().to_dict())
     if unresolved_slots:
         logger.warning(
             "Slate pitcher resolution: %d of %d starter slots unresolved — "

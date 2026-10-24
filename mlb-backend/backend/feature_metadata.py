@@ -297,7 +297,7 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "lower = home advantage (fresher arms)",
     },
     # ---- contact form -----------------------------------------------------
-    "team_barrel_diff": {
+    "team_barrel_15g_diff": {
         "summary": "Home barrel% (15g) − away barrel% (quality of contact)",
         "definition": "Observed Statcast launch_speed_angle = 6 rate gap; missing classifications stay NULL, never a narrow exit-velocity/angle proxy.",
         "formula": "team_barrel_15g_home − team_barrel_15g_away",
@@ -306,7 +306,7 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "rate (0–1)",
         "direction": "higher = home advantage",
     },
-    "team_hardhit_diff": {
+    "team_hardhit_15g_diff": {
         "summary": "Home hard-hit% (15g) − away hard-hit%",
         "definition": "Share of batted balls ≥95 mph over the last 15 games.",
         "formula": "team_hardhit_15g_home − team_hardhit_15g_away",
@@ -315,7 +315,7 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "rate (0–1)",
         "direction": "higher = home advantage",
     },
-    "team_exitvelo_diff": {
+    "team_exitvelo_15g_diff": {
         "summary": "Home avg exit velo (15g) − away avg exit velo (mph)",
         "definition": "Average exit velocity on balls in play — raw-contact strength.",
         "formula": "team_exitvelo_15g_home − team_exitvelo_15g_away",

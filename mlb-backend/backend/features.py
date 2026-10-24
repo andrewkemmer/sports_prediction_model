@@ -218,6 +218,22 @@ _LINEUP_MEMBERSHIP_SQL = """(
         SELECT e2.batter FROM lineup_effective e2
         WHERE e2.game_pk = g.game_pk AND e2.team = g.batting_team))"""
 
+# PA-level membership gate for the team-side builders (2026-10-26 exp2
+# availability binding): the SAME effective-nine semantics as
+# _LINEUP_MEMBERSHIP_SQL, parameterized because a PA row carries its own
+# aliases (there is no separate grid/ratings pair here — the PA row is
+# both). {a} = PA-row alias, {pk} = its game_pk expression, {tm} = its
+# batting-team expression. With no membership rows for the game the gate
+# is vacuous (exact pre-availability counts) — the degrade contract the
+# pool templates pin for lineup_effective.
+_EXP2_MEMBERSHIP_SQL = """(
+    NOT EXISTS (
+        SELECT 1 FROM lineup_effective e
+        WHERE e.game_pk = {pk} AND e.team = {tm})
+    OR {a}.batter IN (
+        SELECT e2.batter FROM lineup_effective e2
+        WHERE e2.game_pk = {pk} AND e2.team = {tm}))"""
+
 # Empty degrade tables — the loud no-data shape every consumer binds to.
 _EMPTY_LINEUPS_RAW_SQL = """CREATE OR REPLACE TEMP TABLE lineups_raw AS
     SELECT CAST(NULL AS BIGINT) AS game_pk,
@@ -663,6 +679,202 @@ def _export_slate_pl(con: "duckdb.DuckDBPyConnection",
         return 0
 
 
+def _export_slate_lineup(con: "duckdb.DuckDBPyConnection",
+                         base: "Path | None" = None) -> int:
+    """Ship tonight's membership-bound hand splits to ``lineup_slate_*.parquet``.
+
+    Serving half of the 2026-10-26 handedness availability binding: history
+    resolves lineup_ops_vs_l/r through the effective nine (see the 7f block
+    above), but the slate used to serve last game's trailing top-9 —
+    hand-switched to the probable starter yet pricing the wrong population.
+    This artifact closes that gap the same way ``_export_slate_pl`` closed
+    it for the position pools: one file per upcoming game_date with, per
+    team-game, the SAME lineup_ops_agg values history serves plus the
+    membership tier that bound (1 announced / 2 hand-conditioned /
+    3 unconditioned modal — or no-history full roster, which reports 3).
+    NULL splits stay NULL (no league prior in this family — an honestly
+    unresolved hand must not silently re-inherit the stale carry).
+
+    build_upcoming_slate reads it and marks every side (lineup-tN vs
+    carry), so resolved-vs-carried is inspectable wherever the frame ships.
+    Writes NOTHING when no upcoming team-games resolve. Never raises.
+    Returns the number of team-game rows written.
+    """
+    try:
+        rows = con.execute("""
+            SELECT u.game_date, u.game_pk, u.batting_team AS team,
+                   a.lineup_ops_vs_l, a.lineup_ops_vs_r,
+                   COALESCE((SELECT MAX(e.tier) FROM lineup_effective e
+                             WHERE e.game_pk = u.game_pk
+                               AND e.team = u.batting_team), 3) AS lineup_tier
+            FROM pool_universe u
+            JOIN lineup_ops_agg a
+              ON a.game_pk = u.game_pk AND a.batting_team = u.batting_team
+            WHERE u.is_slate
+            ORDER BY u.game_date, u.game_pk, u.batting_team
+        """).fetchall()
+        if not rows:
+            logger.info("slate lineup ops: no upcoming team-games resolved — "
+                        "the serving slate marks every side 'carry'")
+            return 0
+        col_names = (["game_date", "game_pk", "team",
+                      "lineup_ops_vs_l", "lineup_ops_vs_r", "lineup_tier"])
+        df = pd.DataFrame(rows, columns=col_names)
+        base_dir = Path(base) if base is not None else _lineup_base_dir()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        files = []
+        for d, grp in df.groupby("game_date"):
+            p = base_dir / f"lineup_slate_{pd.Timestamp(d):%Y%m%d}.parquet"
+            grp.drop_duplicates(subset=["game_pk", "team"]).to_parquet(
+                p, index=False)
+            files.append(p.name)
+        tiers = {int(k): int(v)
+                 for k, v in df["lineup_tier"].value_counts().items()}
+        logger.info("slate lineup ops: %d team-games resolved across %d date(s) "
+                    "(membership tiers %s) → %s",
+                    len(df), df["game_date"].nunique(), tiers,
+                    ", ".join(files))
+        return len(df)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate lineup ops export failed (%s) — the serving "
+                       "slate falls back to the marked carry", e)
+        return 0
+
+
+def _export_slate_exp2(con: "duckdb.DuckDBPyConnection",
+                       base: "Path | None" = None) -> int:
+    """Ship tonight's membership-bound exp2 team inputs to ``exp2_slate_*.parquet``.
+
+    Serving half of the 2026-10-26 exp2 availability binding: history
+    resolves the team-side priors (per-category K/xwOBA, fastball K% by
+    batter hand, opposing-lineup lefty share) through the effective nine
+    (see the game-level builders above), but the slate used to serve last
+    completed game's values — pricing tonight's nine on whoever played
+    last. This artifact closes that gap the same way ``_export_slate_pl``
+    closed it for the position pools: one file per upcoming game_date with,
+    per team-game, the SAME date-level priors history serves (latest
+    strictly-prior same-season rows) plus the membership tier that bound
+    (1 announced / 2 hand-conditioned / 3 unconditioned modal — or
+    no-history full roster, which reports 3). NULLs stay NULL (no league
+    prior in this family — an honestly unresolved input must not silently
+    re-inherit the stale carry).
+
+    build_upcoming_slate reads it and marks every side (pool-tN vs
+    carry), so resolved-vs-carried is inspectable wherever the frame ships.
+    Writes NOTHING when no upcoming team-games resolve. Never raises.
+    Returns the number of team-game rows written.
+    """
+    try:
+        rows = con.execute("""
+            SELECT u.game_date, u.game_pk, u.batting_team AS team,
+                (SELECT c.team_k_pct_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'fastball'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_k_pct_cat_fastball,
+                (SELECT c.team_k_pct_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'breaking'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_k_pct_cat_breaking,
+                (SELECT c.team_k_pct_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'offspeed'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_k_pct_cat_offspeed,
+                (SELECT c.team_xwoba_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'fastball'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_xwoba_cat_fastball,
+                (SELECT c.team_xwoba_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'breaking'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_xwoba_cat_breaking,
+                (SELECT c.team_xwoba_cat FROM exp2_team_cat c
+                 WHERE c.batting_team = u.batting_team
+                   AND c.pitch_cat = 'offspeed'
+                   AND c.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM c.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY c.game_date DESC LIMIT 1
+                ) AS team_xwoba_cat_offspeed,
+                (SELECT f.team_k_pct_fb_vs FROM exp2_team_fbhand f
+                 WHERE f.batting_team = u.batting_team AND f.stand = 'L'
+                   AND f.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM f.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY f.game_date DESC LIMIT 1
+                ) AS team_k_pct_fb_vs_l,
+                (SELECT f.team_k_pct_fb_vs FROM exp2_team_fbhand f
+                 WHERE f.batting_team = u.batting_team AND f.stand = 'R'
+                   AND f.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM f.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY f.game_date DESC LIMIT 1
+                ) AS team_k_pct_fb_vs_r,
+                (SELECT h.lineup_lefty_share_30g FROM team_hand_rolling h
+                 WHERE h.batting_team = u.batting_team
+                   AND h.game_date < u.game_date
+                   AND EXTRACT(YEAR FROM h.game_date)
+                       = EXTRACT(YEAR FROM u.game_date)
+                 ORDER BY h.game_date DESC, h.game_pk DESC LIMIT 1
+                ) AS opp_lefty_share,
+                COALESCE((SELECT MAX(e.tier) FROM lineup_effective e
+                          WHERE e.game_pk = u.game_pk
+                            AND e.team = u.batting_team), 3) AS exp2_tier
+            FROM pool_universe u
+            WHERE u.is_slate
+            ORDER BY u.game_date, u.game_pk, u.batting_team
+        """).fetchall()
+        if not rows:
+            logger.info("slate exp2 team inputs: no upcoming team-games resolved "
+                        "— the serving slate marks every side 'carry'")
+            return 0
+        col_names = (["game_date", "game_pk", "team",
+                      "team_k_pct_cat_fastball", "team_k_pct_cat_breaking",
+                      "team_k_pct_cat_offspeed", "team_xwoba_cat_fastball",
+                      "team_xwoba_cat_breaking", "team_xwoba_cat_offspeed",
+                      "team_k_pct_fb_vs_l", "team_k_pct_fb_vs_r",
+                      "opp_lefty_share", "exp2_tier"])
+        df = pd.DataFrame(rows, columns=col_names)
+        base_dir = Path(base) if base is not None else _lineup_base_dir()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        files = []
+        for d, grp in df.groupby("game_date"):
+            p = base_dir / f"exp2_slate_{pd.Timestamp(d):%Y%m%d}.parquet"
+            grp.drop_duplicates(subset=["game_pk", "team"]).to_parquet(
+                p, index=False)
+            files.append(p.name)
+        tiers = {int(k): int(v)
+                 for k, v in df["exp2_tier"].value_counts().items()}
+        logger.info("slate exp2 team inputs: %d team-games resolved across %d "
+                    "date(s) (membership tiers %s) → %s",
+                    len(df), df["game_date"].nunique(), tiers,
+                    ", ".join(files))
+        return len(df)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("slate exp2 team inputs export failed (%s) — the serving "
+                       "slate falls back to the marked carry", e)
+        return 0
+
+
 def _build_lineup_effective(con: "duckdb.DuckDBPyConnection",
                             batters_ok: bool) -> None:
     """Resolve ``lineup_effective`` — the membership set both pools bind to.
@@ -743,6 +955,58 @@ _LINEUP_POOL_SQL = """
     FROM pool p
 """
 
+# Team-side exp2 game builders — MEMBERSHIP-BOUND (2026-10-26). The PA rows
+# that form each game-team cell are gated on the effective nine (a sub's
+# PAs never enter the count a starter's matchup is priced from), via the
+# PA-level gate above; the daily / cumulative / ASOF layers above these
+# tables aggregate unchanged. Placeholders mirror _LINEUP_POOL_SQL:
+# {pa_events} the PA-end event list, {batter_excl} the source-level IL
+# filter (TRUE when the ledger is absent), {member} the membership gate.
+# With no membership rows for the game the gate is vacuous — the counts
+# are byte-identical to the pre-availability build.
+_TEAM_HAND_RAW_SQL = """
+    CREATE TABLE team_hand_raw AS
+    WITH pa_all AS (
+        SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                    ELSE p.home_team END AS batting_team,
+               p.stand, p.batter
+        FROM pitches p WHERE p.events IN ({pa_events})
+          AND {batter_excl}
+    ),
+    pa AS (
+        SELECT * FROM pa_all
+        WHERE {member}
+    )
+    SELECT game_date, game_pk, batting_team,
+           AVG(CASE WHEN stand = 'L' THEN 1.0 ELSE 0.0 END) AS lefty_share
+    FROM pa
+    GROUP BY game_date, game_pk, batting_team
+"""
+
+_EXP2_TEAM_CAT_GAME_SQL = """
+    CREATE TABLE exp2_team_cat_game AS
+    SELECT game_date, game_pk, batting_team, pitch_cat,
+           SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n,
+           SUM(xwoba_summand) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
+    FROM exp2_pa a
+    WHERE a.pitch_cat IS NOT NULL
+      AND {batter_excl}
+      AND {member}
+    GROUP BY game_date, game_pk, batting_team, pitch_cat
+"""
+
+_EXP2_TEAM_FBHAND_GAME_SQL = """
+    CREATE TABLE exp2_team_fbhand_game AS
+    SELECT game_date, game_pk, batting_team, stand,
+           SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n
+    FROM exp2_pa a
+    WHERE a.pitch_cat = 'fastball'
+      AND {batter_excl}
+      AND {member}
+    GROUP BY game_date, game_pk, batting_team, stand
+"""
+
 # Game-eligible aggregate — PARTICIPATION-WEIGHTED (2026-09-30). The
 # widen-then-filter healthy pool IS the participation set, so the
 # expected-lineup average weights every on_il = 0 member by his frozen
@@ -781,6 +1045,89 @@ _LINEUP_AGG_SQL = """
            ELSE NULL END AS lineup_re24_std
     FROM pooled
 """
+
+# Lineup hand-split aggregate — MEMBERSHIP-BOUND (2026-10-26). The per-hand
+# OPS pool resolves over the pool_universe grid (history AND tonight's
+# slate) instead of the played-games-only grid: each team-game's own rows
+# (identical values to the pre-availability build) UNION the effective
+# nine's latest trailing rows (the slate; plus announced members who never
+# took a PA in a played game). One row per (team-game, hand, batter) — the
+# game's own row wins, else the latest strictly-PIT trailing row — then the
+# top-9 by trailing PA pools, PA-weighted. With no membership rows anywhere
+# the member leg is empty and the game's own rows reproduce the exact
+# pre-availability population (the rn <= 9 cut is vacuous when membership
+# binds: the nine IS the population).
+_LINEUP_OPS_AGG_SQL = (
+    """
+    CREATE TABLE lineup_ops_agg AS
+    WITH cand AS (
+        -- Leg 1: the game's own rows through the SHARED membership gate
+        -- (the SAME effective nine the lineup_* and pl_* pools bind — a
+        -- participant outside the nine, e.g. a sub, never pools). With no
+        -- membership rows anywhere the gate is vacuous and this leg is the
+        -- exact pre-availability population.
+        SELECT g.game_pk AS u_pk, g.batting_team AS u_team,
+               r.p_throws, r.batter,
+               r._onb_num, r._tb30, r._ab30, r._pa30,
+               r.game_pk AS h_pk, r.game_date AS h_date
+        FROM pool_universe g
+        JOIN batter_hand_rolling r
+          ON r.batting_team = g.batting_team
+         AND r.game_pk = g.game_pk
+         AND r._ab30 > 0
+         AND """ + _LINEUP_MEMBERSHIP_SQL + """
+        UNION ALL
+        -- Leg 2: the effective nine's latest trailing rows (tonight's
+        -- slate, which has no played frame yet, plus announced members
+        -- who never took a PA in a played game). Empty when no membership
+        -- binds, so the degrade above stays exact.
+        SELECT u.game_pk AS u_pk, u.batting_team AS u_team,
+               h.p_throws, h.batter,
+               h._onb_num, h._tb30, h._ab30, h._pa30,
+               h.game_pk AS h_pk, h.game_date AS h_date
+        FROM pool_universe u
+        JOIN batter_hand_rolling h
+          ON h.batting_team = u.batting_team
+         AND h._ab30 > 0
+         AND h.game_date <= u.game_date
+         AND h.game_date >= u.game_date - INTERVAL 30 DAY
+         AND h.batter IN (
+             SELECT e2.batter FROM lineup_effective e2
+             WHERE e2.game_pk = u.game_pk
+               AND e2.team = u.batting_team)
+    ),
+    dedup AS (
+        -- One row per (team-game, hand, batter): the game's own row wins
+        -- (identical values to the pre-availability build), else the
+        -- latest strictly-PIT trailing row — fully deterministic.
+        SELECT * FROM cand
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY u_pk, u_team, p_throws, batter
+            ORDER BY (h_pk = u_pk) DESC, h_date DESC, h_pk DESC) = 1
+    ),
+    ranked AS (
+        SELECT *,
+            ROW_NUMBER() OVER (PARTITION BY u_pk, u_team, p_throws
+                               ORDER BY _pa30 DESC) AS rn
+        FROM dedup
+    ),
+    pop AS (
+        SELECT u_pk, u_team, p_throws,
+               (_onb_num::DOUBLE / _ab30)
+               + (_tb30::DOUBLE / _ab30) AS ops, _pa30
+        FROM ranked WHERE rn <= 9
+    )
+    SELECT u_pk AS game_pk, u_team AS batting_team,
+           SUM(CASE WHEN p_throws = 'L' THEN ops * _pa30 END)
+             / NULLIF(SUM(CASE WHEN p_throws = 'L'
+                               THEN _pa30 END), 0) AS lineup_ops_vs_l,
+           SUM(CASE WHEN p_throws = 'R' THEN ops * _pa30 END)
+             / NULLIF(SUM(CASE WHEN p_throws = 'R'
+                               THEN _pa30 END), 0) AS lineup_ops_vs_r
+    FROM pop
+    GROUP BY u_pk, u_team
+    """
+)
 
 # OUT/IR availability flag on the projected (game-eligible) nine: 1 when at
 # least one of the nine is on the IL as of the game date, else 0. An IL
@@ -3437,22 +3784,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # 7d. Opposing-lineup handedness share — fraction of a team's PAs taken by
     # left-handed batters over the trailing 30 games. Paired with each
     # starter's xwOBA-vs-L/R splits, tree models can learn platoon-fit
-    # interactions without raw player-name encoding.
-    con.execute(f"""
-        CREATE TABLE team_hand_raw AS
-        WITH pa AS (
-            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
-                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
-                        ELSE p.home_team END AS batting_team,
-                   p.stand
-            FROM pitches p WHERE p.events IN ({PA_END_EVENTS})
-              AND {_batter_excl('p', 'p.game_date', _batters_ok)}
-        )
-        SELECT game_date, game_pk, batting_team,
-               AVG(CASE WHEN stand = 'L' THEN 1.0 ELSE 0.0 END) AS lefty_share
-        FROM pa
-        GROUP BY game_date, game_pk, batting_team
-    """)
+    # interactions without raw player-name encoding. 2026-10-26: the game
+    # cell counts only effective-nine PAs (same membership gate as the
+    # exp2 team builders below) — a sub's PAs never move the share a
+    # starter is priced against.
+    con.execute(_TEAM_HAND_RAW_SQL.format(
+        pa_events=PA_END_EVENTS,
+        batter_excl=_batter_excl('p', 'p.game_date', _batters_ok),
+        member=_EXP2_MEMBERSHIP_SQL.format(
+            a='pa_all', pk='pa_all.game_pk', tm='pa_all.batting_team')))
     con.execute("""
         CREATE TABLE team_hand_shifted AS
         SELECT *, LAG(lefty_share, 1) OVER w AS _s_lefty
@@ -3686,13 +4026,26 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
 
     # 7f. Lineup OPS split by opposing pitching hand — every hitter's
     # trailing-30g OPS vs left-handed and right-handed pitchers separately
-    # (LAG-shifted, excludes the current game), aggregated over the expected
-    # top-9 by playing time per hand.  Paired with tonight's opposing starter
-    # throwing hand at assembly time this yields lineup_ops_vs_starter_hand.
+    # (LAG-shifted, excludes the current game), aggregated over the
+    # EFFECTIVE nine per hand (2026-10-26 availability binding). Paired
+    # with tonight's opposing starter throwing hand at assembly time this
+    # yields lineup_ops_vs_starter_hand.
     # 2026-10-02: unavailable batters' PAs are excluded at the SOURCE (the
-    # team-family availability filter — _batter_excl), so the hand splits and
-    # the OPS aggregates price tonight's real roster like every other
-    # team-side family; absent ledger binds TRUE (pre-availability behavior).
+    # team-family availability filter — _batter_excl), so the hand splits
+    # price tonight's real roster like every other team-side family;
+    # absent ledger binds TRUE (pre-availability behavior).
+    # 2026-10-26: SELECTION binds lineup_effective (the SAME membership the
+    # lineup_* and pl_* pools bind — the member leg below mirrors
+    # _LINEUP_MEMBERSHIP_SQL's IN-subquery, minus the empty-membership
+    # degrade which the own-rows leg covers instead): a bat who banked PAs
+    # then hit the IL no longer occupies a slot, and tonight's team-games
+    # resolve through the pool_universe grid (history AND the slate) so the
+    # slate prices tonight's nine instead of last game's population.
+    # PA-weighted mean within the nine (one bat per slot — regulars carry
+    # their share); members with no trailing PA vs the hand pool nothing
+    # (NULL hand, as before). With no membership rows anywhere the
+    # member leg is empty and the game's own rows reproduce the exact
+    # pre-availability top-9 population.
     con.execute(f"""
         CREATE TABLE batter_hand_game AS
         WITH pa AS (
@@ -3738,25 +4091,14 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WINDOW w30 AS (PARTITION BY batter, p_throws ORDER BY game_date
                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
     """)
-    con.execute("""
-        CREATE TABLE lineup_ops_agg AS
-        WITH ranked AS (
-            SELECT *,
-                ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team, p_throws
-                                   ORDER BY _pa30 DESC) AS rn
-            FROM batter_hand_rolling WHERE _ab30 > 0
-        ),
-        top9 AS (
-            SELECT game_pk, batting_team, p_throws,
-                   (_onb_num::DOUBLE / _ab30) + (_tb30::DOUBLE / _ab30) AS ops
-            FROM ranked WHERE rn <= 9
-        )
-        SELECT game_pk, batting_team,
-               AVG(CASE WHEN p_throws = 'L' THEN ops END) AS lineup_ops_vs_l,
-               AVG(CASE WHEN p_throws = 'R' THEN ops END) AS lineup_ops_vs_r
-        FROM top9
-        GROUP BY game_pk, batting_team
-    """)
+    con.execute(_LINEUP_OPS_AGG_SQL)
+    # Serving artifact: tonight's membership-bound hand splits + tier, written
+    # while pool_universe / lineup_ops_agg / lineup_effective still exist
+    # (sits after the 7f build, unlike the pl_* export above which only needs
+    # pos_agg). The slate build reads it to REPLACE the stale unmarked
+    # carry — the serving half of the 2026-10-26 handedness binding (never
+    # raises: absence keeps the marked-carry path).
+    _export_slate_lineup(con)
 
     # 7i. Experiment #2 SOURCE layer — point-in-time pitch-category inputs
     # (data-layer only; consumed by future research candidates, never by
@@ -3959,16 +4301,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # sides — each team's per-game counts equaled the game TOTAL (~half
     # opponent PAs; 158/158 team-game cells wrong on the 2026-06-16..21
     # window). Same availability filter as the rest of the team family.
-    con.execute(f"""
-        CREATE TABLE exp2_team_cat_game AS
-        SELECT game_date, game_pk, batting_team, pitch_cat,
-               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n,
-               SUM(xwoba_summand) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
-        FROM exp2_pa a
-        WHERE a.pitch_cat IS NOT NULL
-          AND {_batter_excl('a', 'a.game_date', _batters_ok)}
-        GROUP BY game_date, game_pk, batting_team, pitch_cat
-    """)
+    # 2026-10-26: counts additionally bind the effective nine (a sub's PAs
+    # never enter the priors a starter's matchup is priced from).
+    con.execute(_EXP2_TEAM_CAT_GAME_SQL.format(
+        batter_excl=_batter_excl('a', 'a.game_date', _batters_ok),
+        member=_EXP2_MEMBERSHIP_SQL.format(
+            a='a', pk='a.game_pk', tm='a.batting_team')))
     # Offense per-category K%/xwOBA — DATE-LEVEL season-to-date priors (same
     # daily + ASOF construction), so a target game never sees its own date's
     # PAs (doubleheader-safe) and every batting date carries the prior total
@@ -4013,15 +4351,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     # Offense K% vs fastballs by the BATTER's handedness (season-to-date).
     # 2026-10-02: own-batting-team attribution + availability filter, same
     # as exp2_team_cat_game above (the old game-level join double-counted).
-    con.execute(f"""
-        CREATE TABLE exp2_team_fbhand_game AS
-        SELECT game_date, game_pk, batting_team, stand,
-               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n
-        FROM exp2_pa a
-        WHERE a.pitch_cat = 'fastball'
-          AND {_batter_excl('a', 'a.game_date', _batters_ok)}
-        GROUP BY game_date, game_pk, batting_team, stand
-    """)
+    # 2026-10-26: effective-nine membership, same as above.
+    con.execute(_EXP2_TEAM_FBHAND_GAME_SQL.format(
+        batter_excl=_batter_excl('a', 'a.game_date', _batters_ok),
+        member=_EXP2_MEMBERSHIP_SQL.format(
+            a='a', pk='a.game_pk', tm='a.batting_team')))
     con.execute(f"""
         CREATE TABLE exp2_team_fbhand_daily AS
         SELECT game_date, batting_team,
@@ -4054,6 +4388,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
           ON g.batting_team = c.batting_team AND g.season = c.season
          AND g.stand = c.stand AND g.game_date > c.game_date
     """)
+    # Serving artifact: tonight's membership-bound team inputs + tier, written
+    # while pool_universe / the exp2 team tables / lineup_effective still
+    # exist. The slate build reads it to REPLACE the stale unmarked carry —
+    # the serving half of the 2026-10-26 exp2 binding (never raises:
+    # absence keeps the marked-carry path).
+    _export_slate_exp2(con)
 
     # 7g/7h — travel fatigue + closer availability (helpers above).
     _build_travel_features(con)
@@ -5616,9 +5956,9 @@ def add_diff_features(
                                its 3-day window like its _home/_away twins;
                                values unchanged)
         21. bullpen_ip_diff       (home_bullpen_ip_3d − away_…)
-        22. team_barrel_diff   (trailing 15g barrel rate)
-        23. team_hardhit_diff  (trailing 15g hard-hit rate)
-        24. team_exitvelo_diff (trailing 15g avg exit velo)
+        22. team_barrel_15g_diff   (trailing 15g barrel rate)
+        23. team_hardhit_15g_diff  (trailing 15g hard-hit rate)
+        24. team_exitvelo_15g_diff (trailing 15g avg exit velo)
         25. lineup_handedness_matchup_advantage_diff (+ home/away levels)
                                home_lineup_ops_vs_starter_hand
                                − away_lineup_ops_vs_starter_hand
@@ -5762,9 +6102,9 @@ def add_diff_features(
         ("bullpen_kbb_3g_diff", "bullpen_kbb_3g_home", "bullpen_kbb_3g_away"),     # 19
         ("bullpen_pitches_3d_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20 (RENAMED 2026-10-24)
         ("bullpen_ip_diff", "bullpen_ip_3d_home", "bullpen_ip_3d_away"),         # 21
-        ("team_barrel_diff", "team_barrel_15g_home", "team_barrel_15g_away"),    # 22
-        ("team_hardhit_diff", "team_hardhit_15g_home", "team_hardhit_15g_away"), # 23
-        ("team_exitvelo_diff", "team_exitvelo_15g_home", "team_exitvelo_15g_away"),  # 24
+        ("team_barrel_15g_diff", "team_barrel_15g_home", "team_barrel_15g_away"),    # 22 (RENAMED 2026-10-26)
+        ("team_hardhit_15g_diff", "team_hardhit_15g_home", "team_hardhit_15g_away"), # 23 (RENAMED 2026-10-26)
+        ("team_exitvelo_15g_diff", "team_exitvelo_15g_home", "team_exitvelo_15g_away"),  # 24 (RENAMED 2026-10-26)
     ]
     for out, h_col, a_col in simple_diffs:
         _diff(out, h_col, a_col)

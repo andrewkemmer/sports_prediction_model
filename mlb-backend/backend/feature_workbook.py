@@ -1028,7 +1028,7 @@ def sheet_redundancy(wb, rows, trace) -> None:
              "Team-strength pair: Elo and win% track each other closely — the model splits "
              "credit between them. Neither removal cleared the noise bar this run.",
              "Both tested (removals): not proven redundant"],
-            ["team_exitvelo_diff", "team_hardhit_diff", "≥ 0.8",
+            ["team_exitvelo_15g_diff", "team_hardhit_15g_diff", "≥ 0.8",
              "Contact-quality pair: exit velocity and hard-hit rate are two views of the same "
              "underlying quality-of-contact signal.",
              "Both tested: not proven redundant"],

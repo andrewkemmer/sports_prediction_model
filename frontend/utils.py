@@ -3720,9 +3720,9 @@ FEATURE_DESCRIPTIONS = {
     "bullpen_pitches_3d_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
     "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
     # 20–22. Team contact form diffs (trailing 15g, balls in play only)
-    "team_barrel_diff": "Home barrel% (15g) − away barrel% (quality of contact)",
-    "team_hardhit_diff": "Home hard-hit% (15g) − away hard-hit%",
-    "team_exitvelo_diff": "Home avg exit velo (15g) − away avg exit velo (mph)",
+    "team_barrel_15g_diff": "Home barrel% (15g) − away barrel% (quality of contact)",
+    "team_hardhit_15g_diff": "Home hard-hit% (15g) − away hard-hit%",
+    "team_exitvelo_15g_diff": "Home avg exit velo (15g) − away avg exit velo (mph)",
     # 23. Lineup handedness matchup advantage
     "lineup_handedness_matchup_advantage_home": "Home lineup OPS vs tonight's opposing starter hand",
     "lineup_handedness_matchup_advantage_away": "Away lineup OPS vs tonight's opposing starter hand",

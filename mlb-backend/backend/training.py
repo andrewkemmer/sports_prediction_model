@@ -125,7 +125,7 @@ def get_last_fold_signature() -> str | None:
 #                                    re-add when coverage improves)    #   bullpen_ip_diff                  r=0.87 with bullpen_pitches_3d_diff, weaker
 #
 # Wave-2 ablation candidates (univariate |lift| < ~0.01, need walk-forward
-# retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_re24_std_diff,
+# retrain to confirm): sp_fbpct_diff, team_barrel_15g_diff, lineup_re24_std_diff,
 # park_factor_slug_diff, closer_availability_diff, travel_fatigue_diff,
 # bullpen_kbb_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
 MONEYLINE_FEATURE_COLS = [
@@ -160,10 +160,12 @@ MONEYLINE_FEATURE_COLS = [
     "bullpen_kbb_10g_diff",
     "bullpen_kbb_3g_diff",
     "bullpen_pitches_3d_diff",
-    # 19–21. Team contact form diffs (trailing 15g)
-    "team_barrel_diff",
-    "team_hardhit_diff",
-    "team_exitvelo_diff",
+    # 19–21. Team contact form diffs (trailing 15g; RENAMED 2026-10-26:
+    # now team_barrel/hardhit/exitvelo_15g_diff, carrying the 15-game window
+    # like the _home/_away twins; values unchanged)
+    "team_barrel_15g_diff",
+    "team_hardhit_15g_diff",
+    "team_exitvelo_15g_diff",
     # 22. Lineup handedness matchup trio (OPS vs tonight's starter hand;
     # structural 2026-10-19: the _diff name plus tree-only per-side levels)
     "lineup_handedness_matchup_advantage_diff",
