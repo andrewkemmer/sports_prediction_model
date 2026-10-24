@@ -88,16 +88,48 @@ def main() -> int:
     print("B PASS  20261025 renders the honest off-day state: no recovery "
           "banner, no 10-23 slate content")
 
-    # ---- C: the jump button must point at a DIFFERENT date (nearest real
-    # board), never at the off-day itself (a self-jump is a dead click).
-    import re as _re
-    _jumps = _re.findall(r"Jump to nearest game date \u2014 (.+)", text)
-    assert _jumps, "expected a jump-to-nearest-date button on the off-day view"
-    assert all("October 25, 2026" not in j for j in _jumps), \
-        f"jump button points at the off-day itself: {_jumps}"
-    print(f"C PASS  jump button targets a real board date ({_jumps})")
+    # ---- C: NFL structural parity — NO jump button on the MLB board.
+    # The off-day view renders the honest notice plus the dates-available
+    # navigator (the shared date nav: prev/next arrows + the calendar
+    # field), never a "Jump to nearest game date" button.
+    assert "Jump to nearest game date" not in text, \
+        "MLB board must not offer a jump-to-nearest-date button (NFL parity)"
+    _btn_labels = []
+    for el in at.button:
+        _btn_labels.append(getattr(el, "label", "") or "")
+    assert any("\U0001f5d3" in str(l) for l in _btn_labels), \
+        f"expected the dates-available calendar field, got: {_btn_labels}"
+    assert any(str(l).strip() in ("\u25c0", "\u25b6") for l in _btn_labels), \
+        f"expected the prev/next date arrows, got: {_btn_labels}"
+    print("C PASS  no jump button; the dates-available navigator renders")
 
-    print("\nOFF-DAY NO-RECOVERY PROOF - PASS (3 scenarios)")
+    # ---- D: the 2026-10-24 World Series game renders as tonight's board —
+    # the missing-daily-run backfill (todays_games_20261024.csv) puts game
+    # 849802 (TB @ MIL, 8 PM ET, Henderson vs Rasmussen) on the dashboard
+    # with its production prediction, not a recovery view or an empty state.
+    at = AppTest.from_file("todays_games.py", default_timeout=120)
+    _pin(at, "20261024")
+    at.run()
+    assert not at.exception, f"page exception: {at.exception}"
+    text24 = _harvest(at)
+    assert "October 24, 2026" in text24, \
+        f"expected the Oct 24 board header, got: {text24[:600]}"
+    assert "Recovery view" not in text24, \
+        "Oct 24 has its own board — must not render a recovery view"
+    assert "Jump to nearest game date" not in text24, \
+        "MLB board must not offer a jump button (NFL parity)"
+    assert "No games scheduled" not in text24, \
+        "Oct 24 has a game — must not render the off-day state"
+    for _need in ("Logan Henderson", "Drew Rasmussen",
+                   "American Family Field", "PRE-GAME"):
+        assert _need in text24, \
+            f"Oct 24 card content missing ({_need}): {text24[:600]}"
+    assert "1 of 1 games shown" in text24, \
+        f"expected the 1-game header strip, got: {text24[:600]}"
+    print("D PASS  20261024 renders tonight's TB@MIL board (Henderson vs "
+          "Rasmussen, MIL pick, PRE-GAME) with no recovery and no jump")
+
+    print("\nOFF-DAY NO-RECOVERY PROOF - PASS (4 scenarios)")
     return 0
 
 

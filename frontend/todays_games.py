@@ -1154,6 +1154,9 @@ def _render_nearest_valid_fallback(valid, current: str,
         # the 2026-10-25 off-day pointed at itself). Always exclude the
         # current date; for a missing date this changes nothing (it is not
         # in the set), for an off-day it yields the nearest REAL board.
+        # NOTE: the MLB board no longer offers this jump (NFL structural
+        # parity — _render_dates_available below); the shared helper keeps
+        # the button for its remaining NFL/NBA/NHL callers.
         others = [d for d in valid if d != current]
         target = utils.nearest_valid_date(others, current)
         if target and st.button(
@@ -1161,6 +1164,36 @@ def _render_nearest_valid_fallback(valid, current: str,
             st.session_state["selected_date"] = target
             st.session_state.pop("open_calendar", None)
             st.rerun()
+    else:
+        st.info("No per-sport game-date artifacts are available yet "
+                "(run the pipeline / push artifacts).")
+
+
+def _render_dates_available(valid, current: str,
+                            off_day: bool = False) -> None:
+    """MLB terminal empty state — NFL structural parity: NO jump button.
+
+    The NFL board never offers a "Jump to nearest game date" button: an
+    unreachable date renders the honest notice plus the shared date
+    navigation, i.e. exactly the dates available (arrows step through
+    valid dates only, the calendar highlights them). The MLB board matches
+    that structure here — its recovery walks (CDN-lag healing) already ran
+    upstream, so this is the terminal state for a genuine off-day
+    (header-only snapshot) or an exhausted missing date.
+
+    ``off_day=True`` keeps the off-day wording (the pipeline shipped an
+    existing-but-empty board for this date); otherwise the missing-board
+    wording. With no valid dates at all there is no navigation to render.
+    """
+    if off_day:
+        st.info(f"\U0001f5d3 No games scheduled for "
+                f"{utils.format_date_long(current)} — league off-day "
+                f"(the pipeline shipped an empty board, {current}).")
+    else:
+        st.warning(f"No game board exists for {utils.format_date_long(current)} "
+                   f"on this sport ({current}).")
+    if valid:
+        _render_date_nav(valid, current)
     else:
         st.info("No per-sport game-date artifacts are available yet "
                 "(run the pipeline / push artifacts).")
@@ -1608,7 +1641,7 @@ def main() -> None:
                 )
                 _render_board(_recovered, _cand, valid)
                 return
-        _render_nearest_valid_fallback(valid, date_str)
+        _render_dates_available(valid, date_str)
         st.stop()
 
     games = utils.load_todays_games(date_str)
@@ -1620,10 +1653,11 @@ def main() -> None:
         # walking would resurrect another date's board under this header
         # (2026-10-25 walked to the 10-23 pre-game slate and presented an
         # already-decided game as tonight's pick). Dead-end honestly with
-        # a one-click jump instead. A missing/unreadable snapshot still
-        # falls through to the rebuild + walk below (CDN lag healing).
+        # the dates-available navigator instead (NFL parity — no jump
+        # button). A missing/unreadable snapshot still falls through to
+        # the rebuild + walk below (CDN lag healing).
         if utils.board_snapshot_exists_but_empty(date_str):
-            _render_nearest_valid_fallback(valid, date_str, off_day=True)
+            _render_dates_available(valid, date_str, off_day=True)
             st.stop()
         # Union-listed date whose snapshot fetch failed (CDN lag): try the
         # history rebuild, then the recovery walk, before the empty state.
@@ -1648,7 +1682,7 @@ def main() -> None:
                 )
                 _render_board(_recovered, _cand, valid)
                 return
-        _render_nearest_valid_fallback(valid, date_str)
+        _render_dates_available(valid, date_str)
         st.stop()
 
     _render_board(games, date_str, valid)
