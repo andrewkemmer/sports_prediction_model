@@ -741,17 +741,6 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                                "that day keeps its prior coverage", day, exc)
                 return day, None
 
-        # Wall-clock budget for the whole phase: a throttled injury-report
-        # host answers every stamp with 403, and each 403 parks every worker
-        # behind a cooldown (up to 300s), so a blocked network turns this
-        # phase from ~50 minutes into longer than the Kaggle session. Bound
-        # it: on expiry the pending days are cancelled and the run keeps the
-        # existing archive under the same loud warning as any other refresh
-        # failure, instead of burning the session. Tune with
-        # NBA_DESIGNATION_BUDGET_SEC (0 disables).
-        budget = ingestion._float_env("NBA_DESIGNATION_BUDGET_SEC", 5400.0)
-        phase_start = time.time()
-        expired = False
         done = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             future_of = {pool.submit(_resolve_one, day): day
@@ -766,24 +755,6 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                                 "resolved (%d with rows)",
                                 "repopulate" if full else "top-off", done,
                                 len(target), len(by_day))
-                if (not expired and budget > 0
-                        and (time.time() - phase_start) > budget):
-                    logger.warning(
-                        "designation archive %s: budget %.0fs exceeded after "
-                        "%d/%d day(s); cancelling the remaining days and "
-                        "keeping the existing archive (%d rows)",
-                        "repopulate" if full else "top-off", budget, done,
-                        len(target), len(archive))
-                    stats["error"] = (
-                        f"designation budget {budget:.0f}s exceeded after "
-                        f"{done}/{len(target)} days")
-                    stats["archive_rows"] = int(len(archive))
-                    for pending in future_of:
-                        pending.cancel()
-                    expired = True
-                    break
-        if expired:
-            return stats
         frames = [by_day[day] for day in target if day in by_day]
         if not frames:
             logger.warning("designation refresh resolved nothing; keeping "

@@ -191,32 +191,6 @@ def test_one_bad_day_does_not_stop_the_others(monkeypatch, tmp_path):
     assert set(pd.to_datetime(archive.gameday).dt.date) == {D1}
 
 
-def test_budget_expiry_keeps_the_archive(monkeypatch, tmp_path):
-    """A throttled host must fail fast, not burn the session: once
-    NBA_DESIGNATION_BUDGET_SEC is exceeded the pending days are cancelled
-    and the run keeps the existing archive under an error, like any other
-    refresh failure."""
-    import time as _time
-
-    delivery = _wire(monkeypatch, tmp_path, [], {})
-    before = _frame([(D1, "Old Player", "Out")])
-    before.to_parquet(bf_mod.ARCHIVE, index=False)
-
-    def _slow(day, cache_dir, games=None, **kwargs):
-        _time.sleep(0.3)
-        return _frame([(day, "New Player", "Out")]).copy()
-
-    monkeypatch.setattr(ir_mod, "game_day_designations", _slow)
-    monkeypatch.setenv("NBA_DESIGNATION_BUDGET_SEC", "0.15")
-    monkeypatch.setenv("NBA_DESIGNATION_WORKERS", "2")
-    stats = mp._refresh_designation_archive(
-        _games([D1, D2, D3]), delivery_dir=delivery, today=TODAY)
-    assert "budget" in stats["error"]
-    pd.testing.assert_frame_equal(pd.read_parquet(bf_mod.ARCHIVE), before,
-                                  check_dtype=False)
-    assert not (delivery / "nba_designations.parquet").exists()
-
-
 def test_the_resolver_receives_one_shared_parse_cache(monkeypatch, tmp_path):
     """Every day in one refresh resolves through the same run-level filing
     cache, so a filing two days both touch is parsed once."""
