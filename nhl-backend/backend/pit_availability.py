@@ -1234,8 +1234,41 @@ def preview_slug_candidates(game: Dict) -> List[str]:
     return [f"{base}-{year}", base]
 
 
+#: Parallel crawl width for the pre-game channel (NHL ingestion structural
+#: pattern: explicit arg > env > default). The score/boxscore pulls run 8
+#: workers against the official API, but the preview archive throttles
+#: aggressively (429s — see fetch_with_backoff), so this defaults to 4;
+#: NHL_PREGAME_WORKERS overrides without a code change. The 2026-10-23
+#: full repull crawled 4348 games sequentially (~91 min silent); 4 workers
+#: bring that to ~1/4 with byte-identical artifacts (input-order assembly).
+PREGAME_WORKERS_ENV = "NHL_PREGAME_WORKERS"
+PREGAME_WORKERS_DEFAULT = 4
+#: Crawl progress cadence: a full-history backfill touches thousands of
+#: games, and the 2026-10-23 repull emitted nothing between the Phase 3
+#: banner and the confirmed-goalie receipt. A slow or throttled crawl must
+#: stay VISIBLE (ingestion._PullProgress precedent), so progress logs every
+#: N crawled games on either path.
+PREGAME_PROGRESS_EVERY = 50
+
+
+def _resolve_pregame_workers(workers: int | None = None) -> int:
+    """Worker count for the pre-game crawl: explicit arg > env > default."""
+    import os as _os
+    if workers is not None:
+        try:
+            return max(1, int(workers))
+        except (TypeError, ValueError):
+            return PREGAME_WORKERS_DEFAULT
+    try:
+        return max(1, int(_os.environ.get(PREGAME_WORKERS_ENV, "")
+                           or PREGAME_WORKERS_DEFAULT))
+    except (TypeError, ValueError):
+        return PREGAME_WORKERS_DEFAULT
+
+
 def backfill(games, session, *, write_artifact: bool = True,
-             resume: bool = True, rate_limit_seconds: float = 0.0) -> pd.DataFrame:
+             resume: bool = True, rate_limit_seconds: float = 0.0,
+             max_workers: int | None = None) -> pd.DataFrame:
     """Backfill PIT pre-game availability for ``games``, RESUMABLY.
 
     Reproducibility contract: this is the only place the network is touched,
@@ -1261,13 +1294,21 @@ def backfill(games, session, *, write_artifact: bool = True,
         if prior_events is not None and len(prior_events) and "game_id" in prior_events.columns:
             done_ids = set(prior_events["game_id"].astype(str))
 
-    reports = []
-    for game in games:
+    # Hoist the frozen skip: todo preserves input order, so reports assemble
+    # in crawl order on either path and every downstream artifact
+    # (events concat with keep="first", coverage frame/gate) is
+    # byte-identical to the old sequential loop for identical fetches.
+    todo = [game for game in games
+            if str(game.get("game_id")) not in done_ids]
+    n_frozen = len(games) - len(todo)
+
+    def _one(game):
         gid = str(game.get("game_id"))
-        if gid in done_ids:
-            continue  # already frozen; never re-crawl
         rep = None
         for url in preview_slug_candidates(game):
+            # Shared session across workers: GET-only, and fetch_with_backoff
+            # already serializes 429/5xx into per-request backoff (honoring
+            # Retry-After), so a throttled worker sleeps instead of dying.
             html = fetch_with_backoff(session, url)
             if not html:
                 continue
@@ -1285,9 +1326,32 @@ def backfill(games, session, *, write_artifact: bool = True,
                 date_published_utc=None,
                 lead_time_minutes=None,
             )
-        reports.append(rep)
         if rate_limit_seconds:
             _time.sleep(rate_limit_seconds)
+        return rep
+
+    workers = _resolve_pregame_workers(max_workers)
+    reports: list = [None] * len(todo)
+    if workers < 2 or len(todo) < 2:
+        for i, game in enumerate(todo):
+            reports[i] = _one(game)
+            if (i + 1) % PREGAME_PROGRESS_EVERY == 0 or i + 1 == len(todo):
+                logger.info("pregame backfill: %d/%d games crawled "
+                            "(%d frozen skipped, %d worker(s))",
+                            i + 1, len(todo), n_frozen, workers)
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pending = {pool.submit(_one, game): i
+                       for i, game in enumerate(todo)}
+            done = 0
+            for fut in as_completed(pending):
+                reports[pending[fut]] = fut.result()
+                done += 1
+                if done % PREGAME_PROGRESS_EVERY == 0 or done == len(todo):
+                    logger.info("pregame backfill: %d/%d games crawled "
+                                "(%d frozen skipped, %d worker(s))",
+                                done, len(todo), n_frozen, workers)
 
     events = build_pregame_events(reports)
     if write_artifact and len(events):
