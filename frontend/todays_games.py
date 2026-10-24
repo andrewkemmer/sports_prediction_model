@@ -1520,10 +1520,11 @@ def _recovered_board(date_str: str, cand: str):
     Candidates outside the valid set (stale or retention-pruned dates) are
     refused outright — a stale date must never render another date's board.
     """
-    if utils.get_sport() == "mlb" and cand not in utils.valid_dates("mlb"):
-        # Retention-window gate: an out-of-window candidate never renders
-        # under any header, including this walk's recovery notice.
-        # valid_dates is cached (ttl=120s), so this is cheap per candidate.
+    if utils.get_sport() == "mlb" and cand not in _navigable_dates():
+        # Navigable-date gate: a dateless or out-of-window candidate never
+        # renders under any header, including this walk's recovery notice.
+        # _navigable_dates is cached (ttl=120s), so this is cheap per
+        # candidate.
         return None
     key = f"_recovered_board_{cand}_{date_str}"
     if key in st.session_state and st.session_state[key] is not None:
@@ -1567,6 +1568,38 @@ def _build_slate_map(games, date_str: str) -> dict:
     return diag.resolve_slate_across_artifacts(_frames, _gids)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _navigable_dates() -> tuple[str, ...]:
+    """MLB dates the user can toggle to: only dates with >=1 game (NFL parity).
+
+    ``utils.valid_dates`` is the artifact union (a header-only off-day board
+    counts as "existing"), but a date with no games has no cards and must
+    not exist in the arrows/calendar rail — exactly like the NFL rail,
+    whose moneyline game_dates always carry >=1 game by construction. A
+    date qualifies when its board snapshot carries >=1 row (the row-date
+    honesty filter already drops polluted foreign rows) or the prediction
+    history can rebuild >=1 row for it (pruned-snapshot archive path).
+    Cached on the same ttl as the union itself; other sports' pages and
+    the shared union (Calibration / Monitor / Power Rankings rails) are
+    untouched."""
+    keep: list[str] = []
+    for d in utils.valid_dates("mlb"):
+        try:
+            board = utils.load_todays_games(d, sport="mlb")
+        except Exception:
+            board = None
+        if board is not None and len(board):
+            keep.append(d)
+            continue
+        try:
+            hist = utils.load_history_games(d)
+        except Exception:
+            hist = None
+        if hist is not None and len(hist):
+            keep.append(d)
+    return tuple(keep)
+
+
 def _slate_map_for_view(games, date_str: str, history_view: bool) -> dict:
     """Cross-artifact slate prices for a board view.
 
@@ -1600,6 +1633,13 @@ def main() -> None:
     """
     sport = utils.get_sport()
     valid = list(utils.valid_dates(sport))
+    if sport == "mlb":
+        # NFL parity: the rail offers only dates with >=1 game — an
+        # empty-board off-day (or a union date whose snapshot never landed
+        # and history cannot rebuild) is not toggleable via arrows or the
+        # calendar. Stale selections (bookmarks, prior sessions) still
+        # resolve honestly below.
+        valid = list(_navigable_dates())
     valid_set = set(valid)
 
     if sport == "nfl":
@@ -1622,11 +1662,19 @@ def main() -> None:
     date_str = st.session_state["selected_date"]
 
     if date_str not in valid_set:
-        # A requested date outside the valid set NEVER renders a board —
+        # A requested date outside the navigable set NEVER renders a board —
         # directly or via recovery: _recovered_board refuses any candidate
-        # outside the valid set, so a stale/pruned date (e.g. before the
-        # retention cutoff) falls through to the nearest-valid fallback
-        # below, which labels the substitute honestly.
+        # outside the set, so a stale/pruned date (e.g. before the
+        # retention cutoff) falls through to the walk below, which labels
+        # the substitute honestly.
+        # Known off-day FIRST (NFL parity — a date with no games does not
+        # exist as a board): the pipeline shipped an existing-but-empty
+        # snapshot for this date, so there is nothing to heal and the walk
+        # would only resurrect another date's board. Dead-end honestly
+        # with the dates-available navigator instead.
+        if utils.board_snapshot_exists_but_empty(date_str):
+            _render_dates_available(valid, date_str, off_day=True)
+            st.stop()
         for _cand in _recovery_dates(date_str):
             if _cand == date_str:
                 continue

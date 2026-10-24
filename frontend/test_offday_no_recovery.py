@@ -70,6 +70,15 @@ def main() -> int:
         "a missing snapshot is a fetch miss, never an off-day"
     print("A PASS  board_snapshot_exists_but_empty: off-day True, "
           "slate/missing False")
+    # Navigability (NFL parity): only dates with >=1 game exist in the
+    # rail — the 10-25 off-day cannot be toggled to, tonight's board can.
+    from todays_games import _navigable_dates
+    _nav = set(_navigable_dates())
+    assert "20261025" not in _nav, \
+        "off-day with no games must not exist in the navigable dates"
+    assert "20261024" in _nav, \
+        "tonight's 1-game board must stay navigable"
+    print("A PASS  _navigable_dates: 20261025 excluded, 20261024 kept")
 
     # ---- B: page-level — off-day dead-ends honestly, no recovery ----
     at = AppTest.from_file("todays_games.py", default_timeout=120)
