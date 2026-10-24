@@ -929,23 +929,27 @@ def test_an_unknown_team_header_is_quarantined_not_invented(monkeypatch,
 def test_consecutive_403s_open_a_run_wide_cooldown(monkeypatch, tmp_path):
     """A 403 reads exactly like a missing filing, so without a pause every
     throttled stamp burns its whole walk (up to 72 fallback requests) and
-    keeps the host throttled for the next day. The first 403 opens a
+    keeps the host throttled for the next day. A burst of consecutive 403s opens a
     cooldown every later request waits out; the walks resume at the same
     pacing and read the same answers, only later."""
     import time as _time
     import urllib.error
     monkeypatch.setenv("NBA_INJURY_403_COOLDOWN_SEC", "0.2")
     monkeypatch.setenv("NBA_INJURY_403_COOLDOWN_MAX_SEC", "1.0")
+    monkeypatch.setenv("NBA_INJURY_403_TRIGGER", "2")
     monkeypatch.setattr(ir, "FETCH_PAUSE_SEC", 0)
     monkeypatch.setattr(ir, "_cool_until", 0.0)
     monkeypatch.setattr(ir, "_consecutive_403", 0)
     monkeypatch.setattr(ir, "_last_network_at", 0.0)
+    monkeypatch.setattr(ir, "_known_missing", set())
+    monkeypatch.setattr(ir, "_cooldown_slept", 0.0)
+    monkeypatch.setattr(ir, "_cooldown_budget_warned", False)
     before = ir.http_403_count
     calls = []
 
     def _flaky(request, timeout=30):
         calls.append(request.full_url)
-        if len(calls) <= 2:
+        if len(calls) <= 3:
             raise urllib.error.HTTPError(request.full_url, 403, "Forbidden",
                                          {}, None)
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found",
@@ -953,21 +957,30 @@ def test_consecutive_403s_open_a_run_wide_cooldown(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ir.urllib.request, "urlopen", _flaky)
     stamp = datetime(2026, 1, 10, 13, 0)
+    stamp2 = datetime(2026, 1, 10, 14, 0)
+    stamp3 = datetime(2026, 1, 10, 15, 0)
+    stamp4 = datetime(2026, 1, 10, 16, 0)
     t0 = _time.monotonic()
     assert ir.fetch_report(stamp, tmp_path) is None
-    assert ir.fetch_report(stamp, tmp_path) is None
+    assert ir.fetch_report(stamp2, tmp_path) is None
+    assert ir.fetch_report(stamp3, tmp_path) is None
     waited = _time.monotonic() - t0
-    assert ir.http_403_count == before + 2
-    assert ir._consecutive_403 == 2
-    # The second request waited out the first 403's cooldown instead of
-    # burning straight into the throttle.
+    assert ir.http_403_count == before + 3
+    assert ir._consecutive_403 == 3
+    # The third request waited out the burst's cooldown instead of
+    # burning straight into the throttle; isolated 403s cost no sleep.
     assert waited >= 0.2, waited
-    assert len(calls) == 2
+    assert len(calls) == 3
+    # A repeat probe of a known-missing stamp asks nothing: no request,
+    # no pacing, no 403 counted.
+    assert ir.fetch_report(stamp, tmp_path) is None
+    assert len(calls) == 3
+    assert ir.http_403_count == before + 3
     # A 404 is an answer, not a throttle: the streak resets and the next
     # request proceeds without sitting out a cooldown.
-    assert ir.fetch_report(stamp, tmp_path) is None
+    assert ir.fetch_report(stamp4, tmp_path) is None
     assert ir._consecutive_403 == 0
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_the_request_turnstile_holds_across_threads(monkeypatch, tmp_path):
@@ -982,6 +995,9 @@ def test_the_request_turnstile_holds_across_threads(monkeypatch, tmp_path):
     monkeypatch.setattr(ir, "_cool_until", 0.0)
     monkeypatch.setattr(ir, "_consecutive_403", 0)
     monkeypatch.setattr(ir, "_last_network_at", 0.0)
+    monkeypatch.setattr(ir, "_known_missing", set())
+    monkeypatch.setattr(ir, "_cooldown_slept", 0.0)
+    monkeypatch.setattr(ir, "_cooldown_budget_warned", False)
 
     def _miss(request, timeout=30):
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found",

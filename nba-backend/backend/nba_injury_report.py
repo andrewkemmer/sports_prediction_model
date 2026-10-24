@@ -272,18 +272,99 @@ def _cooldown_env(name: str, default: float) -> float:
         return default
 
 
-#: First wait after a 403 before any worker starts another request, doubling
-#: per consecutive 403. A 403 answers exactly like a missing filing, so
-#: without this every throttled stamp burns its whole walk - up to 72
-#: fallback requests - and the walks keep the host throttled for the next
-#: day too. The 2026-10-24 repull showed the shape: hundreds of 403s, two
-#: game-days lost, and a 50-minute phase that should have taken a third of
-#: that. A cooldown converts the burn into a pause; the walks resume at the
-#: same pacing and read the same answers, only later.
+#: How many consecutive 403s open the run-wide cooldown (env override
+#: ``NBA_INJURY_403_TRIGGER``). A 403 answers exactly like a missing filing
+#: - most probed stamps simply do not exist, because the league files a
+#: handful of times per day, not once per grid step - so an isolated 403 is
+#: the NORMAL "no such report" answer and must cost nothing but the walk
+#: continuing. Only a sustained burst with no intervening success (no filing
+#: found anywhere for several probes in a row) looks like the host
+#: throttling this client rather than like sparse filings. The 2026-10-24
+#: 21:42 repull showed the other shape: a cooldown on EVERY 403 slept
+#: 30s, then 60s, 120s, 240s on the first day's ordinary missing stamps
+#: and never reached day two. A threshold-triggered pause converts a real
+#: throttle into a pause while letting missing filings stay cheap; the
+#: walks resume at the same pacing and read the same answers, only later.
 COOLDOWN_BASE_SEC = "NBA_INJURY_403_COOLDOWN_SEC"
 COOLDOWN_MAX_SEC = "NBA_INJURY_403_COOLDOWN_MAX_SEC"
+COOLDOWN_TRIGGER_ENV = "NBA_INJURY_403_TRIGGER"
 _consecutive_403 = 0
 _cool_until = 0.0
+#: Stamps this run already learned do not exist (403/404/tiny body),
+#: keyed by filename. Every game's walk re-probes the same grid neighbours,
+#: so without this one day burns the same 403s once per game instead of
+#: once per day - and a throttled host gets re-asked for stamps known to be
+#: missing. In-memory only, never persisted: filings are immutable for
+#: decided days, so a miss is permanent within the run, while a later run
+#: re-asks and can never inherit it. Positive hits need no entry - the
+#: on-disk PDF is the cache for those.
+_known_missing: set[str] = set()
+
+
+def _trigger_env() -> int:
+    """Consecutive 403s that open the run-wide cooldown (default 5)."""
+    try:
+        return max(1, int(float(os.environ.get(COOLDOWN_TRIGGER_ENV, 5))))
+    except (TypeError, ValueError):
+        return 5
+
+
+COOLDOWN_BUDGET_SEC = "NBA_INJURY_403_COOLDOWN_BUDGET_SEC"
+_cooldown_slept = 0.0
+_cooldown_budget_warned = False
+
+
+def _budget_env() -> float:
+    """Total cooldown sleep this run will spend, then probes fail fast."""
+    try:
+        return max(0.0, float(os.environ.get(COOLDOWN_BUDGET_SEC, 300.0)))
+    except (TypeError, ValueError):
+        return 300.0
+
+
+def _burst_cooldown_locked(streak: int) -> float:
+    """Open the run-wide cooldown for a burst, else ``0.0``.
+
+    Call with ``_FETCH_LOCK`` held. Below the trigger the streak is just
+    sparse missing filings and costs no sleep; at and above it the wait
+    doubles per further consecutive 403 (5s, 10s, 20s, 40s, capped at 60s
+    by default) so a genuinely throttled host gets a pause, not a storm.
+    A success or 404 resets the streak, so a healthy walk with
+    interleaved hits never reaches the trigger.
+
+    Two guards keep a sustained throttle from becoming a hang (the
+    2026-10-24 21:42 repull slept 30s..240s per miss on day one and never
+    reached day two): a request arriving while a cooldown is already open
+    shares that window instead of stacking another on top, and all
+    cooldown sleep draws on one run-wide budget (5 minutes by default) -
+    once spent, probes fail fast and the days resolve uncovered with a
+    warning instead of the run sleeping forever. Same probes, same rows;
+    only the waiting is bounded.
+    """
+    global _cool_until, _cooldown_slept, _cooldown_budget_warned
+    now = _time.monotonic()
+    if now < _cool_until:
+        return 0.0
+    trigger = _trigger_env()
+    if streak < trigger:
+        return 0.0
+    base = _cooldown_env(COOLDOWN_BASE_SEC, 5.0)
+    cap = _cooldown_env(COOLDOWN_MAX_SEC, 60.0)
+    if base <= 0:
+        return 0.0
+    wait = min(base * (2.0 ** (streak - trigger)), cap)
+    if _cooldown_slept + wait > _budget_env():
+        if not _cooldown_budget_warned:
+            _cooldown_budget_warned = True
+            logger.warning("injury-report cooldown budget spent (%.0fs); "
+                           "further throttled probes fail fast instead of "
+                           "sleeping - days the host keeps refusing stay "
+                           "uncovered, loudly, rather than hanging the run",
+                           _cooldown_slept)
+        return 0.0
+    _cool_until = now + wait
+    _cooldown_slept += wait
+    return wait
 
 
 def _now() -> datetime:
@@ -319,6 +400,13 @@ def fetch_report(when: datetime, cache_dir: Path,
     path = cache_dir / f"Injury-Report_{report_stamp(when)}.pdf"
     if path.exists() and path.stat().st_size >= MIN_REPORT_BYTES:
         return path
+    global _last_network_at, http_403_count, _consecutive_403, _cool_until
+    with _FETCH_LOCK:
+        if path.name in _known_missing:
+            # Asked and answered already this run: no request, no pacing,
+            # no 403. The walks for one day's games re-probe the same
+            # neighbours, so this turns per-game misses into per-day ones.
+            return None
     if when > _now():
         # Not published yet, therefore not fetchable: no request, no
         # pacing, no 403. This is the single guard every walk funnels
@@ -326,10 +414,9 @@ def fetch_report(when: datetime, cache_dir: Path,
         # the tip-off walk all reach the host here, so a pending slate
         # stops probing without any walker needing to know the time.
         return None
-    global _last_network_at, http_403_count, _consecutive_403, _cool_until
     # Claim a start slot: at least FETCH_PAUSE_SEC after the previous claim
-    # and not before a 403 cooldown expires. Both sleeps happen outside the
-    # lock; the claim itself is microseconds.
+    # and not before a burst-triggered cooldown expires. Both sleeps happen
+    # outside the lock; the claim itself is microseconds.
     while True:
         with _FETCH_LOCK:
             now = _time.monotonic()
@@ -355,40 +442,50 @@ def fetch_report(when: datetime, cache_dir: Path,
             with _FETCH_LOCK:
                 http_403_count += 1
                 _consecutive_403 += 1
-                base = _cooldown_env(COOLDOWN_BASE_SEC, 30.0)
-                cap = _cooldown_env(COOLDOWN_MAX_SEC, 300.0)
-                wait = min(base * (2.0 ** (_consecutive_403 - 1)), cap) \
-                    if base > 0 else 0.0
-                _cool_until = _time.monotonic() + wait
+                streak = _consecutive_403
                 total = http_403_count
-            logger.warning("403 from the injury-report host (%s); "
-                           "cooling down %.0fs so the walks stop burning "
-                           "requests into the throttle (%d total this run) - "
-                           "a rate-limited run looks like an empty archive",
-                           when, wait, total)
+                _known_missing.add(path.name)
+                wait = _burst_cooldown_locked(streak)
+            if wait > 0:
+                logger.warning("403 burst from the injury-report host (%d in "
+                               "a row, %d total this run); cooling down %.1fs "
+                               "so the walks stop burning requests into the "
+                               "throttle - a rate-limited run looks like an "
+                               "empty archive", streak, total, round(wait, 1))
+            else:
+                # An isolated 403 is the normal missing-filing answer, not
+                # a throttle: the walk continues at pacing, nothing sleeps.
+                logger.debug("403 from the injury-report host (%s); counted "
+                             "(%d total this run), no cooldown - reads as "
+                             "no such report", when, total)
             return None
         if exc.code == 404:
             with _FETCH_LOCK:
                 _consecutive_403 = 0
+                _known_missing.add(path.name)
             return None
         raise
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        # A refusing or stalled host cools down like a 403: consecutive
+        # A refusing or stalled host cools down like a 403 burst: consecutive
         # timeouts are a struggling host, and hammering it only lengthens
-        # the stall for every other walk.
+        # the stall for every other walk. Single blips cost nothing.
         with _FETCH_LOCK:
             _consecutive_403 += 1
-            base = _cooldown_env(COOLDOWN_BASE_SEC, 30.0)
-            cap = _cooldown_env(COOLDOWN_MAX_SEC, 300.0)
-            wait = min(base * (2.0 ** (_consecutive_403 - 1)), cap) \
-                if base > 0 else 0.0
-            _cool_until = _time.monotonic() + wait
-        logger.warning("injury report %s unavailable (%s); cooling down "
-                       "%.0fs", report_stamp(when), exc, wait)
+            streak = _consecutive_403
+            wait = _burst_cooldown_locked(streak)
+        if wait > 0:
+            logger.warning("injury report %s unavailable %d in a row (%s); "
+                           "cooling down %.1fs", report_stamp(when), streak,
+                           exc, wait)
+        else:
+            logger.debug("injury report %s unavailable (%s); no cooldown",
+                         report_stamp(when), exc)
         return None
     with _FETCH_LOCK:
         _consecutive_403 = 0
     if len(body) < MIN_REPORT_BYTES:
+        with _FETCH_LOCK:
+            _known_missing.add(path.name)
         return None
     # Atomic publish: concurrent day-resolvers may fetch the same stamp at
     # once, and a torn half-written PDF parses as a gap - lost rows with no

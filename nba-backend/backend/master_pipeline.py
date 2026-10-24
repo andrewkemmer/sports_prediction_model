@@ -640,7 +640,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
 
     stats: dict = {"mode": None, "target_days": 0, "resolved_days": 0,
                     "rows": 0, "archive_rows": 0, "delivery": None,
-                    "error": None}
+                    "error": None, "http_403s": 0}
     try:
         delivery = Path(delivery_dir).expanduser() if delivery_dir \
             is not None else Path(config.DATA_DELIVERY_DIR)
@@ -728,6 +728,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
         from concurrent.futures import ThreadPoolExecutor, as_completed
         workers = max(1, ingestion._int_env("NBA_DESIGNATION_WORKERS", 4))
         stats["workers"] = workers
+        refresh_403_before = ir_mod.http_403_count
         shared_parsed: dict = {}
         by_day: dict = {}
 
@@ -807,10 +808,18 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                            index=False)
         stats["archive_rows"] = int(len(out))
         stats["delivery"] = str(delivery / "nba_designations.parquet")
+        stats["http_403s"] = ir_mod.http_403_count - refresh_403_before
         logger.info("designation archive %s: %d day(s) resolved, %d new "
-                    "row(s), archive now %d row(s) -> %s",
+                    "row(s), archive now %d row(s) -> %s "
+                    "(injury-report host answered %d 403(s) during refresh)",
                     stats["mode"], stats["resolved_days"], stats["rows"],
-                    stats["archive_rows"], stats["delivery"])
+                    stats["archive_rows"], stats["delivery"],
+                    stats["http_403s"])
+        if stats["http_403s"]:
+            logger.warning("injury-report host answered %d 403(s) resolving "
+                           "the archive; days it throttled are uncovered, "
+                           "not filled - a rate-limited refresh looks like "
+                           "an empty archive", stats["http_403s"])
         return stats
     except Exception as exc:  # noqa: BLE001 - never fail the run here
         logger.warning("designation archive refresh failed (%s); training "
