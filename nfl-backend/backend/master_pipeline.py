@@ -538,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     # has no per-fold progress hook (progress_every logging only), so the
     # bar advances once on completion.
     dist = dist_mod.walk_forward_oof_ensemble(game_df, fold_list=fold_list)
+    _dist_bar.advance(len(fold_list))
     _dist_bar.close()
     logger.info("score-ensemble serving weights (OOF-earned): %s",
                   {k: round(float(v), 4)

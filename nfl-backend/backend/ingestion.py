@@ -512,8 +512,12 @@ def load_injuries_pit(games: pd.DataFrame,
             except Exception as exc:  # noqa: BLE001
                 logger.warning("injury PIT source unavailable for %s: %s", s, exc)
                 # A stale current-week cache can miss a new pre-kickoff update.
-                # Never reuse it for a season with a future target game.
-                if cached is not None and s not in refresh_seasons:
+                # Never reuse it for a season with a future target game -
+                # and never under a repull, where a cached row would be
+                # stored history dressed as a fresh pull (other loaders gate
+                # the same fallback on use_cache; clear_cache deletes these
+                # files first, so this only fires if one survived).
+                if use_cache and cached is not None and s not in refresh_seasons:
                     logger.warning("using historical cached PIT report rows for %s", s)
                     frames.append(cached)
                 continue
@@ -529,7 +533,10 @@ def load_injuries_pit(games: pd.DataFrame,
             df = df[list(INJ_PIT_NEEDS)]
             if df.empty:
                 logger.warning("injury PIT pull for %s returned no rows; not overwriting cache", s)
-                if cached is not None:
+                # Gated on use_cache so NFL_FULL_REPULL=1 holds by
+                # construction: an empty pull under a repull serves nothing,
+                # never disk (same rule every other loader applies).
+                if use_cache and cached is not None:
                     frames.append(cached)
                 continue
             df.to_parquet(path, index=False)
