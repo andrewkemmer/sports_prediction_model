@@ -1144,6 +1144,82 @@ def fetch_preview_html(url: str, session, timeout: int = 15) -> Optional[str]:
 #: contract the leave channel uses -- never a static incremental stack.
 PREGAME_AVAILABILITY_ARTIFACT = "nhl_pregame_availability_events.parquet"
 
+#: Crawl-progress ledger for the pre-game backfill: {game_id: attempted_at_utc}.
+#: A game crawled with NO_EVIDENCE leaves no rows in the events artifact, so
+#: without this record every later run re-crawls every historical gap — the
+#: archive can never top off incrementally. Recording attempts (including
+#: NO_EVIDENCE) is what lets an incremental run skip settled games and spend
+#: its fetches on genuinely-unattempted ones. Dateless cumulative SOURCE OF
+#: RECORD (same pruning hazard as the artifacts above): register in
+#: retention_policy or Phase 14 deletes the top-off memory mid-run.
+PREGAME_ATTEMPTED_LEDGER = "nhl_pregame_attempted.json"
+
+#: Settle horizon (days): an attempted game whose gameday is at least this
+#: far strictly past is never re-crawled on incremental runs — its preview
+#: article is final by then, so a re-attempt cannot gain evidence. Recent
+#: attempts (tonight's game, last night's) ARE retried: articles publish
+#: through game day, and the re-attempt is what keeps tonight's
+#: confirmations fresh without a manual backfill.
+PREGAME_ATTEMPT_SETTLE_DAYS = 2
+
+
+def load_pregame_attempted() -> dict:
+    """Game ids the pre-game backfill has already crawled.
+
+    Returns {game_id: attempted_at_utc ISO string}; absent or unreadable
+    ledger reads as "nothing attempted" (fail-open toward crawling more,
+    never toward assuming coverage). Values are informational only — the
+    settle rule compares gameday against the run date, not these stamps.
+    """
+    try:
+        from . import config
+    except Exception:  # noqa: BLE001
+        import config  # type: ignore
+    path = config.DATA_DELIVERY_DIR / PREGAME_ATTEMPTED_LEDGER
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pre-game attempted ledger unreadable (%s) — "
+                       "treating every game as unattempted", exc)
+        return {}
+    if not isinstance(payload, dict):
+        logger.warning("pre-game attempted ledger malformed (not a mapping) — "
+                       "treating every game as unattempted")
+        return {}
+    return {str(gid): str(stamp)
+            for gid, stamp in payload.items() if str(gid)}
+
+
+def record_pregame_attempted(game_ids, *, replace: bool = False) -> dict:
+    """Persist crawled game ids into the attempted ledger.
+
+    Merge by default (incremental top-off accumulates); ``replace=True``
+    rewrites the ledger wholesale (fresh repopulation). Returns the ledger
+    mapping written. Never raises: a ledger failure is logged, and the crawl
+    results it describes are already frozen in the events artifact.
+    """
+    try:
+        from . import config
+    except Exception:  # noqa: BLE001
+        import config  # type: ignore
+    ids = [str(gid) for gid in (game_ids or []) if str(gid)]
+    try:
+        if replace:
+            merged: dict = {}
+        else:
+            merged = load_pregame_attempted()
+        stamp = datetime.now(timezone.utc).isoformat()
+        for gid in ids:
+            merged.setdefault(gid, stamp)
+        (config.DATA_DELIVERY_DIR / PREGAME_ATTEMPTED_LEDGER).write_text(
+            json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+        return merged
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not persist pre-game attempted ledger (%s)", exc)
+        return {}
+
 
 def load_pregame_events():
     """Load the backfilled pre-game absence events from the repo artifact.
@@ -1268,7 +1344,8 @@ def _resolve_pregame_workers(workers: int | None = None) -> int:
 
 def backfill(games, session, *, write_artifact: bool = True,
              resume: bool = True, rate_limit_seconds: float = 0.0,
-             max_workers: int | None = None) -> pd.DataFrame:
+             max_workers: int | None = None,
+             fresh: bool = False) -> pd.DataFrame:
     """Backfill PIT pre-game availability for ``games``, RESUMABLY.
 
     Reproducibility contract: this is the only place the network is touched,
@@ -1277,6 +1354,19 @@ def backfill(games, session, *, write_artifact: bool = True,
     finishes without ever re-fetching or double-counting a game — the free
     sources throttle (the archive 429s aggressively), and a non-resumable
     crawl would restart from zero every time it got blocked.
+
+    ``fresh=True`` is the full-repopulation path (``NHL_FULL_REPULL=1``): the
+    frozen skip is disabled so every game is re-resolved, and the artifacts
+    plus the attempted ledger are REPLACED rather than merged — stale frozen
+    rows cannot survive a rebuild. Implies ``resume=False``.
+
+    Every crawled game — including ``NO_EVIDENCE`` gaps, which leave no
+    event rows — is recorded in the attempted ledger (when ``write_artifact``
+    is set; a dry run records nothing), so the next incremental top-off
+    spends its fetches on genuinely-unattempted games instead of re-crawling
+    settled gaps. Progress flushes to the artifacts every
+    ``PREGAME_PROGRESS_EVERY`` games, so a throttled multi-thousand-game
+    heal keeps what it crawled when the run dies instead of restarting.
 
     For each game, fetch the preview (both slug conventions), gate it on the
     PIT rules, and collect per-game absence events into
@@ -1287,6 +1377,8 @@ def backfill(games, session, *, write_artifact: bool = True,
     implied to be healthy.
     """
     import time as _time
+    if fresh:
+        resume = False
     done_ids: set = set()
     prior_events = None
     if resume:
@@ -1330,6 +1422,75 @@ def backfill(games, session, *, write_artifact: bool = True,
             _time.sleep(rate_limit_seconds)
         return rep
 
+    def _persist(done_reports, *, final: bool = False) -> None:
+        """Freeze completed reports into the artifacts + attempted ledger.
+
+        Merge (keep-first, prior always first) unless ``fresh`` repopulation
+        is on, which replaces. Idempotent by construction: ``done_reports``
+        is always the cumulative completed set in crawl order, so flushing
+        every ``PREGAME_PROGRESS_EVERY`` games ends byte-identical to a
+        single final freeze — a throttled multi-thousand-game heal keeps
+        what it crawled when the run dies instead of restarting from zero.
+        A dry run (``write_artifact=False``) persists nothing, including no
+        ledger entries and no coverage claim.
+        """
+        if not write_artifact:
+            return
+        crawled = [str(todo[i].get("game_id"))
+                   for i, r in enumerate(done_reports) if r is not None]
+        if not crawled:
+            return
+        completed = [r for r in done_reports if r is not None]
+        try:
+            from . import config
+        except Exception:  # noqa: BLE001
+            import config  # type: ignore
+        events = build_pregame_events(completed)
+        if len(events):
+            path = config.DATA_DELIVERY_DIR / PREGAME_AVAILABILITY_ARTIFACT
+            try:
+                if fresh:
+                    events.to_parquet(path, index=False)
+                else:
+                    prior = (prior_events if prior_events is not None
+                             else (pd.read_parquet(path)
+                                   if path.exists() else None))
+                    if prior is not None and len(prior):
+                        events = pd.concat(
+                            [prior, events], ignore_index=True, sort=False
+                        ).drop_duplicates(
+                            subset=["player_name", "game_id"], keep="first")
+                    if len(events):
+                        events.to_parquet(path, index=False)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not persist pre-game availability: %s",
+                               exc)
+        goalie_events = build_confirmed_goalie_events(completed)
+        if len(goalie_events):
+            gpath = config.DATA_DELIVERY_DIR / PREGAME_GOALIE_ARTIFACT
+            try:
+                if not fresh:
+                    gprior = (pd.read_parquet(gpath)
+                              if gpath.exists() else None)
+                    if gprior is not None and len(gprior):
+                        goalie_events = pd.concat(
+                            [gprior, goalie_events], ignore_index=True,
+                            sort=False
+                        ).drop_duplicates(subset=["game_id", "side"],
+                                          keep="first")
+                if len(goalie_events):
+                    goalie_events.to_parquet(gpath, index=False)
+                    (logger.info if final else logger.debug)(
+                        "confirmed-goalie channel: %d row(s)",
+                        len(goalie_events))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not persist confirmed goalies: %s", exc)
+        # Every crawled game is recorded — evidence or NO_EVIDENCE alike —
+        # so the next incremental top-off skips settled gaps instead of
+        # re-crawling them. Fresh repopulation replaces the ledger with
+        # exactly this run's attempts.
+        record_pregame_attempted(crawled, replace=fresh)
+
     workers = _resolve_pregame_workers(max_workers)
     reports: list = [None] * len(todo)
     if workers < 2 or len(todo) < 2:
@@ -1339,6 +1500,9 @@ def backfill(games, session, *, write_artifact: bool = True,
                 logger.info("pregame backfill: %d/%d games crawled "
                             "(%d frozen skipped, %d worker(s))",
                             i + 1, len(todo), n_frozen, workers)
+                if (write_artifact and (i + 1) % PREGAME_PROGRESS_EVERY == 0
+                        and i + 1 != len(todo)):
+                    _persist(reports)
     else:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -1352,45 +1516,12 @@ def backfill(games, session, *, write_artifact: bool = True,
                     logger.info("pregame backfill: %d/%d games crawled "
                                 "(%d frozen skipped, %d worker(s))",
                                 done, len(todo), n_frozen, workers)
+                    if (write_artifact and done % PREGAME_PROGRESS_EVERY == 0
+                            and done != len(todo)):
+                        _persist(reports)
 
-    events = build_pregame_events(reports)
-    if write_artifact and len(events):
-        try:
-            from . import config
-        except Exception:  # noqa: BLE001
-            import config  # type: ignore
-        path = config.DATA_DELIVERY_DIR / PREGAME_AVAILABILITY_ARTIFACT
-        try:
-            prior = prior_events if prior_events is not None else (
-                pd.read_parquet(path) if path.exists() else None)
-            if prior is not None and len(prior):
-                events = pd.concat([prior, events], ignore_index=True, sort=False
-                                   ).drop_duplicates(
-                    subset=["player_name", "game_id"], keep="first")
-            if len(events):
-                events.to_parquet(path, index=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("could not persist pre-game availability: %s", exc)
-    goalie_events = build_confirmed_goalie_events(reports)
-    if write_artifact and len(goalie_events):
-        try:
-            from . import config as _goalie_cfg
-        except Exception:  # noqa: BLE001
-            import config as _goalie_cfg  # type: ignore
-        gpath = _goalie_cfg.DATA_DELIVERY_DIR / PREGAME_GOALIE_ARTIFACT
-        try:
-            gprior = (pd.read_parquet(gpath)
-                      if gpath.exists() else None)
-            if gprior is not None and len(gprior):
-                goalie_events = pd.concat(
-                    [gprior, goalie_events], ignore_index=True, sort=False
-                ).drop_duplicates(subset=["game_id", "side"], keep="first")
-            if len(goalie_events):
-                goalie_events.to_parquet(gpath, index=False)
-                logger.info("confirmed-goalie channel: %d row(s)",
-                            len(goalie_events))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("could not persist confirmed goalies: %s", exc)
+    if todo:
+        _persist(reports, final=True)
     # 2026-10-05 run-log review: coverage_gate — the machinery whose own
     # docstring promises the gap is "LOUD, never silent" and the status
     # artifact "written every run" — was reachable only from tests, so the
@@ -1404,7 +1535,8 @@ def backfill(games, session, *, write_artifact: bool = True,
 
 
 def refresh_scope(schedule: pd.DataFrame, run_date, window_end,
-                  full: bool) -> pd.DataFrame:
+                  full: bool, *, skip_ids=None,
+                  attempted_ids=None) -> pd.DataFrame:
     """Rows of the pipeline schedule due for a pregame-channel refresh.
 
     The daily pipeline replays the frozen ``nhl_pregame_availability_*``
@@ -1412,12 +1544,22 @@ def refresh_scope(schedule: pd.DataFrame, run_date, window_end,
     refetches scores/boxscores/MoneyPuck yet serves byte-identical pre-game
     evidence, so channel-backed logic (e.g. PIT-confirmed starting goalies)
     applies to zero training games. This selects the games the pipeline
-    must (re)attempt: the full schedule window on a full repull, else just
-    the upcoming serving tail (yesterday onward — cheap, and it keeps
-    tonight's confirmations fresh without a manual backfill).
+    must (re)attempt:
 
-    ``backfill(..., resume=True)`` still skips already-frozen games, so
-    frozen PIT evidence is never rewritten — a refresh only fills gaps.
+    * full repull: the whole schedule window — every game is re-resolved
+      and the artifacts are repopulated from scratch (``backfill``
+      ``fresh=True``), so stale frozen rows cannot survive a rebuild.
+    * incremental run: a FULL top-off of the window — every game missing
+      from the frozen artifacts is attempted, not just the upcoming
+      serving tail. Already-frozen games (``skip_ids``) are never
+      re-crawled, and already-attempted games settled at least
+      ``PREGAME_ATTEMPT_SETTLE_DAYS`` past are never re-crawled either:
+      their preview articles are final, so a re-attempt burns fetches on a
+      source that throttles aggressively and can gain nothing. Recent
+      attempts (tonight's game, last night's) ARE retried — articles
+      publish through game day, and the retry is what keeps tonight's
+      confirmations fresh without a manual backfill.
+
     Returns an empty frame when there is nothing due (or no usable dates).
     """
     empty = pd.DataFrame()
@@ -1430,21 +1572,42 @@ def refresh_scope(schedule: pd.DataFrame, run_date, window_end,
     if col is None:
         return empty
     try:
-        lo = pd.Timestamp(run_date) - pd.Timedelta(days=1)
+        today = pd.Timestamp(run_date).normalize()
     except Exception:  # noqa: BLE001
         return empty
     try:
         gd = pd.to_datetime(schedule[col], errors="coerce")
     except Exception:  # noqa: BLE001
         return empty
-    out = schedule[gd >= lo].copy()
+    mask = gd.notna()
     if window_end is not None:
         try:
-            out = out[pd.to_datetime(out[col], errors="coerce")
-                        <= pd.Timestamp(window_end)].copy()
+            mask &= gd <= pd.Timestamp(window_end)
         except Exception:  # noqa: BLE001
             pass
-    return out
+    if "game_id" in schedule.columns:
+        gids = schedule["game_id"].astype(str)
+        if skip_ids:
+            try:
+                mask &= ~gids.isin({str(x) for x in skip_ids})
+            except Exception:  # noqa: BLE001
+                pass
+        if attempted_ids:
+            att = {str(x) for x in attempted_ids}
+            try:
+                settle = (today - pd.Timedelta(
+                    days=int(PREGAME_ATTEMPT_SETTLE_DAYS)))
+                gdn = gd.dt.normalize()
+                settled = gdn.notna() & (gdn <= settle)
+            except Exception:  # noqa: BLE001
+                # Uncomparable dates fail OPEN toward re-attempting: a
+                # wasted fetch beats a silently uncovered game.
+                settled = pd.Series(False, index=schedule.index)
+            try:
+                mask &= ~(gids.isin(att) & settled)
+            except Exception:  # noqa: BLE001
+                pass
+    return schedule[mask].copy()
 
 
 def _peek_date_published(html: str) -> Optional[datetime]:

@@ -80,6 +80,13 @@ EXACT_MASTER_NAMES = frozenset({
     # Dateless by design, so it carries the same unregistered-dateless
     # pruning hazard as the leave ledger above.
     "nhl_availability_coverage.json",
+    # PIT pre-game backfill ATTEMPTED LEDGER — {game_id: attempted_at_utc}
+    # for every crawled game including NO_EVIDENCE gaps (which leave no
+    # event rows). The incremental top-off consults it to skip settled gaps
+    # instead of re-crawling them; unregistered and dateless it classifies
+    # "stale" and Phase 14 deletes the top-off memory mid-run, after which
+    # every later run re-crawls every historical gap.
+    "nhl_pregame_attempted.json",
     # Run log (2026-10-02, MLB/NFL parity): one rolling master file
     # written by run_log_tee.py and delivered with the sync tree.
     # Dateless by design (overwritten in place every run), so blanket

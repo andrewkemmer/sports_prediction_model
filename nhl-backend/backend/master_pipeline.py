@@ -366,19 +366,39 @@ def main(argv: list[str] | None = None) -> int:
     # refetches scores/boxscores/MoneyPuck yet serves identical pre-game
     # evidence — channel-backed logic then applies to zero training games
     # (verified 2026-10-24: 4 confirmation rows, both in the serving slate,
-    # 0 of 4165 OOF games). resume=True only attempts unfrozen games, so
-    # frozen PIT evidence is never rewritten; scope is the full schedule
-    # window on FULL_REPULL, else just the upcoming serving tail (cheap,
-    # and it keeps tonight's confirmations fresh without a manual
-    # backfill). --skip-pull implies no network anywhere, so it skips too;
-    # any failure degrades to replaying the frozen channel, never a crash.
+    # 0 of 4165 OOF games). The training set must not depend on a static
+    # designation archive, so the refresh fully re-populates on FULL_REPULL
+    # (every game re-resolved, artifacts + attempted ledger replaced) and
+    # otherwise tops off the whole window incrementally: every game missing
+    # from the frozen artifacts is attempted, minus already-frozen games
+    # and already-attempted games settled >=2 days past (their articles are
+    # final — re-crawling them burns fetches on a throttling source for no
+    # gain). Recent attempts are retried, which keeps tonight's
+    # confirmations fresh without a manual backfill. --skip-pull implies no
+    # network anywhere, so it skips too; any failure degrades to replaying
+    # the frozen channel, never a crash.
     if not args.skip_pull:
         try:
             from pit_availability import backfill as _pregame_backfill
             from pit_availability import refresh_scope as _refresh_scope
+            from pit_availability import load_pregame_attempted as _load_att
+            from pit_availability import load_pregame_events as _load_prev
             import requests as _requests
+            try:
+                _prev = _load_prev()
+                _frozen_ids = (set(_prev["game_id"].astype(str))
+                               if _prev is not None and len(_prev)
+                               and "game_id" in _prev.columns else set())
+            except Exception:  # noqa: BLE001
+                _frozen_ids = set()
+            try:
+                _attempted_ids = set(_load_att())
+            except Exception:  # noqa: BLE001
+                _attempted_ids = set()
             _scope = _refresh_scope(schedule, run_date, window_end,
-                                    full_repull)
+                                    full_repull,
+                                    skip_ids=_frozen_ids,
+                                    attempted_ids=_attempted_ids)
             if len(_scope):
                 _sess = _requests.Session()
                 _sess.headers.update(
@@ -391,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
                 _cov = _pregame_backfill(
                     [dict(r) for r in _scope.to_dict("records")],
                     _sess, write_artifact=True, resume=True,
+                    fresh=full_repull,
                     rate_limit_seconds=_rate)
                 try:
                     _n_cov = len(_cov)
@@ -398,11 +419,21 @@ def main(argv: list[str] | None = None) -> int:
                         if "coverage" in _cov.columns else -1
                 except Exception:  # noqa: BLE001
                     _n_cov, _n_ev = -1, -1
-                logger.info("pregame refresh: %d game(s) due, %d report(s) "
-                            "(%d with evidence) — frozen PIT rows untouched",
-                            len(_scope), _n_cov, _n_ev)
+                if full_repull:
+                    logger.info("pregame refresh (FULL REPOPULATE): %d game(s) "
+                                "re-resolved, %d report(s) (%d with evidence) — "
+                                "artifacts replaced",
+                                len(_scope), _n_cov, _n_ev)
+                else:
+                    logger.info("pregame refresh (incremental top-off): %d "
+                                "game(s) due (%d frozen + %d settled-attempted "
+                                "skipped), %d report(s) (%d with evidence)",
+                                len(_scope), len(_frozen_ids),
+                                len(_attempted_ids), _n_cov, _n_ev)
             else:
-                logger.info("pregame refresh: nothing due in scope")
+                logger.info("pregame refresh: nothing due in scope "
+                            "(%d frozen, %d attempted)",
+                            len(_frozen_ids), len(_attempted_ids))
         except Exception as exc:  # noqa: BLE001
             logger.warning("pregame refresh failed (frozen channel replayed): %s",
                            exc)

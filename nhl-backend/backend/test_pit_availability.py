@@ -801,10 +801,44 @@ class TestRefreshScope:
                                full=True)
         assert set(out["game_id"]) == {"OLD", "NEW"}
 
-    def test_daily_run_covers_only_the_upcoming_tail(self):
+    def test_full_repull_ignores_skip_and_attempted_sets(self):
+        out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
+                               full=True, skip_ids={"OLD", "NEW"},
+                               attempted_ids={"OLD", "NEW"})
+        assert set(out["game_id"]) == {"OLD", "NEW"}
+
+    def test_daily_run_tops_off_missing_history(self):
+        # Incremental is a FULL top-off of the window, not just the serving
+        # tail: the historical game is due when nothing covers it.
         out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
                                full=False)
+        assert set(out["game_id"]) == {"OLD", "NEW"}
+
+    def test_daily_run_skips_frozen_games(self):
+        out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
+                               full=False, skip_ids={"OLD"})
         assert set(out["game_id"]) == {"NEW"}
+
+    def test_daily_run_skips_settled_attempts_but_retries_recent_ones(self):
+        # OLD (2024-01-02, attempted long ago) is settled — its article is
+        # final, re-crawling gains nothing. NEW (2026-10-23, attempted on the
+        # run date) is retried: articles publish through game day, and the
+        # retry is what keeps tonight's confirmations fresh.
+        out = pa.refresh_scope(self._sched(), "2026-10-23", "2026-10-25",
+                               full=False,
+                               attempted_ids={"OLD", "NEW"})
+        assert set(out["game_id"]) == {"NEW"}
+
+    def test_daily_run_retries_last_nights_attempt(self):
+        sched = pd.DataFrame([
+            {"game_id": "LASTNIGHT", "gameday": pd.Timestamp("2026-10-22"),
+             "home_team": "BOS", "away_team": "NYI",
+             "start_time_utc": "2026-10-22T22:00:00Z"},
+        ])
+        out = pa.refresh_scope(sched, "2026-10-23", "2026-10-25",
+                               full=False,
+                               attempted_ids={"LASTNIGHT"})
+        assert set(out["game_id"]) == {"LASTNIGHT"}
 
     def test_empty_or_dateless_schedule_is_nothing_due(self):
         assert len(pa.refresh_scope(pd.DataFrame(), "2026-10-23",
@@ -812,3 +846,164 @@ class TestRefreshScope:
         nodates = pd.DataFrame([{"game_id": "X", "home_team": "BOS"}])
         assert len(pa.refresh_scope(nodates, "2026-10-23", "2026-10-25",
                                     full=False)) == 0
+
+
+class TestAttemptedLedger:
+    """The attempted ledger is the top-off memory: gaps stay gaps."""
+
+    def test_round_trip_and_merge(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        assert pa.load_pregame_attempted() == {}
+        pa.record_pregame_attempted(["G1", "G2"])
+        first = pa.load_pregame_attempted()
+        assert set(first) == {"G1", "G2"}
+        pa.record_pregame_attempted(["G3"])
+        merged = pa.load_pregame_attempted()
+        assert set(merged) == {"G1", "G2", "G3"}
+        # merge keeps the first stamp for a re-recorded game.
+        assert merged["G1"] == first["G1"]
+
+    def test_replace_rewrites_wholesale(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        pa.record_pregame_attempted(["G1", "G2"])
+        pa.record_pregame_attempted(["G9"], replace=True)
+        assert set(pa.load_pregame_attempted()) == {"G9"}
+
+    def test_absent_or_corrupt_ledger_reads_as_nothing_attempted(
+            self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        assert pa.load_pregame_attempted() == {}
+        (tmp_path / pa.PREGAME_ATTEMPTED_LEDGER).write_text("not json")
+        assert pa.load_pregame_attempted() == {}
+
+    def test_no_evidence_crawl_is_recorded(self, tmp_path, monkeypatch):
+        """A 404 crawl leaves no event rows but MUST leave ledger rows,
+        or the next top-off re-crawls the same gap forever."""
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        sess = _FakeSession([_FakeResp(404)] * 10)
+        games = [{"game_id": "GAP", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-02T22:00:00Z"}]
+        cov = pa.backfill(games, sess, write_artifact=True, resume=True,
+                          max_workers=1)
+        assert len(cov) == 1
+        assert set(pa.load_pregame_attempted()) == {"GAP"}
+        # ... and the recorded gap is then skipped by the scope.
+        sched = pd.DataFrame([
+            {"game_id": "GAP", "gameday": pd.Timestamp("2024-01-02"),
+             "home_team": "BOS", "away_team": "NYR"},
+        ])
+        out = pa.refresh_scope(sched, "2026-10-23", "2026-10-25",
+                               full=False,
+                               attempted_ids=set(pa.load_pregame_attempted()))
+        assert len(out) == 0
+
+    def test_dry_run_records_nothing(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        sess = _FakeSession([_FakeResp(404)] * 10)
+        games = [{"game_id": "GAP", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-02T22:00:00Z"}]
+        pa.backfill(games, sess, write_artifact=False, resume=False,
+                    max_workers=1)
+        assert pa.load_pregame_attempted() == {}
+        assert not (tmp_path / pa.PREGAME_ATTEMPTED_LEDGER).exists()
+
+
+class TestFreshRepopulation:
+    """FULL_REPULL=1 must genuinely re-populate, not replay stale rows."""
+
+    def _frozen_stale(self, tmp_path):
+        frozen = pd.DataFrame([{
+            "player_name": "Stale Player", "player_id": None,
+            "team": "Rangers",
+            "announced_at_utc": pd.Timestamp("2025-01-02 13:00:00"),
+            "returned_at_utc": pd.Timestamp("2025-01-02 22:00:01"),
+            "game_id": "G1", "category": "scratched", "detail": "old",
+            "source_url": "http://old",
+        }])
+        frozen.to_parquet(
+            tmp_path / pa.PREGAME_AVAILABILITY_ARTIFACT, index=False)
+
+    def _fresh_article(self, monkeypatch, player="Fresh Player"):
+        html = ('<html><head><script type="application/ld+json">'
+                '{"datePublished": "2025-01-02T13:00:00Z"}</script></head>'
+                '<body>preview</body></html>')
+
+        def _fake_parse(html_in, game, url, pub_in):
+            return pa.PregameReport(
+                game_id=str(game.get("game_id")),
+                puck_drop_utc=pd.Timestamp(
+                    game.get("start_time_utc")).to_pydatetime(),
+                source_url=url,
+                date_published_utc=datetime(2025, 1, 2, 13, 0, 0,
+                                            tzinfo=timezone.utc),
+                lead_time_minutes=540.0,
+                absences=[pa.PregameAbsence(
+                    player_name=player, team="Rangers",
+                    category="scratched", detail="new",
+                    game_id=str(game.get("game_id")))],
+                coverage="PREVIEW",
+            )
+
+        monkeypatch.setattr(pa, "parse_pregame_article", _fake_parse)
+        return html
+
+    def test_fresh_reresolves_frozen_games(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        self._frozen_stale(tmp_path)
+        html = self._fresh_article(monkeypatch)
+        sess = _FakeSession([_FakeResp(200, html)] * 4)
+        games = [{"game_id": "G1", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-02T22:00:00Z"}]
+        pa.backfill(games, sess, write_artifact=True, resume=True,
+                    fresh=True, max_workers=1)
+        # The frozen game was re-crawled (network hit despite the freeze);
+        # the first candidate yields PREVIEW evidence so the second is untried.
+        assert len(sess.calls) == 1
+        events = pa.load_pregame_events()
+        names = set(events["player_name"])
+        assert "Fresh Player" in names
+        assert "Stale Player" not in names
+
+    def test_fresh_replaces_the_attempted_ledger(self, tmp_path, monkeypatch):
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        pa.record_pregame_attempted(["STALE"])
+        sess = _FakeSession([_FakeResp(404)] * 10)
+        games = [{"game_id": "G1", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-02T22:00:00Z"}]
+        pa.backfill(games, sess, write_artifact=True, resume=True,
+                    fresh=True, max_workers=1)
+        assert set(pa.load_pregame_attempted()) == {"G1"}
+
+    def test_resume_still_never_rewrites_frozen_rows(
+            self, tmp_path, monkeypatch):
+        """The incremental path keeps its contract: frozen rows untouched."""
+        from backend import config as _cfg
+        monkeypatch.setattr(_cfg, "DATA_DELIVERY_DIR", tmp_path)
+        self._frozen_stale(tmp_path)
+        html = self._fresh_article(monkeypatch)
+        sess = _FakeSession([_FakeResp(200, html)] * 4)
+        games = [{"game_id": "G1", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-02T22:00:00Z"},
+                 {"game_id": "G2", "away_team": "NYR",
+                  "home_team": "BOS",
+                  "start_time_utc": "2025-01-03T22:00:00Z"}]
+        pa.backfill(games, sess, write_artifact=True, resume=True,
+                    max_workers=1)
+        # G1 frozen -> never re-crawled; only G2 hits the network.
+        assert not any("january-2" in c for c in sess.calls)
+        events = pa.load_pregame_events()
+        names = set(events["player_name"])
+        assert "Stale Player" in names  # frozen row preserved
+        assert "Fresh Player" in names  # G2 evidence merged in
