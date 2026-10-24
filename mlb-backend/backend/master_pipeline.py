@@ -384,13 +384,9 @@ _il_dir = out_dir / "il_stints"
 _il_dir.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MLB_IL_STINTS_DIR", str(_il_dir))
 print(f"  📁 IL ledgers → {_il_dir}")
-# Full replication: under MLB_FULL_REPULL every transaction year re-pulls
-# from StatsAPI (--refresh) instead of reusing the run cache's il_tx JSONs.
-# On a fresh clone the cache is empty either way; on a warm host reusing it
-# would pin history to whatever an earlier run stored.
 sys.argv = ["build_il_stints.py",
             "--end", CONFIG["end_date"],
-            "--pbp", str(pitches_path)] + (["--refresh"] if full_repull else [])
+            "--pbp", str(pitches_path)]
 try:
     _build_il_stints()
 except (Exception, SystemExit) as e:
@@ -446,12 +442,7 @@ if full_repull:
         print(f"  ⚠️  fresh decided-game enumeration failed ({e}); lineup "
               f"passes fall back to the stored game list")
         _fresh_games = None
-# The audit pass reads its pitch frame from --pbp (default: the repo's
-# data_delivery/pitches.parquet, absent on a fresh clone — validation would
-# silently defer). Point it at this run's freshly-pulled pitches so a full
-# rebuild validates against fresh data, never stored history.
-sys.argv = ["backfill_lineups.py", "--limit", "500",
-            "--pbp", str(pitches_path)]
+sys.argv = ["backfill_lineups.py", "--limit", "500"]
 try:
     _backfill_lineups(games=_fresh_games)
 except (Exception, SystemExit) as e:

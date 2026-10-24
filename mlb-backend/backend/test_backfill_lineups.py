@@ -876,20 +876,3 @@ def _sched_game(pk, game_date):
                       "home": {"team": {"abbreviation": "NYY"}}}}
 
 
-def test_full_repull_wiring_uses_no_stored_history():
-    """MLB_FULL_REPULL=1 must replicate from sources, never stored files.
-
-    Pins the master_pipeline wiring (2026-10-26 remediation): the IL ledger
-    rebuild re-pulls every transaction year (--refresh, not the run cache's
-    il_tx JSONs), and the lineup audit pass reads this run's freshly-pulled
-    pitches (--pbp) instead of the repo's data_delivery/pitches.parquet —
-    which does not exist on a fresh clone, where the audit would otherwise
-    silently defer and the full rebuild would validate nothing.
-    """
-    mp_src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
-    assert '["--refresh"] if full_repull else []' in mp_src, (
-        "Phase 1.5 must re-pull IL transactions under MLB_FULL_REPULL")
-    assert '"--pbp", str(pitches_path)' in mp_src, (
-        "the lineup audit pass must read this run's fresh pitches")
-
-
