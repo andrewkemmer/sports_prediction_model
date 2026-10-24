@@ -114,7 +114,7 @@ LINEUPS_COLUMNS = ["game_pk", "game_date", "home_team", "away_team",
                    # agreement check vs first-trip batters (NULL = unchecked).
                    # Tier-1 trust (mirrors features.py order_sides exactly):
                    # complete_* AND (pit_valid IS NOT FALSE OR
-                   # source='backfill'/NULL). Provenance-only by design
+                   # source='backfill'/'actuals'/NULL). Provenance-only by design
                    # (2026-10-24): validated_* is audit output, never a
                    # gate — the official posted nine binds even when a late
                    # scratch makes it differ from the starters.
@@ -240,6 +240,20 @@ def upsert_lineups(df_new: pd.DataFrame, out_path: Path | None = None) -> int:
                                & df_new["game_pk"].isin(guarded_pks))]
             if df_new.empty:
                 return 0
+        # Actuals precedence (2026-10-26): a stored boxscore nine is
+        # training truth and is NEVER overwritten by a non-actuals row
+        # (snapshot repair, slate capture, legacy backfill). Actuals rows
+        # always proceed (idempotent re-pull). No-op until actuals rows
+        # exist — legacy behavior otherwise byte-identical.
+        actual_pks = set(prev.loc[(prev["source"] == "actuals")
+                                  & prev["complete_home"]
+                                  & prev["complete_away"],
+                                  "game_pk"].astype(int))
+        if actual_pks:
+            df_new = df_new[(df_new["source"] == "actuals")
+                            | ~df_new["game_pk"].isin(actual_pks)]
+            if df_new.empty:
+                return 0
         df_all = pd.concat([prev, df_new], ignore_index=True)
     else:
         df_all = df_new
@@ -363,6 +377,177 @@ def fetch_snapshot(game_pk: int, timecode: str,
             return None, f"http_{resp.status_code}"
         except Exception as e:  # noqa: BLE001
             return None, f"request_error: {e}"
+
+
+BOXSCORE_URL = "https://statsapi.mlb.com/api/v1/game/{pk}/boxscore"
+
+
+def fetch_boxscore(pk: int, pause_sec: float = PAUSE_SEC) -> tuple[dict | None, str]:
+    """One boxscore payload (pure transport, paced + retried).
+
+    Mirrors fetch_feed/fetch_snapshot: (payload, "") or (None, reason).
+    Never raises.
+    """
+    import requests
+    import time as _time
+    last_err = ""
+    for attempt in (1, 2):
+        try:
+            resp = requests.get(BOXSCORE_URL.format(pk=int(pk)), timeout=20)
+            if resp.status_code == 200:
+                return resp.json(), ""
+            last_err = f"http_{resp.status_code}"
+        except Exception as e:  # noqa: BLE001 — paced retry, then honest miss
+            last_err = f"request_error: {e}"
+        if attempt == 1:
+            _time.sleep(pause_sec * 2)
+    return None, last_err
+
+
+def boxscore_nines(box: dict | None) -> dict:
+    """Actual starters from a boxscore payload: battingOrder ONLY.
+
+    battingOrder is the starting nine (stable post-game); the `batters`
+    list includes pinch-hitters, runners and replacements and must NEVER
+    source training orders. Short/missing sides read as [] — the caller
+    skips incomplete games (honest gap, retried next run). Pure.
+    """
+    out = {"home": [], "away": []}
+    teams = (box or {}).get("teams") or {}
+    for side in ("home", "away"):
+        bo = (teams.get(side) or {}).get("battingOrder") or []
+        try:
+            ids = [int(x) for x in list(bo)]
+        except (TypeError, ValueError):
+            ids = []
+        out[side] = ids
+    return out
+
+
+def actuals_row(game_pk: int, game_date, home_team: str, away_team: str,
+                nines: dict) -> dict:
+    """One training-truth cache row from boxscore starters (pure).
+
+    source='actuals': post-game truth, bound tier 1 by rule (never PIT —
+    these rows claim no pre-game knowledge, so pit_valid is False and
+    state is 'Final'). Only exact 9-man sides ship; anything else is an
+    honest incomplete row the next run retries.
+    """
+    home = list((nines or {}).get("home") or [])
+    away = list((nines or {}).get("away") or [])
+    ch, ca = len(home) == 9, len(away) == 9
+    return {
+        "game_pk": int(game_pk),
+        "game_date": pd.Timestamp(game_date),
+        "home_team": home_team,
+        "away_team": away_team,
+        "home_order": home if ch else None,
+        "away_order": away if ca else None,
+        "complete_home": ch,
+        "complete_away": ca,
+        "state": "Final",
+        "home_starter_hand": None,
+        "away_starter_hand": None,
+        "captured_utc": _utc_now_iso(),
+        "first_pitch_utc": None,
+        "source": "actuals",
+        "pit_valid": False,
+        "validated_home": None,
+        "validated_away": None,
+        "feed_timecode": None,
+    }
+
+
+def backfill_actual_nines(games: pd.DataFrame, limit: int | None = 200,
+                          full_rebuild: bool = False,
+                          out_path: Path | None = None,
+                          pause_sec: float = PAUSE_SEC,
+                          max_workers: int | None = None) -> int:
+    """Training-truth backfill: boxscore starters for decided games.
+
+    For decided games missing an actuals-complete row (or every decided
+    game under full_rebuild), pull the boxscore and upsert its
+    battingOrder nine with source='actuals'. battingOrder ONLY — never
+    the batters list (a mid-game scratch, sub or pinch-hitter must never
+    enter training orders). Idempotent: re-pulling rewrites the identical
+    nine (upsert latest-wins; actuals rows are precedence-guarded against
+    every other writer). Manual entry point, NOT called by the Kaggle run:
+        python backfill_lineups.py --actuals [--actuals-full]
+    Never raises: fetch failures degrade to honest gaps retried next run.
+    """
+    df = games.dropna(subset=["game_pk"]).copy()
+    df["game_pk"] = df["game_pk"].astype(int)
+    if out_path is not None:
+        out_path = Path(out_path)
+    have = set()
+    if not full_rebuild:
+        try:
+            cache = pd.read_parquet(
+                out_path or (DATA_DELIVERY_DIR / "lineups.parquet"))
+            cache = _normalize(cache)
+            have = set(cache.loc[
+                (cache["source"] == "actuals")
+                & cache["complete_home"] & cache["complete_away"],
+                "game_pk"].astype(int))
+        except Exception:  # noqa: BLE001 — no cache: everything is todo
+            have = set()
+    todo = df[~df["game_pk"].isin(have)].sort_values(["game_date",
+                                                        "game_pk"])
+    if limit is not None:
+        todo = todo.head(limit)
+    if todo.empty:
+        print("actuals backfill: every decided game already has a "
+              "training-truth nine")
+        return 0
+    print(f"actuals backfill: {len(todo)} decided game(s) to pull")
+    records = list(todo.itertuples())
+
+    def _one(record) -> tuple[dict | None, str]:
+        box, _err = fetch_boxscore(int(record.game_pk), pause_sec=pause_sec)
+        if box is None:
+            return None, "fetch_failed"
+        nines = boxscore_nines(box)
+        if len(nines["home"]) != 9 or len(nines["away"]) != 9:
+            return None, "incomplete"
+        try:
+            row = actuals_row(int(record.game_pk), record.game_date,
+                              record.home_team, record.away_team, nines)
+        except Exception:  # noqa: BLE001 — per-game fail-safe
+            return None, "error"
+        return row, "actuals"
+
+    workers = resolve_snapshot_workers(max_workers)
+    ordered: list = [None] * len(records)
+    if workers < 2:
+        for i, record in enumerate(records):
+            ordered[i] = _one(record)
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            pending = {pool.submit(_one, record): i
+                       for i, record in enumerate(records)}
+            for future in as_completed(pending):
+                ordered[pending[future]] = future.result()
+        finally:
+            pool.shutdown(wait=True)
+    rows = []
+    counts = {"fetch_failed": 0, "incomplete": 0, "error": 0}
+    for result in ordered:
+        row, reason = result or (None, "error")
+        if row is not None:
+            rows.append(row)
+        else:
+            counts[reason if reason in counts else "error"] += 1
+    if not rows:
+        print("actuals backfill: no training-truth nines pulled — cache "
+              f"untouched {counts}")
+        return 0
+    n = upsert_lineups(pd.DataFrame(rows), out_path=out_path)
+    print(f"actuals backfill: {n} training-truth nine(s) upserted "
+          f"({counts['fetch_failed']} fetch failures, "
+          f"{counts['incomplete']} incomplete, {counts['error']} errored)")
+    return n
 
 
 def _pit_valid(captured_utc, first_pitch_utc) -> bool:
@@ -874,6 +1059,13 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=400)
     ap.add_argument("--csv", type=Path, default=None)
     ap.add_argument("--pbp", type=Path, default=None)
+    ap.add_argument("--actuals", action="store_true",
+                    help="backfill boxscore actual nines for decided games "
+                         "missing them, then exit (manual training-truth "
+                         "run; the Kaggle run never passes this)")
+    ap.add_argument("--actuals-full", action="store_true",
+                    help="re-pull boxscore actuals for ALL decided games, "
+                         "then exit (manual full rebuild)")
     args = ap.parse_args()
 
     csv_path = args.csv or (DATA_DELIVERY_DIR / "game_level_features.csv")
@@ -887,6 +1079,11 @@ def main() -> None:
     decided_pks = set(full.dropna(subset=["home_win"])["game_pk"].astype(int))
     games = games[games["game_pk"].isin(decided_pks)].reset_index(drop=True)
     print(f"decided games to validate: {len(games)}")
+    if args.actuals or args.actuals_full:
+        backfill_actual_nines(
+            games, limit=None if args.actuals_full else args.limit,
+            full_rebuild=bool(args.actuals_full))
+        return
 
     out_path = DATA_DELIVERY_DIR / "lineups.parquet"
     if not out_path.exists():

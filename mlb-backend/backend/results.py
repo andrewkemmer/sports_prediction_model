@@ -695,7 +695,8 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     # THE SAME membership both pools bind: `_tier1_eligible_lineups` is the
     # pandas twin of the SQL tier-1 predicate (features.order_sides) — a
     # side binds when complete AND provably pre-game (pit_valid IS NOT
-    # FALSE, or a grandfathered backfill/NULL source). Posted-vs-actual
+    # FALSE, a grandfathered backfill/NULL source, or boxscore training
+    # truth ('actuals')). Posted-vs-actual
     # agreement is audit-only, never a gate: an unposted or post-pitch
     # order is UNKNOWN at bet time → all six NULL.
     trusted = _tier1_eligible_lineups(lu)

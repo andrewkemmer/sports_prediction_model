@@ -696,3 +696,123 @@ def test_snapshot_full_rebuild_does_not_list_retained_proven_games(
     out = capsys.readouterr().out
     assert "1 snapshot fetches failed" in out
     assert "fetch_failed=[2]" not in out
+
+
+# ── boxscore actuals (2026-10-26, training truth) ────────────────────────────
+
+_BOX_ACTUAL_H = [701, 702, 703, 704, 705, 706, 707, 708, 709]
+_BOX_ACTUAL_A = [601, 602, 603, 604, 605, 606, 607, 608, 609]
+
+
+def _boxscore(home_ids=_BOX_ACTUAL_H, away_ids=_BOX_ACTUAL_A):
+    # battingOrder is the starting nine; `batters` carries subs/pinch
+    # hitters that must NEVER enter training orders.
+    return {"teams": {
+        "home": {"battingOrder": list(home_ids),
+                   "batters": list(home_ids) + [999]},
+        "away": {"battingOrder": list(away_ids),
+                   "batters": list(away_ids) + [998, 997]}}}
+
+
+def test_boxscore_nines_reads_batting_order_only():
+    nines = bl.boxscore_nines(_boxscore())
+    assert nines["home"] == _BOX_ACTUAL_H
+    assert nines["away"] == _BOX_ACTUAL_A
+    assert 999 not in nines["home"] and 998 not in nines["away"]
+    assert bl.boxscore_nines(None) == {"home": [], "away": []}
+    assert bl.boxscore_nines({"teams": {"home": {}}})["home"] == []
+
+
+def _actuals_games(*pks):
+    return pd.DataFrame([
+        {"game_pk": pk, "game_date": "2026-09-16", "home_team": "NYY",
+         "away_team": "BOS"} for pk in pks])
+
+
+def test_backfill_actual_nines_upserts_actuals_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(bl, "fetch_boxscore",
+                          lambda pk, pause_sec=0.15: (_boxscore(), ""))
+    n = bl.backfill_actual_nines(_actuals_games(11, 12), limit=10,
+                                  out_path=_path(tmp_path), max_workers=1)
+    assert n == 2
+    df = pd.read_parquet(_path(tmp_path))
+    assert set(df.game_pk) == {11, 12}
+    r = df.loc[df.game_pk == 11].iloc[0]
+    assert r["source"] == "actuals" and bool(r["pit_valid"]) is False
+    assert r["state"] == "Final"
+    assert list(r.home_order) == _BOX_ACTUAL_H
+    assert list(r.away_order) == _BOX_ACTUAL_A
+    # incremental re-run: actuals-complete games are skipped, not re-pulled
+    calls = []
+    monkeypatch.setattr(bl, "fetch_boxscore",
+                          lambda pk, pause_sec=0.15: (calls.append(pk),
+                                                     (_boxscore(), ""))[1])
+    n = bl.backfill_actual_nines(_actuals_games(11, 12, 13), limit=10,
+                                  out_path=_path(tmp_path), max_workers=1)
+    assert n == 1 and calls == [13]
+
+
+def test_upsert_actuals_rows_win_and_survive(tmp_path):
+    p = _path(tmp_path)
+    stale = bl.order_row(21, "2026-09-16", "NYY", "BOS",
+                         _feed(_NINE_H, _NINE_A))
+    truth = bl.actuals_row(21, "2026-09-16", "NYY", "BOS",
+                           {"home": _BOX_ACTUAL_H, "away": _BOX_ACTUAL_A})
+    assert truth["source"] == "actuals" and bool(truth["pit_valid"]) is False
+    bl.upsert_lineups(pd.DataFrame([stale]), out_path=p)
+    bl.upsert_lineups(pd.DataFrame([truth]), out_path=p)
+    df = pd.read_parquet(p)
+    assert list(df.loc[df.game_pk == 21].iloc[0].home_order) == _BOX_ACTUAL_H
+    # a later stale write must not clobber training truth
+    bl.upsert_lineups(pd.DataFrame([stale]), out_path=p)
+    df = pd.read_parquet(p)
+    r = df.loc[df.game_pk == 21].iloc[0]
+    assert r["source"] == "actuals"
+    assert list(r.home_order) == _BOX_ACTUAL_H
+    # actuals refresh still wins (idempotent re-pull)
+    truth2 = dict(truth)
+    truth2["away_order"] = list(_BOX_ACTUAL_A)
+    bl.upsert_lineups(pd.DataFrame([truth2]), out_path=p)
+    df = pd.read_parquet(p)
+    assert df.loc[df.game_pk == 21].iloc[0]["source"] == "actuals"
+
+
+def test_scheduled_capture_is_pregame(tmp_path, monkeypatch):
+    import requests
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    far = (now + timedelta(hours=3)).isoformat()
+    near = (now + timedelta(minutes=2)).isoformat()
+
+    def fake_get(url, params=None, timeout=None):
+        class R:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"dates": [{"games": [
+                    _sched_game(31, far), _sched_game(32, near)]}]}
+        return R()
+
+    def fake_feed(pk, pause_sec=0.15):
+        return _feed(_NINE_H, _NINE_A, state="Preview"), ""
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(bl, "fetch_feed", fake_feed)
+    n = bl.fetch_scheduled_lineups("2026-09-16",
+                                    out_path=tmp_path / "slate.parquet")
+    assert n == 2
+    df = pd.read_parquet(tmp_path / "slate.parquet")
+    assert set(df.game_pk) == {31, 32}
+    assert (df["source"] == "pregame").all()
+    assert df["pit_valid"].astype(bool).all()
+
+
+def _sched_game(pk, game_date):
+    return {"gamePk": pk, "gameDate": game_date,
+            "teams": {"away": {"team": {"abbreviation": "BOS"}},
+                      "home": {"team": {"abbreviation": "NYY"}}}}
+
+

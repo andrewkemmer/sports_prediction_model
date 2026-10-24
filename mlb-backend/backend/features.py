@@ -369,7 +369,8 @@ _LINEUP_EFFECTIVE_SQL = """
           -- would trade the Sep-16 error for train-serve skew on every
           -- scratched game. Posted-vs-actual agreement is an AUDIT signal
           -- (validated_*, stamped by backfill_lineups.main), never a gate.
-          AND (l.pit_valid IS NOT FALSE OR l.source = 'backfill'
+           AND (l.pit_valid IS NOT FALSE OR l.source = 'backfill'
+               OR l.source = 'actuals'
                OR l.source IS NULL)
         UNION ALL
         SELECT l.game_pk, l.game_date, 'away' AS side,
@@ -379,6 +380,7 @@ _LINEUP_EFFECTIVE_SQL = """
         WHERE l.complete_away
           AND list_extract(l.away_order, r.slot) IS NOT NULL
           AND (l.pit_valid IS NOT FALSE OR l.source = 'backfill'
+               OR l.source = 'actuals'
                OR l.source IS NULL)
     ),
     slots AS (
@@ -5348,6 +5350,8 @@ def _tier1_eligible_lineups(lineups: pd.DataFrame) -> pd.DataFrame:
 
     A side binds when complete AND provably pre-game: pit_valid IS NOT
     FALSE, or a legacy grandfathered read (source 'backfill'/missing).
+    Boxscore training truth (source 'actuals') binds by rule — post-game
+    truth for training, never a pre-game claim.
     validated_* (posted-vs-actual agreement) is deliberately IGNORED —
     the bet-time truth is the official posted nine, scratches included.
     Missing columns (fixtures predating provenance) read as eligible.
@@ -5373,7 +5377,8 @@ def _tier1_eligible_lineups(lineups: pd.DataFrame) -> pd.DataFrame:
             ok_pit = (df["pit_valid"].fillna(True).astype(bool)
                       if "pit_valid" in df.columns
                       else pd.Series(True, index=df.index))
-            ok_src = (df["source"].fillna("backfill").eq("backfill")
+            ok_src = (df["source"].fillna("backfill")
+                      .isin(["backfill", "actuals"])
                       if "source" in df.columns
                       else pd.Series(True, index=df.index))
             eligible &= (ok_pit | ok_src)
