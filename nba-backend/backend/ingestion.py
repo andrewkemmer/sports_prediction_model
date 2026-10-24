@@ -926,6 +926,15 @@ def _fetch_position_index(season: str, use_cache: bool = True) -> dict:
     leave the prior cell keyed on two different conventions at once.
     """
     path = _position_index_path(season)
+    if _flag(FULL_REPULL_ENV):
+        # A repull re-reads the index like everything else: drop the cached
+        # table first so a stale league snapshot can never stand in for the
+        # feed (the positions pull already does the same for its own table).
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        use_cache = False
     if use_cache:
         cached = _read_parquet(path)
         if len(cached) and {"player_id", "position"} <= set(cached.columns):
@@ -1021,6 +1030,16 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not cache %s (%s)", path.name, exc)
     if not len(frame):
+        if _flag(FULL_REPULL_ENV):
+            # A repull measures the window itself: a stored legacy table
+            # standing in for a refused feed is stored history dressed as a
+            # fresh measurement. Return the empty pull (loudly missing, and
+            # the G/F/C convention downstream) instead of the archive.
+            logger.warning(
+                "positions for %s unresolved under %s; returning empty "
+                "rather than the stored legacy table", season,
+                FULL_REPULL_ENV)
+            return frame
         # Feed outage, not an empty league. The older caches still know who
         # plays what, and they can only ever be OLDER shapes, never wrong ones,
         # because v3 is only written from a live pull. v2 is tried first: it
@@ -1157,6 +1176,11 @@ def _fetch_roster(team: str, use_cache: bool = True) -> pd.DataFrame:
     returned per athlete rather than only for the injured ones.
     """
     path = _roster_path(team)
+    if _flag(FULL_REPULL_ENV):
+        # The slate's availability is re-read under a repull like everything
+        # else; a cached roster would serve yesterday's ESPN snapshot as
+        # today's state.
+        use_cache = False
     if use_cache:
         cached = _read_parquet(path)
         if len(cached):
