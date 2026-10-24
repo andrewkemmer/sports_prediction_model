@@ -234,7 +234,8 @@ def seasons_present(df: pd.DataFrame) -> set[int]:
 
 
 def maintain_umpire_map(target_date: date, base: Optional[Path] = None,
-                       required_games: Optional[pd.DataFrame] = None) -> dict:
+                       required_games: Optional[pd.DataFrame] = None,
+                       force_refetch: bool = False) -> dict:
     """Incrementally refresh the cumulative umpire map.
 
     Two refresh passes, both append-only and fail-safe:
@@ -256,11 +257,22 @@ def maintain_umpire_map(target_date: date, base: Optional[Path] = None,
 
     Returns a stats dict (total_rows, n_umpires, seasons_fetched,
     rows_added, gap_filled_seasons, errors).
+
+    ``force_refetch`` (MLB_FULL_REPULL) re-pulls EVERY season in range so
+    the map is rebuilt from the feed, never inherited from the committed
+    file: a stale or truncated stored map cannot survive a full repull by
+    construction. The per-season fetch is one schedule request (verified
+    live: no truncation), so a full rebuild is 2-3 requests, not a sweep.
     """
     df = load_umpire_map(base)
     present = seasons_present(df)
+    if force_refetch and present:
+        logger.info(
+            "Umpire map: MLB_FULL_REPULL force-refetch — re-pulling %d "
+            "season(s) instead of trusting the stored map",
+            target_date.year + 1 - MIN_FIRST_SEASON)
     want = [s for s in range(MIN_FIRST_SEASON, target_date.year + 1)
-            if s not in present]
+            if (s not in present or force_refetch)]
 
     fetched: list[str] = []
     added = 0

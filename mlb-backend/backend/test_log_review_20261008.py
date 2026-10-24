@@ -1587,3 +1587,90 @@ pre), wired immediately after the slate overlay."""
     assert anchor in MASTER_SRC
     assert MASTER_SRC.index("Today's board post-results:") > MASTER_SRC.index(anchor), (
         "the census must fire after the slate overlay, not before")
+
+
+# ── T20 (2026-10-24 log review): FULL_REPULL replicates the caches ─────────
+# The 2026-10-24 repull rebuilt pitches/lineups/features from sources, but
+# two maintained caches were inherited from the committed tree with no
+# repull arm: the weather history reused its persistent file (on Kaggle
+# the ephemeral /content cache hid this — 7414/7414 fetched as new — but
+# a warm local cache would have survived the repull by inheritance) and
+# the umpire map fetched ZERO seasons ("fetched seasons none") straight
+# off the committed umpire_map.csv. Under MLB_FULL_REPULL both must
+# rebuild from their feeds by construction — same guarantee the lineup
+# corpus already carries via decided_games_from_pitches + full_rebuild.
+# Roof states stay incremental (venue-level, top-up covers missing within
+# budget, loud fallback otherwise) and player_positions stays a pinned
+# static dimension (no in-pipeline rebuild path; staleness tripwire
+# guards the new-season failure) — both documented, neither touched.
+
+def test_full_repull_threads_through_run_daily_pipeline():
+    """run_daily_pipeline must accept the repull switch and hand it to
+    BOTH maintained caches — a threaded param, not a second env read."""
+    assert "full_repull: bool = False" in MASTER_SRC, (
+        "run_daily_pipeline must accept the FULL_REPULL contract")
+    assert "_attach_weather_history(\n                    games, target_date, ignore_cache=full_repull)" \
+        in MASTER_SRC, "weather history must bypass its cache on a repull"
+    assert "maintain_umpire_map(\n                target_date, required_games=games, force_refetch=full_repull)" \
+        in MASTER_SRC, "the umpire map must force-refetch on a repull"
+    assert "full_repull=full_repull" in MASTER_SRC, (
+        "Phase 4 must hand the module-level switch to run_daily_pipeline")
+
+
+def test_umpire_map_force_refetch_repulls_present_seasons(tmp_path, monkeypatch):
+    """Steady state fetches nothing (no gap → no fetch); force_refetch
+    re-pulls every season in range even when the stored map is complete."""
+    import umpires
+    base = tmp_path / "dd"
+    base.mkdir()
+    pd.DataFrame([
+        {"game_pk": 1, "game_date": "2025-04-01", "home_team": "NYY",
+         "away_team": "BOS", "hp_umpire_id": 7, "hp_umpire_name": "Ump",
+         "season": 2025},
+        {"game_pk": 2, "game_date": "2026-04-01", "home_team": "NYY",
+         "away_team": "BOS", "hp_umpire_id": 7, "hp_umpire_name": "Ump",
+         "season": 2026},
+    ]).to_csv(base / "umpire_map.csv", index=False)
+    called: list = []
+
+    def _fake_fetch(season: int, timeout: int = 60):
+        called.append(season)
+        return pd.DataFrame(columns=umpires.MAP_COLS)
+
+    monkeypatch.setattr(umpires, "fetch_season_umpires", _fake_fetch)
+    umpires.maintain_umpire_map(date(2026, 10, 24), base=base)
+    assert called == [], (
+        "a complete stored map must stay untouched on a routine run")
+    umpires.maintain_umpire_map(
+        date(2026, 10, 24), base=base, force_refetch=True)
+    assert called == [2025, 2026], (
+        "a repull must re-pull every season in range, present or not")
+
+
+def test_weather_ignore_cache_refetches_complete_records(tmp_path, monkeypatch, caplog):
+    """The complement of the T7 cost pin: by default a complete cached
+    record is never re-fetched — but under ignore_cache (FULL_REPULL)
+    the persistent cache is bypassed and every decided game refetches."""
+    import results, weather
+    cache_path = tmp_path / "weather_history.parquet"
+    pd.DataFrame([_full_record(100)]).to_parquet(cache_path, index=False)
+    ns = _exec_weather_history(cache_path)
+
+    monkeypatch.setattr(
+        results, "fetch_game_start_times",
+        lambda a, b: {100: datetime(2026, 9, 30, 0, 0)})
+    attempted: list = []
+
+    def _fake_fetch(df):
+        attempted.extend(int(p) for p in df["game_pk"])
+        return {100: _full_record(100)}
+
+    monkeypatch.setattr(weather, "fetch_games_weather", _fake_fetch)
+    with caplog.at_level(logging.INFO, logger="mp_extract"):
+        ns["_attach_weather_history"](
+            _games_frame(), date(2026, 10, 9), ignore_cache=True)
+    assert attempted == [100], (
+        "ignore_cache must refetch even a complete cached record — "
+        "otherwise a warm stale cache survives the repull")
+    assert "force-refresh" in caplog.text, (
+        "the bypass must be visible in the run log")

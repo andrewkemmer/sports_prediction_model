@@ -2006,7 +2006,8 @@ def _save_weather_cache(path: Path, cache: dict[int, dict]) -> None:
     logger.info("Weather cache saved: %d games → %s", len(cache), path)
 
 
-def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFrame:
+def _attach_weather_history(games: pd.DataFrame, target_date: date,
+                            ignore_cache: bool = False) -> pd.DataFrame:
     """Attach real point-in-time weather to EVERY decided game.
 
     Real StatsAPI first pitches → strictly-prior Open-Meteo archive
@@ -2024,7 +2025,18 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
     pks = pd.to_numeric(games.get("game_pk"), errors="coerce")
     decided = (games["home_win"].notna()
                if "home_win" in games.columns else pd.Series(True, index=games.index))
-    cache = _load_weather_cache(_weather_cache_path())
+    # MLB_FULL_REPULL force-refresh: bypass the persistent cache so every
+    # decided game refetches its observation from the archive — the same
+    # path a fresh clone takes (proven on the 2026-10-24 repull: 7414/7414
+    # fetched). A warm but stale cache can otherwise survive a full repull
+    # by construction-inheritance, never by re-observation.
+    if ignore_cache:
+        logger.info(
+            "Weather history: MLB_FULL_REPULL force-refresh — persistent "
+            "cache bypassed, every decided game refetches its observation")
+        cache: dict[int, dict] = {}
+    else:
+        cache = _load_weather_cache(_weather_cache_path())
     cached_pks = set(cache)
 
     # Avoid casting the full nullable series to int: non-authoritative rows
@@ -2204,6 +2216,7 @@ def run_daily_pipeline(
     games: Optional[pd.DataFrame] = None,
     min_train_days: int = 0,
     pbp_df: Optional[pd.DataFrame] = None,
+    full_repull: bool = False,
 ) -> dict[str, Any]:
     """Run the full daily pipeline.
 
@@ -2221,6 +2234,9 @@ def run_daily_pipeline(
                before this many days of history (prevents tiny-training-fold noise).
         pbp_df: Optional pitch-level frame used to map probable-pitcher names
                to their rolling stat lines when predicting today's slate.
+        full_repull: Rebuild the weather history and umpire map from their
+               feeds instead of topping up the persistent caches (the
+               MLB_FULL_REPULL contract: no stored-history dependence).
 
     Returns:
         Summary dict with keys: status, artifacts, metrics, sync, errors
@@ -2322,7 +2338,8 @@ def run_daily_pipeline(
             # Diff reconstruction uses only observed density levels. Preserve
             # them if the cache/provider only returns a partial history.
             try:
-                games = _attach_weather_history(games, target_date)
+                games = _attach_weather_history(
+                    games, target_date, ignore_cache=full_repull)
             except Exception as exc:
                 logger.warning(
                     "Full weather backfill failed (prior observed levels retained): %s", exc
@@ -2466,7 +2483,8 @@ def run_daily_pipeline(
         # the run engine or moneyline; see umpires.py docstring). Incremental:
         # only seasons missing from the cumulative map are fetched. Fail-safe.
         try:
-            _ump = maintain_umpire_map(target_date, required_games=games)
+            _ump = maintain_umpire_map(
+                target_date, required_games=games, force_refetch=full_repull)
             logger.info(
                 "Umpire map: %d games, %d umpires "
                 "(fetched seasons %s, gap-filled %s, rows added %d)",
@@ -3003,6 +3021,7 @@ try:
         games=train_games,
         pbp_df=pbp_df,  # maps ESPN probable-pitcher names to rolling stat lines
         min_train_days=30,  # warm-up: skip folds trained on < 30 days (~350 games)
+        full_repull=full_repull,
     )
     print(f"  📊 Status: {summary['status']}")
     if summary.get("metrics"):
