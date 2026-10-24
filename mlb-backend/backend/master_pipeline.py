@@ -401,7 +401,9 @@ except (Exception, SystemExit) as e:
 # incremental passes, both NON-FATAL (a gap degrades membership to the
 # projection — worse information, never a crash):
 #   1) decided-game gaps: every finished game still missing (or incomplete)
-#      in the cache, driven by the PREVIOUS run's game_level_features.csv;
+#      in the cache, driven by the PREVIOUS run's game_level_features.csv —
+#      or, under MLB_FULL_REPULL, by games enumerated from the freshly
+#      re-pulled pitches, never stored history;
 #   2) snapshot repair (2026-10-24): decided games whose rows lack a
 #      PIT-valid pre-game nine are repaired from the feed's archived
 #      snapshots (latest timecode strictly before first pitch) — the
@@ -409,19 +411,40 @@ except (Exception, SystemExit) as e:
 #      Under MLB_FULL_REPULL this becomes a complete corpus rebuild: every
 #      decided game is reprocessed from its pre-pitch snapshot with a sparse
 #      payload and controlled parallelism, so the run does not merely fill
-#      gaps around a stale cache.
+#      gaps around a stale cache. Boxscore actuals (training truth, ordered
+#      AFTER snapshots so PIT-valid rows are never clobbered) then cover
+#      games without archived snapshots — no decided game inherits a stored
+#      row on a full repull.
 #   3) pre-game capture: today's scheduled game_pks via the StatsAPI
 #      schedule — posted nines land NOW so an overnight rebuild of tonight's
 #      games resolves tier 1 instead of projecting (the 2026-10-03 audit's
 #      "wire daily pre-game fetch").
 from backfill_lineups import (SNAPSHOT_LINEUP_FIELDS,
+                              backfill_actual_nines,
                               backfill_pregame_snapshots,
+                              decided_games_from_pitches,
                               fetch_scheduled_lineups,
                               main as _backfill_lineups,
                               resolve_snapshot_workers)
+# Full replication (2026-10-26): under MLB_FULL_REPULL the decided-game list
+# for EVERY lineup-corpus pass is enumerated from the freshly re-pulled
+# pitches.parquet — never the previous run's stored game_level_features.csv
+# (stale on an old commit, absent on a fresh clone). A derivation failure
+# degrades LOUDLY to the legacy stored-CSV path rather than aborting the
+# run; every pass below stays non-fatal.
+_fresh_games = None
+if full_repull:
+    try:
+        _fresh_games = decided_games_from_pitches(pitches_path)
+        print(f"  🧾 lineups: {len(_fresh_games)} decided game(s) enumerated "
+              f"from fresh pitches (no stored game list)")
+    except (Exception, SystemExit) as e:
+        print(f"  ⚠️  fresh decided-game enumeration failed ({e}); lineup "
+              f"passes fall back to the stored game list")
+        _fresh_games = None
 sys.argv = ["backfill_lineups.py", "--limit", "500"]
 try:
-    _backfill_lineups()
+    _backfill_lineups(games=_fresh_games)
 except (Exception, SystemExit) as e:
     print(f"  ⚠️  lineups decided-gap backfill failed (non-fatal; "
           f"membership degrades to projection): {e}")
@@ -437,12 +460,34 @@ try:
         full_rebuild=full_repull,
         max_workers=resolve_snapshot_workers(),
         snapshot_fields=SNAPSHOT_LINEUP_FIELDS if full_repull else None,
+        games=_fresh_games,
     )
     print(f"  🧾 lineups: {_n_snap} official posted nine(s) restored from "
           f"pre-pitch snapshots ({_time.time() - _snap_t0:.0f}s)")
 except (Exception, SystemExit) as e:
     print(f"  ⚠️  lineup snapshot repair failed (non-fatal; legacy reads "
           f"stand until a later run): {e}")
+if full_repull:
+    # Complete the replication: snapshot repair covers games WITH archived
+    # snapshots; boxscore actuals (training truth, precedence-guarded so
+    # PIT-valid snapshot rows are never clobbered) cover the rest — no
+    # decided game inherits a stored row. Skipped when fresh enumeration
+    # failed (no invented game list; the stored cache stands loudly).
+    try:
+        import time as _time
+        _act_t0 = _time.time()
+        if _fresh_games is not None:
+            _n_act = backfill_actual_nines(
+                _fresh_games, limit=None, full_rebuild=True,
+                max_workers=resolve_snapshot_workers())
+            print(f"  🧾 lineups: {_n_act} training-truth nine(s) restored "
+                  f"from boxscores ({_time.time() - _act_t0:.0f}s)")
+        else:
+            print("  ⚠️  boxscore-actuals replication skipped (no fresh game "
+                  "list; stored rows stand)")
+    except (Exception, SystemExit) as e:
+        print(f"  ⚠️  boxscore-actuals replication failed (non-fatal; stored "
+              f"rows stand until a later run): {e}")
 try:
     _n_lineups = fetch_scheduled_lineups(CONFIG["end_date"])
     print(f"  🧾 lineups: {_n_lineups} posted row(s) captured for "

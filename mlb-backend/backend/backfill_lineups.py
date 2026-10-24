@@ -467,12 +467,15 @@ def backfill_actual_nines(games: pd.DataFrame, limit: int | None = 200,
 
     For decided games missing an actuals-complete row (or every decided
     game under full_rebuild), pull the boxscore and upsert its
-    battingOrder nine with source='actuals'. battingOrder ONLY — never
+    battingOrder nine with source='actuals'.    battingOrder ONLY — never
     the batters list (a mid-game scratch, sub or pinch-hitter must never
     enter training orders). Idempotent: re-pulling rewrites the identical
     nine (upsert latest-wins; actuals rows are precedence-guarded against
-    every other writer). Manual entry point, NOT called by the Kaggle run:
-        python backfill_lineups.py --actuals [--actuals-full]
+    every other writer). Manual entry point
+        (python backfill_lineups.py --actuals [--actuals-full]) AND the
+    MLB_FULL_REPULL=1 corpus replication (master_pipeline calls it with
+    limit=None, full_rebuild=True over the freshly-enumerated decided set,
+    AFTER snapshot repair so PIT-valid rows are never clobbered).
     Never raises: fetch failures degrade to honest gaps retried next run.
     """
     df = games.dropna(subset=["game_pk"]).copy()
@@ -810,13 +813,59 @@ def _repair_game_from_pregame_snapshot(record, first_pitch: dict[int, str],
         return None, "error"
 
 
+def decided_games_from_pitches(pbp_path: Path | str | None = None
+                               ) -> pd.DataFrame:
+    """Decided games enumerated from the FRESH pitch frame — never stored history.
+
+    Returns game_pk (int), game_date (date), home_team, away_team, home_win
+    (bool) for every game whose post_home_score AND post_away_score are both
+    present (official finals). The full-repull path feeds this frame to every
+    lineup-corpus pass so a rebuild cannot inherit a stale game list from the
+    previous run's stored game_level_features.csv (stale on an old commit,
+    absent on a fresh clone). Raises when the frame is missing, unreadable,
+    or carries no decided game.
+    """
+    path = Path(pbp_path) if pbp_path is not None else None
+    if path is None:
+        for cand in (DATA_DELIVERY_DIR / "pitches.parquet",):
+            if cand.exists():
+                path = cand
+                break
+    if path is None or not Path(path).exists():
+        raise FileNotFoundError(
+            f"no pitch frame to enumerate decided games ({path})")
+    frame = pd.read_parquet(path, columns=["game_pk", "game_date",
+                                            "home_team", "away_team",
+                                            "post_home_score",
+                                            "post_away_score"])
+    frame = frame.dropna(subset=["game_pk", "post_home_score",
+                                 "post_away_score"])
+    if not len(frame):
+        raise ValueError(f"pitch frame {path} carries no decided games")
+    frame = frame.copy()
+    frame["game_pk"] = frame["game_pk"].astype(int)
+    frame["game_date"] = pd.to_datetime(frame["game_date"]).dt.date
+    frame["home_win"] = (pd.to_numeric(frame["post_home_score"],
+                                        errors="coerce")
+                           > pd.to_numeric(frame["post_away_score"],
+                                           errors="coerce"))
+    frame["home_team"] = frame["home_team"].map(normalize_team)
+    frame["away_team"] = frame["away_team"].map(normalize_team)
+    out = (frame.sort_values(["game_date", "game_pk"])
+           .drop_duplicates(subset=["game_pk"], keep="first")
+           .reset_index(drop=True))
+    return out[["game_pk", "game_date", "home_team", "away_team",
+                "home_win"]]
+
+
 def backfill_pregame_snapshots(limit: int | None = 200,
                                csv_path: Path | None = None,
                                out_path: Path | None = None,
                                pause_sec: float = PAUSE_SEC,
                                full_rebuild: bool = False,
                                max_workers: int = 1,
-                               snapshot_fields: str | None = None) -> int:
+                               snapshot_fields: str | None = None,
+                               games: pd.DataFrame | None = None) -> int:
     """Training-side repair: official posted nines from archived snapshots.
 
     For decided games whose cache rows lack a PIT-valid pre-game nine, this
@@ -841,12 +890,20 @@ def backfill_pregame_snapshots(limit: int | None = 200,
     """
     from results import fetch_game_start_times  # noqa: E402 (lazy: cycle-safe)
     try:
-        csv_path = csv_path or (DATA_DELIVERY_DIR / "game_level_features.csv")
-        games = pd.read_csv(csv_path, usecols=["game_pk", "game_date",
-                                               "home_win"])
-        games = games.dropna(subset=["game_pk", "home_win"])
-        games["game_pk"] = games["game_pk"].astype(int)
-        games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
+        if games is not None:
+            # Caller-supplied frame (the full-repull path passes games
+            # enumerated from the freshly re-pulled pitches, never the
+            # previous run's stored CSV) — same decided contract.
+            games = games.dropna(subset=["game_pk", "home_win"]).copy()
+            games["game_pk"] = games["game_pk"].astype(int)
+            games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
+        else:
+            csv_path = csv_path or (DATA_DELIVERY_DIR / "game_level_features.csv")
+            games = pd.read_csv(csv_path, usecols=["game_pk", "game_date",
+                                                   "home_win"])
+            games = games.dropna(subset=["game_pk", "home_win"])
+            games["game_pk"] = games["game_pk"].astype(int)
+            games["game_date"] = pd.to_datetime(games["game_date"]).dt.date
         out = out_path or (DATA_DELIVERY_DIR / "lineups.parquet")
         if not out.exists() and not full_rebuild:
             print("no lineups.parquet — nothing to repair")
@@ -1063,7 +1120,7 @@ def load_pregame_orders(game_pks, path: Path | None = None) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def main() -> None:
+def main(games: pd.DataFrame | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=400)
     ap.add_argument("--csv", type=Path, default=None)
@@ -1077,15 +1134,24 @@ def main() -> None:
                          "then exit (manual full rebuild)")
     args = ap.parse_args()
 
-    csv_path = args.csv or (DATA_DELIVERY_DIR / "game_level_features.csv")
-    games = pd.read_csv(csv_path, usecols=["game_pk", "game_date",
-                                           "home_team", "away_team"])
-    games["game_date"] = pd.to_datetime(games["game_date"])
-    games = games.dropna(subset=["game_pk"])
-    games["game_pk"] = games["game_pk"].astype(int)
-    # Decided games only: home_win present.
-    full = pd.read_csv(csv_path, usecols=["game_pk", "home_win"])
-    decided_pks = set(full.dropna(subset=["home_win"])["game_pk"].astype(int))
+    if games is not None:
+        # Caller-supplied frame (the full-repull path passes games enumerated
+        # from the freshly re-pulled pitches, never the stored CSV).
+        games = games.dropna(subset=["game_pk"]).copy()
+        games["game_date"] = pd.to_datetime(games["game_date"])
+        games["game_pk"] = games["game_pk"].astype(int)
+        decided_pks = set(games.dropna(subset=["home_win"])["game_pk"]
+                          .astype(int))
+    else:
+        csv_path = args.csv or (DATA_DELIVERY_DIR / "game_level_features.csv")
+        games = pd.read_csv(csv_path, usecols=["game_pk", "game_date",
+                                               "home_team", "away_team"])
+        games["game_date"] = pd.to_datetime(games["game_date"])
+        games = games.dropna(subset=["game_pk"])
+        games["game_pk"] = games["game_pk"].astype(int)
+        # Decided games only: home_win present.
+        full = pd.read_csv(csv_path, usecols=["game_pk", "home_win"])
+        decided_pks = set(full.dropna(subset=["home_win"])["game_pk"].astype(int))
     games = games[games["game_pk"].isin(decided_pks)].reset_index(drop=True)
     print(f"decided games to validate: {len(games)}")
     if args.actuals or args.actuals_full:

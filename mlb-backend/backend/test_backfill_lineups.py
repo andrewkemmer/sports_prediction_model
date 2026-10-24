@@ -428,6 +428,66 @@ def test_main_stamps_only_decisive_sides_and_never_rewrites_orders(
     assert (bool(r4.validated_home), bool(r4.validated_away)) == (True, True)
 
 
+def test_main_accepts_fresh_games_frame(tmp_path, monkeypatch):
+    """The full-repull path passes decided games enumerated from fresh
+    pitches — the audit pass must work with NO game_level_features.csv on
+    disk, proving zero dependence on the stored game list."""
+    monkeypatch.setattr(bl, "DATA_DELIVERY_DIR", tmp_path)
+    day = "2026-09-16"
+    g2_home = [901, 902, *_NINE_H[2:]]
+    cache = pd.DataFrame([
+        _row(1, date=day),
+        _row(2, date=day, home_ids=g2_home),
+    ])
+    bl.upsert_lineups(cache, out_path=tmp_path / "lineups.parquet")
+    pd.DataFrame(
+        _pbp_trip(1, _NINE_H, _NINE_A)
+        + _pbp_trip(2, _NINE_H, _NINE_A)
+    ).to_parquet(tmp_path / "pbp.parquet", index=False)
+    games = pd.DataFrame([
+        {"game_pk": 1, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 1},
+        {"game_pk": 2, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "home_win": 0},
+    ])
+    monkeypatch.setattr(sys, "argv", ["backfill_lineups.py", "--limit", "10",
+                                        "--pbp", str(tmp_path / "pbp.parquet")])
+    bl.main(games=games)
+    assert not (tmp_path / "game_level_features.csv").exists()
+    df = pd.read_parquet(tmp_path / "lineups.parquet")
+    r1 = df.loc[df.game_pk == 1].iloc[0]
+    assert (bool(r1.validated_home), bool(r1.validated_away)) == (True, True)
+    r2 = df.loc[df.game_pk == 2].iloc[0]
+    assert (bool(r2.validated_home), bool(r2.validated_away)) == (False, True)
+    assert list(r2.home_order) == g2_home  # orders never rewritten
+
+
+def test_decided_games_from_pitches(tmp_path):
+    """Fresh-pitch enumeration: finals in (with the winner), everything
+    else out — the full-repull game list without stored history."""
+    day = "2026-09-16"
+    pd.DataFrame([
+        # decided home win
+        {"game_pk": 1, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "post_home_score": 5, "post_away_score": 3},
+        # decided away win
+        {"game_pk": 2, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "post_home_score": 1, "post_away_score": 4},
+        # in progress: no post scores
+        {"game_pk": 3, "game_date": day, "home_team": "NYY",
+         "away_team": "BOS", "post_home_score": None,
+         "post_away_score": None},
+    ]).to_parquet(tmp_path / "pitches.parquet", index=False)
+    out = bl.decided_games_from_pitches(tmp_path / "pitches.parquet")
+    assert set(out["game_pk"]) == {1, 2}
+    by_pk = out.set_index("game_pk")
+    assert bool(by_pk.loc[1, "home_win"]) is True
+    assert bool(by_pk.loc[2, "home_win"]) is False
+    assert set(by_pk.loc[1, ["home_team", "away_team"]]) == {"NYY", "BOS"}
+    with pytest.raises(FileNotFoundError):
+        bl.decided_games_from_pitches(tmp_path / "nope.parquet")
+
+
 def test_state_column_survives_normalize_round_trip(tmp_path):
     p = _path(tmp_path)
     bl.upsert_lineups(pd.DataFrame([_row(1)]), out_path=p)

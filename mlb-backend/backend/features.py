@@ -3781,32 +3781,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
-    # 7d. Opposing-lineup handedness share — fraction of a team's PAs taken by
-    # left-handed batters over the trailing 30 games. Paired with each
-    # starter's xwOBA-vs-L/R splits, tree models can learn platoon-fit
-    # interactions without raw player-name encoding. 2026-10-26: the game
-    # cell counts only effective-nine PAs (same membership gate as the
-    # exp2 team builders below) — a sub's PAs never move the share a
-    # starter is priced against.
-    con.execute(_TEAM_HAND_RAW_SQL.format(
-        pa_events=PA_END_EVENTS,
-        batter_excl=_batter_excl('p', 'p.game_date', _batters_ok),
-        member=_EXP2_MEMBERSHIP_SQL.format(
-            a='pa_all', pk='pa_all.game_pk', tm='pa_all.batting_team')))
-    con.execute("""
-        CREATE TABLE team_hand_shifted AS
-        SELECT *, LAG(lefty_share, 1) OVER w AS _s_lefty
-        FROM team_hand_raw
-        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
-    """)
-    con.execute("""
-        CREATE TABLE team_hand_rolling AS
-        SELECT game_date, game_pk, batting_team,
-            AVG(_s_lefty) OVER w30 AS lineup_lefty_share_30g
-        FROM team_hand_shifted
-        WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
-                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
-    """)    # 7e. Lineup composition — every hitter gets his own statistical
+    # 7e. Lineup composition — every hitter gets his own statistical
     # assumption: a per-player trailing-30g RE24 shrunk toward the
     # point-in-time league mean by PA count (empirical Bayes, 120-PA prior),
     # then aggregated into expected-lineup features. The wOBA machinery
@@ -3971,6 +3946,41 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             restrict="AND r.game_pk = g.game_pk", on_il="0"))
     con.execute(_LINEUP_AGG_SQL)
     con.execute(_LINEUP_IL_FLAG_SQL)
+
+    # 7d. Opposing-lineup handedness share — fraction of a team's PAs taken by
+    # left-handed batters over the trailing 30 games. Paired with each
+    # starter's xwOBA-vs-L/R splits, tree models can learn platoon-fit
+    # interactions without raw player-name encoding. 2026-10-26: the game
+    # cell counts only effective-nine PAs (same membership gate as the
+    # exp2 team builders below) — a sub's PAs never move the share a
+    # starter is priced against.
+    # ORDERING (2026-10-26 crash fix): this block lives AFTER 7e-bis
+    # (not in numeric order) because the membership gate binds
+    # lineup_effective, which _build_lineup_effective creates. Floating it
+    # with 7c above skipped that creation and aborted the pipeline with
+    # "Table with name lineup_effective does not exist". No consumer
+    # between reads team_hand_* (section 8 joins team_hand_rolling; the
+    # slate exp2 exporter reads it post-build), so the relocation is
+    # value-identical.
+    con.execute(_TEAM_HAND_RAW_SQL.format(
+        pa_events=PA_END_EVENTS,
+        batter_excl=_batter_excl('p', 'p.game_date', _batters_ok),
+        member=_EXP2_MEMBERSHIP_SQL.format(
+            a='pa_all', pk='pa_all.game_pk', tm='pa_all.batting_team')))
+    con.execute("""
+        CREATE TABLE team_hand_shifted AS
+        SELECT *, LAG(lefty_share, 1) OVER w AS _s_lefty
+        FROM team_hand_raw
+        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE team_hand_rolling AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_lefty) OVER w30 AS lineup_lefty_share_30g
+        FROM team_hand_shifted
+        WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
 
     # 7e-ter. Position-pool xwOBA family (pl_<pos>_xwoba_*). Built from
     # the SAME batter_ratings rows as the lineup family (LAG-shifted,

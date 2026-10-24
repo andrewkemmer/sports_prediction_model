@@ -818,6 +818,63 @@ def _eff_members(con, pk):
         "SELECT batter FROM lineup_effective WHERE game_pk = ?", [pk]).fetchall()}
 
 
+def test_team_hand_runs_after_lineup_effective_build():
+    """2026-10-24 Kaggle abort: _TEAM_HAND_RAW_SQL binds lineup_effective
+    (the effective-nine membership gate), but _build_game_level executed it
+    BEFORE _build_lineup_effective created the table — CatalogException,
+    pipeline crash. The production order (membership build, then the 7d
+    block) must run clean on a fixture and yield the gated share; and the
+    7d executes must stay textually downstream of the build call."""
+    import inspect
+    src = inspect.getsource(features._build_game_level)
+    assert src.index("_build_lineup_effective(con") < \
+        src.index("_TEAM_HAND_RAW_SQL.format("), \
+        "7d executes must stay downstream of the lineup_effective build"
+    con = _eff_con()
+    try:
+        # PA-level pitches for 9003 (announced BOS nine 201..209): six
+        # lefty PAs, four righty — every batter in the posted nine, so the
+        # membership gate keeps all ten (209 bats twice — PAs, not men).
+        con.execute("DROP TABLE pitches")
+        rows = ([f"(DATE '2025-05-20', 9003, 'Top', 'NYY', 'BOS', 'L',"
+                 f" {201 + i}, 'strikeout')" for i in range(6)]
+                + [f"(DATE '2025-05-20', 9003, 'Top', 'NYY', 'BOS', 'R',"
+                   f" {b}, 'single')" for b in (207, 208, 209, 209)])
+        con.execute(f"""CREATE TABLE pitches AS
+            SELECT * FROM (VALUES {', '.join(rows)})
+            AS t(game_date, game_pk, inning_topbot, home_team, away_team,
+                 stand, batter, events)""")
+        features._build_lineup_effective(con, batters_ok=False)
+        # The exact production 7d block, in the exact production position:
+        # AFTER the membership build.
+        con.execute(features._TEAM_HAND_RAW_SQL.format(
+            pa_events=features.PA_END_EVENTS,
+            batter_excl=features._batter_excl('p', 'p.game_date', False),
+            member=features._EXP2_MEMBERSHIP_SQL.format(
+                a='pa_all', pk='pa_all.game_pk',
+                tm='pa_all.batting_team')))
+        con.execute("""
+            CREATE TABLE team_hand_shifted AS
+            SELECT *, LAG(lefty_share, 1) OVER w AS _s_lefty
+            FROM team_hand_raw
+            WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
+        """)
+        con.execute("""
+            CREATE TABLE team_hand_rolling AS
+            SELECT game_date, game_pk, batting_team,
+                AVG(_s_lefty) OVER w30 AS lineup_lefty_share_30g
+            FROM team_hand_shifted
+            WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
+                           ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+        """)
+        share = con.execute(
+            "SELECT lefty_share FROM team_hand_raw "
+            "WHERE game_pk = 9003 AND batting_team = 'BOS'").fetchone()[0]
+        assert share == pytest.approx(0.6), share
+    finally:
+        con.close()
+
+
 def test_lineup_effective_tier1_is_the_announced_order():
     con = _eff_con()
     try:
