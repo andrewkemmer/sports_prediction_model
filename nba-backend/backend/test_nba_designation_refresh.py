@@ -149,3 +149,61 @@ def test_resolver_failure_keeps_old_archive(monkeypatch, tmp_path):
     pd.testing.assert_frame_equal(pd.read_parquet(bf_mod.ARCHIVE), before,
                                   check_dtype=False)
     assert not (delivery / "nba_designations.parquet").exists()
+
+
+def test_workers_resolve_identical_rows(monkeypatch, tmp_path):
+    """One worker vs four: the same rows in the same order. The pool only
+    overlaps latency; the walks, the request rate and the merge are
+    unchanged, so the archive is the serial run's archive."""
+    by_day = {D1: [(D1, "Old Player", "Out")],
+              D2: [(D2, "Other Player", "Doubtful")]}
+    shipped = {}
+    for workers in ("1", "4"):
+        run = tmp_path / f"w{workers}"
+        calls = []
+        delivery = _wire(monkeypatch, run, calls, by_day)
+        monkeypatch.setenv("NBA_DESIGNATION_WORKERS", workers)
+        stats = mp._refresh_designation_archive(
+            _games([D1, D2, D3]), delivery_dir=delivery, today=TODAY)
+        assert stats["resolved_days"] == 2
+        shipped[workers] = pd.read_parquet(
+            delivery / "nba_designations.parquet")
+    pd.testing.assert_frame_equal(shipped["1"], shipped["4"])
+
+
+def test_one_bad_day_does_not_stop_the_others(monkeypatch, tmp_path):
+    """A day whose resolver raises keeps its prior coverage while the rest
+    of the window still resolves - the parallel pool must isolate a failure
+    to its own day exactly like the serial loop did."""
+    delivery = _wire(monkeypatch, tmp_path, [], {})
+
+    def _flaky(day, cache_dir, games=None, **kwargs):
+        if day == D2:
+            raise RuntimeError("host refused")
+        return _frame([(day, "Good Player", "Out")]).copy()
+
+    monkeypatch.setattr(ir_mod, "game_day_designations", _flaky)
+    stats = mp._refresh_designation_archive(
+        _games([D1, D2, D3]), delivery_dir=delivery, today=TODAY)
+    assert stats["mode"] == "incremental"
+    assert stats["resolved_days"] == 1
+    archive = pd.read_parquet(bf_mod.ARCHIVE)
+    assert set(pd.to_datetime(archive.gameday).dt.date) == {D1}
+
+
+def test_the_resolver_receives_one_shared_parse_cache(monkeypatch, tmp_path):
+    """Every day in one refresh resolves through the same run-level filing
+    cache, so a filing two days both touch is parsed once."""
+    delivery = _wire(monkeypatch, tmp_path, [], {})
+    seen = []
+
+    def _spy(day, cache_dir, games=None, **kwargs):
+        seen.append(kwargs.get("parsed"))
+        return _frame([(day, "P", "Out")]).copy()
+
+    monkeypatch.setattr(ir_mod, "game_day_designations", _spy)
+    stats = mp._refresh_designation_archive(
+        _games([D1, D2]), delivery_dir=delivery, today=TODAY)
+    assert stats["resolved_days"] == 2
+    assert len(seen) == 2
+    assert seen[0] is not None and seen[0] is seen[1]

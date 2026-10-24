@@ -3202,6 +3202,82 @@ class TestOfficialRosterHistory:
                                                   set(), set(), set(), set()) == "protected"
 
 
+class TestFullRepullReplication:
+    """NBA_FULL_REPULL=1 rebuilds everything from the sources: no warm
+    cache, no shipped archive, and no reference table may stand in for a
+    fresh read. (The 2026-10-26 remediation: the PBP sweep, the rollup
+    absorb and the positions pull all trusted stored data under the flag
+    on any machine whose cache was warm - Kaggle's empty cache only hid
+    it.)"""
+
+    @staticmethod
+    def _games(count: int) -> pd.DataFrame:
+        today = date.today()
+        return pd.DataFrame({
+            "nba_game_id": [f"0022400{i:03d}" for i in range(count)],
+            "gameday": [pd.Timestamp(today - timedelta(days=i))
+                        for i in range(count)],
+        })
+
+    def test_a_repull_sweep_remeasures_cached_games(self, monkeypatch,
+                                                    tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        monkeypatch.setenv(ing.PULL_WORKERS_ENV, "1")
+        games = self._games(3)
+        for gid in games.nba_game_id:
+            ing._write_parquet(pd.DataFrame({"x": [1.0]}),
+                               ing._pbp_path(str(gid)))
+        calls: list = []
+
+        def answer(request, timeout=None):
+            calls.append(request.full_url)
+            return _Response(b'{"game": {"actions": []}}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        _frame, info = ing._fetch_play_by_play(games)
+        assert info["requested"] == 3, calls
+        assert info["cached"] == 0
+        assert info["tripped"] is False
+
+    def test_a_repull_does_not_absorb_the_shipped_archive(self, tmp_path,
+                                                          monkeypatch):
+        monkeypatch.setattr(config, "DATA_DELIVERY_DIR", tmp_path)
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        fresh = pd.DataFrame([{"game_id": "g1", "team": "BOS",
+                               "rim_attempts": 40, "possessions": 100.0}])
+        archive = pd.DataFrame([{"game_id": "g2", "team": "BOS",
+                                 "rim_attempts": 38, "possessions": 99.0}])
+        archive.to_parquet(tmp_path / ing.EVENT_ROLLUP_ARCHIVE, index=False)
+        games = pd.DataFrame({"game_id": ["g1", "g2"]})
+        union, added = ing._absorb_event_rollup_archive(fresh, games)
+        assert added == []
+        assert set(union.game_id) == {"g1"}
+
+    def test_a_repull_refetches_positions_despite_a_warm_cache(
+            self, tmp_path, monkeypatch):
+        import urllib.parse
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        path = ing._positions_path("2025-26")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"player_id": [7], "position": ["C"],
+                      "positions": ["C"]}).to_parquet(path, index=False)
+        calls: list = []
+
+        def payload(url, *_args, **_kwargs):
+            calls.append(url)
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "PlayerPosition" not in query:
+                return {"resultSets": []}
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                     "rowSet": [[10]]}]}
+
+        monkeypatch.setattr(ing, "http_json", payload)
+        frame = ing._fetch_positions("2025-26")
+        assert calls, "the feed must answer despite the warm cache"
+        assert set(frame.player_id) == {10}
+
 
 def _ceiling_pct(note: str) -> float:
     """The "% of ceiling" figure out of a gate note, or 101.0 if absent.

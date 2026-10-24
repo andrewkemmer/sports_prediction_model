@@ -714,17 +714,48 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
             stats["error"] = str(exc)
             stats["archive_rows"] = int(len(archive))
             return stats
-        frames: list = []
-        for day in target:
+        # Days resolve side by side on a bounded pool: the 2026-10-24 repull
+        # spent ~50 minutes walking 629 days one at a time, ~80% of it
+        # re-parsing filings its neighbours had already parsed. The pool
+        # overlaps network latency and bookkeeping while the resolver's own
+        # turnstile keeps the aggregate request rate exactly where the
+        # serial walk had it (one number the resolver chooses, not the pool
+        # size), so more workers can never ask the host for more requests
+        # per second. One run-level parse cache means each distinct filing
+        # is parsed once, not once per day that touches it; the aggregate
+        # rate, the walks, and the merge below are unchanged, so the rows
+        # are the serial run's rows in the serial run's order.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        workers = max(1, ingestion._int_env("NBA_DESIGNATION_WORKERS", 4))
+        stats["workers"] = workers
+        shared_parsed: dict = {}
+        by_day: dict = {}
+
+        def _resolve_one(day):
             try:
-                frame = ir_mod.game_day_designations(
-                    day, bf_mod.CACHE, games=sched.get(day) or None)
+                return day, ir_mod.game_day_designations(
+                    day, bf_mod.CACHE, games=sched.get(day) or None,
+                    parsed=shared_parsed)
             except Exception as exc:  # noqa: BLE001 - one bad day skips
                 logger.warning("designation refresh: %s unresolved (%s); "
                                "that day keeps its prior coverage", day, exc)
-                continue
-            if len(frame):
-                frames.append(frame)
+                return day, None
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_of = {pool.submit(_resolve_one, day): day
+                         for day in target}
+            for future in as_completed(future_of):
+                day, frame = future.result()
+                done += 1
+                if frame is not None and len(frame):
+                    by_day[day] = frame
+                if done % 25 == 0 or done == len(target):
+                    logger.info("designation archive %s: %d/%d day(s) "
+                                "resolved (%d with rows)",
+                                "repopulate" if full else "top-off", done,
+                                len(target), len(by_day))
+        frames = [by_day[day] for day in target if day in by_day]
         if not frames:
             logger.warning("designation refresh resolved nothing; keeping "
                            "the existing archive (%d rows)", len(archive))

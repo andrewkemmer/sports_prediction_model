@@ -982,6 +982,17 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
     ratings for the third.
     """
     path = _positions_path(season)
+    if _flag(FULL_REPULL_ENV):
+        # Reference data is re-read under a repull like everything else:
+        # drop the season table and the position-index cache first so the
+        # feed answers, not last run's files. (The legacy v1/v2 fallbacks
+        # below stay as feed-outage cover only.)
+        for stale in (path, _position_index_path(season)):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        use_cache = False
     if use_cache:
         cached = _read_parquet(path)
         if len(cached):
@@ -1982,6 +1993,16 @@ def _absorb_event_rollup_archive(team_events: pd.DataFrame,
     archive in that window) and asked the manifest to say which team-games
     came from which path; a bare count cannot answer that.
     """
+    if _flag(FULL_REPULL_ENV):
+        # A repull measures the whole window itself: folding the shipped
+        # archive in would let a game this run did not measure arrive
+        # dressed as measured. Gaps stay gaps (forward-filled downstream),
+        # never silently historical.
+        if team_events is not None and len(team_events):
+            logger.info("event rollup archive not absorbed under %s; this "
+                        "run's sweep of %d team-game(s) is the only source",
+                        FULL_REPULL_ENV, len(team_events))
+        return team_events, []
     archive = read_event_rollup_archive(Path(config.DATA_DELIVERY_DIR))
     if archive.empty or games is None or games.empty or "game_id" not in games.columns:
         return team_events, []
@@ -2104,7 +2125,19 @@ def _fetch_play_by_play(games: pd.DataFrame,
             """
             nba_id, gameday = item
             path = _pbp_path(nba_id)
-            existing = _read_parquet(path)
+            if _flag(FULL_REPULL_ENV):
+                # A repull re-measures every game: the per-game cache is
+                # dropped first so a stale sweep can never serve as a fresh
+                # one (schedule and season log already bypass theirs under
+                # the flag). A game the host then refuses stays a gap -
+                # honestly missing, not quietly historical.
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                existing = pd.DataFrame()
+            else:
+                existing = _read_parquet(path)
             if not existing.empty:
                 return _ServeOutcome("cached", existing)
             if time.time() > deadline:

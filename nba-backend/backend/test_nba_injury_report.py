@@ -926,6 +926,121 @@ def test_an_unknown_team_header_is_quarantined_not_invented(monkeypatch,
     assert "quarantined 1 designation row" in caplog.text
 
 
+def test_consecutive_403s_open_a_run_wide_cooldown(monkeypatch, tmp_path):
+    """A 403 reads exactly like a missing filing, so without a pause every
+    throttled stamp burns its whole walk (up to 72 fallback requests) and
+    keeps the host throttled for the next day. The first 403 opens a
+    cooldown every later request waits out; the walks resume at the same
+    pacing and read the same answers, only later."""
+    import time as _time
+    import urllib.error
+    monkeypatch.setenv("NBA_INJURY_403_COOLDOWN_SEC", "0.2")
+    monkeypatch.setenv("NBA_INJURY_403_COOLDOWN_MAX_SEC", "1.0")
+    monkeypatch.setattr(ir, "FETCH_PAUSE_SEC", 0)
+    monkeypatch.setattr(ir, "_cool_until", 0.0)
+    monkeypatch.setattr(ir, "_consecutive_403", 0)
+    monkeypatch.setattr(ir, "_last_network_at", 0.0)
+    before = ir.http_403_count
+    calls = []
+
+    def _flaky(request, timeout=30):
+        calls.append(request.full_url)
+        if len(calls) <= 2:
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden",
+                                         {}, None)
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found",
+                                     {}, None)
+
+    monkeypatch.setattr(ir.urllib.request, "urlopen", _flaky)
+    stamp = datetime(2026, 1, 10, 13, 0)
+    t0 = _time.monotonic()
+    assert ir.fetch_report(stamp, tmp_path) is None
+    assert ir.fetch_report(stamp, tmp_path) is None
+    waited = _time.monotonic() - t0
+    assert ir.http_403_count == before + 2
+    assert ir._consecutive_403 == 2
+    # The second request waited out the first 403's cooldown instead of
+    # burning straight into the throttle.
+    assert waited >= 0.2, waited
+    assert len(calls) == 2
+    # A 404 is an answer, not a throttle: the streak resets and the next
+    # request proceeds without sitting out a cooldown.
+    assert ir.fetch_report(stamp, tmp_path) is None
+    assert ir._consecutive_403 == 0
+    assert len(calls) == 3
+
+
+def test_the_request_turnstile_holds_across_threads(monkeypatch, tmp_path):
+    """Parallel day-resolvers must not ask the host for more requests per
+    second than the serial walk did: the aggregate rate is the module's
+    number (FETCH_PAUSE_SEC), not the worker count."""
+    import threading
+    import time as _time
+    import urllib.error
+    from datetime import timedelta
+    monkeypatch.setattr(ir, "FETCH_PAUSE_SEC", 0.05)
+    monkeypatch.setattr(ir, "_cool_until", 0.0)
+    monkeypatch.setattr(ir, "_consecutive_403", 0)
+    monkeypatch.setattr(ir, "_last_network_at", 0.0)
+
+    def _miss(request, timeout=30):
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found",
+                                     {}, None)
+
+    monkeypatch.setattr(ir.urllib.request, "urlopen", _miss)
+    stamps = [datetime(2026, 1, 10, 13, 0) + timedelta(minutes=15 * i)
+              for i in range(8)]
+    t0 = _time.monotonic()
+    threads = [threading.Thread(target=ir.fetch_report, args=(s, tmp_path))
+               for s in stamps]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = _time.monotonic() - t0
+    # Eight starts spaced >= 0.05s apart take >= 0.35s however many threads
+    # race; the 0.9 factor is scheduling slack, not a weaker bound.
+    assert elapsed >= 0.05 * (len(stamps) - 1) * 0.9, elapsed
+
+
+def test_a_shared_parse_cache_parses_each_filing_once(monkeypatch, tmp_path):
+    """One run resolving hundreds of days re-reads its neighbours' filings;
+    a run-level cache parses each distinct filing once instead of once per
+    day that touches it. The filings are immutable, so sharing changes
+    nothing but the CPU bill."""
+    submission = "2026-01-10_01_00PM"
+    when_sub = datetime(2026, 1, 10, 13, 0)
+    records = {
+        f"Injury-Report_{submission}.pdf": [
+            _record(when_sub, "Jayson Tatum", "Available")],
+        "Injury-Report_2026-01-10_12_00PM.pdf": [],
+        "Injury-Report_2026-01-10_06_15PM.pdf": [
+            _record(datetime(2026, 1, 10, 18, 15), "Jayson Tatum", "Out")],
+    }
+    archive = _FakeArchive({submission, "2026-01-10_12_00PM",
+                            "2026-01-10_06_15PM"}, records)
+    parses = []
+
+    def _counting(path, published_at):
+        parses.append((Path(path).name, published_at))
+        return archive.parse(path, published_at)
+
+    monkeypatch.setattr(ir, "fetch_report", archive.fetch)
+    monkeypatch.setattr(ir, "parse_report", _counting)
+    games = [("NYK@BOS", datetime(2026, 1, 10, 19, 0))]
+    shared: dict = {}
+    first = ir.game_day_designations(date(2026, 1, 10), tmp_path,
+                                     games=games, parsed=shared)
+    assert len(first) == 1
+    n_parses = len(parses)
+    assert n_parses == 2  # the submission filing and the tip-off filing
+    second = ir.game_day_designations(date(2026, 1, 10), tmp_path,
+                                      games=games, parsed=shared)
+    pd.testing.assert_frame_equal(first, second)
+    assert len(parses) == n_parses, \
+        "the second resolution must parse nothing new"
+
+
 def test_abbr_resolver_covers_the_full_thirty_club_vocabulary():
     """The derivation is total: every canonical full name resolves, and
     the map holds exactly the 30 clubs (measured over the full archive)."""

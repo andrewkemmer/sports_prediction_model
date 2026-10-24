@@ -56,8 +56,10 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import os
 import re
 import sys
+import threading
 import time as _time  # aliased: `time` is also imported from datetime below
 import urllib.error
 import urllib.request
@@ -253,6 +255,36 @@ _last_network_at = 0.0
 #: instead of reporting quiet emptiness.
 http_403_count = 0
 
+#: One lock for every shared fetch fact below: the request-start turnstile,
+#: the 403 count, and the throttle cooldown. Claiming a start slot and
+#: recording the outcome both happen under it, but every sleep happens
+#: outside it, so workers queue on the clock, never on the mutex - the
+#: same shape as the ingestion sweeps' ``_Pace``. The aggregate request
+#: rate stays one number this module chooses (``FETCH_PAUSE_SEC``),
+#: independent of how many day-resolvers run at once.
+_FETCH_LOCK = threading.Lock()
+
+
+def _cooldown_env(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+#: First wait after a 403 before any worker starts another request, doubling
+#: per consecutive 403. A 403 answers exactly like a missing filing, so
+#: without this every throttled stamp burns its whole walk - up to 72
+#: fallback requests - and the walks keep the host throttled for the next
+#: day too. The 2026-10-24 repull showed the shape: hundreds of 403s, two
+#: game-days lost, and a 50-minute phase that should have taken a third of
+#: that. A cooldown converts the burn into a pause; the walks resume at the
+#: same pacing and read the same answers, only later.
+COOLDOWN_BASE_SEC = "NBA_INJURY_403_COOLDOWN_SEC"
+COOLDOWN_MAX_SEC = "NBA_INJURY_403_COOLDOWN_MAX_SEC"
+_consecutive_403 = 0
+_cool_until = 0.0
+
 
 def _now() -> datetime:
     """This run's moment as a naive Eastern stamp.
@@ -294,12 +326,25 @@ def fetch_report(when: datetime, cache_dir: Path,
         # the tip-off walk all reach the host here, so a pending slate
         # stops probing without any walker needing to know the time.
         return None
-    global _last_network_at, http_403_count
-    if FETCH_PAUSE_SEC:
-        waited = _time.monotonic() - _last_network_at
-        if waited < FETCH_PAUSE_SEC:
-            _time.sleep(FETCH_PAUSE_SEC - waited)
-    _last_network_at = _time.monotonic()
+    global _last_network_at, http_403_count, _consecutive_403, _cool_until
+    # Claim a start slot: at least FETCH_PAUSE_SEC after the previous claim
+    # and not before a 403 cooldown expires. Both sleeps happen outside the
+    # lock; the claim itself is microseconds.
+    while True:
+        with _FETCH_LOCK:
+            now = _time.monotonic()
+            earliest = max(_cool_until,
+                           _last_network_at + FETCH_PAUSE_SEC)
+            start = max(now, earliest)
+            _last_network_at = start
+        delay = start - now
+        if delay > 0:
+            _time.sleep(delay)
+        with _FETCH_LOCK:
+            if _time.monotonic() >= _cool_until:
+                break
+            # Another worker's 403 extended the cooldown while this one
+            # slept: re-claim behind it rather than hammer through it.
     request = urllib.request.Request(report_url(when),
                                      headers={"User-Agent": USER_AGENT})
     try:
@@ -307,22 +352,64 @@ def fetch_report(when: datetime, cache_dir: Path,
             body = response.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 403:
-            http_403_count += 1
-            if http_403_count == 1:
-                logger.warning("first 403 from the injury-report host "
-                               "(%s); counting - a rate-limited run looks "
-                               "like an empty archive", when)
+            with _FETCH_LOCK:
+                http_403_count += 1
+                _consecutive_403 += 1
+                base = _cooldown_env(COOLDOWN_BASE_SEC, 30.0)
+                cap = _cooldown_env(COOLDOWN_MAX_SEC, 300.0)
+                wait = min(base * (2.0 ** (_consecutive_403 - 1)), cap) \
+                    if base > 0 else 0.0
+                _cool_until = _time.monotonic() + wait
+                total = http_403_count
+            logger.warning("403 from the injury-report host (%s); "
+                           "cooling down %.0fs so the walks stop burning "
+                           "requests into the throttle (%d total this run) - "
+                           "a rate-limited run looks like an empty archive",
+                           when, wait, total)
             return None
         if exc.code == 404:
+            with _FETCH_LOCK:
+                _consecutive_403 = 0
             return None
         raise
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logger.warning("injury report %s unavailable: %s",
-                       report_stamp(when), exc)
+        # A refusing or stalled host cools down like a 403: consecutive
+        # timeouts are a struggling host, and hammering it only lengthens
+        # the stall for every other walk.
+        with _FETCH_LOCK:
+            _consecutive_403 += 1
+            base = _cooldown_env(COOLDOWN_BASE_SEC, 30.0)
+            cap = _cooldown_env(COOLDOWN_MAX_SEC, 300.0)
+            wait = min(base * (2.0 ** (_consecutive_403 - 1)), cap) \
+                if base > 0 else 0.0
+            _cool_until = _time.monotonic() + wait
+        logger.warning("injury report %s unavailable (%s); cooling down "
+                       "%.0fs", report_stamp(when), exc, wait)
         return None
+    with _FETCH_LOCK:
+        _consecutive_403 = 0
     if len(body) < MIN_REPORT_BYTES:
         return None
-    path.write_bytes(body)
+    # Atomic publish: concurrent day-resolvers may fetch the same stamp at
+    # once, and a torn half-written PDF parses as a gap - lost rows with no
+    # error. A per-thread temp file plus an atomic replace keeps every
+    # reader whole; a stale temp is never read (only the final name is).
+    tmp = path.with_name(
+        f"{path.name}.{os.getpid()}-{threading.get_ident()}.part")
+    try:
+        tmp.write_bytes(body)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        try:
+            path.write_bytes(body)
+        except OSError as exc:
+            logger.warning("injury report %s not cached (%s)",
+                           report_stamp(when), exc)
+            return None
     return path
 
 
@@ -987,7 +1074,8 @@ def _empty_designations() -> pd.DataFrame:
 def game_day_designations(day: date, cache_dir: Path,
                           games: "Iterable[tuple[str, datetime]] | None" = None,
                           how_far_back: int = 72,
-                          timeout: int = 30) -> "pd.DataFrame":
+                          timeout: int = 30,
+                          parsed: "dict | None" = None) -> "pd.DataFrame":
     """Availability for every game on ``day``, read at its submission.
 
     THE canonical resolver: the historical frame and the prediction slate
@@ -1029,18 +1117,38 @@ def game_day_designations(day: date, cache_dir: Path,
                 slate[str(matchup)] = tipoff
     if not slate:
         return _empty_designations()
-    parsed: dict[datetime, list[Designation]] = {}
+    # The run-level parse cache: one day's walks re-read its neighbours'
+    # filings (the tipoff walk reaches back, the fallback further), so a
+    # per-day dict parses every shared filing once per day that touches it
+    # - measured 2026-10-26: ~80% of a warm day's time is re-parse. A caller
+    # resolving many days passes one dict and each distinct filing is
+    # parsed exactly once per run; the filings are immutable, so sharing
+    # changes nothing but the CPU bill. ``None`` keeps the old per-call
+    # dict for one-off callers.
+    shared: dict = parsed if parsed is not None else {}
 
     def records_at(when: datetime) -> list[Designation]:
-        if when not in parsed:
-            try:
-                parsed[when] = parse_report(cache_dir / _stamp_path(when),
-                                            when)
-            except Exception as exc:  # noqa: BLE001 - a bad filing is a gap
-                logger.warning("filing %s unparseable (%s); its games are "
-                               "not covered by it", _stamp_path(when), exc)
-                parsed[when] = []
-        return parsed[when]
+        # ``records_at`` is only ever called for a stamp whose walk already
+        # fetched (or disk-hit) it, so this never reaches the network: it
+        # only parses, once per distinct filing per ``shared`` lifetime.
+        try:
+            return shared[when]
+        except KeyError:
+            pass
+        # Parse under the fetch lock: pdf parsing is GIL-bound pure Python,
+        # so threads would not overlap it anyway, and the lock keeps two
+        # resolvers from parsing the same filing twice.
+        with _FETCH_LOCK:
+            if when not in shared:
+                try:
+                    shared[when] = parse_report(
+                        cache_dir / _stamp_path(when), when)
+                except Exception as exc:  # noqa: BLE001 - a bad filing
+                    logger.warning("filing %s unparseable (%s); its games "
+                                   "are not covered by it",
+                                   _stamp_path(when), exc)
+                    shared[when] = []
+            return shared[when]
 
     rows: list[dict] = []
     quarantined: list[str] = []
