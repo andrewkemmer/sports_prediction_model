@@ -430,6 +430,8 @@ try:
     # incremental limit=200 was single-worker → ~4 min of sequential
     # timestamp+snapshot HTTP; with 8 workers it is <1 min). Full rebuild
     # keeps the same pool; MLB_SNAPSHOT_WORKERS overrides either.
+    import time as _time
+    _snap_t0 = _time.time()
     _n_snap = backfill_pregame_snapshots(
         limit=None if full_repull else 200,
         full_rebuild=full_repull,
@@ -437,7 +439,7 @@ try:
         snapshot_fields=SNAPSHOT_LINEUP_FIELDS if full_repull else None,
     )
     print(f"  🧾 lineups: {_n_snap} official posted nine(s) restored from "
-          f"pre-pitch snapshots")
+          f"pre-pitch snapshots ({_time.time() - _snap_t0:.0f}s)")
 except (Exception, SystemExit) as e:
     print(f"  ⚠️  lineup snapshot repair failed (non-fatal; legacy reads "
           f"stand until a later run): {e}")

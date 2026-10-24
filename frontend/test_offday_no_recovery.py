@@ -88,7 +88,16 @@ def main() -> int:
     print("B PASS  20261025 renders the honest off-day state: no recovery "
           "banner, no 10-23 slate content")
 
-    print("\nOFF-DAY NO-RECOVERY PROOF - PASS (2 scenarios)")
+    # ---- C: the jump button must point at a DIFFERENT date (nearest real
+    # board), never at the off-day itself (a self-jump is a dead click).
+    import re as _re
+    _jumps = _re.findall(r"Jump to nearest game date \u2014 (.+)", text)
+    assert _jumps, "expected a jump-to-nearest-date button on the off-day view"
+    assert all("October 25, 2026" not in j for j in _jumps), \
+        f"jump button points at the off-day itself: {_jumps}"
+    print(f"C PASS  jump button targets a real board date ({_jumps})")
+
+    print("\nOFF-DAY NO-RECOVERY PROOF - PASS (3 scenarios)")
     return 0
 
 

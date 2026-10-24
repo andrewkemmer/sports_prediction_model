@@ -1149,7 +1149,13 @@ def _render_nearest_valid_fallback(valid, current: str,
         st.warning(f"No game board exists for {utils.format_date_long(current)} "
                    f"on this sport ({current}).")
     if valid:
-        target = utils.nearest_valid_date(valid, current)
+        # A jump button pointing at the date already on screen is a dead
+        # click (it re-selects the same date and rerenders the same view —
+        # the 2026-10-25 off-day pointed at itself). Always exclude the
+        # current date; for a missing date this changes nothing (it is not
+        # in the set), for an off-day it yields the nearest REAL board.
+        others = [d for d in valid if d != current]
+        target = utils.nearest_valid_date(others, current)
         if target and st.button(
                 f"Jump to nearest game date — {utils.format_date_long(target)}"):
             st.session_state["selected_date"] = target

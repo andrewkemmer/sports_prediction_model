@@ -862,10 +862,12 @@ def backfill_pregame_snapshots(limit: int | None = 200,
                                    "game_pk"].astype(int))
         except Exception:  # noqa: BLE001 — an empty/malformed cache proves nothing
             proven = set()
+        import time as _time
+        _t0 = _time.time()
         if full_rebuild:
             todo = games.sort_values(["game_date", "game_pk"])
             print(f"snapshot backfill: full rebuild of {len(todo)} decided "
-                  f"games from pre-pitch snapshots")
+                  f"games from pre-pitch snapshots (workers={max(1, int(max_workers))})")
         else:
             todo = games[~games["game_pk"].isin(proven)]
             todo = todo.sort_values(["game_date", "game_pk"])
@@ -911,13 +913,15 @@ def backfill_pregame_snapshots(limit: int | None = 200,
                     record, first_pitch, preserved, pause_sec=pause_sec,
                     snapshot_fields=snapshot_fields): i
                     for i, record in enumerate(records)}
+                import datetime as _dt
                 done = 0
                 for future in as_completed(pending):
                     ordered[pending[future]] = future.result()
                     done += 1
                     if done % 500 == 0 or done == len(records):
+                        _now = _dt.datetime.now().strftime("%H:%M:%S")
                         print(f"snapshot backfill: {done}/{len(records)} "
-                              f"games checked")
+                              f"games checked [{_now}]", flush=True)
         rows = []
         counts = {"no_first_pitch": 0, "no_snapshot": 0,
                   "fetch_failed": 0, "error": 0}
@@ -945,7 +949,12 @@ def backfill_pregame_snapshots(limit: int | None = 200,
                       f"reason: {reported}")
             return 0
         n = upsert_lineups(pd.DataFrame(rows), out_path=out)
-        print(f"snapshot backfill: {n} official posted nines restored; "
+        try:
+            _el = _time.time() - _t0
+            _el_txt = f" ({_el:.0f}s)"
+        except Exception:
+            _el_txt = ""
+        print(f"snapshot backfill: {n} official posted nines restored{_el_txt}; "
               f"{counts['no_snapshot']} games have no qualifying pre-pitch "
               f"snapshot; {counts['fetch_failed']} snapshot fetches failed; "
               f"{counts['error']} games errored; "
