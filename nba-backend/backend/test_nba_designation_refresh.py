@@ -9,6 +9,7 @@ delivery copy, and that a resolver failure keeps the old archive instead of
 raising into the run.
 """
 
+import logging
 import sys
 from datetime import date
 from pathlib import Path
@@ -189,6 +190,33 @@ def test_one_bad_day_does_not_stop_the_others(monkeypatch, tmp_path):
     assert stats["resolved_days"] == 1
     archive = pd.read_parquet(bf_mod.ARCHIVE)
     assert set(pd.to_datetime(archive.gameday).dt.date) == {D1}
+
+
+def test_the_refresh_reports_where_its_wall_clock_went(monkeypatch, tmp_path,
+                                                      caplog):
+    """A 40-minute phase has to name its own cost in the log it delivers.
+
+    This is a reading, never an input: the same days resolve, in the same
+    order, whether or not the phase is timed.  Three figures measure three
+    different things and must not be added together - the segments are wall
+    clock, the fetch/parse figures are worker-time sums.
+    """
+    delivery = _wire(monkeypatch, tmp_path, [], {
+        D2: [(D2, "Out Player", "Out")],
+    })
+    with caplog.at_level(logging.INFO):
+        stats = mp._refresh_designation_archive(
+            _games([D2]), delivery_dir=delivery, today=TODAY)
+    timing = stats["timing"]
+    assert set(timing) >= {"phase_seconds", "resolve_seconds",
+                           "merge_seconds", "write_seconds", "parsed",
+                           "parse_seconds", "per_parse_ms", "disk_hits",
+                           "fetched", "requests", "network_seconds"}
+    assert timing["phase_seconds"] >= 0.0
+    assert (timing["resolve_seconds"] + timing["merge_seconds"]
+            + timing["write_seconds"] <= timing["phase_seconds"] + 1.0)
+    assert "timing:" in caplog.text
+    assert "pdfs" in caplog.text
 
 
 def test_the_resolver_receives_one_shared_parse_cache(monkeypatch, tmp_path):

@@ -7,6 +7,8 @@ real filing, so a lookahead leak looks exactly like a correct answer - the
 feature trains, the numbers look fine, and the model is simply better-informed
 than anyone betting on it.
 """
+import sys
+import types
 from datetime import date, datetime
 from pathlib import Path
 
@@ -1055,6 +1057,67 @@ def test_a_shared_parse_cache_parses_each_filing_once(monkeypatch, tmp_path):
     pd.testing.assert_frame_equal(first, second)
     assert len(parses) == n_parses, \
         "the second resolution must parse nothing new"
+
+
+def test_a_disk_hit_is_tallied_and_costs_no_request(monkeypatch, tmp_path):
+    """The phase summary's "pdfs N disk-hit / M fetched" has to be measured.
+
+    A cached filing is served before the turnstile, so counting it as a
+    request would overstate the run's rate.  Pages are stubbed here: what is
+    pinned is the tally, not the extraction.
+    """
+    ir.reset_fetch_stats()
+    when = datetime(2026, 1, 10, 17, 0)
+    path = tmp_path / f"Injury-Report_{ir.report_stamp(when)}.pdf"
+    path.write_bytes(b"x" * (ir.MIN_REPORT_BYTES + 1))
+
+    def _no_network(*_args, **_kwargs):
+        raise AssertionError("a cached filing must not reach the host")
+
+    monkeypatch.setattr(ir, "report_url", _no_network)
+    assert ir.fetch_report(when, tmp_path, timeout=1) == path
+    stats = ir.fetch_stats()
+    assert stats["disk_hits"] == 1
+    assert stats["requests"] == 0
+
+
+def test_the_parse_tally_counts_a_filing_and_its_seconds(monkeypatch, tmp_path):
+    """``parse_seconds`` must come from the parser, not from a caller's guess.
+
+    ``records_at`` parses while holding ``_FETCH_LOCK``, so this figure is the
+    part of a refresh that cannot overlap with fetching - the number that
+    decides whether a persistent parse cache is worth building.
+    """
+
+    class _Page:
+        def extract_words(self):
+            return [{"text": "Game", "top": 10.0}]
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setitem(sys.modules, "pdfplumber",
+                        types.SimpleNamespace(open=lambda _path: _Pdf()))
+    monkeypatch.setattr(ir, "_calibrate", lambda _page: {"edges": True})
+    monkeypatch.setattr(ir, "_page_cells", lambda _page, _edges: iter([{
+        "game_date": "01/10/2026", "game_time": "7:00 PM ET",
+        "matchup": "NYK@BOS", "team": "BOS", "player": "Jayson Tatum",
+        "status": "Out", "reason": "knee",
+    }]))
+    ir.reset_fetch_stats()
+    rows = ir.parse_report(tmp_path / "filing.pdf",
+                           datetime(2026, 1, 10, 17, 0))
+    assert [row.player for row in rows] == ["Jayson Tatum"]
+    stats = ir.fetch_stats()
+    assert stats["parsed"] == 1
+    assert stats["parse_failures"] == 0
+    assert stats["parse_seconds"] >= 0.0
 
 
 def test_abbr_resolver_covers_the_full_thirty_club_vocabulary():

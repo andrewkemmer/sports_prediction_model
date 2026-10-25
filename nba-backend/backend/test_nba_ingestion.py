@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import time
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -2555,6 +2556,30 @@ class TestProgressIsVisible:
             bar.close()
         assert "phase 1/2  one" in caplog.text
         assert "phase 2/2  two" in caplog.text
+
+    def test_each_phase_carries_the_seconds_it_took(
+            self, _captured, monkeypatch, caplog):
+        """The 2026-10-24 repull spent 40 of its 81 minutes in one phase, and
+        the log named neither the cost nor that phase's share of the run.
+
+        The durations are readings of the gap between two ``advance()`` calls:
+        display only, so the phases still run in the same order whether or not
+        a clock is read. The final line carries the run's total.
+        """
+        now = [0.0]
+        monkeypatch.setattr(ing.progress, "time",
+                            types.SimpleNamespace(monotonic=lambda: now[0]))
+        with caplog.at_level("INFO", logger="nba_progress"):
+            bar = ing.progress.phases(("designation refresh", "training"))
+            now[0] = 65.0
+            bar.advance("designation refresh")
+            now[0] = 90.0
+            bar.advance("training")
+            now[0] = 95.0
+            bar.close()
+        assert "phase 1/2  designation refresh  (1m05s)" in caplog.text
+        assert "phase 2/2  training  (25s)" in caplog.text
+        assert "total 1m35s" in caplog.text
 
     def test_a_phase_bar_claims_no_rate_or_eta(self, _captured, caplog):
         """Ten uneven phases produce "0.0 phase/s, eta 6m03s" off one sample,

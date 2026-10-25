@@ -641,6 +641,11 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
     stats: dict = {"mode": None, "target_days": 0, "resolved_days": 0,
                     "rows": 0, "archive_rows": 0, "delivery": None,
                     "error": None, "http_403s": 0}
+    # Wall clock for the phase's own summary (2026-10-25). The 2026-10-24
+    # repull spent 40 of 81 minutes here and the log could not say whether
+    # the time went to the host or to the parser; these figures answer that
+    # for the next run. Readings only - nothing below branches on them.
+    phase_started = time.perf_counter()
     try:
         delivery = Path(delivery_dir).expanduser() if delivery_dir \
             is not None else Path(config.DATA_DELIVERY_DIR)
@@ -728,6 +733,11 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
         from concurrent.futures import ThreadPoolExecutor, as_completed
         workers = max(1, ingestion._int_env("NBA_DESIGNATION_WORKERS", 4))
         stats["workers"] = workers
+        # Zero the display-only tallies so this phase's snapshot covers only
+        # this phase; ``http_403_count`` stays cumulative and is differenced
+        # exactly as before.
+        ir_mod.reset_fetch_stats()
+        resolve_started = time.perf_counter()
         refresh_403_before = ir_mod.http_403_count
         shared_parsed: dict = {}
         by_day: dict = {}
@@ -756,6 +766,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                                 "resolved (%d with rows)",
                                 "repopulate" if full else "top-off", done,
                                 len(target), len(by_day))
+        resolve_seconds = time.perf_counter() - resolve_started
         frames = [by_day[day] for day in target if day in by_day]
         if not frames:
             logger.warning("designation refresh resolved nothing; keeping "
@@ -773,6 +784,7 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                                  "team") if c in merged.columns]
         if sort_cols:
             merged = merged.sort_values(sort_cols).reset_index(drop=True)
+        merge_seconds = time.perf_counter() - resolve_started - resolve_seconds
         # Shards stay the source of truth: rewrite the touched windows from
         # the merged frame, then consolidate rebuilds the cache archive and
         # the shipped copy from them (a later manual backfill unions the
@@ -806,6 +818,8 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
             delivery.mkdir(parents=True, exist_ok=True)
             out.to_parquet(delivery / "nba_designations.parquet",
                            index=False)
+        write_seconds = (time.perf_counter() - resolve_started
+                         - resolve_seconds - merge_seconds)
         stats["archive_rows"] = int(len(out))
         stats["delivery"] = str(delivery / "nba_designations.parquet")
         stats["http_403s"] = ir_mod.http_403_count - refresh_403_before
@@ -815,6 +829,44 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
                     stats["mode"], stats["resolved_days"], stats["rows"],
                     stats["archive_rows"], stats["delivery"],
                     stats["http_403s"])
+        # Where the phase's wall clock went (2026-10-25, display only).
+        # ``network_seconds`` and ``parse_seconds`` are WORKER-time sums, not
+        # wall: fetching overlaps across the pool while parsing serializes
+        # behind ``_FETCH_LOCK``, so the share each explains is read against
+        # the segment figures beside it, never added to them.
+        fs = ir_mod.fetch_stats()
+        parsed_n = int(fs.get("parsed", 0))
+        phase_seconds = time.perf_counter() - phase_started
+        per_parse_ms = (1000.0 * fs.get("parse_seconds", 0.0) / parsed_n
+                        if parsed_n else 0.0)
+        stats["timing"] = {
+            "phase_seconds": round(phase_seconds, 1),
+            "resolve_seconds": round(resolve_seconds, 1),
+            "merge_seconds": round(merge_seconds, 1),
+            "write_seconds": round(write_seconds, 1),
+            "parsed": parsed_n,
+            "parse_seconds": round(float(fs.get("parse_seconds", 0.0)), 1),
+            "per_parse_ms": round(per_parse_ms, 1),
+            "parse_failures": int(fs.get("parse_failures", 0)),
+            "disk_hits": int(fs.get("disk_hits", 0)),
+            "fetched": int(fs.get("fetched", 0)),
+            "requests": int(fs.get("requests", 0)),
+            "network_seconds": round(float(fs.get("network_seconds", 0.0)), 1),
+            "known_missing": int(fs.get("known_missing", 0)),
+        }
+        logger.info(
+            "designation archive %s timing: %.0fs phase = resolve %.0fs + "
+            "merge %.0fs + write %.0fs; filings %d parsed in %.0fs "
+            "(%.0f ms each, %d unparseable), pdfs %d disk-hit / %d fetched; "
+            "requests %d in %.0fs worker-time, %d 403(s), %d known-missing "
+            "skip(s)",
+            stats["mode"], phase_seconds, resolve_seconds, merge_seconds,
+            write_seconds, parsed_n, float(fs.get("parse_seconds", 0.0)),
+            per_parse_ms, int(fs.get("parse_failures", 0)),
+            int(fs.get("disk_hits", 0)), int(fs.get("fetched", 0)),
+            int(fs.get("requests", 0)),
+            float(fs.get("network_seconds", 0.0)), stats["http_403s"],
+            int(fs.get("known_missing", 0)))
         if stats["http_403s"]:
             logger.warning("injury-report host answered %d 403(s) resolving "
                            "the archive; days it throttled are uncovered, "

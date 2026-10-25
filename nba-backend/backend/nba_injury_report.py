@@ -264,6 +264,57 @@ http_403_count = 0
 #: independent of how many day-resolvers run at once.
 _FETCH_LOCK = threading.Lock()
 
+# ── Display-only timing tallies (2026-10-25) ───────────────────────────────
+# The 2026-10-24 full repull spent 40 of its 81 minutes re-resolving 629 days
+# and the log could not say whether that was network or parsing: it named a
+# day count and nothing else. These counters are the missing figure. They are
+# written where the work already happens (``fetch_report`` and
+# ``parse_report``) and read once by the pipeline's phase summary; nothing
+# branches on them, so a run with them zeroed is the same run.
+#
+# A dedicated lock, never ``_FETCH_LOCK``: ``parse_report`` is called from
+# ``records_at`` while that lock is already held, and ``threading.Lock`` is
+# not re-entrant. The ordering is one-way (fetch -> stats), so no cycle can
+# form.
+_STATS_LOCK = threading.Lock()
+_FETCH_STATS: dict = {
+    "disk_hits": 0,        # filings served from the on-disk PDF cache
+    "fetched": 0,          # filings downloaded this run
+    "known_missing": 0,    # stamps already learned not to exist (no request)
+    "requests": 0,         # network attempts that reached the turnstile
+    "network_seconds": 0.0,  # worker-seconds in those attempts (pacing incl.)
+    "parsed": 0,           # filings parsed successfully
+    "parse_failures": 0,   # filings that raised while parsing
+    "parse_seconds": 0.0,  # wall seconds spent inside parse_report
+}
+
+
+def _bump(name: str) -> None:
+    with _STATS_LOCK:
+        _FETCH_STATS[name] = int(_FETCH_STATS.get(name, 0)) + 1
+
+
+def _add_seconds(name: str, seconds: float) -> None:
+    with _STATS_LOCK:
+        _FETCH_STATS[name] = float(_FETCH_STATS.get(name, 0.0)) + seconds
+
+
+def fetch_stats() -> dict:
+    """A copy of the display-only fetch/parse tallies for the run log.
+
+    Read after a phase finishes (never mid-walk), so a snapshot can be
+    attributed to that phase. Returns a plain dict of ints/floats.
+    """
+    with _STATS_LOCK:
+        return dict(_FETCH_STATS)
+
+
+def reset_fetch_stats() -> None:
+    """Zero the tallies so the next phase's snapshot covers only itself."""
+    with _STATS_LOCK:
+        for key, value in _FETCH_STATS.items():
+            _FETCH_STATS[key] = 0 if isinstance(value, int) else 0.0
+
 
 def _cooldown_env(name: str, default: float) -> float:
     try:
@@ -399,6 +450,7 @@ def fetch_report(when: datetime, cache_dir: Path,
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / f"Injury-Report_{report_stamp(when)}.pdf"
     if path.exists() and path.stat().st_size >= MIN_REPORT_BYTES:
+        _bump("disk_hits")
         return path
     global _last_network_at, http_403_count, _consecutive_403, _cool_until
     with _FETCH_LOCK:
@@ -406,6 +458,7 @@ def fetch_report(when: datetime, cache_dir: Path,
             # Asked and answered already this run: no request, no pacing,
             # no 403. The walks for one day's games re-probe the same
             # neighbours, so this turns per-game misses into per-day ones.
+            _bump("known_missing")
             return None
     if when > _now():
         # Not published yet, therefore not fetchable: no request, no
@@ -414,6 +467,18 @@ def fetch_report(when: datetime, cache_dir: Path,
         # the tip-off walk all reach the host here, so a pending slate
         # stops probing without any walker needing to know the time.
         return None
+    # One network attempt's worker time, counted where the attempt already
+    # exits: the turnstile wait below is inside it, so a phase spent queueing
+    # on FETCH_PAUSE_SEC is distinguishable from one spent inside pdfplumber.
+    started = _time.perf_counter()
+
+    def _note_request(counted_as_fetched: bool = False) -> None:
+        """Record this attempt's tally. Display only - returns nothing."""
+        _bump("requests")
+        if counted_as_fetched:
+            _bump("fetched")
+        _add_seconds("network_seconds", _time.perf_counter() - started)
+
     # Claim a start slot: at least FETCH_PAUSE_SEC after the previous claim
     # and not before a burst-triggered cooldown expires. Both sleeps happen
     # outside the lock; the claim itself is microseconds.
@@ -458,12 +523,15 @@ def fetch_report(when: datetime, cache_dir: Path,
                 logger.debug("403 from the injury-report host (%s); counted "
                              "(%d total this run), no cooldown - reads as "
                              "no such report", when, total)
+            _note_request()
             return None
         if exc.code == 404:
             with _FETCH_LOCK:
                 _consecutive_403 = 0
                 _known_missing.add(path.name)
+            _note_request()
             return None
+        _note_request()
         raise
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         # A refusing or stalled host cools down like a 403 burst: consecutive
@@ -480,12 +548,14 @@ def fetch_report(when: datetime, cache_dir: Path,
         else:
             logger.debug("injury report %s unavailable (%s); no cooldown",
                          report_stamp(when), exc)
+        _note_request()
         return None
     with _FETCH_LOCK:
         _consecutive_403 = 0
     if len(body) < MIN_REPORT_BYTES:
         with _FETCH_LOCK:
             _known_missing.add(path.name)
+        _note_request()
         return None
     # Atomic publish: concurrent day-resolvers may fetch the same stamp at
     # once, and a torn half-written PDF parses as a gap - lost rows with no
@@ -506,7 +576,9 @@ def fetch_report(when: datetime, cache_dir: Path,
         except OSError as exc:
             logger.warning("injury report %s not cached (%s)",
                            report_stamp(when), exc)
+            _note_request()
             return None
+    _note_request(counted_as_fetched=True)
     return path
 
 
@@ -662,6 +734,11 @@ def parse_report(path: Path, published_at: datetime) -> list[Designation]:
     """
     import pdfplumber  # imported lazily: the parser is the only heavy path
 
+    # Timed for the run-log phase summary only (2026-10-25). pdfplumber work
+    # is GIL-bound and serialized behind ``_FETCH_LOCK`` in ``records_at``, so
+    # this figure is the one that cannot overlap with fetching - the reason a
+    # persistent parse cache is worth measuring before it is built.
+    started = _time.perf_counter()
     out: list[Designation] = []
     game_date = game_time = matchup = None
     team = None
@@ -705,6 +782,8 @@ def parse_report(path: Path, published_at: datetime) -> list[Designation]:
                                          + pending["player"]).strip()
     if pending is not None:
         out.append(_build(pending, published_at))
+    _add_seconds("parse_seconds", _time.perf_counter() - started)
+    _bump("parsed")
     return out
 
 
@@ -1244,6 +1323,7 @@ def game_day_designations(day: date, cache_dir: Path,
                     logger.warning("filing %s unparseable (%s); its games "
                                    "are not covered by it",
                                    _stamp_path(when), exc)
+                    _bump("parse_failures")
                     shared[when] = []
             return shared[when]
 

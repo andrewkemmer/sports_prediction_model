@@ -467,6 +467,15 @@ class _Phases:
         self._ctx = track(len(self._names), desc=desc, unit="phase",
                           show_rate=False)
         self._bar: _Bar = self._ctx.__enter__()
+        # Wall clock for the per-phase durations below.  ``advance()`` is
+        # called by every caller AFTER its phase's work finishes (with the
+        # results in the ``✅`` line that follows), so the gap between two
+        # advances is the duration of the phase being named - the single
+        # number that turns "it felt slow" into a figure in the log.  This
+        # is a reading, never a control-flow input: nothing here can end a
+        # phase early or reorder one.
+        self._started = time.monotonic()
+        self._last = self._started
 
     def advance(self, name: str = "") -> None:
         label = name
@@ -474,15 +483,29 @@ class _Phases:
             label = (self._names[self._done]
                      if self._done < len(self._names) else "finishing")
         self._done += 1
+        now = time.monotonic()
+        elapsed = now - self._last
+        self._last = now
         self._bar.set_description(label)
         self._bar.update(1)
         # Every phase announces itself as it starts, not only as the bar
         # closes.  A bar cannot be read after the fact and a run that is four
         # minutes into its first phase has said nothing at all, which is
-        # indistinguishable from a hang.
-        logger.info("  phase %d/%d  %s", self._done, len(self._names), label)
+        # indistinguishable from a hang.  The duration rides on the same line:
+        # the 2026-10-24 repull spent 40 of its 81 minutes in one phase and
+        # the log named neither the cost nor the share, so the next run's
+        # operator had nothing to compare against.
+        logger.info("  phase %d/%d  %s  (%s)", self._done, len(self._names),
+                    label, _eta(elapsed))
 
     def close(self) -> None:
+        # The run's total, on the same line as the completed bar: the
+        # summary JSON carries ``elapsed_seconds``, but the LOG is what gets
+        # read on a phone after a 90-minute run.
+        try:
+            self._bar.set_postfix(f"total {_eta(time.monotonic() - self._started)}")
+        except Exception:  # noqa: BLE001 - display only, never a run input
+            pass
         self._ctx.__exit__(None, None, None)
 
     def __enter__(self) -> "_Phases":
