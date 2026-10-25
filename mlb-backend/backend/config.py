@@ -859,6 +859,18 @@ RFE_GRID_MAX_STATES = 16       # grid-mode lattice cap (MLB_RFE_ADDITION_REMOVAL
                                # round-robins adds/removes to fit the cap; the
                                # dropped tail is recorded in the trace and overflow
                                # names still get 1-by-1 targeted trials.
+# Fail closed until independent FanGraphs agreement and game-model
+# walk-forward validation pass. RFE may measure these shadow candidates,
+# but cannot adopt them while this is false; local reports never unlock it.
+PITCHINGPLUS_PROMOTION_APPROVED = False
+PITCHINGPLUS_FEATURE_COLS = tuple(
+    f'{base}_{side}'
+    for base in ('sp_pitchingplus_5g', 'pitcher_regression_indicator_pitchingplus',
+                 'wind_advantage_flyball_factor_pitchingplus', 'bullpen_pitchingplus_10g',
+                 'bullpen_pitchingplus_3g', 'bullpen_meltdown_risk_pitchingplus')
+    for side in ('diff', 'home', 'away')
+)
+
 # The RFE candidate pool: generated, PIT-safe columns NOT currently in the
 # moneyline universe that feature_selection.py may additionally trial
 # (universe members are always in scope). Grouped in trial-priority order;
@@ -948,6 +960,33 @@ RFE_CANDIDATE_COLS = [
     "sp_xfip_diff",
     "sp_xfip_home",
     "sp_xfip_away",
+    # --- pitching+ trial family (2026-10-24) (18) ---
+    # Three independent nonlinear run-value models: Stuff+, Location+,
+    # and combined Pitching+ (NOT the mean of the first two). Expected-
+    # contact RV labels; 100/10 prior calibration-pitcher reference scaling
+    # (not pitch SD or a claimed FG scale); recorded-IP-weighted per-game
+    # quality, without prior blending. Available for SHADOW trials only;
+    # adoption is blocked by PITCHINGPLUS_PROMOTION_APPROVED until external
+    # agreement and game-model validation pass. Higher=better reverses xFIP
+    # but has the SAME direction as K-BB%; interactions learn signs fresh.
+    "sp_pitchingplus_5g_diff",
+    "sp_pitchingplus_5g_home",
+    "sp_pitchingplus_5g_away",
+    "pitcher_regression_indicator_pitchingplus_diff",
+    "pitcher_regression_indicator_pitchingplus_home",
+    "pitcher_regression_indicator_pitchingplus_away",
+    "wind_advantage_flyball_factor_pitchingplus_diff",
+    "wind_advantage_flyball_factor_pitchingplus_home",
+    "wind_advantage_flyball_factor_pitchingplus_away",
+    "bullpen_pitchingplus_10g_diff",
+    "bullpen_pitchingplus_10g_home",
+    "bullpen_pitchingplus_10g_away",
+    "bullpen_pitchingplus_3g_diff",
+    "bullpen_pitchingplus_3g_home",
+    "bullpen_pitchingplus_3g_away",
+    "bullpen_meltdown_risk_pitchingplus_diff",
+    "bullpen_meltdown_risk_pitchingplus_home",
+    "bullpen_meltdown_risk_pitchingplus_away",
     # --- raw per-side levels (shadowed by diff-only routing) (76) ---
     "rest_days_home",
     "rest_days_away",

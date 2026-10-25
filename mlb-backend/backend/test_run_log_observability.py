@@ -275,9 +275,12 @@ def test_diff_pass_creates_fifty_eight_columns():
     add_exp2_features), PLUS the 9 pl_<pos>_xwoba position-pool diffs
     added 2026-10-02 (absent inputs here → created NULL like the rest).
     58 -> 67 with that family, 67 -> 69 with the 2026-10-19 handedness
-    structural trio (diff rename + 2 level twins)."""
+    structural trio (diff rename + 2 level twins), 69 -> 87 with the
+    2026-10-24 pitching+ trial family (3 simple diffs + 6 level twins +
+    3 wind legs + 3 regression_pp + 3 meltdown_pp — trial candidates,
+    never served)."""
     _, created, _ = _diff_output()
-    assert len(created) == 69, sorted(created)
+    assert len(created) == 87, sorted(created)
 
 
 def test_created_set_carries_the_il_flag_diff():

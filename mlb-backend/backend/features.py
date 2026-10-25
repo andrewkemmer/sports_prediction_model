@@ -1,9 +1,9 @@
 """
-Pure DuckDB SQL feature engineering for MLB Statcast data.
+DuckDB feature engineering for MLB Statcast data.
 
-ZERO pandas during feature engineering.  All rolling windows, shifted
-features, groupby aggregations, and joins are DuckDB SQL window functions
-operating on Parquet files on disk.
+Rolling windows, shifted features and joins use DuckDB SQL over Parquet.
+The custom Pitching+ trial additionally fits causal LightGBM pitch models
+in memory; no previously trained model is loaded into feature generation.
 
 Architecture:
     pitches.parquet → DuckDB SQL → game_df.parquet + pbp_df.parquet
@@ -1667,6 +1667,132 @@ def batter_xwoba_rating_sql(arm: str) -> str:
 # back to a strictly prior league runs/9 rate, then to the raw recent rate.
 _SP_ERA_5G_SHRINK_IP = 30.0
 
+# ── Legacy fixed-weight proxy: diagnostic comparator ONLY ──────────────
+# _build_game_level uses _build_pitchingplus_features (learned models),
+# NOT these legacy constants/helpers. Retained for explicit proxy tests.
+# An in-repo stuff+location composite (100 = league average, higher =
+# better) derived from the Statcast pitches this pipeline already
+# ingests — NO FanGraphs pull exists anywhere in the repo, so the proxy is
+# built, not fetched. v4 proxy (tunable; the trial gate judges):
+#   stuff+    = v5 (FG grain): every pitch scores 100 + 10 * z over seven
+#               traits (velo .35 / vbreak .15 / hbreak .10 / spin .15 /
+#               ext .10 / release-x .075 / release-z .075), renormalized
+#               per pitch when a trait is NULL; the appearance ships the
+#               mean of its pitch scores. v4 averaged traits to the
+#               appearance first (velo .40 / move-mag .25 / spin .20 /
+#               ext .15, no release point), blurring within-outing shape.
+#   location+ = 100 + 10 * z over EMPIRICAL LOCATION VALUE (FG-primer
+#               design: Location+ is a count- and pitch-type-adjusted judge
+#               of actual locations that ignores ALL physical traits — no
+#               velo/move/spin, no intent model, no outcome residuals. Each
+#               context (pitch type x count bucket x batter side) prices
+#               every 2-inch zone cell by the prior-date mean pitcher run
+#               value; z is batter-zone-normalized, cells are 3x3-smoothed
+#               before pricing, and credit = smoothed value minus context
+#               mean, averaged over the appearance. Secondary pitches
+#               carry primary-fastball differentials (usage-defined per
+#               outing: velo/movement off the outing's most-used FF/SI/FT).
+#               Axis differential (seam-shifted wake) is NOT built: the
+#               frame has no spin-axis/active-spin data, and spin-expected
+#               movement cannot be derived without it — documented, not
+#               silently skipped. The pitcher's
+#               OWN outcomes never enter his credit — only the locations he
+#               chooses, priced by history. v1/v2 (fixed edge/meat/ball
+#               geometry, 0.39 vs FG with ~zero spread) and v3 (stuff-
+#               residual outcomes, r=-0.11 — the primer rules that theory
+#               out) are deleted.
+#   pitching+ = (stuff+ + location+) / 2 (either half alone when the other
+#               is NULL; NULL when both are).
+# League centering is strictly point-in-time (cumulative over PRIOR dates,
+# season-as-of with an all-history fallback, >= 30 appearances — the same
+# Scenario-C discipline as xfip_league); the shrink target is exactly 100.
+# Trailing windows mirror the forms they trial against (SP last-5
+# appearances, bullpen trailing team-game pools) with the same availability
+# + spent-arm + staleness discipline. Trial candidates ONLY until the
+# ablation gate passes — none of these names may enter the serving width.
+# v5 (2026-10-26): stuff is scored PER PITCH (FG grain), then averaged
+# to the appearance. Traits split movement into vertical/horizontal
+# break and add the release point (pos_x/pos_z + extension) — the FG
+# deception inputs. Weights are fixed priors (trial-gated, never
+# fitted); they renormalize over non-NULL traits per pitch, so a pitch
+# missing release tracking still scores on the rest. Linear release z's
+# are a weak prior (deception is directional, not monotonic) — the
+# nonlinear combiner carries them properly; the gate judges.
+_PP_STUFF_WTS = (("velo", 0.35), ("vbreak", 0.15), ("hbreak", 0.10),
+                  ("spin", 0.15), ("ext", 0.10), ("relx", 0.075),
+                  ("relz", 0.075),
+                  ("dvelo", 0.10), ("dhb", 0.05), ("dvb", 0.05))
+# Computed (not physical) traits: primary-fastball differentials, scored
+# on secondary pitches only (see pp_app_primary_fb). They live on
+# pp_pitch_stuff itself, so _stuff_col reads them as p.<trait>.
+_PP_STUFF_DIFFS = ("dvelo", "dhb", "dvb")
+# Trait -> backing physical columns (first present wins; spin prefers
+# spin_rate with release_spin_rate as fallback). A trait with no backing
+# column present scores NULL for every pitch.
+_PP_STUFF_BACKING = {
+    "velo": ("release_speed",),
+    "spin": ("spin_rate", "release_spin_rate"),
+    "vbreak": ("pfx_z",),
+    "hbreak": ("pfx_x",),
+    "ext": ("release_extension",),
+    "relx": ("release_pos_x",),
+    "relz": ("release_pos_z",),
+}
+_PP_STUFF_TRAITS = tuple(d for d, _ in _PP_STUFF_WTS)
+# Pitch-grain league floor: ~30 appearances x ~15 pitches (same bar as
+# the appearance-grain _PP_MIN_LEAGUE_APP, in pitch units).
+_PP_MIN_LEAGUE_PITCH = 500
+# v4 (2026-10-26 rework): location is EMPIRICAL LOCATION VALUE. Contexts
+# (full pitch type x count bucket x batter side) price every 2-inch-cell
+# neighborhood (3x3-smoothed) by the prior-date mean pitcher run value;
+# credit is the smoothed value minus the context mean. z is normalized by
+# the batter's zone height (2-fold sweep: raw plate_z blurs edges across
+# tall/short batters); count buckets split 0-0 out and separate
+# ahead/behind/even-nonzero. Grid, floors and the shrink prior are fixed
+# priors (never fitted), so no estimation can leak. Family/platoon/exact-
+# count splits were probed and rejected (blur/over-split on one season).
+_PP_LV_CNT = ("first", "ahead", "behind", "even")
+_PP_LV_GX0 = -2.5           # feet; plate_x clips into [GX0, GX1]
+_PP_LV_GX1 = 2.5
+_PP_LV_GZ0 = 0.0            # feet; plate_z clips into [GZ0, GZ1]
+_PP_LV_GZ1 = 4.5
+_PP_LV_STEP = 1.0 / 6.0     # 2-inch cells, fixed prior
+_PP_LV_NX = round((_PP_LV_GX1 - _PP_LV_GX0) / _PP_LV_STEP)  # grid cols
+_PP_LV_NZ = round((_PP_LV_GZ1 - _PP_LV_GZ0) / _PP_LV_STEP)  # grid rows
+_PP_LV_MIN_CTX_N = 500      # context trust floor (prior pitches)
+_PP_LV_SHRINK_N = 10.0      # neighborhood -> context shrink prior (2-fold sweep)
+# Pitcher run value: delta_pitcher_run_exp (>0 is good for the pitcher:
+# strikeouts/called strikes score positive, balls/singles/homers negative).
+_PP_LV_VALUE_COL = "delta_pitcher_run_exp"  # >0 is good for pitcher
+# Location-value context grain (mirrors the exp2 pitch_cat families):
+# fastball / breaking / offspeed. Bins are fixed priors (never fitted).
+_PP_SCALE = 10.0            # 1 league std = 10 pitching+ points (FG-like)
+_PP_PRIOR = 100.0           # league-average shrink target, by construction
+_PP_MIN_APPEARANCE_PITCHES = 3   # bp_outing cameo rule: fewer pitches scores NULL
+_PP_MIN_LEAGUE_APP = 30    # appearances before a league mean/sd is trusted
+# Outs recorded on a PA-final pitch (Statcast sets events only on the
+# PA's last pitch), per the established bp_daily mapping. Shared by
+# bp_daily and the pitching+ appearance-IP trailing weight so the two
+# can never diverge.
+_PP_OUTS_CASE = """CASE p.events
+                    WHEN 'field_out' THEN 1
+                    WHEN 'strikeout' THEN 1
+                    WHEN 'strikeout_double_play' THEN 2
+                    WHEN 'grounded_into_double_play' THEN 2
+                    WHEN 'double_play' THEN 2
+                    WHEN 'triple_play' THEN 3
+                    WHEN 'sac_fly' THEN 1
+                    WHEN 'sac_bunt' THEN 1
+                    WHEN 'fielders_choice_out' THEN 1
+                    WHEN 'sac_fly_double_play' THEN 2
+                    WHEN 'sacrifice_bunt_double_play' THEN 2
+                    ELSE 0 END"""
+# Inning-weighted SP trailing (v6): 30 IP of prior at 100 — the
+# sp_xfip_5g structure in innings, no pitches-per-IP conversion. The pen
+# side stays pitch-weighted (relief outings are measured in pitches).
+_PP_SP_SHRINK_IP = _SP_ERA_5G_SHRINK_IP
+_PP_BP_SHRINK_FALLBACK_P = 93.0  # 0.20 * ~464-pitch mean reliever season (see _BP_SHRINK_*)
+
 # ── Scenario C: point-in-time xFIP / K-BB% (2026-10-09 adoption) ─────────
 # The xFIP-family columns (sp_xfip*, bullpen_xfip_*) and the K-BB% family
 # (bullpen_kbb_10g/3g) are replaced at the source by their estimator
@@ -2645,6 +2771,1122 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
+# Appearance-grain league now prices ONLY the location credit (v5: stuff
+# traits moved to the pitch-grain pp_stuff_league below). fb_velo/spin/
+# move_mag/ext stay on pp_appearance_raw as diagnostics; nothing reads
+# them for scoring anymore.
+_PP_RAW_COL = {"locval": "loc_val"}
+_PP_LEAGUE_KEYS = tuple(_PP_RAW_COL)
+
+
+def _pp_league_sql(daily: str = "pp_league_daily", out: str = "pp_league",
+                   floor: int = _PP_MIN_LEAGUE_APP,
+                   metrics: dict[str, str] | None = None) -> str:
+    """PIT league mean/sd per (season, date) for the pitching+ traits.
+
+    Cumulative sums over PRIOR dates only (1 PRECEDING, none of today's
+    games — the xfip_league discipline), season-as-of with an all-history
+    fallback, trusted at >= floor rows. One row per
+    (season, game_date): lg_mean_<m> / lg_sd_<m> per trait.
+
+    Generalized (v5): the appearance-grain location league and the
+    pitch-grain stuff league share this builder with different daily
+    tables, floors and metric->column maps."""
+    mcols = dict(_PP_RAW_COL) if metrics is None else dict(metrics)
+    thru = ", ".join(
+        f"SUM(s_{m}) OVER w AS c_s_{m}, SUM(ss_{m}) OVER w AS c_ss_{m}, "
+        f"SUM(n_{m}) OVER w AS c_n_{m}" for m in mcols)
+    allh = ", ".join(
+        f"SUM(s_{m}) OVER wall AS a_s_{m}, SUM(ss_{m}) OVER wall AS a_ss_{m}, "
+        f"SUM(n_{m}) OVER wall AS a_n_{m}" for m in mcols)
+    outs = []
+    for m in mcols:
+        outs.append(
+            f"CASE WHEN c_n_{m} >= {floor} "
+            f"THEN c_s_{m} / c_n_{m} "
+            f"WHEN a_n_{m} >= {floor} "
+            f"THEN a_s_{m} / a_n_{m} END AS lg_mean_{m}")
+        outs.append(
+            f"CASE WHEN c_n_{m} >= {floor} "
+            f"THEN SQRT(GREATEST((c_ss_{m} - c_s_{m} * c_s_{m} "
+            f"/ NULLIF(c_n_{m}, 0)) / NULLIF(c_n_{m} - 1, 0), 0)) "
+            f"WHEN a_n_{m} >= {floor} "
+            f"THEN SQRT(GREATEST((a_ss_{m} - a_s_{m} * a_s_{m} "
+            f"/ NULLIF(a_n_{m}, 0)) / NULLIF(a_n_{m} - 1, 0), 0)) "
+            f"END AS lg_sd_{m}")
+    return f"""
+        CREATE TABLE {out} AS
+        WITH thru AS (
+            SELECT season, game_date, {thru}
+            FROM {daily}
+            WINDOW w AS (PARTITION BY season ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ),
+        allhist AS (
+            SELECT game_date, {allh}
+            FROM {daily}
+            WINDOW wall AS (ORDER BY game_date
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        )
+        SELECT t.season, t.game_date, {", ".join(outs)}
+        FROM thru t
+        LEFT JOIN allhist a ON a.game_date = t.game_date
+    """
+
+
+def _pp_stuff_pitch_sql() -> str:
+    """Per-pitch stuff+ from PIT pitch-grain league z-scores (v5).
+
+    One scored row per pitch: 100 + 10 * renormalized weighted z over
+    the seven physical traits. Weights (_PP_STUFF_WTS) renormalize over
+    non-NULL traits so a pitch missing release tracking still scores on
+    the rest. NULL when every trait is NULL or the league row is absent
+    (early-season dates before the floor clears) — never a fabricated
+    100."""
+    zexpr = {m: f"(t.{m} - lg.lg_mean_{m}) / NULLIF(lg.lg_sd_{m}, 0)"
+             for m in _PP_STUFF_TRAITS}
+    _zcols = ",\n                ".join(
+        f"{zexpr[m]} AS z_{m}" for m in _PP_STUFF_TRAITS)
+
+    def _wsum(wts, absolute: bool = False) -> str:
+        parts = []
+        for m, w in wts:
+            wgt = abs(w) if absolute else w
+            parts.append(f"{wgt} * CASE WHEN z_{m} IS NOT NULL "
+                         f"THEN 1 ELSE 0 END")
+        return " + ".join(parts)
+
+    def _zsum(wts) -> str:
+        return " + ".join(
+            f"({w}) * COALESCE(z_{m}, 0)" for m, w in wts)
+
+    return f"""
+        CREATE TABLE pp_pitch_stuff_scored AS
+        WITH z AS (
+            SELECT t.game_pk, t.pitcher, t.pitch_type,
+                {_zcols}
+            FROM pp_pitch_stuff t
+            LEFT JOIN pp_stuff_league lg
+                   ON lg.season = t.season AND lg.game_date = t.game_date
+        ),
+        comp AS (
+            SELECT game_pk, pitcher, pitch_type,
+                {_wsum(_PP_STUFF_WTS, absolute=True)} AS _swsum,
+                {_zsum(_PP_STUFF_WTS)} AS _zstuff
+            FROM z
+        )
+        SELECT game_pk, pitcher, pitch_type,
+            CASE WHEN _swsum > 0
+                 THEN {_PP_PRIOR} + {_PP_SCALE} * _zstuff / _swsum
+            END AS stuff_pitch
+        FROM comp
+    """
+
+
+def _pp_composite_sql() -> str:
+    """Per-appearance stuff+/location+ from PIT league rows (v5).
+
+    stuff+ is the mean of the appearance's per-pitch stuff scores (v5:
+    FG grain — AVG ignores NULL pitches; all-NULL scores NULL); location
+    is the single appearance-mean credit z-scored against the PIT league
+    row. pitching+ stays the mean of the available halves downstream.
+    NULL when the outing is under _PP_MIN_APPEARANCE_PITCHES pitches —
+    the bp_outing cameo rule."""
+    return f"""
+        CREATE TABLE pp_appearance AS
+        WITH z AS (
+            SELECT r.game_date, r.season, r.game_pk, r.pitcher, r.n_pitches,
+                r.app_ip,
+                (r.loc_val - lg.lg_mean_locval)
+                    / NULLIF(lg.lg_sd_locval, 0) AS z_locval
+            FROM pp_appearance_raw r
+            LEFT JOIN pp_league lg
+                   ON lg.season = r.season AND lg.game_date = r.game_date
+        ),
+        st AS (
+            SELECT game_pk, pitcher, AVG(stuff_pitch) AS stuff_plus
+            FROM pp_pitch_stuff_scored
+            GROUP BY 1, 2
+        )
+        SELECT z.game_date, z.season, z.game_pk, z.pitcher, z.n_pitches,
+            z.app_ip,
+            CASE WHEN z.n_pitches >= {_PP_MIN_APPEARANCE_PITCHES}
+                      AND st.stuff_plus IS NOT NULL
+                 THEN st.stuff_plus
+            END AS stuff_plus,
+            -- v4: single location leg — the appearance mean credit
+            -- z-scored against the PIT league row. NULL when the outing
+            -- has no scored locations (or is under the cameo floor).
+            CASE WHEN z.n_pitches >= {_PP_MIN_APPEARANCE_PITCHES}
+                      AND z.z_locval IS NOT NULL
+                 THEN {_PP_PRIOR} + {_PP_SCALE} * z.z_locval
+            END AS location_plus
+        FROM z
+        LEFT JOIN st
+               ON st.game_pk = z.game_pk AND st.pitcher = z.pitcher
+    """
+
+
+def _pp_lv_count_sql(which: str) -> str:
+    """Count-bucket predicate for location-value contexts.
+
+    first (0-0) splits out: first-pitch intent differs from even-count
+    pitching. NULL counts sit out every bucket (never imputed)."""
+    base = "p.balls IS NOT NULL AND p.strikes IS NOT NULL"
+    if which == "first":
+        return f"({base} AND p.balls = 0 AND p.strikes = 0)"
+    if which == "ahead":
+        return f"({base} AND p.strikes > p.balls)"
+    if which == "behind":
+        return f"({base} AND p.balls > p.strikes)"
+    return f"({base} AND p.balls = p.strikes AND p.balls > 0)"  # even
+
+
+def _pp_lv_key_sql() -> tuple[str, str, str, str]:
+    """Location-value key expressions (family x count bucket x side x cell).
+
+    Family grain mirrors the exp2 pitch_cat mapping exactly (fastball /
+    full pitch type (the 2-fold sweep: family + platoon splits blur the
+    map; exact counts over-split). Count buckets come from
+    _pp_lv_count_sql; z is normalized by the batter's zone height
+    (sz_top/sz_bot — the 2-fold sweep: raw plate_z blurs edges across
+    tall/short batters) while x stays absolute. The cell floors the
+    clipped coords to 2-inch bins (gx * 100 + gz, capped at the grid
+    edge). Any NULL key (type, count, side, location, zone) sits the
+    pitch out of pricing AND credit (never imputed into a cell)."""
+    family = ("CASE WHEN p.pitch_type IN ('FF','SI','SL','CU','CH','FC', "
+              "'FS','ST','SV','FO') THEN p.pitch_type ELSE 'other' END")
+    cnt = "CASE "
+    for b in _PP_LV_CNT:
+        cnt += f"WHEN {_pp_lv_count_sql(b)} THEN '{b}' "
+    cnt += "END"
+    side = "CASE WHEN p.stand IN ('L', 'R') THEN p.stand END"
+    gx = (f"LEAST(CAST(FLOOR((LEAST(GREATEST(p.plate_x, {_PP_LV_GX0}), "
+          f"{_PP_LV_GX1}) - ({_PP_LV_GX0})) / {_PP_LV_STEP}) AS INTEGER), "
+          f"{_PP_LV_NX - 1})")
+    pzn = ("CASE WHEN p.sz_top IS NULL OR p.sz_bot IS NULL THEN NULL "
+           "ELSE (p.plate_z - p.sz_bot) / GREATEST(LEAST(p.sz_top "
+           "- p.sz_bot, 2.5), 1.5) * 2.0 END")
+    gz = (f"LEAST(CAST(FLOOR(LEAST(GREATEST(({pzn}), {_PP_LV_GZ0}), "
+          f"{_PP_LV_GZ1}) / {_PP_LV_STEP}) AS INTEGER), "
+          f"{_PP_LV_NZ - 1})")
+    cell = ("CASE WHEN p.plate_x IS NULL OR p.plate_z IS NULL THEN NULL "
+            f"ELSE ({gx} * 100 + {gz}) END")
+    return family, cnt, side, cell
+
+
+def _pp_lv_league_sql() -> str:
+    """PIT location-value price table per context-cell key.
+
+    pp_lv_nb_daily (3x3-expanded cell grain: each scored pitch counts
+    toward its own center plus the 8 adjacent centers, so sparse
+    per-date co-observation never drops neighbors) / pp_lv_ctx_daily
+    carry the price and context grains; the cumulative below is per full
+    key over PRIOR dates (1 PRECEDING) with an all-history fallback —
+    the pp_league discipline. The context mean needs
+    _PP_LV_MIN_CTX_N prior pitches
+    (season, else all-history); the smoothed cell value shrinks toward
+    that context mean with a _PP_LV_SHRINK_N-pitch prior, so a thin
+    neighborhood prices at ~context (credit ~0) instead of shipping a
+    noisy extreme. Credit = shrunk neighborhood value minus the context
+    mean; unpriceable cells are dropped (the credit join then leaves
+    those pitches unscored, never a 0)."""
+    return f"""
+        CREATE TABLE pp_lv_league AS
+        WITH tc AS (
+            SELECT season, game_date, family, cnt, side, cell,
+                SUM(n) OVER w AS c_n,
+                SUM(v_sum) OVER w AS c_vs
+            FROM pp_lv_nb_daily
+            WINDOW w AS (PARTITION BY season, family, cnt, side, cell
+                         ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ),
+        tx AS (
+            SELECT season, game_date, family, cnt, side,
+                SUM(n) OVER w AS c_n,
+                SUM(v_sum) OVER w AS c_vs
+            FROM pp_lv_ctx_daily
+            WINDOW w AS (PARTITION BY season, family, cnt, side
+                         ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ),
+        ac AS (
+            SELECT game_date, family, cnt, side, cell,
+                SUM(n) OVER w AS a_n,
+                SUM(v_sum) OVER w AS a_vs
+            FROM pp_lv_nb_daily
+            WINDOW w AS (PARTITION BY family, cnt, side, cell
+                         ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ),
+        ax AS (
+            SELECT game_date, family, cnt, side,
+                SUM(n) OVER w AS a_n,
+                SUM(v_sum) OVER w AS a_vs
+            FROM pp_lv_ctx_daily
+            WINDOW w AS (PARTITION BY family, cnt, side
+                         ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ),
+        joined AS (
+            SELECT tc.season, tc.game_date, tc.family, tc.cnt, tc.side,
+                tc.cell, tc.c_n, tc.c_vs,
+                tx.c_n AS xc_n, tx.c_vs AS xc_vs,
+                ac.a_n, ac.a_vs, ax.a_n AS xa_n, ax.a_vs AS xa_vs
+            FROM tc
+            JOIN tx ON tx.season = tc.season
+                   AND tx.game_date = tc.game_date
+                   AND tx.family = tc.family
+                   AND tx.cnt = tc.cnt
+                   AND tx.side = tc.side
+            LEFT JOIN ac ON ac.game_date = tc.game_date
+                        AND ac.family = tc.family
+                        AND ac.cnt = tc.cnt
+                        AND ac.side = tc.side
+                        AND ac.cell = tc.cell
+            LEFT JOIN ax ON ax.game_date = tc.game_date
+                        AND ax.family = tc.family
+                        AND ax.cnt = tc.cnt
+                        AND ax.side = tc.side
+        ),
+        ctx AS (
+            SELECT *, CASE WHEN xc_n >= {_PP_LV_MIN_CTX_N} THEN xc_vs / xc_n
+                           WHEN xa_n >= {_PP_LV_MIN_CTX_N} THEN xa_vs / xa_n
+                      END AS ctx_mean
+            FROM joined
+        )
+        SELECT season, game_date, family, cnt, side, cell,
+            ((COALESCE(c_vs, 0) + {_PP_LV_SHRINK_N} * ctx_mean)
+             / NULLIF(COALESCE(c_n, 0) + {_PP_LV_SHRINK_N}, 0))
+             - ctx_mean AS credit
+        FROM ctx
+        WHERE ctx_mean IS NOT NULL
+    """
+
+
+def _pp_sp_5g_sql() -> str:
+    """One IP-weighted quality grade per game over five prior appearances.
+
+    No pseudo-innings, league-average blending, or pitch-implied innings.
+    Missing/zero recorded IP contributes no weight; no measured IP -> NULL.
+    This is a quality average, not total run value or a nine-inning total.
+    Same-date games are excluded without a verified start-time ordering.
+    """
+    return f"""
+        CREATE TABLE pp_sp_5g AS
+        WITH numbered AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY pitcher ORDER BY game_date, game_pk) AS seq
+            FROM pp_appearance
+        ), bounds AS (
+            SELECT *, MIN(seq) OVER (PARTITION BY pitcher, game_date) AS day_first
+            FROM numbered
+        ), roll AS (
+            SELECT g.game_date, g.game_pk, g.pitcher,
+                SUM(h.pitching_plus_app * h.app_ip) AS _num,
+                SUM(CASE WHEN h.pitching_plus_app IS NOT NULL
+                         THEN h.app_ip END) AS _den
+            FROM bounds g LEFT JOIN numbered h ON h.pitcher = g.pitcher
+                AND h.seq >= g.day_first - 5 AND h.seq < g.day_first
+                AND h.app_ip > 0
+            GROUP BY g.game_date, g.game_pk, g.pitcher
+        )
+        SELECT r.game_date, r.game_pk, r.pitcher,
+            CASE WHEN st.sp_stale THEN NULL
+                 WHEN r._den > 0
+                 THEN r._num / r._den
+            END AS sp_pitchingplus_5g
+        FROM roll r
+        LEFT JOIN pitcher_stale st
+               ON r.game_date = st.game_date
+              AND r.game_pk = st.game_pk
+              AND r.pitcher = st.pitcher
+    """
+
+
+# Independent learned models; never fit against FanGraphs grades. The
+# fixed-weight proxy below is retained only as an explicit test comparator.
+_PP_PITCH_TYPES = ('FF', 'SI', 'FT', 'FC', 'SL', 'ST', 'SV', 'CU', 'KC',
+                   'CH', 'FS', 'FO', 'KN', 'EP', 'SC')
+_PP_MODEL_MIN_PITCHES = 10000
+_PP_MODEL_TREES = 180
+_PP_MODEL_SEED = 20261026
+_PP_COMBINED_TREES = 1000
+_PP_SCALE_MIN_PITCHES = 100
+_PP_SCALE_MIN_PITCHERS = 30
+
+
+def _pp_pitch_inputs(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Tracking-only model inputs plus a separate training target.
+
+    Entire-outing primary fastball traits are allowed here because outing
+    grades are historical measurements, used only by LAGged game features.
+    No pitcher/batter identities, results, weather or role enter a model.
+    Missing tracking stays NaN. Spin/movement angular disagreement is a
+    measured proxy, NOT a claimed reconstruction of active-spin physics.
+    """
+    have = {r[0] for r in con.execute('DESCRIBE pitches').fetchall()}
+    required = {'game_date', 'game_pk', 'pitcher', 'pitch_type'}
+    if not required <= have:
+        raise ValueError(f'Pitching+ missing identity columns: {sorted(required - have)}')
+    numeric = ('at_bat_number', 'pitch_number',
+               'release_speed', 'release_pos_x', 'release_pos_z',
+               'release_extension', 'pfx_x', 'pfx_z', 'spin_axis',
+               'plate_x', 'plate_z', 'sz_top', 'sz_bot', 'balls', 'strikes',
+               'delta_pitcher_run_exp', 'estimated_woba_using_speedangle',
+               'woba_value', 'arm_angle', 'ax', 'ay', 'az', 'effective_speed')
+    exprs = [f'TRY_CAST({c} AS DOUBLE) AS {c}' if c in have
+             else f'CAST(NULL AS DOUBLE) AS {c}' for c in numeric]
+    spin = [c for c in ('spin_rate', 'release_spin_rate') if c in have]
+    exprs.append(('COALESCE(' + ','.join(spin) + ')' if len(spin) == 2
+                  else spin[0] if spin else 'CAST(NULL AS DOUBLE)') + ' AS spin')
+    for c in ('p_throws', 'stand', 'game_type', 'events', 'description', 'home_team',
+              'away_team', 'inning_topbot'):
+        exprs.append(c if c in have else f'CAST(NULL AS VARCHAR) AS {c}')
+    frame = con.execute(f"""
+        SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
+               pitch_type, {', '.join(exprs)}
+        FROM pitches WHERE pitcher IS NOT NULL
+        ORDER BY game_date, game_pk, pitcher, at_bat_number, pitch_number
+    """).fetchdf()
+    if frame.empty:
+        return frame
+    # Deterministic primary selection: pitch count descending, type ascending.
+    fb = frame[frame.pitch_type.isin(('FF', 'SI', 'FT', 'FC'))]
+    ref = fb.groupby(['game_pk', 'pitcher', 'pitch_type'], observed=True).agg(
+        fb_n=('release_speed', 'size'), fb_velo=('release_speed', 'mean'),
+        fb_hb=('pfx_x', 'mean'), fb_vb=('pfx_z', 'mean')).reset_index()
+    ref = ref.sort_values(['game_pk', 'pitcher', 'fb_n', 'pitch_type'],
+                          ascending=[True, True, False, True]).drop_duplicates(
+                              ['game_pk', 'pitcher'])
+    ref = ref.rename(columns={'pitch_type': 'primary_fb'})
+    frame = frame.merge(ref.drop(columns='fb_n'), how='left',
+                        on=['game_pk', 'pitcher'], validate='many_to_one')
+    secondary = frame.primary_fb.notna() & frame.pitch_type.ne(frame.primary_fb)
+    frame['dvelo'] = (frame.release_speed - frame.fb_velo).where(secondary)
+    frame['dhb'] = (frame.pfx_x - frame.fb_hb).where(secondary)
+    frame['dvb'] = (frame.pfx_z - frame.fb_vb).where(secondary)
+    # Mirror horizontal tracking to the throwing-arm side, preserving vertical
+    # signs. Raw pitcher handedness is separately retained as a model input.
+    hand = frame.p_throws.map({'R': -1.0, 'L': 1.0})
+    frame['arm_hb'] = frame.pfx_x * hand
+    frame['arm_relx'] = frame.release_pos_x * hand
+    frame['arm_dhb'] = frame.dhb * hand
+    frame['throw_hand'] = frame.p_throws.map({'R': 1.0, 'L': 0.0})
+    frame['batter_hand'] = frame.stand.map({'R': 1.0, 'L': 0.0})
+    frame['pitch_code'] = frame.pitch_type.map(dict(
+        zip(_PP_PITCH_TYPES, range(len(_PP_PITCH_TYPES)))))
+    # Catcher's-view horizontal movement needs the OPPOSITE sign when
+    # converted to spin-axis direction (RHP FF: negative HB, axis >180).
+    # Circular wrap avoids a 359° vs 1° discontinuity. This angular proxy
+    # is not a physical reconstruction of active spin or SSW.
+    observed = np.degrees(np.arctan2(-frame.pfx_x, frame.pfx_z))
+    frame['axis_deviation'] = ((observed - (frame.spin_axis - 180.0)
+                                + 180.0) % 360.0 - 180.0).abs()
+    frame.loc[(frame.pfx_x ** 2 + frame.pfx_z ** 2) <= 1e-8,
+              'axis_deviation'] = np.nan
+    height = frame.sz_top - frame.sz_bot
+    frame['zone_z'] = ((frame.plate_z - frame.sz_bot) / height).where(height > 0)
+    frame['arm_plate_x'] = frame.plate_x * hand
+    frame['spin_sin'] = np.sin(np.deg2rad(frame.spin_axis))
+    frame['spin_cos'] = np.cos(np.deg2rad(frame.spin_axis))
+    frame['arm_ax'] = frame.ax * hand
+    frame['extension_ratio'] = (frame.release_extension / frame.release_pos_z).where(
+        frame.release_pos_z > 0)
+    return frame
+
+
+def _pp_expected_contact_target(frame: pd.DataFrame, fit: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Replace realized BIP value with expected-contact RV, TRAIN mapping only.
+
+    Regress BIP run value on observed wOBA with count-specific intercepts,
+    then substitute Savant xwOBA. Only the training label uses contact/outcome
+    columns: none enters inference. Missing xwOBA/mapping retains observed RV.
+    No fixed modern wOBA weights, future outcome prices, or FG grades are used.
+    """
+    raw = pd.to_numeric(frame.delta_pitcher_run_exp, errors='coerce').to_numpy(dtype=float)
+    needed = {'description', 'woba_value', 'estimated_woba_using_speedangle'}
+    if not needed <= set(frame):
+        return raw, {'status': 'raw_fallback', 'reason': 'contact columns absent'}
+    count = (frame.balls * 3 + frame.strikes).where(
+        frame.balls.between(0, 3) & frame.strikes.between(0, 2))
+    woba = pd.to_numeric(frame.woba_value, errors='coerce')
+    xwoba = pd.to_numeric(frame.estimated_woba_using_speedangle, errors='coerce')
+    bip = frame.description.eq('hit_into_play').fillna(False).to_numpy(dtype=bool)
+    valid = fit & bip & np.isfinite(raw) & np.isfinite(woba) & count.notna()
+    data = pd.DataFrame({'count': count[valid], 'woba': woba[valid], 'rv': raw[valid]})
+    if len(data) < 500:
+        return raw, {'status': 'raw_fallback', 'train_bip': len(data)}
+    group = data.groupby('count')[['woba', 'rv']].transform('mean')
+    centered_woba = data.woba - group.woba
+    denominator = float(np.sum(centered_woba ** 2))
+    if denominator <= 1e-8:
+        return raw, {'status': 'raw_fallback', 'reason': 'no within-count wOBA spread'}
+    slope = float(np.sum(centered_woba * (data.rv - group.rv)) / denominator)
+    if not np.isfinite(slope) or slope >= 0:
+        raise ValueError('Pitching+ expected-contact RV must decrease as hitter wOBA rises')
+    means = data.groupby('count')[['woba', 'rv']].mean()
+    intercept = count.map((means.rv - slope * means.woba).to_dict()).to_numpy(dtype=float)
+    target = raw.copy()
+    replace = bip & np.isfinite(intercept) & np.isfinite(xwoba)
+    target[replace] = intercept[replace] + slope * xwoba.to_numpy()[replace]
+    # Missing observed RV is still an unknown outcome, not an invented label.
+    target[~np.isfinite(raw)] = np.nan
+    return target, {'status': 'expected_contact', 'train_bip': len(data), 'woba_slope': slope}
+
+
+def _pp_grade_reference(predictions: np.ndarray, pitchers: np.ndarray,
+                        pitch_types: np.ndarray, per_type: bool) -> tuple[float, float, dict, int]:
+    """Prior-only pitcher-population scale; not a claimed FG calibration.
+
+    100/10 describes QUALIFIED CALIBRATION PITCHER MEANS, not pitch SD.
+    This avoids confusing within-pitch location variation with between-arm
+    quality. Each reference pitcher has >=100 measured pitches; >=30 arms
+    are required. IDs group calibration measurements but never enter a model.
+    No pseudo-innings, player shrinkage, or FG-derived scaling is applied.
+    """
+    data = pd.DataFrame({'prediction': predictions, 'pitcher': pitchers,
+                         'pitch_type': pitch_types})
+    type_centers = {}
+    values = predictions.copy()
+    if per_type:
+        by_type = data.groupby('pitch_type').prediction.agg(['mean', 'count'])
+        type_centers = by_type.loc[by_type['count'] >= 100, 'mean'].to_dict()
+        values -= data.pitch_type.map(type_centers).to_numpy(dtype=float)
+    data['value'] = values
+    means = data.groupby('pitcher').value.agg(['mean', 'count'])
+    means = means.loc[means['count'] >= _PP_SCALE_MIN_PITCHES, 'mean']
+    if len(means) < _PP_SCALE_MIN_PITCHERS:
+        return np.nan, np.nan, type_centers, len(means)
+    return float(means.mean()), float(means.std(ddof=1)), type_centers, len(means)
+
+
+def _pp_fit_pitch_models(frame: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+    """Three nonlinear run-value models, refit at quarterly causal origins.
+
+    Fit window: at most two preceding years. The last 30 observed regular-
+    season dates before origin calibrate a 100/10 reference scale of
+    QUALIFIED CALIBRATION PITCHER MEANS (not pitch SD). This also
+    works across the offseason. Calibration and scored periods are disjoint
+    temporal holdouts. No FG grades are read. Location+ centers within pitch
+    type. Calibration scaling is not a blend of a pitcher's grade with a prior.
+    """
+    from lightgbm import LGBMRegressor
+    physical = ['pitch_code', 'throw_hand', 'release_speed', 'spin',
+                'arm_hb', 'pfx_z', 'arm_relx', 'release_pos_z',
+                'release_extension', 'dvelo', 'arm_dhb', 'dvb', 'axis_deviation',
+                'spin_sin', 'spin_cos', 'arm_angle', 'arm_ax', 'ay', 'az',
+                'effective_speed', 'extension_ratio']
+    location = ['pitch_code', 'throw_hand', 'batter_hand', 'balls', 'strikes',
+                'arm_plate_x', 'zone_z', 'plate_z']
+    cols = list(dict.fromkeys(physical + location))
+    matrix = frame.reindex(columns=cols).to_numpy(dtype=np.float32, na_value=np.nan)
+    target = pd.to_numeric(frame.delta_pitcher_run_exp, errors='coerce').to_numpy()
+    dates = pd.to_datetime(frame.game_date)
+    out = frame[['game_date', 'game_pk', 'pitcher', 'pitch_type']].copy()
+    for name in ('stuff_plus', 'location_plus', 'pitching_plus_app'):
+        out[name] = np.nan
+    diagnostics = []
+    groups = dates.dt.to_period('Q')
+    # Neutralize count's average run value for physical-only models. The
+    # baseline is learned on TRAIN rows only, not from season-final values.
+    counts = (frame.balls * 3 + frame.strikes).where(
+        frame.balls.between(0, 3) & frame.strikes.between(0, 2)).to_numpy()
+    for period in sorted(groups.unique()):
+        origin = period.start_time
+        regular = (frame.game_type.eq('R').to_numpy() if 'game_type' in frame
+                   else np.ones(len(frame), dtype=bool))
+        prior = dates[(dates < origin) & np.isfinite(target) & regular]
+        observed_days = np.sort(prior.unique())
+        calibration_start = (pd.Timestamp(observed_days[-30]) if len(observed_days) >= 30
+                             else pd.Timestamp(observed_days[0]) if len(observed_days) else origin)
+        fit = ((dates < calibration_start)
+               & (dates >= origin - pd.Timedelta(days=730))
+               & np.isfinite(target)).to_numpy()
+        calibration = ((dates >= calibration_start)
+                       & (dates < origin) & np.isfinite(target) & regular).to_numpy()
+        score = (groups == period).to_numpy()
+        if fit.sum() < _PP_MODEL_MIN_PITCHES or calibration.sum() < 500:
+            diagnostics.append({'origin': str(origin.date()), 'status': 'warmup',
+                                'train_pitches': int(fit.sum())})
+            continue
+        learned_target, contact_info = _pp_expected_contact_target(frame, fit)
+        baseline = pd.DataFrame({'count': counts[fit], 'value': learned_target[fit]}).groupby(
+            'count').value.mean().to_dict()
+        expected = np.array([baseline.get(c, np.nan) for c in counts])
+        residual = learned_target - expected
+        for name, inputs in [('stuff_plus', physical), ('location_plus', location),
+                             ('pitching_plus_app', cols)]:
+            indices = [cols.index(c) for c in inputs]
+            valid = np.isfinite(matrix[:, cols.index('pitch_code')])
+            valid &= frame.balls.between(0, 3).to_numpy()
+            valid &= frame.strikes.between(0, 2).to_numpy()
+            if name != 'stuff_plus':
+                for c in ('balls', 'strikes', 'batter_hand', 'zone_z', 'arm_plate_x'):
+                    valid &= np.isfinite(matrix[:, cols.index(c)])
+            if name != 'location_plus':
+                for c in ('release_speed', 'arm_hb', 'pfx_z', 'throw_hand'):
+                    valid &= np.isfinite(matrix[:, cols.index(c)])
+            # Stuff lacks count by design, so remove TRAIN-estimated count
+            # value. The other models observe count and learn its nonlinear
+            # interaction with location/shape directly from raw run value.
+            y = residual if name == 'stuff_plus' else learned_target
+            measured = target - expected if name == 'stuff_plus' else target
+            tr = fit & valid & np.isfinite(y)
+            ca = calibration & valid & np.isfinite(y)
+            sc = score & valid
+            if tr.sum() < _PP_MODEL_MIN_PITCHES or ca.sum() < 500 or not sc.any():
+                continue
+            model = LGBMRegressor(
+                n_estimators=(_PP_COMBINED_TREES if name == 'pitching_plus_app' else _PP_MODEL_TREES),
+                learning_rate=(0.035 if name == 'pitching_plus_app' else 0.05),
+                num_leaves=(63 if name == 'pitching_plus_app' else 31),
+                min_child_samples=200, max_bin=(127 if name == 'pitching_plus_app' else 63), reg_lambda=10.0,
+                colsample_bytree=1.0, subsample=1.0, n_jobs=4,
+                random_state=_PP_MODEL_SEED, deterministic=True,
+                force_col_wise=True, verbosity=-1)
+            xtr = matrix[tr][:, indices]
+            xca = matrix[ca][:, indices]
+            xsc = matrix[sc][:, indices]
+            cat = [inputs.index('pitch_code')]
+            model.fit(xtr, y[tr], categorical_feature=cat)
+            logger.info('Pitching+ %s at %s: train=%d calibration=%d score=%d',
+                        name, origin.date(), int(tr.sum()), int(ca.sum()), int(sc.sum()))
+            # Use the native booster for NumPy inference without sklearn
+            # feature-name warnings; n_jobs is explicitly bounded above.
+            cp = model.booster_.predict(xca, num_threads=4)
+            pred = model.booster_.predict(xsc, num_threads=4)
+            mu, sd, type_centers, reference_n = _pp_grade_reference(
+                cp, frame.loc[ca, 'pitcher'].to_numpy(),
+                frame.loc[ca, 'pitch_type'].to_numpy(), name == 'location_plus')
+            if not np.isfinite(sd):
+                diagnostics.append({'origin': str(origin.date()), 'model': name,
+                                    'status': 'scale_warmup', 'reference_pitchers': reference_n})
+                continue
+            if sd <= 1e-8:
+                raise ValueError(f'Pitching+ degenerate {name} at {origin.date()}')
+            center = np.full(len(pred), mu)
+            if name == 'location_plus':
+                center += frame.loc[sc, 'pitch_type'].map(type_centers).to_numpy(dtype=float)
+            out.loc[sc, name] = 100.0 + 10.0 * (pred - center) / sd
+            diagnostics.append({
+                'origin': str(origin.date()), 'model': name, 'status': 'fitted',
+                'train_pitches': int(tr.sum()), 'calibration_pitches': int(ca.sum()),
+                'scored_pitches': int(sc.sum()),
+                'train_last_date': str(dates[tr].max().date()),
+                'calibration_last_date': str(dates[ca].max().date()),
+                'calibration_mse': float(np.mean((cp - y[ca]) ** 2)),
+                'constant_mse': float(np.mean((y[ca] - y[tr].mean()) ** 2)),
+                'target_method': contact_info,
+                'scale_population': 'equal-weight calibration pitcher means, min100 pitches',
+                'reference_pitchers': reference_n,
+                'test_target_mse': (float(np.mean((pred[np.isfinite(y[sc])] - y[sc][np.isfinite(y[sc])]) ** 2))
+                                    if np.isfinite(y[sc]).any() else None),
+                'test_mse': (float(np.mean((pred[np.isfinite(y[sc])] - measured[sc][np.isfinite(y[sc])]) ** 2))
+                             if np.isfinite(y[sc]).any() else None),
+                'test_constant_mse': (float(np.mean((measured[sc][np.isfinite(y[sc])] - measured[tr].mean()) ** 2))
+                                      if np.isfinite(y[sc]).any() else None),
+                'test_pitches': int(np.isfinite(y[sc]).sum()),
+                'test_last_date': str(dates[sc].max().date()),
+                'scale_mean': mu, 'scale_sd': sd})
+    return out, diagnostics
+
+
+def _pp_bullpen_sql(pitchers_ok: bool = False) -> str:
+    """IP-weighted available staff over prior 3/10 TEAM games, no blending.
+
+    Every team game occupies a window slot, including complete games.
+    Ledger/spent checks use the TARGET date; historical injuries must not
+    permanently discard a now-returned arm, or retain an arm now on IL.
+    Same-date games are excluded: game_pk is an ID, not a start timestamp.
+    """
+    available = (_BP_LEDGER_EXCLUDE_ROW_SQL.format(alias='o', date='g.game_date')
+                 if pitchers_ok else 'TRUE')
+    return f"""
+        CREATE TABLE pp_bullpen_rolling AS
+        WITH calendar AS (
+            SELECT DISTINCT CAST(game_date AS DATE) AS game_date, game_pk,
+                   home_team AS team FROM pitches
+            UNION
+            SELECT DISTINCT CAST(game_date AS DATE), game_pk, away_team FROM pitches
+        ), numbered AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY team ORDER BY game_date, game_pk) AS seq
+            FROM calendar
+        ), bounds AS (
+            SELECT *, MIN(seq) OVER (PARTITION BY team, game_date) AS day_first
+            FROM numbered
+        )
+        SELECT g.game_date, g.game_pk, g.team,
+            SUM(a.pitching_plus_app * a.app_ip)
+                / NULLIF(SUM(a.app_ip), 0) AS bullpen_pitchingplus_10g,
+            SUM(CASE WHEN h.seq >= g.day_first - 3
+                     THEN a.pitching_plus_app * a.app_ip END)
+                / NULLIF(SUM(CASE WHEN h.seq >= g.day_first - 3
+                                  THEN a.app_ip END), 0) AS bullpen_pitchingplus_3g
+        FROM bounds g
+        LEFT JOIN numbered h ON h.team = g.team
+            AND h.seq >= g.day_first - 10 AND h.seq < g.day_first
+        LEFT JOIN LATERAL (
+            SELECT o.* FROM bp_outing o
+            WHERE o.team = h.team AND o.game_pk = h.game_pk
+              AND {available}
+              AND NOT EXISTS (
+                SELECT 1 FROM bp_outing heavy
+                WHERE heavy.team = g.team AND heavy.pitcher = o.pitcher
+                  AND heavy.n_pitches >= {_BP_SPENT_PITCHES}
+                  AND heavy.game_date < g.game_date
+                  AND heavy.game_date >= g.game_date - INTERVAL '{_BP_SPENT_LOOKBACK_DAYS} DAY')
+        ) o ON TRUE
+        LEFT JOIN pp_appearance a ON a.game_pk = o.game_pk AND a.pitcher = o.pitcher
+            AND a.app_ip > 0 AND a.pitching_plus_app IS NOT NULL
+        GROUP BY g.game_date, g.game_pk, g.team
+    """
+
+
+def _build_pitchingplus_features(con: duckdb.DuckDBPyConnection,
+                                 pitchers_ok: bool) -> None:
+    """Learned pitch -> appearance mean -> IP-weighted prior-game quality.
+
+    Always rebuilt from the run's pitch frame; never load a model/history
+    artifact. FG grades are an external validation target, never an input.
+    Unvalidated candidates remain outside the production feature width.
+    """
+    import time
+    started = time.perf_counter()
+    frame = _pp_pitch_inputs(con)
+    if frame.empty:
+        con.execute('CREATE TABLE pp_appearance (game_date DATE, game_pk BIGINT, '
+                    'pitcher BIGINT, app_ip DOUBLE, pitching_plus_app DOUBLE)')
+        con.execute(_pp_sp_5g_sql())
+        con.execute(_pp_bullpen_sql(pitchers_ok))
+        return
+    scored, diagnostics = _pp_fit_pitch_models(frame)
+    if not scored.pitching_plus_app.notna().any():
+        logger.warning('Pitching+ has no scored pitches: insufficient prior training/calibration '
+                       'or missing tracking/target data; shadow grades remain NULL')
+    # Grade an appearance using measured pitches only, not their outcomes.
+    appearance = scored.groupby(['game_date', 'game_pk', 'pitcher'],
+                                 sort=False, observed=True).agg(
+        n_pitches=('pitcher', 'size'), n_scored=('pitching_plus_app', 'count'),
+        stuff_plus=('stuff_plus', 'mean'), location_plus=('location_plus', 'mean'),
+        pitching_plus_app=('pitching_plus_app', 'mean')).reset_index()
+    cameo = appearance.n_pitches < _PP_MIN_APPEARANCE_PITCHES
+    appearance.loc[cameo, ['stuff_plus', 'location_plus', 'pitching_plus_app']] = np.nan
+    # Use canonical recorded outs (same definition as SP xFIP), not a
+    # pitch-count-implied innings estimate or decimal baseball IP notation.
+    tables = {r[0] for r in con.execute('SHOW TABLES').fetchall()}
+    if 'pitcher_game_stats' not in tables:
+        raise ValueError('Pitching+ requires canonical pitcher_game_stats.ip')
+    con.register('_pp_app_reg', appearance)
+    con.execute("""
+        CREATE TABLE pp_appearance AS
+        SELECT a.*, YEAR(a.game_date) AS season, s.ip AS app_ip
+        FROM _pp_app_reg a LEFT JOIN pitcher_game_stats s
+          ON a.game_pk = s.game_pk AND a.pitcher = s.pitcher
+    """)
+    con.unregister('_pp_app_reg')
+    con.execute(_pp_sp_5g_sql())
+    # Price the staff available on EACH target game date, not merely the
+    # staff that was healthy when the historical innings were recorded.
+    # Include complete-game/no-eligible-relief games in the team calendar.
+    con.execute(_pp_bullpen_sql(pitchers_ok))
+    # Optional evaluation output is explicitly local, never a serving input.
+    report_dir = os.getenv('MLB_PITCHINGPLUS_REPORT_DIR')
+    if report_dir:
+        dest = Path(report_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        con.execute('SELECT * FROM pp_appearance').fetchdf().to_parquet(
+            dest / 'appearances.parquet', index=False)
+        reg = scored[frame.game_type.eq('R')].copy()
+        reg['season'] = pd.to_datetime(reg.game_date).dt.year
+        season = reg.groupby(['season', 'pitcher'], observed=True).agg(
+            pitches=('pitcher', 'size'), scored=('pitching_plus_app', 'count'),
+            stuff_plus=('stuff_plus', 'mean'), location_plus=('location_plus', 'mean'),
+            pitching_plus=('pitching_plus_app', 'mean')).reset_index()
+        season.to_csv(dest / 'pitcher_seasons.csv', index=False)
+        (dest / 'model_diagnostics.json').write_text(
+            json.dumps(diagnostics, indent=2), encoding='utf-8')
+    logger.info('Pitching+ learned models: %d pitches, %d appearances, %.1fs; trial only',
+                len(frame), len(appearance), time.perf_counter() - started)
+
+
+def _build_pitchingplus_proxy(con: duckdb.DuckDBPyConnection,
+                              pitchers_ok: bool) -> None:
+    """Legacy fixed-weight comparator; NEVER called by feature generation.
+
+    Its components/shrinkage are not the learned model's contract. The
+    SP helper is shared (recorded-IP average without blending); the old
+    bullpen proxy below retains pitch weighting solely for comparison.
+    Derived pitching+ proxy (stuff+location, 100-scale) + SP/bullpen
+    trailing forms — diagnostic tests only, never served directly.
+
+    Per-appearance pitching+ comes from pitch traits (velo/spin/movement/
+    extension) plus empirical location value, z-scored against the
+    strictly-prior PIT league row;
+    the mean of the available halves ships as pitching_plus_app. SP form is
+    the pitch-weighted last-5-appearance mean shrunk toward 100 with
+    _PP_SP_SHRINK_IP pseudo-innings (the sp_xfip_5g structure in innings,
+    units), stale-gated like every SP source. Bullpen form pools the
+    trailing team-game pen means — availability-ledgered, spent-arm-
+    excluded, cameo-filtered via the same bp_outing/bp_spent predicates as
+    bullpen_raw — shrunk toward 100 with the bp_shrink_prior pseudo-
+    pitches. Date-level ASOF throughout (doubleheaders share the
+    incumbent convention: same-date earlier games may sit in a trailing
+    window; today's game never scores itself — every window is LAG-
+    shifted). Empty league/appearance states ship NULL, never a
+    fabricated 100."""
+    logger.info("Building pitching+ proxy (trial family, location v4, stuff v5)...")
+    # v5 pitch-grain stuff reads seven physical columns; the production
+    # frame guarantees them via the _required set, but unit-test frames
+    # (often a registered view — un-ALTERable) may not carry them. A
+    # missing backing column scores NULL for that trait (renormalized
+    # out downstream), never a binder failure.
+    _have = {r[0] for r in con.execute("DESCRIBE pitches").fetchall()}
+
+    def _stuff_col(m: str) -> str:
+        if m in _PP_STUFF_DIFFS:
+            return f"p.{m}"
+        have = [c for c in _PP_STUFF_BACKING[m] if c in _have]
+        if not have:
+            return "CAST(NULL AS DOUBLE)"
+        if m == "spin" and len(have) == 2:
+            return "COALESCE(p.spin_rate, p.release_spin_rate)"
+        return f"p.{have[0]}"
+
+    # _ppitch_cols covers the physical traits only; the differentials are
+    # computed explicitly in the pp_pitch_stuff SELECT below (they cannot
+    # self-reference the output row).
+    _ppitch_cols = ",\n               ".join(
+        f"{_stuff_col(m)} AS {m}" for m in _PP_STUFF_TRAITS
+        if m not in _PP_STUFF_DIFFS)
+    # Thin frames may lack pitch_type entirely (registered views) — the
+    # per-type disclosure below then reports a single NULL row, never a
+    # binder failure.
+    _ptype_col = ("p.pitch_type" if "pitch_type" in _have
+                  else "CAST(NULL AS VARCHAR)")
+    _fam, _cnt, _side, _cell = _pp_lv_key_sql()
+    con.execute(f"""
+        CREATE TABLE pp_pitch_lv AS
+        SELECT CAST(p.game_date AS DATE) AS game_date,
+               EXTRACT(YEAR FROM p.game_date) AS season,
+               p.game_pk, p.pitcher,
+               {_fam} AS family, {_cnt} AS cnt, {_side} AS side,
+               {_cell} AS cell,
+               p.delta_pitcher_run_exp AS pvalue
+        FROM pitches p
+        WHERE p.pitcher IS NOT NULL
+    """)
+    con.execute("""
+        CREATE TABLE pp_lv_cell_daily AS
+        SELECT season, game_date, family, cnt, side, cell,
+            cell // 100 AS gx, cell % 100 AS gz,
+            COUNT(*) AS n, SUM(pvalue) AS v_sum
+        FROM pp_pitch_lv
+        WHERE family IS NOT NULL AND cnt IS NOT NULL
+          AND side IS NOT NULL AND cell IS NOT NULL
+          AND pvalue IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5, 6
+    """)
+
+    con.execute(f"""
+        -- 3x3 spatial smoothing by EXPANSION (not same-date self-join:
+        -- per-date co-observation is sparse, so a self-join loses ~60%
+        -- of neighbors). Each scored pitch contributes to its own cell
+        -- plus the 8 adjacent centers; cumulative sums below then carry
+        -- full histories per center. Edge centers naturally get fewer
+        -- contributors. Still strictly per-date PIT.
+        CREATE TABLE pp_lv_nb_daily AS
+        SELECT season, game_date, family, cnt, side,
+            (gx + dx) * 100 + (gz + dz) AS cell,
+            SUM(n) AS n, SUM(v_sum) AS v_sum
+        FROM (SELECT season, game_date, family, cnt, side, gx, gz,
+                     n, v_sum
+              FROM pp_lv_cell_daily) d
+        CROSS JOIN (VALUES (-1, -1), (-1, 0), (-1, 1),
+                           (0, -1), (0, 0), (0, 1),
+                           (1, -1), (1, 0), (1, 1)) AS dlt(dx, dz)
+        WHERE gx + dx BETWEEN 0 AND {_PP_LV_NX - 1}
+          AND gz + dz BETWEEN 0 AND {_PP_LV_NZ - 1}
+        GROUP BY 1, 2, 3, 4, 5, 6
+    """)
+    con.execute("""
+        CREATE TABLE pp_lv_ctx_daily AS
+        SELECT season, game_date, family, cnt, side,
+            COUNT(*) AS n, SUM(pvalue) AS v_sum
+        FROM pp_pitch_lv
+        WHERE family IS NOT NULL AND cnt IS NOT NULL
+          AND side IS NOT NULL AND pvalue IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5
+    """)
+    con.execute(_pp_lv_league_sql())
+    con.execute("""
+        CREATE TABLE pp_pitch_credit AS
+        SELECT t.game_pk, t.pitcher,
+            -- Location credit: this location's prior-priced value minus
+            -- its context mean. Unpriced cells (thin context) and NULL
+            -- keys (NULL count/location/side/family/value) score NULL and
+            -- carry zero weight — never a fabricated 0.
+            l.credit AS credit,
+            CASE WHEN l.credit IS NOT NULL THEN 1.0 ELSE 0.0 END AS credit_w
+        FROM pp_pitch_lv t
+        LEFT JOIN pp_lv_league l
+               ON l.season = t.season AND l.game_date = t.game_date
+              AND l.family = t.family AND l.cnt = t.cnt
+              AND l.side = t.side AND l.cell = t.cell
+    """)
+    # Appearance innings for the v6 inning-weighted SP trailing: outs on
+    # PA-final pitches (events gating, same mapping as bp_daily). A frame
+    # without events scores NULL IP (zero trailing weight, never zeroed).
+    _app_ip_expr = (f"SUM({_PP_OUTS_CASE}) / 3.0"
+                    if "events" in _have else "CAST(NULL AS DOUBLE)")
+    con.execute(f"""
+        CREATE TABLE pp_appearance_raw AS
+        WITH app AS (
+            SELECT CAST(p.game_date AS DATE) AS game_date,
+                   EXTRACT(YEAR FROM p.game_date) AS season,
+                   p.game_pk, p.pitcher,
+                   COUNT(*) AS n_pitches,
+                   {_app_ip_expr} AS app_ip,
+                   AVG(CASE WHEN p.pitch_type IN ('FF', 'SI', 'FT')
+                            THEN p.release_speed END) AS fb_velo,
+                   AVG(p.spin_rate) AS spin,
+                   AVG(SQRT(p.pfx_x * p.pfx_x
+                            + p.pfx_z * p.pfx_z)) AS move_mag,
+                   AVG(p.release_extension) AS ext
+            FROM pitches p
+            WHERE p.pitcher IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ),
+        out AS (
+            SELECT game_pk, pitcher,
+                SUM(credit) / NULLIF(SUM(credit_w), 0) AS loc_val
+            FROM pp_pitch_credit
+            GROUP BY 1, 2
+        )
+        SELECT a.game_date, a.season, a.game_pk, a.pitcher, a.n_pitches,
+            a.fb_velo, a.spin, a.move_mag, a.ext, a.app_ip,
+            o.loc_val
+        FROM app a
+        LEFT JOIN out o
+               ON o.game_pk = a.game_pk AND o.pitcher = a.pitcher
+    """)
+    _daily_cols = ", ".join(
+        f"SUM({c}) AS s_{m}, SUM({c} * {c}) AS ss_{m}, COUNT({c}) AS n_{m}"
+        for m, c in _PP_RAW_COL.items())
+    # v5 pitch-grain stuff inputs (FG grain): one row per pitch with the
+    # seven physical traits; the league prices them at the same grain.
+    # NULL traits stay NULL (renormalized out of the per-pitch score).
+    # FG primary-fastball reference (usage-defined per outing): the
+    # fastball type (FF/SI/FT) with the most pitches in that appearance.
+    # Secondary pitches are additionally judged by velo/movement
+    # differentials off the primary's means; primary-fastball pitches —
+    # and appearances with no fastball at all — carry NULL differentials
+    # (their raw traits still score, renormalized).
+    if {"pitch_type", "release_speed", "pfx_x", "pfx_z"} <= _have:
+        con.execute("""
+        CREATE TABLE pp_app_primary_fb AS
+        WITH fb AS (
+            SELECT game_pk, pitcher, pitch_type,
+                COUNT(*) AS n,
+                AVG(release_speed) AS fb_velo,
+                AVG(pfx_x) AS fb_hb, AVG(pfx_z) AS fb_vb,
+                ROW_NUMBER() OVER (PARTITION BY game_pk, pitcher
+                                   ORDER BY COUNT(*) DESC) AS rn
+            FROM pitches
+            WHERE pitcher IS NOT NULL
+              AND pitch_type IN ('FF', 'SI', 'FT')
+            GROUP BY 1, 2, 3
+        )
+        SELECT game_pk, pitcher, pitch_type AS primary_fb,
+               fb_velo, fb_hb, fb_vb
+        FROM fb
+        WHERE rn = 1
+        """)
+    else:
+        # Thin frame (no pitch-type/trait columns): no reference exists,
+        # so every differential is NULL — same schema, zero rows.
+        con.execute("""
+        CREATE TABLE pp_app_primary_fb AS
+        SELECT p.game_pk, p.pitcher,
+               CAST(NULL AS VARCHAR) AS primary_fb,
+               CAST(NULL AS DOUBLE) AS fb_velo,
+               CAST(NULL AS DOUBLE) AS fb_hb,
+               CAST(NULL AS DOUBLE) AS fb_vb
+        FROM pitches p
+        WHERE FALSE
+        """)
+    con.execute(f"""
+        CREATE TABLE pp_pitch_stuff AS
+        SELECT CAST(p.game_date AS DATE) AS game_date,
+               EXTRACT(YEAR FROM p.game_date) AS season,
+               p.game_pk, p.pitcher, {_ptype_col} AS pitch_type,
+               {_ppitch_cols},
+               CASE WHEN pf.primary_fb IS NOT NULL
+                         AND p.pitch_type <> pf.primary_fb
+                    THEN p.release_speed - pf.fb_velo END AS dvelo,
+               CASE WHEN pf.primary_fb IS NOT NULL
+                         AND p.pitch_type <> pf.primary_fb
+                    THEN p.pfx_x - pf.fb_hb END AS dhb,
+               CASE WHEN pf.primary_fb IS NOT NULL
+                         AND p.pitch_type <> pf.primary_fb
+                    THEN p.pfx_z - pf.fb_vb END AS dvb
+        FROM pitches p
+        LEFT JOIN pp_app_primary_fb pf
+               ON pf.game_pk = p.game_pk AND pf.pitcher = p.pitcher
+        WHERE p.pitcher IS NOT NULL
+    """)
+    _pst_daily = ",\n            ".join(
+        f"SUM({m}) AS s_{m}, SUM({m} * {m}) AS ss_{m}, "
+        f"COUNT({m}) AS n_{m}" for m in _PP_STUFF_TRAITS)
+    con.execute(f"""
+        CREATE TABLE pp_stuff_league_daily AS
+        SELECT game_date, season,
+            COUNT(*) AS n_pitch,
+            {_pst_daily}
+        FROM pp_pitch_stuff
+        GROUP BY 1, 2
+    """)
+    con.execute(_pp_league_sql(
+        daily="pp_stuff_league_daily", out="pp_stuff_league",
+        floor=_PP_MIN_LEAGUE_PITCH,
+        metrics={m: m for m in _PP_STUFF_TRAITS}))
+    con.execute(_pp_stuff_pitch_sql())
+    con.execute(f"""
+        CREATE TABLE pp_league_daily AS
+        SELECT game_date, season,
+            COUNT(*) AS n_app,
+            {_daily_cols}
+        FROM pp_appearance_raw
+        GROUP BY 1, 2
+    """)
+    con.execute(_pp_league_sql())
+    n_lg = con.execute("SELECT COUNT(*) FROM pp_league").fetchone()[0]
+    if not n_lg:
+        logger.warning("Pitching+: pp_league is empty — every pitching+ "
+                       "value ships NULL (no fabricated 100s)")
+    con.execute(_pp_composite_sql())
+    # FG-table disclosure (observability, not a gate): per-pitch-type
+    # stuff means/SDs over scored pitches. FG centers Location+ per type
+    # but leaves Stuff+ pooled (slider ~111, sinker ~93 in the primer) —
+    # arsenal choice is part of stuff — so this table must SHOW a spread,
+    # not 100s. A collapsed table means the type signal died upstream.
+    # Role scaling needs no converter: SP and pen forms live in separate
+    # served columns and never mix, so no RP→SP adjustment is applied;
+    # spread differences emerge from the role-specific windows.
+    try:
+        _pt = con.execute("""
+            SELECT COALESCE(pitch_type, 'unknown') AS pt, COUNT(*) AS n,
+                   AVG(stuff_pitch) AS mean,
+                   STDDEV_SAMP(stuff_pitch) AS sd
+            FROM pp_pitch_stuff_scored
+            WHERE stuff_pitch IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """).fetchall()
+        _pt = [(r[0], r[1], round(r[2], 1),
+                round(r[3], 1) if r[3] is not None else None)
+               for r in _pt if r[1] >= 1000]
+        if _pt:
+            logger.info("Pitching+ stuff by pitch type (FG-table shape): %s",
+                        ", ".join(f"{t} n={n} {m}±{s}"
+                                   for t, n, m, s in _pt))
+    except Exception as exc:  # noqa: BLE001 — disclosure never breaks a build
+        logger.warning("Pitching+ type table undisclosed (%s)", exc)
+    # pitching+ is the mean of the available halves (either half alone
+    # when the other is NULL).
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE pp_appearance_scored AS
+        SELECT game_date, season, game_pk, pitcher, n_pitches,
+            (stuff_plus + location_plus) / 2.0 AS pitching_plus_both,
+            stuff_plus, location_plus, app_ip
+        FROM pp_appearance
+    """)
+    con.execute("DROP TABLE pp_appearance")
+    con.execute("""
+        CREATE TABLE pp_appearance AS
+        SELECT game_date, season, game_pk, pitcher, n_pitches, app_ip,
+            COALESCE(pitching_plus_both, stuff_plus,
+                     location_plus) AS pitching_plus_app
+        FROM pp_appearance_scored
+    """)
+    con.execute(_pp_sp_5g_sql())
+    _pp_arm_out = (_BP_LEDGER_EXCLUDE_ROW_SQL.format(alias="o",
+                                                     date="o.game_date")
+                   if pitchers_ok else "TRUE")
+    con.execute(f"""
+        CREATE TABLE pp_pen_game AS
+        WITH scored AS (
+            SELECT o.game_date, o.game_pk, o.team,
+                SUM(o.n_pitches) AS pen_pitches,
+                SUM(CASE WHEN a.pitching_plus_app IS NOT NULL
+                         THEN o.n_pitches ELSE 0 END) AS pen_pitches_scored,
+                SUM(a.pitching_plus_app * o.n_pitches) AS _num
+            FROM bp_outing o
+            LEFT JOIN pp_appearance a
+                   ON a.game_pk = o.game_pk AND a.pitcher = o.pitcher
+            WHERE {_pp_arm_out}
+              AND NOT EXISTS (
+                      SELECT 1 FROM bp_spent sp
+                      WHERE sp.team = o.team AND sp.pitcher = o.pitcher
+                        AND sp.game_date = o.game_date)
+            GROUP BY 1, 2, 3
+        )
+        SELECT game_date, game_pk, team, pen_pitches, pen_pitches_scored,
+            _num / NULLIF(pen_pitches_scored, 0) AS pen_pp
+        FROM scored
+    """)
+    con.execute(f"""
+        CREATE TABLE pp_bullpen_rolling AS
+        WITH shifted AS (
+            SELECT game_date, game_pk, team,
+                LAG(pen_pp, 1) OVER w AS _s_pp,
+                LAG(pen_pitches_scored, 1) OVER w AS _s_n
+            FROM pp_pen_game
+            WINDOW w AS (PARTITION BY team ORDER BY game_date, game_pk)
+        ),
+        win AS (
+            SELECT game_date, game_pk, team,
+                SUM(_s_pp * _s_n) OVER w10 AS num10,
+                SUM(CASE WHEN _s_pp IS NOT NULL THEN _s_n ELSE 0 END)
+                    OVER w10 AS den10,
+                SUM(_s_pp * _s_n) OVER w3 AS num3,
+                SUM(CASE WHEN _s_pp IS NOT NULL THEN _s_n ELSE 0 END)
+                    OVER w3 AS den3
+            FROM shifted
+            WINDOW w10 AS (PARTITION BY team ORDER BY game_date, game_pk
+                           ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
+                   w3 AS (PARTITION BY team ORDER BY game_date, game_pk
+                          ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+        )
+        SELECT w.game_date, w.game_pk, w.team,
+            CASE WHEN w.den10 > 0
+                 THEN (w.num10 + COALESCE(k.k_pitches,
+                                          {_PP_BP_SHRINK_FALLBACK_P})
+                       * {_PP_PRIOR})
+                      / (w.den10 + COALESCE(k.k_pitches,
+                                            {_PP_BP_SHRINK_FALLBACK_P}))
+            END AS bullpen_pitchingplus_10g,
+            CASE WHEN w.den3 > 0
+                 THEN (w.num3 + COALESCE(k.k_pitches,
+                                         {_PP_BP_SHRINK_FALLBACK_P})
+                       * {_PP_PRIOR})
+                      / (w.den3 + COALESCE(k.k_pitches,
+                                           {_PP_BP_SHRINK_FALLBACK_P}))
+            END AS bullpen_pitchingplus_3g
+        FROM win w
+        LEFT JOIN bp_shrink_prior k
+               ON k.season = EXTRACT(YEAR FROM w.game_date)
+              AND k.game_date = CAST(w.game_date AS DATE)
+    """)
+    n_sp = con.execute("SELECT COUNT(*) FROM pp_sp_5g "
+                       "WHERE sp_pitchingplus_5g IS NOT NULL").fetchone()[0]
+    n_bp = con.execute("SELECT COUNT(*) FROM pp_bullpen_rolling "
+                       "WHERE bullpen_pitchingplus_10g IS NOT NULL").fetchone()[0]
+    logger.info("Pitching+: %d SP trailing rows, %d bullpen trailing rows "
+                "scored (NULLs are no-data, never fabricated)", n_sp, n_bp)
+
+
 def _build_game_level(con: duckdb.DuckDBPyConnection,
                        corrected_outs: bool = False,
                        pl_rate_weights: bool = False) -> None:
@@ -3471,6 +4713,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
                     ELSE p.away_team END AS team,
                COUNT(*) AS pitches,
+               -- NOTE: mirrored as _PP_OUTS_CASE for the pitching+
+               -- appearance-IP weight (the bullpen test harness
+               -- regex-renders named placeholders in this statement, so no
+               -- shared placeholder may be inlined here).
                SUM(CASE p.events
                     WHEN 'field_out' THEN 1
                     WHEN 'strikeout' THEN 1
@@ -3706,6 +4952,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
     """)
 
     _build_pitcher_stuff(con)
+    _build_pitchingplus_features(con, _pitchers_ok)
 
     # 7c. Team contact-form — barrel rate / hard-hit rate / avg exit velo over
     # the trailing 15 games (LAG-shifted, excludes current game).
@@ -4427,6 +5674,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             -- Recent-form SP twins under their existing model-contract names.
             sh.sp_xfip_5g AS sp_xfip_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
             sa.sp_xfip_5g AS sp_xfip_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
+            -- Pitching+ trial levels (2026-10-24): same strictly-prior
+            -- trailing discipline as the xFIP/K-BB% forms they trial
+            -- against; RFE candidates, never served directly.
+            pph.sp_pitchingplus_5g AS sp_pitchingplus_5g_home,
+            ppa.sp_pitchingplus_5g AS sp_pitchingplus_5g_away,
+            bph.bullpen_pitchingplus_10g AS bullpen_pitchingplus_10g_home,
+            bph.bullpen_pitchingplus_3g AS bullpen_pitchingplus_3g_home,
+            bpa.bullpen_pitchingplus_10g AS bullpen_pitchingplus_10g_away,
+            bpa.bullpen_pitchingplus_3g AS bullpen_pitchingplus_3g_away,
             th.team_woba_30g AS team_woba_30g_home, th.team_iso_30g AS team_iso_30g_home,
             th.team_k_rate_30g AS team_k_rate_30g_home, th.team_bb_rate_30g AS team_bb_rate_30g_home,
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
@@ -4622,6 +5878,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN bullpen_season bpsa ON w.game_pk = bpsa.game_pk AND w.away_team = bpsa.team
         LEFT JOIN pitcher_stuff hst ON w.game_pk = hst.game_pk AND hst.pitcher = s.home_starter_id
         LEFT JOIN pitcher_stuff ast ON w.game_pk = ast.game_pk AND ast.pitcher = s.away_starter_id
+        LEFT JOIN pp_sp_5g pph ON w.game_pk = pph.game_pk AND pph.pitcher = s.home_starter_id
+        LEFT JOIN pp_sp_5g ppa ON w.game_pk = ppa.game_pk AND ppa.pitcher = s.away_starter_id
+        LEFT JOIN pp_bullpen_rolling bph ON w.game_pk = bph.game_pk AND w.home_team = bph.team
+        LEFT JOIN pp_bullpen_rolling bpa ON w.game_pk = bpa.game_pk AND w.away_team = bpa.team
         LEFT JOIN team_contact_rolling ch ON w.game_pk = ch.game_pk AND w.home_team = ch.batting_team
         LEFT JOIN team_contact_rolling ca ON w.game_pk = ca.game_pk AND w.away_team = ca.batting_team
         LEFT JOIN team_contact_season tcsh ON w.game_pk = tcsh.game_pk AND w.home_team = tcsh.batting_team
@@ -4704,6 +5964,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "bp_daily", "bp_fatigue", "il_stints_pitchers",
         "bp_outing", "bp_day2", "bp_spent",
         "pitcher_stuff_raw", "pitcher_stuff",
+        "pp_appearance", "pp_sp_5g", "pp_bullpen_rolling",
         "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
         "team_contact_season",
@@ -5137,6 +6398,13 @@ def apply_indoor_neutral_fills(df: pd.DataFrame) -> pd.DataFrame:
     closed = pd.to_numeric(df[dome_col], errors="coerce").eq(1)
     if "wind_advantage_flyball_factor" in df.columns:
         df.loc[closed, "wind_advantage_flyball_factor"] = 0.0
+    # Pitching+ wind trial triplet shares the indoor-neutral policy (the
+    # wind multiplier is 0 indoors whatever the pitching+ inputs say).
+    for _pp_col in ("wind_advantage_flyball_factor_pitchingplus_diff",
+                     "wind_advantage_flyball_factor_pitchingplus_home",
+                     "wind_advantage_flyball_factor_pitchingplus_away"):
+        if _pp_col in df.columns:
+            df.loc[closed, _pp_col] = 0.0
     if "air_density_velocity_boost" in df.columns:
         df.loc[closed, "air_density_velocity_boost"] = 0.0
     return df
@@ -6084,6 +7352,14 @@ def add_diff_features(
         ("rest_days_diff", "rest_days_home", "rest_days_away"),                  # 4
         ("sp_xfip_diff", "sp_xfip_home", "sp_xfip_away"),                           # 5
         ("sp_xfip_5g_diff", "sp_xfip_5g_home", "sp_xfip_5g_away"),                   # 6
+        # Pitching+ trial triplets (2026-10-24): same diff grain as the
+        # xFIP/K-BB% forms they trial against; RFE-eligible, never served.
+        ("sp_pitchingplus_5g_diff", "sp_pitchingplus_5g_home",
+         "sp_pitchingplus_5g_away"),
+        ("bullpen_pitchingplus_10g_diff", "bullpen_pitchingplus_10g_home",
+         "bullpen_pitchingplus_10g_away"),
+        ("bullpen_pitchingplus_3g_diff", "bullpen_pitchingplus_3g_home",
+         "bullpen_pitchingplus_3g_away"),
         ("sp_k9_diff", "sp_k9_home", "sp_k9_away"),                              # 7
         ("sp_k9_5g_diff", "sp_k9_5g_home", "sp_k9_5g_away"),                     # 8
         ("sp_fbvelo_diff", "sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),            # 9
@@ -6129,6 +7405,9 @@ def add_diff_features(
     for h_col, a_col in (
         ("rest_days_home", "rest_days_away"),
         ("sp_xfip_5g_home", "sp_xfip_5g_away"),
+        ("sp_pitchingplus_5g_home", "sp_pitchingplus_5g_away"),
+        ("bullpen_pitchingplus_10g_home", "bullpen_pitchingplus_10g_away"),
+        ("bullpen_pitchingplus_3g_home", "bullpen_pitchingplus_3g_away"),
         ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
         ("lineup_re24_std_home", "lineup_re24_std_away"),
         ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
@@ -6259,6 +7538,17 @@ def add_diff_features(
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
+        # Pitching+ wind trial triplet: dome is genuinely neutral 0, each
+        # leg gated on its own input (a missing input stays NULL).
+        _pp_ok = pd.to_numeric(df["sp_pitchingplus_5g_diff"],
+                               errors="coerce").notna()
+        _pp_h_ok = pd.to_numeric(df["sp_pitchingplus_5g_home"],
+                                  errors="coerce").notna()
+        _pp_a_ok = pd.to_numeric(df["sp_pitchingplus_5g_away"],
+                                  errors="coerce").notna()
+        df.loc[dome & _pp_ok, "wind_advantage_flyball_factor_pitchingplus_diff"] = 0.0
+        df.loc[dome & _pp_h_ok, "wind_advantage_flyball_factor_pitchingplus_home"] = 0.0
+        df.loc[dome & _pp_a_ok, "wind_advantage_flyball_factor_pitchingplus_away"] = 0.0
         # This pass writes levels too, so repeated calls share the same
         # representation as weather.apply_weather_features.
         df["park_wind_factor"] = wm.combine_first(_wind_level)
@@ -6274,6 +7564,16 @@ def add_diff_features(
         _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
         df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
         df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
+        # Pitching+ wind trial triplet: same KNOWN-zero dome discipline.
+        _pp_ok = pd.to_numeric(df["sp_pitchingplus_5g_diff"],
+                               errors="coerce").notna()
+        _pp_h_ok = pd.to_numeric(df["sp_pitchingplus_5g_home"],
+                                  errors="coerce").notna()
+        _pp_a_ok = pd.to_numeric(df["sp_pitchingplus_5g_away"],
+                                  errors="coerce").notna()
+        df.loc[dome & _pp_ok, "wind_advantage_flyball_factor_pitchingplus_diff"] = 0.0
+        df.loc[dome & _pp_h_ok, "wind_advantage_flyball_factor_pitchingplus_home"] = 0.0
+        df.loc[dome & _pp_a_ok, "wind_advantage_flyball_factor_pitchingplus_away"] = 0.0
 
     # Recompute from current factors, preserving absent-from-fetch observed
     # levels. Air density is not neutral merely because a roof is closed.
@@ -6282,6 +7582,27 @@ def add_diff_features(
     df["wind_advantage_flyball_factor"] = (
         _wm * pd.to_numeric(df["sp_xfip_diff"], errors="coerce")
     ).combine_first(df["wind_advantage_flyball_factor"])
+    # Pitching+ wind trial triplet (2026-10-24): PURE quality-input swap
+    # (wind x pitching+ diff instead of wind x xFIP diff). Polarity note:
+    # pitching+ higher=better inverts the xFIP polarity — the model learns
+    # the sign fresh; the trial gate judges. Missing inputs ship NULL.
+    for _pp_col in ("wind_advantage_flyball_factor_pitchingplus_diff",
+                     "wind_advantage_flyball_factor_pitchingplus_home",
+                     "wind_advantage_flyball_factor_pitchingplus_away"):
+        if _pp_col not in df.columns:
+            df[_pp_col] = np.nan
+    _pp_diff = pd.to_numeric(df["sp_pitchingplus_5g_diff"], errors="coerce")
+    _pp_h = pd.to_numeric(df["sp_pitchingplus_5g_home"], errors="coerce")
+    _pp_a = pd.to_numeric(df["sp_pitchingplus_5g_away"], errors="coerce")
+    df["wind_advantage_flyball_factor_pitchingplus_diff"] = (
+        _wm * _pp_diff
+    ).combine_first(df["wind_advantage_flyball_factor_pitchingplus_diff"])
+    df["wind_advantage_flyball_factor_pitchingplus_home"] = (
+        _wm * _pp_h
+    ).combine_first(df["wind_advantage_flyball_factor_pitchingplus_home"])
+    df["wind_advantage_flyball_factor_pitchingplus_away"] = (
+        _wm * _pp_a
+    ).combine_first(df["wind_advantage_flyball_factor_pitchingplus_away"])
     df["air_density_velocity_boost"] = (
         (_ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce")
     )
@@ -6345,6 +7666,29 @@ def add_diff_features(
         df["sp_k9_5g_diff"] * df["sp_whiff_diff"])
     _twin("ace_efficiency_factor_home", "sp_k9_5g_home", "sp_whiff_3g_home")
     _twin("ace_efficiency_factor_away", "sp_k9_5g_away", "sp_whiff_3g_away")
+
+    # ── 36. Pitching+ trial interactions (2026-10-24): the SAME product
+    # structure as the incumbent families with the quality input swapped
+    # to pitching+ (higher=better, opposite the xFIP/K-BB% polarity — the
+    # model learns each sign fresh; directions are n/a by construction).
+    # Trial candidates ONLY: computed alongside the live families, never
+    # served until the ablation gate passes.
+    # pitcher_regression_indicator_pitchingplus: velo × pitching+ (stuff/results
+    # divergence flag on the pitching+ scale).
+    df["pitcher_regression_indicator_pitchingplus_diff"] = (
+        df["sp_fbvelo_diff"] * df["sp_pitchingplus_5g_diff"])
+    _twin("pitcher_regression_indicator_pitchingplus_home", "sp_fbvelo_3g_home",
+          "sp_pitchingplus_5g_home")
+    _twin("pitcher_regression_indicator_pitchingplus_away", "sp_fbvelo_3g_away",
+          "sp_pitchingplus_5g_away")
+    # bullpen_meltdown_risk_pitchingplus: workload × pitching+ (fatigue × quality on
+    # the pitching+ scale).
+    df["bullpen_meltdown_risk_pitchingplus_diff"] = (
+        df["bullpen_pitches_3d_diff"] * df["bullpen_pitchingplus_10g_diff"])
+    _twin("bullpen_meltdown_risk_pitchingplus_home", "bullpen_pitches_3d_home",
+          "bullpen_pitchingplus_10g_home")
+    _twin("bullpen_meltdown_risk_pitchingplus_away", "bullpen_pitches_3d_away",
+          "bullpen_pitchingplus_10g_away")
 
     _added = len(set(df.columns) - _cols_before)
     logger.info("Diff features complete: %d columns added", _added)
