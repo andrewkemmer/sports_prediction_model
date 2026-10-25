@@ -997,10 +997,11 @@ PLAYER_EPM_DESIGNATION_PLAY_RATE: dict = {
 PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 
 #: The nine position-segmented projected-lineup features - per position, the
-#: away side, the home side and the difference. They ARE contract columns (the
-#: 2026-10-20 verdict promoted them); this list is their published order.
-#: Their successor family is ``PLAYER_RAPM_POSITION_DEVIATION_COLS`` below,
-#: which waits on its own holdout A/B in ``ab_position_rapm.py``.
+#: away side, the home side and the difference. Registered as CANDIDATES, not
+#: as contract columns: they are gated behind their own holdout A/B, which is
+#: ``ab_position_rapm.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
+#: decision about the model, and the candidate list is where a feature waits
+#: until that decision has evidence behind it.
 #:
 #: Defined HERE rather than beside RFE_CANDIDATE_COLS because it is derived
 #: from PLAYER_EPM_POSITIONS, which is declared further down. Building the list
@@ -1014,35 +1015,6 @@ PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
     f"pl_rapm_{position}_{side}"
     for position in ("c", "f", "g")
     for side in ("away", "home", "diff")]
-
-#: The position family's SUCCESSOR (2026-10-25 audit): the level's deviation
-#: from the club's own lineup mean (shrunk toward zero) plus the rotation's
-#: shape at that position - concentration (top share) and depth (bodies at
-#: rotation minutes). Nine columns, diffs only, so the holdout A/B in
-#: ``ab_position_rapm.py`` compares it with the nine absolutes at equal width.
-#:
-#: The audit that proposed it: the nine absolutes correlate 0.67-0.82 with
-#: each other, add +0.0011 R^2 over ``lineup_rapm_mean_diff`` against realized
-#: margin, and correlate only ~0.02 with the realized positional margin once
-#: the team-game is centred. These columns keep that caveat visible rather
-#: than hiding it: the deviation is heavily shrunk, and the shape terms are
-#: membership facts rather than rating claims.
-#:
-#: CANDIDATES, and the verdict is IN: kept out. The 2026-10-25 three-arm
-#: holdout (``ab_position_rapm.py``, 56 folds, 3,369 grading rows) scored
-#: baseline 0.60338, the incumbent absolutes 0.60143, and this family 0.60374
-#: log-loss. Paired per game: candidate minus incumbent +0.00231 (95% CI
-#: -0.00031..+0.00495, 46.3% of games better) and candidate minus baseline
-#: +0.00036 (-0.00150..+0.00222) - neither distinguishable from zero, and the
-#: point estimates do not favour the replacement. Coverage was healthy
-#: (93.5-98.7%, no constant columns), so this is weak signal rather than a
-#: build hole, and it agrees with the audit's within-team-game bound
-#: (~0.02 correlation): the level removal and the shape terms carry nothing
-#: the absolute means did not. Do not promote without a new verdict.
-PLAYER_RAPM_POSITION_DEVIATION_COLS: list[str] = [
-    f"pl_rapm_{position}_{metric}_diff"
-    for position in ("c", "f", "g")
-    for metric in ("dev", "top_share", "depth")]
 
 #: The fifteen stint-RAPM candidates - net sides + diff per position (nine,
 #: mirroring the game-level family) plus offense/defense diffs per position
@@ -1075,8 +1047,8 @@ SCHED_DENSITY_COLS = [
 ]
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
-    + PLAYER_RAPM_POSITION_FEATURE_COLS + PLAYER_RAPM_POSITION_DEVIATION_COLS
-    + STINT_RAPM_FEATURE_COLS + SCHED_DENSITY_COLS))
+    + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
+    + SCHED_DENSITY_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is

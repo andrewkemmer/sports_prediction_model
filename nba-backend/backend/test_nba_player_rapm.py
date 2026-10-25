@@ -1254,12 +1254,8 @@ class TestStrictPregameRegression:
             target, None, player_stats=games)
         ratings = rapm.build_player_rapm(games, target.gameday).rename(
             columns={"target_date": "gameday"})
-        aggs = projection.projected_lineup(ratings, games=target)
-        expected = projection.attach_position_rapm(target, aggs)
-        # The harness scores BOTH families (the 2026-10-25 replacement trial),
-        # so its output must carry both; pinning only the incumbent would fail
-        # the moment the candidate is attached and say nothing about why.
-        expected = projection.attach_position_deviation(expected, aggs)
+        expected = projection.attach_position_rapm(
+            target, projection.projected_lineup(ratings, games=target))
         pd.testing.assert_frame_equal(actual, expected)
         assert not aggregates.empty
 

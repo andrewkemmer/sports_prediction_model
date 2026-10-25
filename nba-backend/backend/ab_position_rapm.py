@@ -1,11 +1,8 @@
-"""Holdout A/B: baseline vs the nine absolutes vs their replacement family.
+"""Holdout A/B: baseline contract vs baseline + position-segmented RAPM.
 
 Runs the identical walk-forward over the identical games with one difference -
-which position family is in the contract - and reports the out-of-fold metrics
-side by side. Three arms: the legacy contract without any position family, the
-incumbent nine absolutes, and the 2026-10-25 successor (shrunk deviation from
-the club's lineup mean plus rotation shape). Nine columns per family, so the
-exchange is like-for-like rather than width.
+whether the nine ``pl_rapm_*`` columns are in the contract - and reports the
+out-of-fold metrics side by side.
 
 What makes this an honest comparison rather than two numbers:
 
@@ -46,9 +43,6 @@ CACHE = Path(os.environ.get("NBA_CACHE_DIR")
 
 POSITION_FEATURES = [f"pl_rapm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
-CANDIDATE_FEATURES = [f"pl_rapm_{p}_{metric}_diff"
-                      for p in ("c", "f", "g")
-                      for metric in ("dev", "top_share", "depth")]
 
 
 def build_player_games():
@@ -155,9 +149,7 @@ def build_position_features(games: pd.DataFrame,
     aggregates = proj.projected_lineup(ratings, games=games)
     logger.info("aggregates: %d team-games in %.0fs", len(aggregates),
                 time.time() - started)
-    frame = proj.attach_position_rapm(games, aggregates)
-    frame = proj.attach_position_deviation(frame, aggregates)
-    return frame, aggregates
+    return proj.attach_position_rapm(games, aggregates), aggregates
 
 
 def score(p: np.ndarray, y: np.ndarray) -> dict:
@@ -215,25 +207,21 @@ def main() -> None:
     missing = [c for c in POSITION_FEATURES if c not in enriched.columns]
     if missing:
         raise RuntimeError(f"position features missing: {missing}")
-    missing = [c for c in CANDIDATE_FEATURES if c not in enriched.columns]
-    if missing:
-        raise RuntimeError(f"deviation features missing: {missing}")
 
     # ``build_game_features`` already creates the nine columns (the ladder
     # derives them from KNOWN_FEATURE_COLS), all-NaN. Drop them before the
     # merge: keeping them under the bare names while the real values land in
     # suffixed copies is exactly how an A/B scores empty features with no
     # error - and the first run of this harness did precisely that.
-    base = base.drop(columns=[c for c in POSITION_FEATURES + CANDIDATE_FEATURES
+    base = base.drop(columns=[c for c in POSITION_FEATURES
                               if c in base.columns])
-    join_cols = POSITION_FEATURES + CANDIDATE_FEATURES
     joined = base.merge(
-        enriched[["gameday", "home_team", "away_team", *join_cols]]
+        enriched[["gameday", "home_team", "away_team", *POSITION_FEATURES]]
         .drop_duplicates(subset=["gameday", "home_team", "away_team"]),
         on=["gameday", "home_team", "away_team"], how="left")
 
-    print("\n=== coverage of the position families on the decided frame")
-    for column in join_cols:
+    print("\n=== coverage of the nine features on the decided frame")
+    for column in POSITION_FEATURES:
         values = pd.to_numeric(joined[column], errors="coerce")
         populated = int(values.notna().sum())
         distinct = int(values.dropna().nunique())
@@ -244,17 +232,17 @@ def main() -> None:
     fold_list = folds_mod.make_folds(joined)
     logger.info("folds: %d", len(fold_list))
 
-    # The baseline is the LEGACY contract - MONEYLINE_FEATURE_COLS minus BOTH
-    # position families - because once a family is promoted it lives in that
-    # list, and "baseline plus the family" would compare it against itself.
-    # This keeps the harness's question well-posed before AND after promotion.
+    # The baseline is the LEGACY contract - MONEYLINE_FEATURE_COLS minus the
+    # nine - because once the features are promoted they live in that list,
+    # and "baseline plus the nine" would compare the features against
+    # themselves. This keeps the harness's question well-posed before AND
+    # after promotion: what do the nine add over the contract that spawned
+    # them?
     baseline = [c for c in config.MONEYLINE_FEATURE_COLS
-                if c not in set(POSITION_FEATURES) | set(CANDIDATE_FEATURES)]
-    arms = (("baseline", baseline),
-            ("position_rapm", baseline + POSITION_FEATURES),
-            ("position_deviation", baseline + CANDIDATE_FEATURES))
+                if c not in set(POSITION_FEATURES)]
     results = {}
-    for name, columns in arms:
+    for name, columns in (("baseline", baseline),
+                          ("position_rapm", baseline + POSITION_FEATURES)):
         missing_cols = [c for c in columns if c not in joined.columns]
         if missing_cols:
             logger.warning("%s: dropping %d absent column(s)", name,
@@ -284,97 +272,81 @@ def main() -> None:
         print(f"  weights   {({k: round(v, 4) for k, v in weights.items()})}")
 
     config.reset_feature_subset()
-    names = [name for name, _ in arms]
-    print("\n=== side by side")
-    print(f"  {'metric':<10}" + "".join(f"{name:>20}" for name in names))
+    b, t = results["baseline"][0], results["position_rapm"][0]
+    print("\n=== side by side (position_rapm minus baseline)")
+    print(f"  {'metric':<10} {'baseline':>10} {'position_rapm':>12} {'delta':>10}")
     for key in ("logloss", "accuracy", "brier", "auc", "ece"):
-        cells = [results[name][0] for name in names]
-        if not all(key in cell for cell in cells):
-            continue
-        print(f"  {key:<10}" + "".join(f"{c[key]:>20.5f}" for c in cells))
+        if key in b and key in t:
+            print(f"  {key:<10} {b[key]:>10.5f} {t[key]:>12.5f} "
+                  f"{t[key]-b[key]:>+10.5f}")
 
     # Two point estimates are not a result. The arms are scored on the SAME
     # games, so the honest comparison is PAIRED: per-game log-loss difference,
     # its standard error, and a bootstrap interval on the mean. A mean delta of
     # -0.0007 means nothing if the per-game deltas are an order of magnitude
     # wider, which on 2,000 games they usually are.
-    def paired(base_name: str, treat_name: str):
-        base_oof = results[base_name][1]
-        treat_oof = results[treat_name][1]
-        if (base_oof.game_id.duplicated().any()
-                or not base_oof.game_id.equals(treat_oof.game_id)
-                or not base_oof.home_win.equals(treat_oof.home_win)
-                or not base_oof.grades_pooled.equals(treat_oof.grades_pooled)):
-            raise RuntimeError("A/B OOF populations differ; paired scoring "
-                               "refused")
-        base_oof = base_oof[base_oof.grades_pooled].copy()
-        treat_oof = treat_oof[treat_oof.grades_pooled].copy()
-        # Score the probability actually served, not a final-weight replay.
-        base_oof["p_ensemble"] = base_oof.p_ensemble_calibrated
-        treat_oof["p_ensemble"] = treat_oof.p_ensemble_calibrated
-        merged = (base_oof[["game_id", "gameday", "home_win", "p_ensemble"]]
-                  .rename(columns={"p_ensemble": "p_ensemble_b"})
-                  .merge(treat_oof[["game_id", "p_ensemble"]]
-                         .rename(columns={"p_ensemble": "p_ensemble_t"}),
-                         on="game_id", how="inner"))
-        y = merged.home_win.to_numpy(float)
-        p_b = merged.p_ensemble_b.to_numpy(float)
-        p_t = merged.p_ensemble_t.to_numpy(float)
-        eps = 1e-12
+    base_oof = results["baseline"][1]
+    treat_oof = results["position_rapm"][1]
+    if (base_oof.game_id.duplicated().any()
+            or not base_oof.game_id.equals(treat_oof.game_id)
+            or not base_oof.home_win.equals(treat_oof.home_win)
+            or not base_oof.grades_pooled.equals(treat_oof.grades_pooled)):
+        raise RuntimeError("A/B OOF populations differ; paired scoring refused")
+    base_oof = base_oof[base_oof.grades_pooled].copy()
+    treat_oof = treat_oof[treat_oof.grades_pooled].copy()
+    # Score the probability actually served, not a final-weight replay.
+    base_oof["p_ensemble"] = base_oof.p_ensemble_calibrated
+    treat_oof["p_ensemble"] = treat_oof.p_ensemble_calibrated
+    merged = (base_oof[["game_id", "gameday", "home_win", "p_ensemble"]]
+              .rename(columns={"p_ensemble": "p_ensemble_b"})
+              .merge(treat_oof[["game_id", "p_ensemble"]]
+                     .rename(columns={"p_ensemble": "p_ensemble_t"}),
+                     on="game_id", how="inner"))
+    y = merged.home_win.to_numpy(float)
+    p_b = merged.p_ensemble_b.to_numpy(float)
+    p_t = merged.p_ensemble_t.to_numpy(float)
+    eps = 1e-12
 
-        def per_game(p):
-            p = np.clip(p, eps, 1 - eps)
-            return -(y * np.log(p) + (1 - y) * np.log(1 - p))
+    def per_game(p):
+        p = np.clip(p, eps, 1 - eps)
+        return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
-        d = per_game(p_t) - per_game(p_b)
-        n = len(d)
-        mean = float(d.mean())
-        se = float(d.std(ddof=1) / np.sqrt(n))
-        print(f"\n=== paired per-game log-loss: {treat_name} minus {base_name}")
-        print(f"  n = {n}")
-        if se == 0:
-            # Identical arms score identical losses on every game. That is a
-            # verdict about the harness (the columns carry nothing the model
-            # used), not a measurement to divide by.
-            print("  the two arms produced IDENTICAL predictions - the "
-                  "features did not reach the model or changed nothing")
-            return None
-        rng = np.random.default_rng(config.RANDOM_SEED)
-        # Resample game dates together: same-night outcomes share injuries,
-        # travel and league conditions and are not independent observations.
-        blocks = [part.index.to_numpy()
-                  for _, part in merged.groupby("gameday")]
-        boot = np.array([
-            d[np.concatenate([blocks[i] for i in
-                              rng.integers(0, len(blocks),
-                                           len(blocks))])].mean()
-            for _ in range(4000)])
-        lo, hi = np.percentile(boot, [2.5, 97.5])
-        print(f"  mean delta        {mean:+.5f}")
-        print(f"  standard error    {se:.5f}")
-        print(f"  t statistic       {mean/se:+.2f}")
-        print(f"  95% bootstrap CI  [{lo:+.5f}, {hi:+.5f}]")
-        verdict = ("distinguishable from zero" if lo * hi > 0
-                   else "NOT distinguishable from zero")
-        print(f"  verdict: {verdict}")
-        print(f"  treatment better on {int((d < 0).sum())} of {n} games "
-              f"({100*(d<0).mean():.1f}%)")
-        return merged
-
-    first = paired("baseline", "position_rapm")
-    # The question this run exists to answer: does the deviation/shape family
-    # beat the absolutes it would replace, on the same folds and the same
-    # width?
-    second = paired("position_rapm", "position_deviation")
-    third = paired("baseline", "position_deviation")
+    d = per_game(p_t) - per_game(p_b)
+    n = len(d)
+    mean = float(d.mean())
+    se = float(d.std(ddof=1) / np.sqrt(n))
+    if se == 0:
+        # Identical arms score identical losses on every game. That is a
+        # verdict about the harness (the columns carry nothing the model
+        # used), not a measurement to divide by.
+        print("\nthe two arms produced IDENTICAL predictions - the features "
+              "did not reach the model or changed nothing")
+        return
+    rng = np.random.default_rng(config.RANDOM_SEED)
+    # Resample game dates together: same-night outcomes share injuries,
+    # travel and league conditions and are not independent observations.
+    blocks = [part.index.to_numpy() for _, part in merged.groupby("gameday")]
+    boot = np.array([
+        d[np.concatenate([blocks[i] for i in
+                          rng.integers(0, len(blocks), len(blocks))])].mean()
+        for _ in range(4000)])
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    print(f"\n=== paired per-game log-loss difference (treatment - baseline)")
+    print(f"  n = {n}")
+    print(f"  mean delta        {mean:+.5f}")
+    print(f"  standard error    {se:.5f}")
+    print(f"  t statistic       {mean/se:+.2f}")
+    print(f"  95% bootstrap CI  [{lo:+.5f}, {hi:+.5f}]")
+    verdict = ("distinguishable from zero" if lo * hi > 0
+               else "NOT distinguishable from zero")
+    print(f"  verdict: {verdict}")
+    print(f"  treatment better on {int((d < 0).sum())} of {n} games "
+          f"({100*(d<0).mean():.1f}%)")
 
     output = Path(config.RUN_DIAGNOSTICS_DIR) / "ab_paired_oof.csv"
     output.parent.mkdir(parents=True, exist_ok=True)
-    last = third if third is not None else (
-        second if second is not None else first)
-    if last is not None:
-        last.to_csv(output, index=False)
-        print(f"\n  paired OOF written to {output}")
+    merged.to_csv(output, index=False)
+    print(f"\n  paired OOF written to {output}")
 
 
 if __name__ == "__main__":
