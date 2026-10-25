@@ -235,3 +235,27 @@ def test_the_resolver_receives_one_shared_parse_cache(monkeypatch, tmp_path):
     assert stats["resolved_days"] == 2
     assert len(seen) == 2
     assert seen[0] is not None and seen[0] is seen[1]
+
+
+def test_ingest_phase_split_attributes_each_upstream():
+    """The ingest trio is one call; the phase labels must not lie about it.
+
+    2026-10-25 remote log review: "ingest schedule 20m44s, ingest features 0s,
+    ingest play-by-play 0s" — the sweep alone was 16m50s. The measured split
+    is mapped onto the labels here, with normalisation on the stats label and
+    the rollup absorption on the play-by-play label.
+    """
+    timing = {"schedule": 187.0, "season_log": 3.0, "play_by_play": 1010.0,
+              "contract": 2.0, "archive": 42.0, "total": 1244.0}
+    assert mp._ingest_phase_seconds(timing) == {
+        "ingest schedule": 187.0,
+        "ingest features": 5.0,
+        "ingest play-by-play": 1052.0,
+    }
+    # No measurement (an older ingestion module, or a failed run) must fall
+    # back to the wall-clock reading, not report a fabricated 0s.
+    assert mp._ingest_phase_seconds({}) == {
+        "ingest schedule": None,
+        "ingest features": None,
+        "ingest play-by-play": None,
+    }

@@ -2536,6 +2536,55 @@ def _validate(facts: NBAFacts) -> None:
                 "double its counts")
 
 
+# Per-stage wall clock of the most recent ``load_ingested``.  The ingest trio
+# is entered as ONE call (schedule, stats.nba.com season log, play-by-play),
+# so the phase bar cannot measure its three labels separately; this tally is
+# what lets the log say which upstream the minutes went to instead of
+# charging the whole call to "ingest schedule" and printing 0s beside it.
+# Readings only — nothing here can reorder, shorten or skip a fetch.
+_INGEST_TIMING: dict[str, float] = {}
+
+
+def ingest_timing() -> dict[str, float]:
+    """Wall-clock split of the last ``load_ingested`` (display only)."""
+    return dict(_INGEST_TIMING)
+
+
+class _StageClock:
+    """Tiny per-stage stopwatch for the ingest log line."""
+
+    __slots__ = ("started", "last", "parts")
+
+    def __init__(self) -> None:
+        self.started = time.perf_counter()
+        self.last = self.started
+        self.parts: dict[str, float] = {}
+
+    def tick(self, stage: str) -> None:
+        now = time.perf_counter()
+        self.parts[stage] = self.parts.get(stage, 0.0) + (now - self.last)
+        self.last = now
+
+    def total(self) -> float:
+        return time.perf_counter() - self.started
+
+
+def _log_ingest_timing(clock: _StageClock, mode: str, games: int,
+                       player_rows: int, actions: int) -> None:
+    """State the ingest split as one line a reviewer can hold next to the
+    phase bar.  ``contract`` is frame normalisation and ``archive`` is the
+    committed event-rollup absorption, both part of the same call."""
+    parts = clock.parts
+    logger.info(
+        "ingest timing: %.0fs = schedule %.0fs + season log %.0fs + "
+        "play-by-play %.0fs + contract %.0fs + archive %.0fs (%s; "
+        "%d game(s), %d player row(s), %d play-by-play action(s))",
+        clock.total(), parts.get("schedule", 0.0),
+        parts.get("season_log", 0.0), parts.get("play_by_play", 0.0),
+        parts.get("contract", 0.0), parts.get("archive", 0.0),
+        mode, games, player_rows, actions)
+
+
 def load_ingested(use_cache: bool = True, allow_download: bool = True,
                   start: date | None = None, end: date | None = None,
                   ) -> NBAFacts:
@@ -2548,6 +2597,7 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
     window_start, window_end = (start, end) if start and end else window()
     logger.info("NBA window %s..%s (%s)", window_start, window_end,
                 "download allowed" if allow_download else "cache only")
+    clock = _StageClock()
 
     if not allow_download:
         # A host that cannot reach either upstream can still run the model
@@ -2555,12 +2605,17 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
         # it is the reason the cache is per-source and per-key rather than one
         # file per run.
         games = _read_schedule_only(window_start, window_end)
+        clock.tick("schedule")
         log = _read_logs_only(window_start, window_end)
+        clock.tick("season_log")
         pbp = _read_pbp_only()
+        clock.tick("play_by_play")
         pbp_info: dict = {"mode": "cache only"}
     else:
         games = _fetch_schedule(window_start, window_end)
+        clock.tick("schedule")
         log = _fetch_season_logs(window_start, window_end)
+        clock.tick("season_log")
         if games.empty:
             raise ScheduleUnavailable(
                 f"no NBA schedule for {window_start}..{window_end}. The "
@@ -2577,6 +2632,7 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
         games = _attach_game_ids(games, log)
         log = _with_contract_ids(log, games)
         pbp, pbp_info = _fetch_play_by_play(games)
+        clock.tick("play_by_play")
 
     if games.empty:
         raise ScheduleUnavailable(
@@ -2595,6 +2651,7 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
     player_stats = contract.normalize(
         log.drop(columns=["nba_game_id"], errors="ignore"),
         "player_stats", source="stats.nba.com")
+    clock.tick("contract")
 
     team_events = pd.DataFrame()
     normalized_pbp = pd.DataFrame()
@@ -2623,6 +2680,7 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
     # slice every day and the band behind it is forward-filled forever. The
     # archive makes one full sweep permanent for every run after it.
     team_events, archived = _absorb_event_rollup_archive(team_events, games)
+    clock.tick("archive")
     if archived:
         pbp_info["archive_rows"] = len(archived)
         logger.info("event rollup archive absorbed: %d team-game(s) this "
@@ -2667,6 +2725,12 @@ def load_ingested(use_cache: bool = True, allow_download: bool = True,
                 "%d play-by-play actions, %d event rows",
                 len(normalized_games), len(team_stats), len(player_stats),
                 len(normalized_pbp), len(team_events))
+    _INGEST_TIMING.clear()
+    _INGEST_TIMING.update({k: round(v, 3) for k, v in clock.parts.items()})
+    _INGEST_TIMING["total"] = round(clock.total(), 3)
+    _log_ingest_timing(
+        clock, "download allowed" if allow_download else "cache only",
+        len(normalized_games), len(player_stats), len(normalized_pbp))
     return facts
 
 

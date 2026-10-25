@@ -477,15 +477,32 @@ class _Phases:
         self._started = time.monotonic()
         self._last = self._started
 
-    def advance(self, name: str = "") -> None:
+    def advance(self, name: str = "", elapsed: float | None = None) -> None:
+        """Close the named phase; ``elapsed`` overrides the measured gap.
+
+        The override exists for phases whose work is entered as ONE call but
+        owns several labels (the ingest trio): measuring from the previous
+        ``advance`` would charge the whole call to the first label and print
+        0s for the other two, which is exactly the misreading the 2026-10-25
+        log review had to correct by hand. A caller that measured the split
+        itself passes it here; nothing else changes, and omitting the
+        argument keeps the old wall-clock reading.
+        """
         label = name
         if not label:
             label = (self._names[self._done]
                      if self._done < len(self._names) else "finishing")
         self._done += 1
         now = time.monotonic()
-        elapsed = now - self._last
+        measured = now - self._last
         self._last = now
+        if elapsed is not None:
+            # Display only: a negative or absurd value would be a caller bug,
+            # never a reason to fail a run that already did its work.
+            try:
+                measured = max(0.0, float(elapsed))
+            except (TypeError, ValueError):
+                pass
         self._bar.set_description(label)
         self._bar.update(1)
         # Every phase announces itself as it starts, not only as the bar
@@ -496,7 +513,7 @@ class _Phases:
         # the log named neither the cost nor the share, so the next run's
         # operator had nothing to compare against.
         logger.info("  phase %d/%d  %s  (%s)", self._done, len(self._names),
-                    label, _eta(elapsed))
+                    label, _eta(measured))
 
     def close(self) -> None:
         # The run's total, on the same line as the completed bar: the

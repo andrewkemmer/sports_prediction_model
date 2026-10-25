@@ -2581,6 +2581,54 @@ class TestProgressIsVisible:
         assert "phase 2/2  training  (25s)" in caplog.text
         assert "total 1m35s" in caplog.text
 
+    def test_a_measured_split_overrides_the_gap(self, _captured, monkeypatch,
+                                                caplog):
+        """One call, three labels: each must carry ITS own seconds.
+
+        2026-10-25 remote log: the ingest trio is a single ``load_ingested``
+        call, so the gap-based reading printed 20m44s / 0s / 0s while the
+        play-by-play sweep alone was 16m50s of it. ``load_ingested`` now
+        measures the split; the bar accepts it, and the next phase still
+        measures from the moment of the last advance.
+        """
+        now = [0.0]
+        monkeypatch.setattr(ing.progress, "time",
+                            types.SimpleNamespace(monotonic=lambda: now[0]))
+        with caplog.at_level("INFO", logger="nba_progress"):
+            bar = ing.progress.phases(("schedule", "features", "pbp", "next"))
+            now[0] = 300.0
+            bar.advance("schedule", elapsed=120.0)
+            bar.advance("features", elapsed=20.0)
+            bar.advance("pbp", elapsed=160.0)
+            now[0] = 310.0
+            bar.advance("next")
+            bar.close()
+        assert "phase 1/4  schedule  (2m00s)" in caplog.text
+        assert "phase 2/4  features  (20s)" in caplog.text
+        assert "phase 3/4  pbp  (2m40s)" in caplog.text
+        assert "phase 4/4  next  (10s)" in caplog.text
+
+    def test_ingest_timing_line_names_each_upstream(self, caplog, monkeypatch):
+        """The split has to be readable without a spreadsheet: one line, five
+        segments, the counts beside them."""
+        ticks = iter([0.0, 100.0, 240.0, 1240.0, 1242.0, 1285.0, 1286.0])
+        monkeypatch.setattr(ing.time, "perf_counter", lambda: next(ticks))
+        clock = ing._StageClock()
+        clock.tick("schedule")
+        clock.tick("season_log")
+        clock.tick("play_by_play")
+        clock.tick("contract")
+        clock.tick("archive")
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            ing._log_ingest_timing(clock, "download allowed", 3998, 85580,
+                                   1969995)
+        line = next(r.getMessage() for r in caplog.records
+                    if r.getMessage().startswith("ingest timing:"))
+        assert ("1286s = schedule 100s + season log 140s + "
+                "play-by-play 1000s + contract 2s + archive 43s"
+                ) in line
+        assert "download allowed; 3998 game(s), 85580 player row(s)" in line
+
     def test_a_phase_bar_claims_no_rate_or_eta(self, _captured, caplog):
         """Ten uneven phases produce "0.0 phase/s, eta 6m03s" off one sample,
         which reads as a measurement and is not one."""

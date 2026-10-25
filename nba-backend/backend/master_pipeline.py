@@ -106,6 +106,27 @@ PHASES = ("ingest schedule", "ingest features", "ingest play-by-play",
           "feature report", "monitor", "publish")
 
 
+def _ingest_phase_seconds(timing: dict[str, float]) -> dict[str, float | None]:
+    """Map ``ingestion.ingest_timing()`` onto the three ingest phase labels.
+
+    ``load_ingested`` fetches all three upstreams in one call and measures
+    each stage; the phase bar can only measure between ``advance`` calls, so
+    without this the first label absorbs the whole call and the other two
+    read 0s. Normalisation (``contract``) belongs to the stats frames the
+    "ingest features" label names, and the event-rollup absorption
+    (``archive``) belongs to the play-by-play path. An absent stage returns
+    ``None`` so the caller falls back to the measured gap instead of
+    reporting a fabricated 0s.
+    """
+    stats = (timing.get("season_log") or 0.0) + (timing.get("contract") or 0.0)
+    play = (timing.get("play_by_play") or 0.0) + (timing.get("archive") or 0.0)
+    return {
+        "ingest schedule": timing.get("schedule"),
+        "ingest features": stats or None,
+        "ingest play-by-play": play or None,
+    }
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1533,12 +1554,18 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                 f"{len(facts.team_events)} event rows, "
                 f"{len(facts.play_by_play)} play-by-play actions")
     # The three ingest phases are one call - ``load_ingested`` owns all three
-    # upstreams - so the three ingest labels are ticked together here. They are
-    # separate labels because the three upstreams fail independently, and a run
-    # that died during the play-by-play sweep should say so rather than
-    # reporting that feature-building failed.
+    # upstreams - so the labels are ticked together here. They are separate
+    # labels because the three upstreams fail independently, and a run that
+    # died during the play-by-play sweep should say so rather than reporting
+    # that feature-building failed. ``load_ingested`` measures the split, so
+    # each label carries ITS upstream's seconds instead of the whole call
+    # landing on the first one (2026-10-25 log review: "ingest schedule
+    # 20m44s, ingest features 0s, ingest play-by-play 0s" while the sweep
+    # alone was 16m50s of that 20m44s). Missing timing falls back to the
+    # measured gap, which is exactly the old behavior.
+    _ingest_seconds = _ingest_phase_seconds(ingestion.ingest_timing())
     for _name in PHASES[:3]:
-        prog.advance(_name)
+        prog.advance(_name, elapsed=_ingest_seconds.get(_name))
     games = ingestion.eligible_games(facts.games)
     # Settled is not "has a score": it is "has a score AND player lines". A
     # finished game nobody in the season log played - a postponement, the NBA
@@ -1600,8 +1627,12 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
 
+    _features_started = time.perf_counter()
     game_df = feat_mod.build_game_features(settled, facts.team_stats,
                                            facts.team_events)
+    logger.info("game feature build: %.0fs (%d decided game(s), %d column(s))",
+                time.perf_counter() - _features_started, len(settled),
+                len(game_df.columns))
     # The nine position-segmented lineup features, built across the WHOLE
     # decided frame the way MLB's lineup_agg is, and attached to the slate for
     # scoring. Before the walk-forward: the features are part of the contract
@@ -1610,12 +1641,20 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # degrades to NaN columns (imputed downstream) under a loud warning; it
     # never aborts the run, because a missing feature family is a worse
     # artifact, not a broken one.
+    _pl_started = time.perf_counter()
     try:
         _pl_frame, _pl_slate = _build_position_rapm_features(facts, games)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("pl_rapm feature build failed (%s); the nine columns "
-                       "will be NaN on this run", exc)
+        logger.warning("pl_rapm feature build failed after %.0fs (%s); the "
+                       "nine columns will be NaN on this run",
+                       time.perf_counter() - _pl_started, exc)
         _pl_frame = _pl_slate = None
+    else:
+        logger.info("position-rapm feature build: %.0fs (%d row(s), "
+                    "%d feature column(s))",
+                    time.perf_counter() - _pl_started,
+                    len(_pl_frame) if _pl_frame is not None else 0,
+                    len(config.PLAYER_RAPM_POSITION_FEATURE_COLS))
     if _pl_frame is not None and len(_pl_frame):
         # ``build_game_features`` pre-creates the nine columns (all-NaN, the
         # always-create rule in _attach_contract). Drop them first: merged on
