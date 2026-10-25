@@ -893,6 +893,12 @@ def goalie_state(boxscores: pd.DataFrame | None,
     # applied" and "injury source 'espn': N stints bound" in the run log.
     # Neither index changes what is looked up; they only stop recomputing it.
     _by_player = injury_stints.stints_by_player(stints)
+    # One parse of the fixed snapshot sequence for every goalie probe below
+    # (2026-10-26 run-log review): is_unavailable re-scanned ~4,500 instants
+    # per probe; the array answers the identical latest-prior-snapshot.
+    _snap_ns = injury_stints.snapshot_ns_array(
+        stints.attrs.get("snapshot_times", ())
+        if stints is not None else ())
     _names_by_pid: dict[str, list[str]] = {}
     for _pid in _ids:
         _rows = _by_player.get(_pid)
@@ -930,7 +936,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
         if gid_ in _ids:
             return bool(injury_stints.is_unavailable(
                 stints, gid_, pd.Timestamp(cut), strict_start=True,
-                by_player=_by_player))
+                by_player=_by_player, snapshot_ns=_snap_ns))
         nm = name
         if not nm:
             return False
@@ -965,7 +971,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
             return False
         return bool(injury_stints.is_unavailable(
             stints, next(iter(hits)), pd.Timestamp(cut), strict_start=True,
-            by_player=_by_player))
+            by_player=_by_player, snapshot_ns=_snap_ns))
 
     # ------------------------------------------------------------------
     # PIT-CONFIRMED STARTERS (preview goalie order, game-scoped).
@@ -1742,7 +1748,8 @@ def _load_espn_stints(ratings: pd.DataFrame | None
 def build_game_features(games: pd.DataFrame,
                         boxscores: pd.DataFrame | None = None,
                         player_ratings: pd.DataFrame | None = None,
-                        stints: pd.DataFrame | None = None) -> pd.DataFrame:
+                        stints: pd.DataFrame | None = None,
+                        stints_sources: dict | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the full settled timeline so early games carry
@@ -1774,7 +1781,10 @@ def build_game_features(games: pd.DataFrame,
         combined_excl, availability_sources = _combined_exclusions(
             player_ratings)
     else:
-        combined_excl, availability_sources = stints, None
+        # A caller that passes the combined table may also pass its
+        # per-source provenance so the pool path keeps the per-source PIT
+        # gate; without it the single-source gate applies (legacy).
+        combined_excl, availability_sources = stints, stints_sources
 
     # Goalie rolling state (per-goalie strictly-prior EWMs).
     roster_grid = pd.DataFrame({"team": pd.concat(

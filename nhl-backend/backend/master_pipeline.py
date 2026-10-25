@@ -449,7 +449,20 @@ def main(argv: list[str] | None = None) -> int:
         decided_ids, use_cache=args.skip_pull and not full_repull,
         gameday_by_id=gameday_by_id)
     logger.info("boxscore rows: %d", len(boxscores))
-    game_df = feat_mod.build_game_features(decided_all, boxscores)
+    # Build the ratings + combined exclusions ONCE (2026-10-26 run-log
+    # review): Phase 11 rebuilt all of this from scratch ~30 min later
+    # (~180s: MoneyPuck re-download, 1.57M-row ratings rebuild, three
+    # channel replays) on byte-identical inputs — the boxscores, caches and
+    # frozen channel artifacts do not move between the two builds. Reusing
+    # the same objects also keeps the slate pool consistent with the
+    # training pool it serves beside (a mid-run MoneyPuck refresh would
+    # otherwise rate the slate on games the training frame never saw).
+    _pool_ratings = feat_mod._load_player_ratings()
+    _pool_excl, _pool_excl_sources = feat_mod._combined_exclusions(
+        _pool_ratings)
+    game_df = feat_mod.build_game_features(
+        decided_all, boxscores, player_ratings=_pool_ratings,
+        stints=_pool_excl, stints_sources=_pool_excl_sources)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional and the tree members are
@@ -842,7 +855,9 @@ def main(argv: list[str] | None = None) -> int:
     # Slate timer (2026-10-22 run-log review): the 2026-10-21 run logged
     # nothing between the final refit and the slate pool build (~90s).
     _t11 = time.monotonic()
-    slate = feat_mod.build_slate_features(schedule, boxscores)
+    slate = feat_mod.build_slate_features(schedule, boxscores,
+                                          player_ratings=_pool_ratings,
+                                          stints=_pool_excl)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)

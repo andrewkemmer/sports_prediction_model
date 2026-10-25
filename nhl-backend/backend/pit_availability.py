@@ -1312,13 +1312,16 @@ def preview_slug_candidates(game: Dict) -> List[str]:
 
 #: Parallel crawl width for the pre-game channel (NHL ingestion structural
 #: pattern: explicit arg > env > default). The score/boxscore pulls run 8
-#: workers against the official API, but the preview archive throttles
-#: aggressively (429s — see fetch_with_backoff), so this defaults to 4;
-#: NHL_PREGAME_WORKERS overrides without a code change. The 2026-10-23
-#: full repull crawled 4348 games sequentially (~91 min silent); 4 workers
-#: bring that to ~1/4 with byte-identical artifacts (input-order assembly).
+#: workers against the official API; the preview archive throttles
+#: aggressively (429s — see fetch_with_backoff), so this was 4. The
+#: 2026-10-24 full repull crawled 4376 games on 4 workers in ~32 min with
+#: ZERO 429/403/backoff contact at ~4.5 req/s, and fetch_with_backoff
+#: honors Retry-After and degrades a refused game to NO_EVIDENCE (never a
+#: hang), so 6 is the measured-safe step (~22 min at the same per-game
+#: cost); NHL_PREGAME_WORKERS still overrides without a code change.
+#: Artifacts stay byte-identical (input-order assembly).
 PREGAME_WORKERS_ENV = "NHL_PREGAME_WORKERS"
-PREGAME_WORKERS_DEFAULT = 4
+PREGAME_WORKERS_DEFAULT = 6
 #: Crawl progress cadence: a full-history backfill touches thousands of
 #: games, and the 2026-10-23 repull emitted nothing between the Phase 3
 #: banner and the confirmed-goalie receipt. A slow or throttled crawl must

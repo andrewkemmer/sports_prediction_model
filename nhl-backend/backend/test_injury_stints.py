@@ -1749,3 +1749,68 @@ class TestDoubtfulIsAnInjury:
         # The input frame is untouched: still two candidates at 0.060/0.020.
         assert len(ratings) == 2
         assert set(ratings["shrunk_rate_per60"]) == {0.060, 0.020}
+
+
+class TestSnapshotNsFastPath:
+    """snapshot_ns_array must answer the identical latest-prior-snapshot as
+    the legacy per-probe scan (2026-10-26 run-log review): the production
+    hot path, pinned against tz-aware/duplicate/NaT/string snapshot entries,
+    exact-boundary instants, stale knowledge and the leave exemption."""
+
+    def _stints(self):
+        st = pd.DataFrame([
+            {"player_id": "p1",
+             "stint_start": pd.Timestamp("2026-01-05 10:00"),
+             "stint_end": pd.Timestamp("2026-01-20 10:00")},
+            {"player_id": "p2",
+             "stint_start": pd.Timestamp("2026-01-10 23:00"),
+             "stint_end": pd.NaT},
+            {"player_id": "p3",
+             "stint_start": pd.Timestamp("2026-01-15 12:00"),
+             "stint_end": pd.NaT, "source": "NHL_LEAVE"},
+        ])
+        st.attrs["snapshot_based"] = True
+        st.attrs["snapshot_history"] = True
+        st.attrs["snapshot_times"] = [
+            pd.Timestamp("2026-01-01 08:00"),
+            pd.Timestamp("2026-01-01 08:00"),
+            pd.Timestamp("2026-01-10 09:00", tz="US/Eastern"),
+            pd.NaT,
+            "2026-01-15 09:00",
+            pd.Timestamp("2026-03-05 09:00"),
+        ]
+        return st
+
+    def test_snapshot_ns_matches_legacy_scan_on_every_branch(self):
+        st = self._stints()
+        arr = ist.snapshot_ns_array(st.attrs["snapshot_times"])
+        assert arr.dtype == np.int64
+        assert list(arr) == sorted(set(arr))
+        bp = ist.stints_by_player(st)
+        instants = [pd.Timestamp("2026-01-05 10:00"),
+                    pd.Timestamp("2026-01-05 09:59:59"),
+                    pd.Timestamp("2026-01-20 10:00"),
+                    pd.Timestamp("2026-01-20 10:00:01"),
+                    "2026-01-12 00:00",
+                    pd.Timestamp("2026-04-01 00:00")]
+        for pid in ("p1", "p2", "p3", "ghost"):
+            for dd in instants:
+                for strict in (True, False):
+                    legacy = ist.is_unavailable(
+                        st, pid, dd, strict_start=strict,
+                        snapshot_times=st.attrs["snapshot_times"],
+                        by_player=bp)
+                    fast = ist.is_unavailable(
+                        st, pid, dd, strict_start=strict,
+                        snapshot_times=st.attrs["snapshot_times"],
+                        by_player=bp, snapshot_ns=arr)
+                    assert fast is legacy, (pid, dd, strict, legacy, fast)
+
+    def test_snapshot_ns_empty_array_never_binds(self):
+        st = self._stints()
+        assert ist.is_unavailable(
+            st, "p1", "2026-01-12 00:00", strict_start=True,
+            snapshot_ns=ist.snapshot_ns_array([])) is False
+        assert ist.is_unavailable(
+            st, "p1", "2026-01-12 00:00", strict_start=True,
+            snapshot_ns=ist.snapshot_ns_array([pd.NaT])) is False

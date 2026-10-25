@@ -537,6 +537,22 @@ def stints_by_player(stints: Optional[pd.DataFrame]) -> dict:
     return out
 
 
+def snapshot_ns_array(snapshot_times) -> "np.ndarray":
+    """Pre-parse snapshot instants to a sorted unique int64-ns array, once.
+
+    ``is_unavailable(strict_start=True)`` used to re-parse the whole
+    ``snapshot_times`` sequence on EVERY probe — ~4,500 instants x ~200k
+    distinct (player, puck-drop) probes a full-repull run, all of it the
+    same fixed sequence (the 2026-10-24 run spent the bulk of two silent
+    Phase-3 windows there). The array holds exactly the instants the legacy
+    scan would keep (NaT dropped, duplicates irrelevant to the max), so a
+    ``searchsorted`` lookup answers the identical latest-prior-snapshot.
+    """
+    parsed = [_utc_naive(v) for v in (snapshot_times or ())]
+    vals = sorted({t.value for t in parsed if pd.notna(t)})
+    return np.array(vals, dtype=np.int64)
+
+
 def is_unavailable(
     stints: pd.DataFrame,
     player_id: str,
@@ -546,6 +562,7 @@ def is_unavailable(
     snapshot_times: Optional[Sequence] = None,
     max_snapshot_lag_days: int = STINT_MAX_LAG_DAYS,
     by_player: Optional[dict] = None,
+    snapshot_ns: Optional["np.ndarray"] = None,
 ) -> bool:
     """Does an Out/IR interval cover the game decision timestamp?
 
@@ -580,16 +597,29 @@ def is_unavailable(
     # keep the legacy row walk below with identical verdicts.
     _payload = (getattr(mine_all, "attrs", None) or {}).get("_probe")
     if strict_start:
-        if snapshot_times is None:
-            snapshot_times = stints.attrs.get("snapshot_times", ())
-        prior_snapshots = [
-            stamp for stamp in (_utc_naive(value) for value in snapshot_times)
-            if pd.notna(stamp) and stamp < d]
-        if not prior_snapshots:
-            # Nothing was captured/announced strictly before puck drop: no
-            # interval can be proven pregame, so nothing binds (fail-open).
-            return False
-        latest_snapshot = max(prior_snapshots)
+        if snapshot_ns is not None:
+            # Pre-parsed path (snapshot_ns_array): the same latest strictly-
+            # prior instant the legacy scan's max() would return, via binary
+            # search instead of a per-probe re-parse of the whole sequence.
+            # pd.Timestamp(int ns) round-trips the naive instant exactly, so
+            # the lag comparison below sees the identical operands.
+            _idx = int(np.searchsorted(snapshot_ns, d.value, side="left"))
+            if _idx == 0:
+                # Nothing was captured/announced strictly before puck drop:
+                # no interval can be proven pregame, so nothing binds.
+                return False
+            latest_snapshot = pd.Timestamp(int(snapshot_ns[_idx - 1]))
+        else:
+            if snapshot_times is None:
+                snapshot_times = stints.attrs.get("snapshot_times", ())
+            prior_snapshots = [
+                stamp for stamp in (_utc_naive(value) for value in snapshot_times)
+                if pd.notna(stamp) and stamp < d]
+            if not prior_snapshots:
+                # Nothing was captured/announced strictly before puck drop: no
+                # interval can be proven pregame, so nothing binds (fail-open).
+                return False
+            latest_snapshot = max(prior_snapshots)
         if (d - latest_snapshot).total_seconds() \
                 > max_snapshot_lag_days * 86400:
             # Stale SNAPSHOT knowledge: an injury state nobody refreshed may
@@ -1113,9 +1143,14 @@ def team_game_rates(
             # A capture timestamp is meaningful only relative to exact puck
             # drop. Missing/invalid start times do not prove that the report
             # was known before the decision, so such rows stay unfiltered.
-            at = ([ _utc_naive(start) for start in agg["start_time_utc"]]
-                  if "start_time_utc" in agg.columns
-                  else [pd.NaT] * len(agg))
+            # Vectorised (2026-10-26 run-log review): the per-row _utc_naive
+            # list-comp re-parsed ~1.4M start-time strings a full-repull run
+            # (minutes); one to_datetime call parses the identical instants.
+            if "start_time_utc" in agg.columns:
+                at = (pd.to_datetime(agg["start_time_utc"], errors="coerce",
+                                      utc=True).dt.tz_localize(None).tolist())
+            else:
+                at = [pd.NaT] * len(agg)
             audit["missing_decision_time"] = int(
                 sum(pd.isna(value) for value in at))
         elif "start_time_utc" in agg.columns:
@@ -1126,6 +1161,11 @@ def team_game_rates(
             at = agg["game_date"] if "game_date" in agg.columns else agg["_cand"]
         snapshot_times = stints.attrs.get("snapshot_times", ())
         by_player = stints_by_player(stints)
+        # One parse of the fixed snapshot sequence for every probe below
+        # (2026-10-26 run-log review): is_unavailable re-scanned ~4,500
+        # instants per distinct (player, puck-drop) probe — ~200k probes a
+        # full-repull run. The array answers the identical latest-prior.
+        snap_ns = snapshot_ns_array(snapshot_times)
         # Probe dedupe (2026-10-19 run-log review): the exclusion verdict is
         # a pure function of (player, decision instant) — stints, snapshots,
         # and lag are fixed for the whole call — but each skater repeats ~8x
@@ -1146,7 +1186,8 @@ def team_game_rates(
             if _key not in _verdicts:
                 _verdicts[_key] = is_unavailable(
                     stints, _p, _d, strict_start=strict_start,
-                    snapshot_times=snapshot_times, by_player=by_player)
+                    snapshot_times=snapshot_times, by_player=by_player,
+                    snapshot_ns=snap_ns)
             _flags.append(_verdicts[_key])
         mask = pd.Series(_flags, index=agg.index)
         audit["dropped_unavailable"] = int(mask.sum())
