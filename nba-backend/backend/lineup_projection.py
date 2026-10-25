@@ -61,6 +61,18 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
                "lineup_rapm_rest_count"] + [
     f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
+    # Rotation SHAPE at the position (2026-10-25 audit). A weighted mean says
+    # how the club rates there; it cannot say how thin the position is, and
+    # thin is exactly what an injury report moves. ``dev`` is the segment's
+    # deviation from the team's own lineup mean, shrunk toward zero (positional
+    # deviation is weakly identified: ~0.02 within-team-game correlation with
+    # the realized positional margin). ``top_share``/``hhi`` measure
+    # concentration, ``depth`` counts rotation-level bodies, ``gap`` is the
+    # drop from the best rating to the second, ``spread`` the weighted
+    # dispersion within the segment.
+    f"pl_rapm_{p.lower()}_{metric}"
+    for metric in ("dev", "top_share", "hhi", "depth", "gap", "spread")
+    for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
     for p in config.PLAYER_EPM_POSITIONS] + [
@@ -125,6 +137,39 @@ POSITION_RAPM_FEATURES = [
     f"pl_rapm_{position}_{side}"
     for position in _POSITION_PUBLISHED_ORDER
     for side in ("away", "home", "diff")]
+
+#: The REPLACEMENT family the audit's step 1 proposes: the same nine columns,
+#: one DIFF per position per concept, with the absolute level removed and the
+#: rotation's shape added.
+#:
+#: Why diffs only: the absolute family kept sides because "away is thin at
+#: centre" is a statement about one team. A deviation is already centred on
+#: that team's own lineup, so its two sides are the same number with opposite
+#: signs - the matchup is the content. Why three concepts: the level (dev)
+#: says which position group is stronger than the club's average, the shape
+#: (top_share, depth) says whether that group is a rotation or a hole, and
+#: those move independently (a deep, mediocre group and a thin star carry the
+#: same mean). Nine columns, so the A/B is a like-for-like exchange rather
+#: than a wider contract winning on volume.
+_POSITION_DEVIATION_METRICS = ("dev", "top_share", "depth")
+POSITION_DEVIATION_FEATURES = [
+    f"pl_rapm_{position}_{metric}_diff"
+    for position in _POSITION_PUBLISHED_ORDER
+    for metric in _POSITION_DEVIATION_METRICS]
+
+#: How many minutes the deviation is shrunk before it is published: a
+#: position group's per-game minutes sum to about one game's 48 at that spot,
+#: so a segment holding a full position (two 24-minute players) keeps half its
+#: deviation and a one-man, 30-minute segment keeps well under it. Deliberately
+#: aggressive - the audit measured the positional deviation at ~0.02
+#: within-team-game correlation, so the prior should dominate and only a real
+#: hole should survive.
+POSITION_DEVIATION_PRIOR_MINUTES = 48.0
+
+#: A member counts toward positional DEPTH at this many minutes per game: below
+#: it he is a spot starter, not a rotation body, and counting him would report
+#: a position as deep on players who do not play.
+POSITION_DEPTH_MINUTES = 10.0
 
 #: Stint-RAPM sources per team-game: net/offense/defense segment blends.
 #: Published as net sides + diff (nine, mirroring the game-level family)
@@ -877,6 +922,41 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 value = _blend(group)
                 if value == value:
                     segmented[f"pl_rapm_{str(position).lower()}"] = value
+                # DEVIATION AND SHAPE (2026-10-25 audit). The nine published
+                # columns were three absolute means, 0.67-0.82 correlated with
+                # each other and worth +0.0011 R^2 over lineup_rapm_mean_diff:
+                # the segmentation was restating team quality. The positional
+                # content is the DEVIATION from the club's own lineup mean,
+                # shrunk toward zero because the audit's within-team-game test
+                # put it at ~0.02 - enough to price a genuine hole, not enough
+                # to pretend a small edge is knowable.
+                pos = str(position).lower()
+                weights = group["_w"].astype(float)
+                w_pos = float(weights.sum())
+                if value == value and mean == mean and w_pos > 0:
+                    segmented[f"pl_rapm_{pos}_dev"] = (
+                        float(value - mean)
+                        * (w_pos / (w_pos
+                                    + POSITION_DEVIATION_PRIOR_MINUTES)))
+                if w_pos > 0:
+                    shares = weights / w_pos
+                    segmented[f"pl_rapm_{pos}_top_share"] = float(shares.max())
+                    segmented[f"pl_rapm_{pos}_hhi"] = float((shares ** 2).sum())
+                mpg = pd.to_numeric(group["prior_minutes_per_game"],
+                                    errors="coerce")
+                segmented[f"pl_rapm_{pos}_depth"] = float(
+                    (mpg >= POSITION_DEPTH_MINUTES).sum())
+                finite = group[weights > 0]
+                if len(finite) >= 2:
+                    ordered = finite.rapm_shrunk.astype(float).sort_values(
+                        ascending=False)
+                    segmented[f"pl_rapm_{pos}_gap"] = float(
+                        ordered.iloc[0] - ordered.iloc[1])
+                    fw = weights[finite.index]
+                    seg_mean = float((fw * finite.rapm_shrunk).sum() / fw.sum())
+                    seg_dev = finite.rapm_shrunk.astype(float) - seg_mean
+                    segmented[f"pl_rapm_{pos}_spread"] = float(
+                        np.sqrt((fw * seg_dev ** 2).sum() / fw.sum()))
                 # Stint O/D parallels, priced on the same weights over the
                 # same members. Present only when the ratings frame carries
                 # the stint fit (off_raw/def_raw); a game-level frame simply
@@ -1021,6 +1101,52 @@ def attach_position_rapm(slate: pd.DataFrame,
             out[f"_eligible_{column}_home"] = home_elig
             out[f"_eligible_{column}_diff"] = np.minimum(away_elig, home_elig)
     drop = [c for c in out.columns if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
+
+
+def attach_position_deviation(slate: pd.DataFrame,
+                              aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the nine deviation/shape features, diffs only.
+
+    Same join, grain and always-create-the-column rule as
+    :func:`attach_position_rapm`. The published shape is one diff per position
+    per concept; the per-side values stay in the aggregates, where the
+    projection's own tests read them, and are not part of the contract.
+
+    The ``_eligible_pl_rapm_dev_*`` provenance rides along on the segment's
+    existing membership mask: a deviation is published only from a segment the
+    projection priced, so a refused side makes the difference NaN by
+    construction and the flag says so.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in POSITION_DEVIATION_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    sources = [f"pl_rapm_{position}_{metric}"
+               for position in _POSITION_PUBLISHED_ORDER
+               for metric in _POSITION_DEVIATION_METRICS]
+    out = _attach_sides(out, aggregates, sources)
+    out = _attach_sides(out, aggregates,
+                        [f"pl_rapm_{position}_eligible"
+                         for position in _POSITION_PUBLISHED_ORDER])
+    for position in _POSITION_PUBLISHED_ORDER:
+        for metric in _POSITION_DEVIATION_METRICS:
+            column = f"pl_rapm_{position}_{metric}"
+            away = f"_away_{column}"
+            home = f"_home_{column}"
+            if away in out.columns and home in out.columns:
+                out[f"{column}_diff"] = out[home] - out[away]
+        flag = f"pl_rapm_{position}_eligible"
+        away_flag = f"_away_{flag}"
+        home_flag = f"_home_{flag}"
+        if away_flag in out.columns and home_flag in out.columns:
+            away_elig = pd.to_numeric(out[away_flag], errors="coerce")
+            home_elig = pd.to_numeric(out[home_flag], errors="coerce")
+            out[f"_eligible_pl_rapm_{position}_dev_diff"] = np.minimum(
+                away_elig, home_elig)
+    drop = [c for c in out.columns if c.startswith("_home_")
+            or c.startswith("_away_")]
     return out.drop(columns=drop)
 
 
