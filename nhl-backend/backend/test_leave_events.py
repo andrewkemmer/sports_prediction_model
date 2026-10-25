@@ -338,6 +338,36 @@ def test_all_candidates_excluded_serves_honest_nan():
     assert pd.isna(per_game.loc[0, "goalie_gaa_home"])
 
 
+def test_goalie_leave_binds_by_name_when_absent_from_skater_ratings():
+    # The ledger carries an auto-reconciled leave for a goalie, but goalies
+    # are not in the skater rating space. The interval key is therefore the
+    # raw full name; the goalie availability bridge must still see that name
+    # and bench him rather than serving his stats as if he were available.
+    events = pd.DataFrame([{
+        "player_name": "Connor Hellebuyck", "player_id": None, "team": "WPG",
+        "announced_at_utc": "2025-11-19T20:00:00Z",
+        "returned_at_utc": None,
+    }])
+    events.attrs["ledger_updated_utc"] = pd.Timestamp("2025-11-30 00:00:00")
+    ratings = pd.DataFrame([
+        {"player_id": "mp-skinner", "player_name": "Stuart Skinner"},
+    ])
+    stints, audit = ist.build_leave_stints(events, ratings)
+    assert audit["unresolved"] == 1
+    assert stints.iloc[0]["player_name"] == "Connor Hellebuyck"
+
+    bs = _two_goalie_boxscores()
+    games = _games([
+        {"game_id": "G5", "gameday": "2025-11-21",
+         "home_team": "WPG", "away_team": "EDM"},
+    ])
+    per_game, _ = feat.goalie_state(bs, games, _team_map(), stints=stints)
+    # Hellebuyck won the workload vote but is on leave; the backup is served
+    # with his OWN prior form, never the unavailable starter's.
+    assert per_game.loc[0, "g_home_name"] == "E. Comrie"
+    assert pd.notna(per_game.loc[0, "goalie_sv_pct_home"])
+
+
 def _target_g5(*, start_time_utc=None):
     row = {"game_id": "G5", "gameday": "2025-11-21",
            "home_team": "WPG", "away_team": "EDM"}
@@ -412,3 +442,121 @@ def test_post_game_announcement_cannot_confirm():
     per_game, _ = feat.goalie_state(
         bs, games, _team_map(), confirmed=confirmed)
     assert per_game.loc[0, "g_home_name"] == "C. Hellebuyck"
+
+
+def _leave_pregame_fixture() -> pd.DataFrame:
+    """Two explicit personal disclosures: one two-game leave, one single game.
+
+    Mirrors the production pre-game artifact shape: each row is game-scoped,
+    ``returned_at_utc`` is the target puck drop plus slack, and the preview's
+    detail says ``personal`` / ``personal leave``.
+    """
+    return pd.DataFrame([
+        {"player_name": "Boone Jenner", "player_id": None, "team": "Blue Jackets",
+         "announced_at_utc": "2024-04-04T17:00:05Z",
+         "returned_at_utc": "2024-04-05T02:00:01Z", "game_id": "G-JEN-1",
+         "category": "injured", "detail": "personal",
+         "source_url": "https://example.test/jenner-1"},
+        {"player_name": "Boone Jenner", "player_id": None, "team": "Blue Jackets",
+         "announced_at_utc": "2024-04-06T16:15:54Z",
+         "returned_at_utc": "2024-04-07T02:00:01Z", "game_id": "G-JEN-2",
+         "category": "injured", "detail": "personal",
+         "source_url": "https://example.test/jenner-2"},
+        {"player_name": "Dillon Dube", "player_id": None, "team": "Flames",
+         "announced_at_utc": "2024-01-23T20:09:24Z",
+         "returned_at_utc": "2024-01-24T02:00:01Z", "game_id": "G-DUBE-1",
+         "category": "injured", "detail": "personal",
+         "source_url": "https://example.test/dube-1"},
+    ])
+
+
+def test_pregame_personal_disclosures_sync_into_ledger(tmp_path):
+    ledger = tmp_path / "nhl_leave_events.json"
+    ledger.write_text(json.dumps({
+        "version": 1,
+        "ledger_updated_utc": "2024-01-01T00:00:00Z",
+        "description": "curated base",
+        "events": [{
+            "player_name": "Rasmus Dahlin", "player_id": None, "team": "BUF",
+            "announced_at_utc": "2023-11-07T17:00:00Z",
+            "returned_at_utc": "2023-11-15T00:00:00Z",
+            "source_url": "https://example.test/dahlin",
+            "note": "curated row",
+        }],
+    }), encoding="utf-8")
+
+    stats = ing.sync_leave_events_from_pregame(
+        _leave_pregame_fixture(), ledger_path=ledger,
+        run_at="2026-10-25T12:00:00Z")
+    assert stats["pregame_personal_events"] == 3
+    assert stats["auto_groups"] == 2          # Jenner's two games are one leave
+    assert stats["auto_events_added"] == 2
+    assert stats["curated_preserved"] == 1
+    assert stats["total_events"] == 3
+    assert stats["written"] is True
+
+    payload = json.loads(ledger.read_text(encoding="utf-8"))
+    assert payload["version"] == 2
+    assert payload["ledger_updated_utc"] == "2026-10-25T12:00:00Z"
+    assert payload["auto_source"] == "nhl_pregame_availability_events.parquet"
+    by_name = {e["player_name"]: e for e in payload["events"]}
+    assert by_name["Rasmus Dahlin"]["note"] == "curated row"
+    jenner = by_name["Boone Jenner"]
+    assert jenner["team"] == "CBJ"
+    assert jenner["origin"] == ing.LEAVE_AUTO_ORIGIN
+    # The leave runs from the first announcement through the last observed
+    # absence, not through a fabricated return.
+    assert jenner["announced_at_utc"] == "2024-04-04T17:00:05Z"
+    assert jenner["returned_at_utc"] == "2024-04-07T02:00:01Z"
+    assert "G-JEN-1" in jenner["note"] and "G-JEN-2" in jenner["note"]
+    assert by_name["Dillon Dube"]["team"] == "CGY"
+    assert by_name["Dillon Dube"]["returned_at_utc"] == "2024-01-24T02:00:01Z"
+
+    # Idempotent: the second run replaces the auto rows, never doubles them.
+    stats2 = ing.sync_leave_events_from_pregame(
+        _leave_pregame_fixture(), ledger_path=ledger,
+        run_at="2026-10-25T13:00:00Z")
+    assert stats2["auto_events_added"] == 2
+    assert stats2["total_events"] == 3
+    assert len(json.loads(ledger.read_text(encoding="utf-8"))["events"]) == 3
+
+
+def test_auto_leave_never_overrides_a_curated_overlapping_event(tmp_path):
+    ledger = tmp_path / "nhl_leave_events.json"
+    ledger.write_text(json.dumps({
+        "version": 1,
+        "ledger_updated_utc": "2024-01-01T00:00:00Z",
+        "events": [{
+            "player_name": "Boone Jenner", "player_id": None, "team": "CBJ",
+            "announced_at_utc": "2024-04-04T17:00:05Z",
+            "returned_at_utc": "2024-04-16T23:00:01Z",
+            "source_url": "https://example.test/jenner-curated",
+            "note": "curated, boxscore-verified return",
+        }],
+    }), encoding="utf-8")
+    stats = ing.sync_leave_events_from_pregame(
+        _leave_pregame_fixture(), ledger_path=ledger,
+        run_at="2026-10-25T12:00:00Z")
+    assert stats["curated_preserved"] == 1
+    assert stats["auto_events_added"] == 1     # Dube only; Jenner is covered
+    events = json.loads(ledger.read_text(encoding="utf-8"))["events"]
+    jenner = [e for e in events if e["player_name"] == "Boone Jenner"]
+    assert len(jenner) == 1
+    assert jenner[0]["note"] == "curated, boxscore-verified return"
+
+
+def test_leave_ledger_sync_is_failure_safe(tmp_path):
+    # No pre-game rows and an existing curated ledger: the curated row and
+    # its ledger stamp survive; nothing is fabricated.
+    ledger = tmp_path / "nhl_leave_events.json"
+    ledger.write_text(json.dumps({
+        "version": 1,
+        "ledger_updated_utc": "2024-01-01T00:00:00Z",
+        "events": [{"player_name": "Rasmus Dahlin", "team": "BUF",
+                    "announced_at_utc": "2023-11-07T17:00:00Z"}],
+    }), encoding="utf-8")
+    stats = ing.sync_leave_events_from_pregame(
+        pd.DataFrame(), ledger_path=ledger, run_at="2026-10-25T12:00:00Z")
+    assert stats["auto_events_added"] == 0
+    assert stats["curated_preserved"] == 1
+    assert stats["total_events"] == 1

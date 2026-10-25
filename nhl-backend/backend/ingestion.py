@@ -2098,6 +2098,293 @@ def load_leave_events() -> pd.DataFrame:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Leave-ledger reconciliation (2026-10-25)
+# ---------------------------------------------------------------------------
+#
+# The curated ledger is the durable, hand-reviewed record of public leave
+# announcements. The pre-game channel independently parses NHL.com previews
+# and records an explicit ``personal`` / ``personal leave`` detail for the
+# games it covers. Those rows are the only automatic historical evidence of
+# personal leaves in the tree (the official API has no transactions feed and
+# ESPN publishes no leave rows), so they are folded into the ledger on every
+# run. The merge is idempotent: curated rows are preserved verbatim, rows this
+# function wrote on an earlier run are replaced wholesale, and an automatic
+# row that overlaps a curated row is dropped in favour of the curated one.
+LEAVE_AUTO_ORIGIN = "pregame_personal"
+#: Consecutive personal-absence games further apart than this belong to
+#: separate leaves. The measured personal disclosures are days apart inside
+#: one leave (Boone Jenner 7 games, Samuel Girard 8) and months apart between
+#: leaves, so a ten-day bridge cannot join two leaves while it comfortably
+#: spans a road trip, a bye, or a short break.
+LEAVE_AUTO_GROUP_GAP_DAYS = 10
+
+
+def _leave_name_key(name: object) -> str:
+    try:
+        from . import injury_stints
+    except Exception:  # noqa: BLE001 - flat import in the pipeline's sys.path
+        import injury_stints  # type: ignore
+    return injury_stints.normalise_player_name(name)
+
+
+def _leave_team_abbrev(team: object) -> object:
+    """Map a preview's full club name to the repo's abbreviation when known."""
+    text = str(team or "").strip()
+    if not text:
+        return None
+    try:
+        from . import pit_availability
+    except Exception:  # noqa: BLE001
+        import pit_availability  # type: ignore
+    slug = pit_availability.TEAM_SLUGS.get(text.lower())
+    if slug:
+        for abbr, team_slug in pit_availability.ABBREV_TO_SLUG.items():
+            if team_slug == slug:
+                return abbr
+    # Previews name the club by its short form ("Blue Jackets", "Flames"),
+    # not the full "Columbus Blue Jackets" key in TEAM_SLUGS. A slug suffix
+    # match resolves those unambiguously; the abbreviation is only a display
+    # label on the ledger event (build_leave_stints resolves by player).
+    needle = "-".join(text.lower().split())
+    for abbr, team_slug in pit_availability.ABBREV_TO_SLUG.items():
+        if team_slug == needle or team_slug.endswith("-" + needle):
+            return abbr
+    return text
+
+
+def _leave_iso(value: object) -> str | None:
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(stamp):
+        return None
+    return pd.Timestamp(stamp).isoformat().replace("+00:00", "Z")
+
+
+def _pregame_personal_leave_rows(pregame: pd.DataFrame | None) -> list[dict]:
+    """Explicit personal/leave rows from the pre-game channel, as dicts."""
+    if pregame is None or not len(pregame) or "detail" not in pregame.columns:
+        return []
+    detail = pregame["detail"].astype(str).str.lower()
+    mask = detail.str.contains("personal|leave", regex=True, na=False)
+    rows = pregame.loc[mask].copy()
+    if "player_name" not in rows.columns:
+        return []
+    rows = rows[rows["player_name"].notna()]
+    # The preview artifact occasionally carries a curly apostrophe (or a
+    # lossy U+FFFD) in a name ("K’Andre Miller"). Normalize it before the
+    # name is written to the ledger so the rating-space bridge can resolve
+    # the player instead of storing an unmatchable raw name.
+    rows["player_name"] = (rows["player_name"].astype(str)
+                           .str.replace("\u2019", "'", regex=False)
+                           .str.replace("\ufffd", "'", regex=False))
+    for col in ("announced_at_utc", "returned_at_utc"):
+        if col in rows.columns:
+            rows[col] = pd.to_datetime(rows[col], errors="coerce", utc=True)
+    if "announced_at_utc" not in rows.columns:
+        return []
+    rows = rows.dropna(subset=["announced_at_utc"])
+    rows = rows.sort_values(["player_name", "announced_at_utc"])
+    return rows.to_dict("records")
+
+
+def _group_personal_leave_rows(rows: list[dict],
+                               gap_days: int = LEAVE_AUTO_GROUP_GAP_DAYS
+                               ) -> list[list[dict]]:
+    """Consecutive personal-absence rows per player -> one leave per group."""
+    groups: list[list[dict]] = []
+    current: list[dict] = []
+    current_key: str | None = None
+    for row in rows:
+        key = _leave_name_key(row.get("player_name"))
+        if current and key != current_key:
+            groups.append(current)
+            current = []
+        if current:
+            prev = current[-1]
+            anchor = prev.get("returned_at_utc")
+            if pd.isna(anchor):
+                anchor = prev.get("announced_at_utc")
+            if (row["announced_at_utc"] - anchor
+                    > pd.Timedelta(days=gap_days)):
+                groups.append(current)
+                current = []
+        current.append(row)
+        current_key = key
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _auto_leave_event(group: list[dict]) -> dict:
+    first, last = group[0], group[-1]
+    end = last.get("returned_at_utc")
+    if pd.isna(end):
+        # The preview contract always writes puck drop + slack. A missing end
+        # means the row is malformed; close it at the announcement rather than
+        # leaving an accidentally open interval.
+        end = first["announced_at_utc"]
+    game_ids = [str(g) for g in (row.get("game_id") for row in group)
+                if g is not None and not pd.isna(g)]
+    note = ("Auto-reconciled from the pre-game preview's explicit "
+            f"personal/leave disclosure ({len(group)} game(s)"
+            + (f": {', '.join(game_ids)}" if game_ids else "")
+            + "); end is the last observed absence, not a confirmed return.")
+    return {
+        "player_name": first.get("player_name"),
+        "player_id": (None if first.get("player_id") is None
+                      or pd.isna(first.get("player_id"))
+                      else str(first.get("player_id"))),
+        "team": _leave_team_abbrev(first.get("team")),
+        "announced_at_utc": _leave_iso(first["announced_at_utc"]),
+        "returned_at_utc": _leave_iso(end),
+        "source_url": first.get("source_url"),
+        "note": note,
+        "origin": LEAVE_AUTO_ORIGIN,
+    }
+
+
+def _leave_events_overlap(a_start, a_end, b_start, b_end) -> bool:
+    """Whether two closed/open event intervals overlap in time."""
+    a0 = pd.to_datetime(a_start, errors="coerce", utc=True)
+    b0 = pd.to_datetime(b_start, errors="coerce", utc=True)
+    if pd.isna(a0) or pd.isna(b0):
+        return False
+    a1 = pd.to_datetime(a_end, errors="coerce", utc=True)
+    b1 = pd.to_datetime(b_end, errors="coerce", utc=True)
+    if pd.isna(a1):
+        a1 = pd.Timestamp.max.tz_localize("UTC")
+    if pd.isna(b1):
+        b1 = pd.Timestamp.max.tz_localize("UTC")
+    return a0 <= b1 and b0 <= a1
+
+
+def sync_leave_events_from_pregame(
+        pregame: pd.DataFrame | None = None, *,
+        ledger_path: Path | str | None = None,
+        run_at: object | None = None,
+        dry_run: bool = False) -> dict:
+    """Merge explicit personal-leave disclosures into the curated ledger.
+
+    The pre-game channel is the only historical source of personal-leave
+    evidence in the tree: its NHL.com previews say ``personal`` or ``personal
+    leave`` for the games they cover, starting with the 2023-24 season. This
+    function turns those game-scoped rows into one leave event per player
+    per consecutive run of games, preserves every curated event, and rewrites
+    the ledger atomically. It is called on every pipeline run after the
+    pre-game refresh, so the ledger grows with the training window instead of
+    being frozen at its last manual edit.
+
+    ``ledger_updated_utc`` is the review instant (the run clock, or
+    ``run_at``). It vouches for the curated rows plus the pre-game personal
+    channel through that instant -- not for every possible public
+    announcement, which no free feed covers. ``pregame`` may be supplied by a
+    caller (or a test); otherwise the frozen artifact is read.
+    """
+    if pregame is None:
+        try:
+            try:
+                from . import pit_availability
+            except Exception:  # noqa: BLE001
+                import pit_availability  # type: ignore
+            pregame = pit_availability.load_pregame_events()
+        except Exception as exc:  # noqa: BLE001 - never fail the run here
+            logger.warning("leave-ledger sync: pre-game channel unavailable "
+                           "(%s); the curated ledger is used unchanged", exc)
+            return {"auto_events": 0, "auto_events_added": 0,
+                    "curated_preserved": 0, "total_events": 0,
+                    "error": str(exc)}
+
+    path = (Path(ledger_path) if ledger_path is not None
+            else Path(config.DATA_DELIVERY_DIR) / config.LEAVE_EVENTS_LEDGER)
+    payload: dict = {"version": 0, "events": []}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("events"), list):
+                payload = loaded
+        except Exception as exc:  # noqa: BLE001 - keep the run alive
+            logger.warning("leave-ledger sync: existing ledger unreadable "
+                           "(%s); rebuilding from the pre-game channel", exc)
+    curated = [ev for ev in payload.get("events", [])
+               if isinstance(ev, dict)
+               and ev.get("origin") != LEAVE_AUTO_ORIGIN]
+    rows = _pregame_personal_leave_rows(pregame)
+    groups = _group_personal_leave_rows(rows)
+    auto_events = [_auto_leave_event(group) for group in groups]
+    # An absent/empty pre-game artifact is not evidence that every personal
+    # leave disappeared. Preserve the auto rows this function wrote on an
+    # earlier run; only a populated artifact is allowed to replace them.
+    source_populated = pregame is not None and len(pregame) > 0
+    if not source_populated:
+        prior_auto = [ev for ev in payload.get("events", [])
+                      if isinstance(ev, dict)
+                      and ev.get("origin") == LEAVE_AUTO_ORIGIN]
+        if prior_auto:
+            logger.warning(
+                "leave-ledger sync: pre-game channel is empty; preserving "
+                "%d auto leave event(s) from the prior ledger", len(prior_auto))
+        kept_auto = prior_auto
+    else:
+        kept_auto = []
+    for ev in (auto_events if source_populated else []):
+        name = _leave_name_key(ev.get("player_name"))
+        overlaps_curated = any(
+            _leave_name_key(cur.get("player_name")) == name
+            and _leave_events_overlap(cur.get("announced_at_utc"),
+                                      cur.get("returned_at_utc"),
+                                      ev.get("announced_at_utc"),
+                                      ev.get("returned_at_utc"))
+            for cur in curated)
+        if not overlaps_curated:
+            kept_auto.append(ev)
+
+    events = curated + kept_auto
+    events.sort(key=lambda ev: str(ev.get("announced_at_utc") or ""))
+    stamp = pd.to_datetime(run_at, errors="coerce", utc=True) \
+        if run_at is not None else pd.Timestamp.now(tz="UTC")
+    if pd.isna(stamp):
+        stamp = pd.Timestamp.now(tz="UTC")
+    description = payload.get("description") or ""
+    auto_note = (" Auto-reconciled personal-leave disclosures from "
+                 "nhl_pregame_availability_events.parquet are refreshed on "
+                 "every run; ledger_updated_utc is the review instant for "
+                 "the curated rows plus that channel, not a claim about "
+                 "every possible public announcement.")
+    if auto_note.strip() not in description:
+        description = (description.rstrip() + auto_note).strip()
+    updated = {
+        **(payload if isinstance(payload, dict) else {}),
+        "version": int(payload.get("version") or 0) + 1,
+        "ledger_updated_utc": _leave_iso(stamp),
+        "description": description,
+        "auto_source": "nhl_pregame_availability_events.parquet",
+        "events": events,
+    }
+    stats = {
+        "pregame_personal_events": len(rows),
+        "auto_groups": len(groups),
+        "auto_events": len(auto_events),
+        "auto_events_added": len(kept_auto),
+        "curated_preserved": len(curated),
+        "total_events": len(events),
+        "ledger": str(path),
+    }
+    if dry_run:
+        stats["dry_run"] = True
+        return stats
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+        stats["written"] = True
+    except Exception as exc:  # noqa: BLE001 - a ledger write must not fail a run
+        logger.warning("leave-ledger sync: write failed (%s); the curated "
+                       "ledger is used unchanged", exc)
+        stats["error"] = str(exc)
+    return stats
+
+
 def _injury_history() -> pd.DataFrame | None:
     """The best available captured injury history, never fabricated.
 

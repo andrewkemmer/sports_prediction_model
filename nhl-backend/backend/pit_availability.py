@@ -4,10 +4,12 @@ Why this exists
 ---------------
 The ``pl_*`` player pool excludes a player only when a PIT availability
 channel says he was unavailable for the target game. The medical channel
-(``nhl_injury_snapshot_history.parquet``) begins 2026-09-28 and the
-non-medical channel (``nhl_leave_events.json``) carries three hand-curated
-events, so games before capture began read as "no absences known" and an
-absent star's rating keeps serving at full weight.
+(``nhl_injury_snapshot_history.parquet``) begins 2026-09-28, so games before
+capture began read as "no absences known" and an absent star's rating keeps
+serving at full weight. The non-medical ledger
+(``nhl_leave_events.json``) starts with hand-curated events and is
+auto-reconciled from this channel's explicit personal-leave disclosures on
+every run; it is not a static archive.
 
 This module backfills that window from the only free, genuinely pre-game,
 player-level source found in the investigation: the NHL.com game preview

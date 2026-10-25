@@ -1,8 +1,108 @@
 {
-  "version": 3,
-  "ledger_updated_utc": "2026-09-29T00:00:00Z",
-  "description": "Public non-medical leave-of-absence announcements. No free live feed publishes these events (verified 2026-09-29: the official NHL API serves no transactions endpoint; ESPN carries no leave rows in either its injury or its transactions payloads), so this versioned ledger is the source of record. PIT contract: announced_at_utc is the instant the information became public - a game is excluded from the player's availability only when the announcement strictly precedes it. returned_at_utc is the first boxscore-verified appearance back (activation news typically precedes the game, so the recorded end errs conservative). ledger_updated_utc is the as-of instant this ledger was last reviewed for completeness: the PIT gate vouches that every public announcement through that instant is present, which is what makes replaying its intervals onto earlier games legitimate. Intervals are re-derived from these events on every run - never a static incremental stack. Medical Out/IR absences stay on the ESPN snapshot channel and remain honestly unknown before capture began (2026-09-28).",
+  "version": 6,
+  "ledger_updated_utc": "2026-10-25T15:59:41.923547Z",
+  "description": "Public non-medical leave-of-absence announcements. No free live feed publishes these events (verified 2026-09-29: the official NHL API serves no transactions endpoint; ESPN carries no leave rows in either its injury or its transactions payloads), so this versioned ledger is the source of record. PIT contract: announced_at_utc is the instant the information became public - a game is excluded from the player's availability only when the announcement strictly precedes it. returned_at_utc is the first boxscore-verified appearance back (activation news typically precedes the game, so the recorded end errs conservative). ledger_updated_utc is the as-of instant this ledger was last reviewed for completeness: the PIT gate vouches that every public announcement through that instant is present, which is what makes replaying its intervals onto earlier games legitimate. Intervals are re-derived from these events on every run - never a static incremental stack. Medical Out/IR absences stay on the ESPN snapshot channel and remain honestly unknown before capture began (2026-09-28). Auto-reconciled personal-leave disclosures from nhl_pregame_availability_events.parquet are refreshed on every run; ledger_updated_utc is the review instant for the curated rows plus that channel, not a claim about every possible public announcement.",
   "events": [
+    {
+      "player_name": "Oliver Kylington",
+      "player_id": null,
+      "team": "CGY",
+      "announced_at_utc": "2023-11-10T17:57:15.084000Z",
+      "returned_at_utc": "2023-11-15T00:00:01Z",
+      "source_url": "https://www.nhl.com/news/calgary-flames-toronto-maple-leafs-game-preview-november-10",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (3 game(s): 2023020207, 2023020213, 2023020231); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Samuel Girard",
+      "player_id": null,
+      "team": "COL",
+      "announced_at_utc": "2023-11-25T19:11:24.933000Z",
+      "returned_at_utc": "2023-12-12T02:30:01Z",
+      "source_url": "https://www.nhl.com/news/calgary-flames-colorado-avalanche-game-preview-november-25",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (8 game(s): 2023020313, 2023020324, 2023020350, 2023020366, 2023020373, 2023020386, 2023020417, 2023020431); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Milan Lucic",
+      "player_id": null,
+      "team": "BOS",
+      "announced_at_utc": "2023-12-02T17:58:50.127000Z",
+      "returned_at_utc": "2023-12-03T00:00:01Z",
+      "source_url": "https://www.nhl.com/news/boston-bruins-toronto-maple-leafs-game-preview-december-2",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2023020364); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "K'Andre Miller",
+      "player_id": null,
+      "team": "NYR",
+      "announced_at_utc": "2023-12-16T18:14:00.907000Z",
+      "returned_at_utc": "2023-12-17T00:00:01Z",
+      "source_url": "https://www.nhl.com/news/new-york-rangers-boston-bruins-game-preview-december-16",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2023020462); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Dillon Dube",
+      "player_id": null,
+      "team": "CGY",
+      "announced_at_utc": "2024-01-23T20:09:24.558000Z",
+      "returned_at_utc": "2024-01-26T02:00:01Z",
+      "source_url": "https://www.nhl.com/news/st-louis-blues-calgary-flames-game-preview-january-23",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (2 game(s): 2023020735, 2023020753); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Boone Jenner",
+      "player_id": null,
+      "team": "CBJ",
+      "announced_at_utc": "2024-04-04T17:00:05.591000Z",
+      "returned_at_utc": "2024-04-16T23:00:01Z",
+      "source_url": "https://www.nhl.com/news/new-york-islanders-columbus-blue-jackets-game-preview-april-4",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (7 game(s): 2023021203, 2023021222, 2023021230, 2023021245, 2023021256, 2023021278, 2023021296); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Adam Larsson",
+      "player_id": null,
+      "team": "SEA",
+      "announced_at_utc": "2024-04-05T20:25:00Z",
+      "returned_at_utc": "2024-04-06T02:00:01Z",
+      "source_url": "https://www.nhl.com/news/seattle-kraken-anaheim-ducks-game-preview-april-5",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2023021215); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Bowen Byram",
+      "player_id": null,
+      "team": "BUF",
+      "announced_at_utc": "2024-04-11T16:41:25.351000Z",
+      "returned_at_utc": "2024-04-13T21:00:01Z",
+      "source_url": "https://www.nhl.com/news/washington-capitals-buffalo-sabres-game-preview-april-11",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (2 game(s): 2023021255, 2023021273); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Mats Zuccarello",
+      "player_id": null,
+      "team": "MIN",
+      "announced_at_utc": "2024-04-12T20:41:18.031000Z",
+      "returned_at_utc": "2024-04-16T01:30:01Z",
+      "source_url": "https://www.nhl.com/news/minnesota-wild-vegas-golden-knights-game-preview-april-12",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (3 game(s): 2023021269, 2023021282, 2023021294); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "J.T. Miller",
+      "player_id": null,
+      "team": "VAN",
+      "announced_at_utc": "2024-11-19T20:28:18.508000Z",
+      "returned_at_utc": "2024-11-24T00:00:01Z",
+      "source_url": "https://www.nhl.com/news/new-york-rangers-vancouver-canucks-game-preview-november-19",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (2 game(s): 2024020300, 2024020323); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
     {
       "player_name": "Rasmus Dahlin",
       "player_id": null,
@@ -29,6 +129,27 @@
       "returned_at_utc": "2026-04-06T00:00:00Z",
       "source_url": "https://www.nhl.com/kraken/news/",
       "note": "Temporary leave of absence for private family matters; returned 2026-04-06 (boxscore-verified). Missed SEA games 2026-03-24, 03-26, 03-28, 03-31, 04-02, 04-04; had 62 GP at departure."
+    },
+    {
+      "player_name": "Matt Murray",
+      "player_id": null,
+      "team": "SEA",
+      "announced_at_utc": "2026-04-13T17:59:23.005000Z",
+      "returned_at_utc": "2026-04-14T01:30:01Z",
+      "source_url": "https://www.nhl.com/news/los-angeles-kings-seattle-kraken-game-preview-april-13-2026",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2025021291); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
+    },
+    {
+      "player_name": "Mitch Marner",
+      "player_id": null,
+      "team": "VGK",
+      "announced_at_utc": "2026-10-24T16:07:54.097000Z",
+      "returned_at_utc": "2026-10-24T23:00:01Z",
+      "source_url": "https://www.nhl.com/news/vegas-golden-knights-columbus-blue-jackets-game-preview-october-24-2026",
+      "note": "Auto-reconciled from the pre-game preview's explicit personal/leave disclosure (1 game(s): 2026020174); end is the last observed absence, not a confirmed return.",
+      "origin": "pregame_personal"
     }
-  ]
+  ],
+  "auto_source": "nhl_pregame_availability_events.parquet"
 }

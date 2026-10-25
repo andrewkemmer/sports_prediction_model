@@ -427,9 +427,16 @@ def build_leave_stints(events: pd.DataFrame,
                 audit["unresolved"] += 1
         rows.append({OUT_PLAYER: key, STINT_START: start,
                      STINT_END: pd.NaT if end is None or pd.isna(end) else end,
-                     "source": LEAVE_SOURCE})
+                     "source": LEAVE_SOURCE,
+                     # The unresolved-key path (a goalie, or a name absent
+                     # from the skater rating space) is only visible to the
+                     # goalie name bridge when the raw name travels with the
+                     # interval. Without this column an auto-reconciled
+                     # goalie leave existed in the ledger but could never
+                     # bench him. Resolved rows carry it harmlessly.
+                     "player_name": None if nm is None or pd.isna(nm) else str(nm)})
     out = pd.DataFrame(rows, columns=[OUT_PLAYER, STINT_START, STINT_END,
-                                      "source"])
+                                      "source", "player_name"])
     if len(out):
         out = out.sort_values([OUT_PLAYER, STINT_START],
                               kind="mergesort").reset_index(drop=True)

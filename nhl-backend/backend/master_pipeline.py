@@ -439,6 +439,32 @@ def main(argv: list[str] | None = None) -> int:
                            exc)
     else:
         logger.info("pregame refresh skipped (--skip-pull: no network)")
+    # Leave-ledger reconciliation (2026-10-25): the curated ledger is the
+    # durable record; the pre-game channel's explicit personal/leave rows are
+    # the only automatic historical evidence in the tree. Fold them in on
+    # every run — after the refresh above, so a FULL_REPULL rebuild sees the
+    # freshly replaced artifact — and keep the curated rows verbatim. This
+    # never fails the run: a failed sync leaves the existing ledger in place
+    # and is logged.
+    try:
+        _leave_sync = ingestion.sync_leave_events_from_pregame()
+        if _leave_sync.get("error"):
+            logger.warning(
+                "leave-ledger sync failed (%s); the existing ledger is used",
+                _leave_sync.get("error"))
+        else:
+            logger.info(
+                "leave-ledger sync: %d pre-game personal row(s) -> %d leave "
+                "group(s), %d auto event(s) added, %d curated row(s) kept, "
+                "%d total event(s)",
+                _leave_sync.get("pregame_personal_events", 0),
+                _leave_sync.get("auto_groups", 0),
+                _leave_sync.get("auto_events_added", 0),
+                _leave_sync.get("curated_preserved", 0),
+                _leave_sync.get("total_events", 0))
+    except Exception as exc:  # noqa: BLE001 - availability must not abort a run
+        logger.warning("leave-ledger sync failed (%s); the existing ledger is "
+                       "used", exc)
     decided_ids = decided_all["game_id"].astype(str).tolist()
     # The gameday mapping only groups the pull into 60-day windows for
     # progress reporting (MLB's _chunked_statcast shape); load_boxscores
