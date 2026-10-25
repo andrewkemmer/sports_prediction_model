@@ -46,8 +46,8 @@ def _cache_path(name: str) -> Path:
     return CACHE_DIR / name
 
 
-def clear_cache() -> None:
-    """Remove all cached nflverse parquet artifacts.
+def clear_cache() -> int:
+    """Remove all cached nflverse parquet artifacts. Returns the count.
 
     The validated PIT weather archive (``weather_pit_*.parquet``) is
     deliberately KEPT. It is not an nflverse pull: its rows are strictly-
@@ -61,11 +61,64 @@ def clear_cache() -> None:
     flag kept for compatibility) or by pointing ``NFL_WEATHER_CACHE`` at a
     fresh file, never via the nflverse pull cache.
     """
+    removed = 0
     if CACHE_DIR.exists():
         for path in CACHE_DIR.glob("*.parquet"):
             if path.name.startswith("weather_pit_"):
                 continue
             path.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
+# Full-repull replication accounting (2026-10-25).
+#
+# ``use_cache=False`` is what every loader receives under NFL_FULL_REPULL=1,
+# but a repull used to be a claim the log could not check: nothing counted a
+# frame served off disk, and clear_cache() only covered the pipeline's own
+# parquet store. nflreadpy keeps a SECOND cache of raw downloads (memory by
+# default, filesystem when NFLREADPY_CACHE points at disk, 24-hour TTL), so a
+# repull could silently serve a previous run's bytes as a fresh pull.
+# begin_full_repull() purges both and forces nflreadpy's cache off for the
+# process; _SERVED_FROM_DISK records every cache file that actually served
+# rows, so the run can PROVE zero disk serves in its own log.
+_SERVED_FROM_DISK: list[str] = []
+_REPULL_RECEIPT: dict = {}
+
+
+def begin_full_repull() -> dict:
+    """Start a source-only rebuild: purge local caches, bypass nflreadpy's.
+
+    Returns the receipt the run logs. Nothing is fetched here — the pipeline's
+    loaders do that with ``use_cache=False``; this only guarantees there is no
+    warm store left for them to fall back into.
+    """
+    global _REPULL_RECEIPT
+    _SERVED_FROM_DISK.clear()
+    removed = clear_cache()
+    third_party = "unavailable"
+    try:
+        import nflreadpy
+        from nflreadpy.config import update_config
+
+        nflreadpy.clear_cache()
+        update_config(cache_mode="off")
+        third_party = "off"
+    except Exception as exc:  # noqa: BLE001 - a repull must not die on this
+        logger.warning("nflreadpy cache not disabled (%s); its in-memory "
+                       "cache is per-process and cannot outlive this run", exc)
+    _REPULL_RECEIPT = {"cache_files_removed": removed,
+                       "nflreadpy_cache": third_party}
+    return dict(_REPULL_RECEIPT)
+
+
+def repull_receipt() -> dict:
+    """The repull's cache purge plus how many frames were served from disk."""
+    served = list(_SERVED_FROM_DISK)
+    receipt = dict(_REPULL_RECEIPT)
+    receipt.update({"cache_serves": len(served),
+                    "cache_served_files": served[:8]})
+    return receipt
 
 
 def _polars_to_pandas(frame):
@@ -117,7 +170,10 @@ def _serve_cached(use_cache: bool, path: Path, seasons) -> bool:
     if not use_cache or not path.exists():
         return False
     covered = {seasons} if isinstance(seasons, int) else set(seasons)
-    return not (covered & mutable_seasons())
+    if covered & mutable_seasons():
+        return False
+    _SERVED_FROM_DISK.append(path.name)
+    return True
 
 
 def _stale_cache(path: Path):
@@ -1181,6 +1237,9 @@ def load_team_names(use_cache: bool = True) -> dict[str, str]:
     """team abbr -> full team name (frontend games[] display fields)."""
     path = _cache_path("teams.parquet")
     if use_cache and path.exists():
+        # Display-only, but still a disk serve: tally it so the repull receipt
+        # covers every loader rather than the ones routed through _serve_cached.
+        _SERVED_FROM_DISK.append(path.name)
         df = pd.read_parquet(path)
     else:
         from nflreadpy import load_teams

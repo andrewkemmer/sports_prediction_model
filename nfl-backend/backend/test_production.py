@@ -1546,8 +1546,9 @@ check("master_pipeline passes fold_list to moneyline OOF",
 check("master_pipeline passes fold_list to distribution OOF",
       "dist_mod.walk_forward_oof_ensemble(game_df, fold_list=fold_list" in mp_src)
 check("master_pipeline fetches PIT weather before feature construction",
-      "weather_mod.fetch_games_weather(schedule)" in mp_src
-      and mp_src.index("weather_mod.fetch_games_weather(schedule)")
+      "weather_mod.fetch_games_weather(" in mp_src
+      and "keep_history=not full_repull" in mp_src
+      and mp_src.index("weather_mod.fetch_games_weather(")
       < mp_src.index("feat_mod.build_game_features("))
 check("master_pipeline passes the same validated weather to history and slate",
       mp_src.count("ftn=ftn, weather=pit_weather, injuries=injuries,") >= 2)
@@ -5978,10 +5979,13 @@ with tempfile.TemporaryDirectory() as _fr_dir:
           f"expected None, got {0 if _fr_out is None else len(_fr_out)} rows")
     check("the full-repull empty pull leaves the cache file untouched",
           len(pd.read_parquet(_fr_cache)) == 1)
-check("FULL_REPULL clears the nflverse cache before repopulating",
-      "ingestion.clear_cache()" in mp_src
-      and "full_repull" in mp_src,
-      "a full rebuild starts from sources, not stored history")
+check("FULL_REPULL clears both caches before repopulating",
+      "ingestion.begin_full_repull()" in mp_src
+      and "def begin_full_repull" in _ing_src
+      and "nflreadpy.clear_cache()" in _ing_src
+      and 'update_config(cache_mode="off")' in _ing_src
+      and "def clear_cache" in _ing_src,
+      "the pipeline store AND nflreadpy's own download cache are purged")
 check("every nflverse loader repulls under FULL_REPULL",
       mp_src.count("use_cache=not full_repull") >= 9
       and "args.skip_pull and not full_repull" in mp_src,
@@ -5998,9 +6002,122 @@ check("no stored-history artifact feeds training (sources only)",
       and ".glob(" not in _train_prefix,
       "cards/boards are write-only display; the game frame comes from pulls")
 check("weather full-repulls every run; the cache serves --skip-pull only",
-      "fetch_games_weather(schedule)" in mp_src
+      "fetch_games_weather(" in mp_src
+      and "keep_history=not full_repull" in mp_src
       and "cached_weather_for_games" in mp_src,
       "delivery is what this run observed, never a top-off of old files")
+check("the served feature contract is config-defined, never a stored JSON",
+      "from feature_selection import apply_adopted_subset" not in mp_src
+      and "apply_adopted_subset(list(" not in mp_src
+      and "record-only RFE" in mp_src
+      and "active_moneyline_feature_cols()" in mp_src,
+      "an adopted RFE state must not define moneyline/distribution width")
+check("FULL_REPULL rebuilds the card ledger from this run only",
+      "def _repull_card_store" in mp_src
+      and "full_repull=full_repull" in mp_src
+      and "no prior ledger read" in mp_src,
+      "a rebuild may not inherit a delivered ledger")
+
+# Full-repull replication guarantees (2026-10-25 log review): a repull must
+# leave no warm store behind — including nflreadpy's own download cache, which
+# the pipeline's clear_cache() never touched — no frame may be served from
+# disk, and a rebuild may inherit neither a delivered card ledger nor an
+# adopted feature-selection record.
+import feature_selection as _fs_mod  # noqa: E402
+import nflreadpy as _nfl  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _rp_dir:
+    _stale_pbp = (Path(_rp_dir)
+                  / f"pbp_{ingest_mod.PBP_CACHE_VERSION}_2016.parquet")
+    pd.DataFrame([{"game_id": "2016_01_MIN_TEN"}]).to_parquet(
+        _stale_pbp, index=False)
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_rp_dir)), \
+            mock.patch.object(_nfl, "clear_cache") as _nfl_clear:
+        _rp_receipt = ingest_mod.begin_full_repull()
+        _rp_mode = str(_nfl.config.get_config().cache_mode)
+    _nfl.config.update_config(cache_mode="memory")
+    check("FULL_REPULL purges the pipeline cache and pins nflreadpy off",
+          _rp_receipt["cache_files_removed"] == 1
+          and not _stale_pbp.exists()
+          and _rp_receipt["nflreadpy_cache"] == "off"
+          and "off" in _rp_mode.lower()
+          and _nfl_clear.called,
+          f"receipt={_rp_receipt} mode={_rp_mode}")
+    check("a repull receipt starts from zero disk serves",
+          ingest_mod.repull_receipt()["cache_serves"] == 0,
+          f"receipt={ingest_mod.repull_receipt()}")
+
+with tempfile.TemporaryDirectory() as _sv_dir:
+    _sv_path = Path(_sv_dir) / "schedules_v3.parquet"
+    pd.DataFrame([{"game_id": "x"}]).to_parquet(_sv_path, index=False)
+    _off = ingest_mod._serve_cached(False, _sv_path, 2016)
+    _on = ingest_mod._serve_cached(True, _sv_path, 2016)
+check("use_cache=False serves nothing and tallies nothing; a hit is counted",
+      _off is False and _on is True
+      and ingest_mod.repull_receipt()["cache_serves"] == 1,
+      f"off={_off} on={_on} receipt={ingest_mod.repull_receipt()}")
+
+_repull_oof = pd.DataFrame({
+    "game_id": ["2026_03_ARI_SF", "2026_08_BUF_NE", "2026_09_PIT_BAL"],
+    "gameday": ["2026-09-27", "2026-10-20", "2026-10-26"],
+    "home_team": ["SF", "NE", "BAL"], "away_team": ["ARI", "BUF", "PIT"],
+    "p_ensemble": [0.90, 0.40, 0.55],
+    "p_ensemble_calibrated": [0.86, 0.45, 0.52],
+    "home_win": [1.0, 0.0, np.nan],
+    "home_score": [36.0, 17.0, np.nan],
+    "away_score": [30.0, 24.0, np.nan],
+})
+_rebuilt = mp_mod._repull_card_store(_repull_oof, "20261025")
+_row = _rebuilt[_rebuilt.game_id == "2026_03_ARI_SF"].iloc[0]
+check("repull ledger re-derives decided cards at the calibrated OOF price",
+      len(_rebuilt) == 2
+      and abs(float(_row["p_home_win"]) - 0.86) < 1e-9
+      and bool(_row["correct"])
+      and str(_row["source_artifact_date"]) == "20261025"
+      and "2026_09_PIT_BAL" not in set(_rebuilt.game_id),
+      f"rows={len(_rebuilt)}")
+check("repull ledger keeps post-era decided games (self-contained, not publication-fed)",
+      "2026_08_BUF_NE" in set(_rebuilt.game_id)
+      and abs(float(_rebuilt[_rebuilt.game_id == "2026_08_BUF_NE"]
+                    .iloc[0]["p_home_win"]) - 0.45) < 1e-9,
+      f"ids={sorted(_rebuilt.game_id)}")
+
+with tempfile.TemporaryDirectory() as _fs_dir:
+    _state = Path(_fs_dir) / "nfl_feature_selection_state.json"
+    _state.write_text(json.dumps({"schema": "nfl-rfe-state-v1",
+                                  "selected_cols": ["elo_diff"]}))
+    with mock.patch.object(_fs_mod, "STATE_FILE", _state):
+        _before = config.active_moneyline_feature_cols()
+        _fs_res = _fs_mod.apply_adopted_subset()
+        _after = config.active_moneyline_feature_cols()
+check("an adopted RFE record never narrows the served feature set",
+      _fs_res["applied"] is False
+      and _after == _before
+      and "record-only" in _fs_res["reason"],
+      f"res={_fs_res}")
+
+check("the log states the repull's replication receipt and flags disk serves",
+      "full-repull replication receipt" in mp_src
+      and "frames served from disk" in mp_src
+      and "stored history entered a source-only rebuild" in mp_src,
+      "a repull must be proveable from its own log")
+check("every phase banner reports its elapsed seconds",
+      "_PHASE_AT" in mp_src
+      and "{now - _PHASE_AT" in mp_src
+      and "PHASE 1" in mp_src,
+      "the run log must show each phase's cost")
+import contextlib as _contextlib  # noqa: E402
+import io as _io  # noqa: E402
+with _contextlib.redirect_stdout(_io.StringIO()) as _buf:
+    mp_mod._PHASE_AT = None
+    mp_mod._banner("PHASE 1", "configuration")
+    mp_mod._banner("PHASE 2", "nflverse ingestion")
+_banner_out = _buf.getvalue()
+check("phase banners print their elapsed seconds",
+      "PHASE 1" in _banner_out
+      and "nflverse ingestion" in _banner_out
+      and "(0s)" in _banner_out.split("PHASE 2")[-1],
+      f"out={_banner_out!r}")
 
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

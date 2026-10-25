@@ -1,8 +1,10 @@
-"""NFL moneyline RFE: record-only, deterministic, and explicitly adopted.
+"""NFL moneyline RFE: record-only and deterministic.
 
-The default production path is unchanged. RFE evaluates the existing NFL
-moneyline ensemble on the existing folds; it never changes the active feature
-contract unless ``--adopt`` is invoked explicitly.
+RFE evaluates the existing NFL moneyline ensemble on the existing folds and
+writes a trace (plus, on an explicit ``--adopt``, a state record). It NEVER
+changes the active feature contract: the served width for the moneyline and
+distribution models is config.MONEYLINE_FEATURE_COLS (NBA parity, 2026-10-25)
+— a stored JSON must not define production model width.
 """
 from __future__ import annotations
 
@@ -156,31 +158,25 @@ def _load_adopted() -> list[str] | None:
 
 
 def apply_adopted_subset(available_columns: list[str] | None = None) -> dict[str, Any]:
-    """Apply a previously adopted subset; reject unavailable features safely.
+    """Report a prior RFE verdict WITHOUT touching the served contract.
 
-    Validity is judged against the declared pool (config.KNOWN_FEATURE_COLS),
-    exactly as config.set_feature_subset does — an adopted record may promote
-    candidates into serving width, so the pool (never the universe) validates
-    the names. The frame check keeps a record from naming a column the
-    current build does not generate.
+    Record-only (2026-10-25, NBA parity). The production feature set for the
+    binary moneyline and distribution models is config.MONEYLINE_FEATURE_COLS;
+    an adopted record in data_delivery is evidence of a verdict, never a
+    serving lever. The state file is still read so the log can state what a
+    prior adoption asked for, but config is explicitly reset and never set
+    from the record — and a rebuild cannot inherit it either.
     """
     universe_n = len(config.MONEYLINE_FEATURE_COLS)
     cols = _load_adopted()
+    config.reset_feature_subset()
     if not cols:
-        config.reset_feature_subset()
-        return {"applied": False, "n_cols": universe_n, "reason": "no adopted state"}
-    unknown = [c for c in cols if c not in config.KNOWN_FEATURE_COLS]
-    if unknown:
-        config.reset_feature_subset()
         return {"applied": False, "n_cols": universe_n,
-                "reason": f"adopted feature not in the declared pool: {unknown[:4]}"}
-    if available_columns is not None and any(c not in available_columns for c in cols):
-        config.reset_feature_subset()
-        return {"applied": False, "n_cols": universe_n,
-                "reason": "adopted feature unavailable in current frame"}
-    config.set_feature_subset(cols)
-    applied = config.active_moneyline_feature_cols()
-    return {"applied": True, "n_cols": len(applied), "columns": applied}
+                "reason": "no adopted state; served width is config-defined"}
+    return {"applied": False, "n_cols": universe_n,
+            "recorded_cols": len(cols),
+            "reason": "record-only: an adopted state never changes the served "
+                      "feature contract"}
 
 
 def _trace_path(day: str, targeted: bool) -> Path:

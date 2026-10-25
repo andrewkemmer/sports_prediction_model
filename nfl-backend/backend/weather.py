@@ -966,6 +966,7 @@ def fetch_games_weather(
     refresh: bool = False,
     path: str | Path | None = None,
     now: datetime | pd.Timestamp | None = None,
+    keep_history: bool = True,
 ) -> pd.DataFrame:
     """Fetch PIT hourly Open-Meteo weather for ALL eligible NFL games.
 
@@ -981,6 +982,11 @@ def fetch_games_weather(
     failed fetch ships NaN and the next run refetches everything.
     ``refresh`` is retained for caller compatibility and is a no-op —
     every run refreshes every game.
+
+    ``keep_history=False`` (NFL_FULL_REPULL=1) never opens the archive file:
+    the saved cache becomes THIS run's observations only, so a rebuild reads
+    no stored weather at all. Ordinary runs keep the file as provenance
+    history for the ``--skip-pull`` reader.
     """
     targets = _targets(games)
     if not targets:
@@ -999,7 +1005,7 @@ def fetch_games_weather(
     # so the saved cache keeps its provenance history for the --skip-pull
     # cache-only path; nothing in the delivered result is backfilled from
     # disk.  ``refresh`` is the documented no-op above.
-    old = _load_cache(target_path)
+    old = _load_cache(target_path) if keep_history else _empty_weather()
 
     fresh_rows: list[dict] = []
     # SAME-RUN TOP-UP (2026-10-09): twelve Open-Meteo 429 ladders exhausted

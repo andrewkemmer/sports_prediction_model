@@ -53,8 +53,23 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("nfl_master_pipeline")
 
 
+# Phase clock (2026-10-25 log review). The delivered run log could show the
+# grand total ("DONE — 207 artifacts in 1857s") and nothing else: the 2026-10-
+# 25 run spent 6m10s in weather and 6m in each OOF pass, but a reader had to
+# difference timestamps to find that out. Each banner now reports the seconds
+# since the previous one — i.e. the cost of the phase it closes. Display only:
+# no phase branches on this and nothing is re-ordered.
+_PHASE_AT: float | None = None
+
+
 def _banner(phase: str, msg: str = "") -> None:
-    print(f"\n{'━' * 70}\n  {phase} — {msg}\n{'━' * 70}\n", flush=True)
+    global _PHASE_AT
+    now = time.perf_counter()
+    # DONE already states the run total, so it does not repeat a phase span.
+    elapsed = ("" if _PHASE_AT is None or phase == "DONE"
+               else f"  ({now - _PHASE_AT:.0f}s)")
+    _PHASE_AT = now
+    print(f"\n{'━' * 70}\n  {phase} — {msg}{elapsed}\n{'━' * 70}\n", flush=True)
 
 
 def _now_utc() -> str:
@@ -175,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     t0 = time.time()
+    global _PHASE_AT
+    _PHASE_AT = time.perf_counter()
+    _banner("PHASE 1", "configuration (date window, repull, library stack)")
     out_dir = Path(args.out_dir) if args.out_dir else config.DATA_DELIVERY_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -211,9 +229,17 @@ def main(argv: list[str] | None = None) -> int:
     seasons = list(range(int(start_date[:4]), int(end_date[:4]) + 1))
     logger.info("nflverse date window: %s..%s (seasons %d..%d)",
                 start_date, window_end, seasons[0], seasons[-1])
+    repull_receipt: dict | None = None
     if full_repull:
-        ingestion.clear_cache()
-        logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild")
+        # Source-only rebuild: the pipeline's parquet store AND nflreadpy's own
+        # download cache are purged and the latter pinned off for this process
+        # (see ingestion.begin_full_repull). Logged, because "cache cleared"
+        # previously said nothing about the second cache or what it removed.
+        repull_receipt = ingestion.begin_full_repull()
+        logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild "
+                    "(%d local parquet file(s) removed; nflreadpy cache %s)",
+                    repull_receipt["cache_files_removed"],
+                    repull_receipt["nflreadpy_cache"])
     logger.info("library stack: %s", json.dumps(_library_stack()))
     config_meta = {
         "feature_set_version": config.FEATURE_SET_VERSION,
@@ -301,7 +327,8 @@ def main(argv: list[str] | None = None) -> int:
             pit_weather = weather_mod.cached_weather_for_games(schedule)
             logger.info("PIT weather: cache-only mode (--skip-pull)")
         else:
-            pit_weather = weather_mod.fetch_games_weather(schedule)
+            pit_weather = weather_mod.fetch_games_weather(
+                schedule, keep_history=not full_repull)
     except Exception as exc:  # noqa: BLE001 - unsafe/missing weather stays NaN
         pit_weather = pd.DataFrame()
         logger.warning("PIT weather unavailable; four weather features stay NaN: %s", exc)
@@ -386,6 +413,29 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("snap count rows: %s | ftn charting rows: %s",
                 0 if snaps is None else len(snaps),
                 0 if ftn is None else len(ftn))
+    if repull_receipt is not None:
+        # The replication receipt (2026-10-25): one line that states what this
+        # rebuild pulled from source and how many frames (if any) came off
+        # disk. Under FULL_REPULL every loader runs use_cache=False, so the
+        # count MUST be 0; a non-zero count is logged at ERROR because it means
+        # stored history entered a source-only rebuild.
+        _rr = ingestion.repull_receipt()
+        logger.info(
+            "full-repull replication receipt: schedule=%d pbp=%s "
+            "player_stats=%s ngs=%s snaps=%s ftn=%s injuries=%d "
+            "weekly_injuries=%d rosters=%d crosswalk=%d weather=%d | "
+            "cache file(s) removed=%d, frames served from disk=%d",
+            len(schedule), 0 if pbp is None else len(pbp),
+            0 if ps is None else len(ps), 0 if ngs is None else len(ngs),
+            0 if snaps is None else len(snaps), 0 if ftn is None else len(ftn),
+            len(injuries), len(weekly_injuries), len(weekly_rosters),
+            len(crosswalk), len(pit_weather),
+            _rr["cache_files_removed"], _rr["cache_serves"])
+        if _rr["cache_serves"]:
+            logger.error(
+                "full repull served %d frame(s) from disk: %s -- stored "
+                "history entered a source-only rebuild",
+                _rr["cache_serves"], _rr["cache_served_files"])
 
     decided_all = schedule[schedule["home_score"].notna()
                            & schedule["away_score"].notna()].copy()
@@ -427,13 +477,14 @@ def main(argv: list[str] | None = None) -> int:
             f"NFL feature coverage contract failed: missing={_absent}, "
             f"entirely_unobserved={_starved}; repair sources before training")
 
-    # Apply only an explicitly adopted RFE state. Ordinary runs retain the
-    # full production list; a trial never changes serving width.
-    try:
-        from feature_selection import apply_adopted_subset
-        logger.info("feature subset: %s", apply_adopted_subset(list(game_df.columns)))
-    except Exception as exc:
-        logger.warning("feature-selection state ignored: %s", exc)
+    # Record-only RFE (NBA parity, 2026-10-25): the production feature set is
+    # the config contract. An adopted RFE record in data_delivery is a verdict
+    # artifact, never a serving lever — a stored JSON must not define the
+    # moneyline/distribution model width. feature_selection.apply_adopted_subset
+    # now reports the record without mutating config, so nothing can re-wire it.
+    logger.info("feature subset: %d served column(s) from config "
+                "(record-only RFE; a stored state file is never applied)",
+                len(config.active_moneyline_feature_cols()))
 
     # ── 4. Fold generation ────────────────────────────────────────────────
     _banner("PHASE 4", "walk-forward fold generation")
@@ -937,9 +988,13 @@ def main(argv: list[str] | None = None) -> int:
     # Frozen first-publication card store (MLB parity with the adopted
     # Game-Totals run_engine_totals_history pattern): every game's
     # PRODUCTION prediction is priced ONCE and never mutated. Historical
-    # cards serve from this store — they must never revert to OOF re-prices
-    # (the walk-forward column is an evaluation view, not what was served).
-    _card_store = _update_cards_history_store(out_dir, oof_ml, slate, date_c)
+    # cards serve from this store — on an ordinary run they must never revert
+    # to OOF re-prices (the walk-forward column is an evaluation view, not
+    # what was served). NFL_FULL_REPULL=1 is the one exception: a rebuild has
+    # no publication record to inherit, so the ledger is re-derived from this
+    # run's OOF (see _repull_card_store).
+    _card_store = _update_cards_history_store(out_dir, oof_ml, slate, date_c,
+                                              full_repull=full_repull)
     if _card_store:
         artifacts.append(_card_store)
 
@@ -1758,9 +1813,65 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     return gates
 
 
+def _repull_card_store(oof_ml: pd.DataFrame, date_c: str) -> pd.DataFrame:
+    """Every decided card re-derived from THIS run's OOF walk-forward.
+
+    A FULL_REPULL rebuild may not inherit the delivered ledger, so the store
+    is priced from the data the run itself reproduced: the calibrated
+    walk-forward probability (the served view) on every decided OOF row,
+    stamped with this run's artifact date. Columns mirror the store contract;
+    the empty-frame return keeps the writer's "never fail the run" rule.
+    """
+    cols = ["game_id", "game_date", "start_time_utc", "home_team",
+            "away_team", "home_team_name", "away_team_name", "home_record",
+            "away_record", "venue", "p_home_win", "p_away_win", "model_pick",
+            "correct", "home_score", "away_score", "actual_winner",
+            "game_status", "source_artifact_date"]
+    if oof_ml is None or not len(oof_ml) or "game_id" not in oof_ml.columns:
+        return pd.DataFrame(columns=cols)
+    if not {"home_score", "away_score"}.issubset(oof_ml.columns):
+        return pd.DataFrame(columns=cols)
+    dec = oof_ml[oof_ml[["home_score", "away_score"]].notna().all(axis=1)]
+    p_col = ("p_ensemble_calibrated"
+             if "p_ensemble_calibrated" in dec.columns else "p_ensemble")
+    if p_col not in dec.columns or not len(dec):
+        return pd.DataFrame(columns=cols)
+    ph = pd.to_numeric(dec[p_col], errors="coerce")
+    hs = pd.to_numeric(dec["home_score"], errors="coerce")
+    asx = pd.to_numeric(dec["away_score"], errors="coerce")
+    keep = ph.notna() & hs.notna() & asx.notna()
+    dec, ph, hs, asx = dec[keep], ph[keep], hs[keep], asx[keep]
+    if not len(dec):
+        return pd.DataFrame(columns=cols)
+    winner = np.where(hs > asx, dec["home_team"],
+                      np.where(asx > hs, dec["away_team"], "TIE"))
+    pick = np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
+    out = pd.DataFrame({
+        "game_id": dec["game_id"].astype(str),
+        "game_date": pd.to_datetime(dec["gameday"]).dt.strftime("%Y-%m-%d"),
+        "home_team": dec["home_team"], "away_team": dec["away_team"],
+        "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+        "model_pick": pick, "correct": pick == winner,
+        "home_score": hs.to_numpy(), "away_score": asx.to_numpy(),
+        "actual_winner": winner, "game_status": "Final",
+        "source_artifact_date": date_c,
+    })
+    for extra in ("start_time_utc", "home_team_name", "away_team_name",
+                  "home_record", "away_record", "venue"):
+        if extra in dec.columns:
+            out[extra] = dec[extra].to_numpy()
+    return out.sort_values(["game_date", "game_id"]).reset_index(drop=True)
+
+
 def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
-                                slate: pd.DataFrame, date_c: str) -> str | None:
+                                slate: pd.DataFrame, date_c: str,
+                                full_repull: bool = False) -> str | None:
     """Append newly-published games to the frozen card store (once).
+
+    ``full_repull=True`` switches the store to a SOURCE-ONLY REBUILD: no prior
+    store, board or history file is opened and every decided card is
+    re-derived from this run's OOF (``_repull_card_store``), so a rebuild is
+    complete without any delivered artifact.
 
     MLB parity (run_engine.update_totals_history_store): rows are priced at
     FIRST PUBLICATION and never mutated afterward. Seeding rebuilds from the
@@ -1802,7 +1913,17 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
             "source_artifact_date"]
     try:
         known: set[str] = set()
-        if store_path.exists():
+        added = 0
+        if full_repull:
+            # SOURCE-ONLY REBUILD (2026-10-25): no prior store, board or
+            # history file is opened. Every card is re-derived from this run's
+            # decided OOF pool, so a rebuild is complete without any delivered
+            # artifact — including the post-era rows, which re-price at the
+            # run's walk-forward view by design of a repull.
+            store = _repull_card_store(oof_ml, date_c)
+            known = set(store["game_id"].astype(str)) if len(store) else set()
+            added = len(store)
+        elif store_path.exists():
             # source_artifact_date is a date KEY (the publication run), not a
             # quantity — read it as a string or an all-numeric store column
             # round-trips to int64 and string comparisons downstream break.
@@ -1827,7 +1948,6 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                 frames.append(df)
             store = (pd.concat(frames, ignore_index=True) if frames
                      else pd.DataFrame())
-        added = 0
         run_day = pd.to_datetime(date_c, format="%Y%m%d")
         # (1) First-publication append: slate rows for games PLAYED by this
         # run's date — priced by an earlier serving horizon, never re-priced.
@@ -1863,7 +1983,11 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
                 store = pd.concat([store, out], ignore_index=True)
         # (1b) Dated-board ledger append: a game that settled BETWEEN runs
         _led = pd.DataFrame()
-        for art in sorted(out_dir.glob("nfl_board_*.csv")):
+        # A source-only rebuild opens no delivered boards: the ledger it
+        # just rebuilt from OOF already covers every decided game, and a
+        # stored board must not be able to add a row to a repull.
+        for art in (() if full_repull
+                    else sorted(out_dir.glob("nfl_board_*.csv"))):
             try:
                 bdf = pd.read_csv(art, dtype={"game_id": str})
             except Exception:
@@ -1932,7 +2056,8 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
         # (never a re-price); no decided OOF row -> stays out (never a
         # fabricated grade).
         _SERVING_ERA_START = pd.Timestamp("2026-09-27")
-        if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
+        if (not full_repull and oof_ml is not None and len(oof_ml)
+                and "game_id" in oof_ml.columns):
             _dec = oof_ml.copy()
             _dec["_gd"] = pd.to_datetime(_dec["gameday"], errors="coerce")
             _dec = _dec[_dec["_gd"].notna()
@@ -2069,8 +2194,13 @@ def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
         meta_path.write_text(json.dumps(
             {"run_date": date_c, "rows_added": added, "n_rows": int(len(store))},
             indent=2), encoding="utf-8")
-        logger.info("cards history store: %d rows (%d added this run) -> %s",
-                    len(store), added, store_path.name)
+        if full_repull:
+            logger.info("cards history store: %d rows rebuilt from this run's "
+                        "OOF under NFL_FULL_REPULL=1 (no prior ledger read) -> %s",
+                        len(store), store_path.name)
+        else:
+            logger.info("cards history store: %d rows (%d added this run) -> %s",
+                        len(store), added, store_path.name)
         return store_path.name
     except Exception as exc:  # noqa: BLE001 — the store must never fail the run
         logger.error("cards history store update FAILED (run continues): %s",
