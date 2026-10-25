@@ -305,8 +305,8 @@ def test_retention_board_families_age_out_on_the_10_day_window():
 
     keep = {"current", "seen", "protected"}
 
-    # Inside the blanket window (anchor -10 .. anchor): card pricing
-    # families all keep, and their board-backed companions keep with them.
+    # Inside the blanket window (anchor -10 .. anchor): every date-gated card
+    # pricing family keeps, including the markets CSV and its meta companion.
     retention_dates = {"20260914", "20260920", "20260923"}
     for rel in (
         "mlb-backend/data_delivery/todays_games_20260920.csv",
@@ -337,14 +337,22 @@ def test_retention_board_families_age_out_on_the_10_day_window():
             board_dates=set(), anchor_date="20260923")
         assert verdict == "stale", f"{rel} classified {verdict} — survives the window"
 
-    # A board STILL TRACKED keeps its companions (board-backed rule) even
-    # outside the blanket window — a navigable board never loses the
-    # run-engine data its cards need (the 2026-08-29 doubleheader fix).
-    with_board = rp.classify_artifact(
+    # The markets CSV has NO board-backed exception (2026-10-25): a board
+    # still tracked outside the blanket window must not extend its dated
+    # markets artifact. Other companions still follow the board.
+    stale_markets = rp.classify_artifact(
         "mlb-backend/data_delivery/run_engine_markets_20260911.csv",
         seen=set(), retention_dates=set(), recent_dates=set(),
         board_dates={"20260911"}, anchor_date="20260923")
-    assert with_board == "current"
+    assert stale_markets == "stale", (
+        "the markets CSV was reprieved by a tracked board; the dated markets "
+        "family must ride the blanket 10-day window with no exception")
+    companion = rp.classify_artifact(
+        "mlb-backend/data_delivery/predictions_history_20260911.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates={"20260911"}, anchor_date="20260923")
+    assert companion == "current", (
+        "the genuine board-backed companion rule was removed with markets")
 
     # Backfill safety: artifacts dated NEWER than the run's anchor keep
     # regardless of windows (present-day artifacts survive a past-anchored

@@ -31,8 +31,10 @@ NFL rule seeded board dates from moneyline/predictions-history CONTENT,
 and a history file always contains a game on its own artifact date: the
 content seed was self-sustaining (324 dates back to 2017 on the 2026-09-30
 audit disk), so ``nfl_predictions_history_`` and its board-backed
-companions (``nfl_run_engine_markets_``) could never age out — the
-20260920 files survived a run anchored 2026-10-01 as proof. Moneyline
+companions could never age out — the 20260920 files survived a run anchored
+2026-10-01 as proof. ``nfl_run_engine_markets_`` is no longer board-backed
+(2026-10-25): its dated CSV rides the blanket 10-day window exactly like
+every other dated family. Moneyline
 ``games[]`` and history rows still seed the SHAP game_id -> game_date map,
 which is their actual consumer.
 
@@ -155,9 +157,11 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  allowlisted=True,
                  notes="newest-only (shared rankings page); 10-day window"),
     FamilyPolicy("markets", "nfl_run_engine_markets_",
-                 retention_days=10, allowlisted=True, board_supported=True,
+                 retention_days=10, allowlisted=True, board_supported=False,
                  notes="newest-only (markets page + board enrichment, incl. "
-                       ".meta.json); 10-day blanket window"),
+                       ".meta.json); 10-day blanket window; NOT board-backed "
+                       "(2026-10-25: the dated markets CSV has no retention "
+                       "exception, so a tracked board cannot extend it)"),
     FamilyPolicy("markets_monitor", "nfl_run_engine_monitor_",
                  retention_days=None, allowlisted=False,
                  notes="SERIES - fold_slate_history folds ALL dated monitors"),

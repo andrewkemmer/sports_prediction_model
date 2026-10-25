@@ -347,8 +347,12 @@ check("unresolvable shap id protected (never guessed)",
                            _retention, _recent, set(), anchor_date=_ANCHOR,
                            game_dates={})
       == "protected")
-check("board-backed family kept while its board is tracked",
+check("markets CSV is NOT board-backed (10-day window only)",
       rp.classify_artifact("x/nfl_run_engine_markets_20260910.csv", set(),
+                           _retention, _recent, {"20260910"}, anchor_date=_ANCHOR)
+      == "stale")
+check("board-backed companion family kept while its board is tracked",
+      rp.classify_artifact("x/nfl_predictions_history_20260910.csv", set(),
                            _retention, _recent, {"20260910"}, anchor_date=_ANCHOR)
       == "current")
 check("dateless non-master is stale",
@@ -397,8 +401,8 @@ try:
             "nfl_production_cards_history.csv": "keep",        # master
             "nfl_feature_selection_state.json": "keep",        # master
             "nfl_board_20260912.csv": "keep",                  # board file
-            "nfl_run_engine_markets_20260912.csv": "keep",     # board-backed
-            "nfl_run_engine_markets_20260910.csv": "prune",    # no board file
+            "nfl_run_engine_markets_20260912.csv": "keep",     # in 10-day window
+            "nfl_run_engine_markets_20260910.csv": "prune",    # no board exception
             "nfl_predictions_history_20260910.csv": "prune",   # self-seed regression
             "nfl_shap_game_2026_01_ARI_LAC.csv": "prune",      # aged via map
             "nfl_shap_game_2026_02_CAR_ATL.csv": "keep",       # in window

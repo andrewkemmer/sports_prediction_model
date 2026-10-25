@@ -68,8 +68,8 @@ Consumer audit (traced at HEAD 827de1b):
                                   |   available_dates game_dates from NEWEST;    |                                     |
                                   |   rolling-brier recompute (in-run, newest)   |                                     |
   todays_games_*.csv              | board date navigator (loads per date)        | newest-only per navigable date      | 10-day window
-                                  |                                              |                                     | (2026-09-23 rev 2: rolling only)  run_engine_markets_*.csv(+meta) | markets page (family-aware newest); board    | newest-only + board-backed          | keep-while-board
-                                  | cards (market_diagnostics per date)          |                                     | (2026-09-23 rev 2: board-backed)
+                                  |                                              |                                     | (2026-09-23 rev 2: rolling only)  run_engine_markets_*.csv(+meta) | markets page (family-aware newest); board    | newest-only                         | 10-day window
+                                  | cards (market_diagnostics per date)          |                                     | (2026-10-25: no board exception)
   run_engine_oof_*.csv            | no frontend reader; backend monitor rebuild/ | newest-only + board-backed          | keep-while-board
                                   |   harnesses                                 |                                     |
   run_engine_monitor_*.json       | markets page (newest per date); **producer   | **SERIES** (producer folds ALL      | NEVER DELETE
@@ -120,12 +120,15 @@ Notes
   rides the blanket 10-day window — the Today's Games dashboard shows a
   ROLLING 10 DAYS of predictions, never a historical archive. The
   price-honesty invariant is preserved for every date still inside the
-  window: board + markets + SHAP age out TOGETHER (SHAP and markets are
-  board-backed), so a card never falls back to an OOF-rebuilt board or
-  cross-date price binding while its date is served. Beyond the window the
-  date is not offered anywhere (frontend valid-date filter, same anchor),
-  and git history retains every pruned blob. Board-backed companions
-  (``run_engine_oof_``, ``predictions_history_``) follow their boards.
+  window: board + markets + SHAP age out TOGETHER on the same date gate
+  (SHAP and markets are no longer board-backed), so a card never falls back
+  to an OOF-rebuilt board or cross-date price binding while its date is
+  served. Beyond the window the date is not offered anywhere (frontend
+  valid-date filter, same anchor), and git history retains every pruned blob.
+- ``run_engine_markets_*`` is NOT board-backed (2026-10-25): a tracked
+  ``todays_games_<date>.csv`` board must never extend its dated markets CSV
+  beyond the blanket 10-day window. Other companions (``run_engine_oof_``,
+  ``predictions_history_``) still follow their boards.
 - Files dated NEWER than the anchor are never deleted (backfill runs set
   ``MLB_END_DATE`` in the past; present-day artifacts must survive it).
 - Run-dated harness OUTPUTS (``*_ablation_*.json``, ``calibration_ablation_*``,
@@ -287,11 +290,12 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                        "window (2026-09-23 rev 2: rolling boards — the "
                        "dashboard serves a rolling 10 days of predictions)"),
     FamilyPolicy("run_engine_markets", "run_engine_markets_",
-                 retention_days=None, allowlisted=True, board_supported=True,
+                 retention_days=10, allowlisted=True, board_supported=False,
                  notes="markets page family-aware pick; board cards per date "
-                       "(incl. .meta.json); board-backed — kept while its "
-                       "todays_games board is tracked (2026-09-23 rev 2: "
-                       "ages out with the 10-day board window)"),
+                       "(incl. .meta.json); 10-day blanket window — NOT "
+                       "board-backed (2026-10-25 owner decision: the dated "
+                       "markets CSV has no retention exception, so a tracked "
+                       "todays_games board cannot extend it)"),
     FamilyPolicy("run_engine_oof", "run_engine_oof_", retention_days=None,
                  allowlisted=True, board_supported=True,
                  notes="no frontend reader; newest-only + board-backed"),

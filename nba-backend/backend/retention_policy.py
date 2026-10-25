@@ -51,7 +51,10 @@ FAMILY_POLICY = (
     FamilyPolicy("model_monitor", "nba_model_monitor_", 10, True),
     FamilyPolicy("feature_v1", "nba_feature_v1_", 10, True),
     FamilyPolicy("power_rankings", "nba_power_rankings_", 10, True),
-    FamilyPolicy("markets", "nba_run_engine_markets_", 10, True),
+    FamilyPolicy("markets", "nba_run_engine_markets_", 10, True,
+                 notes="10-day blanket window; NOT board-backed (2026-10-25: "
+                       "the dated markets CSV has no retention exception, so a "
+                       "tracked board cannot extend it)"),
     FamilyPolicy("player_matchup", "nba_player_leader_matchup_", 10, True),
     FamilyPolicy("markets_monitor", "nba_run_engine_monitor_", None, False),
     FamilyPolicy("shap_game", "nba_shap_game_", None, True, 10),
@@ -115,6 +118,9 @@ def classify_artifact(rel: str, seen: set, retention_dates: set,
         return "current"
     if family and family.slate_window_days and date in recent_dates:
         return "current"
-    if family and family.family in {"markets", "predictions_history"} and date in board_dates:
+    # predictions_history is board-backed; markets is deliberately NOT
+    # (2026-10-25): the dated run-engine CSV must age out with the blanket
+    # 10-day window, never because a board for that date is still tracked.
+    if family and family.family == "predictions_history" and date in board_dates:
         return "current"
     return "stale"

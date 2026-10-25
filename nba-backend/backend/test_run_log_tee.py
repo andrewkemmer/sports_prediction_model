@@ -204,6 +204,23 @@ def test_dated_artifacts_outside_windows_still_classify_stale():
     assert verdict == "stale"
 
 
+def test_markets_csv_has_no_board_backed_exception():
+    # 2026-10-25: the run-engine markets CSV rides the blanket 10-day
+    # window. A tracked board must never extend its own dated artifact.
+    verdict = classify_artifact(
+        "nba-backend/data_delivery/nba_run_engine_markets_20200101.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates={"20200101"})
+    assert verdict == "stale"
+
+    # A genuine board-backed family still follows the board.
+    companion = classify_artifact(
+        "nba-backend/data_delivery/nba_predictions_history_20200101.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates={"20200101"})
+    assert companion == "current"
+
+
 # ── crash delivery (the log must outlive the VM) ────────────────────
 
 def test_push_log_on_crash_noop_without_token_or_file(tmp_path, monkeypatch):
