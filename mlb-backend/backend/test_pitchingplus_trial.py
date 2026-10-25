@@ -1,9 +1,12 @@
-"""Pitching+ trial family (2026-10-24): derivation + interaction contracts.
+"""Pitching+ family: derivation + interaction contracts.
 
-The quality/interaction replacements enter as SHADOW TRIAL CANDIDATES,
-not serving features until external agreement and game-model validation
-pass. Production feature generation uses three independent learned models;
-the legacy fixed-weight proxy is tested separately as a comparator. Pinned here:
+PROMOTED 2026-10-25 (owner decision): the 18 `_pitchingplus` columns ARE the
+serving contract, replacing the 16 xFIP/K-BB%-sourced quality columns (those
+remain generated and stay RFE candidates). The adoption gate still exists —
+`config.PITCHINGPLUS_PROMOTION_APPROVED` now True — so it can be closed again
+without deleting the build. Production feature generation uses three
+independent learned models; the legacy fixed-weight proxy is tested
+separately as a comparator. Pinned here:
 
   * derivation: strictly-prior trailing windows (a game's own pitches never
     score its own trailing value), 100-centering (elite > 100 > poor),
@@ -12,9 +15,9 @@ the legacy fixed-weight proxy is tested separately as a comparator. Pinned here:
   * add_diff_features: exact product/diff formulas for all 18 trial
     columns, twin NULL propagation, dome 0.0 vs outdoor-NULL wind
     discipline,
-  * contracts: all 18 in KNOWN_FEATURE_COLS + RFE_CANDIDATE_COLS, NONE in
-    the active serving width, metadata authored for all 18 with no orphan
-    warning,
+  * contracts: all 18 served, OUT of RFE_CANDIDATE_COLS, the 16 replaced
+    incumbents still generated and back in the candidate pool, metadata
+    authored for all 18 with no orphan warning,
   * weather.apply_weather_features: wind x pitching+ legs mirror the
     xFIP leg (fetched / dome / missing-observation discipline).
 
@@ -482,16 +485,95 @@ def test_dome_forces_pp_wind_zero() -> None:
         assert (out[col] == 0.0).all(), col
 
 
-# ── contracts: trial-only, never served ───────────────────────────────────
+# ── contracts: the promoted serving family ────────────────────────────────
 def test_trial_registration_contracts() -> None:
     for name in PP_COLS:
         assert name in training.KNOWN_FEATURE_COLS, name
-        assert name in RFE_CANDIDATE_COLS, name
-        assert name in CANDIDATE_COLS, name
+        assert name in training.MONEYLINE_FEATURE_COLS, name
         assert name in _RICH, name
     served = set(training.active_moneyline_feature_cols())
-    assert not (set(PP_COLS) & served), \
-        set(PP_COLS) & served
+    assert set(PP_COLS) <= served, set(PP_COLS) - served
+    # Promoted columns are not addition candidates any more: a subset that
+    # already serves them needs no RFE trial.
+    assert not (set(PP_COLS) & set(RFE_CANDIDATE_COLS)), \
+        set(PP_COLS) & set(RFE_CANDIDATE_COLS)
+    assert not (set(PP_COLS) & set(CANDIDATE_COLS)), \
+        set(PP_COLS) & set(CANDIDATE_COLS)
+    assert len(training.MONEYLINE_FEATURE_COLS) == 116  # 114 - 16 + 18
+
+
+def test_replaced_incumbents_stay_generated_and_triable() -> None:
+    """A promotion is serving-only: nothing leaves the generation pool.
+
+    The six families' xFIP/K-BB%-sourced columns keep being built and return
+    to the RFE addition pool (the 2026-09-07 cull pattern), so a later run can
+    re-trial them on evidence instead of losing the comparison."""
+    served = set(training.MONEYLINE_FEATURE_COLS)
+    replaced = [
+        "sp_xfip_5g_diff", "sp_xfip_5g_home", "sp_xfip_5g_away",
+        "pitcher_regression_indicator_diff", "pitcher_regression_indicator_home",
+        "pitcher_regression_indicator_away",
+        "wind_advantage_flyball_factor",
+        "bullpen_kbb_10g_diff", "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
+        "bullpen_kbb_3g_diff", "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
+        "bullpen_meltdown_risk_diff", "bullpen_meltdown_risk_home",
+        "bullpen_meltdown_risk_away",
+    ]
+    for name in replaced:
+        assert name not in served, name
+        assert name in training.KNOWN_FEATURE_COLS, name
+        assert name in CANDIDATE_COLS, name
+
+
+def test_slate_carries_the_promoted_inputs_end_to_end() -> None:
+    """A promoted family is only served if the slate actually builds it.
+
+    build_upcoming_slate initialises raw inputs from a literal list. A
+    promotion that forgot it would still PRODUCE the 18 columns (the diff
+    pass creates them) while every value is NaN — a silent predict-time
+    hole that no column-existence test catches. This drives the real slate
+    builder and the real diff pass on one synthetic game.
+    """
+    from datetime import date as _date
+
+    from data_ingestion import build_upcoming_slate
+
+    hist = pd.DataFrame([{
+        "game_date": pd.Timestamp("2026-06-20"),
+        "game_id": "20260620_A@H", "home_team": "H", "away_team": "A",
+        "home_win": 1.0, "home_score": 5, "away_score": 2,
+        "home_starter_id": 101, "away_starter_id": 202,
+        "sp_pitchingplus_5g_home": 112.0, "sp_pitchingplus_5g_away": 96.0,
+        "sp_fbvelo_3g_home": 95.0, "sp_fbvelo_3g_away": 92.0,
+        "bullpen_pitchingplus_10g_home": 104.0,
+        "bullpen_pitchingplus_10g_away": 98.5,
+        "bullpen_pitchingplus_3g_home": 102.0,
+        "bullpen_pitchingplus_3g_away": 97.0,
+        "bullpen_pitches_3d_home": 40.0, "bullpen_pitches_3d_away": 25.0,
+    }])
+    sched = pd.DataFrame([{
+        "game_id": "20260622_A@H", "game_date": "2026-06-22",
+        "start_time_utc": "2026-06-22T18:00:00",
+        "home_team": "H", "away_team": "A", "venue": "Test Park",
+        "sp_id_home": 101, "sp_id_away": 202,
+        "sp_name_home": "Home Arm", "sp_name_away": "Away Arm",
+    }])
+    sched["game_date"] = pd.to_datetime(sched["game_date"])
+    sched["start_time_utc"] = pd.to_datetime(sched["start_time_utc"])
+    slate = build_upcoming_slate(hist, _date(2026, 6, 22), schedule_df=sched)
+    assert slate.loc[0, "sp_pitchingplus_5g_home"] == 112.0
+    assert slate.loc[0, "bullpen_pitchingplus_3g_away"] == 97.0
+    out = features.add_diff_features(slate)
+    for col in ("sp_pitchingplus_5g_diff", "bullpen_pitchingplus_10g_diff",
+                "bullpen_pitchingplus_3g_diff",
+                "pitcher_regression_indicator_pitchingplus_diff",
+                "bullpen_meltdown_risk_pitchingplus_diff"):
+        assert pd.notna(out.loc[0, col]), col
+    assert out.loc[0, "sp_pitchingplus_5g_diff"] == 16.0
+    # regression = velo diff (95-92) x quality diff; meltdown = workload
+    # diff (40-25) x 10g quality diff (104-98.5).
+    assert out.loc[0, "pitcher_regression_indicator_pitchingplus_diff"] == 48.0
+    assert out.loc[0, "bullpen_meltdown_risk_pitchingplus_diff"] == 82.5
 
 
 def test_metadata_no_orphans() -> None:
@@ -934,15 +1016,37 @@ def test_axis_proxy_uses_catcher_coordinate_orientation() -> None:
     c.close()
 
 
-def test_promotion_gate_rejects_rfe_adoption_and_existing_state() -> None:
+def test_promotion_gate_is_released_and_still_closes() -> None:
+    """Promotion releases the block; it does not delete the guard.
+
+    With approval True a Pitching+ subset can be written and applied. Flipping
+    the flag back off must re-block both the write and the apply, so restoring
+    shadow-only behaviour stays a one-line, fail-closed change.
+    """
+    import json
+    import tempfile
     from unittest.mock import patch
-    import feature_selection as fs
+
     import pytest
-    with pytest.raises(ValueError, match='Pitching\\+ promotion blocked'):
-        fs.write_state(PP_COLS, {})
-    cols = list(training.MONEYLINE_FEATURE_COLS) + PP_COLS
-    with patch.object(fs, 'load_state', return_value={'cols': cols}):
-        assert fs.apply_adopted_subset()['applied'] is False
+    import config
+    import feature_selection as fs
+
+    assert config.PITCHINGPLUS_PROMOTION_APPROVED is True
+    subset = list(training.MONEYLINE_FEATURE_COLS)
+    assert set(PP_COLS) <= set(subset)
+    state_path = Path(tempfile.mkdtemp()) / 'state.json'
+    with patch.object(fs, '_state_path', return_value=state_path):
+        fs.write_state(subset, {})
+        written = json.loads(state_path.read_text(encoding='utf-8'))
+        assert written['n_cols'] == len(subset)
+        report = fs.apply_adopted_subset()
+        assert report['applied'] is True and report['n_cols'] == len(subset)
+        training.reset_feature_subset()
+        with patch.object(fs, 'PITCHINGPLUS_PROMOTION_APPROVED', False):
+            with pytest.raises(ValueError, match='Pitching\\+ promotion blocked'):
+                fs.write_state(subset, {})
+            assert fs.apply_adopted_subset()['applied'] is False
+    training.reset_feature_subset()
 
 
 if __name__ == "__main__":
@@ -979,7 +1083,7 @@ if __name__ == "__main__":
     test_learned_builder_ip_staff_availability_and_calendar()
     test_bullpen_three_games_not_three_relief_appearances()
     test_sp_same_date_and_five_appearance_boundaries()
-    test_promotion_gate_rejects_rfe_adoption_and_existing_state()
+    test_promotion_gate_is_released_and_still_closes
     test_learned_inputs_primary_differentials_and_deterministic_order()
     test_expected_contact_target_train_only_mapping_and_missingness()
     test_reference_scale_is_prior_pitcher_population_not_pitch_sd()

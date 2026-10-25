@@ -824,8 +824,20 @@ def compute_feature_drift(
 # keep the raw LOW_COVERAGE/STARVED thresholds, so sensitivity to real
 # starvation is unchanged — STRUCTURAL is granted only when every single
 # unmeasured row carries a declared reason (NBA 2026-10-08 semantics).
+# Columns whose exact 0.0 on a game-resolved closed roof is the dome fill's
+# POLICY signature (never an observation). The incumbent wind interaction sits
+# here too while it remains generated / RFE-candidate.
+_DOME_NEUTRAL_ZERO_COLS = (
+    "wind_advantage_flyball_factor",
+    "wind_advantage_flyball_factor_pitchingplus_diff",
+    "air_density_velocity_boost",
+)
 _DECLARED_POLICY_INPUTS = {
     "wind_advantage_flyball_factor": "sp_xfip_diff",
+    # 2026-10-25 Pitching+ promotion: the SERVED wind interaction rides the
+    # learned quality leg, so its coverage gate is that leg (the incumbent
+    # stays mapped because it is still generated and RFE may re-serve it).
+    "wind_advantage_flyball_factor_pitchingplus_diff": "sp_pitchingplus_5g_diff",
     "air_density_velocity_boost": "sp_fbvelo_diff",
 }
 
@@ -943,8 +955,7 @@ def compute_feature_coverage(
             # an observation.
             default = nonnull & (vals == 0.0) & (dome == 1)
             n_default = int(default.sum()) if col in (
-                "wind_advantage_flyball_factor",
-                "air_density_velocity_boost") else 0
+                _DOME_NEUTRAL_ZERO_COLS) else 0
             n_measured = n_nonnull - n_default
             pct_nonnull = round(100.0 * n_nonnull / n_total, 1) if n_total else 0.0
             pct_measured = round(100.0 * n_measured / n_total, 1) if n_total else 0.0

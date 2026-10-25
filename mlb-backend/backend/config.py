@@ -859,10 +859,20 @@ RFE_GRID_MAX_STATES = 16       # grid-mode lattice cap (MLB_RFE_ADDITION_REMOVAL
                                # round-robins adds/removes to fit the cap; the
                                # dropped tail is recorded in the trace and overflow
                                # names still get 1-by-1 targeted trials.
-# Fail closed until independent FanGraphs agreement and game-model
-# walk-forward validation pass. RFE may measure these shadow candidates,
-# but cannot adopt them while this is false; local reports never unlock it.
-PITCHINGPLUS_PROMOTION_APPROVED = False
+# PROMOTED 2026-10-25 (owner decision, closing the shadow-only trial).
+# History: this gate existed because the 2025 FanGraphs agreement check and a
+# game-model replacement ablation had not both passed. Both are now measured.
+# The replacement ablation (the exact 16-out/18-in contract below, 6,879
+# graded games, data_delivery/mlb_pitchingplus_replacement_ab_20261025.json)
+# scored AUC 0.5773 -> 0.5758 and logloss 0.6810 -> 0.6814, with ECE
+# 0.0121 -> 0.0084. The owner accepted the small ranking/loss cost for the
+# markedly better calibration and for stuff/location inputs over results-based
+# xFIP/K-BB%. Still open, and recorded in the 2026-10-24 validation note: 2025
+# external agreement stays below 0.90, and no untouched-new-data OOS run has
+# happened. Promotion releases the adoption block — it does not delete the
+# trial: set this False to restore shadow-only behavior (the columns remain
+# generated, and the gate re-blocks both writing and applying a subset).
+PITCHINGPLUS_PROMOTION_APPROVED = True
 PITCHINGPLUS_FEATURE_COLS = tuple(
     f'{base}_{side}'
     for base in ('sp_pitchingplus_5g', 'pitcher_regression_indicator_pitchingplus',
@@ -960,33 +970,27 @@ RFE_CANDIDATE_COLS = [
     "sp_xfip_diff",
     "sp_xfip_home",
     "sp_xfip_away",
-    # --- pitching+ trial family (2026-10-24) (18) ---
-    # Three independent nonlinear run-value models: Stuff+, Location+,
-    # and combined Pitching+ (NOT the mean of the first two). Expected-
-    # contact RV labels; 100/10 prior calibration-pitcher reference scaling
-    # (not pitch SD or a claimed FG scale); recorded-IP-weighted per-game
-    # quality, without prior blending. Available for SHADOW trials only;
-    # adoption is blocked by PITCHINGPLUS_PROMOTION_APPROVED until external
-    # agreement and game-model validation pass. Higher=better reverses xFIP
-    # but has the SAME direction as K-BB%; interactions learn signs fresh.
-    "sp_pitchingplus_5g_diff",
-    "sp_pitchingplus_5g_home",
-    "sp_pitchingplus_5g_away",
-    "pitcher_regression_indicator_pitchingplus_diff",
-    "pitcher_regression_indicator_pitchingplus_home",
-    "pitcher_regression_indicator_pitchingplus_away",
-    "wind_advantage_flyball_factor_pitchingplus_diff",
-    "wind_advantage_flyball_factor_pitchingplus_home",
-    "wind_advantage_flyball_factor_pitchingplus_away",
-    "bullpen_pitchingplus_10g_diff",
-    "bullpen_pitchingplus_10g_home",
-    "bullpen_pitchingplus_10g_away",
-    "bullpen_pitchingplus_3g_diff",
-    "bullpen_pitchingplus_3g_home",
-    "bullpen_pitchingplus_3g_away",
-    "bullpen_meltdown_risk_pitchingplus_diff",
-    "bullpen_meltdown_risk_pitchingplus_home",
-    "bullpen_meltdown_risk_pitchingplus_away",
+    # --- universe departures (Pitching+ promotion, 2026-10-25) (16) ---
+    # The six quality families moved to their learned Pitching+ legs (see
+    # PITCHINGPLUS_FEATURE_COLS and training's promotion block). The xFIP/
+    # K-BB%-sourced columns remain generated (features.py) and enter the
+    # addition pool so RFE may re-trial them with evidence — the 2026-09-07
+    # S-family cull pattern. sp_xfip_5g_home/away already sit in the per-side
+    # group below, so they are not repeated here.
+    "sp_xfip_5g_diff",
+    "pitcher_regression_indicator_diff",
+    "pitcher_regression_indicator_home",
+    "pitcher_regression_indicator_away",
+    "wind_advantage_flyball_factor",
+    "bullpen_kbb_10g_diff",
+    "bullpen_kbb_10g_home",
+    "bullpen_kbb_10g_away",
+    "bullpen_kbb_3g_diff",
+    "bullpen_kbb_3g_home",
+    "bullpen_kbb_3g_away",
+    "bullpen_meltdown_risk_diff",
+    "bullpen_meltdown_risk_home",
+    "bullpen_meltdown_risk_away",
     # --- raw per-side levels (shadowed by diff-only routing) (76) ---
     "rest_days_home",
     "rest_days_away",

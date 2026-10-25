@@ -243,7 +243,7 @@ def test_genuinely_orphaned_entry_still_warns(monkeypatch):
 def test_metadata_still_covers_the_full_serving_width():
     """The fix narrows the WARNING, not the metadata itself."""
     meta, _ = feature_metadata.build_features_metadata()
-    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 114  # 112 + handedness trio
+    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 116  # 114 + Pitching+ swap
     assert all(row.get("tooltip") for row in meta.values())
 
 
@@ -276,9 +276,9 @@ def test_diff_pass_creates_fifty_eight_columns():
     added 2026-10-02 (absent inputs here → created NULL like the rest).
     58 -> 67 with that family, 67 -> 69 with the 2026-10-19 handedness
     structural trio (diff rename + 2 level twins), 69 -> 87 with the
-    2026-10-24 pitching+ trial family (3 simple diffs + 6 level twins +
-    3 wind legs + 3 regression_pp + 3 meltdown_pp — trial candidates,
-    never served)."""
+    2026-10-24 pitching+ family (3 simple diffs + 6 level twins +
+    3 wind legs + 3 regression_pp + 3 meltdown_pp — promoted to serving
+    2026-10-25; the xFIP/K-BB% forms they replaced are still built)."""
     _, created, _ = _diff_output()
     assert len(created) == 87, sorted(created)
 

@@ -2101,6 +2101,13 @@ def build_upcoming_slate(
           for p in _pl_pools for side in ("home", "away")],
         "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
         "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
+        # 2026-10-25 Pitching+ promotion: the SERVED quality legs. Carried
+        # exactly like the K-BB% forms above — the promo is a source swap, not
+        # a second state chain (sp_* values resolve per probable starter in
+        # _latest_pitcher_state, which picks up sp_pitchingplus_5g_*).
+        "sp_pitchingplus_5g_home", "sp_pitchingplus_5g_away",
+        "bullpen_pitchingplus_10g_home", "bullpen_pitchingplus_10g_away",
+        "bullpen_pitchingplus_3g_home", "bullpen_pitchingplus_3g_away",
         "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
         "bullpen_ip_3d_home", "bullpen_ip_3d_away",
         # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
@@ -2227,6 +2234,13 @@ def build_upcoming_slate(
               for p in _pl_pools for side in ("home", "away")],
             "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
             "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
+            # Pitching+ promotion (2026-10-25): without these the slate rows
+            # would create the promoted family as all-NaN — add_diff_features
+            # can only compute sp_pitchingplus_5g_diff / bullpen_pitchingplus_*
+            # and the wind/regression/meltdown legs from these six inputs.
+            "sp_pitchingplus_5g_home", "sp_pitchingplus_5g_away",
+            "bullpen_pitchingplus_10g_home", "bullpen_pitchingplus_10g_away",
+            "bullpen_pitchingplus_3g_home", "bullpen_pitchingplus_3g_away",
             "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
             "bullpen_ip_3d_home", "bullpen_ip_3d_away",
             "team_barrel_15g_home", "team_barrel_15g_away",

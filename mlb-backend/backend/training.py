@@ -474,6 +474,54 @@ MONEYLINE_FEATURE_COLS += [
 ]
 MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
 
+# ── Pitching+ promotion (2026-10-25, owner decision) ────────────────────────
+# The learned Pitching+ family replaces the xFIP/K-BB%-sourced quality legs of
+# the six families that carried them. Same families, windows, and interaction
+# structures; only the quality source changes, and the names now say so
+# (`_pitchingplus` infix — the committed naming convention for this build).
+# Replaced IN PLACE rather than remove-and-append so every unrelated column
+# keeps its position: the calibration/feature-order paths and any retained
+# snapshot matrix see only the six families move.
+# Evidence: data_delivery/mlb_pitchingplus_replacement_ab_20261025.json
+# (AUC 0.5773 -> 0.5758, logloss 0.6810 -> 0.6814, ECE 0.0121 -> 0.0084 on
+# 6,879 graded games). 114 - 16 + 18 = 116. The incumbent columns stay
+# generated and become RFE candidates (config.RFE_CANDIDATE_COLS).
+_PITCHINGPLUS_REPLACEMENTS = {
+    "sp_xfip_5g_diff": "sp_pitchingplus_5g_diff",
+    "sp_xfip_5g_home": "sp_pitchingplus_5g_home",
+    "sp_xfip_5g_away": "sp_pitchingplus_5g_away",
+    "pitcher_regression_indicator_diff":
+        "pitcher_regression_indicator_pitchingplus_diff",
+    "pitcher_regression_indicator_home":
+        "pitcher_regression_indicator_pitchingplus_home",
+    "pitcher_regression_indicator_away":
+        "pitcher_regression_indicator_pitchingplus_away",
+    "wind_advantage_flyball_factor":
+        "wind_advantage_flyball_factor_pitchingplus_diff",
+    "bullpen_kbb_10g_diff": "bullpen_pitchingplus_10g_diff",
+    "bullpen_kbb_10g_home": "bullpen_pitchingplus_10g_home",
+    "bullpen_kbb_10g_away": "bullpen_pitchingplus_10g_away",
+    "bullpen_kbb_3g_diff": "bullpen_pitchingplus_3g_diff",
+    "bullpen_kbb_3g_home": "bullpen_pitchingplus_3g_home",
+    "bullpen_kbb_3g_away": "bullpen_pitchingplus_3g_away",
+    "bullpen_meltdown_risk_diff": "bullpen_meltdown_risk_pitchingplus_diff",
+    "bullpen_meltdown_risk_home": "bullpen_meltdown_risk_pitchingplus_home",
+    "bullpen_meltdown_risk_away": "bullpen_meltdown_risk_pitchingplus_away",
+}
+MONEYLINE_FEATURE_COLS = [
+    _PITCHINGPLUS_REPLACEMENTS.get(c, c) for c in MONEYLINE_FEATURE_COLS]
+# The incumbent wind interaction was diff-only, so the promoted family grows
+# its two side legs here; they sit beside the diff to keep the family
+# contiguous (the shape every other promoted family already has).
+_WIND_PP_DIFF = "wind_advantage_flyball_factor_pitchingplus_diff"
+if "wind_advantage_flyball_factor_pitchingplus_home" not in MONEYLINE_FEATURE_COLS:
+    _wind_at = MONEYLINE_FEATURE_COLS.index(_WIND_PP_DIFF)
+    MONEYLINE_FEATURE_COLS[_wind_at + 1:_wind_at + 1] = [
+        "wind_advantage_flyball_factor_pitchingplus_home",
+        "wind_advantage_flyball_factor_pitchingplus_away",
+    ]
+MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
+
 # ── Known feature pool (RFE trial space) ────────────────────────────────────
 # KNOWN_FEATURE_COLS = the generation universe plus every RFE candidate
 # column (config.RFE_CANDIDATE_COLS, generated PIT-safe, pre-game, not in the
@@ -1024,18 +1072,23 @@ RAW_PER_SIDE_COLS = [
     "sp_k9_home", "sp_k9_away",
     "sp_xwoba_home", "sp_xwoba_away",
     "woba_30g_home", "woba_30g_away",
-    "bullpen_kbb_10g_home", "bullpen_kbb_10g_away",
-    "bullpen_kbb_3g_home", "bullpen_kbb_3g_away",
+    "bullpen_pitchingplus_10g_home", "bullpen_pitchingplus_10g_away",
+    "bullpen_pitchingplus_3g_home", "bullpen_pitchingplus_3g_away",
     "team_barrel_15g_home", "team_barrel_15g_away",
     "team_exitvelo_15g_home", "team_exitvelo_15g_away",
     # 2026-09-27 twin expansion (all tree-only, mirroring the rule above)
     "rest_days_home", "rest_days_away",
-    "sp_xfip_5g_home", "sp_xfip_5g_away",
+    "sp_pitchingplus_5g_home", "sp_pitchingplus_5g_away",
     "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
     "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
     "team_hardhit_15g_home", "team_hardhit_15g_away",
     "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
-    "pitcher_regression_indicator_home", "pitcher_regression_indicator_away",
+    "pitcher_regression_indicator_pitchingplus_home",
+    "pitcher_regression_indicator_pitchingplus_away",
+    # The promoted wind family's side legs are new to serving (the incumbent
+    # interaction was diff-only), so they take the tree-only level routing.
+    "wind_advantage_flyball_factor_pitchingplus_home",
+    "wind_advantage_flyball_factor_pitchingplus_away",
     "ace_efficiency_factor_home", "ace_efficiency_factor_away",
     # exp2 twins — same frozen names as features.EXP2_TWIN_COLS (literal
     # contract, no builder import)

@@ -40,15 +40,21 @@ BACKEND = Path(__file__).resolve().parent
 
 def test_contract_carries_the_renamed_bullpen_family():
     cols = set(training.MONEYLINE_FEATURE_COLS)
-    for c in ("bullpen_kbb_10g_diff", "bullpen_kbb_3g_diff",
-              "bullpen_pitches_3d_diff", "bullpen_meltdown_risk_diff",
-              "bullpen_meltdown_risk_home", "bullpen_meltdown_risk_away"):
+    # 2026-10-25 Pitching+ promotion: the bullpen quality legs are the learned
+    # grade, and the meltdown interaction keeps its structure on that scale.
+    for c in ("bullpen_pitchingplus_10g_diff", "bullpen_pitchingplus_3g_diff",
+              "bullpen_pitches_3d_diff",
+              "bullpen_meltdown_risk_pitchingplus_diff",
+              "bullpen_meltdown_risk_pitchingplus_home",
+              "bullpen_meltdown_risk_pitchingplus_away"):
         assert c in cols, f"{c} missing from the serving contract"
-    assert "bullpen_whip_diff" not in cols
-    assert "bullpen_meltdown_risk" not in cols
+    for c in ("bullpen_whip_diff", "bullpen_meltdown_risk",
+              "bullpen_kbb_10g_diff", "bullpen_kbb_3g_diff",
+              "bullpen_meltdown_risk_diff"):
+        assert c not in cols, f"{c} should have left the serving contract"
     # The availability mechanism is a filter, NOT extra model columns.
     assert not [c for c in cols if "exposed_share" in c or "il_count" in c]
-    assert len(training.MONEYLINE_FEATURE_COLS) == 114  # 112 + 2026-10-19 handedness trio
+    assert len(training.MONEYLINE_FEATURE_COLS) == 116  # 114 + Pitching+ swap
 
 
 def test_add_diff_features_emits_the_renamed_whip_diff(tmp_path, monkeypatch):
@@ -649,7 +655,7 @@ def test_sp_gate_is_infilter_only_and_wired_upstream():
     """No new serving columns; the gate table is built before the first SP
     window and consumed by all three per-pitcher sources; cleanup drops it."""
     cols = training.MONEYLINE_FEATURE_COLS
-    assert len(cols) == 114  # 112 + 2026-10-19 handedness trio
+    assert len(cols) == 116  # 114 + Pitching+ swap
     assert not [c for c in cols if "stale" in c or "gap" in c]
     src = (BACKEND / "features.py").read_text(encoding="utf-8")
     # orchestrator: gate built from pitcher_game_stats BEFORE pitcher_shifted

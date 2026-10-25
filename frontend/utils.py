@@ -3747,6 +3747,23 @@ FEATURE_DESCRIPTIONS = {
     "bp_ready_share_home": "Home pen readiness: next-day availability of arms used in last 2 days (0-1; 1 = all light outings)",
     "bp_ready_share_away": "Away pen readiness: next-day availability of arms used in last 2 days (0-1; 1 = all light outings)",
     "pitcher_regression_indicator": "SP velo diff × xFIP diff (physical drop vs surface results = regression)",
+    # 2026-10-25 Pitching+ promotion: the learned stuff/location model replaced
+    # the xFIP/K-BB% quality legs of these six families. Served names carry the
+    # `_pitchingplus` infix, so each family needs its diff wording plus one
+    # base-level wording — the per-side halves resolve through the _home/_away
+    # suffix path below (sp_pitchingplus_5g_home -> sp_pitchingplus_5g).
+    "sp_pitchingplus_5g_diff": "Home SP Pitching+ (last 5 starts) − away SP (100 = league average; higher = better)",
+    "sp_pitchingplus_5g": "SP Pitching+ — IP-weighted learned stuff/location grade over the last 5 appearances",
+    "pitcher_regression_indicator_pitchingplus_diff": "Home SP velo diff × Pitching+ diff (physical drop vs graded results = regression)",
+    "pitcher_regression_indicator_pitchingplus": "SP velo × Pitching+ (within-side divergence leg)",
+    "wind_advantage_flyball_factor_pitchingplus_diff": "Wind multiplier × home-minus-away SP Pitching+ (flyball risk in windy conditions)",
+    "wind_advantage_flyball_factor_pitchingplus": "Wind multiplier × that side's SP Pitching+",
+    "bullpen_pitchingplus_10g_diff": "Home bullpen 10-game Pitching+ − away bullpen (higher = better)",
+    "bullpen_pitchingplus_10g": "Bullpen Pitching+ — IP-weighted staff grade over the last 10 team games",
+    "bullpen_pitchingplus_3g_diff": "Home bullpen 3-game Pitching+ − away bullpen (short-term form)",
+    "bullpen_pitchingplus_3g": "Bullpen Pitching+ over the last 3 team games",
+    "bullpen_meltdown_risk_pitchingplus_diff": "Bullpen 3-day pitch-count diff × Pitching+ 10-game diff (overworked + low quality = meltdown)",
+    "bullpen_meltdown_risk_pitchingplus": "Bullpen meltdown leg (3-day pitch count × 10-game Pitching+)",
     "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
     "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
     # 33–40. Position-pool xwOBA (projected lineup seat pools). Per-side

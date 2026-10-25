@@ -862,12 +862,18 @@ def _explained_frame() -> pd.DataFrame:
     return pd.DataFrame({
         "wind_advantage_flyball_factor":
             [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5, np.nan, np.nan],
+        # 2026-10-25 Pitching+ promotion: the SERVED wind interaction carries
+        # the learned quality leg; same dome-zero / gated-NULL discipline.
+        "wind_advantage_flyball_factor_pitchingplus_diff":
+            [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5, np.nan, np.nan],
         "air_density_velocity_boost":
             [0.0, 0.0, 0.0, -0.1, -0.1, -0.1, -0.1, -0.1, np.nan, np.nan],
         "dome_is_neutral_game": [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0],
         "sp_xfip_diff": [0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1,
                         np.nan, np.nan],
+        "sp_pitchingplus_5g_diff": [4.0, 4.0, 4.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                                    np.nan, np.nan],
         "sp_fbvelo_diff": [0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4,
                            np.nan, np.nan],
     })
@@ -1014,11 +1020,16 @@ def test_run_engine_coverage_shares_the_structural_rule(tmp_path, monkeypatch):
         _explained_frame(), _explained_frame(), "20990116")
 
     out = pd.read_csv(tmp_path / "run_engine_feature_coverage_20990116.csv")
-    w = out[(out.feature == "wind_advantage_flyball_factor")
+    # The default enumeration is the ACTIVE serving width, which since the
+    # 2026-10-25 Pitching+ promotion carries the learned-leg wind interaction.
+    w = out[(out.feature == "wind_advantage_flyball_factor_pitchingplus_diff")
             & (out.window == "current")].iloc[0]
     assert w.status == "STRUCTURAL"
     assert "declared missing-value policy" in str(w.structural_reason)
     assert "structural_reason" in out.columns
+    # The replaced incumbent is generated but no longer served, so the
+    # default (single-list) surface must not enumerate it.
+    assert "wind_advantage_flyball_factor" not in set(out.feature)
 
 
 # ── T12: the Kaggle notebook's repo path + post-run sanity footer ──────────

@@ -535,7 +535,9 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "index",
         "direction": "higher = home advantage",
     },
-    # ---- pitching+ trial family (2026-10-24; RFE candidates, never served)
+    # ---- pitching+ family (built 2026-10-24; PROMOTED to serving 2026-10-25)
+    # These are the served quality columns now. The replaced xFIP/K-BB%
+    # entries keep their rows: those columns stay generated and RFE-triable.
     # Independent learned physical/location/combined run-value models,
     # 100/10 calibration-pitcher reference; recorded-IP-weighted quality per game, with
     # no prior blending. Overall Pitching+ is NOT a component average.

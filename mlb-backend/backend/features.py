@@ -5674,9 +5674,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             -- Recent-form SP twins under their existing model-contract names.
             sh.sp_xfip_5g AS sp_xfip_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
             sa.sp_xfip_5g AS sp_xfip_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
-            -- Pitching+ trial levels (2026-10-24): same strictly-prior
-            -- trailing discipline as the xFIP/K-BB% forms they trial
-            -- against; RFE candidates, never served directly.
+            -- Pitching+ levels (2026-10-24; PROMOTED to serving 2026-10-25):
+            -- same strictly-prior trailing discipline as the xFIP/K-BB%
+            -- forms they replaced.
             pph.sp_pitchingplus_5g AS sp_pitchingplus_5g_home,
             ppa.sp_pitchingplus_5g AS sp_pitchingplus_5g_away,
             bph.bullpen_pitchingplus_10g AS bullpen_pitchingplus_10g_home,
@@ -7352,8 +7352,9 @@ def add_diff_features(
         ("rest_days_diff", "rest_days_home", "rest_days_away"),                  # 4
         ("sp_xfip_diff", "sp_xfip_home", "sp_xfip_away"),                           # 5
         ("sp_xfip_5g_diff", "sp_xfip_5g_home", "sp_xfip_5g_away"),                   # 6
-        # Pitching+ trial triplets (2026-10-24): same diff grain as the
-        # xFIP/K-BB% forms they trial against; RFE-eligible, never served.
+        # Pitching+ triplets (2026-10-24; PROMOTED to serving 2026-10-25):
+        # same diff grain as the xFIP/K-BB% forms they replaced. Still built
+        # for the incumbent families too — those remain RFE candidates.
         ("sp_pitchingplus_5g_diff", "sp_pitchingplus_5g_home",
          "sp_pitchingplus_5g_away"),
         ("bullpen_pitchingplus_10g_diff", "bullpen_pitchingplus_10g_home",
