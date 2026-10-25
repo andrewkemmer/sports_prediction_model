@@ -3588,21 +3588,29 @@ _epa_p2_q = (2.0 + _epa_mu * _epa_k) / (20.0 + _epa_k)
 _epa_p4_q = (_epa_mu * _epa_k) / (10.0 + _epa_k)
 # Per-game aggregate (not the old rate): each member's weight is his OWN
 # per-game opportunity count -- rolling-window total divided by games
-# observed in that window -- and the group SUMS rate x tpg with NO
+# observed in that window -- and skill members SUM rate x tpg with NO
 # normalisation. Dividing by the group total would ship EPA per opportunity
 # again. Every fixture player appears in exactly ONE historical game, so
 # _n_games = 1 and tpg == _den: P1 10, P2 20, P4 10. The product is the
 # EPA that member projects to generate this game.
+#
+# QB is VOLUME-CAPPED since 2026-10-25 (EPA_QUALITY_QB_VOLUME_CAP): every
+# eligible passer keeps his rate, but the group's projected volumes are scaled
+# so they total no more than the LARGEST member's own per-game volume. HOME
+# holds P1 (10 tpg) and P2 (20 tpg), so the group is scaled 20/30 -- P1 to
+# 6.667 tpg, P2 to 13.333 -- and the row stays a volume-weighted blend instead
+# of collapsing to one passer.
 _epa_p1_tpg, _epa_p2_tpg, _epa_p4_tpg = 10.0, 20.0, 10.0
-_epa_expected_home = _epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q
+_epa_qb_room_share = _epa_p2_tpg / (_epa_p1_tpg + _epa_p2_tpg)
+_epa_expected_home = _epa_qb_room_share * (_epa_p1_tpg * _epa_p1_q
+                                           + _epa_p2_tpg * _epa_p2_q)
 _epa_unfiltered_p3_q = (9.0 + _epa_mu * _epa_k) / (30.0 + _epa_k)
 _epa_expected_away = _epa_p4_tpg * _epa_p4_q
-# Opportunity-weighted blend (2026-09-28): a member's blend weight is
-# his own rolling-8 opportunity total, so the aggregate is the projected
-# lineup's combined shrunk EPA over combined opportunities (P1 10 opps,
-# P2 20 opps). The old plain two-player average let a low-workload backup
-# price half the team's QB rate. WEIGHTED BY PER-GAME OPPORTUNITIES since
-# the family became EPA/game: weight = tpg, group SUMS rate x tpg.
+# Volume cap (2026-10-25): the pool is NOT narrowed -- both passers keep
+# their rates -- but the group's projected volume is scaled to its largest
+# member's, so the row can never describe two offenses' worth of dropbacks.
+# This fixture holds two eligible HOME passers, hence the 20/30 scale on the
+# blend; the singleton case below pins the untouched path.
 check("Out exclusion changes target lineup membership, not P3's lagged EPA",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "epa"], 9.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "opp"], 30.0)
@@ -3618,8 +3626,8 @@ check("all QB/WR/TE/RB lineup aggregates populate both team sides",
       "position-specific aggregates and home-away differences emitted")
 check("FB opportunity history is grouped into the RB lineup family",
       _epa_fb_in_rb)
-check("epa_qb_home follows PIT-qualified player EPA shrinkage and a "
-      "per-game opportunity-weighted lineup blend",
+check("epa_qb_home follows PIT-qualified EPA shrinkage and a volume-weighted "
+      "blend capped at one passer's volume",
       np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "epa"], 5.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "opp"], 10.0)
       and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "epa"], 2.0)
@@ -3640,14 +3648,10 @@ print("  EPA worked example (synthetic, production functions): "
       f"P1={_epa_p1_q:.9f}, P2={_epa_p2_q:.9f}, "
       f"epa_qb_home={_epa_expected_home:.9f}")
 
-# Opportunity-weighted blend guard (2026-09-28): a member's blend weight is
-# his own rolling-8 opportunity total, so removing the low-workload backup
-# from the TARGET pool must move the blend onto the starter's own shrunk
-# rating -- the old plain mean kept pricing the absent backup at half weight.
-# The real-data face of this pin: Bagent's 15 rolling dropbacks cannot price
-# half of CHI's epa_qb against Williams' 329. P2 stays in the historical
-# player table (his G2 game still feeds mu/k), exactly like a real report
-# that rules the backup out after he built his rolling rating.
+# Volume-cap guard (2026-10-25): with ONE passer left in the pool the share
+# is 1.0, so the row is exactly his tpg x rating and the cap is a no-op. P2
+# stays in the historical player table (his G2 game still feeds mu/k),
+# exactly like a real report that rules him out after he built his rating.
 _epa_solo_inj = pd.concat([_epa_calc_injuries, pd.DataFrame([{
     "game_id": "EPA_TARGET", "team": "HOME", "player_id": "P2",
     "status": "out", "availability_weight": 0.0,
@@ -3658,16 +3662,17 @@ _epa_solo_home = float(_epa_solo_agg[
     _epa_solo_agg["game_id"].eq("EPA_TARGET")
     & _epa_solo_agg["team"].eq("HOME")
     & _epa_solo_agg["position"].eq("QB")]["epa_q"].iloc[0])
-check("epa_qb blend is opportunity-weighted: a low-workload backup cannot "
-      "price half the team rate",
+check("epa_qb volume cap leaves a singleton pool untouched: an out passer "
+      "leaves the survivor priced at his own full volume",
       np.isclose(_epa_solo_home, _epa_p1_tpg * _epa_p1_q)
       and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
-      and not np.isclose(_epa_expected_home,
-                         (_epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q)
-                         / 2.0),
-      f"P2 removed from the target pool: home={_epa_solo_home:.9f} "
-      f"(starter tpg x rating={_epa_p1_tpg * _epa_p1_q:.9f}); "
-      f"blend={_epa_expected_home:.9f}")
+      and not np.isclose(_epa_solo_home, _epa_expected_home)
+      and not np.isclose(_epa_target_row["epa_qb_home"],
+                         _epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q),
+      f"P2 out: home={_epa_solo_home:.9f} (P1 tpg x rating="
+      f"{_epa_p1_tpg * _epa_p1_q:.9f}); baseline home="
+      f"{_epa_expected_home:.9f} (room sum would be "
+      f"{_epa_p1_tpg * _epa_p1_q + _epa_p2_tpg * _epa_p2_q:.9f})")
 
 # Per-game VOLUME pin (2026-10-03). The worked example above gives every
 # player one observed game, so tpg == _den and the /_n_games conversion is
@@ -3777,6 +3782,84 @@ check("epa carry never extends a team the fresh window already covers",
       f"fresh-covered team epa_q={list(_epa_stale_q)} "
       f"(poison stale rating would push it above 200)")
 
+# QB freshness window pin (2026-10-25): quarterbacks get 35 admissible days,
+# every other position keeps 21, and the widened window must not disturb the
+# season-boundary carry. Motivating case: 2026 Week 7 TB/CAR, where Mayfield's
+# 09-27 game sat exactly 28 days before the 10-25 target, so the pool priced
+# the interim starter alone even though the official report listed Mayfield
+# Questionable for that game. Both teams here are already covered by a FRESH
+# receiver, which closes the carry gate: a QB row can only exist because the
+# QB window admitted it.
+_epa_qbwin_hist = pd.DataFrame([
+    # 28 days back: outside the 21-day base window, inside the QB window.
+    {"game_id": "QW1", "team": "QWH", "player_id": "QA", "position": "QB",
+     "gameday": pd.Timestamp("2025-09-01"),
+     "kickoff_utc": pd.Timestamp("2025-09-01 17:00:00Z"),
+     "epa": 10.0, "opp": 20.0, "_num": 10.0, "_den": 20.0,
+     "_n_games": 1.0},
+    # The same 28-day age at a skill position: must stay inadmissible.
+    {"game_id": "QW1", "team": "QWH", "player_id": "WA", "position": "WR",
+     "gameday": pd.Timestamp("2025-09-01"),
+     "kickoff_utc": pd.Timestamp("2025-09-01 17:00:00Z"),
+     "epa": 6.0, "opp": 10.0, "_num": 6.0, "_den": 10.0, "_n_games": 1.0},
+    # Fresh receivers (10 days) keep both teams' carry gate closed.
+    {"game_id": "QW2", "team": "QWH", "player_id": "WB", "position": "WR",
+     "gameday": pd.Timestamp("2025-09-19"),
+     "kickoff_utc": pd.Timestamp("2025-09-19 17:00:00Z"),
+     "epa": 3.0, "opp": 10.0, "_num": 3.0, "_den": 10.0, "_n_games": 1.0},
+    {"game_id": "QW3", "team": "QWA", "player_id": "WC", "position": "WR",
+     "gameday": pd.Timestamp("2025-09-19"),
+     "kickoff_utc": pd.Timestamp("2025-09-19 17:00:00Z"),
+     "epa": 2.0, "opp": 10.0, "_num": 2.0, "_den": 10.0, "_n_games": 1.0},
+    # 40 days back: past the QB window too, so this passer must stay out.
+    {"game_id": "QW4", "team": "QWA", "player_id": "QC", "position": "QB",
+     "gameday": pd.Timestamp("2025-08-20"),
+     "kickoff_utc": pd.Timestamp("2025-08-20 17:00:00Z"),
+     "epa": 8.0, "opp": 20.0, "_num": 8.0, "_den": 20.0, "_n_games": 1.0},
+])
+_epa_qbwin_games = pd.DataFrame([
+    {"game_id": "QW_TARGET", "gameday": "2025-09-29", "gametime": "13:00",
+     "home_team": "QWH", "away_team": "QWA"},
+])
+_epa_qbwin_agg = feat_mod.epa_quality_team_agg(_epa_qbwin_hist,
+                                               _epa_qbwin_games)
+_epa_qbwin_prior = feat_mod._position_priors_asof(
+    _epa_qbwin_hist, pd.Series([pd.Timestamp("2025-09-29")]))
+_epa_qbwin_row = _epa_qbwin_agg[_epa_qbwin_agg["game_id"].eq("QW_TARGET")]
+
+
+def _qbwin_q(position, epa, opp):
+    p = _epa_qbwin_prior[_epa_qbwin_prior["position"].eq(position)].iloc[0]
+    return (epa + float(p["mu"]) * float(p["k"])) / (opp + float(p["k"]))
+
+
+_epa_qbwin_home_qb = _epa_qbwin_row[
+    _epa_qbwin_row["team"].eq("QWH")
+    & _epa_qbwin_row["position"].eq("QB")]["epa_q"]
+_epa_qbwin_away_qb = _epa_qbwin_row[
+    _epa_qbwin_row["team"].eq("QWA")
+    & _epa_qbwin_row["position"].eq("QB")]["epa_q"]
+_epa_qbwin_home_wr = float(_epa_qbwin_row[
+    _epa_qbwin_row["team"].eq("QWH")
+    & _epa_qbwin_row["position"].eq("WR")]["epa_q"].iloc[0])
+check("epa QB window admits a 28-day-old returning starter, skill windows do "
+      "not move",
+      len(_epa_qbwin_home_qb) == 1
+      and np.isclose(float(_epa_qbwin_home_qb.iloc[0]),
+                     20.0 * _qbwin_q("QB", 10.0, 20.0))
+      # WB alone: a 28-day-old receiver is still inadmissible.
+      and np.isclose(_epa_qbwin_home_wr, 10.0 * _qbwin_q("WR", 3.0, 10.0)),
+      f"home QB={list(_epa_qbwin_home_qb)} "
+      f"(28-day-old QB must price at {20.0 * _qbwin_q('QB', 10.0, 20.0):.9f}); "
+      f"home WR={_epa_qbwin_home_wr:.9f} "
+      f"(WB only={10.0 * _qbwin_q('WR', 3.0, 10.0):.9f})")
+check("epa QB window is bounded at 35 days and leaves the carry gate alone",
+      len(_epa_qbwin_away_qb) == 0
+      and feat_mod.EPA_QUALITY_POOL_DAYS_QB == 35
+      and feat_mod.EPA_QUALITY_POOL_DAYS == 21,
+      f"40-day-old QB rows={list(_epa_qbwin_away_qb)} "
+      f"(window QB={feat_mod.EPA_QUALITY_POOL_DAYS_QB}, "
+      f"skill={feat_mod.EPA_QUALITY_POOL_DAYS})")
 
 # ---- The run log must not crash, and must describe what it shipped. ------
 # 2026-09-27: Phase 13 logged "monitoring: ... rolling brier %.4f vs %.4f

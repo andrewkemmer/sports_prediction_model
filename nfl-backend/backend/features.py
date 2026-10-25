@@ -1627,6 +1627,43 @@ EPA_QUALITY_K_FRAC = 0.20
 # widened-candidate-roster pattern as MLB while allowing a three-week roster
 # freshness window so a bye does not erase every projected-lineup candidate.
 EPA_QUALITY_POOL_DAYS = 21
+# Quarterback freshness (2026-10-25): QBs get a widened admissible window.
+# The 21-day window is tuned for skill positions, where an absent week is
+# genuinely missing information. A quarterback is different in one specific
+# way: a starter who misses two or three games and returns on a Questionable
+# designation is still the passer his team will field, and his body of work
+# from before the absence is the best estimate of it. Under the 21-day window
+# that body of work is dropped and the interim starter -- who started only
+# because the starter was hurt -- is priced instead.
+#
+# The motivating case is 2026 Week 7 TB/CAR: Mayfield last threw on 09-27,
+# Daniels started Weeks 4-6, and the 10-25 target put 09-27 exactly 28 days
+# back -- one week outside the skill window, so epa_qb_* priced Daniels alone
+# while the official report listed Mayfield Questionable. 35 days clears a
+# three-game absence plus a bye plus the report cycle (28-32 days) and stays
+# inside the same regular season, so the widened window can never reach back
+# across a season boundary (that is still the carry pass's job).
+#
+# The wider window also admits more passers: measured on 2016-2026
+# play-by-play, 44.8% of team-weeks already have two QBs with dropbacks inside
+# 21 days, and 35 days raises that to 57.9%. That is why the volume ceiling
+# below ships with it -- the cap bounds the room's total PROJECTED volume at
+# one passer's, so a wider window adds rate information without adding
+# phantom dropbacks.
+EPA_QUALITY_POOL_DAYS_QB = 35
+# QB volume ceiling (2026-10-25). A team runs roughly ONE quarterback's worth
+# of dropbacks per game no matter how many passers take them: measured on
+# 2017-2026 decided games, two-passer team-weeks realize LESS team EPA than
+# one-passer weeks (-0.93 vs +1.47) while a room sum prices them higher --
+# +1.66 bias across 1,000 two-passer rooms against -0.43 across 3,941
+# one-passer rooms. Capping the QB group's projected per-game volume at its
+# LARGEST member's own volume, with members keeping their proportional share,
+# keeps the rate a volume-weighted blend of whoever is in the pool while the
+# total can never describe two quarterbacks. It needs no starter signal, so it
+# is train/serve symmetric by construction -- unlike a starter pick, which has
+# to guess the identity from history and gets it wrong precisely for the
+# demoted veteran.
+EPA_QUALITY_QB_VOLUME_CAP = True
 # Season-boundary carry (2026-10-08): a team's last-game-to-Week-1 gap runs
 # ~188 days (Jan 5 -> Sep 10) to ~245 days (Feb 5 Super Bowl -> Sep 7), so
 # the 21-day freshness window is EMPTY for every season opener and the whole
@@ -2100,6 +2137,8 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 
     Candidate pool: each team's latest player EPA rating from a game date
     strictly before the target date and within the 21-calendar-day window,
+    widened to 35 days for quarterbacks so a returning starter's body of
+    work survives a two-to-three-game absence (EPA_QUALITY_POOL_DAYS_QB),
     covering ordinary bye-week gaps; when that fresh window finds NOTHING
     for a (game, team) -- the season opener, where the gap runs ~188-245
     days -- a second pass carries prior-season ratings across the boundary
@@ -2122,6 +2161,15 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
 
     A member with no admissible shrunk rating contributes nothing; a family
     with no finite-rating member is NaN, which min_count=1 preserves.
+
+    One exception to the group sum: QB. Only one quarterback takes a team's
+    snaps, but two can hold ratings inside the freshness window, so a QB row
+    that summed both would forecast two offenses' worth of dropbacks. The QB
+    group's projected volumes are therefore capped so they total no more than
+    the group's LARGEST member's own per-game volume, each member keeping his
+    proportional share (EPA_QUALITY_QB_VOLUME_CAP): the rate stays a blend of
+    every eligible passer, the volume stays one team's. A singleton pool is
+    unchanged by construction, and no starter identity is required.
     """
     cols = list(EPA_QUALITY_AGG_COLS)
     if history.empty or games is None or games.empty:
@@ -2174,12 +2222,23 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     # authoritative end-of-game publication time, so a same-day prior kickoff
     # is not proof that the completed EPA rating was known before target kickoff.
     _prior = j["rating_day"] < j["target_day"]
+    # Per-position freshness: QB uses EPA_QUALITY_POOL_DAYS_QB (a returning
+    # starter's body of work survives a multi-game absence), every other
+    # position keeps the 21-day skill window.
+    _pool_days = np.where(j["position"].eq("QB"),
+                          EPA_QUALITY_POOL_DAYS_QB,
+                          EPA_QUALITY_POOL_DAYS)
     fresh = j[_prior & (j["rating_day"] >= j["target_day"]
-                        - pd.Timedelta(days=EPA_QUALITY_POOL_DAYS))]
+                        - pd.to_timedelta(_pool_days, unit="D"))]
     # Season-boundary carry (EPA_QUALITY_POOL_SEASON_DAYS): re-fill ONLY the
     # (game, team) pairs the fresh window found nothing for -- a team the
-    # fresh window already covers never pulls its stale rows.
-    _covered = fresh[["game_id", "team"]].drop_duplicates()
+    # fresh window already covers never pulls its stale rows. The gate stays
+    # on the BASE window so the widened QB window cannot shrink an existing
+    # carry: a (game, team) whose only base-window row was a QB still takes
+    # the carry pass exactly as before.
+    _covered = j[_prior & (j["rating_day"] >= j["target_day"]
+                           - pd.Timedelta(days=EPA_QUALITY_POOL_DAYS))][
+        ["game_id", "team"]].drop_duplicates()
     carry = (j[_prior & (j["rating_day"] >= j["target_day"]
                          - pd.Timedelta(days=EPA_QUALITY_POOL_SEASON_DAYS))]
              .merge(_covered, on=["game_id", "team"], how="left",
@@ -2336,6 +2395,15 @@ def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
     # membership semantics as before: no rating, no contribution.
     top["_tpg"] = _projected_opportunities_per_game(top["_den"],
                                                      top["_n_games"])
+    if EPA_QUALITY_QB_VOLUME_CAP:
+        # One quarterback's worth of volume, however many are in the pool.
+        _qbm = top["position"].eq("QB")
+        if _qbm.any():
+            _grp = top.loc[_qbm].groupby(["game_id", "team"])["_tpg"]
+            _tot = _grp.transform("sum")
+            _mx = _grp.transform("max")
+            _share = (_mx / _tot.where(_tot > 0)).fillna(1.0)
+            top.loc[_qbm, "_tpg"] = top.loc[_qbm, "_tpg"] * _share
     if redistribute_phase1 and _pre_vol is not None:
         # Caps are fitted inputs too: later player-games must not change an
         # earlier lineup. Cache the expanding, strictly-prior estimate per
