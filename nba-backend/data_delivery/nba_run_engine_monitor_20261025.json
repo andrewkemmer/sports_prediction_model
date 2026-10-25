@@ -6,12 +6,12 @@
  "winner_cards": {
   "over_under": {
    "n": 3662,
-   "actual_win_rate": 0.5112,
-   "win_rate": 0.5112,
+   "actual_win_rate": 0.5115,
+   "win_rate": 0.5115,
    "predicted_mean": 0.5056,
-   "auc": 0.4883,
-   "ece_raw": 0.0211,
-   "ece_calibrated": 0.0211,
+   "auc": 0.4877,
+   "ece_raw": 0.0209,
+   "ece_calibrated": 0.0209,
    "brier": 0.25,
    "logloss": 0.6931,
    "holdout": {
@@ -29,13 +29,13 @@
    "crps": 10.4499
   },
   "run_line": {
-   "n": 1799,
-   "actual_win_rate": 0.5081,
-   "win_rate": 0.5081,
+   "n": 1801,
+   "actual_win_rate": 0.5086,
+   "win_rate": 0.5086,
    "predicted_mean": 0.5075,
-   "auc": 0.5096,
-   "ece_raw": 0.0181,
-   "ece_calibrated": 0.0181,
+   "auc": 0.5102,
+   "ece_raw": 0.017,
+   "ece_calibrated": 0.017,
    "brier": 0.2498,
    "logloss": 0.6928,
    "holdout": {
@@ -91,7 +91,7 @@
   {
    "card": "over_under",
    "date": "2026-10-25",
-   "ece_calibrated": 0.0211,
+   "ece_calibrated": 0.0209,
    "brier": 0.25,
    "logloss": 0.6931,
    "predicted_mean": 0.5056,
@@ -100,11 +100,11 @@
   {
    "card": "run_line",
    "date": "2026-10-25",
-   "ece_calibrated": 0.0181,
+   "ece_calibrated": 0.017,
    "brier": 0.2498,
    "logloss": 0.6928,
    "predicted_mean": 0.5075,
-   "n": 1799
+   "n": 1801
   },
   {
    "card": "derived_ml",
@@ -121,16 +121,16 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.2123085691878757,
-   "away_variance": 1.2431555702369272,
-   "correlation": 0.24753206661904567,
-   "total_skew": 0.026542262293533014,
-   "margin_skew": -0.0029771173701656946,
+   "home_variance": 1.2123084412162433,
+   "away_variance": 1.2431553063248133,
+   "correlation": 0.24753199699730097,
+   "total_skew": 0.02654231720814106,
+   "margin_skew": -0.0029770626749834523,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 20.051721489396122,
-    "intercept": 0.22396232823948675,
-    "pace_mean": 0.03635977042978219,
+    "slope": 20.052938786920226,
+    "intercept": 0.2239592081666072,
+    "pace_mean": 0.03635978461193163,
     "cap": 6.0
    }
   },
@@ -142,8 +142,8 @@
     "n_test": 1124,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.00019492828806930908,
-    "residual_mae_after": 0.00015902834045744422,
+    "residual_mae_before": 0.00019492788280094816,
+    "residual_mae_after": 0.00015902794809098152,
     "delta_l1": 0.030979000000000007,
     "delta_max": 0.001384,
     "collateral_max_excess": 0.0,
@@ -282,7 +282,7 @@
      "template": "equal_per_active_recipient",
      "funded_by_donors": 0.013399,
      "funded_by_sink": 0.0,
-     "zero_sum_free": 0.0,
+     "zero_sum_free": -0.0,
      "collateral_max_excess": 0.0,
      "z": 1.003,
      "n_test": 1124,
@@ -294,9 +294,9 @@
     "n_test": 1124,
     "significant": false,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 9.918724992390123e-05,
-    "residual_mae_after": 6.341776826533135e-05,
-    "delta_l1": 0.09522699999999999,
+    "residual_mae_before": 9.918719530672997e-05,
+    "residual_mae_after": 6.341859839701218e-05,
+    "delta_l1": 0.09522599999999999,
     "delta_max": 0.010002,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
@@ -472,7 +472,7 @@
    "play_by_play": "stats.nba.com playbyplayv3",
    "team_events": "stats.nba.com playbyplayv3"
   },
-  "play_by_play_rows": 1969995,
+  "play_by_play_rows": 1969996,
   "event_rows": 7954
  },
  "holdout_gate": {
