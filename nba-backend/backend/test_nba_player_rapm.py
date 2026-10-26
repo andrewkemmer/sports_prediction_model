@@ -1199,10 +1199,16 @@ class TestStrictPregameRegression:
             target, None, player_stats=games)
         ratings = rapm.build_player_rapm(games, target.gameday).rename(
             columns={"target_date": "gameday"})
-        expected = projection.attach_position_rapm(
-            target, projection.projected_lineup(ratings, games=target))
+        expected_aggregates = projection.projected_lineup(ratings,
+                                                          games=target)
+        expected = projection.attach_star_out_features(
+            projection.attach_position_rapm(target, expected_aggregates),
+            expected_aggregates)
+        expected = projection.attach_lineup_rapm_impact(
+            expected, expected_aggregates)
         pd.testing.assert_frame_equal(actual, expected)
         assert not aggregates.empty
+        assert np.isfinite(actual.star_out_weight_share_diff).all()
 
     def test_manifest_does_not_claim_possession_rapm_units(self):
         import manifest

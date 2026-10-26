@@ -503,6 +503,42 @@ _FAMILY: dict[str, dict] = {
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
+    "star_out_impact": {
+        "summary": "Home−away star-out RAPM impact",
+        "summary_level": "Unavailable top-three RAPM impact",
+        "definition": (
+            "Minutes-weighted RAPM of the team's top-three prior-MPG players "
+            "designated Out/Doubtful/Recovery before tipoff, over the top "
+            "three's total minutes weight. Positive means positive talent is "
+            "unavailable; negative means the absent player was rated below "
+            "replacement."),
+        "formula": "star_out_impact_home − star_out_impact_away",
+        "source": ("Strictly-prior player ratings + last pre-tipoff official "
+                   "injury designation"),
+        "window": "season to date; last pre-tipoff report",
+        "units": "game-margin points per full-48-minute player exposure",
+        "direction": ("higher = home is more depleted of positive talent "
+                      "(worse for home)"),
+        "direction_level": ("higher = more positive talent unavailable for "
+                            "that side"),
+    },
+    "star_out_weight_share": {
+        "summary": "Home−away unavailable top-three minutes share",
+        "summary_level": "Unavailable top-three minutes share",
+        "definition": (
+            "Share of the team's top-three prior-MPG minutes weight that is "
+            "designated Out/Doubtful/Recovery before tipoff. Separates a "
+            "missing top-three role from the missing player's rating."),
+        "formula": "star_out_weight_share_home − star_out_weight_share_away",
+        "source": ("Strictly-prior player ratings + last pre-tipoff official "
+                   "injury designation"),
+        "window": "season to date; last pre-tipoff report",
+        "units": "share (0–1)",
+        "direction": ("higher = home has a larger share of its top-three "
+                      "minutes unavailable (worse for home)"),
+        "direction_level": ("higher = larger share of that side's top-three "
+                            "minutes unavailable"),
+    },
 }
 
 _STANDALONE = {

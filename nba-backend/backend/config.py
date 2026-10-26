@@ -119,7 +119,12 @@ RFE_MAX_STEPS = 120
 # moving membership), the 5-game membership ramp for a club's first games, and
 # the previous-season carry for a season's opening game. Rebuild features, OOF
 # and refits together - all three change pl_rapm_* values.
-FEATURE_SET_VERSION = "nba-prod-v3.1-rapm-split-weights"
+# v3.2 promotes the six ``star_out_*`` availability columns (the B arm) into
+# the served contract after the 2026-10-26 four-arm walk-forward. B beat the
+# baseline on overall log loss, the star-out slice and high-confidence games;
+# D added nothing over B overall and significantly worsened the baseline tail.
+# Rebuild OOF and refits together - this widens the binary contract to 77.
+FEATURE_SET_VERSION = "nba-prod-v3.2-star-out"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -162,6 +167,32 @@ MIN_OOF_FOR_FIT = 300
 CAL_GATE_HOLDOUT_FRAC = 0.25
 CAL_GATE_MIN_HOLDOUT = 200
 CAL_GATE_EPS = 5e-3
+
+#: Star-out availability features (ADOPTED 2026-10-26 from the B arm of the
+#: four-arm walk-forward). Two concepts, each with per-side values and a
+#: home-minus-away diff:
+#:
+#: * ``star_out_impact`` - minutes-weighted RAPM of the team's top-three
+#:   prior-MPG players who are out, over the top three's total weight. Positive
+#:   means positive talent is unavailable; negative means the absent player
+#:   was rated below replacement.
+#: * ``star_out_weight_share`` - the top three's unavailable share of its own
+#:   minutes weight. This separates "a top-three role is missing" from "the
+#:   missing player is good".
+#:
+#: The reference set is the ELIGIBLE pool BEFORE the availability filter, so an
+#: out star stays in the denominator and is not replaced by the fourth man.
+#:
+#: B beat A on overall log loss (-0.00394 [-0.00629, -0.00165]), the star-out
+#: slice (-0.00556 [-0.00921, -0.00180]) and high-confidence games (-0.00912
+#: [-0.01650, -0.00252]); D added nothing over B overall and significantly
+#: worsened the baseline tail. The six columns are therefore contract members,
+#: not candidates. The lineup-impact nine remain candidates: D's tail harm is
+#: the reason they are not promoted.
+STAR_OUT_FEATURE_COLS: list[str] = (
+    [f"star_out_impact_{side}" for side in ("away", "home", "diff")]
+    + [f"star_out_weight_share_{side}"
+       for side in ("away", "home", "diff")])
 
 # One authoritative moneyline feature contract.  Every model, monitor,
 # manifest, and run-line regressor projects this list.
@@ -206,6 +237,9 @@ MONEYLINE_FEATURE_COLS = [
     "pl_rapm_c_away", "pl_rapm_c_home", "pl_rapm_c_diff",
     "pl_rapm_f_away", "pl_rapm_f_home", "pl_rapm_f_diff",
     "pl_rapm_g_away", "pl_rapm_g_home", "pl_rapm_g_diff",
+    # Star-out availability: the B arm adopted 2026-10-26. The diffs serve the
+    # linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
+    *STAR_OUT_FEATURE_COLS,
 ]
 
 #: The trailing statistics the play-by-play rollup contributes, and the window
@@ -305,7 +339,17 @@ RAW_PER_SIDE_COLS = frozenset({
 } | set(PER_SIDE_FEATURE_COLS)
   | {f"nba_{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
      for w in ws for s in ("home", "away")}
-  | SCHED_DENSITY_LEVEL_COLS)
+  | SCHED_DENSITY_LEVEL_COLS
+  # The star-out contract family and the available-lineup candidates publish
+  # both sides plus a diff. The diffs serve every family; the raw sides are
+  # tree-only, matching every other paired level in this contract (rest_days,
+  # back_to_back, the schedule-density levels). This keeps the linear member's
+  # positional contract to the diffs while the trees can still learn
+  # side-specific thresholds.
+  | {f"star_out_impact_{s}" for s in ("away", "home")}
+  | {f"star_out_weight_share_{s}" for s in ("away", "home")}
+  | {f"lineup_rapm_{stat}_{s}" for stat in ("top3", "mean", "std")
+     for s in ("away", "home")})
 RFE_CANDIDATE_COLS = [c for c in NBA_CANDIDATE_COLS
                       if c not in set(MONEYLINE_FEATURE_COLS)]
 _FEATURE_SUBSET: list[str] | None = None
@@ -1038,11 +1082,10 @@ PLAYER_EPM_DESIGNATION_PLAY_RATE: dict = {
 PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 
 #: The nine position-segmented projected-lineup features - per position, the
-#: away side, the home side and the difference. Registered as CANDIDATES, not
-#: as contract columns: they are gated behind their own holdout A/B, which is
-#: ``ab_position_rapm.py``. Adding a column to MONEYLINE_FEATURE_COLS is a
-#: decision about the model, and the candidate list is where a feature waits
-#: until that decision has evidence behind it.
+#: away side, the home side and the difference. These are contract members;
+#: the star-out six beside them were promoted on 2026-10-26. The available-
+#: lineup impact nine below remain candidates: their C/D arms did not clear
+#: the tail gate.
 #:
 #: Defined HERE rather than beside RFE_CANDIDATE_COLS because it is derived
 #: from PLAYER_EPM_POSITIONS, which is declared further down. Building the list
@@ -1055,6 +1098,22 @@ PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
     f"pl_rapm_{position}_{side}"
     for position in ("c", "f", "g")
+    for side in ("away", "home", "diff")]
+
+#: Star-out availability features are declared with the contract above. They
+#: were candidates before the 2026-10-26 B-arm adoption; the lineup-impact nine
+#: below remain candidates because D's tail regression did not clear.
+
+#: Available-lineup impact candidates (2026-10-26): top-three, weighted mean
+#: and weighted dispersion of the projected HEALTHY lineup, home/away/diff.
+#: These are the existing ``lineup_rapm_*`` aggregates made model-facing with
+#: sides retained. They are deliberately NOT availability features: when a
+#: star is out the next healthy man enters the top three, so the column asks
+#: "how good is the lineup that will play", not "who is missing". That is why
+#: the C arm exists separately from B in the ablation.
+LINEUP_RAPM_IMPACT_FEATURE_COLS: list[str] = [
+    f"lineup_rapm_{stat}_{side}"
+    for stat in ("top3", "mean", "std")
     for side in ("away", "home", "diff")]
 
 #: The fifteen stint-RAPM candidates - net sides + diff per position (nine,
@@ -1089,7 +1148,8 @@ SCHED_DENSITY_COLS = [
 KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
     + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
-    + SCHED_DENSITY_COLS))
+    + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
+    + LINEUP_RAPM_IMPACT_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is

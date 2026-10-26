@@ -59,7 +59,11 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                "lineup_out_count", "lineup_healthy_frac",
                "lineup_rapm_concentration",
                "lineup_rapm_mean", "lineup_rapm_top3", "lineup_rapm_std",
-               "lineup_rapm_rest_count"] + [
+               "lineup_rapm_rest_count",
+               # PIT star availability (see _project_team): the top-three
+               # prior-MPG reference set is fixed BEFORE the availability
+               # filter, so an out star stays in the denominator.
+               "star_out_impact", "star_out_weight_share"] + [
     f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
@@ -93,6 +97,20 @@ DIFF_FEATURES = [
     "lineup_healthy_frac_diff",
     "lineup_rapm_concentration_diff",
 ]
+
+#: The two star-out aggregates, published as away/home/diff. The sources are
+#: the per-team columns ``_project_team`` emits; the feature names are the
+#: contract candidates in ``config.STAR_OUT_FEATURE_COLS``.
+STAR_OUT_SOURCES = ["star_out_impact", "star_out_weight_share"]
+STAR_OUT_FEATURES = list(config.STAR_OUT_FEATURE_COLS)
+
+#: The nine available-lineup impact features: top-three, mean and weighted
+#: dispersion of the projected healthy lineup, away/home/diff. The diff already
+#: exists in ``DIFF_FEATURES`` for the legacy path; this family publishes the
+#: sides too so the model can see which lineup is better, not only the gap.
+LINEUP_RAPM_IMPACT_SOURCES = ["lineup_rapm_top3", "lineup_rapm_mean",
+                              "lineup_rapm_std"]
+LINEUP_RAPM_IMPACT_FEATURES = list(config.LINEUP_RAPM_IMPACT_FEATURE_COLS)
 
 #: The nine position-segmented features: each position's eligible-roster
 #: impact, opportunity-weighted by playing time, on BOTH sides plus the
@@ -686,6 +704,69 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
     return absorbed, stats
 
 
+def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
+    """Unavailable talent and unavailable role share among the top three.
+
+    The reference set is built from ``latest`` - the ELIGIBLE pool BEFORE
+    availability is applied - so an out star remains in the denominator and
+    the next healthy man does NOT replace him. That distinction is the whole
+    feature: a top-three built from the healthy pool would read near zero
+    exactly when a star is missing.
+
+    Membership is the rating pool's, not the 18-man roster's: the same
+    prior-minutes floor and recency gate that decide who can be priced decide
+    who can be a "star" here. ``prior_minutes_per_game`` is the weight, in
+    keeping with every other lineup aggregate. When the top three carry no
+    measurable per-game weight (the opening-week case), equal weights are the
+    honest fallback, mirroring ``_blend``. A rating-less member contributes no
+    rating but still contributes role weight, so ``star_out_weight_share``
+    survives even when ``star_out_impact`` is undefined.
+
+    Returns ``(impact, share)``; both are NaN only when there is no eligible
+    player at all.
+    """
+    if latest is None or not len(latest):
+        return np.nan, np.nan
+    ref = latest.copy()
+    weights = pd.to_numeric(ref.get("prior_minutes_per_game"),
+                            errors="coerce")
+    if weights is None:
+        weights = pd.Series(0.0, index=ref.index)
+    weights = weights.fillna(0.0).clip(lower=0.0).astype(float)
+    minutes = pd.to_numeric(ref.get("prior_minutes"), errors="coerce")
+    if minutes is None:
+        minutes = pd.Series(0.0, index=ref.index)
+    minutes = minutes.fillna(0.0).astype(float)
+    ratings = pd.to_numeric(ref.get("rapm_shrunk"), errors="coerce")
+    if ratings is None:
+        ratings = pd.Series(np.nan, index=ref.index)
+    if "player_id" in ref.columns:
+        player_id = ref["player_id"].astype(str)
+    else:
+        player_id = pd.Series("", index=ref.index)
+    order = ref.assign(_w=weights, _minutes=minutes,
+                       _rating=ratings, _pid=player_id)
+    top = order.sort_values(["_w", "_minutes", "_rating", "_pid"],
+                            ascending=[False, False, False, True]).head(3)
+    if top.empty:
+        return np.nan, np.nan
+    w = top["_w"].to_numpy(dtype=float)
+    total = float(w.sum())
+    if total <= 0:
+        w = np.ones(len(top), dtype=float)
+        total = float(len(top))
+    available = (top["is_available"].astype(bool).to_numpy()
+                 if "is_available" in top.columns
+                 else np.ones(len(top), dtype=bool))
+    out = ~available
+    share = float((w * out).sum() / total)
+    r = top["_rating"].to_numpy(dtype=float)
+    finite = np.isfinite(r)
+    impact = (float((w[finite] * r[finite] * out[finite]).sum() / total)
+              if finite.any() else np.nan)
+    return impact, share
+
+
 def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                   lookback_days: int, min_minutes: float, top_k: int,
                   rest_minutes: float, top5_k: int,
@@ -825,6 +906,13 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
                 **{f"pl_rapm_{p.lower()}_eligible": 0.0
                    for p in config.PLAYER_EPM_POSITIONS}}
+
+    # PIT STAR AVAILABILITY. Read the reference set BEFORE the availability
+    # filter is allowed to choose the top three: an out star stays in the
+    # denominator, and the fourth man does not become a "star" by promotion.
+    # The two values are emitted for every team-game, zero when nothing in the
+    # top three is out - never only on games where a star happens to sit.
+    star_out_impact, star_out_weight_share = _star_out_aggregates(latest)
 
     # STEP 4 - RANK BY PARTICIPATION, NOT BY RATING. MLB orders the pool by
     # trailing PA and averages the rating over the top nine. Ranking by the
@@ -986,6 +1074,8 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         "lineup_rapm_top3": top3,
         "lineup_rapm_std": std if std == std else np.nan,
         "lineup_rapm_rest_count": rest_count,
+        "star_out_impact": star_out_impact,
+        "star_out_weight_share": star_out_weight_share,
         **segmented,
         **eligible,
     }
@@ -1036,6 +1126,71 @@ def attach_to_slate(slate: pd.DataFrame, aggregates: pd.DataFrame) -> pd.DataFra
         if home in out.columns and away in out.columns:
             out[feature] = out[home] - out[away]
     drop = [c for c in out.columns if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
+
+
+def attach_star_out_features(slate: pd.DataFrame,
+                             aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the six PIT star-availability features, sides retained.
+
+    ``star_out_impact_{away,home,diff}`` and
+    ``star_out_weight_share_{away,home,diff}`` are ALWAYS created, populated
+    or not, matching the always-create rule every other feature family here
+    follows. The sides carry different information: the diff says which team
+    is more depleted, the sides say whether either team lost top-end talent at
+    all. The diff is computed here, not by a caller, so there is one definition
+    of home-minus-away for this family.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in STAR_OUT_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    if "gameday" not in out.columns:
+        return out
+    out = _attach_sides(out, aggregates, STAR_OUT_SOURCES)
+    for source in STAR_OUT_SOURCES:
+        away = f"_away_{source}"
+        home = f"_home_{source}"
+        if away not in out.columns or home not in out.columns:
+            continue
+        out[f"{source}_away"] = out[away]
+        out[f"{source}_home"] = out[home]
+        out[f"{source}_diff"] = out[home] - out[away]
+    drop = [c for c in out.columns
+            if c.startswith("_home_") or c.startswith("_away_")]
+    return out.drop(columns=drop)
+
+
+def attach_lineup_rapm_impact(slate: pd.DataFrame,
+                              aggregates: pd.DataFrame) -> pd.DataFrame:
+    """Attach the nine available-lineup impact features, sides retained.
+
+    Same join and always-create rule as :func:`attach_position_rapm`. These
+    read the projected HEALTHY lineup, so a star's absence promotes the next
+    healthy man into the top three. That is deliberate: the family answers
+    "how good is the lineup that will play", while ``attach_star_out_features``
+    answers "who is missing". The ablation separates the two arms for exactly
+    that reason.
+    """
+    out = slate.copy() if slate is not None else pd.DataFrame()
+    for column in LINEUP_RAPM_IMPACT_FEATURES:
+        out[column] = np.nan
+    if out.empty or aggregates is None or not len(aggregates):
+        return out
+    if "gameday" not in out.columns:
+        return out
+    out = _attach_sides(out, aggregates, LINEUP_RAPM_IMPACT_SOURCES)
+    for source in LINEUP_RAPM_IMPACT_SOURCES:
+        away = f"_away_{source}"
+        home = f"_home_{source}"
+        if away not in out.columns or home not in out.columns:
+            continue
+        out[f"{source}_away"] = out[away]
+        out[f"{source}_home"] = out[home]
+        out[f"{source}_diff"] = out[home] - out[away]
+    drop = [c for c in out.columns
+            if c.startswith("_home_") or c.startswith("_away_")]
     return out.drop(columns=drop)
 
 

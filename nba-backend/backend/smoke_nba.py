@@ -182,6 +182,19 @@ FEATURE_UPSTREAM.update({
     for side in ("home", "away", "diff")
 })
 
+# The six star-out availability columns share the same ratings and designation
+# archive, but read the unavailable top-three rather than the healthy lineup.
+_STAR_OUT_UPSTREAM = (
+    f"{UPSTREAM_SEASON_LOG} player lines -> strictly-prior shrunk RAPM "
+    f"-> unavailable top-three impact ({UPSTREAM_INJURY_REPORT})"
+)
+FEATURE_UPSTREAM.update({
+    f"star_out_{stem}_{side}": (_STAR_OUT_UPSTREAM if side == "diff"
+                                else f"{_STAR_OUT_UPSTREAM} ({side} side)")
+    for stem in ("impact", "weight_share")
+    for side in ("home", "away", "diff")
+})
+
 
 def declared_features() -> list[str]:
     """Every feature the model contract declares, plus the RFE pool."""
@@ -228,13 +241,15 @@ def run(min_coverage: float, pbp_games: int, out_dir: str | None) -> int:
 
     built = features.build_game_features(settled, facts.team_stats,
                                          facts.team_events)
-    # Exercise the production RAPM build as well, not all-NaN placeholders.
+    # Exercise the production projected-lineup build as well, not all-NaN
+    # placeholders. The six star-out columns are served by the same build.
     import master_pipeline
     rapm, _ = master_pipeline._build_position_rapm_features(facts, games)
+    projected = [*config.PLAYER_RAPM_POSITION_FEATURE_COLS,
+                 *config.STAR_OUT_FEATURE_COLS]
     if rapm is not None and len(rapm):
-        built = built.drop(columns=config.PLAYER_RAPM_POSITION_FEATURE_COLS,
-                           errors="ignore").merge(
-            rapm[["game_id", *config.PLAYER_RAPM_POSITION_FEATURE_COLS]],
+        built = built.drop(columns=projected, errors="ignore").merge(
+            rapm[["game_id", *projected]],
             on="game_id", how="left", validate="one_to_one")
     # The categorical join is the one thing that must be a join and not an
     # assignment: ``team_category_ids`` returns a NEW frame keyed by index, and

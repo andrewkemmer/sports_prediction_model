@@ -909,7 +909,8 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
 def _build_position_rapm_features(facts, games: pd.DataFrame,
                                  cache_dir: Path | None = None
                                  ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """The nine ``pl_rapm_*`` features over the WHOLE decided frame, plus slate.
+    """The nine ``pl_rapm_*`` and six ``star_out_*`` features over the WHOLE
+    decided frame, plus slate.
 
     This is MLB's ``lineup_agg`` construction, translated: ratings are built
     for EVERY decided game date (not one target date - the "1 of 2,779 rows"
@@ -931,7 +932,7 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
       rating his prior games earned him - the removal is a fact about one
       game, the rating is a fact about the games he played.
 
-    Returns ``(frame_features, slate_features)``: the nine columns attached
+    Returns ``(frame_features, slate_features)``: the fifteen columns attached
     to the decided frame and to the pending slate, or ``(None, None)`` when
     the inputs cannot support the build - a missing artifact family is a
     degraded run, not a failed one.
@@ -1049,7 +1050,8 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
     def _attach(frame: pd.DataFrame) -> pd.DataFrame | None:
         if frame is None or not len(frame):
             return None
-        return proj_mod.attach_position_rapm(frame, aggregates)
+        attached = proj_mod.attach_position_rapm(frame, aggregates)
+        return proj_mod.attach_star_out_features(attached, aggregates)
 
     return _attach(decided), _attach(pending)
 
@@ -1643,59 +1645,65 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     logger.info("game feature build: %.0fs (%d decided game(s), %d column(s))",
                 time.perf_counter() - _features_started, len(settled),
                 len(game_df.columns))
-    # The nine position-segmented lineup features, built across the WHOLE
-    # decided frame the way MLB's lineup_agg is, and attached to the slate for
-    # scoring. Before the walk-forward: the features are part of the contract
+    # The nine position-segmented lineup features and the six star-out
+    # availability features, built across the WHOLE decided frame the way MLB's
+    # lineup_agg is, and attached to the slate for scoring. Before the
+    # walk-forward: the features are part of the contract
     # now, so the OOF metrics the run publishes are the metrics OF the
     # contract, not of a contract missing its newest columns. A build failure
     # degrades to NaN columns (imputed downstream) under a loud warning; it
     # never aborts the run, because a missing feature family is a worse
     # artifact, not a broken one.
     _pl_started = time.perf_counter()
+    _projected_cols = [*config.PLAYER_RAPM_POSITION_FEATURE_COLS,
+                       *config.STAR_OUT_FEATURE_COLS]
     try:
         _pl_frame, _pl_slate = _build_position_rapm_features(facts, games)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("pl_rapm feature build failed after %.0fs (%s); the "
-                       "nine columns will be NaN on this run",
+        logger.warning("projected-lineup feature build failed after %.0fs "
+                       "(%s); the fifteen columns will be NaN on this run",
                        time.perf_counter() - _pl_started, exc)
         _pl_frame = _pl_slate = None
     else:
-        logger.info("position-rapm feature build: %.0fs (%d row(s), "
+        logger.info("projected-lineup feature build: %.0fs (%d row(s), "
                     "%d feature column(s))",
                     time.perf_counter() - _pl_started,
                     len(_pl_frame) if _pl_frame is not None else 0,
-                    len(config.PLAYER_RAPM_POSITION_FEATURE_COLS))
+                    len(_projected_cols))
     if _pl_frame is not None and len(_pl_frame):
-        # ``build_game_features`` pre-creates the nine columns (all-NaN, the
-        # always-create rule in _attach_contract). Drop them first: merged on
-        # top of them the bare names would keep the NaN versions and the real
-        # values would land in suffixed copies nobody reads - the contract
-        # carrying empty features with no error, which is the exact failure
-        # the first A/B run exhibited.
+        # ``build_game_features`` pre-creates the fifteen projected-lineup
+        # columns (all-NaN, the always-create rule in _attach_contract). Drop
+        # them first: merged on top of them the bare names would keep the NaN
+        # versions and the real values would land in suffixed copies nobody
+        # reads - the contract carrying empty features with no error, which is
+        # the exact failure the first A/B run exhibited.
         game_df = game_df.drop(columns=[
-            c for c in config.PLAYER_RAPM_POSITION_FEATURE_COLS
-            if c in game_df.columns])
-        # The nine features PLUS their eligibility mask (2026-10-08 coverage
-        # audit): ``_eligible_<feature>`` is what lets coverage() tell a pool
-        # REFUSAL (minutes floor / 30-day recency / no listed centre -
+            c for c in _projected_cols if c in game_df.columns])
+        # The nine position features PLUS their eligibility mask (2026-10-08
+        # coverage audit): ``_eligible_<feature>`` is what lets coverage() tell
+        # a pool REFUSAL (minutes floor / 30-day recency / no listed centre -
         # source-supported, STRUCTURAL with a reason) from a build hole
-        # (unexplained, keeps its alarm). Underscore provenance rides the
-        # merge alongside the values, the same convention ``_measured_*``
-        # uses, and is never a model input: every feature view is spelled
-        # out in config.
+        # (unexplained, keeps its alarm). Underscore provenance rides the merge
+        # alongside the values, the same convention ``_measured_*`` uses, and
+        # is never a model input: every feature view is spelled out in config.
+        # The six star-out columns ride the same merge and have no mask: their
+        # zero is a measured "nobody out", not a refusal.
         _pl_mask = [c for c in _pl_frame.columns
                     if c.startswith("_eligible_pl_rapm_")]
         game_df = game_df.drop(columns=[c for c in _pl_mask
                                         if c in game_df.columns])
         game_df = game_df.merge(
-            _pl_frame[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS
-                      + _pl_mask],
+            _pl_frame[["game_id"] + _projected_cols + _pl_mask],
             on="game_id", how="left")
         _pl_attached = int(
             game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]
             .notna().sum())
         logger.info("pl_rapm features attached: %d/%d decided rows carry them",
                     _pl_attached, len(game_df))
+        _star_attached = int(
+            game_df[config.STAR_OUT_FEATURE_COLS[0]].notna().sum())
+        logger.info("star-out features attached: %d/%d decided rows carry "
+                    "them", _star_attached, len(game_df))
         if _pl_attached < len(game_df):
             # An unattached row is NaN on all nine position columns, and
             # a bare fraction does not say WHY. The pool gates
@@ -1767,10 +1775,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # "upcoming game" the designation names. Same pre-drop as game_df:
         # the slate's own NaN placeholders must not win the name collision.
         slate = slate.drop(columns=[
-            c for c in config.PLAYER_RAPM_POSITION_FEATURE_COLS
-            if c in slate.columns])
+            c for c in _projected_cols if c in slate.columns])
         slate = slate.merge(
-            _pl_slate[["game_id"] + config.PLAYER_RAPM_POSITION_FEATURE_COLS],
+            _pl_slate[["game_id"] + _projected_cols],
             on="game_id", how="left")
 
     phase_error: Exception | None = None

@@ -3,9 +3,45 @@
 Standalone NBA moneyline and totals/spread backend structurally mirroring the
 MLB/NFL/NHL production contracts.
 
+## Star-out availability promotion — 2026-10-26
+
+Current representation: **`nba-prod-v3.2-star-out`**. The moneyline contract
+now serves **77 columns**: the previous 71 plus the six `star_out_*`
+availability features from the B arm of the four-arm walk-forward. B beat A on
+overall log loss (-0.00394 [-0.00629, -0.00165]), the star-out slice (-0.00556
+[-0.00921, -0.00180]) and high-confidence games (-0.00912 [-0.01650,
+-0.00252]). D added nothing over B overall and significantly worsened the
+baseline's worst 5% tail (+0.02631 [+0.00967, +0.04409]), so only B was
+promoted. The nine available-lineup impact columns remain candidates.
+
+The six features are built by the same PIT projected-lineup build as the nine
+`pl_rapm_*` columns: strictly-prior ratings, last pre-tipoff designations, and
+the columns attached to both the decided frame and the slate. `smoke_nba.py`
+now expects **119 served/candidate names** and merges the star columns from the
+production build rather than treating them as all-NaN placeholders. No new
+executable programs were added for the promotion.
+
+Verification on 2026-10-26, on this main line: the full `nba-backend` suite
+passed **819 tests** (3 skipped) -- the star-out semantics, the 77-column
+linear/tree split, the attachment shape and the A/B builder's production
+population among them. The same code was additionally exercised in the
+Freebuff workspace by a cache-only real-data smoke over the last five settled
+dates (40 games): all 15 projected-lineup columns built, all 77 contract
+columns served, finite and non-zero star columns, and a clean
+`manifest.validate()`. The full-window `smoke_nba.py` sweep was not completed
+there: its PBP cache is empty, so it re-sweeps 4,752 games, and the full
+4,776-date RAPM build was killed before the feature phase. That is an
+environment limitation, not a contract failure.
+
+The code change does not retrain the shipped model: `nba_ensemble_latest.joblib`
+still carries the 71-column v3.1 contract. The next full production run must
+regenerate OOF, blend and refits before v3.2 is served; until then the deployed
+artifacts remain v3.1.
+
 ## Input and evaluation repair — 2026-10-08
 
-Current representation: **`nba-prod-v2.9-rapm-dated-rosters`**. The 2026-10-10
+Representation at the 2026-10-08 repair: **`nba-prod-v2.9-rapm-dated-rosters`**.
+The 2026-10-10
 follow-up adds dated official roster observations; see
 [the roster evidence review](../docs/nba_roster_review_20261010.md). The 2026-10-09
 RAPM follow-up removes target-day roster/recency leakage, future-derived cold-

@@ -174,6 +174,101 @@ class TestAvailabilityFeatures:
         assert pd.isna(row.lineup_healthy_frac) or row.lineup_healthy_frac == 0.0
 
 
+class TestStarOutFeatures:
+    def _ratings(self, star_rating=0.60, star_available=False):
+        return pd.DataFrame([
+            {"player_id": "a", "team": "BOS", "gameday": "2026-03-01",
+             "rapm_shrunk": star_rating, "prior_minutes": 500,
+             "prior_minutes_per_game": 35.0, "is_available": star_available},
+            {"player_id": "b", "team": "BOS", "gameday": "2026-03-01",
+             "rapm_shrunk": 0.40, "prior_minutes": 450,
+             "prior_minutes_per_game": 30.0, "is_available": True},
+            {"player_id": "c", "team": "BOS", "gameday": "2026-03-01",
+             "rapm_shrunk": 0.20, "prior_minutes": 400,
+             "prior_minutes_per_game": 25.0, "is_available": True},
+            {"player_id": "d", "team": "BOS", "gameday": "2026-03-01",
+             "rapm_shrunk": 0.10, "prior_minutes": 350,
+             "prior_minutes_per_game": 20.0, "is_available": True},
+        ])
+
+    def test_top_three_is_fixed_before_availability(self):
+        """An out star stays in the denominator; the fourth man is not promoted.
+
+        Building the reference from the healthy pool would make the star-out
+        feature read zero exactly when a star is missing - the opposite of the
+        signal - so this pins the pre-filter universe.
+        """
+        out = proj.projected_lineup(self._ratings(), top_k=3)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.star_out_impact == pytest.approx(35.0 * 0.60 / 90.0)
+        assert row.star_out_weight_share == pytest.approx(35.0 / 90.0)
+
+    def test_all_healthy_is_zero_not_missing(self):
+        out = proj.projected_lineup(self._ratings(star_available=True), top_k=3)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.star_out_impact == pytest.approx(0.0)
+        assert row.star_out_weight_share == pytest.approx(0.0)
+
+    def test_a_bad_star_can_have_negative_impact(self):
+        """Impact says talent, share says role; a bad player's absence helps."""
+        out = proj.projected_lineup(self._ratings(star_rating=-0.10),
+                                    top_k=3)
+        row = out[out.team == "BOS"].iloc[0]
+        assert row.star_out_impact == pytest.approx(35.0 * -0.10 / 90.0)
+        assert row.star_out_weight_share == pytest.approx(35.0 / 90.0)
+
+    def test_attachment_keeps_all_six_columns_and_diffs(self):
+        aggs = pd.DataFrame([
+            _agg("2026-03-01", "BOS", star_out_impact=0.20,
+                 star_out_weight_share=0.40),
+            _agg("2026-03-01", "MIA", star_out_impact=0.10,
+                 star_out_weight_share=0.20)])
+        out = proj.attach_star_out_features(
+            _slate([{"gameday": "2026-03-01", "home_team": "BOS",
+                     "away_team": "MIA"}]), aggs)
+        for column in config.STAR_OUT_FEATURE_COLS:
+            assert column in out.columns
+        row = out.iloc[0]
+        assert row.star_out_impact_home == pytest.approx(0.20)
+        assert row.star_out_impact_away == pytest.approx(0.10)
+        assert row.star_out_impact_diff == pytest.approx(0.10)
+        assert row.star_out_weight_share_home == pytest.approx(0.40)
+        assert row.star_out_weight_share_away == pytest.approx(0.20)
+        assert row.star_out_weight_share_diff == pytest.approx(0.20)
+
+    def test_lineup_impact_attachment_keeps_nine_columns(self):
+        aggs = pd.DataFrame([
+            _agg("2026-03-01", "BOS", lineup_rapm_mean=0.60,
+                 lineup_rapm_top3=0.62, lineup_rapm_std=0.05),
+            _agg("2026-03-01", "MIA", lineup_rapm_mean=0.55,
+                 lineup_rapm_top3=0.57, lineup_rapm_std=0.02)])
+        out = proj.attach_lineup_rapm_impact(
+            _slate([{"gameday": "2026-03-01", "home_team": "BOS",
+                     "away_team": "MIA"}]), aggs)
+        for column in config.LINEUP_RAPM_IMPACT_FEATURE_COLS:
+            assert column in out.columns
+        row = out.iloc[0]
+        assert row.lineup_rapm_top3_home == pytest.approx(0.62)
+        assert row.lineup_rapm_top3_away == pytest.approx(0.57)
+        assert row.lineup_rapm_top3_diff == pytest.approx(0.05)
+        assert row.lineup_rapm_mean_diff == pytest.approx(0.05)
+        assert row.lineup_rapm_std_diff == pytest.approx(0.03)
+
+    def test_the_six_columns_are_served_with_diffs_only_in_the_linear_view(self):
+        """Star-out was promoted from candidate to contract on 2026-10-26.
+
+        The diff belongs in the elastic-net slice; the raw sides stay tree-only
+        through ``RAW_PER_SIDE_COLS``, matching every other paired level.
+        """
+        linear = feat_mod.linear_feature_columns()
+        for column in config.STAR_OUT_FEATURE_COLS:
+            assert column in config.MONEYLINE_FEATURE_COLS, column
+            if column.endswith("_diff"):
+                assert column in linear, column
+            else:
+                assert column not in linear, column
+
+
 class TestFeatureCoverage:
     def test_a_constant_feature_is_flagged(self):
         """The other failure a slot-consuming column can have."""
@@ -1819,10 +1914,12 @@ def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_
     decided, pending = pipeline._build_position_rapm_features(facts, slate, cache_dir=tmp_path)
     expected_ratings = rapm.build_player_rapm(games_frame, slate.gameday, roster_history=history)
     aggregates = proj.projected_lineup(expected_ratings.rename(columns={"target_date": "gameday"}), games=slate)
-    expected = proj.attach_position_rapm(slate, aggregates)
+    expected = proj.attach_star_out_features(
+        proj.attach_position_rapm(slate, aggregates), aggregates)
     assert decided is None
     pd.testing.assert_frame_equal(pending, expected)
     assert np.isfinite(pending.pl_rapm_g_diff).all()
+    assert np.isfinite(pending.star_out_weight_share_diff).all()
     assert pending.game_id.tolist() == ["pending"]
     assert pipeline._write_player_rapm(tmp_path, "20251022", facts, slate) == "nba_player_rapm_20251022.csv"
     assert caplog.text.count("waterfall minutes redistribution") == 2

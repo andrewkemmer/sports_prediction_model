@@ -111,11 +111,16 @@ def build_position_features(games: pd.DataFrame,
                             player_stats: pd.DataFrame | None = None,
                             positions: pd.DataFrame | None = None,
                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """The nine features, for every decided game in the window.
+    """Every lineup family, for every decided game in the window.
 
     The pool is built for EVERY date in the frame rather than one target, which
     is what makes these usable: a column populated on 1 row in 2,779 is a
     column the model cannot learn from, and that was the blocker.
+
+    Returns the nine position features plus the six star-out and nine
+    available-lineup candidates added for the 2026-10-26 A/B/C/D ablation.
+    The extra columns are inert for the older two-arm position harness, which
+    selects only ``POSITION_FEATURES`` from the returned frame.
     """
     import lineup_projection as proj
     import player_rapm as rapm_mod
@@ -154,7 +159,10 @@ def build_position_features(games: pd.DataFrame,
     aggregates = proj.projected_lineup(ratings, games=games)
     logger.info("aggregates: %d team-games in %.0fs", len(aggregates),
                 time.time() - started)
-    return proj.attach_position_rapm(games, aggregates), aggregates
+    attached = proj.attach_position_rapm(games, aggregates)
+    attached = proj.attach_star_out_features(attached, aggregates)
+    attached = proj.attach_lineup_rapm_impact(attached, aggregates)
+    return attached, aggregates
 
 
 def score(p: np.ndarray, y: np.ndarray) -> dict:
