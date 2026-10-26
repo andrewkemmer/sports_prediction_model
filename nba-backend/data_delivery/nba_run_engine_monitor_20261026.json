@@ -9,9 +9,9 @@
    "actual_win_rate": 0.5132,
    "win_rate": 0.5132,
    "predicted_mean": 0.5056,
-   "auc": 0.5091,
-   "ece_raw": 0.0203,
-   "ece_calibrated": 0.0203,
+   "auc": 0.5092,
+   "ece_raw": 0.0209,
+   "ece_calibrated": 0.0209,
    "brier": 0.2498,
    "logloss": 0.6928,
    "holdout": {
@@ -29,13 +29,13 @@
    "crps": 10.4547
   },
   "run_line": {
-   "n": 1856,
-   "actual_win_rate": 0.5199,
-   "win_rate": 0.5199,
+   "n": 1857,
+   "actual_win_rate": 0.5202,
+   "win_rate": 0.5202,
    "predicted_mean": 0.5073,
    "auc": 0.5161,
-   "ece_raw": 0.0251,
-   "ece_calibrated": 0.0251,
+   "ece_raw": 0.0249,
+   "ece_calibrated": 0.0249,
    "brier": 0.2498,
    "logloss": 0.6928,
    "holdout": {
@@ -55,15 +55,15 @@
    "crps": 6.6044
   },
   "derived_ml": {
-   "n": 2252,
-   "actual_win_rate": 0.671,
-   "win_rate": 0.671,
+   "n": 2253,
+   "actual_win_rate": 0.6711,
+   "win_rate": 0.6711,
    "predicted_mean": 0.6587,
    "auc": 0.724,
-   "ece_raw": 0.0345,
-   "ece_calibrated": 0.0345,
+   "ece_raw": 0.0334,
+   "ece_calibrated": 0.0334,
    "brier": 0.2069,
-   "logloss": 0.6012,
+   "logloss": 0.6013,
    "holdout": {
     "n": 30,
     "actual_win_rate": 0.5,
@@ -91,7 +91,7 @@
   {
    "card": "over_under",
    "date": "2026-10-26",
-   "ece_calibrated": 0.0203,
+   "ece_calibrated": 0.0209,
    "brier": 0.2498,
    "logloss": 0.6928,
    "predicted_mean": 0.5056,
@@ -100,20 +100,20 @@
   {
    "card": "run_line",
    "date": "2026-10-26",
-   "ece_calibrated": 0.0251,
+   "ece_calibrated": 0.0249,
    "brier": 0.2498,
    "logloss": 0.6928,
    "predicted_mean": 0.5073,
-   "n": 1856
+   "n": 1857
   },
   {
    "card": "derived_ml",
    "date": "2026-10-26",
-   "ece_calibrated": 0.0345,
+   "ece_calibrated": 0.0334,
    "brier": 0.2069,
-   "logloss": 0.6012,
+   "logloss": 0.6013,
    "predicted_mean": 0.6587,
-   "n": 2252
+   "n": 2253
   }
  ],
  "fit": {
@@ -121,16 +121,16 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.2128808900458996,
-   "away_variance": 1.2437235101570958,
-   "correlation": 0.24789471198263147,
-   "total_skew": 0.027538625187180032,
-   "margin_skew": -0.0034187390056146802,
+   "home_variance": 1.212880806933267,
+   "away_variance": 1.243723094669136,
+   "correlation": 0.2478947270766349,
+   "total_skew": 0.027538585624725914,
+   "margin_skew": -0.003418760430858389,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 19.727273572814507,
-    "intercept": 0.20043091783860026,
-    "pace_mean": 0.036429726273107345,
+    "slope": 19.727123901897986,
+    "intercept": 0.2004305013494824,
+    "pace_mean": 0.036429728166239704,
     "cap": 6.0
    }
   },
@@ -142,8 +142,8 @@
     "n_test": 1126,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0001950838717229744,
-    "residual_mae_after": 0.00015984248425776845,
+    "residual_mae_before": 0.00019508395829271577,
+    "residual_mae_after": 0.00015984258177273612,
     "delta_l1": 0.030912,
     "delta_max": 0.001365,
     "collateral_max_excess": 0.0,
@@ -294,8 +294,8 @@
     "n_test": 1126,
     "significant": false,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 9.974985109845585e-05,
-    "residual_mae_after": 6.42494037604424e-05,
+    "residual_mae_before": 9.974985386442495e-05,
+    "residual_mae_after": 6.424941798164122e-05,
     "delta_l1": 0.094588,
     "delta_max": 0.009662,
     "collateral_max_excess": 0.0,
