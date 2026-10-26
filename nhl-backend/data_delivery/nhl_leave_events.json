@@ -1,6 +1,6 @@
 {
-  "version": 11,
-  "ledger_updated_utc": "2026-10-26T17:08:18.429315Z",
+  "version": 12,
+  "ledger_updated_utc": "2026-10-26T20:54:59.913240Z",
   "description": "Public non-medical leave-of-absence announcements. No free live feed publishes these events (verified 2026-09-29: the official NHL API serves no transactions endpoint; ESPN carries no leave rows in either its injury or its transactions payloads), so this versioned ledger is the source of record. PIT contract: announced_at_utc is the instant the information became public - a game is excluded from the player's availability only when the announcement strictly precedes it. returned_at_utc is the first boxscore-verified appearance back (activation news typically precedes the game, so the recorded end errs conservative). ledger_updated_utc is the as-of instant this ledger was last reviewed for completeness: the PIT gate vouches that every public announcement through that instant is present, which is what makes replaying its intervals onto earlier games legitimate. Intervals are re-derived from these events on every run - never a static incremental stack. Medical Out/IR absences stay on the ESPN snapshot channel and remain honestly unknown before capture began (2026-09-28). Auto-reconciled personal-leave disclosures from nhl_pregame_availability_events.parquet are refreshed on every run; ledger_updated_utc is the review instant for the curated rows plus that channel, not a claim about every possible public announcement.",
   "events": [
     {
