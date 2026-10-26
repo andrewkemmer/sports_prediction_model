@@ -3037,130 +3037,279 @@ class TestPositionsCacheVersioning:
         assert not ing._positions_path("2025-26").exists()
 
 
-#: A ``playerindex`` payload naming player 20 a ``C-F`` - the league's own
-#: reading, and the disagreement the override exists to honor. Ten's ``G``
-#: agrees with the convention, so it is inert; 20's is the whole test.
-_INDEX_PAYLOAD = {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
-                                  "rowSet": [[10, "G"], [20, "C-F"]]}]}
+class TestPositionCellPolicy:
+    """The collapsed cell is the G->F->C convention, in every season.
 
+    ``playerindex`` publishes an ORDERED primary and disagrees with the
+    convention for 28 of 582 players in 2025-26, so it was briefly used to set
+    the cell. It cannot be applied uniformly: measured 2026-10-25 it answers
+    the live season only (582 of 582 filter players in 2025-26, 516 in
+    2026-27) and returns 99/138/132 rows for 2022-23/2023-24/2024-25 - and of
+    the 17 ``C-F`` centres it exists to reclassify, NONE appear in any
+    back-season index. Applying it from 2025-26 forward reprices the team
+    centre segment mid-history (the share of centre-segment minutes held by a
+    player whose cell is ``F`` runs 51% in 2024-25 and 26% in 2025-26), which
+    is a step in a training column rather than a correction. So the cell is a
+    convention everywhere, and the index is no longer requested here at all.
 
-class TestPositionPrimaryIndex:
-    """The collapsed cell follows the league's own primary letter.
-
-    ``playerindex`` is the only endpoint that publishes a position at all, and
-    it publishes the code ORDERED - ``C-F`` and ``F-C`` are the same two
-    letters in the league's order of preference. The local G->F->C convention
-    cannot see that difference (an unordered set has no order to read) and
-    disagrees with the league for 28 of 582 players in 2025-26, 17 of them
-    ``C-F`` players who are actually starting centres.
-
-    Everything here runs offline; the live coverage numbers in the coverage
-    gate below were measured once against the real endpoint and are what the
-    gate is set from.
+    Everything here runs offline.
     """
 
-    def test_a_full_index_moves_the_cell_the_convention_got_wrong(
-            self, tmp_path, monkeypatch):
+    def test_a_live_pull_never_asks_for_the_index(self, tmp_path, monkeypatch):
+        """Three requests, one per position - and nothing else.
+
+        A cell that cannot be applied to the back seasons must not cost a
+        request on a rate-limited endpoint, so the index is gone from this
+        path rather than fetched and discarded.
+        """
         import urllib.parse
+        seen = []
 
         def payload(url, *_args, **_kwargs):
+            seen.append(url)
             query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            if "PlayerPosition" not in query:
-                return _INDEX_PAYLOAD
-            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
+            ids = {"G": [10], "F": [10, 20], "C": [20]}[
+                query["PlayerPosition"][0]]
             return {"resultSets": [{"headers": ["PLAYER_ID"],
                                     "rowSet": [[i] for i in ids]}]}
 
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
         monkeypatch.setattr(ing, "http_json", payload)
         frame = ing._fetch_positions("2025-26")
-        # 20 was F under the convention and is C by the league's reading.
-        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "C"}
-        # The listing is NOT rewritten - the segments ask who the club fields
-        # at centre, which is indifferent to which of them is primary.
+        assert len(seen) == 3
+        assert not any("playerindex" in url for url in seen)
+        # 20 is listed F-C, and the cell is the convention's answer...
+        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
+        # ...with the listing the segments read left untouched.
         assert dict(zip(frame.player_id, frame.positions)) == {
             10: "G|F", 20: "F|C"}
 
-    def test_a_truncated_index_is_refused_whole(self, tmp_path, monkeypatch):
-        """The endpoint degrades SILENTLY on a back season, returning 200.
-
-        Measured live 2026-10-02: 100% of 2025-26's filter players are in the
-        index, but only 23% of 2024-25's and 24% of 2023-24's. Applying that
-        quarter would key one season's prior cells on two conventions at once,
-        so below the floor the index is dropped and the season keeps the
-        convention wholesale - partial is not an option here.
-        """
-        import urllib.parse
-
-        def payload(url, *_args, **_kwargs):
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            if "PlayerPosition" not in query:
-                # Names only the first of ten players: the shape a back season
-                # returns, at 10% rather than the real ~24%.
-                return {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
-                                        "rowSet": [[10, "G"]]}]}
-            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
-            return {"resultSets": [{"headers": ["PLAYER_ID"],
-                                    "rowSet": [[i] for i in ids]}]}
-
-        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
-        monkeypatch.setattr(ing, "http_json", payload)
-        frame = ing._fetch_positions("2024-25")
-        # Convention stands for everyone, including the one the index covered.
-        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
-
-    def test_an_unreachable_index_leaves_the_convention_in_charge(
+    def test_a_cached_primary_cell_is_rederived_on_read(
             self, tmp_path, monkeypatch):
-        """The listing and the collapsed cell are INDEPENDENT.
+        """Policy, not data: a stale file cannot reassert the old rule.
 
-        The index is what decides the cell; the filter pull is what produces
-        the listing the nine features actually read. So an index outage must
-        cost the override and nothing else - not the listing, and not the
-        features.
+        Every v3 file on disk before 2026-10-25 carries the league-primary
+        cell. Returning it unchanged would keep two conventions alive
+        depending on when the file happened to be written.
         """
-        import urllib.parse
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        pd.DataFrame({"player_id": ["20"], "position": ["C"],
+                      "positions": ["F|C"]}).to_parquet(
+            cached / ing._positions_path("2025-26").name, index=False)
 
-        def payload(url, *_args, **_kwargs):
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            if "PlayerPosition" not in query:
-                raise TimeoutError("the read operation timed out")
-            ids = {"G": [10], "F": [10, 20], "C": [20]}[query["PlayerPosition"][0]]
-            return {"resultSets": [{"headers": ["PLAYER_ID"],
-                                    "rowSet": [[i] for i in ids]}]}
+        def dead(*_args, **_kwargs):
+            raise AssertionError("a warm cache must not touch the feed")
 
         monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
-        monkeypatch.setattr(ing, "http_json", payload)
+        monkeypatch.setattr(ing, "http_json", dead)
+        frame = ing._fetch_positions("2025-26")
+        assert list(frame.position) == ["F"]
+        assert list(frame.positions) == ["F|C"]
+
+    def test_a_single_label_fallback_keeps_its_only_evidence(
+            self, tmp_path, monkeypatch):
+        """The v1 fallback has no listing, so its cell is all there is."""
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        pd.DataFrame({"player_id": [1], "position": ["C"]}).to_parquet(
+            cached / ing._positions_path_v1("2025-26").name, index=False)
+
+        def dead(*_args, **_kwargs):
+            raise TimeoutError("the read operation timed out")
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", dead)
         monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
         frame = ing._fetch_positions("2025-26")
-        assert dict(zip(frame.player_id, frame.position)) == {10: "G", 20: "F"}
-        assert dict(zip(frame.player_id, frame.positions)) == {
-            10: "G|F", 20: "F|C"}
+        assert list(frame.position) == ["C"]
 
-    def test_the_gate_refuses_a_densely_covered_but_truncated_index(self):
-        """A coverage fraction, not a count.
+    @staticmethod
+    def _feed(seen, players=((10,), (10, 20), (20,))):
+        """A position pull that answers G/F/C in the given player sets."""
+        import urllib.parse
 
-        The interesting case is an index that covers MOST of the league and
-        still misses some: 90% looks trustworthy and is not. The floor is the
-        only thing standing between that and a season keyed on two
-        conventions, so the comparison is asserted at the boundary rather than
-        only through the live-shaped case above.
+        def payload(url, *_args, **_kwargs):
+            seen.append(url)
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            ids = players[("G", "F", "C").index(query["PlayerPosition"][0])]
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[i] for i in ids]}]}
+        return payload
+
+    def test_a_refresh_rereads_the_feed_over_a_warm_cache(
+            self, tmp_path, monkeypatch):
+        """The bug this fixes: 2026-27 stayed at its opening-night 22 players.
+
+        ``_fetch_positions`` returned any non-empty file with no TTL, so a
+        season's position table never moved again. The feed answered 398
+        players by 2026-10-25 while the cache held 22.
         """
-        floor = config.PLAYER_EPM_PRIMARY_MIN_COVERAGE
-        assert 0.24 < floor, "a back season's index covers ~24%; the floor must clear it"
-        assert floor <= 1.0
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        pd.DataFrame({"player_id": ["99"], "position": ["G"],
+                      "positions": ["G"]}).to_parquet(
+            cached / ing._positions_path("2025-26").name, index=False)
+        seen = []
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json",
+                            self._feed(seen, ((10, 99), (10, 20), (20,))))
 
-    def test_the_index_cache_is_a_separate_file_from_the_positions_table(self):
-        """Different endpoint, different failure mode.
+        stale = ing._fetch_positions("2025-26")
+        assert {"99"} == set(stale.player_id.astype(str))
 
-        The collapsed cell is the only thing that depends on the index, so a
-        lost index must not invalidate the listing the segments read. Separate
-        files are what makes that independence mechanical rather than a
-        promise.
+        fresh = ing._fetch_positions("2025-26", refresh=True)
+        assert len(seen) == 3
+        assert set(fresh.player_id.astype(str)) == {"10", "20", "99"}
+        # The refresh also repairs the cache, so the next run starts right.
+        assert set(pd.read_parquet(
+            cached / ing._positions_path("2025-26").name
+        ).player_id.astype(str)) == {"10", "20", "99"}
+
+    def test_a_partial_refresh_never_overwrites_a_complete_table(
+            self, tmp_path, monkeypatch):
+        """A thin table that looks authoritative is the failure that matters.
+
+        If one position request fails, the pull still returns players, and
+        writing them would replace a complete table with a stale-looking
+        subset that the next run would happily serve.
         """
-        assert ing._position_index_path("2025-26").parent == (
-            ing._positions_path("2025-26").parent)
-        assert ing._position_index_path("2025-26").name != (
-            ing._positions_path("2025-26").name)
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        path = cached / ing._positions_path("2025-26").name
+        pd.DataFrame({"player_id": ["10", "20", "21"],
+                      "position": ["G", "F", "C"],
+                      "positions": ["G", "F", "C"]}).to_parquet(
+            path, index=False)
+        before = path.read_bytes()
+
+        def partial(url, *_args, **_kwargs):
+            import urllib.parse
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if query["PlayerPosition"][0] == "C":
+                raise TimeoutError("the read operation timed out")
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[10], [20]]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", partial)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26", refresh=True)
+        assert set(frame.player_id.astype(str)) == {"10", "20", "21"}
+        assert path.read_bytes() == before
+
+    def test_a_repull_ignores_the_stored_table_and_rereads_the_feed(
+            self, tmp_path, monkeypatch):
+        """NBA_FULL_REPULL=1 must populate the table from the feed, every run.
+
+        The stored file is not consulted on a repull, and a successful pull
+        always rewrites it - so the run log can show, on every run, how many
+        players the table now holds. That line is what makes "did it actually
+        repopulate?" answerable; before it, a fresh write and a stale file
+        produced identical output.
+        """
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        path = cached / ing._positions_path("2025-26").name
+        pd.DataFrame({"player_id": ["99"], "position": ["G"],
+                      "positions": ["G"]}).to_parquet(path, index=False)
+        seen = []
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        monkeypatch.setattr(ing, "http_json",
+                            self._feed(seen, ((10,), (10, 20), (20,))))
+
+        frame = ing._fetch_positions("2025-26")
+        assert len(seen) == 3
+        assert set(frame.player_id.astype(str)) == {"10", "20"}
+        # ...and the file now holds the new pull, not the old one.
+        assert set(pd.read_parquet(path).player_id.astype(str)) == {"10", "20"}
+
+    def test_a_repull_keeps_the_table_when_the_feed_refuses(
+            self, tmp_path, monkeypatch):
+        """The repull measures; it does not delete before it knows.
+
+        Deleting the file first bought nothing - skipping the cache read is
+        what makes the feed answer - and it destroyed the last complete
+        measurement before the pull had a chance to fail.
+        """
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        path = cached / ing._positions_path("2025-26").name
+        pd.DataFrame({"player_id": ["99"], "position": ["G"],
+                      "positions": ["G"]}).to_parquet(path, index=False)
+
+        def dead(*_args, **_kwargs):
+            raise TimeoutError("the read operation timed out")
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        monkeypatch.setattr(ing, "http_json", dead)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26")
+        # A repull never serves the archive, so this run has no positions...
+        assert frame.empty
+        # ...but the table it could not replace is still there for the next run.
+        assert path.exists()
+        assert set(pd.read_parquet(path).player_id.astype(str)) == {"99"}
+
+    def test_a_repull_serves_the_partial_pull_not_the_stored_table(
+            self, tmp_path, monkeypatch):
+        """Half a feed is still a measurement; the archive is not.
+
+        A normal run keeps serving the stored table when a pull is partial,
+        because a thinner family beats a missing one. Under a repull that
+        trade is refused: the point of the flag is that no row in the run is
+        priced off an older measurement.
+        """
+        cached = tmp_path / "positions"
+        cached.mkdir(parents=True)
+        path = cached / ing._positions_path("2025-26").name
+        pd.DataFrame({"player_id": ["99"], "position": ["G"],
+                      "positions": ["G"]}).to_parquet(path, index=False)
+        before = path.read_bytes()
+
+        def partial(url, *_args, **_kwargs):
+            import urllib.parse
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if query["PlayerPosition"][0] == "C":
+                raise TimeoutError("the read operation timed out")
+            return {"resultSets": [{"headers": ["PLAYER_ID"],
+                                    "rowSet": [[10], [20]]}]}
+
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        monkeypatch.setattr(ing, "http_json", partial)
+        monkeypatch.setattr(ing.time, "sleep", lambda _s: None)
+        frame = ing._fetch_positions("2025-26")
+        assert set(frame.player_id.astype(str)) == {"10", "20"}
+        assert path.read_bytes() == before
+
+    def test_the_run_scope_resets_the_one_pull_memo(self, tmp_path, monkeypatch):
+        """Two runs in one process must pull twice, not once.
+
+        The memo exists so the slate and feature phases share a pull. Scoping
+        it to the process instead of the run would freeze a long-lived caller
+        on the first pull of the day.
+        """
+        seen = []
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", self._feed(seen))
+        ing._fetch_positions("2025-26", refresh=True)
+        assert len(seen) == 3
+        ing.clear_positions_memo()
+        ing._fetch_positions("2025-26", refresh=True)
+        assert len(seen) == 6
+
+    def test_one_process_pulls_a_season_once(self, tmp_path, monkeypatch):
+        """The slate and feature phases share the run's one refresh."""
+        seen = []
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setattr(ing, "http_json", self._feed(seen))
+        first = ing._fetch_positions("2025-26", refresh=True)
+        second = ing._fetch_positions("2025-26", refresh=True)
+        assert len(seen) == 3
+        pd.testing.assert_frame_equal(first, second)
 
     def test_an_outage_prefers_the_listing_table_over_the_single_label_one(
             self, tmp_path, monkeypatch):

@@ -845,32 +845,23 @@ def _positions_path(season: str):
     that depends on the listing, which is exactly the stale-shape bug the
     roster versioning exists to prevent.
 
-    v3 for the same reason one version later: the collapsed cell now follows
-    the league's own primary letter from ``playerindex`` rather than the local
-    G->F->C convention. v2 is well-formed and complete but answers a different
-    question for 28 players in 2025-26 - including most of the league's
-    starting centres - so reading it as v3 would keep the C prior cell thin and
-    look like a working cache the whole time.
+    v3 for the same reason one version later: it carries the listing as its
+    own column, so a table written for the segments can never be mistaken for
+    the v1 single-label shape.
+
+    The COLLAPSED CELL is normalized on read (:func:`_convention_cell`), which
+    is why the cell experiment that briefly lived in v3 needed no new version:
+    a v3 file written before 2026-10-25 may hold a league-primary cell, and
+    that column is re-derived from the listing rather than trusted.
     """
     return _cache_dir() / "positions" / f"positions_v3_{season}.parquet"
-
-
-def _position_index_path(season: str):
-    """Cache key for one season's roster index.
-
-    Its own file rather than a column of the positions table: it is a different
-    endpoint with a different failure mode (see :func:`_fetch_position_index`),
-    and keeping it separate means a lost index degrades the collapsed cell to
-    the convention without invalidating the listing the segments depend on.
-    """
-    return _cache_dir() / "positions" / f"player_index_{season}.parquet"
 
 
 def _positions_path_v2(season: str):
     """The listing-era cache: full listing, convention-collapsed cell.
 
     Kept as the first read fallback. It is a superset of v1's information and
-    the best available table when ``playerindex`` is unreachable, because the
+    the best available table when the feed is unreachable, because the
     segments - which read ``positions`` and are the reason nine features exist
     at all - still resolve from it exactly as they did.
     """
@@ -902,74 +893,52 @@ def _roster_path(team: str):
     return _cache_dir() / "rosters" / f"roster_v2_{slug}.parquet"
 
 
-def _fetch_position_index(season: str, use_cache: bool = True) -> dict:
-    """``player_id -> primary position`` for one season, or ``{}``.
+def _convention_cell(frame: pd.DataFrame) -> pd.DataFrame:
+    """Re-derive ``position`` from the listing under the G->F->C convention.
 
-    This is the ONLY endpoint that publishes a position at all, and it
-    publishes the league's own primary - ``C-F`` is a centre who also plays
-    forward, not the undifferentiated "listed at both" the filter pull
-    returns. Honoring it moves 28 of 582 players in 2025-26 off the local
-    G->F->C convention, 17 of them C-F players the convention filed as
-    forwards.
+    Applied on READ rather than only at write time, for one reason: the cell is
+    a policy, and a cached table is data. A v3 file written before 2026-10-25
+    carries a league-primary cell that this pipeline no longer uses, and simply
+    returning it would leave two conventions alive depending on when the file
+    happened to be written - which is the exact inconsistency the policy was
+    chosen to remove.
 
-    Degradation is by design, and measured rather than hoped for: the endpoint
-    answers a BACK season with a fraction of the league (2026-10-02, live: it
-    covers 100% of 2025-26's filter players but only 23% of 2024-25's and 24%
-    of 2023-24's). So the index is applied only when it covers the season's
-    player set, and a partial or missing index simply leaves those players on
-    the convention. ``config.PLAYER_EPM_PRIMARY_MIN_COVERAGE`` is the gate, and
-    it is set well above the ~24% a back season returns so a truncated index
-    can never be mistaken for a real one.
-
-    An empty dict is the honest "no evidence" answer and is what every failure
-    returns; it is never a partial dict, because a half-applied primary would
-    leave the prior cell keyed on two different conventions at once.
+    The scan walks ``PLAYER_EPM_POSITION_PRIORITY`` in reverse and overwrites,
+    so the result is the HIGHEST-priority letter the listing names. That is
+    :func:`nba_sources.assign_positions`' rule expressed on the joined string,
+    and it stays correct if the listing's own join order ever diverges from
+    the priority order. A frame with no listing (the v1 outage fallback) is
+    returned untouched: its single label is all the evidence there is.
     """
-    path = _position_index_path(season)
-    if _flag(FULL_REPULL_ENV):
-        # A repull re-reads the index like everything else: drop the cached
-        # table first so a stale league snapshot can never stand in for the
-        # feed (the positions pull already does the same for its own table).
-        try:
-            path.unlink()
-        except OSError:
-            pass
-        use_cache = False
-    if use_cache:
-        cached = _read_parquet(path)
-        if len(cached) and {"player_id", "position"} <= set(cached.columns):
-            return {row.player_id: row.position
-                    for row in cached.itertuples()}
-
-    url = f"{sources.PLAYER_INDEX_URL}?{sources.player_index_query(season)}"
-    payload = None
-    for attempt in range(3):
-        try:
-            payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=1)
-            break
-        except Exception as exc:  # noqa: BLE001
-            if attempt == 2:
-                logger.warning("position index for %s unresolved after 3 "
-                               "attempts (%s); the collapsed cell falls back "
-                               "to the %s convention for this season",
-                               season, _short(exc),
-                               "/".join(config.PLAYER_EPM_POSITION_PRIORITY))
-            else:
-                time.sleep(2.0)
-    primary = sources.primary_positions(payload) if payload else {}
-    if not primary:
-        return {}
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame({"player_id": list(primary.keys()),
-                      "position": list(primary.values())}).to_parquet(
-                          path, index=False)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("could not cache %s (%s)", path.name, exc)
-    return primary
+    if frame is None or not len(frame) or "positions" not in frame.columns:
+        return frame
+    out = frame.copy()
+    listing = out["positions"].astype("object")
+    cell = pd.Series(index=out.index, dtype="object")
+    for position in reversed(tuple(config.PLAYER_EPM_POSITION_PRIORITY)):
+        hit = listing.str.contains(position, regex=False).fillna(False)
+        cell.loc[hit] = position
+    out["position"] = cell
+    return out
 
 
-def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
+#: One pull per (cache root, season) per RUN. The slate phase and the feature
+#: phase both ask for the same seasons inside one run, and a refresh they share
+#: must cost one pull, not two. ``clear_positions_memo`` is called at the top
+#: of ``master_pipeline.run`` so the scope is the run rather than the process:
+#: a long-lived caller (a server that writes the ratings table) would otherwise
+#: hold the first pull of the day forever, which is the freeze this whole
+#: change exists to remove.
+_POSITIONS_MEMO: dict = {}
+
+
+def clear_positions_memo() -> None:
+    """Forget every pull. Called once per pipeline run."""
+    _POSITIONS_MEMO.clear()
+
+
+def _fetch_positions(season: str, use_cache: bool = True,
+                     refresh: bool = False) -> pd.DataFrame:
     """``player_id``/``position``/``positions`` for one season, one request each.
 
     ``positions`` carries the feed's full listing (a forward-centre is both),
@@ -978,6 +947,24 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
     resolve at all, the v1 single-label cache is returned instead of nothing:
     a thinner segment beats a missing feature family, and the caller cannot
     tell the difference without the log saying so.
+
+    ``refresh`` re-reads the season from the feed even when the cache is warm,
+    and the pipeline asks for it on every run. That is the fix for a table that
+    used to be frozen at the season's first pull: the cache was returned on any
+    non-empty file with no TTL, so 2026-27 stayed at the 22 players of its
+    opening night (written 2026-10-20) while the feed was answering 398 by
+    2026-10-25. A completed season is stable, so its pull is usually identical
+    - but the current season's is the whole point, and the same three requests
+    answer both.
+
+    A refresh writes only on a COMPLETE pull: all three positions resolved. A
+    half-resolved pull never overwrites the file, because the failure mode that
+    matters is the opposite of a missing file - a thin table that looks
+    authoritative, which is how a season's positions can silently decay to
+    whatever happened to be available at 7pm on opening night. What the caller
+    then gets differs by contract: a normal run keeps serving the stored table
+    (a thinner family beats a missing one), while a repull serves the partial
+    frame and logs, because a repull measures rather than recalls.
 
     stats.nba.com publishes no POSITION column, so position is obtained by
     asking the ``PlayerPosition`` filter for G, F and C in turn. That is three
@@ -990,22 +977,24 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
     one, and losing two of three positions would at least still leave the
     ratings for the third.
     """
+    memo_key = (str(_cache_dir()), season)
+    if memo_key in _POSITIONS_MEMO:
+        return _POSITIONS_MEMO[memo_key].copy()
     path = _positions_path(season)
-    if _flag(FULL_REPULL_ENV):
-        # Reference data is re-read under a repull like everything else:
-        # drop the season table and the position-index cache first so the
-        # feed answers, not last run's files. (The legacy v1/v2 fallbacks
-        # below stay as feed-outage cover only.)
-        for stale in (path, _position_index_path(season)):
-            try:
-                stale.unlink()
-            except OSError:
-                pass
+    repull = _flag(FULL_REPULL_ENV)
+    if repull:
+        # The repull contract is that the FEED answers, never the file. Skip
+        # the read; do NOT delete the file first. Deleting it bought nothing -
+        # ``use_cache=False`` already guarantees the pull - and it destroyed
+        # the last complete measurement before knowing whether the new pull
+        # would succeed, so a rate-limited afternoon left no table at all
+        # instead of the previous one.
         use_cache = False
-    if use_cache:
+        refresh = True
+    if use_cache and not refresh:
         cached = _read_parquet(path)
         if len(cached):
-            return cached
+            return _convention_cell(cached)
     by_position: dict = {}
     for position in config.PLAYER_EPM_POSITIONS:
         url = (f"{sources.PLAYER_POSITIONS_URL}?"
@@ -1022,15 +1011,50 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
                                    position, season, _short(exc))
                 else:
                     time.sleep(2.0)
-    frame = sources.positions_frame(by_position, _season_primary(season, by_position))
-    if len(frame):
+    # The collapsed cell is the convention in EVERY season - see
+    # nba_sources.assign_positions for the measurement that settled it. No
+    # index request is made here any more: the cell it would have set cannot
+    # be applied to the back seasons, and applying it only forward puts a step
+    # in the middle of the training frame.
+    frame = _convention_cell(sources.positions_frame(by_position))
+    complete = all(by_position.get(p) for p in config.PLAYER_EPM_POSITIONS)
+    if len(frame) and complete:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             frame.to_parquet(path, index=False)
+            # Said on every run, at INFO, because "does this table actually get
+            # repopulated?" was unanswerable from the log: a successful write
+            # and a stale file looked identical.
+            logger.info("positions for %s written: %d players from %d of %d "
+                        "positions", season, len(frame), len(by_position),
+                        len(config.PLAYER_EPM_POSITIONS))
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not cache %s (%s)", path.name, exc)
+    elif len(frame):
+        # A partial pull never replaces a complete table. Serving the thin
+        # frame would also freeze it: the next run reads the cache unless it
+        # refreshes, and a table that is merely short is indistinguishable
+        # from one that is right.
+        logger.warning(
+            "position pull for %s resolved %d of %d positions (%d players); "
+            "NOT writing it over the stored table",
+            season, len(by_position), len(config.PLAYER_EPM_POSITIONS),
+            len(frame))
+        if repull:
+            # A repull measures rather than recalls, so the stored table is
+            # not a fallback here even though it is still on disk. The thin
+            # frame is served so the run degrades instead of failing, and the
+            # log above is the only honest statement about this season.
+            pass
+        else:
+            previous = _read_parquet(path)
+            if len(previous):
+                logger.warning(
+                    "keeping the stored table for %s (%d players) instead of "
+                    "the partial pull", season, len(previous))
+                frame = _convention_cell(previous)
     if not len(frame):
-        if _flag(FULL_REPULL_ENV):
+        if repull:
             # A repull measures the window itself: a stored legacy table
             # standing in for a refused feed is stored history dressed as a
             # fresh measurement. Return the empty pull (loudly missing, and
@@ -1056,49 +1080,11 @@ def _fetch_positions(season: str, use_cache: bool = True) -> pd.DataFrame:
             logger.warning("positions for %s unresolved; falling back to %s "
                            "(%d players) - %s until the feed answers",
                            season, path_v2.name, len(legacy), listing)
-            return legacy
+            served = _convention_cell(legacy)
+            _POSITIONS_MEMO[memo_key] = served
+            return served
+    _POSITIONS_MEMO[memo_key] = frame
     return frame
-
-
-def _season_primary(season: str, by_position: dict) -> dict:
-    """The league's own primary letters for this season, or ``{}``.
-
-    Coverage-gated, and the gate is the whole point. ``playerindex`` answers a
-    back season with about a quarter of the league (measured 2026-10-02: 23% of
-    2024-25, 24% of 2023-24, against 100% of 2025-26), so applying it
-    unconditionally would key a season's prior cells on two different
-    conventions at once - the covered quarter by the league's reading and the
-    uncovered three quarters by the local one. Below the threshold the index is
-    dropped for that season and every player keeps the convention, which is
-    exactly the behavior that shipped before this change.
-    """
-    primary = _fetch_position_index(season)
-    if not primary:
-        return {}
-    everyone = set()
-    for ids in by_position.values():
-        everyone |= set(ids or ())
-    if not everyone:
-        return {}
-    covered = len(everyone & set(primary))
-    share = covered / len(everyone)
-    floor = config.PLAYER_EPM_PRIMARY_MIN_COVERAGE
-    if share < floor:
-        logger.warning("position index covers only %d of %d %s players "
-                       "(%.0f%%, floor %.0f%%); this season keeps the %s "
-                       "convention for every player", covered, len(everyone),
-                       season, 100.0 * share, 100.0 * floor,
-                       "/".join(config.PLAYER_EPM_POSITION_PRIORITY))
-        return {}
-    logger.info("position index covers %d of %d %s players (%.0f%%); the "
-                "collapsed cell follows the league's primary for the %d whose "
-                "listing disagrees with %s", covered, len(everyone), season,
-                100.0 * share,
-                sum(1 for pid, pos in primary.items()
-                    if pid in everyone
-                    and sources.assign_positions(by_position).get(pid) != pos),
-                "/".join(config.PLAYER_EPM_POSITION_PRIORITY))
-    return {pid: pos for pid, pos in primary.items() if pid in everyone}
 
 
 ROSTER_HISTORY_ARCHIVE = "nba_roster_history.parquet"

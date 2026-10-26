@@ -511,95 +511,40 @@ class TestPositionAssignment:
         assert list(frame.player_id) == ["1"]
         assert list(frame.positions) == ["G"]
 
-    def test_the_leagues_own_primary_overrides_the_convention(self):
-        """``C-F`` is a centre who also plays forward, not a coin flip.
+    def test_the_cell_is_the_convention_in_every_season(self):
+        """ONE rule, all seasons - and the league index does not decide it.
 
-        The convention files him as F. Embiid, Towns, Holmgren, Hartenstein,
-        Bitadze and Wendell Carter Jr. are all ``C-F`` in 2025-26 and all
-        starters at centre - the same labelling artifact that left
-        ``pl_rapm_c_*`` thin. The index is a READING and the convention is a
-        convention, so the reading wins.
+        The index is a live-season reading only: measured 2026-10-25, none of
+        the 17 ``C-F`` centres who are the whole reason to want it appear in
+        any back-season index at all. Applying it from 2025-26 onward
+        reprices the team centre segment part-way through the feature's
+        history - the share of centre-segment minutes held by a player whose
+        cell is ``F`` runs 51% in 2024-25 and 26% in 2025-26 - which is a
+        step in a training column rather than a correction. So the cell is the
+        G->F->C convention here, and it is the same answer in 2022-23.
+
+        Embiid is the case that makes it concrete: ``F|C``, cell ``F``, in
+        every season and on the slate.
         """
         assigned = src.assign_positions(
-            {"G": {"1"}, "F": {"2", "3"}, "C": {"2", "4"}},
-            {"2": "C", "3": "F"})
-        assert assigned == {"1": "G", "2": "C", "3": "F", "4": "C"}
+            {"G": {"1"}, "F": {"2", "3"}, "C": {"2", "4"}})
+        assert assigned == {"1": "G", "2": "F", "3": "F", "4": "C"}
+        # The same player's answer must not depend on which season is asked
+        # for, because the rule reads only the listing.
+        assert src.assign_positions({"F": {"2"}, "C": {"2"}}) == {"2": "F"}
 
-    def test_the_primary_never_puts_a_player_in_two_cells(self):
-        """The invariant that makes the override safe.
+    def test_the_rule_follows_the_priority_order_not_the_listing_string(self):
+        """The listing is joined in config order; the cell follows PRIORITY.
 
-        The prior divides by these cells, so an override that added a cell
-        instead of moving one would double-count the league mean. It only
-        REWRITES, so every player is still in exactly one.
+        They are the same tuple today, so this is a coupling check: if the two
+        ever diverge, the cell must still be the higher-priority letter, which
+        is what :func:`assign_positions` walks.
         """
-        assigned = src.assign_positions(
-            {"G": {"1", "2"}, "F": {"2"}, "C": {"2", "3"}}, {"2": "C"})
-        assert assigned == {"1": "G", "2": "C", "3": "C"}
-        assert sorted(assigned) == ["1", "2", "3"]
-
-    def test_a_player_the_index_omits_keeps_the_convention(self):
-        """A partial index degrades per player, not wholesale.
-
-        The index is trustworthy for the live season only (23% coverage on a
-        back season, measured), so a season ends up mixing two conventions by
-        design - and a player the index says nothing about must still get a
-        cell rather than falling out of the prior.
-        """
-        assigned = src.assign_positions(
-            {"G": {"1", "2"}, "F": {"2", "3"}}, {"2": "F"})
-        assert assigned == {"1": "G", "2": "F", "3": "F"}
-
-    def test_an_index_naming_a_position_the_feed_did_not_list_is_ignored(self):
-        """Trust the reading only where the two sources agree the player plays.
-
-        The prior cell has to be a cell this season's filter pull actually
-        produced, or ``LEAGUE_TABLE_GONE`` has a denominator nothing was
-        counted against. The filter pull is what defines which cells exist;
-        the index only chooses between them.
-        """
-        assigned = src.assign_positions(
-            {"G": {"1"}, "F": {"2"}}, {"2": "C"})
-        assert assigned == {"1": "G", "2": "F"}
-
-    def test_the_index_reads_the_first_letter_of_a_compound_code(self):
-        """``POSITION`` is ordered; the first letter is the league's primary.
-
-        ``C-F`` and ``F-C`` are the same two letters in different orders and
-        must NOT collapse to the same answer - that difference is the entire
-        reason this source is being read at all.
-        """
-        payload = {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
-                                   "rowSet": [[1, "C-F"], [2, "F-C"],
-                                              [3, "G"], [4, "G-F"]]}]}
-        assert src.primary_positions(payload) == {
-            1: "C", 2: "F", 3: "G", 4: "G"}
-
-    def test_a_junk_or_absent_position_reads_as_no_index_at_all(self):
-        """Never a partial answer: half a primary is two conventions at once."""
-        assert src.primary_positions(None) == {}
-        assert src.primary_positions({}) == {}
-        assert src.primary_positions({"resultSets": []}) == {}
-        assert src.primary_positions({"resultSets": [{"headers": [],
-                                                     "rowSet": []}]}) == {}
-        # An unknown code has no cell in the prior table, so it is dropped
-        # rather than inventing a fourth position.
-        assert src.primary_positions(
-            {"resultSets": [{"headers": ["PERSON_ID", "POSITION"],
-                             "rowSet": [[1, "X"]]}]}) == {}
-
-    def test_the_primary_moves_the_cell_but_not_the_listing(self):
-        """``position`` follows the league; ``positions`` stays the full set.
-
-        The segments ask "who does this club field who the league lists at
-        centre", and that is indifferent to which of them the league calls
-        primary. Rewriting the listing too would be a different, worse change.
-        """
-        frame = src.positions_frame(
-            {"G": {"1"}, "F": {"2"}, "C": {"2"}}, {"2": "C"})
-        assert dict(zip(frame.player_id, frame.position)) == {
-            "1": "G", "2": "C"}
-        assert dict(zip(frame.player_id, frame.positions)) == {
-            "1": "G", "2": "F|C"}
+        assigned = src.assign_positions({"C": {"9"}, "F": {"9"}, "G": {"9"}})
+        assert assigned == {"9": "G"}
+        frame = src.positions_frame({"C": {"9"}, "F": {"9"}})
+        assert list(frame.position) == ["F"]
+        assert list(frame.positions) == ["F|C"]
 
     def test_no_positions_yields_a_well_formed_empty_frame(self):
         frame = src.positions_frame({})
@@ -1806,6 +1751,58 @@ class TestGameCarryover:
         for pid in ("s", "u", "r"):
             row = day2[day2.player_id == pid].iloc[0]
             assert float(row.lg_rapm) == pytest.approx(mean_g), pid
+
+    @staticmethod
+    def _with_a_league_opener():
+        """Season 2 already has a game - for OTHER clubs - before 11-01.
+
+        That is the condition the ramp cannot see and the old code could not
+        handle: the fit season stays 2024-25, so HOME2's players have no
+        prior appearance *in it* and their target emitted nothing, even
+        though the league itself had already started.
+        """
+        extra = [
+            _row("x", "2024-10-30", 10, 10, 0, team="OTHER1", minutes=48,
+                 position="G", season="2024-25", points=100.0,
+                 game_id="s2g0"),
+            _row("y", "2024-10-30", -10, 10, 0, team="OTHER2", minutes=48,
+                 position="G", season="2024-25", points=100.0,
+                 game_id="s2g0"),
+        ]
+        return _prepared(TestGameCarryover._season1()
+                         + TestGameCarryover._season2() + extra)
+
+    def test_a_teams_opener_is_priced_from_the_previous_season(self):
+        """2026-10-26: a club's first game used to emit no row at all.
+
+        The gap is per TEAM: another club having played on 10-30 must not
+        make HOME2 look like it has evidence. The previous completed
+        season's end state prices it, stamped so the provenance is visible.
+        """
+        got = rapm.build_player_rapm(self._with_a_league_opener(),
+                                     ["2024-11-01"], opener_carry=True)
+        day = self._on_day(got, "2024-11-01")
+        carried = day[day.roster_source == "carry_prior"]
+        assert len(carried)
+        assert {"s", "u"} <= set(carried.player_id)
+        assert carried.player_id.is_unique
+        row = carried[carried.player_id == "s"].iloc[0]
+        assert float(row.prior_games) > 0
+        assert np.isnan(float(row.days_since_appearance))
+        assert np.isfinite(float(row.rapm_shrunk))
+
+    def test_without_the_flag_the_opener_stays_empty(self):
+        out = rapm.build_player_rapm(self._with_a_league_opener(),
+                                     ["2024-11-01"], opener_carry=False)
+        day = self._on_day(out, "2024-11-01")
+        assert "s" not in set(day.player_id)
+        assert "carry_prior" not in set(day.roster_source)
+
+    def test_carry_leaves_priced_targets_untouched(self):
+        games = self._with_a_league_opener()
+        on = rapm.build_player_rapm(games, ["2024-11-03"], opener_carry=True)
+        off = rapm.build_player_rapm(games, ["2024-11-03"], opener_carry=False)
+        pd.testing.assert_frame_equal(on, off)
 
     def test_prior_is_fixed_before_the_new_season_tipoff(self):
         a = _prepared(self._season1() + self._season2((20.0, 5.0)))

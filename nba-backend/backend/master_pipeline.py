@@ -455,8 +455,13 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             return None
         seasons = sorted({ingestion.season_label(d.date())
                           for d in slate_dates})
+        # refresh=True: the position table is reference data that moves inside
+        # a season (call-ups, trades, first appearances), and a cache-first
+        # read froze it at the season's opening night. One pull per process is
+        # shared with the feature phase below.
         positions = pd.concat(
-            [ingestion._fetch_positions(season) for season in seasons],
+            [ingestion._fetch_positions(season, refresh=True)
+             for season in seasons],
             ignore_index=True) if seasons else pd.DataFrame()
         if not len(positions):
             logger.warning("player RAPM skipped: no positions resolved for %s; "
@@ -945,7 +950,8 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
     # costs nothing, and it is the same accessor the ratings writer calls, so
     # the two paths cannot disagree about what a position is.
     positions = _concat_frames(
-        [ingestion._fetch_positions(season) for season in seasons],
+        [ingestion._fetch_positions(season, refresh=True)
+         for season in seasons],
         f"positions for {', '.join(seasons) or 'the window'}")
     if not len(positions):
         logger.warning("pl_rapm features skipped: no position table; every "
@@ -1510,6 +1516,10 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # instead of after an hour of ingest and fit.
     import nba_injury_report as ir_mod
     ir_mod.require_pdf_parser()
+    # One pull per season per RUN, not per process: the two position phases
+    # share it, and a process that runs twice (or a long-lived server that
+    # writes the ratings table) must not inherit the first run's table.
+    ingestion.clear_positions_memo()
     global _log_path
     # PYTEST_CURRENT_TEST covers in-test run() calls, pytest being loaded
     # covers collection-time imports; a production launch has neither.

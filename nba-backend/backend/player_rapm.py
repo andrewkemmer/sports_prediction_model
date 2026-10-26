@@ -81,6 +81,7 @@ what changes is how much the lineup projection should lean on it.
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
@@ -90,6 +91,8 @@ try:
     from backend import config
 except ImportError:
     import config
+
+logger = logging.getLogger(__name__)
 
 #: Columns this module reads out of the player-level season log. The
 #: rating needs the participation measure (minutes) plus the keys. An
@@ -988,6 +991,87 @@ def _game_carryover_prior(designs, season, carry_weight, pos_of, season_end):
     return m, info
 
 
+def _carry_forward_opener(games: pd.DataFrame, target, season: str, *,
+                          roster_history, team_stats, shrink_fraction,
+                          cache: dict | None = None) -> pd.DataFrame | None:
+    """The previous completed season's final ratings, re-stamped to an opener.
+
+    An opener has no strictly-prior appearance INSIDE its season, which is
+    why the normal path refuses it: there is nothing to fit. There is plenty
+    to KNOW - the previous season's end state is strictly prior - so this
+    returns one row per player in the target's roster at last season's
+    ratings, which is what a reader of the first game would use.
+
+    Membership is the dated official observation when one exists (the same
+    strictly-prior source the roster gate reads), else the prior season's
+    last team. ``days_since_appearance`` is NaN on purpose: the new season
+    has not started for anyone, and the real gap (~150 days) would trip the
+    30-day recency gate that the season-start case is exempt from by design.
+    """
+    if games is None or not len(games) or "season" not in games.columns:
+        return None
+    labels = sorted({s for s in games.season.dropna().unique()}, key=_season_key)
+    earlier = [s for s in labels if _season_key(s) < _season_key(season)]
+    if not earlier:
+        return None
+    prev_season = earlier[-1]
+    # Every club that has not tipped off yet on a given date asks for the SAME
+    # previous-season end state, and each ask would otherwise re-fit that whole
+    # season. One memo per build call: the fit is a fixed point-in-time
+    # quantity, so caching it changes nothing but the run time.
+    if cache is not None and prev_season in cache:
+        prev = cache[prev_season]
+    else:
+        prev_days = pd.to_datetime(
+            games.loc[games.season == prev_season, "gameday"], errors="coerce")
+        if not prev_days.notna().any():
+            return None
+        prev = build_player_rapm(games, [prev_days.max()],
+                                 shrink_fraction=shrink_fraction,
+                                 team_stats=team_stats, carry_weight=None,
+                                 opener_carry=False)
+        if cache is not None:
+            cache[prev_season] = prev
+    if prev is None or not len(prev):
+        return None
+    prev = prev[prev.rapm_shrunk.notna() & (prev.prior_games > 0)].copy()
+    if prev.empty:
+        return None
+    columns = ["target_date", "player_id", "position", "positions", "team",
+               "prior_eff", "prior_minutes", "prior_minutes_per_game",
+               "prior_games", "lg_rapm", "k_eff",
+               "rapm_raw", "rapm_shrunk", "rapm_se",
+               "days_since_appearance", "roster_source", "roster_observed_at"]
+    roster = None
+    if roster_history is not None:
+        try:
+            roster = _roster_as_of(roster_history, target)
+        except (ValueError, TypeError):
+            roster = None
+    if roster is not None and len(roster):
+        members = roster[["player_id", "team", "position", "positions"]].copy()
+        stamp = str(roster["_observed"].iloc[0].isoformat())
+        out = members.merge(
+            prev[["player_id", "prior_eff", "prior_minutes", "prior_games",
+                  "rapm_raw", "rapm_shrunk"]],
+            on="player_id", how="inner")
+        out["roster_observed_at"] = stamp
+    else:
+        out = prev.copy()
+        out["roster_observed_at"] = ""
+    if out.empty:
+        return None
+    out["prior_minutes_per_game"] = (
+        out.prior_minutes / out.prior_games.where(out.prior_games > 0))
+    out["lg_rapm"] = np.nan
+    out["k_eff"] = np.nan
+    out["rapm_se"] = np.nan
+    out["days_since_appearance"] = np.nan
+    out["roster_source"] = "carry_prior"
+    out["target_date"] = pd.Timestamp(target)
+    return out[columns]
+
+
 def build_player_rapm(games: pd.DataFrame,
                       target_dates=None,
                       shrink_fraction: float = config.PLAYER_RAPM_SHRINK_FRACTION,
@@ -995,6 +1079,7 @@ def build_player_rapm(games: pd.DataFrame,
                       availability: pd.DataFrame | None = None,
                       roster_history: pd.DataFrame | None = None,
                       carry_weight: float | None = None,
+                      opener_carry: bool | None = None,
                       ) -> pd.DataFrame:
     """Player-level RAPM ratings as of each target date.
 
@@ -1036,6 +1121,8 @@ def build_player_rapm(games: pd.DataFrame,
     multiplier that invites a future caller to reintroduce exactly the
     zero-weighting the pool deliberately avoids.
     """
+    if opener_carry is None:
+        opener_carry = bool(getattr(config, "PLAYER_RAPM_OPENER_CARRY", False))
     columns = ["target_date", "player_id", "position", "positions", "team",
                "prior_eff", "prior_minutes", "prior_minutes_per_game",
                "prior_games", "lg_rapm", "k_eff",
@@ -1101,6 +1188,7 @@ def build_player_rapm(games: pd.DataFrame,
     # centering the published second layer actually used. Targets arrive
     # ascending, so the last write wins and the carryover reads a final.
     season_end: dict = {}
+    carry_cache: dict = {}
     rows = []
     for target in dates:
         # Box-score membership, team changes and recency are post-game
@@ -1117,7 +1205,35 @@ def build_player_rapm(games: pd.DataFrame,
                      & (pd.to_numeric(work.share, errors="coerce") > 0)]
         if "season" in known.columns and roster_season:
             known = known[known.season == roster_season]
+        # Per TEAM, not per date: a club's first game is rarely the league's,
+        # so other teams' 2026-10-20 rows must not make SAC's 10-21 opener look
+        # like it has evidence. Any team playing today with no prior appearance
+        # in its season is priced from the previous completed season's end
+        # state (2026-10-26); every other team keeps the normal path.
+        teams_with_evidence = (set(known.team.astype(str))
+                               if "team" in known.columns else set())
+        day_teams = (set(entries.loc[entries.gameday == target, "team"].astype(str))
+                     if "team" in entries.columns else set())
+        carried = None
+        if opener_carry and (day_teams - teams_with_evidence):
+            try:
+                carried = _carry_forward_opener(
+                    games, target, fit_season or roster_season,
+                    roster_history=roster_history, team_stats=team_stats,
+                    shrink_fraction=shrink_fraction,
+                    cache=carry_cache)
+            except Exception as exc:  # noqa: BLE001 - never break a build
+                logger.warning("opener carry for %s skipped (%s: %s)",
+                               target, type(exc).__name__, str(exc)[:160])
+                carried = None
+            if carried is not None and len(carried):
+                carried = carried[~carried.team.astype(str)
+                                  .isin(teams_with_evidence)]
+                if carried.empty:
+                    carried = None
         if known.empty:
+            if carried is not None and len(carried):
+                rows.append(carried)
             continue
         design = designs.get(fit_season)
         if design is None:
@@ -1273,6 +1389,14 @@ def build_player_rapm(games: pd.DataFrame,
         if observation is not None:
             snapshot = _apply_roster_observation(
                 snapshot, observation, known, target, lg, k_for_target)
+        if carried is not None and len(carried):
+            # Clubs whose season has not started yet, alongside the clubs that
+            # already have in-season evidence. Their placeholder rows (zero
+            # evidence, NaN rating) must go: one row per player per target, or
+            # every downstream join sees him twice.
+            carried_teams = set(carried.team.astype(str))
+            snapshot = snapshot[~snapshot.team.astype(str).isin(carried_teams)]
+            rows.append(carried)
         rows.append(snapshot)
     if not rows:
         return empty

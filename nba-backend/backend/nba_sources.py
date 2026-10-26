@@ -253,51 +253,6 @@ def players_at_position(payload: Any) -> set:
     return {row[at] for row in rows if row and row[at] is not None}
 
 
-def primary_positions(payload: Any) -> dict:
-    """``player_id -> the league's OWN primary position`` from ``playerindex``.
-
-    ``POSITION`` here is ordered: ``C-F`` and ``F-C`` are the same two letters
-    in the league's own order of preference, and the first letter is the
-    primary. That is strictly more information than :func:`assign_positions`
-    could infer, because the filter pull returns three unordered SETS and any
-    collapse of an unordered set is a convention rather than a reading.
-
-    Measured against 2025-26, this changes 28 of 582 players' collapsed cell
-    against the G->F->C convention - 17 ``C-F`` players (Embiid, Towns,
-    Holmgren, Hartenstein, Bitadze, Wendell Carter Jr., Adebayo, Turner...) and
-    11 ``F-G`` (Tatum, Doncic, Barnes, Barrett, Anunoby...). Those 17 include
-    most of the league's actual starting centres, which is the same ORL/SAS/OKC
-    labelling artifact that starved ``pl_rapm_c_*`` in the first place.
-
-    A player absent from the index is simply not in the returned dict: the
-    caller falls back to the convention for them, so a partial index degrades
-    to "the old answer for the players it does not cover" rather than to a
-    missing prior cell. A code with no ``-`` is already single-valued, and the
-    first-letter rule leaves it unchanged.
-    """
-    if not isinstance(payload, dict):
-        return {}
-    result_sets = payload.get("resultSets") or []
-    if not result_sets:
-        return {}
-    block = result_sets[0] or {}
-    headers = block.get("headers") or []
-    rows = block.get("rowSet") or []
-    if "PERSON_ID" not in headers or "POSITION" not in headers:
-        return {}
-    who = headers.index("PERSON_ID")
-    where = headers.index("POSITION")
-    known = set(config.PLAYER_EPM_POSITIONS)
-    primary: dict = {}
-    for row in rows:
-        if not row or row[who] is None:
-            continue
-        head = str(row[where] or "").strip().split("-")[0].strip()
-        if head in known:
-            primary[row[who]] = head
-    return primary
-
-
 def roster_membership(payload: Any) -> "pd.DataFrame":
     """Current NBA-id membership from playerindex; never a historical roster.
 
@@ -347,7 +302,7 @@ def roster_membership(payload: Any) -> "pd.DataFrame":
     return frame
 
 
-def assign_positions(by_position: dict, primary: dict | None = None) -> dict:
+def assign_positions(by_position: dict) -> dict:
     """Collapse per-position player id sets into one position per player.
 
     A player the feed lists at more than one position belongs to EXACTLY ONE
@@ -357,41 +312,42 @@ def assign_positions(by_position: dict, primary: dict | None = None) -> dict:
     double-count the NHL ratings table avoids by keying on a single normalized
     position.
 
-    ``primary`` - the league's own primary letter from
-    :func:`primary_positions` - WINS wherever the index covers the player, and
-    ``priority`` decides only the rest. The prior still holds exactly one cell
-    per player either way, so this changes which cell, never how many: the
-    double-count invariant above is untouched by construction.
+    ONE RULE, EVERY SEASON (2026-10-25). The collapsed cell is this
+    convention's answer in every season, because the alternative - the
+    league's own ordered primary from ``playerindex`` - cannot be applied
+    uniformly and put a step in the middle of the training set:
 
-    The fallback is a convention rather than a reading, and it disagrees with
-    the league for 28 of 582 players in 2025-26, so it is now the minority
-    path. It stays because ``playerindex`` is only trustworthy for the live
-    season (measured 2026-10-02: 100% of 2025-26's filter players are in the
-    index, but only 23% of 2024-25's and 24% of 2023-24's - the endpoint
-    answers a back season with a fraction of the league), and the prior spans
-    seasons.
+    * The index only answers for the LIVE season. Measured 2026-10-25, it
+      covers 582 of 582 players in 2025-26 and 516 in 2026-27, but 99, 138
+      and 132 for 2022-23, 2023-24 and 2024-25 - and of the 17 players whose
+      ``C-F`` listing makes the convention file them as forwards, ZERO appear
+      in any back-season index. There is no historical primary to retrieve.
+    * Applying it only from 2025-26 onward reprices the TEAM centre segment
+      part-way through the feature's history. The share of centre-segment
+      minutes held by players whose prior cell is ``F`` runs 57.0% (2023-24),
+      51.0% (2024-25) and then 25.6% (2025-26). Segment membership does not
+      change at all - the listing is what the segments read - so the step is
+      pure re-pricing of the same men, which is noise in a training column
+      rather than a correction.
+
+    Carrying the primary BACKWARD would remove the step, but it would label a
+    2023 game with a 2026 roster designation, and the index is not
+    point-in-time even where it exists (asking it for 2025-26 returns where
+    those players stand today). So the cell stays a convention, applied to
+    every season and to the slate alike: Embiid is a forward-centre whose cell
+    is ``F`` in 2022-23 and in 2026-27. The cost is bounded and known - the
+    centre cell holds 64 players instead of 81 in 2025-26 - and it buys a
+    column that means one thing everywhere.
     """
     priority = tuple(config.PLAYER_EPM_POSITION_PRIORITY)
     assigned: dict = {}
     for position in priority:
         for player_id in by_position.get(position) or ():
             assigned.setdefault(player_id, position)
-    if primary:
-        for player_id, position in primary.items():
-            # Only where the two sources AGREE the player plays there. The
-            # collapsed cell picks the position prior the RAPM shrink layer
-            # weighs against, so it has to be a cell this season's own filter
-            # pull actually produced; an index naming a position the filter
-            # never returned for this player would create a cell nothing was
-            # counted against.
-            if (player_id in assigned
-                    and player_id in (by_position.get(position) or ())):
-                assigned[player_id] = position
     return assigned
 
 
-def positions_frame(by_position: dict,
-                    primary: dict | None = None) -> "pd.DataFrame":
+def positions_frame(by_position: dict) -> "pd.DataFrame":
     """``player_id``/``position``/``positions`` frame, or an empty one like it.
 
     Two label columns, deliberately. ``position`` is the SINGLE collapsed cell
@@ -406,18 +362,18 @@ def positions_frame(by_position: dict,
     the monitor flags). The prior keeps its single cell; the segment keeps the
     whole listing; neither can double-count in the other's arithmetic.
 
-    ``primary`` is threaded straight through to the collapsed cell. It changes
-    ONLY ``position`` - ``positions`` stays the unordered set of labels, because
-    "every player this club fields who the league lists at centre" does not care
-    which of them the league calls primary. A forward-centre stays in the C
-    segment either way; it just also stops being filed as a forward in the
-    prior.
+    The two columns answer different questions on purpose. ``position`` is the
+    single prior cell and follows one convention in every season (see
+    :func:`assign_positions` for why the league index does not decide it).
+    ``positions`` is the full listing the segments read, so a forward-centre is
+    in BOTH the F and the C segment - which is membership, not double-counting:
+    each segment is its own weighted mean over its own members.
 
     An empty result is returned as a well-formed empty frame rather than None so
     a caller can audit "no positions resolved" without a special case, and so
     the rating build can tell an empty position table apart from a missing one.
     """
-    assigned = assign_positions(by_position, primary)
+    assigned = assign_positions(by_position)
     if not assigned:
         return pd.DataFrame({"player_id": [], "position": [], "positions": []})
     listed: dict = {}

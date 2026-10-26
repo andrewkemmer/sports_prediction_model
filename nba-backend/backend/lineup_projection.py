@@ -342,6 +342,23 @@ def _position_segments(frame: pd.DataFrame):
     exploded = frame.assign(
         position=labels.astype("object").str.split("|", regex=False)
     ).explode("position")
+    # Equal-weighting (2026-10-26 ablation arm A-vs-B). A dual-listed player
+    # keeps his MEMBERSHIP in every segment the listing names - that is what
+    # holds C-segment coverage at 96% - but his opportunity weight is divided
+    # across them, so one 29.7 mpg forward-centre adds 14.85 to F and 14.85 to
+    # C instead of 29.7 to both. The segments' weights then sum to the roster
+    # rather than 118% of it, and each segment's mean moves away from the
+    # shared player toward its single-listed members.
+    #
+    # ``spans`` counts the segments he actually appears in, not the letters in
+    # his listing, so a listed position the club has no group for cannot
+    # silently discard a share of his weight.
+    if (getattr(config, "PLAYER_POSITION_WEIGHT_SPLIT", False)
+            and "_w" in exploded.columns
+            and "player_id" in exploded.columns):
+        spans = exploded.groupby("player_id")["_w"].transform("size")
+        exploded["_w"] = (pd.to_numeric(exploded["_w"], errors="coerce")
+                          .fillna(0.0) / spans.clip(lower=1).astype(float))
     yield from exploded.groupby("position", sort=False)
 
 
@@ -363,6 +380,17 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
 #: instead of refusing the whole roster. Full strength by game 5; the
 #: rating layer still shrinks thin evidence toward its priors, so an opener
 #: with no evidence at all still refuses at the blend, honestly.
+#:
+#: 2026-10-26: the ramp is a MEMBERSHIP RULE, not a rescue. It used to fire
+#: only when the full floor admitted NOBODY, which made it all-or-nothing:
+#: on 2026-10-25 five SAC players cleared 50 minutes after two games (73,
+#: 73, 72, 55, 54), so nothing fired and the remaining twelve stayed out of
+#: the pool - healthy_size 5 of 17, and pl_rapm_c equal to one player's
+#: rating in every digit. A floor the calendar has not yet permitted is now
+#: scaled for EVERY candidate inside the ramp window, and a second arm
+#: admits players on their cross-season trailing minutes (a veteran's last
+#: thirty participated games), so week one prices a rotation instead of a
+#: fragment of one. Outside the window the full floor still governs.
 _FLOOR_RAMP_TEAM_GAMES = 5
 
 #: Trailing window (in participated games) for the cross-season membership
@@ -588,11 +616,39 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
                                                 errors="coerce"))
              .sort_values(["_mpg", "player_id"], ascending=[False, True]))
     running = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
-    for idx, donor in removed.iterrows():
-        rating = pd.to_numeric(pd.Series([donor.get("rapm_shrunk")]),
-                               errors="coerce").iloc[0]
-        weight = pd.to_numeric(pd.Series([donor.get("prior_minutes_per_game")]),
-                               errors="coerce").iloc[0]
+    # Scalar fast path (2026-10-26 run-log review): the per-donor
+    # ``pd.to_numeric(pd.Series([scalar]))`` round-trip rebuilt a Series,
+    # coerced it and indexed back out for every donor (~12k a full repull),
+    # and the inner ``order.iterrows()`` rebuilt a Series per candidate per
+    # donor. One vectorised coerce per column plus index iteration reads
+    # the identical scalars: coerce maps unparseable/None to NaN exactly
+    # as the Series round-trip did, and ``np.isfinite`` sees the same
+    # operands, so the skip/absorb verdicts are unchanged.
+    if "rapm_shrunk" in removed.columns:
+        _rating_by_idx = pd.to_numeric(removed["rapm_shrunk"],
+                                       errors="coerce")
+    else:
+        _rating_by_idx = pd.Series(np.nan, index=removed.index)
+    if "prior_minutes_per_game" in removed.columns:
+        _weight_by_idx = pd.to_numeric(removed["prior_minutes_per_game"],
+                                       errors="coerce")
+    else:
+        _weight_by_idx = pd.Series(np.nan, index=removed.index)
+    # One (name, position-set) pair per candidate, in absorption order:
+    # the same rows ``order.iterrows()`` visited, without a Series per row.
+    _cands = [(name, healthy_sets.loc[name]) for name in order.index]
+    # Positional reads (not label lookups): identical per-row scalars even
+    # if an index label ever repeated, exactly as the old iterrows walk.
+    _rating_vals = _rating_by_idx.to_numpy()
+    _weight_vals = _weight_by_idx.to_numpy()
+    for _pos, idx in enumerate(removed.index):
+        rating = _rating_vals[_pos]
+        weight = _weight_vals[_pos]
+        try:
+            rating = float(rating)
+            weight = float(weight)
+        except (TypeError, ValueError):
+            continue
         if not np.isfinite(rating) or not np.isfinite(weight) or weight <= 0:
             continue
         parts = (removed_sets.loc[idx]
@@ -605,18 +661,18 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
             continue
         stats["donors"] += 1
         remaining = float(weight)
-        for _, cand in order.iterrows():
-            if not donor_set & healthy_sets.loc[cand.name]:
+        for _name, _cand_set in _cands:
+            if not donor_set & _cand_set:
                 continue
             if cap is not None:
-                room = float(cap) - float(running.loc[cand.name])
+                room = float(cap) - float(running.loc[_name])
                 if room <= 0:
                     continue
                 take = min(remaining, room)
             else:
                 take = remaining
-            running.loc[cand.name] += take
-            absorbed.loc[cand.name] += take
+            running.loc[_name] += take
+            absorbed.loc[_name] += take
             stats["absorbed_weight"] += take
             remaining -= take
             if take < float(weight):
@@ -700,31 +756,39 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                           | (recency <= config.PLAYER_EPM_RECENCY_DAYS)]
         return gated
 
-    latest = _membership(tail, min_minutes)
-    if latest.empty and pool_size and early_season:
-        # Early-season fallback, tier 1: the full floor against CROSS-SEASON
-        # trailing evidence. A veteran's 2025-26 rotation proves he is a
-        # rotation candidate tonight (2026-10-21: 423/519 pool members clear
-        # 50 on their last 30); a rookie with no trailing history maps to
-        # zero and stays refused, which is the honest answer for him.
-        if trailing_minutes is not None:
-            try:
-                lookup = (trailing_minutes.to_dict()
-                          if hasattr(trailing_minutes, "to_dict")
-                          else dict(trailing_minutes))
-            except Exception:  # noqa: BLE001 - corrupt lookup refuses nothing extra
-                lookup = {}
-            basis = (tail.player_id.astype(str).map(lookup)
-                     .fillna(0.0).astype(float).to_numpy())
-            latest = _membership(tail, min_minutes, basis=basis)
-        if latest.empty:
-            # Tier 2: nobody clears even the trailing floor (all-rookie
-            # squads, or no trailing table at all). Admit the pool on the
-            # ramped floor so the run prices priors instead of dying for
-            # the calendar; the recency gate still applies, and a team
-            # with no evidence at all still refuses at the blend below.
-            ramped = min_minutes * team_games_played / _FLOOR_RAMP_TEAM_GAMES
-            latest = _membership(tail, ramped)
+    def _trailing_basis(frame: pd.DataFrame):
+        """Per-player cross-season minutes, or None when no table was sent."""
+        if trailing_minutes is None:
+            return None
+        try:
+            lookup = (trailing_minutes.to_dict()
+                      if hasattr(trailing_minutes, "to_dict")
+                      else dict(trailing_minutes))
+        except Exception:  # noqa: BLE001 - corrupt lookup refuses nothing extra
+            lookup = {}
+        return (frame.player_id.astype(str).map(lookup)
+                .fillna(0.0).astype(float).to_numpy())
+
+    if early_season:
+        # The ramped floor applies to EVERY candidate, and the cross-season
+        # arm is ORed in rather than tried only after a total refusal. A
+        # veteran's 2025-26 rotation proves he is a rotation candidate even
+        # when this season has given him nothing yet (2026-10-21: 423/519
+        # pool members cleared 50 on their last 30); a rookie with no
+        # trailing history maps to zero and has to clear the ramped floor on
+        # his own minutes, which is the honest answer for him. The recency
+        # gate inside ``_membership`` still applies to both arms.
+        ramped = min_minutes * team_games_played / _FLOOR_RAMP_TEAM_GAMES
+        own = _membership(tail, ramped)
+        basis = _trailing_basis(tail)
+        if basis is None:
+            latest = own
+        else:
+            cross = _membership(tail, min_minutes, basis=basis)
+            latest = pd.concat([own, cross], ignore_index=True).drop_duplicates(
+                subset=["player_id"], keep="first")
+    else:
+        latest = _membership(tail, min_minutes)
 
     # STEP 3 - FILTER. Injury removes the player from the pool entirely so a
     # replacement inherits the slot. Availability is re-evaluated AS OF the

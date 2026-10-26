@@ -1265,8 +1265,11 @@ class TestPositionRapmBuildSurvivesAColdCache:
             {"player_id": 1.0, "season": "2025-26", "position": "G"},
             {"player_id": 2.0, "season": "2025-26", "position": "F"},
         ])
+        # ``refresh=True`` is what the pipeline asks for now, so the stub has
+        # to accept it: a lambda pinned to the old signature fails at the call
+        # site rather than at an assertion, which reads as a build error.
         monkeypatch.setattr(mp.ingestion, "_fetch_positions",
-                            lambda season, use_cache=True: frame)
+                            lambda season, use_cache=True, refresh=False: frame)
         return frame
 
     def test_an_empty_positions_directory_builds_instead_of_raising(
@@ -1394,3 +1397,125 @@ class TestTrailingMembershipMinutes:
             pd.DataFrame(), "2026-10-21")) == 0
         assert len(proj.trailing_membership_minutes(
             pd.DataFrame([{"player_id": "a"}]), "2026-10-21")) == 0
+
+
+# ===========================================================================
+# Early-season membership: the ramp is a rule, not a rescue
+# ===========================================================================
+
+
+class TestEarlySeasonMembershipRamp:
+    """2026-10-25: five SAC players cleared 50 minutes after two games, so the
+    old ``latest.empty`` tier never fired and the pool priced 5 of 17 - with
+    ``pl_rapm_c`` coming out as one player's rating in every digit. The ramped
+    floor now applies to every candidate inside the window, and cross-season
+    trailing minutes are a second arm rather than a last resort.
+    """
+
+    TEAM = "SAC"
+    DAY = "2026-10-25"
+
+    def _work(self, minutes):
+        rows = []
+        for player, total in minutes.items():
+            rows.append({
+                "player_id": player, "team": self.TEAM,
+                "gameday": pd.Timestamp(self.DAY),
+                "rapm_shrunk": -0.05,
+                "prior_minutes": float(total),
+                "prior_minutes_per_game": (total / 2.0) if total else np.nan,
+                "is_available": True, "days_since_appearance": 2.0,
+                "position": "F", "positions": "F",
+            })
+        return pd.DataFrame(rows)
+
+    def _project(self, work, games_played, trailing=None):
+        return proj._project_team(
+            work, self.TEAM, self.DAY, None,
+            lookback_days=10, min_minutes=config.PLAYER_RAPM_MIN_MINUTES,
+            top_k=8, rest_minutes=100, top5_k=5,
+            team_games_played=games_played, trailing_minutes=trailing)
+
+    def test_every_candidate_clearing_the_ramped_floor_is_admitted(self):
+        """Two games in, the floor is 50 * 2/5 = 20 - not 50.
+
+        The old code returned 2 here (73 and 55), because somebody cleared
+        the full floor and therefore suppressed the ramp entirely.
+        """
+        work = self._work({"a": 73, "b": 55, "c": 45,
+                           "d": 20, "e": 15, "f": 5})
+        row = self._project(work, games_played=2)
+        assert row["pool_size"] == 6
+        assert row["healthy_size"] == 4
+
+    def test_trailing_minutes_admit_a_veteran_with_no_season_minutes(self):
+        work = self._work({"veteran": 0, "rookie": 0})
+        row = self._project(work, games_played=1,
+                            trailing={"veteran": 300.0, "rookie": 0.0})
+        assert row["healthy_size"] == 1
+
+    def test_the_opener_admits_the_whole_available_pool(self):
+        """A zero floor is the honest floor at game zero: nobody can have
+        accumulated in-season evidence, and the rating layer shrinks every
+        member toward his prior. The old code did this only when the pool was
+        empty; it now does it consistently.
+        """
+        work = self._work({"a": 73, "b": 55, "c": 5})
+        row = self._project(work, games_played=0)
+        assert row["healthy_size"] == 3
+
+    def test_outside_the_window_the_full_floor_still_governs(self):
+        work = self._work({"a": 73, "b": 55, "c": 45, "d": 20})
+        row = self._project(work, games_played=10)
+        assert row["healthy_size"] == 2
+
+    def test_an_unknown_calendar_keeps_the_conservative_full_floor(self):
+        """No schedule means no games-played count, so the ramp cannot arm.
+        Guessing a floor from nothing would be worse than the thin pool.
+        """
+        work = self._work({"a": 73, "b": 55, "c": 45})
+        row = self._project(work, games_played=None)
+        assert row["healthy_size"] == 2
+
+
+class TestPositionWeightSplit:
+    """Ablation arm B: equal-weighting across the segments a player is in.
+
+    Membership does not move - a forward-centre is still in both the F and the
+    C group - so coverage is untouched and only the BLEND changes. That is the
+    distinction that makes this arm worth measuring: sole membership reached the
+    same weight total by dropping C-segment coverage from 96% of team-games to
+    64-79%, which is a much larger change than the double count it fixed.
+    """
+
+    @staticmethod
+    def _ratings():
+        # 300 minutes over 10 games = 30 mpg; 240/10 = 24 mpg.
+        frame = pd.DataFrame([
+            _rating("dual", "BOS", "2026-03-01", 0.60, 300),
+            _rating("centre", "BOS", "2026-03-01", 0.20, 240),
+        ])
+        frame["position"] = ["F", "C"]
+        frame["positions"] = ["F|C", "C"]
+        return frame
+
+    def test_incumbent_gives_a_dual_player_his_whole_weight_in_both(
+            self, monkeypatch):
+        # Patch the module the CODE reads, not the one the test imported: when
+        # the suite is collected as a package the module under test holds
+        # ``backend.config``, and a top-level patch would silently miss.
+        monkeypatch.setattr(proj.config, "PLAYER_POSITION_WEIGHT_SPLIT", False)
+        row = _bos(proj.projected_lineup(self._ratings()))
+        assert row.pl_rapm_c == pytest.approx((30 * 0.60 + 24 * 0.20) / 54)
+
+    def test_split_halves_the_dual_players_weight_in_each_segment(
+            self, monkeypatch):
+        monkeypatch.setattr(proj.config, "PLAYER_POSITION_WEIGHT_SPLIT", True)
+        row = _bos(proj.projected_lineup(self._ratings()))
+        assert row.pl_rapm_c == pytest.approx((15 * 0.60 + 24 * 0.20) / 39)
+        # He is the only forward, so halving his weight leaves the F value
+        # alone - the split moves a segment only where it has company.
+        assert row.pl_rapm_f == pytest.approx(0.60)
+        # Membership is untouched: both segments still exist.
+        assert row.pl_rapm_c_eligible == 1.0
+        assert row.pl_rapm_f_eligible == 1.0

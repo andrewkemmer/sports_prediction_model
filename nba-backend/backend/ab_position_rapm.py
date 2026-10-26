@@ -73,18 +73,23 @@ def build_player_games():
                       CACHE.glob("positions/positions_*.parquet")})
     positions = []
     for season in seasons:
-        # Newest first: v3's collapsed cell follows the league's own primary,
-        # v2's follows the local convention but still carries the listing the
-        # segments read, and v1 - still on disk from before the listing existed
-        # - has no listing at all. The fallbacks are outage paths, so the first
-        # file present wins and none of them is silently upgraded.
+        # Newest first: v3 carries the listing the segments read, v2 carries it
+        # without the versioned name, and v1 - still on disk from before the
+        # listing existed - has no listing at all. The fallbacks are outage
+        # paths, so the first file present wins and none is silently upgraded.
+        #
+        # The collapsed CELL is re-derived here because a v3 file written
+        # before 2026-10-25 stores the league-primary cell that production no
+        # longer uses; reading it raw would run this A/B on a different
+        # position policy than the pipeline it is meant to inform.
         path = next((CACHE / "positions" / f"positions_v{v}_{season}.parquet"
                      for v in (3, 2)
                      if (CACHE / "positions"
                          / f"positions_v{v}_{season}.parquet").exists()),
                     CACHE / "positions" / f"positions_{season}.parquet")
         if path.exists():
-            frame = pd.read_parquet(path)
+            import ingestion as ing
+            frame = ing._convention_cell(pd.read_parquet(path))
             frame["season"] = season
             positions.append(frame)
     frame = rapm_mod.prepare_player_games(

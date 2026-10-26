@@ -103,7 +103,23 @@ RFE_MAX_STEPS = 120
 # shrinkage strictly prior. Existing v2.7 models require a synchronized rebuild.
 # v2.9 admits current membership from bounded, dated official observations;
 # same-day/future pulls never backfill roster knowledge into historical rows.
-FEATURE_SET_VERSION = "nba-prod-v2.9-rapm-dated-rosters"
+# v3.0 returns the position prior's collapsed cell to the G->F->C convention in
+# every season. v2.5's league-primary cell cannot be applied uniformly: the
+# endpoint answers the live season only (582 rows for 2025-26, 516 for 2026-27,
+# 99/138/132 for 2022-24, and NONE of the 17 C-F centres it exists to
+# reclassify), so applying it from 2025-26 forward repriced the team centre
+# segment mid-history - the share of centre-segment minutes held by a player
+# whose cell is F runs 51% in 2024-25 and 26% in 2025-26. See
+# nba_sources.assign_positions for the measurement. Rebuild features, OOF and
+# refits together; the cell also decides which position mean a rating shrinks
+# toward, so a mixed frame is not comparable across the boundary.
+# v3.1 ships the position ablation's arm D: equal-weighting for a player listed
+# at more than one position (his opportunity weight is halved across the
+# segments he is in, which removes the 118%-of-roster double count without
+# moving membership), the 5-game membership ramp for a club's first games, and
+# the previous-season carry for a season's opening game. Rebuild features, OOF
+# and refits together - all three change pl_rapm_* values.
+FEATURE_SET_VERSION = "nba-prod-v3.1-rapm-split-weights"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -831,17 +847,6 @@ PLAYER_EPM_POSITIONS = ("G", "F", "C")
 #: theoretical. Most-specific-first, then narrowest-position-first, is the
 #: order the enumeration is walked in.
 PLAYER_EPM_POSITION_PRIORITY = ("G", "F", "C")
-#: The fraction of a season's players that ``playerindex`` must cover before its
-#: PRIMARY position is allowed to decide the collapsed cell; below it, every
-#: player in that season keeps the ``PLAYER_EPM_POSITION_PRIORITY`` convention.
-#: This is a coverage gate, not a tuning knob, and it exists because the
-#: endpoint degrades silently rather than failing: measured live 2026-10-02 it
-#: answers 2025-26 completely (582 of 582 filter players) but a BACK season
-#: with about a quarter of the league (131 of 569 for 2024-25, 135 of 572 for
-#: 2023-24), and it returns HTTP 200 either way. 0.90 sits far above the ~24% a
-#: truncated back-season index measures and far below the 100% a live one
-#: does, so the two are not confusable.
-PLAYER_EPM_PRIMARY_MIN_COVERAGE = 0.90
 #: RAPM ridge strength (lambda) on the player columns of the signed
 #: single-row design; the home-court intercept column is NEVER ridged.
 #: Measured 2026-10-03 on the cached 2-season frame (.adhoc/rapm_prototype.py):
@@ -891,6 +896,42 @@ STINT_RAPM_CARRY_WEIGHT = 0.5
 #: which shrinkage does not touch: a player with three career games is not a
 #: candidate for tonight's starting five no matter how well his rate is
 #: estimated.
+#: Opener carry-forward (2026-10-26). A CLUB's first game has no
+#: strictly-prior appearance inside its own season, so the rating build used
+#: to emit no row at all for that club and every position column was NaN for
+#: it - the opener was structurally unpriceable. The gap is per TEAM: on
+#: 2026-10-21 most of the league had played on 10-20 and SAC, having not,
+#: delivered pool 16 / healthy 0 / pl_rapm_g NaN. The previous season's
+#: end-state ratings ARE strictly prior, and carrying them forward is what a
+#: reader of the first game would use. When True, any club playing a target
+#: with no prior appearance in its season is priced from the previous
+#: completed season's final target: it keeps its end beta,
+#: ``days_since_appearance`` is NaN (the new season has not started for that
+#: club, which the recency gate exempts by design), and every row is stamped
+#: ``roster_source='carry_prior'``. Clubs that already have in-season
+#: evidence - and the league opener, where nobody does and the normal
+#: evidence-season fallback already fits from last season - are untouched.
+PLAYER_RAPM_OPENER_CARRY = True
+
+#: Equal-weighting across position segments. A player listed at two positions
+#: contributes HALF his opportunity weight to each segment instead of his whole
+#: weight to both, so the three segments' weights sum to the roster's minutes
+#: instead of 118% of them (measured: mean 1.18x, max 1.47x on 2026-04-10).
+#: Membership does not move - every player the listing names is still in every
+#: segment it names - so this changes the BLEND and never the coverage, which is
+#: why it addresses the double count without the 96%->64-79% C-segment loss that
+#: sole membership measured.
+#:
+#: ADOPTED 2026-10-26 on the four-arm walk-forward ablation (4712 settled games,
+#: 85 folds, 3369 graded OOF rows, identical folds and contract across arms):
+#: incumbent 0.60172 logloss / 0.73167 AUC / 0.01495 ECE; +split 0.60104 /
+#: 0.73253 / 0.01471; +ramp+carry 0.60160 / 0.73196 / 0.01140; +both 0.60109 /
+#: 0.73258 / 0.01287. The split improves every metric in both of its pairings
+#: and wins 38 of 64 folds on log loss in each, so it ships with the ramp and
+#: the opener carry rather than on its own: jointly they are the best AUC,
+#: logloss and Brier of the four arms.
+PLAYER_POSITION_WEIGHT_SPLIT = True
+
 PLAYER_RAPM_MIN_MINUTES = 50
 # Recency gate for the projected-lineup pool (availability audit 2026-09-28):
 # a rating row whose season evidence is older than this is a PHANTOM - a
