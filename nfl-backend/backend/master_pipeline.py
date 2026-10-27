@@ -878,7 +878,10 @@ def main(argv: list[str] | None = None) -> int:
                     logger.warning("player stats pull failed for %s: %s", s, exc)
         except Exception as exc:  # noqa: BLE001
             logger.warning("QB stats pull failed: %s", exc)
-        qb_df = qb_enrichment.enrich_slate(slate, qb_stats)
+        qb_df = qb_enrichment.enrich_slate(
+            slate, qb_stats,
+            roster_unavailable=roster_unavailable,
+            weekly_injuries=weekly_injuries)
     else:
         slate = pd.DataFrame()
         qb_df = pd.DataFrame()

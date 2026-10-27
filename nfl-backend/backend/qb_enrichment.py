@@ -12,13 +12,17 @@ representation rather than last season's numbers). The starter is the
 ANNOUNCED name from the schedule when published; when the schedule does
 not yet carry starter names (early-season slates), the starter is derived
 from the same season-to-date frame: the QB with the most pass attempts
-(the de-facto starter), named by his most recent start. Never fabricated:
-no prior completed games, or a failed pull, yields the missing
-representation (None).
+(the de-facto starter), named by his most recent start. A starter who is
+unavailable for the slate week -- roster RES/INA/CUT/SUS/PUP, or a
+weekly-report Out/IR/Doubtful row -- is NOT rendered as the starter; the
+derivation is repeated over the available QBs so the card names the QB
+who can actually play. Never fabricated: no prior completed games, or a
+failed pull, yields the missing representation (None).
 """
 from __future__ import annotations
 
 import logging
+import re
 
 import numpy as np
 import pandas as pd
@@ -31,6 +35,67 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 _QB_FIELDS = config.QB_FIELDS
+
+# The card's availability gate uses the same designation classifier as the
+# production injury-share and EPA-lineup families: Out / IR (including the
+# ``Injured Reserve`` phrase) / Doubtful. Questionable stays eligible.
+_CARD_OUT_TOKENS = frozenset({"out", "ir", "doubtful"})
+
+
+def _injured_report_status(status: object) -> bool:
+    """True for the Out / IR / Doubtful spellings (Questionable is eligible)."""
+    if status is None or (isinstance(status, float) and status != status):
+        return False
+    tokens = re.findall(r"[a-z]+", str(status).strip().lower())
+    injured_reserve = any(tokens[i:i + 2] == ["injured", "reserve"]
+                          for i in range(len(tokens) - 1))
+    return bool(set(tokens) & _CARD_OUT_TOKENS) or injured_reserve
+
+
+def _availability_keys(roster_unavailable: pd.DataFrame | None,
+                       weekly_injuries: pd.DataFrame | None
+                       ) -> set[tuple[int, int, str, str]]:
+    """(season, week, canonical team, player id) keys unavailable for the card.
+
+    ``roster_unavailable`` is ingestion.roster_unavailable_table's output
+    (same-week RES/INA/CUT/SUS/PUP plus the W-1 carry). ``weekly_injuries``
+    contributes its Out/IR/Doubtful rows; Questionable stays eligible. Both
+    feeds are pre-kickoff by construction, so no timestamp gate is needed.
+    Unknown or missing keys are ignored rather than guessed.
+    """
+    keys: set[tuple[int, int, str, str]] = set()
+
+    def _add(season, week, team, player_id) -> None:
+        try:
+            s = int(season)
+            w = int(week)
+        except (TypeError, ValueError):
+            return
+        t = str(team).strip().upper() if team is not None else ""
+        if not t:
+            return
+        t = str(config.canonical_team(t)).strip().upper()
+        pid = str(player_id).strip() if player_id is not None else ""
+        if not pid or pid.lower() in {"nan", "none", "<na>", "null"}:
+            return
+        keys.add((s, w, t, pid))
+
+    if (roster_unavailable is not None and len(roster_unavailable)
+            and {"season", "week", "team", "player_id"}
+            <= set(roster_unavailable.columns)):
+        for r in roster_unavailable[["season", "week", "team",
+                                     "player_id"]].itertuples(index=False):
+            _add(*r)
+    if (weekly_injuries is not None and len(weekly_injuries)
+            and {"season", "week", "team", "gsis_id", "report_status"}
+            <= set(weekly_injuries.columns)):
+        wi = weekly_injuries[["season", "week", "team", "gsis_id",
+                              "report_status"]]
+        for season, week, team, gsis_id, status in wi.itertuples(index=False):
+            if _injured_report_status(status):
+                _add(season, week, team, gsis_id)
+    return keys
+
 
 def _passer_rating(row) -> float | None:
     """NFL passer rating from a single-game stat line; None when incomplete."""
@@ -115,7 +180,11 @@ def _derive_starter(team_rows: pd.DataFrame) -> str | None:
 
 
 def enrich_slate(slate_df: pd.DataFrame,
-                 stats_by_season: dict[int, pd.DataFrame] | None = None) -> pd.DataFrame:
+                 stats_by_season: dict[int, pd.DataFrame] | None = None,
+                 *,
+                 roster_unavailable: pd.DataFrame | None = None,
+                 weekly_injuries: pd.DataFrame | None = None
+                 ) -> pd.DataFrame:
     """Attach the QB contract fields to a slate frame.
 
     ``stats_by_season`` maps season -> player-stats frame (injected by the
@@ -124,13 +193,22 @@ def enrich_slate(slate_df: pd.DataFrame,
     ``home_qb_name``/``away_qb_name``) against recorded player_name; when
     the schedule does not yet publish starters, the starter is derived from
     the season-to-date frame (most pass attempts over the team's completed
-    games this season)."""
+    games this season).
+
+    ``roster_unavailable`` and ``weekly_injuries`` are the same availability
+    feeds the EPA lineup family consumes. They are optional: when supplied,
+    an announced or derived starter who is unavailable for the slate week
+    is replaced by the available QB with the most pass attempts in the same
+    season-to-date window, so the card never names an IR/Out QB as the
+    starter. When both are absent the historical behavior is unchanged."""
     out = slate_df.copy()
     for f in _QB_FIELDS:
         out[f] = None
 
     if stats_by_season is None:
         return out
+
+    unavailable = _availability_keys(roster_unavailable, weekly_injuries)
 
     # Season-to-date window (MLB sp_era/sp_k9 card parity): this team's
     # completed REGULAR-SEASON games of the SLATE'S OWN season strictly
@@ -170,24 +248,52 @@ def enrich_slate(slate_df: pd.DataFrame,
         if season is None or not stats_by_season:
             return {f: None for f in _QB_FIELDS if f"qb_{side}" in f}
 
+        team_key = str(team).strip().upper() if team is not None else ""
+        if team_key:
+            team_key = str(config.canonical_team(team_key)).strip().upper()
+
         window = _prior_window(str(team), season, week)
         if not len(window):
             return {f: None for f in _QB_FIELDS if f"qb_{side}" in f}
 
+        # Availability is week-keyed: drop the unavailable players BEFORE the
+        # starter derivation and the announced-name lookup. This is what makes
+        # a roster RES/IR starter (or an Out/Doubtful report row) fall through
+        # to the healthy QB instead of being echoed from the schedule.
+        if unavailable and team_key and "player_id" in window.columns:
+            pids = window["player_id"].astype(str)
+            keep = np.array([(season, week, team_key, pid) not in unavailable
+                             for pid in pids], dtype=bool)
+            window = window[keep]
+            if not len(window):
+                return {f: None for f in _QB_FIELDS if f"qb_{side}" in f}
+
         # Starter resolution: the ANNOUNCED name from the schedule when
         # published; otherwise the de-facto starter from the season-to-date
         # window (most pass attempts over the team's games this season).
+        # An unavailable announced starter is discarded, not rendered.
         name = row.get(f"{side}_qb_name")
-        if not (isinstance(name, str) and name.strip()):
+        name = name.strip() if isinstance(name, str) and name.strip() else None
+        qid = row.get(f"{side}_qb_id")
+        qid = qid.strip() if isinstance(qid, str) and qid.strip() else None
+        if qid is None and name and "player_name" in window.columns:
+            same = window.loc[window["player_name"].astype(str).str.strip()
+                              == name, "player_id"]
+            if len(same):
+                qid = str(same.iloc[0])
+        if qid and (season, week, team_key, qid) in unavailable:
+            name = None
+            qid = None
+        if name is None:
             name = _derive_starter(window)
+            qid = None
         if not name:
             return {f: None for f in _QB_FIELDS if f"qb_{side}" in f}
 
         # The starter's own rows: match the announced name when given, else
         # the derived starter's id. Both routes take his season-to-date games.
-        if isinstance(row.get(f"{side}_qb_id"), str) and row.get(f"{side}_qb_id"):
-            own = window[window.get("player_id").astype(str)
-                         == str(row.get(f"{side}_qb_id"))]
+        if qid:
+            own = window[window.get("player_id").astype(str) == qid]
         else:
             own = window[window["player_name"] == name]
         if not len(own):

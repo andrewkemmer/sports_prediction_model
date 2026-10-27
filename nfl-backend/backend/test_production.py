@@ -1248,6 +1248,55 @@ check("de-facto starter derives from the season-to-date window",
       f"name={_qb_drv['qb_home_name']} (franchise history would pick "
       "Veteran V)")
 
+# Availability-aware starter resolution (2026-10-26 Week 7 PHI case): an
+# unavailable announced starter must not be echoed from the schedule; the
+# healthy QB with the most attempts in the same window takes the card.
+_qb_roster_out = pd.DataFrame([
+    {"season": 2026, "week": 20, "team": "PHI", "player_id": "p_new"},
+])
+_qb_roster_fix = qb_enrichment.enrich_slate(
+    _qb_slate(20), _qb_stats, roster_unavailable=_qb_roster_out).iloc[0]
+check("QB card replaces a roster-unavailable starter with the healthy backup",
+      _qb_roster_fix["qb_home_name"] == "Backup Bob"
+      and np.isclose(float(_qb_roster_fix["qb_home_td_per_game"]), 0.0),
+      f"name={_qb_roster_fix['qb_home_name']}")
+
+_qb_report_out = pd.DataFrame([
+    {"season": 2026, "week": 20, "team": "PHI", "gsis_id": "p_new",
+     "report_status": "Out"},
+])
+_qb_report_fix = qb_enrichment.enrich_slate(
+    _qb_slate(20), _qb_stats, weekly_injuries=_qb_report_out).iloc[0]
+check("QB card replaces a weekly-report Out starter",
+      _qb_report_fix["qb_home_name"] == "Backup Bob",
+      f"name={_qb_report_fix['qb_home_name']}")
+
+_qb_questionable = pd.DataFrame([
+    {"season": 2026, "week": 20, "team": "PHI", "gsis_id": "p_new",
+     "report_status": "Questionable"},
+])
+_qb_q = qb_enrichment.enrich_slate(
+    _qb_slate(20), _qb_stats, weekly_injuries=_qb_questionable).iloc[0]
+check("QB card keeps a Questionable starter eligible",
+      _qb_q["qb_home_name"] == "New Starter",
+      f"name={_qb_q['qb_home_name']}")
+
+_qb_derived_fix = qb_enrichment.enrich_slate(
+    _qb_slate(20, announce=False), _qb_stats,
+    roster_unavailable=_qb_roster_out).iloc[0]
+check("de-facto QB derivation skips an unavailable starter",
+      _qb_derived_fix["qb_home_name"] == "Backup Bob",
+      f"name={_qb_derived_fix['qb_home_name']}")
+
+_qb_other_week = pd.DataFrame([
+    {"season": 2026, "week": 19, "team": "PHI", "player_id": "p_new"},
+])
+_qb_other = qb_enrichment.enrich_slate(
+    _qb_slate(20), _qb_stats, roster_unavailable=_qb_other_week).iloc[0]
+check("QB card availability is keyed to the slate week",
+      _qb_other["qb_home_name"] == "New Starter",
+      f"name={_qb_other['qb_home_name']}")
+
 # calibration JSON contract
 cal_path = tmp / "nfl_calibration_test.json"
 serve_mod.write_calibration_json(cal_path, {"auc": 0.6, "brier": 0.24, "logloss": 0.68, "ece": 0.05},
