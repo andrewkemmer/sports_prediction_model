@@ -29,13 +29,13 @@
    "crps": 10.471
   },
   "run_line": {
-   "n": 1827,
-   "actual_win_rate": 0.5167,
-   "win_rate": 0.5167,
+   "n": 1828,
+   "actual_win_rate": 0.5164,
+   "win_rate": 0.5164,
    "predicted_mean": 0.5075,
-   "auc": 0.5064,
-   "ece_raw": 0.023,
-   "ece_calibrated": 0.023,
+   "auc": 0.5061,
+   "ece_raw": 0.0237,
+   "ece_calibrated": 0.0237,
    "brier": 0.2499,
    "logloss": 0.6929,
    "holdout": {
@@ -100,11 +100,11 @@
   {
    "card": "run_line",
    "date": "2026-10-28",
-   "ece_calibrated": 0.023,
+   "ece_calibrated": 0.0237,
    "brier": 0.2499,
    "logloss": 0.6929,
    "predicted_mean": 0.5075,
-   "n": 1827
+   "n": 1828
   },
   {
    "card": "derived_ml",
@@ -121,16 +121,16 @@
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "priced_by": "inverse_calibrated_cdf_monte_carlo",
   "variance": {
-   "home_variance": 1.2098357213587596,
-   "away_variance": 1.240927072844323,
-   "correlation": 0.2538770563000283,
-   "total_skew": 0.029490629917988707,
-   "margin_skew": -0.00595315071483931,
+   "home_variance": 1.209836405233591,
+   "away_variance": 1.2409266442995592,
+   "correlation": 0.25387714898841934,
+   "total_skew": 0.02949071981053153,
+   "margin_skew": -0.005953162785916997,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 19.544351289312885,
-    "intercept": 0.27003920604637155,
-    "pace_mean": 0.03617631864133904,
+    "slope": 19.543249133188006,
+    "intercept": 0.2700413183842997,
+    "pace_mean": 0.036176309039803005,
     "cap": 6.0
    }
   },
@@ -142,9 +142,9 @@
     "n_test": 1130,
     "significant": false,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0001939246643694841,
-    "residual_mae_after": 0.0001586974837870142,
-    "delta_l1": 0.030486000000000003,
+    "residual_mae_before": 0.00019392473620103158,
+    "residual_mae_after": 0.00015869586807493896,
+    "delta_l1": 0.030487,
     "delta_max": 0.001362,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
@@ -257,7 +257,7 @@
       {
        "bin": 14,
        "role": "donor",
-       "residual": 0.000619,
+       "residual": 0.000618,
        "capacity": 0.0,
        "drawn": 0.0
       },
@@ -296,8 +296,8 @@
     "n_test": 1130,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 8.01666864226331e-05,
-    "residual_mae_after": 6.181059436778422e-05,
+    "residual_mae_before": 8.016668447671243e-05,
+    "residual_mae_after": 6.181059181670128e-05,
     "delta_l1": 0.076429,
     "delta_max": 0.005259,
     "collateral_max_excess": 0.000426,
