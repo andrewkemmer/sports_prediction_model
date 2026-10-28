@@ -9,14 +9,14 @@
    "actual_win_rate": 0.4783,
    "win_rate": 0.4783,
    "predicted_mean": 0.5149,
-   "auc": 0.5232,
+   "auc": 0.523,
    "ece_raw": 0.0366,
    "ece_calibrated": 0.0366,
    "brier": 0.2506,
    "logloss": 0.6943,
    "holdout": {},
    "source": "oof_decided_store",
-   "crps": 6.8763
+   "crps": 6.8764
   },
   "run_line": {
    "n": 1545,
@@ -106,16 +106,16 @@
   "distribution": "causal_split_skew_crps_mc",
   "family": "two_sided_asymmetric_gaussian_split_skew",
   "variance": {
-   "home_variance": 3.799762417786214,
-   "away_variance": 4.0229513887329995,
-   "correlation": 0.031224007648469294,
-   "total_skew": 0.07023908842879197,
-   "margin_skew": 0.02077410613950744,
+   "home_variance": 3.7997647152704506,
+   "away_variance": 4.022991826623175,
+   "correlation": 0.03122795713311094,
+   "total_skew": 0.07023990123294128,
+   "margin_skew": 0.020774087957280817,
    "total_parity_alpha": 0.0,
    "total_tilt": {
-    "slope": 7.677965148622824,
-    "intercept": 0.07119348845703967,
-    "pace_mean": 0.03688114480901786,
+    "slope": 7.673908317489724,
+    "intercept": 0.07124973459998055,
+    "pace_mean": 0.036879866487587384,
     "cap": 6.0
    }
   },
@@ -127,8 +127,8 @@
     "n_test": 780,
     "significant": true,
     "basis": "localized_per_bin_shrinkage",
-    "residual_mae_before": 0.0009172636122034171,
-    "residual_mae_after": 0.0006794224337740528,
+    "residual_mae_before": 0.0009172615411018547,
+    "residual_mae_after": 0.0006794213164725877,
     "delta_l1": 0.06526599999999999,
     "delta_max": 0.00566,
     "collateral_max_excess": 0.0,
@@ -153,7 +153,7 @@
      "k_ties": 9,
      "n": 2601,
      "model_p0": 0.028873,
-     "p_value": 2.4415713856585153e-22,
+     "p_value": 2.4414892395686623e-22,
      "t": 0.003374,
      "significant": true
     },
@@ -279,7 +279,7 @@
      ],
      "relief_boost": 1.0,
      "significant": true,
-     "delta_l1": 0.08689
+     "delta_l1": 0.086891
     },
     "target": "margin",
     "sport": "nfl",
@@ -287,9 +287,9 @@
     "n_test": 780,
     "significant": true,
     "basis": "localized_per_bin_shrinkage+relief",
-    "residual_mae_before": 0.0006853164511853863,
-    "residual_mae_after": 0.0002590546064342952,
-    "delta_l1": 0.319072,
+    "residual_mae_before": 0.0006853187504452918,
+    "residual_mae_after": 0.00025905676499409636,
+    "delta_l1": 0.319073,
     "delta_max": 0.046426,
     "collateral_max_excess": 0.0,
     "collateral_ok": true,
