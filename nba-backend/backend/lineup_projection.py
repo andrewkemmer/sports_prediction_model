@@ -594,7 +594,9 @@ def _position_label_sets(frame: pd.DataFrame):
         labels = frame.get("position")
     if labels is None:
         return None
-    return (labels.astype("object").str.split("|", regex=False)
+    # Dated rookie roster rows can have no position from either source yet.
+    # Unknown is an empty set, not an invented role or an iterable NaN.
+    return (labels.fillna("").astype(str).str.split("|", regex=False)
             .map(lambda parts: {str(p).strip() for p in parts
                                  if str(p).strip()}))
 
@@ -889,6 +891,24 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
             for carried, player in zip(latest.is_available, latest.player_id)
         ]
         latest = latest.assign(is_available=available)
+
+    # PIT STAR AVAILABILITY. Read the reference set BEFORE the availability
+    # filter is allowed to choose the top three: an out star stays in the
+    # denominator, and the fourth man does not become a "star" by promotion.
+    #
+    # It is also read BEFORE the healthy-empty refusal below, because that is
+    # the case the feature exists for. ``star_out_*`` describes the FILINGS
+    # (who is designated out), not the ratings, so a pool that collapses to
+    # nobody healthy is the MOST informative reading of the six columns and
+    # returning NaN there inverts the feature: the quieter the designation
+    # news, the more the model was told. The refusal's own columns
+    # (``lineup_rapm_*``, the nine) stay NaN - those really are unpriceable.
+    #
+    # A pool refusal (no rated member in the lookback) keeps NaN for both,
+    # honestly: with no reference set there is no top three to report on, and
+    # that row is the season opener's structural hole, not a filing.
+    star_out_impact, star_out_weight_share = _star_out_aggregates(latest)
+
     healthy = latest[latest.is_available.astype(bool)]
     healthy_size = len(healthy)
     if healthy.empty:
@@ -904,15 +924,10 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 "pool_size": pool_size, "healthy_size": 0,
                 "lineup_rapm_mean": np.nan, "lineup_rapm_top3": np.nan,
                 "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
+                "star_out_impact": star_out_impact,
+                "star_out_weight_share": star_out_weight_share,
                 **{f"pl_rapm_{p.lower()}_eligible": 0.0
                    for p in config.PLAYER_EPM_POSITIONS}}
-
-    # PIT STAR AVAILABILITY. Read the reference set BEFORE the availability
-    # filter is allowed to choose the top three: an out star stays in the
-    # denominator, and the fourth man does not become a "star" by promotion.
-    # The two values are emitted for every team-game, zero when nothing in the
-    # top three is out - never only on games where a star happens to sit.
-    star_out_impact, star_out_weight_share = _star_out_aggregates(latest)
 
     # STEP 4 - RANK BY PARTICIPATION, NOT BY RATING. MLB orders the pool by
     # trailing PA and averages the rating over the top nine. Ranking by the
@@ -1160,6 +1175,44 @@ def attach_star_out_features(slate: pd.DataFrame,
     drop = [c for c in out.columns
             if c.startswith("_home_") or c.startswith("_away_")]
     return out.drop(columns=drop)
+
+
+def project_lineup_features(ratings: pd.DataFrame,
+                            games: pd.DataFrame,
+                            designations=None,
+                            name_by_id: dict | None = None,
+                            reweight: str = "waterfall",
+                            diagnostics: dict | None = None,
+                            ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Designations -> projection -> the nine + six: THE production path.
+
+    One function, so the training build, the slate build and every A/B harness
+    resolve a team's lineup number in exactly one place. They did not, and the
+    harness drifted twice: it ran ``reweight="legacy"`` while the pipeline ran
+    ``"waterfall"``, so a "replicated" incumbent arm was a different feature
+    family, and it attached the two families itself with a different sequence.
+    A harness that re-implements the thing it measures is measuring itself.
+
+    ``reweight`` defaults to the pipeline's mode deliberately: the default is
+    the shipping behaviour, and an experimental override has to say so.
+
+    Returns ``(frame, aggregates)`` - the input frame with the fifteen
+    columns attached, and the per-(game, team) projection that produced them.
+    Nothing is dropped and no row is filtered: the caller keeps its own
+    game split, because slicing here would hide which rows failed the join.
+    """
+    rated = ratings.copy() if ratings is not None else pd.DataFrame()
+    if "target_date" in rated.columns:
+        rated = rated.rename(columns={"target_date": "gameday"})
+    if "gameday" in rated.columns:
+        rated["gameday"] = pd.to_datetime(rated.gameday, errors="coerce")
+    if "is_available" not in rated.columns:
+        rated["is_available"] = True
+    rated = apply_pit_designations(rated, designations, name_by_id)
+    aggregates = projected_lineup(rated, games=games, reweight=reweight,
+                                  diagnostics=diagnostics)
+    frame = attach_position_rapm(games, aggregates)
+    return attach_star_out_features(frame, aggregates), aggregates
 
 
 def attach_lineup_rapm_impact(slate: pd.DataFrame,
