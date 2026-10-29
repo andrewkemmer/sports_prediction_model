@@ -1,7 +1,7 @@
 """Holdout A/B: baseline contract vs baseline + position-segmented RAPM.
 
 Runs the identical walk-forward over the identical games with one difference -
-whether the nine ``pl_rapm_*`` columns are in the contract - and reports the
+whether the nine ``pl_dpm_*`` columns are in the contract - and reports the
 out-of-fold metrics side by side.
 
 What makes this an honest comparison rather than two numbers:
@@ -41,7 +41,7 @@ logger = logging.getLogger("ab")
 CACHE = Path(os.environ.get("NBA_CACHE_DIR")
              or os.path.expanduser("~/.cache/sports_prediction_model/nba"))
 
-POSITION_FEATURES = [f"pl_rapm_{p}_{side}" for p in ("c", "f", "g")
+POSITION_FEATURES = [f"pl_dpm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
 
 

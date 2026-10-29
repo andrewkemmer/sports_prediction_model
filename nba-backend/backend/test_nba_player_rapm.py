@@ -557,7 +557,7 @@ class TestPositionAssignment:
         The forward-centre ("2") is the whole point: the prior divides by
         exactly one cell so no player is counted twice, while the team
         segments need him in BOTH the F and C groups or a roster whose
-        centers are all listed F-C ships pl_rapm_c as NaN - the 62%
+        centers are all listed F-C ships pl_dpm_c as NaN - the 62%
         baseline coverage the monitor flags LOW_COVERAGE.
         """
         frame = src.positions_frame({"G": {"1"}, "F": {"1", "2"},
@@ -571,7 +571,7 @@ class TestPositionAssignment:
         """The segment reads ``positions`` off the RATING row, so both stages
         must carry it: prepare joins the labels per (player, season), build
         rebuilds the roster from raw columns. A drop anywhere upstream is
-        invisible except as NaN ``pl_rapm_c`` at serve time, so the whole path
+        invisible except as NaN ``pl_dpm_c`` at serve time, so the whole path
         is pinned together rather than each hop alone.
         """
         stats = _frame([
@@ -1212,7 +1212,7 @@ class TestStrictPregameRegression:
 
     def test_manifest_does_not_claim_possession_rapm_units(self):
         import manifest
-        for stem in ("pl_rapm_c", "pl_rapm_f", "pl_rapm_g"):
+        for stem in ("pl_dpm_c", "pl_dpm_f", "pl_dpm_g"):
             # Exercise the published docs interface, not a string-only pin.
             metadata, missing = manifest.build_features_metadata([stem + "_diff"])
             assert not missing
@@ -1399,7 +1399,7 @@ class TestEvidenceSeasonFallback:
     def test_season_boundary_day_two_is_in_season_not_carryover(self):
         """Day 2+ rates strictly in-season: prior-season form is dropped.
 
-        Pins the carryover answer the drift report's STARVED/LOW pl_rapm
+        Pins the carryover answer the drift report's STARVED/LOW pl_dpm
         coverage depends on: early-season thinness is the shrinkage doing
         its job, not missing evidence. The partition exists so a new
         season's rating never blends the previous one's tail - the same

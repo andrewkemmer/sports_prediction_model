@@ -29,7 +29,7 @@ Four further properties are inherited deliberately:
   segment asks "how does this team rate at this position", and the cut is
   arbitrary there: a team whose centers rank below the eight by participation
   is centerless in the projected lineup but not on its roster, so a segment cut
-  from the lineup starves pl_rapm_c coverage for no evidentiary reason. Each
+  from the lineup starves pl_dpm_c coverage for no evidentiary reason. Each
   segment therefore blends every eligible member of the position, priced by the
   same MINUTES-PER-GAME weights - the population MLB's lineup_agg adopted when it
   dropped its nine-cut, because opportunity weighting is what makes an
@@ -64,7 +64,7 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
                # prior-MPG reference set is fixed BEFORE the availability
                # filter, so an out star stays in the denominator.
                "star_out_impact", "star_out_weight_share"] + [
-    f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
+    f"pl_dpm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS] + [
     f"pl_srapm_{stem}_{p.lower()}"
     for stem in ("net", "off", "def")
     for p in config.PLAYER_EPM_POSITIONS] + [
@@ -77,7 +77,7 @@ AGG_COLUMNS = ["gameday", "team", "pool_size", "healthy_size",
     # missingness) from a build hole, and the audit measured both paging as
     # one flat low-coverage alarm: 43.84% at day 10 of the season and
     # team-dependent holes like WAS 68.7% post-day-30.
-    f"pl_rapm_{p.lower()}_eligible" for p in config.PLAYER_EPM_POSITIONS]
+    f"pl_dpm_{p.lower()}_eligible" for p in config.PLAYER_EPM_POSITIONS]
 
 #: The seven model-facing features, as home-minus-away diffs, which is the
 #: convention ``features._attach_contract`` already uses for every other
@@ -116,7 +116,7 @@ LINEUP_RAPM_IMPACT_FEATURES = list(config.LINEUP_RAPM_IMPACT_FEATURE_COLS)
 #: impact, opportunity-weighted by playing time, on BOTH sides plus the
 #: difference. The segment blends the team's whole eligible roster at the
 #: position (shrinkage already prices a thin member), not just the
-#: projected eight - the cut that starved pl_rapm_c coverage is a lineup
+#: projected eight - the cut that starved pl_dpm_c coverage is a lineup
 #: concept, not a position concept.
 #:
 #: The sides are kept rather than differenced away because the two halves of a
@@ -129,7 +129,7 @@ LINEUP_RAPM_IMPACT_FEATURES = list(config.LINEUP_RAPM_IMPACT_FEATURE_COLS)
 #: Only G/F/C exist because that is all the free source publishes; see
 #: ``nba_injury_report`` / ``nba_sources.position_query``. A five-way guard and
 #: wing split is what a lineup model would really want and is not obtainable.
-POSITION_RAPM_SOURCES = [f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
+POSITION_RAPM_SOURCES = [f"pl_dpm_{p.lower()}" for p in config.PLAYER_EPM_POSITIONS]
 #: Published order is per-POSITION grouped - ``c_away, c_home, c_diff``, then
 #: ``f_*``, then ``g_*`` - C first, matching the contract order in
 #: ``config.PLAYER_RAPM_POSITION_FEATURE_COLS``. ``PLAYER_EPM_POSITIONS`` itself
@@ -140,7 +140,7 @@ POSITION_RAPM_SOURCES = [f"pl_rapm_{p.lower()}" for p in config.PLAYER_EPM_POSIT
 #: impact; the sides say WHO is better and by how much.
 _POSITION_PUBLISHED_ORDER = ("c", "f", "g")
 POSITION_RAPM_FEATURES = [
-    f"pl_rapm_{position}_{side}"
+    f"pl_dpm_{position}_{side}"
     for position in _POSITION_PUBLISHED_ORDER
     for side in ("away", "home", "diff")]
 
@@ -344,7 +344,7 @@ def _position_segments(frame: pd.DataFrame):
     but a team segment answers a different question: what is this club's RAPM
     at centre? Collapsing every forward-centre into F answers that with NaN
     for whole rosters: ORL's centers are both listed F-C, and 140 of the 626
-    team-games missing ``pl_rapm_c`` in the OOF frame are that labeling
+    team-games missing ``pl_dpm_c`` in the OOF frame are that labeling
     artifact rather than an injury. ``positions`` is the feed's full listing,
     so one player may price two segments - which is NOT the prior's
     double-count: each segment is its own weighted mean and nothing is summed
@@ -403,7 +403,7 @@ def _normalize(ratings: pd.DataFrame) -> pd.DataFrame:
 #: only when the full floor admitted NOBODY, which made it all-or-nothing:
 #: on 2026-10-25 five SAC players cleared 50 minutes after two games (73,
 #: 73, 72, 55, 54), so nothing fired and the remaining twelve stayed out of
-#: the pool - healthy_size 5 of 17, and pl_rapm_c equal to one player's
+#: the pool - healthy_size 5 of 17, and pl_dpm_c equal to one player's
 #: rating in every digit. A floor the calendar has not yet permitted is now
 #: scaled for EVERY candidate inside the ramp window, and a second arm
 #: admits players on their cross-season trailing minutes (a veteran's last
@@ -801,7 +801,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 "pool_size": 0, "healthy_size": 0,
                 "lineup_rapm_mean": np.nan, "lineup_rapm_top3": np.nan,
                 "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
-                **{f"pl_rapm_{p.lower()}_eligible": 0.0
+                **{f"pl_dpm_{p.lower()}_eligible": 0.0
                    for p in config.PLAYER_EPM_POSITIONS}}
     # One row per player: the most recent rating at or before the game. A
     # player's own current game can supply his prior rating but never a rating
@@ -926,7 +926,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 "lineup_rapm_std": np.nan, "lineup_rapm_rest_count": np.nan,
                 "star_out_impact": star_out_impact,
                 "star_out_weight_share": star_out_weight_share,
-                **{f"pl_rapm_{p.lower()}_eligible": 0.0
+                **{f"pl_dpm_{p.lower()}_eligible": 0.0
                    for p in config.PLAYER_EPM_POSITIONS}}
 
     # STEP 4 - RANK BY PARTICIPATION, NOT BY RATING. MLB orders the pool by
@@ -1015,8 +1015,8 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # segment describes the team's RAPM at that position, and the cut
     # is arbitrary there - a team whose centers all rank below the eight
     # by participation is centerless in the projected lineup but NOT
-    # centerless on its roster, so its pl_rapm_c stayed NaN for no reason
-    # other than the cut. That is the pl_rapm_c coverage hole the monitor
+    # centerless on its roster, so its pl_dpm_c stayed NaN for no reason
+    # other than the cut. That is the pl_dpm_c coverage hole the monitor
     # flags as STARVED: 3 of 6 team-games in the 2026-10-01 artifact,
     # each with a 16-17 man healthy roster. So the segment blends every
     # eligible member of the position, priced by the same opportunity
@@ -1030,7 +1030,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # denominator, but a segment asks which players THIS club plays at
     # centre, and collapsing every F-C to F left whole rosters (ORL:
     # Wendell Carter Jr., Goga Bitadze) with no C segment at all - most
-    # of the 62% pl_rapm_c coverage the monitor flags.
+    # of the 62% pl_dpm_c coverage the monitor flags.
     segmented: dict = {}
     eligible: dict = {}
     if "position" in healthy.columns:
@@ -1040,10 +1040,10 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 # whose members all carry unweightable ratings is eligible
                 # (1) with a refused value, so that null keeps its alarm.
                 # Only an empty segment is a refusal (0).
-                eligible[f"pl_rapm_{str(position).lower()}_eligible"] = 1.0
+                eligible[f"pl_dpm_{str(position).lower()}_eligible"] = 1.0
                 value = _blend(group)
                 if value == value:
-                    segmented[f"pl_rapm_{str(position).lower()}"] = value
+                    segmented[f"pl_dpm_{str(position).lower()}"] = value
                 # Stint O/D parallels, priced on the same weights over the
                 # same members. Present only when the ratings frame carries
                 # the stint fit (off_raw/def_raw); a game-level frame simply
@@ -1059,14 +1059,14 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                         if svalue == svalue:
                             segmented[f"pl_srapm_{stem}_{pos}"] = svalue
         for position in config.PLAYER_EPM_POSITIONS:
-            eligible.setdefault(f"pl_rapm_{position.lower()}_eligible", 0.0)
+            eligible.setdefault(f"pl_dpm_{position.lower()}_eligible", 0.0)
     else:
         # No position listing at all (a v1 frame is handled inside
         # _position_segments; this is a frame with no position column): the
         # refusal cannot be attributed, so the mask stays UNKNOWN (NaN) -
         # never "refused", which would silence a real hole, and never a
         # fabricated eligibility claim.
-        eligible = {f"pl_rapm_{p.lower()}_eligible": np.nan
+        eligible = {f"pl_dpm_{p.lower()}_eligible": np.nan
                     for p in config.PLAYER_EPM_POSITIONS}
     return {
         "gameday": pd.Timestamp(gameday),

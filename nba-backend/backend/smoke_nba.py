@@ -59,7 +59,7 @@ logger = logging.getLogger("smoke")
 UPSTREAM_SCHEDULE = "espn scoreboard: event id, date, home/away, score"
 UPSTREAM_SEASON_LOG = "stats.nba.com LeagueGameLog"
 UPSTREAM_PLAY_BY_PLAY = "stats.nba.com playbyplayv3"
-#: Fourth upstream of the ``pl_rapm_*`` family only: which players those
+#: Fourth upstream of the ``pl_dpm_*`` family only: which players those
 #: player-line ratings exclude from a game's projected lineup is decided by
 #: the pre-tipoff official injury report, published with the run's artifacts
 #: as the designations archive and consumed point-in-time.
@@ -176,7 +176,7 @@ _PL_RAPM_UPSTREAM = (
     f" -> projected lineup average ({UPSTREAM_INJURY_REPORT})"
 )
 FEATURE_UPSTREAM.update({
-    f"pl_rapm_{pos}_{side}": (_PL_RAPM_UPSTREAM if side == "diff"
+    f"pl_dpm_{pos}_{side}": (_PL_RAPM_UPSTREAM if side == "diff"
                              else f"{_PL_RAPM_UPSTREAM} ({side} side)")
     for pos in ("c", "f", "g")
     for side in ("home", "away", "diff")

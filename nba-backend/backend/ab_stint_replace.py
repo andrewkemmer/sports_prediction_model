@@ -1,7 +1,7 @@
 """Replacement A/B: incumbent game-RAPM nine vs stint-derived columns.
 
 Arms (SAME frame, SAME folds, SAME members, no retuning; PIT throughout):
-  I    incumbent : baseline + 9 game-RAPM (pl_rapm_*) -- what ships today.
+  I    incumbent : baseline + 9 game-RAPM (pl_dpm_*) -- what ships today.
   S9   stint nets: baseline - 9 game-RAPM + 9 stint nets (pl_srapm_net_*).
   S15  stint full : baseline - 9 game-RAPM + all 15 stint cols (+6 off/def).
 

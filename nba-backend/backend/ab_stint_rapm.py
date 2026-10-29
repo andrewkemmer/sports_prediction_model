@@ -37,7 +37,7 @@ CACHE = Path(os.environ.get("NBA_CACHE_DIR")
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STINTS = ROOT / "run_diagnostics" / "nba_stints.parquet"
 
-POSITION_FEATURES = [f"pl_rapm_{p}_{side}" for p in ("c", "f", "g")
+POSITION_FEATURES = [f"pl_dpm_{p}_{side}" for p in ("c", "f", "g")
                      for side in ("away", "home", "diff")]
 
 

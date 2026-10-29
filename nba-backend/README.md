@@ -15,7 +15,7 @@ baseline's worst 5% tail (+0.02631 [+0.00967, +0.04409]), so only B was
 promoted. The nine available-lineup impact columns remain candidates.
 
 The six features are built by the same PIT projected-lineup build as the nine
-`pl_rapm_*` columns: strictly-prior ratings, last pre-tipoff designations, and
+`pl_dpm_*` columns: strictly-prior ratings, last pre-tipoff designations, and
 the columns attached to both the decided frame and the slate. `smoke_nba.py`
 now expects **119 served/candidate names** and merges the star columns from the
 production build rather than treating them as all-NaN placeholders. No new
@@ -672,7 +672,7 @@ The ratings are written to `nba_player_rapm_{date}.csv` (and the projected
 lineups to `nba_player_rapm_lineups_{date}.csv`) alongside the feature
 contract. The model never consumes a single player's rating directly: what
 enters `MONEYLINE_FEATURE_COLS` is the projected lineup's per-position
-aggregate — `pl_rapm_{pos}_home/_away/_diff`, built by
+aggregate — `pl_dpm_{pos}_home/_away/_diff`, built by
 `backend/ab_position_rapm.py` from these ratings — so one player's rating moves
 a prediction only through the projected roster he is part of. That aggregate
 form is the one that was holdout-validated; adding a raw per-player column

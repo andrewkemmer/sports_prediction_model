@@ -731,11 +731,11 @@ class TestCarryProvenance:
 
     @staticmethod
     def _refusal_frame(values, flags, n=None):
-        return pd.DataFrame({"pl_rapm_c_diff": values,
-                             "_eligible_pl_rapm_c_diff": flags})
+        return pd.DataFrame({"pl_dpm_c_diff": values,
+                             "_eligible_pl_dpm_c_diff": flags})
 
     def test_a_fully_refused_family_reads_structural_and_never_pages(self, tmp_path):
-        """2026-10-08 coverage audit, medium-high finding: pl_rapm_c* was the
+        """2026-10-08 coverage audit, medium-high finding: pl_dpm_c* was the
         only served family below full coverage, and its nulls are the
         eligible pool's REFUSAL (minutes floor / 30-day recency / a feed
         listing with no centre for that club) - measured per row by
@@ -744,7 +744,7 @@ class TestCarryProvenance:
         number kept, and no coverage alert."""
         baseline = self._refusal_frame([np.nan] * 60, [0.0] * 60)
         current = self._refusal_frame([np.nan] * 40, [0.0] * 40)
-        rows = mon.coverage(baseline, current, feature_cols=["pl_rapm_c_diff"])
+        rows = mon.coverage(baseline, current, feature_cols=["pl_dpm_c_diff"])
         assert len(rows) == 2
         for row in rows:
             assert row["status"] == "STRUCTURAL"
@@ -760,9 +760,9 @@ class TestCarryProvenance:
         the old thresholds apply unchanged - the mask may only silence what
         the builder itself refused."""
         flagged = self._refusal_frame([np.nan] * 60, [1.0] * 60)
-        bare = pd.DataFrame({"pl_rapm_c_diff": [np.nan] * 60})
+        bare = pd.DataFrame({"pl_dpm_c_diff": [np.nan] * 60})
         for frame in (flagged, bare):
-            rows = mon.coverage(frame, frame, feature_cols=["pl_rapm_c_diff"])
+            rows = mon.coverage(frame, frame, feature_cols=["pl_dpm_c_diff"])
             assert {r["status"] for r in rows} == {"STARVED"}
             assert all("structural_reason" not in r for r in rows)
             assert all(r["n_pool_refused"] == 0 for r in rows)
@@ -773,7 +773,7 @@ class TestCarryProvenance:
         values = [np.nan] * 30 + [np.nan] * 20 + [0.5] * 50
         flags = [0.0] * 30 + [1.0] * 20 + [1.0] * 50
         frame = self._refusal_frame(values, flags)
-        row = mon.coverage(frame, feature_cols=["pl_rapm_c_diff"])[0]
+        row = mon.coverage(frame, feature_cols=["pl_dpm_c_diff"])[0]
         assert row["status"] == "LOW_COVERAGE"        # 50% measured
         assert "structural_reason" not in row
         assert row["n_pool_refused"] == 30            # the explained share is still reported
@@ -782,13 +782,13 @@ class TestCarryProvenance:
         values = [np.nan] * 10 + [0.5] * 90
         flags = [0.0] * 10 + [1.0] * 90
         row = mon.coverage(self._refusal_frame(values, flags),
-                           feature_cols=["pl_rapm_c_diff"])[0]
+                           feature_cols=["pl_dpm_c_diff"])[0]
         assert row["status"] == "OK"                  # never relabel a pass
         assert row["n_pool_refused"] == 10
         assert "structural_reason" not in row
 
     def test_the_mlb_projection_carries_the_reason_but_not_the_extra_field(self):
-        row = {"feature": "pl_rapm_c_diff", "window": "current",
+        row = {"feature": "pl_dpm_c_diff", "window": "current",
                "n_games": 60, "n_nonnull": 0, "pct_measured": 0.0,
                "pct_nonnull": 0.0, "n_measured": 0, "n_default_zero": 0,
                "n_pool_refused": 60, "status": "STRUCTURAL",
@@ -1918,7 +1918,7 @@ def test_production_position_features_and_rating_writer_share_dated_rosters(tmp_
         proj.attach_position_rapm(slate, aggregates), aggregates)
     assert decided is None
     pd.testing.assert_frame_equal(pending, expected)
-    assert np.isfinite(pending.pl_rapm_g_diff).all()
+    assert np.isfinite(pending.pl_dpm_g_diff).all()
     assert np.isfinite(pending.star_out_weight_share_diff).all()
     assert pending.game_id.tolist() == ["pending"]
     assert pipeline._write_player_rapm(tmp_path, "20251022", facts, slate) == "nba_player_rapm_20251022.csv"

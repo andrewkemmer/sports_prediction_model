@@ -97,6 +97,8 @@ RFE_MAX_STEPS = 120
 #: aggregation weight - rather than by prior possessions. Columns are
 #: renamed pl_rapm_* / lineup_rapm_* throughout; historical notes below
 #: keep the pl_epm spelling because that is what those versions published.
+#: (v3.3 renames the family to pl_dpm_*; the v2.6 notes keep the spelling
+#: that version published, the same convention as pl_epm above.)
 # v2.7 corrects Elo home advantage, measured efficiencies, pending-row
 # isolation and causal evaluation. Rebuild features/OOF/refits together.
 # v2.8 also makes RAPM roster membership, trades, recency and earliest-season
@@ -118,13 +120,18 @@ RFE_MAX_STEPS = 120
 # segments he is in, which removes the 118%-of-roster double count without
 # moving membership), the 5-game membership ramp for a club's first games, and
 # the previous-season carry for a season's opening game. Rebuild features, OOF
-# and refits together - all three change pl_rapm_* values.
+# and refits together - all three change pl_dpm_* values.
 # v3.2 promotes the six ``star_out_*`` availability columns (the B arm) into
 # the served contract after the 2026-10-26 four-arm walk-forward. B beat the
 # baseline on overall log loss, the star-out slice and high-confidence games;
 # D added nothing over B overall and significantly worsened the baseline tail.
 # Rebuild OOF and refits together - this widens the binary contract to 77.
-FEATURE_SET_VERSION = "nba-prod-v3.2-star-out"
+# v3.3 renames the nine position-segmented projected-lineup features from
+# ``pl_rapm_*`` to ``pl_dpm_*`` (DARKO daily plus-minus has been the rating
+# source since PLAYER_RATING_SOURCE defaulted to darko; the name now says
+# what the column is). Values are UNCHANGED - a pure rename - but every
+# consumer reads names, so rebuild features, OOF and refits together.
+FEATURE_SET_VERSION = "nba-prod-v3.3-dpm"
 
 #: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
 #: list below is a home-minus-away comparison of a ladder statistic; the
@@ -226,17 +233,17 @@ MONEYLINE_FEATURE_COLS = [
     "event_shooting_fouls_diff", "event_q4_points_diff",
     # Position-segmented projected-lineup impact - the NBA mirror of
     # MLB's lineup_woba_* trio, one per position, with sides retained:
-    #   pl_rapm_{pos}_home / _away : the projected lineup's DARKO DPM
+    #   pl_dpm_{pos}_home / _away : the projected lineup's DARKO DPM
     #                               at that position, home side / away side
-    #   pl_rapm_{pos}_diff         : home minus away
+    #   pl_dpm_{pos}_diff         : home minus away
     # Built over the WHOLE decided frame (MLB's lineup_agg construction),
     # strictly point-in-time on both axes: ratings sum only games STRICTLY
     # BEFORE each target, and a player designated Out/Doubtful/Recovery in
     # the last pre-tipoff report is removed from THAT game's pool only - his
     # rating survives on every prior game he actually played.
-    "pl_rapm_c_away", "pl_rapm_c_home", "pl_rapm_c_diff",
-    "pl_rapm_f_away", "pl_rapm_f_home", "pl_rapm_f_diff",
-    "pl_rapm_g_away", "pl_rapm_g_home", "pl_rapm_g_diff",
+    "pl_dpm_c_away", "pl_dpm_c_home", "pl_dpm_c_diff",
+    "pl_dpm_f_away", "pl_dpm_f_home", "pl_dpm_f_diff",
+    "pl_dpm_g_away", "pl_dpm_g_home", "pl_dpm_g_diff",
     # Star-out availability: the B arm adopted 2026-10-26. The diffs serve the
     # linear member; the raw sides are tree-only (RAW_PER_SIDE_COLS).
     *STAR_OUT_FEATURE_COLS,
@@ -591,7 +598,7 @@ XGBOOST_EARLY_STOP_MIN_ROWS = 30
 # parameter and setting, machine-stable n_jobs=1 / num_threads=1 on every
 # fit, selftest bit-identical before any result was trusted). Frame rebuilt
 # from the warm local cache, zero network: 3,461 settled rows, 71 features,
-# 56 folds, pl_rapm 3,272 attached, fold table EXACT match against the
+# 56 folds, pl_dpm 3,272 attached, fold table EXACT match against the
 # shipped nba_fold_table.csv on all 56 folds x 8 fields (sum n_validation
 # 2400) - production-identical, so the tune transfers.
 #
@@ -856,7 +863,7 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 #     the last season that does (the strict _evidence_season reading) and
 #     day 2+ ratings thin in from the league prior as eff-games accumulate.
 #     That early-season thinness is the shrinkage doing its job, NOT missing
-#     carryover - and it is the pl_rapm coverage the drift report reads as
+#     carryover - and it is the pl_dpm coverage the drift report reads as
 #     STARVED/LOW for the first weeks (min-minutes pool floor on top).
 #   * k is per TARGET SEASON, derived from completed prior seasons only -
 #     NHL's season_ice_time_table as_of discipline (adopted 2026-10-01).
@@ -877,7 +884,7 @@ RUN_ENGINE_FEATURE_COVERAGE_PREFIX = "nba_run_engine_feature_coverage_"
 # MLB additionally ships CROSS-SEASON recent-form windows (last-5-start rolls
 # over the prior season's tail - "no gap at the season boundary") and a
 # shrink prior that falls back to all-history-through-window. The NBA has no
-# cross-season recent-form analogue in the pl_rapm family: adopting one (or
+# cross-season recent-form analogue in the pl_dpm family: adopting one (or
 # blending the prior-season tail into the first N games' prior) is a rating
 # redefinition and needs its own holdout validation - recorded here so the
 # divergence from MLB's structure is a decision, not an oversight.
@@ -949,7 +956,7 @@ STINT_RAPM_CARRY_WEIGHT = 0.5
 #: to emit no row at all for that club and every position column was NaN for
 #: it - the opener was structurally unpriceable. The gap is per TEAM: on
 #: 2026-10-21 most of the league had played on 10-20 and SAC, having not,
-#: delivered pool 16 / healthy 0 / pl_rapm_g NaN. The previous season's
+#: delivered pool 16 / healthy 0 / pl_dpm_g NaN. The previous season's
 #: end-state ratings ARE strictly prior, and carrying them forward is what a
 #: reader of the first game would use. When True, any club playing a target
 #: with no prior appearance in its season is priced from the previous
@@ -1091,18 +1098,14 @@ PLAYER_EPM_INJURY_CUTOFF = "tipoff"   # or "prior_end_of_day"
 #: lineup impact nine below remain candidates: their C/D arms did not clear
 #: the tail gate.
 #:
-#: Defined HERE rather than beside RFE_CANDIDATE_COLS because it is derived
-#: from PLAYER_EPM_POSITIONS, which is declared further down. Building the list
-#: at the top of the module raised NameError on import.
-#: Published contract order is per-POSITION grouped - ``c_away, c_home,
-#: c_diff``, then ``f_*``, then ``g_*`` - C first, matching the user-facing
-#: feature list. ``PLAYER_EPM_POSITIONS`` stays G/F/C for the prior tables;
-#: the published column order deliberately does not inherit that internal
-#: ordering.
+#: The distribution model (and the run-engine monitor) must use the SAME
+#: production feature set as the binary moneyline - so this is NOT a second
+#: definition of the nine: it is a filtered VIEW of MONEYLINE_FEATURE_COLS
+#: above, in that list's own per-position order (``c_away, c_home, c_diff``,
+#: then ``f_*``, then ``g_*``). A stem renamed in the contract renames here
+#: by construction; the two lists cannot drift apart.
 PLAYER_RAPM_POSITION_FEATURE_COLS: list[str] = [
-    f"pl_rapm_{position}_{side}"
-    for position in ("c", "f", "g")
-    for side in ("away", "home", "diff")]
+    c for c in MONEYLINE_FEATURE_COLS if c.startswith("pl_dpm_")]
 
 #: Star-out availability features are declared with the contract above. They
 #: were candidates before the 2026-10-26 B-arm adoption; the lineup-impact nine

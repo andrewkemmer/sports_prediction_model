@@ -563,7 +563,7 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             # The seven diff features are attached to a COPY of the slate for
             # Reporting only. They are NOT added to MONEYLINE_FEATURE_COLS:
             # that changes the model and needs its own holdout gate. The
-            # family is SUPERSEDED by the nine pl_rapm_* features, which are the
+            # family is SUPERSEDED by the nine pl_dpm_* features, which are the
             # same idea built across the whole decided frame the way MLB's
             # lineup_agg is - and this per-target-date version covers one row
             # per run, which is why it was never promoted. The verdict ships
@@ -582,7 +582,7 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             _superseded_lineup_family = {
                 "status": "SUPERSEDED",
                 "note": ("per-target-date projected-lineup diffs; superseded "
-                         "by the nine pl_rapm_* features built across the whole "
+                         "by the nine pl_dpm_* features built across the whole "
                          "decided frame. Never promoted to the serving "
                          "contract, so no model depends on it."),
                 "populated_rows": populated,
@@ -924,14 +924,14 @@ def _refresh_designation_archive(games: pd.DataFrame, cache_dir=None,
 def _build_position_rapm_features(facts, games: pd.DataFrame,
                                  cache_dir: Path | None = None
                                  ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """The nine ``pl_rapm_*`` and six ``star_out_*`` features over the WHOLE
+    """The nine ``pl_dpm_*`` and six ``star_out_*`` features over the WHOLE
     decided frame, plus slate.
 
     This is MLB's ``lineup_agg`` construction, translated: ratings are built
     for EVERY decided game date (not one target date - the "1 of 2,779 rows"
     blocker), the position pools are projected per (game, team), and the nine
     position-segmented columns are attached with sides retained -
-    ``pl_rapm_{c,f,g}_{away,home,diff}`` - the same shape as MLB's
+    ``pl_dpm_{c,f,g}_{away,home,diff}`` - the same shape as MLB's
     ``lineup_woba_mean_{home,away}`` family, segmented by position instead of
     averaged over one pool.
 
@@ -970,12 +970,12 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
          for season in seasons],
         f"positions for {', '.join(seasons) or 'the window'}")
     if not len(positions):
-        logger.warning("pl_rapm features skipped: no position table; every "
+        logger.warning("pl_dpm features skipped: no position table; every "
                        "rating would fall back to an unsegmented prior")
         return None, None
     games_frame = rapm_mod.prepare_player_games(facts.player_stats, positions)
     if not len(games_frame):
-        logger.warning("pl_rapm features skipped: the player log has no "
+        logger.warning("pl_dpm features skipped: the player log has no "
                        "rateable rows")
         return None, None
 
@@ -1067,7 +1067,7 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
         reweight="waterfall", diagnostics=_waterfall)
     _log_waterfall_redistribution("position-feature build", _waterfall)
     if not len(aggregates):
-        logger.warning("pl_rapm features skipped: no team-game aggregates")
+        logger.warning("pl_dpm features skipped: no team-game aggregates")
         return None, None
 
     mask = attached.home_score.notna() & attached.away_score.notna()
@@ -1708,7 +1708,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         # The six star-out columns ride the same merge and have no mask: their
         # zero is a measured "nobody out", not a refusal.
         _pl_mask = [c for c in _pl_frame.columns
-                    if c.startswith("_eligible_pl_rapm_")]
+                    if c.startswith("_eligible_pl_dpm_")]
         game_df = game_df.drop(columns=[c for c in _pl_mask
                                         if c in game_df.columns])
         game_df = game_df.merge(
@@ -1717,7 +1717,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         _pl_attached = int(
             game_df[config.PLAYER_RAPM_POSITION_FEATURE_COLS[0]]
             .notna().sum())
-        logger.info("pl_rapm features attached: %d/%d decided rows carry them",
+        logger.info("pl_dpm features attached: %d/%d decided rows carry them",
                     _pl_attached, len(game_df))
         _star_attached = int(
             game_df[config.STAR_OUT_FEATURE_COLS[0]].notna().sum())
@@ -1750,7 +1750,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                           & (_gap_age < _recency)).sum())
             _n_rest = int(len(_gaps) - _n_look - _n_rec)
             logger.info(
-                "pl_rapm coverage gap: %d/%d decided rows lack position-rapm "
+                "pl_dpm coverage gap: %d/%d decided rows lack position-rapm "
                 "features; by days into their season: %d within the "
                 "%d-day pool lookback, %d more within the %d-day "
                 "recency window, %d beyond it - early-season rows are "

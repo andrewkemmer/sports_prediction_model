@@ -512,7 +512,7 @@ def coverage(baseline_games: pd.DataFrame,
             n_default = 0
             if feature in DEFAULT_ZERO_FEATURES and len(values):
                 n_default = int((values == 0).sum())
-            # ELIGIBILITY MASK (2026-10-08 coverage audit). pl_rapm_* goes
+            # ELIGIBILITY MASK (2026-10-08 coverage audit). pl_dpm_* goes
             # NaN when the projected pool has no builder-eligible member for
             # that team-game - the prior-minutes floor, the 30-day recency
             # gate, or a feed position listing with no centre for that club.

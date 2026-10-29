@@ -358,7 +358,7 @@ def positions_frame(by_position: dict) -> "pd.DataFrame":
     RAPM at centre" is answered by every player the league lists at centre, and
     collapsing the 47 F-C players of 2025-26 into F left whole rosters with no
     C segment at all (ORL starts Wendell Carter Jr. and Goga Bitadze - both
-    listed F-C - which is most of the 62% ``pl_rapm_c_diff`` baseline coverage
+    listed F-C - which is most of the 62% ``pl_dpm_c_diff`` baseline coverage
     the monitor flags). The prior keeps its single cell; the segment keeps the
     whole listing; neither can double-count in the other's arithmetic.
 

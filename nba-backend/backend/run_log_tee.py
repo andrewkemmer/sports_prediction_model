@@ -109,7 +109,7 @@ class _Tee:
             # (emoji banners, accented names) must never kill the run -
             # the log file above already carries the full text, so the
             # console degrades to ? marks. (2026-10-17: this exact crash
-            # at import time silently dropped the nine pl_rapm features
+            # at import time silently dropped the nine pl_dpm features
             # from an entire trial frame.)
             return self._stream.write(
                 orig.encode("ascii", errors="replace").decode("ascii"))

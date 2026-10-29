@@ -384,7 +384,7 @@ _FAMILY: dict[str, dict] = {
     # Retired player-level families (kept so the historical drift reports
     # keep their documentation): the projected-lineup pool shipped true
     # shooting (pl_ts_*) through 2026-10-01 and EPM (pl_epm_*) on 2026-10-02
-    # before the current RAPM (pl_rapm_*) family.
+    # before the current RAPM (pl_dpm_*) family.
     "pl_ts_c": {
         "summary": "Home−away projected-lineup center true shooting",
         "summary_level": "Projected-lineup center true shooting",
@@ -463,7 +463,7 @@ _FAMILY: dict[str, dict] = {
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
-    "pl_rapm_c": {
+    "pl_dpm_c": {
         "summary": "Home−away projected-lineup center DARKO DPM",
         "summary_level": "Projected-lineup center DARKO DPM",
         "definition": (
@@ -472,14 +472,14 @@ _FAMILY: dict[str, dict] = {
             "(Out/Doubtful/Recovery excluded before tip-off). Rating source is "
             "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
             "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
-        "formula": "pl_rapm_c_home − pl_rapm_c_away",
+        "formula": "pl_dpm_c_home − pl_dpm_c_away",
         "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
         "window": "DARKO DPM as of prior day; no local history file",
         "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
-    "pl_rapm_f": {
+    "pl_dpm_f": {
         "summary": "Home−away projected-lineup forward DARKO DPM",
         "summary_level": "Projected-lineup forward DARKO DPM",
         "definition": (
@@ -487,14 +487,14 @@ _FAMILY: dict[str, dict] = {
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
             "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
             "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
-        "formula": "pl_rapm_f_home − pl_rapm_f_away",
+        "formula": "pl_dpm_f_home − pl_dpm_f_away",
         "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
         "window": "DARKO DPM as of prior day; no local history file",
         "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
-    "pl_rapm_g": {
+    "pl_dpm_g": {
         "summary": "Home−away projected-lineup guard DARKO DPM",
         "summary_level": "Projected-lineup guard DARKO DPM",
         "definition": (
@@ -502,7 +502,7 @@ _FAMILY: dict[str, dict] = {
             "projected lineup, minutes-weighted and injury-filtered. Rating source is "
             "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
             "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
-        "formula": "pl_rapm_g_home − pl_rapm_g_away",
+        "formula": "pl_dpm_g_home − pl_dpm_g_away",
         "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
         "window": "DARKO DPM as of prior day; no local history file",
         "units": "DARKO DPM points (per-game impact)",

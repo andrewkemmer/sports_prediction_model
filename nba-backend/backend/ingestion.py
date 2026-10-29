@@ -874,7 +874,7 @@ def _positions_path_v1(season: str):
     Kept as the read fallback for a feed outage - single-label is the behavior
     the pipeline ran with before the listing existed, so an unreachable
     stats.nba.com degrades the segments to today's coverage instead of
-    dropping all nine ``pl_rapm_*`` features.
+    dropping all nine ``pl_dpm_*`` features.
     """
     return _cache_dir() / "positions" / f"positions_{season}.parquet"
 

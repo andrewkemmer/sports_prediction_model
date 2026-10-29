@@ -37,17 +37,17 @@ def _run(frame, **kwargs):
 def test_legacy_drops_out_weight():
     row = _run(_pool())
     # Survivor mean only: (20*1 + 10*-1) / 30.
-    assert abs(row['pl_rapm_c'] - (10.0 / 30.0)) < 1e-9
+    assert abs(row['pl_dpm_c'] - (10.0 / 30.0)) < 1e-9
     # Guard segment untouched by the centre absence.
-    assert abs(row['pl_rapm_g'] - 5.0) < 1e-9
+    assert abs(row['pl_dpm_g'] - 5.0) < 1e-9
 
 
 def test_next_man_up_moves_weight_to_top_survivor():
     diag = {}
     row = _run(_pool(), reweight='next_man_up', diagnostics=diag)
     # c1 absorbs c_out's 30: (50*1 + 10*-1) / 60.
-    assert abs(row['pl_rapm_c'] - (40.0 / 60.0)) < 1e-9
-    assert abs(row['pl_rapm_g'] - 5.0) < 1e-9
+    assert abs(row['pl_dpm_c'] - (40.0 / 60.0)) < 1e-9
+    assert abs(row['pl_dpm_g'] - 5.0) < 1e-9
     assert diag['donors'] == 1
     assert abs(diag['absorbed_weight'] - 30.0) < 1e-9
     assert diag['vanished_no_survivor'] == 0
@@ -58,13 +58,13 @@ def test_donor_without_same_position_survivor_vanishes():
     frame.loc[frame.player_id == 'c_out', 'position'] = 'Z'
     diag = {}
     row = _run(frame, reweight='next_man_up', diagnostics=diag)
-    assert abs(row['pl_rapm_c'] - (10.0 / 30.0)) < 1e-9
+    assert abs(row['pl_dpm_c'] - (10.0 / 30.0)) < 1e-9
     assert diag['vanished_no_survivor'] == 1
 
 
 def test_unknown_reweight_mode_matches_legacy():
     row = _run(_pool(), reweight='not_a_mode')
-    assert abs(row['pl_rapm_c'] - (10.0 / 30.0)) < 1e-9
+    assert abs(row['pl_dpm_c'] - (10.0 / 30.0)) < 1e-9
 
 
 def _waterfall_pool():
@@ -87,8 +87,8 @@ def test_waterfall_caps_and_spills_to_next_survivor():
     diag = {}
     row = _run(_waterfall_pool(), reweight='waterfall', diagnostics=diag)
     # (40*1 + 30*-1) / 70: diluted vs winner-take-all, moved vs legacy 0.5.
-    assert abs(row['pl_rapm_c'] - (10.0 / 70.0)) < 1e-9
-    assert abs(row['pl_rapm_g'] - 5.0) < 1e-9
+    assert abs(row['pl_dpm_c'] - (10.0 / 70.0)) < 1e-9
+    assert abs(row['pl_dpm_g'] - 5.0) < 1e-9
     assert diag['donors'] == 1
     assert abs(diag['absorbed_weight'] - 30.0) < 1e-9
     assert diag['spills'] >= 1
@@ -103,5 +103,5 @@ def test_waterfall_never_exceeds_cap():
     diag = {}
     row = _run(frame, reweight='waterfall', diagnostics=diag)
     # c1 39->40, c2 10->39: (40*1 + 39*-1) / 79.
-    assert abs(row['pl_rapm_c'] - (1.0 / 79.0)) < 1e-9
+    assert abs(row['pl_dpm_c'] - (1.0 / 79.0)) < 1e-9
     assert abs(diag['absorbed_weight'] - 30.0) < 1e-9

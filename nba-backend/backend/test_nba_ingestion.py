@@ -3016,7 +3016,7 @@ class TestPositionsCacheVersioning:
     def test_a_feed_outage_falls_back_to_the_single_label_table(
             self, tmp_path, monkeypatch):
         """A dead stats.nba.com degrades the segments to today's coverage
-        instead of dropping the whole ``pl_rapm_*`` family to NaN."""
+        instead of dropping the whole ``pl_dpm_*`` family to NaN."""
         cached = tmp_path / "positions"
         cached.mkdir(parents=True)
         pd.DataFrame({"player_id": [1], "position": ["C"]}).to_parquet(

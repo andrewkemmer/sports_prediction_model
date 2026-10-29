@@ -4967,8 +4967,9 @@ NBA_FEATURE_DESCRIPTIONS = {
     "event_q4_points_diff": "Home−away fourth-quarter points per game",
     "event_q4_points_home": "Fourth-quarter points per game — home team",
     "event_q4_points_away": "Fourth-quarter points per game — away team",
-    # Position-segmented projected-lineup pools (RAPM today; ts/epm are the
-    # retired families that still appear in older drift reports).
+    # Position-segmented projected-lineup pools (pl_dpm_* today; pl_rapm_*
+    # is the retired spelling older drift reports still carry, kept for the
+    # same reason ts/epm are).
     "pl_rapm_c_diff": "Home−away projected-lineup center DARKO DPM",
     "pl_rapm_c_home": "Projected-lineup center DARKO DPM — home team",
     "pl_rapm_c_away": "Projected-lineup center DARKO DPM — away team",
@@ -4978,6 +4979,15 @@ NBA_FEATURE_DESCRIPTIONS = {
     "pl_rapm_g_diff": "Home−away projected-lineup guard DARKO DPM",
     "pl_rapm_g_home": "Projected-lineup guard DARKO DPM — home team",
     "pl_rapm_g_away": "Projected-lineup guard DARKO DPM — away team",
+    "pl_dpm_c_diff": "Home−away projected-lineup center DARKO DPM",
+    "pl_dpm_c_home": "Projected-lineup center DARKO DPM — home team",
+    "pl_dpm_c_away": "Projected-lineup center DARKO DPM — away team",
+    "pl_dpm_f_diff": "Home−away projected-lineup forward DARKO DPM",
+    "pl_dpm_f_home": "Projected-lineup forward DARKO DPM — home team",
+    "pl_dpm_f_away": "Projected-lineup forward DARKO DPM — away team",
+    "pl_dpm_g_diff": "Home−away projected-lineup guard DARKO DPM",
+    "pl_dpm_g_home": "Projected-lineup guard DARKO DPM — home team",
+    "pl_dpm_g_away": "Projected-lineup guard DARKO DPM — away team",
     "star_out_impact_diff": "Home−away star-out DARKO DPM impact",
     "star_out_impact_home": "Star-out DARKO DPM impact — home team",
     "star_out_impact_away": "Star-out DARKO DPM impact — away team",

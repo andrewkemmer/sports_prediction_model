@@ -533,7 +533,7 @@ class TestRecencyGate:
         run exposed: an October slate target rates from the LAST COMPLETED
         season (the evidence fallback), so every carryover member's gap
         computed across the fallback read ~150 days and the recency gate
-        emptied every projected lineup (mean healthy 0.0, all nine pl_rapm
+        emptied every projected lineup (mean healthy 0.0, all nine pl_dpm
         columns empty on the slate). The gap is only defined within the
         target's OWN season; a fallback-evidence target carries NaN, which
         the gate treats as carryover governed by the min-minutes floor - the
@@ -704,7 +704,7 @@ class TestPositionRapmFeatures:
     """The nine published columns and their MLB alignment."""
 
     def test_the_nine_columns_exist_in_the_contract(self):
-        expected = [f"pl_rapm_{p}_{s}" for p in ("c", "f", "g")
+        expected = [f"pl_dpm_{p}_{s}" for p in ("c", "f", "g")
                     for s in ("away", "home", "diff")]
         for col in expected:
             assert col in config.MONEYLINE_FEATURE_COLS, col
@@ -713,9 +713,9 @@ class TestPositionRapmFeatures:
     def test_sides_are_retained_not_diffed_away(self):
         """MLB keeps lineup_woba_mean_home AND _away; so does the NBA mirror."""
         assert proj.POSITION_RAPM_FEATURES == [
-            "pl_rapm_c_away", "pl_rapm_c_home", "pl_rapm_c_diff",
-            "pl_rapm_f_away", "pl_rapm_f_home", "pl_rapm_f_diff",
-            "pl_rapm_g_away", "pl_rapm_g_home", "pl_rapm_g_diff",
+            "pl_dpm_c_away", "pl_dpm_c_home", "pl_dpm_c_diff",
+            "pl_dpm_f_away", "pl_dpm_f_home", "pl_dpm_f_diff",
+            "pl_dpm_g_away", "pl_dpm_g_home", "pl_dpm_g_diff",
         ]
 
     def test_attach_produces_all_nine_columns_even_when_empty(self):
@@ -740,22 +740,22 @@ class TestPositionRapmFeatures:
         })
         aggregates = pd.DataFrame([{
             "gameday": pd.Timestamp("2026-03-05"), "team": "BOS",
-            "pl_rapm_c": 0.62, "pl_rapm_f": 0.55, "pl_rapm_g": 0.58,
+            "pl_dpm_c": 0.62, "pl_dpm_f": 0.55, "pl_dpm_g": 0.58,
         }, {
             "gameday": pd.Timestamp("2026-03-05"), "team": "NYK",
-            "pl_rapm_c": 0.60, "pl_rapm_f": 0.57, "pl_rapm_g": 0.54,
+            "pl_dpm_c": 0.60, "pl_dpm_f": 0.57, "pl_dpm_g": 0.54,
         }])
         out = proj.attach_position_rapm(slate, aggregates)
-        assert out.pl_rapm_c_diff.iloc[0] == pytest.approx(0.62 - 0.60)
-        assert out.pl_rapm_g_home.iloc[0] == pytest.approx(0.58)
-        assert out.pl_rapm_g_away.iloc[0] == pytest.approx(0.54)
+        assert out.pl_dpm_c_diff.iloc[0] == pytest.approx(0.62 - 0.60)
+        assert out.pl_dpm_g_home.iloc[0] == pytest.approx(0.58)
+        assert out.pl_dpm_g_away.iloc[0] == pytest.approx(0.54)
 
     def test_an_empty_position_segment_is_a_refused_row_not_just_a_hole(self):
         """The mask the 2026-10-08 coverage audit asked for.
 
         A club whose feed listing carries no eligible centre (the audit's
         team-dependent residual: WAS 68.7%, GSW 73.1%, CHA 85.2% of their
-        full slices) refuses the segment: ``pl_rapm_c`` stays NaN - correct,
+        full slices) refuses the segment: ``pl_dpm_c`` stays NaN - correct,
         never zero-filled - AND the eligibility flag says 0, so monitoring
         can tell source-supported missingness from a build hole instead of
         paging both as one low-coverage alarm.
@@ -766,11 +766,11 @@ class TestPositionRapmFeatures:
         frame["position"] = "G"
         out = proj.projected_lineup(frame)
         row = out[out.team == "BOS"].iloc[0]
-        assert row.pl_rapm_c != row.pl_rapm_c      # refused: NaN, not 0
-        assert row.pl_rapm_c_eligible == 0.0
-        assert row.pl_rapm_f_eligible == 0.0       # no forwards listed either
-        assert row.pl_rapm_g_eligible == 1.0
-        assert row.pl_rapm_g == row.pl_rapm_g      # the guarded segment priced
+        assert row.pl_dpm_c != row.pl_dpm_c      # refused: NaN, not 0
+        assert row.pl_dpm_c_eligible == 0.0
+        assert row.pl_dpm_f_eligible == 0.0       # no forwards listed either
+        assert row.pl_dpm_g_eligible == 1.0
+        assert row.pl_dpm_g == row.pl_dpm_g      # the guarded segment priced
 
     def test_the_recency_gate_leaves_a_masked_refusal_behind(self):
         """Season-opener geometry: every roster's appearance gap exceeds the
@@ -787,8 +787,8 @@ class TestPositionRapmFeatures:
         row = out[out.team == "BOS"].iloc[0]
         assert row.healthy_size == 0
         for position in ("c", "f", "g"):
-            assert row[f"pl_rapm_{position}"] != row[f"pl_rapm_{position}"]
-            assert row[f"pl_rapm_{position}_eligible"] == 0.0
+            assert row[f"pl_dpm_{position}"] != row[f"pl_dpm_{position}"]
+            assert row[f"pl_dpm_{position}_eligible"] == 0.0
 
     def test_an_eligible_segment_that_cannot_blend_keeps_its_alarm(self):
         """Flag 1 says members EXISTED at the position. A NaN value behind a
@@ -801,10 +801,10 @@ class TestPositionRapmFeatures:
         frame.loc[frame.player_id == "c1", "prior_minutes_per_game"] = np.nan
         out = proj.projected_lineup(frame)
         row = out[out.team == "BOS"].iloc[0]
-        assert row.pl_rapm_c_eligible == 1.0
-        assert row.pl_rapm_c != row.pl_rapm_c      # no weight to divide by
-        assert row.pl_rapm_g_eligible == 1.0
-        assert row.pl_rapm_g == row.pl_rapm_g      # the blendable one prices
+        assert row.pl_dpm_c_eligible == 1.0
+        assert row.pl_dpm_c != row.pl_dpm_c      # no weight to divide by
+        assert row.pl_dpm_g_eligible == 1.0
+        assert row.pl_dpm_g == row.pl_dpm_g      # the blendable one prices
 
     def test_attach_publishes_the_mask_for_all_nine_features(self):
         slate = pd.DataFrame({
@@ -815,26 +815,26 @@ class TestPositionRapmFeatures:
         day = pd.Timestamp("2026-03-05")
         aggregates = pd.DataFrame([
             {"gameday": day, "team": "BOS",
-             "pl_rapm_c": 0.62, "pl_rapm_f": 0.55, "pl_rapm_g": 0.58,
-             "pl_rapm_c_eligible": 1.0, "pl_rapm_f_eligible": 1.0,
-             "pl_rapm_g_eligible": 1.0},
+             "pl_dpm_c": 0.62, "pl_dpm_f": 0.55, "pl_dpm_g": 0.58,
+             "pl_dpm_c_eligible": 1.0, "pl_dpm_f_eligible": 1.0,
+             "pl_dpm_g_eligible": 1.0},
             {"gameday": day, "team": "NYK",
-             "pl_rapm_c": np.nan, "pl_rapm_f": 0.57, "pl_rapm_g": 0.54,
-             "pl_rapm_c_eligible": 0.0, "pl_rapm_f_eligible": 1.0,
-             "pl_rapm_g_eligible": 1.0},
+             "pl_dpm_c": np.nan, "pl_dpm_f": 0.57, "pl_dpm_g": 0.54,
+             "pl_dpm_c_eligible": 0.0, "pl_dpm_f_eligible": 1.0,
+             "pl_dpm_g_eligible": 1.0},
         ])
         out = proj.attach_position_rapm(slate, aggregates)
         for position in ("c", "f", "g"):
             for side in ("away", "home", "diff"):
-                assert f"_eligible_pl_rapm_{position}_{side}" in out.columns
+                assert f"_eligible_pl_dpm_{position}_{side}" in out.columns
         row = out.iloc[0]
-        assert row["_eligible_pl_rapm_c_away"] == 0.0   # NYK refused
-        assert row["_eligible_pl_rapm_c_home"] == 1.0
+        assert row["_eligible_pl_dpm_c_away"] == 0.0   # NYK refused
+        assert row["_eligible_pl_dpm_c_home"] == 1.0
         # One refusal explains the difference: a refused side is NaN, so the
         # diff cannot exist for any other reason.
-        assert row["_eligible_pl_rapm_c_diff"] == 0.0
-        assert row["_eligible_pl_rapm_g_diff"] == 1.0
-        assert row.pl_rapm_c_diff != row.pl_rapm_c_diff  # still NaN, still refused
+        assert row["_eligible_pl_dpm_c_diff"] == 0.0
+        assert row["_eligible_pl_dpm_g_diff"] == 1.0
+        assert row.pl_dpm_c_diff != row.pl_dpm_c_diff  # still NaN, still refused
 
     def test_a_team_game_the_projection_never_ran_for_keeps_the_mask_unknown(self):
         """Missing aggregates row = unknown cause. The flag joins to NaN and
@@ -848,16 +848,16 @@ class TestPositionRapmFeatures:
         day = pd.Timestamp("2026-03-01")   # aggregates exist, but not this date
         aggregates = pd.DataFrame([
             {"gameday": day, "team": team,
-             **{f"pl_rapm_{p}": 0.5 for p in ("c", "f", "g")},
-             **{f"pl_rapm_{p}_eligible": 1.0 for p in ("c", "f", "g")}}
+             **{f"pl_dpm_{p}": 0.5 for p in ("c", "f", "g")},
+             **{f"pl_dpm_{p}_eligible": 1.0 for p in ("c", "f", "g")}}
             for team in ("BOS", "NYK")
         ])
         out = proj.attach_position_rapm(slate, aggregates)
         row = out.iloc[0]
         for position in ("c", "f", "g"):
             for side in ("away", "home", "diff"):
-                assert pd.isna(row[f"_eligible_pl_rapm_{position}_{side}"])
-        assert row.pl_rapm_c_diff != row.pl_rapm_c_diff
+                assert pd.isna(row[f"_eligible_pl_dpm_{position}_{side}"])
+        assert row.pl_dpm_c_diff != row.pl_dpm_c_diff
 
     def test_a_refusal_row_next_to_a_priced_row_keeps_its_zero_mask(self):
         """The column-level flag default only fires when NO row carries the
@@ -874,10 +874,10 @@ class TestPositionRapmFeatures:
         bos = out[out.team == "BOS"].iloc[0]
         nyk = out[out.team == "NYK"].iloc[0]
         assert nyk.healthy_size == 0
-        assert nyk.pl_rapm_c_eligible == 0.0      # refused, not unknown
-        assert nyk.pl_rapm_c != nyk.pl_rapm_c
-        assert bos.pl_rapm_g_eligible == 1.0      # the priced side keeps 1
-        assert bos.pl_rapm_g == bos.pl_rapm_g
+        assert nyk.pl_dpm_c_eligible == 0.0      # refused, not unknown
+        assert nyk.pl_dpm_c != nyk.pl_dpm_c
+        assert bos.pl_dpm_g_eligible == 1.0      # the priced side keeps 1
+        assert bos.pl_dpm_g == bos.pl_dpm_g
 
     def test_a_team_with_no_rating_in_the_lookback_is_a_pool_refusal_row(self):
         """The season opener: every prior target date sits outside the
@@ -894,8 +894,8 @@ class TestPositionRapmFeatures:
         out = proj.projected_lineup(ratings, games=games)
         row = out[out.team == "BOS"].iloc[0]
         assert row.pool_size == 0 and row.healthy_size == 0
-        assert row.pl_rapm_c_eligible == 0.0   # refusal: masked
-        assert row.pl_rapm_c != row.pl_rapm_c  # value still NaN, never 0
+        assert row.pl_dpm_c_eligible == 0.0   # refusal: masked
+        assert row.pl_dpm_c != row.pl_dpm_c  # value still NaN, never 0
         # NYK has no rating rows at all: no row at all, so no mask claim.
         assert "NYK" not in set(out.team)
 
@@ -906,7 +906,7 @@ class TestPositionRapmFeatures:
         This is the state the 2026-10-01 delivery artifact showed
         on 3 of 6 team-games: healthy rosters of 16-17 whose
         centers simply did not crack the top eight by participation,
-        leaving pl_rapm_c NaN.
+        leaving pl_dpm_c NaN.
         """
         rows = [_rating(f"g{i}", "BOS", "2026-03-01", 0.55, 300 - i)
                 for i in range(8)]
@@ -917,24 +917,24 @@ class TestPositionRapmFeatures:
         return frame
 
     def test_a_centerless_projected_lineup_still_rates_the_position(self):
-        """The coverage remediation: the cut starves pl_rapm_c.
+        """The coverage remediation: the cut starves pl_dpm_c.
 
         The segment is the opportunity-weighted mean over the team's
         ELIGIBLE ROSTER at the position - the same population MLB's
         lineup_agg adopted when it dropped its nine-cut - so a team
         whose centers all rank below the projected eight still gets
-        pl_rapm_c instead of NaN. The lineup aggregates keep reading
+        pl_dpm_c instead of NaN. The lineup aggregates keep reading
         the top eight; only the segment's population widens.
         """
         out = proj.projected_lineup(self._centerless_roster())
         row = _bos(out)
         # (240 * 0.62 + 120 * 0.50) / 360 - both centers, priced by
         # participation, not the top-8 slice that holds neither.
-        assert row.pl_rapm_c == pytest.approx((240 * 0.62 + 120 * 0.50)
+        assert row.pl_dpm_c == pytest.approx((240 * 0.62 + 120 * 0.50)
                                             / 360)
-        assert row.pl_rapm_g == pytest.approx(0.55)
+        assert row.pl_dpm_g == pytest.approx(0.55)
         # No eligible forward exists, so that segment stays NaN.
-        assert pd.isna(row.pl_rapm_f)
+        assert pd.isna(row.pl_dpm_f)
         # The lineup itself is still the eight highest-participation
         # players: the widening must not bleed into the aggregates.
         assert row.lineup_rapm_mean == pytest.approx(0.55)
@@ -965,7 +965,7 @@ class TestPositionRapmFeatures:
                               "C", "G", "C"]
         out = proj.projected_lineup(frame, top_k=8)
         row = _bos(out)
-        assert row.pl_rapm_c == pytest.approx((200 * 0.62 + 130 * 0.50)
+        assert row.pl_dpm_c == pytest.approx((200 * 0.62 + 130 * 0.50)
                                             / 330)
 
     def test_an_unavailable_center_leaves_his_segment(self):
@@ -981,7 +981,7 @@ class TestPositionRapmFeatures:
         out = proj.projected_lineup(frame)
         row = _bos(out)
         # The out center is gone; the backup inherits the segment.
-        assert row.pl_rapm_c == pytest.approx(0.50)
+        assert row.pl_dpm_c == pytest.approx(0.50)
 
     def test_the_min_minutes_floor_gates_segment_membership(self):
         """The roster is ELIGIBLE players, not every rating row."""
@@ -996,14 +996,14 @@ class TestPositionRapmFeatures:
         row = _bos(out)
         # c2's 10 plays are under the pool floor: he is not a
         # candidate, so the segment is the starter alone.
-        assert row.pl_rapm_c == pytest.approx(0.62)
+        assert row.pl_dpm_c == pytest.approx(0.62)
 
     def test_a_forward_centre_prices_both_position_segments(self):
         """The labeling remediation: an F-C roster is NOT centerless.
 
         ORL's centers (Wendell Carter Jr., Goga Bitadze) are both listed
         F-C, so the collapsed cell put them in F and every ORL game
-        shipped pl_rapm_c as NaN - 140 team-games, the largest slice of
+        shipped pl_dpm_c as NaN - 140 team-games, the largest slice of
         the 62% baseline coverage the monitor flags LOW_COVERAGE. The
         rating row carries the feed's FULL listing, so the segment prices
         the same player in both groups while the collapsed cell that
@@ -1019,9 +1019,9 @@ class TestPositionRapmFeatures:
         row = _bos(proj.projected_lineup(frame))
         # The forward-centre is the ONLY member of the C segment - the
         # exact state that used to publish NaN - and he still prices F.
-        assert row.pl_rapm_c == pytest.approx(0.62)
-        assert row.pl_rapm_f == pytest.approx(0.62)
-        assert row.pl_rapm_g == pytest.approx(0.60)
+        assert row.pl_dpm_c == pytest.approx(0.62)
+        assert row.pl_dpm_f == pytest.approx(0.62)
+        assert row.pl_dpm_g == pytest.approx(0.60)
 
     def test_a_single_label_row_keeps_its_collapsed_cell(self):
         """A v1-cache row in a v2 frame must not fall out of its segment.
@@ -1039,8 +1039,8 @@ class TestPositionRapmFeatures:
         frame["position"] = ["G", "C"]
         frame["positions"] = [np.nan, np.nan]
         row = _bos(proj.projected_lineup(frame))
-        assert row.pl_rapm_c == pytest.approx(0.62)
-        assert row.pl_rapm_g == pytest.approx(0.60)
+        assert row.pl_dpm_c == pytest.approx(0.62)
+        assert row.pl_dpm_g == pytest.approx(0.60)
 
 
 class TestPlayerRapmIsStrictlyPriorPerGame:
@@ -1176,7 +1176,7 @@ class TestDesignationShardUnion:
         assert diagnostics["vanished_no_survivor"] == 0
         # Booker takes 12 to the 40 cap and Beal takes the remaining 18 for
         # a 78-minute forward pool and a 40/78 mean.
-        assert row["pl_rapm_f"] == 40.0 / 78.0
+        assert row["pl_dpm_f"] == 40.0 / 78.0
 
     def test_an_overlapping_window_is_idempotent(self, tmp_path):
         """A designation is a (date, team, player) removal read as a set, so a
@@ -1320,10 +1320,10 @@ class TestPositionRapmBuildSurvivesAColdCache:
     def test_a_contract_column_no_row_carries_is_named(self):
         import master_pipeline as mp
         frame = pd.DataFrame({
-            "pl_rapm_c_away": [0.5, None], "pl_rapm_f_away": [None, None],
+            "pl_dpm_c_away": [0.5, None], "pl_dpm_f_away": [None, None],
             "rest": [1, 2]})
         expected = [c for c in mp.config.active_moneyline_feature_cols()
-                    if c != "pl_rapm_c_away"]
+                    if c != "pl_dpm_c_away"]
         assert mp._empty_contract_columns(frame) == expected
         assert mp._empty_contract_columns(None) == []
         assert mp._empty_contract_columns(pd.DataFrame()) == []
@@ -1407,7 +1407,7 @@ class TestTrailingMembershipMinutes:
 class TestEarlySeasonMembershipRamp:
     """2026-10-25: five SAC players cleared 50 minutes after two games, so the
     old ``latest.empty`` tier never fired and the pool priced 5 of 17 - with
-    ``pl_rapm_c`` coming out as one player's rating in every digit. The ramped
+    ``pl_dpm_c`` coming out as one player's rating in every digit. The ramped
     floor now applies to every candidate inside the window, and cross-season
     trailing minutes are a second arm rather than a last resort.
     """
@@ -1506,16 +1506,16 @@ class TestPositionWeightSplit:
         # ``backend.config``, and a top-level patch would silently miss.
         monkeypatch.setattr(proj.config, "PLAYER_POSITION_WEIGHT_SPLIT", False)
         row = _bos(proj.projected_lineup(self._ratings()))
-        assert row.pl_rapm_c == pytest.approx((30 * 0.60 + 24 * 0.20) / 54)
+        assert row.pl_dpm_c == pytest.approx((30 * 0.60 + 24 * 0.20) / 54)
 
     def test_split_halves_the_dual_players_weight_in_each_segment(
             self, monkeypatch):
         monkeypatch.setattr(proj.config, "PLAYER_POSITION_WEIGHT_SPLIT", True)
         row = _bos(proj.projected_lineup(self._ratings()))
-        assert row.pl_rapm_c == pytest.approx((15 * 0.60 + 24 * 0.20) / 39)
+        assert row.pl_dpm_c == pytest.approx((15 * 0.60 + 24 * 0.20) / 39)
         # He is the only forward, so halving his weight leaves the F value
         # alone - the split moves a segment only where it has company.
-        assert row.pl_rapm_f == pytest.approx(0.60)
+        assert row.pl_dpm_f == pytest.approx(0.60)
         # Membership is untouched: both segments still exist.
-        assert row.pl_rapm_c_eligible == 1.0
-        assert row.pl_rapm_f_eligible == 1.0
+        assert row.pl_dpm_c_eligible == 1.0
+        assert row.pl_dpm_f_eligible == 1.0
