@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-10-29T10:49:06.419204+00:00",
- "feature_set_version": "nba-prod-v3.2-star-out",
+ "created_utc": "2026-10-29T18:52:49.552352+00:00",
+ "feature_set_version": "nba-prod-v3.3-dpm",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away entering Elo",
@@ -416,15 +416,15 @@
   "event_possessions_diff",
   "event_shooting_fouls_diff",
   "event_q4_points_diff",
-  "pl_rapm_c_away",
-  "pl_rapm_c_home",
-  "pl_rapm_c_diff",
-  "pl_rapm_f_away",
-  "pl_rapm_f_home",
-  "pl_rapm_f_diff",
-  "pl_rapm_g_away",
-  "pl_rapm_g_home",
-  "pl_rapm_g_diff",
+  "pl_dpm_c_away",
+  "pl_dpm_c_home",
+  "pl_dpm_c_diff",
+  "pl_dpm_f_away",
+  "pl_dpm_f_home",
+  "pl_dpm_f_diff",
+  "pl_dpm_g_away",
+  "pl_dpm_g_home",
+  "pl_dpm_g_diff",
   "star_out_impact_away",
   "star_out_impact_home",
   "star_out_impact_diff",
@@ -992,7 +992,7 @@
    "std": 3.2347307004612085
   },
   {
-   "feature": "pl_rapm_c_away",
+   "feature": "pl_dpm_c_away",
    "n_games": 4009,
    "coverage_pct": 97.11,
    "n_measured": 3893,
@@ -1001,7 +1001,7 @@
    "std": 1.4676880633120086
   },
   {
-   "feature": "pl_rapm_c_home",
+   "feature": "pl_dpm_c_home",
    "n_games": 4009,
    "coverage_pct": 96.93,
    "n_measured": 3886,
@@ -1010,7 +1010,7 @@
    "std": 1.4650669373830447
   },
   {
-   "feature": "pl_rapm_c_diff",
+   "feature": "pl_dpm_c_diff",
    "n_games": 4009,
    "coverage_pct": 94.46,
    "n_measured": 3787,
@@ -1019,7 +1019,7 @@
    "std": 2.0371143674094068
   },
   {
-   "feature": "pl_rapm_f_away",
+   "feature": "pl_dpm_f_away",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1028,7 +1028,7 @@
    "std": 1.033247060262101
   },
   {
-   "feature": "pl_rapm_f_home",
+   "feature": "pl_dpm_f_home",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1037,7 +1037,7 @@
    "std": 1.030558298875345
   },
   {
-   "feature": "pl_rapm_f_diff",
+   "feature": "pl_dpm_f_diff",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1046,7 +1046,7 @@
    "std": 1.4634962555671156
   },
   {
-   "feature": "pl_rapm_g_away",
+   "feature": "pl_dpm_g_away",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1055,7 +1055,7 @@
    "std": 1.0433074932110842
   },
   {
-   "feature": "pl_rapm_g_home",
+   "feature": "pl_dpm_g_home",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1064,7 +1064,7 @@
    "std": 1.0549271646186167
   },
   {
-   "feature": "pl_rapm_g_diff",
+   "feature": "pl_dpm_g_diff",
    "n_games": 4009,
    "coverage_pct": 99.63,
    "n_measured": 3994,
@@ -1883,7 +1883,7 @@
  },
  "config": {
   "sport": "nba",
-  "feature_set_version": "nba-prod-v3.2-star-out",
+  "feature_set_version": "nba-prod-v3.3-dpm",
   "seed": 42,
   "warmup_days": 30,
   "cadence_days": 7,
