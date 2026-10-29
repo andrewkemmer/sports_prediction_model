@@ -793,6 +793,10 @@ MARKETS_MONITOR_JSON = "nba_run_engine_monitor_{date}.json"
 PLAYER_MATCHUP_JSON = "nba_player_leader_matchup_{date}.json"
 PLAYER_RAPM_CSV = "nba_player_rapm_{date}.csv"
 PLAYER_RAPM_AGG_CSV = "nba_player_rapm_lineups_{date}.csv"
+# Rating source for the player frame that feeds the nine and the star-out block.
+# "darko": raw DPM as of the prior day replaces the RAPM rating value.
+# "rapm": the incumbent RAPM path, kept as a fall-back.
+PLAYER_RATING_SOURCE = os.environ.get("NBA_PLAYER_RATING_SOURCE", "darko")
 FEATURE_JSON = "nba_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nba_model_monitor_{date}.json"
 SHAP_GAME_PREFIX = "nba_shap_game"

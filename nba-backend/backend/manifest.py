@@ -464,59 +464,65 @@ _FAMILY: dict[str, dict] = {
         "direction_level": "higher = stronger side pool",
     },
     "pl_rapm_c": {
-        "summary": "Home−away projected-lineup center RAPM",
-        "summary_level": "Projected-lineup center RAPM",
+        "summary": "Home−away projected-lineup center DARKO DPM",
+        "summary_level": "Projected-lineup center DARKO DPM",
         "definition": (
-            "Position-segmented game-level MIN/48 ridge proxy for the center pool of the "
+            "Position-segmented DARKO daily plus-minus for the center pool of the "
             "projected lineup, minutes-weighted and injury-filtered "
-            "(Out/Doubtful/Recovery excluded before tip-off)."),
+            "(Out/Doubtful/Recovery excluded before tip-off). Rating source is "
+            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
+            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_rapm_c_home − pl_rapm_c_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
-        "window": "season to date; last completed season before own-season evidence",
-        "units": "game-margin points per full-48-minute player exposure",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO DPM as of prior day; no local history file",
+        "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
     "pl_rapm_f": {
-        "summary": "Home−away projected-lineup forward RAPM",
-        "summary_level": "Projected-lineup forward RAPM",
+        "summary": "Home−away projected-lineup forward DARKO DPM",
+        "summary_level": "Projected-lineup forward DARKO DPM",
         "definition": (
-            "Position-segmented game-level MIN/48 ridge proxy for the forward pool of the "
-            "projected lineup, minutes-weighted and injury-filtered."),
+            "Position-segmented DARKO daily plus-minus for the forward pool of the "
+            "projected lineup, minutes-weighted and injury-filtered. Rating source is "
+            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
+            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_rapm_f_home − pl_rapm_f_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
-        "window": "season to date; last completed season before own-season evidence",
-        "units": "game-margin points per full-48-minute player exposure",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO DPM as of prior day; no local history file",
+        "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
     "pl_rapm_g": {
-        "summary": "Home−away projected-lineup guard RAPM",
-        "summary_level": "Projected-lineup guard RAPM",
+        "summary": "Home−away projected-lineup guard DARKO DPM",
+        "summary_level": "Projected-lineup guard DARKO DPM",
         "definition": (
-            "Position-segmented game-level MIN/48 ridge proxy for the guard pool of the "
-            "projected lineup, minutes-weighted and injury-filtered."),
+            "Position-segmented DARKO daily plus-minus for the guard pool of the "
+            "projected lineup, minutes-weighted and injury-filtered. Rating source is "
+            "DARKO DPM as of the prior day (NBA_PLAYER_RATING_SOURCE=darko); "
+            "rows without DARKO coverage keep the incumbent game-level MIN/48 ridge value."),
         "formula": "pl_rapm_g_home − pl_rapm_g_away",
-        "source": "Strictly-prior season log minutes + game margins → shrunk ridge proxy; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback) → projected position average (not possession/stint RAPM)",
-        "window": "season to date; last completed season before own-season evidence",
-        "units": "game-margin points per full-48-minute player exposure",
+        "source": "DARKO DPM history fetched in-memory per pipeline run (darko.app player history, last row strictly before target date) → projected position average; dated official NBA roster membership (7-day expiry; strict-prior appearance fallback); incumbent ridge proxy only as fallback (not possession/stint RAPM)",
+        "window": "DARKO DPM as of prior day; no local history file",
+        "units": "DARKO DPM points (per-game impact)",
         "direction": "higher = home advantage",
         "direction_level": "higher = stronger side pool",
     },
     "star_out_impact": {
-        "summary": "Home−away star-out RAPM impact",
-        "summary_level": "Unavailable top-three RAPM impact",
+        "summary": "Home−away star-out DARKO DPM impact",
+        "summary_level": "Unavailable top-three DARKO DPM impact",
         "definition": (
-            "Minutes-weighted RAPM of the team's top-three prior-MPG players "
+            "Minutes-weighted DARKO DPM of the team's top-three prior-MPG players "
             "designated Out/Doubtful/Recovery before tipoff, over the top "
             "three's total minutes weight. Positive means positive talent is "
             "unavailable; negative means the absent player was rated below "
-            "replacement."),
+            "replacement. Ratings are DARKO DPM as of the prior day."),
         "formula": "star_out_impact_home − star_out_impact_away",
-        "source": ("Strictly-prior player ratings + last pre-tipoff official "
+        "source": ("DARKO DPM as of prior day (in-memory fetch) + last pre-tipoff official "
                    "injury designation"),
-        "window": "season to date; last pre-tipoff report",
-        "units": "game-margin points per full-48-minute player exposure",
+        "window": "DARKO DPM as of prior day; last pre-tipoff report",
+        "units": "DARKO DPM points (per-game impact)",
         "direction": ("higher = home is more depleted of positive talent "
                       "(worse for home)"),
         "direction_level": ("higher = more positive talent unavailable for "

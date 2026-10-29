@@ -435,6 +435,20 @@ def _log_waterfall_redistribution(context: str, diagnostics: dict | None) -> Non
         int(stats.get("vanished_no_survivor", 0)), int(stats.get("spills", 0)))
 
 
+def _apply_rating_source(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Swap the rating value to DARKO DPM when config selects it.
+
+    ``rapm`` leaves the incumbent frame untouched (the fall-back path).
+    """
+    if str(config.PLAYER_RATING_SOURCE).lower() != "darko":
+        return ratings
+    import player_rapm as rapm_mod
+    import darko_source
+    ids = rapm_mod._player_key(ratings["player_id"]).dropna()
+    history = darko_source.fetch_darko_history(ids.unique())
+    return rapm_mod.apply_darko_rating(ratings, history)
+
+
 def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
                       stints=None) -> str | None:
     """Build and write the player-level RAPM ratings, or report why not.
@@ -496,6 +510,7 @@ def _write_player_rapm(out: Path, date_c: str, facts, games: pd.DataFrame,
             logger.warning("player RAPM skipped: no player had strictly-prior "
                            "evidence as of %s", target.date())
             return None
+        ratings = _apply_rating_source(ratings)
         # The rating row's own date doubles as the pool's gameday, so the
         # projected-lineup join and the artifact agree on one column. The
         # rename happens AFTER the artifact is written, because the CSV keeps
@@ -1033,27 +1048,31 @@ def _build_position_rapm_features(facts, games: pd.DataFrame,
                                         target_dates=pd.Series(dates),
                                         team_stats=facts.team_stats,
                                         roster_history=roster_history)
+    ratings = _apply_rating_source(ratings)
     ratings = ratings.rename(columns={"target_date": "gameday"})
     ratings["gameday"] = pd.to_datetime(ratings.gameday)
     if "is_available" not in ratings.columns:
         ratings["is_available"] = True
-    ratings = proj_mod.apply_pit_designations(ratings, designations, name_by_id)
 
     _waterfall = {}
-    aggregates = proj_mod.projected_lineup(
-        ratings, games=games, reweight="waterfall", diagnostics=_waterfall)
+    # The designations are applied INSIDE the shared builder (one path with
+    # the harnesses), so they are not applied here first: the assignment is
+    # idempotent, but it is a per-row Python loop over the whole rating frame
+    # and paying for it twice to no effect is how a 52-minute phase becomes
+    # 55. The nine and the six are attached to the WHOLE frame in one place,
+    # then split, so the decided rows and the slate rows cannot be built by
+    # two slightly different sequences.
+    attached, aggregates = proj_mod.project_lineup_features(
+        ratings, games, designations, name_by_id,
+        reweight="waterfall", diagnostics=_waterfall)
     _log_waterfall_redistribution("position-feature build", _waterfall)
     if not len(aggregates):
         logger.warning("pl_rapm features skipped: no team-game aggregates")
         return None, None
 
-    def _attach(frame: pd.DataFrame) -> pd.DataFrame | None:
-        if frame is None or not len(frame):
-            return None
-        attached = proj_mod.attach_position_rapm(frame, aggregates)
-        return proj_mod.attach_star_out_features(attached, aggregates)
-
-    return _attach(decided), _attach(pending)
+    mask = attached.home_score.notna() & attached.away_score.notna()
+    return (attached.loc[mask] if mask.any() else None,
+            attached.loc[~mask] if (~mask).any() else None)
 
 
 SLATE_PDF_CACHE = Path(os.path.expanduser(

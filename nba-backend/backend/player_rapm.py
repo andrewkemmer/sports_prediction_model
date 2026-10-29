@@ -94,6 +94,60 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_DARKO_HISTORY_COLS = ["player_key", "date", "dpm", "o_dpm", "d_dpm", "box_dpm",
+                       "on_off_dpm", "x_minutes", "seconds_played"]
+
+
+def _player_key(series: pd.Series) -> pd.Series:
+    text = series.astype(str).str.replace(r"\.0$", "", regex=True)
+    return pd.to_numeric(text, errors="coerce")
+
+
+def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
+    """Replace the rating value with raw DARKO DPM where DARKO has a row.
+
+    The DPM is the last row strictly before each rating's target date
+    (``allow_exact_matches=False``: a rating for a game on D may not read the
+    row dated D, which is that game's own entry). Rows with no DARKO
+    observation keep the incumbent RAPM value, so segment membership cannot
+    shift. Only ``rapm_shrunk``, ``rapm_raw`` and ``rating_source`` change;
+    every row, key and minute is kept.
+    """
+    out = ratings.reset_index(drop=True).copy()
+    left = pd.DataFrame({
+        "_pos": np.arange(len(out)),
+        "_asof_target": pd.to_datetime(out["target_date"], errors="coerce"),
+        "player_key": _player_key(out["player_id"]),
+    })
+    left = left[left._asof_target.notna() & left.player_key.notna()]
+    left["player_key"] = left["player_key"].astype("int64")
+    left["_asof_target"] = left["_asof_target"].astype("datetime64[ns]")
+    left = left.sort_values(["_asof_target", "player_key"])
+
+    right = history.copy()
+    right["player_key"] = pd.to_numeric(right["nba_id"], errors="coerce")
+    right["date"] = pd.to_datetime(right["date"], errors="coerce")
+    right = right[right.date.notna() & right.player_key.notna()]
+    right["player_key"] = right["player_key"].astype("int64")
+    right["date"] = right["date"].astype("datetime64[ns]")
+    right = right[[c for c in _DARKO_HISTORY_COLS if c in right.columns]]
+    right = right.drop_duplicates(["player_key", "date"]).sort_values("date")
+
+    merged = pd.merge_asof(left, right, left_on="_asof_target",
+                           right_on="date", by="player_key",
+                           direction="backward", allow_exact_matches=False)
+    dpm = pd.Series(np.nan, index=out.index)
+    dpm.iloc[merged["_pos"].to_numpy()] = pd.to_numeric(
+        merged["dpm"], errors="coerce").to_numpy()
+    has = dpm.notna()
+    out["rapm_shrunk"] = dpm.where(has, out["rapm_shrunk"])
+    if "rapm_raw" in out.columns:
+        out["rapm_raw"] = dpm.where(has, out["rapm_raw"])
+    out["rating_source"] = np.where(has, "darko", "incumbent")
+    logger.info("DARKO rating: %.1f%% of rows carry a DPM value",
+                100 * float(has.mean()) if len(has) else 0.0)
+    return out
+
 #: Columns this module reads out of the player-level season log. The
 #: rating needs the participation measure (minutes) plus the keys. An
 #: older revision of this comment listed a box-score triple (attempts,
@@ -1080,6 +1134,7 @@ def build_player_rapm(games: pd.DataFrame,
                       roster_history: pd.DataFrame | None = None,
                       carry_weight: float | None = None,
                       opener_carry: bool | None = None,
+                      prior_mean: pd.DataFrame | None = None,
                       ) -> pd.DataFrame:
     """Player-level RAPM ratings as of each target date.
 
@@ -1112,6 +1167,15 @@ def build_player_rapm(games: pd.DataFrame,
     records the prior actually used and ``k_eff`` is NaN - there is no
     second layer to weigh. Gated, not default: promoting it needs its own
     holdout A/B the way the nine passed theirs.
+
+    ``prior_mean`` optionally replaces the SECOND-LAYER centre: a frame with
+    ``target_date``, ``player_id`` and ``box_prior`` supplies a player-specific
+    shrink target (``rapm_box_prior`` builds one from decayed box rates) in
+    place of the position mean, for the rows it covers. Everything else -
+    k, the evidence weight, the fit - is unchanged, so the change is "what
+    we shrink toward", not "how hard we shrink". Rows it does not cover keep
+    the positional centre, and ``lg_rapm`` still records the centre actually
+    used, so a reader can tell the two apart.
 
     ``availability`` and ``availability_multiplier`` were removed rather
     than carried over: once the pool filter moved to removal-based
@@ -1180,6 +1244,22 @@ def build_player_rapm(games: pd.DataFrame,
         for season in set(frame_seasons) | target_seasons:
             k_by_season[season] = season_eff_table(
                 games, shrink_fraction=shrink_fraction, through_season=season)
+
+    # A per-date lookup once, not a scan per target: the frame holds one row
+    # per (date, player) - tens of thousands of dates x players - and filtering
+    # it inside the loop would make the build quadratic.
+    prior_lookup: dict = {}
+    if prior_mean is not None and len(prior_mean):
+        pm = prior_mean.copy()
+        pm["target_date"] = pd.to_datetime(pm.get("target_date"), errors="coerce")
+        column = ("box_prior" if "box_prior" in pm.columns else
+                  "prior_mean" if "prior_mean" in pm.columns else None)
+        if column is not None:
+            pm = pm[pm.target_date.notna()]
+            for when, group in pm.groupby("target_date", sort=False):
+                values = pd.to_numeric(group[column], errors="coerce")
+                prior_lookup[pd.Timestamp(when)] = dict(zip(
+                    group.player_id.astype(str), values))
 
     designs: dict = {}
     carry_priors: dict = {}
@@ -1354,6 +1434,11 @@ def build_player_rapm(games: pd.DataFrame,
             snapshot["rapm_shrunk"] = snapshot.rapm_raw
         else:
             snapshot["lg_rapm"] = snapshot.position.map(lg)
+            centre = prior_lookup.get(pd.Timestamp(target))
+            if centre:
+                override = snapshot.player_id.astype(str).map(centre)
+                snapshot["lg_rapm"] = override.where(
+                    override.notna(), snapshot["lg_rapm"])
             k_for_target = _k_table_for_season(
                 k_by_season, k_table, _season_of(target))
             snapshot["k_eff"] = snapshot.position.map(
