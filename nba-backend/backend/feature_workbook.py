@@ -121,7 +121,7 @@ STAT_WORDS: dict[str, str] = {
     "possessions": "estimated possessions (FGA + 0.44·FTA − OREB + TOV)",
     "shooting_fouls": "shooting fouls drawn per game",
     "q4_points": "fourth-quarter points per game",
-    "pl_rapm": "position-segmented shrunk RAPM (points per game) of "
+    "pl_rapm": "position-segmented DARKO daily plus-minus (DPM) of "
               "the projected lineup",
 }
 

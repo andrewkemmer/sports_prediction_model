@@ -246,14 +246,50 @@ def _load_day(date: str) -> tuple[pd.DataFrame, bool]:
     return day, True
 
 
+def _current_slate_date() -> str | None:
+    """The live board date — the NHL ``current_date`` structural twin.
+
+    The newest moneyline record's explicit ``slate_date`` is authoritative;
+    the per-game dates are a consistency fallback. Returns ``YYYYMMDD`` or
+    None when no record resolves.
+    """
+    try:
+        record = utils.load_nba_moneyline_record("nba")
+    except Exception:
+        record = {}
+    if isinstance(record, dict):
+        try:
+            return datetime.strptime(
+                str(record.get("slate_date", "")), "%Y-%m-%d").strftime("%Y%m%d")
+        except (TypeError, ValueError):
+            pass
+    try:
+        frame = utils.load_nba_moneyline("nba")
+    except Exception:
+        frame = None
+    dates = set(utils._distinct_game_dates(frame)) if frame is not None else set()
+    return max(dates) if dates else None
+
+
 def run() -> None:
+    current_date = _current_slate_date()
     valid = list(utils.valid_dates("nba"))
+    valid_set = set(valid)
+    if current_date and current_date not in valid_set:
+        valid_set.add(current_date)
+        valid.append(current_date)
+        valid.sort(reverse=True)
     if not valid:
         st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏀 NBA — Moneyline</div>", unsafe_allow_html=True)
         st.info("No NBA per-game moneyline rows available.")
         return
+    today_et = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
     if st.session_state.get("_nav_sport") != "nba" or "selected_date" not in st.session_state:
-        st.session_state["selected_date"] = utils.nearest_valid_date(valid) or valid[0]
+        # The live slate is the landing board — never a retained older
+        # snapshot (NHL parity: a valid future preview is the current
+        # board; only with none do we honestly target today, and the
+        # shared fallback below heals a date with no board).
+        st.session_state["selected_date"] = current_date or today_et
         st.session_state["_nav_sport"] = "nba"
     date = st.session_state["selected_date"]
     if date not in set(valid):
@@ -283,8 +319,6 @@ def run() -> None:
     except Exception: slate = pd.DataFrame()
     try: players = utils.load_nba_player_matchup("nba")
     except Exception: players = pd.DataFrame()
-    if history:
-        st.info("🗂 Archive view — this historical NBA card serves the production prediction as first published; current-slate market and SHAP enrichment is unavailable for this retained date.")
     st.divider()
     for start in range(0, len(filtered), 2):
         columns = st.columns(2)

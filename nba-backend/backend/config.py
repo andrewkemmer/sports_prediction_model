@@ -172,7 +172,7 @@ CAL_GATE_EPS = 5e-3
 #: four-arm walk-forward). Two concepts, each with per-side values and a
 #: home-minus-away diff:
 #:
-#: * ``star_out_impact`` - minutes-weighted RAPM of the team's top-three
+#: * ``star_out_impact`` - minutes-weighted DARKO DPM of the team's top-three
 #:   prior-MPG players who are out, over the top three's total weight. Positive
 #:   means positive talent is unavailable; negative means the absent player
 #:   was rated below replacement.
@@ -226,7 +226,7 @@ MONEYLINE_FEATURE_COLS = [
     "event_shooting_fouls_diff", "event_q4_points_diff",
     # Position-segmented projected-lineup impact - the NBA mirror of
     # MLB's lineup_woba_* trio, one per position, with sides retained:
-    #   pl_rapm_{pos}_home / _away : the projected lineup's shrunk RAPM
+    #   pl_rapm_{pos}_home / _away : the projected lineup's DARKO DPM
     #                               at that position, home side / away side
     #   pl_rapm_{pos}_diff         : home minus away
     # Built over the WHOLE decided frame (MLB's lineup_agg construction),
