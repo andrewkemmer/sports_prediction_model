@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-10-20T02:09:27.502779+00:00",
+ "created_utc": "2026-10-30T05:35:48.387832+00:00",
  "feature_set_version": "nhl-prod-v1.3-causal-evaluation",
  "manifest": {
   "elo_diff": {
@@ -637,7 +637,7 @@
   "pl_evo_c_away": {
    "description": "even-strength (EVO) centres healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -651,7 +651,7 @@
   "pl_evo_c_home": {
    "description": "even-strength (EVO) centres healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -665,7 +665,7 @@
   "pl_evo_c_diff": {
    "description": "even-strength (EVO) centres healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -680,7 +680,7 @@
   "pl_evo_l_away": {
    "description": "even-strength (EVO) left wings healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -694,7 +694,7 @@
   "pl_evo_l_home": {
    "description": "even-strength (EVO) left wings healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -708,7 +708,7 @@
   "pl_evo_l_diff": {
    "description": "even-strength (EVO) left wings healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -723,7 +723,7 @@
   "pl_evo_r_away": {
    "description": "even-strength (EVO) right wings healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -737,7 +737,7 @@
   "pl_evo_r_home": {
    "description": "even-strength (EVO) right wings healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -751,7 +751,7 @@
   "pl_evo_r_diff": {
    "description": "even-strength (EVO) right wings healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -766,7 +766,7 @@
   "pl_evo_d_away": {
    "description": "even-strength (EVO) defencemen healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -780,7 +780,7 @@
   "pl_evo_d_home": {
    "description": "even-strength (EVO) defencemen healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -794,7 +794,7 @@
   "pl_evo_d_diff": {
    "description": "even-strength (EVO) defencemen healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on5/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -809,7 +809,7 @@
   "pl_ppo_c_away": {
    "description": "power-play (PPO) centres healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -823,7 +823,7 @@
   "pl_ppo_c_home": {
    "description": "power-play (PPO) centres healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -837,7 +837,7 @@
   "pl_ppo_c_diff": {
    "description": "power-play (PPO) centres healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/C, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -852,7 +852,7 @@
   "pl_ppo_l_away": {
    "description": "power-play (PPO) left wings healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -866,7 +866,7 @@
   "pl_ppo_l_home": {
    "description": "power-play (PPO) left wings healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -880,7 +880,7 @@
   "pl_ppo_l_diff": {
    "description": "power-play (PPO) left wings healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/L, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -895,7 +895,7 @@
   "pl_ppo_r_away": {
    "description": "power-play (PPO) right wings healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -909,7 +909,7 @@
   "pl_ppo_r_home": {
    "description": "power-play (PPO) right wings healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -923,7 +923,7 @@
   "pl_ppo_r_diff": {
    "description": "power-play (PPO) right wings healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/R, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -938,7 +938,7 @@
   "pl_ppo_d_away": {
    "description": "power-play (PPO) defencemen healthy-pool mean shrunk rate, away",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -952,7 +952,7 @@
   "pl_ppo_d_home": {
    "description": "power-play (PPO) defencemen healthy-pool mean shrunk rate, home",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -966,7 +966,7 @@
   "pl_ppo_d_diff": {
    "description": "power-play (PPO) defencemen healthy-pool mean shrunk rate, diff",
    "definition": "mean shrunk_rate_per60 over the player's rating for 5on4/D, aggregated over the healthy pool -- the most recent trailing-30-game rating per player whose source game date is strictly earlier than the target date, gated at >=900s prior ice time, with any player on an Out/Injured Reserve/IR/Doubtful interval captured before puck drop REMOVED from the pool before the mean. MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 dressed skaters contribute in hockey. The rating itself is never modified; the flag removes a row, it does not discount a value. diff = home - away.",
-   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime) + ESPN timestamped injury status snapshots",
+   "source": "MoneyPuck regular-season skater game-by-game archives (xGoals, icetime; on-ice xGoals pair only under the gated xpm arm) + ESPN timestamped injury status snapshots",
    "lookback": "trailing 30 played games per player and situation (game grain); source games within injury_stints.POOL_LOOKBACK_DAYS = 45 of the target date -- a slate whose team ratings all trail that gate (the season opener after the offseason) serves the position prior, matching MLB's LINEUP_POOL_LOOKBACK_DAYS = 10 geometry",
    "aggregation": "opportunity-weighted mean of surviving player-level shrunk rates (NFL snap-share parity): each candidate's weight is his own served prior icetime, applied AFTER the injury exclusion so an absent star's ice leaves the blend with him; sides with zero served weight fall back to the plain mean (counted in the pool audit)",
    "point_in_time_rule": "a candidate rating enters a target game's pool only when its source game date is STRICTLY earlier than the target date (date-grain source feeds cannot prove within-day publish ordering), so a target game's own row can never enter its own pool; the injury interval opens only on a captured snapshot timestamp strictly before exact puck drop (Out / Injured Reserve / IR / Doubtful -- never a provider filing or projected return date), and the exclusion is evaluated at the game date, per game.",
@@ -1052,525 +1052,525 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.7059565248722068,
-   "std": 62.15965966855189
+   "mean": 0.6489551341313611,
+   "std": 62.109216544810444
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.004508969185153029,
-   "std": 0.2333026136902935
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.004184646569999067,
+   "std": 0.23316235153880624
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": 0.2681058495821727,
-   "std": 13.296736051817415
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": 0.271275382158339,
+   "std": 13.18326094484238
   },
   {
    "feature": "ewm_net_goals_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.023304531081708015,
-   "std": 1.4526163554718368
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.024166808420879735,
+   "std": 1.4490909590169503
   },
   {
    "feature": "ewm_goal_share_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.0021066488958834876,
-   "std": 0.13280759842028889
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.0020436727860185617,
+   "std": 0.1323965880599458
   },
   {
    "feature": "ga_per_game_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": 0.015780718043949246,
-   "std": 1.187572398347714
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": 0.018796106167769416,
+   "std": 1.1831511413312543
   },
   {
    "feature": "shots_for_per_game_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.09023909006499534,
-   "std": 5.074667862470687
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.110643394934976,
+   "std": 5.086273971852664
   },
   {
    "feature": "shots_against_per_game_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": 0.055350510677808724,
-   "std": 4.948307987810303
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": 0.07051106548026466,
+   "std": 4.948311112049144
   },
   {
    "feature": "pp_success_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.002137087836013454,
-   "std": 0.1616236355835441
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.0014057613553209735,
+   "std": 0.16134555720266444
   },
   {
    "feature": "faceoff_win_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": 0.00014093134061955875,
-   "std": 0.060757512516934946
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": 0.0003111710964174885,
+   "std": 0.0606957563654444
   },
   {
    "feature": "back_to_back_diff",
-   "n_games": 4328,
-   "coverage_pct": 99.54,
-   "mean": -0.09354688950789229,
-   "std": 0.43240586546504
+   "n_games": 4403,
+   "coverage_pct": 99.55,
+   "mean": -0.09399954369153547,
+   "std": 0.4318641694853245
   },
   {
    "feature": "goalie_sv_pct_diff",
-   "n_games": 4328,
-   "coverage_pct": 98.15,
-   "mean": -5.2356909282770186e-06,
-   "std": 0.04325513706491967
+   "n_games": 4403,
+   "coverage_pct": 97.93,
+   "mean": 0.0016581348695633633,
+   "std": 0.04498626084477921
   },
   {
    "feature": "goalie_gaa_diff",
-   "n_games": 4328,
-   "coverage_pct": 98.15,
-   "mean": -0.0031165250201252996,
-   "std": 1.2919906001991428
+   "n_games": 4403,
+   "coverage_pct": 97.93,
+   "mean": -0.047435534859818385,
+   "std": 1.3463408273934994
   },
   {
    "feature": "goalie_starts_diff",
-   "n_games": 4328,
-   "coverage_pct": 98.15,
-   "mean": 0.006591337099811676,
-   "std": 7.530548654829213
+   "n_games": 4403,
+   "coverage_pct": 97.93,
+   "mean": 0.8091372912801484,
+   "std": 12.119503922058833
   },
   {
    "feature": "is_playoffs",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.059149722735674676,
-   "std": 0.23593196981206901
+   "mean": 0.05814217578923461,
+   "std": 0.23403867919991728
   },
   {
    "feature": "elo_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1504.016077967479,
-   "std": 45.65928385573086
+   "mean": 1503.9247112589655,
+   "std": 45.60585471436127
   },
   {
    "feature": "elo_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1503.3101214426067,
-   "std": 45.337279387610124
+   "mean": 1503.2757561248343,
+   "std": 45.28404772305659
   },
   {
    "feature": "win_pct_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 0.4985979114981435,
-   "std": 0.16507915747149904
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 0.4982608130498665,
+   "std": 0.164925545604421
   },
   {
    "feature": "win_pct_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.5028321287131859,
-   "std": 0.16673446732829997
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.5021760037541715,
+   "std": 0.1668850937636993
   },
   {
    "feature": "ewm_net_goals_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": -0.009459139419772947,
-   "std": 1.0154900180564101
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": -0.010669184256784507,
+   "std": 1.0144553275709045
   },
   {
    "feature": "ewm_net_goals_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.012281071243545993,
-   "std": 1.0228488261547777
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.011959885965212613,
+   "std": 1.0214410133516718
   },
   {
    "feature": "ewm_goal_share_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 0.4991554544619437,
-   "std": 0.09253712042048709
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 0.49909466614293135,
+   "std": 0.09240324240748475
   },
   {
    "feature": "ewm_goal_share_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.5011274778751648,
-   "std": 0.09402239340874938
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.5010061277937592,
+   "std": 0.09381201764227239
   },
   {
    "feature": "rest_days_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 4.1825986078886315,
-   "std": 16.530647605480723
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 4.155986316989738,
+   "std": 16.39029350295324
   },
   {
    "feature": "rest_days_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 3.9531648504521213,
-   "std": 16.53574962339342
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 3.922743846855059,
+   "std": 16.39569966305498
   },
   {
    "feature": "ga_per_game_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 3.0947911832946633,
-   "std": 0.8351052571722987
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 3.096818700114025,
+   "std": 0.8346295133585567
   },
   {
    "feature": "ga_per_game_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 3.079751139964449,
-   "std": 0.8493930162672592
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 3.0787526587663323,
+   "std": 0.8459331093046468
   },
   {
    "feature": "shots_for_per_game_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 28.68585073472545,
-   "std": 3.6738486442073235
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 28.656970733561383,
+   "std": 3.6803871161325747
   },
   {
    "feature": "shots_for_per_game_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 28.777502125357447,
-   "std": 3.791570851766576
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 28.768998784563962,
+   "std": 3.788382145186279
   },
   {
    "feature": "shots_against_per_game_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 28.759048723897912,
-   "std": 3.6590483029508265
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 28.747388825541623,
+   "std": 3.66374886815667
   },
   {
    "feature": "shots_against_per_game_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 28.709819151402737,
-   "std": 3.658869048650586
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 28.682919325433,
+   "std": 3.65626637936374
   },
   {
    "feature": "pp_success_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 0.2104116830060999,
-   "std": 0.11451759745347695
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 0.21083261802765604,
+   "std": 0.1144312974017819
   },
   {
    "feature": "pp_success_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.21240344995803104,
-   "std": 0.11205644765500829
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.2120960878730162,
+   "std": 0.11177625305762397
   },
   {
    "feature": "faceoff_win_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 0.5001047216082191,
-   "std": 0.04186452765149449
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 0.5001945871792375,
+   "std": 0.0418612833519994
   },
   {
    "feature": "faceoff_win_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.49994923468629765,
-   "std": 0.042063798738528314
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.49986924183029297,
+   "std": 0.042041241513727234
   },
   {
    "feature": "back_to_back_home",
-   "n_games": 4328,
-   "coverage_pct": 99.58,
-   "mean": 0.0951276102088167,
-   "std": 0.293425159783798
+   "n_games": 4403,
+   "coverage_pct": 99.59,
+   "mean": 0.09395667046750285,
+   "std": 0.291801700836676
   },
   {
    "feature": "back_to_back_away",
-   "n_games": 4328,
-   "coverage_pct": 99.65,
-   "mean": 0.18849988407141202,
-   "std": 0.3911561742518868
+   "n_games": 4403,
+   "coverage_pct": 99.66,
+   "mean": 0.18778486782133091,
+   "std": 0.39058478974977356
   },
   {
    "feature": "goalie_sv_pct_home",
-   "n_games": 4328,
-   "coverage_pct": 98.45,
-   "mean": 0.8930559616137681,
-   "std": 0.030891892140051072
+   "n_games": 4403,
+   "coverage_pct": 98.32,
+   "mean": 0.8946201452160977,
+   "std": 0.03196789171144925
   },
   {
    "feature": "goalie_sv_pct_away",
-   "n_games": 4328,
-   "coverage_pct": 98.59,
-   "mean": 0.8930427989594617,
-   "std": 0.030362584818628822
+   "n_games": 4403,
+   "coverage_pct": 98.52,
+   "mean": 0.8929465410921652,
+   "std": 0.03153370255822501
   },
   {
    "feature": "goalie_gaa_home",
-   "n_games": 4328,
-   "coverage_pct": 98.45,
-   "mean": 3.0128730642326396,
-   "std": 0.9264324746571924
+   "n_games": 4403,
+   "coverage_pct": 98.32,
+   "mean": 2.9693807149370315,
+   "std": 0.9397790066987339
   },
   {
    "feature": "goalie_gaa_away",
-   "n_games": 4328,
-   "coverage_pct": 98.59,
-   "mean": 3.017608387642872,
-   "std": 0.9206330806078772
+   "n_games": 4403,
+   "coverage_pct": 98.52,
+   "mean": 3.018981728604601,
+   "std": 0.9617215861998019
   },
   {
    "feature": "goalie_starts_home",
-   "n_games": 4328,
-   "coverage_pct": 98.45,
-   "mean": 26.124383947430182,
-   "std": 16.42734806468973
+   "n_games": 4403,
+   "coverage_pct": 98.32,
+   "mean": 22.492723492723492,
+   "std": 16.622771978273853
   },
   {
    "feature": "goalie_starts_away",
-   "n_games": 4328,
-   "coverage_pct": 98.59,
-   "mean": 26.082962268572768,
-   "std": 16.388985181892537
+   "n_games": 4403,
+   "coverage_pct": 98.52,
+   "mean": 21.656523743660674,
+   "std": 16.385629922837655
   },
   {
    "feature": "is_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
    "mean": 1.0,
    "std": 0.0
   },
   {
    "feature": "pl_evo_c_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.6813972006714998,
-   "std": 0.06475137167195875
+   "mean": 0.6827341326102612,
+   "std": 0.06881400663759585
   },
   {
    "feature": "pl_evo_c_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.6820861219350304,
-   "std": 0.0643673484712949
+   "mean": 0.6833452118099204,
+   "std": 0.06854492222179517
   },
   {
    "feature": "pl_evo_c_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.0006889212635305139,
-   "std": 0.0903427407927254
+   "mean": 0.0006110791996593311,
+   "std": 0.09644053942905842
   },
   {
    "feature": "pl_evo_l_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.749367104943633,
-   "std": 0.09980104291160895
+   "mean": 0.7540076813075256,
+   "std": 0.10646187291713287
   },
   {
    "feature": "pl_evo_l_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.7485974841861609,
-   "std": 0.09802435190113051
+   "mean": 0.7523458033205326,
+   "std": 0.10371304662793687
   },
   {
    "feature": "pl_evo_l_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": -0.0007696207574720309,
-   "std": 0.13931103625927319
+   "mean": -0.001661877986993207,
+   "std": 0.14806291724044887
   },
   {
    "feature": "pl_evo_r_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.7234556892400209,
-   "std": 0.1020492051307923
+   "mean": 0.7258199147302536,
+   "std": 0.10431196925462531
   },
   {
    "feature": "pl_evo_r_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.7232350203310357,
-   "std": 0.10032710924527709
+   "mean": 0.7244204892336533,
+   "std": 0.1023217040120127
   },
   {
    "feature": "pl_evo_r_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": -0.00022066890898523594,
-   "std": 0.14507767324219145
+   "mean": -0.0013994254966004348,
+   "std": 0.14877445048235752
   },
   {
    "feature": "pl_evo_d_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.17413053797243563,
-   "std": 0.023942792594135957
+   "mean": 0.17615777994262577,
+   "std": 0.02563128729113676
   },
   {
    "feature": "pl_evo_d_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.17422744061648776,
-   "std": 0.023699470109891582
+   "mean": 0.17604514573196572,
+   "std": 0.025246541632202496
   },
   {
    "feature": "pl_evo_d_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 9.690264405212447e-05,
-   "std": 0.03370766888773588
+   "mean": -0.00011263421066006741,
+   "std": 0.03580568579842658
   },
   {
    "feature": "pl_ppo_c_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.6592205395710122,
-   "std": 0.45753247022330845
+   "mean": 1.6654214297375853,
+   "std": 0.4763444904655602
   },
   {
    "feature": "pl_ppo_c_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.6553841694569542,
-   "std": 0.4571031239763972
+   "mean": 1.6573219701596984,
+   "std": 0.4732349778367604
   },
   {
    "feature": "pl_ppo_c_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": -0.0038363701140578573,
-   "std": 0.660041497799152
+   "mean": -0.00809945957788667,
+   "std": 0.6829182610057681
   },
   {
    "feature": "pl_ppo_l_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.7315562095145718,
-   "std": 0.5518145813123004
+   "mean": 1.7275528631874608,
+   "std": 0.5722935857232899
   },
   {
    "feature": "pl_ppo_l_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.724082985019788,
-   "std": 0.5592703745788473
+   "mean": 1.7165430947504812,
+   "std": 0.5730539046166085
   },
   {
    "feature": "pl_ppo_l_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": -0.007473224494783672,
-   "std": 0.7880204185133044
+   "mean": -0.01100976843697972,
+   "std": 0.8029901048160482
   },
   {
    "feature": "pl_ppo_r_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.6018804636170456,
-   "std": 0.5235511941774195
+   "mean": 1.604743508029186,
+   "std": 0.5262293341407737
   },
   {
    "feature": "pl_ppo_r_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 1.6040854673140992,
-   "std": 0.520563412096112
+   "mean": 1.607151343585554,
+   "std": 0.5278252908341801
   },
   {
    "feature": "pl_ppo_r_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.0022050036970533027,
-   "std": 0.7521812062689225
+   "mean": 0.002407835556367869,
+   "std": 0.7581587603378743
   },
   {
    "feature": "pl_ppo_d_away",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.6528414471306585,
-   "std": 0.2233897945553214
+   "mean": 0.6521692510630503,
+   "std": 0.23999100554939334
   },
   {
    "feature": "pl_ppo_d_home",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.653776234308934,
-   "std": 0.22275103930975548
+   "mean": 0.6503704750708732,
+   "std": 0.240756952927477
   },
   {
    "feature": "pl_ppo_d_diff",
-   "n_games": 4328,
+   "n_games": 4403,
    "coverage_pct": 100.0,
-   "mean": 0.0009347871782755638,
-   "std": 0.3155846915730391
+   "mean": -0.0017987759921771133,
+   "std": 0.34030715826629954
   }
  ],
  "fold_geometry": {
-  "n_folds": 94,
+  "n_folds": 96,
   "first_val_start": "2023-11-09",
-  "last_val_end": "2026-10-18",
+  "last_val_end": "2026-10-29",
   "min_train": 192,
-  "max_train": 4281,
-  "total_val_games": 4136,
-  "n_candidates": 94,
+  "max_train": 4379,
+  "total_val_games": 4211,
+  "n_candidates": 96,
   "dropped_windows": 0,
   "dropped_games": 0,
-  "provisional_windows": 22,
-  "provisional_games": 331,
+  "provisional_windows": 23,
+  "provisional_games": 355,
   "postseason_windows": 22,
   "min_val_fold_games": 40,
   "oof_regular": {
-   "n": 3796,
-   "auc": 0.6093409875185865,
-   "logloss": 0.6703232474010269,
-   "brier": 0.2388284187198757,
-   "ece": 0.00818009088815023,
+   "n": 3847,
+   "auc": 0.6100837931739219,
+   "logloss": 0.6699438538540772,
+   "brier": 0.23863587243451936,
+   "ece": 0.01002902344055281,
    "sufficient": true
   },
   "oof_postseason": {
    "n": 256,
-   "auc": 0.6179473072926217,
-   "logloss": 0.670524578890167,
-   "brier": 0.23888572395269342,
-   "ece": 0.03998244109151393,
+   "auc": 0.6235711229292744,
+   "logloss": 0.6692271640056404,
+   "brier": 0.23826367273679616,
+   "ece": 0.02708133889759488,
    "sufficient": true
   },
   "oof_provisional": {
-   "n": 331,
-   "auc": 0.5761695906432749,
-   "logloss": 0.7074143425371955,
-   "brier": 0.249922959601448,
-   "ece": 0.0400272602093966,
+   "n": 355,
+   "auc": 0.5966768331427119,
+   "logloss": 0.7046790387493433,
+   "brier": 0.24797989007704488,
+   "ece": 0.03897368387906423,
    "sufficient": true
   },
   "oof_all": {
-   "n": 4136,
-   "auc": 0.6070080690513354,
-   "logloss": 0.6731057925735473,
-   "brier": 0.23962713285811635,
-   "ece": 0.008632286782690735,
+   "n": 4211,
+   "auc": 0.609325425230937,
+   "logloss": 0.6726862935668982,
+   "brier": 0.23933432599254137,
+   "ece": 0.00957766448619855,
    "sufficient": true
   }
  },
@@ -1691,102 +1691,104 @@
    "training_population": "grades_pooled",
    "retrospective_column": "p_ensemble_retrospective",
    "retrospective_is_oof": false,
-   "final_xgb_rounds": 147,
+   "final_xgb_rounds": 143,
    "xgb_best_rounds": [
-    28,
-    78,
-    1,
-    111,
-    66,
-    1,
-    303,
-    196,
-    155,
-    363,
-    240,
-    12,
-    71,
-    123,
-    169,
-    178,
-    467,
-    282,
-    70,
-    81,
-    269,
-    798,
-    712,
-    359,
-    364,
-    146,
     2,
     76,
-    196,
-    7,
-    499,
-    531,
-    251,
-    505,
-    148,
-    32,
-    58,
-    153,
-    167,
-    421,
+    1,
+    134,
+    1,
+    1,
+    260,
+    232,
+    232,
+    714,
+    260,
+    13,
+    204,
+    176,
+    136,
+    324,
+    462,
+    346,
+    134,
+    116,
+    269,
+    751,
+    874,
+    348,
+    253,
+    9,
+    93,
+    46,
+    30,
+    1,
+    649,
+    649,
+    142,
+    329,
+    262,
+    49,
+    65,
+    145,
+    218,
+    428,
     4,
     67,
-    242,
-    252,
-    27,
-    301,
-    318,
-    331,
-    652,
-    198,
-    518,
     344,
-    4,
-    112,
-    101,
-    26,
-    185,
-    359,
-    4,
-    80,
-    127,
-    305,
-    91,
-    3,
-    69,
-    29,
-    115,
-    112,
-    69,
-    392,
-    413,
+    220,
+    71,
+    303,
+    125,
+    145,
+    601,
+    210,
+    368,
+    130,
+    94,
+    95,
+    165,
+    25,
+    175,
+    202,
+    1,
+    15,
+    237,
+    242,
+    77,
+    13,
+    59,
+    11,
+    124,
+    308,
+    93,
+    71,
+    381,
     16,
     1,
-    104,
-    10,
-    96,
-    207,
-    511,
-    114,
-    21,
-    252,
-    158,
-    112,
-    210,
+    67,
+    56,
+    55,
+    242,
+    494,
+    100,
     40,
-    131,
-    103,
-    504,
+    332,
+    189,
+    305,
+    242,
     57,
-    1,
-    257,
-    333,
-    247,
-    439
+    108,
+    116,
+    508,
+    36,
+    21,
+    290,
+    318,
+    278,
+    361,
+    59,
+    570
    ],
    "xgb_round_policy": "median_prior_probe_rounds"
   }
