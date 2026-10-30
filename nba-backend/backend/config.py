@@ -774,6 +774,16 @@ DISTRIBUTION_CONDVARIANCE_PACE = False
 # tilt_watch panel (slope-sign guard + top-quintile gap) in
 # distribution_score_report.
 DISTRIBUTION_TOTAL_TILT_PACE = True
+# Trailing own-error location correction (TRIAL ONLY, default off): when
+# True the NBA distribution fits a per-team trailing bias block (trailing-20
+# mean of mu_total minus actual over each team's strictly-prior games, both
+# sides required, capped) and shifts the total location by -(biasH+biasA)/2
+# before the variance/calibration/lattice fits, so calibration refits against
+# the corrected base (the tilt precedent). Margin untouched by construction
+# (h and a shift by half the delta each). Trial-only until a walk-forward
+# verdict clears the gate (ab_location_retrain.py). Other sports never read
+# this flag; flag-off prices byte-identical (no block fitted, no shift).
+DISTRIBUTION_LOCATION_BIAS_CORRECT = False
 # Totals disagreement-shrinkage (ADOPTED 2026-10-30, GPC verdict
 # run_diagnostics/ab_pace_global_oof.csv): the totals model has no ranking
 # power when it disagrees with the market (edge>3% AUC 0.489 vs market 0.755

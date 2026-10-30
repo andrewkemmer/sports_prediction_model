@@ -1488,6 +1488,13 @@ def _fit_distribution_map(h, a, outcome, kind, parameters=None):
 def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
                        seed=MC_SEED, meta_out=None):
     h, a = _distribution_inputs(frame)
+    # Trailing own-error location correction (trial, default off): the SAME
+    # per-game shift the fit path applied to its history base, read from the
+    # stored block and this frame's team keys. Margin preserved by
+    # construction; absent block/teams/flag prices byte-identical.
+    _lb = ((maps or {}).get("variance") or {}).get("loc_bias")
+    if _lb is not None:
+        h, a = _apply_loc_bias(h, a, _loc_bias_teams(frame), _lb)
     design = _distribution_design(h, a)
     identity_col = "game_pk" if DISTRIBUTION_SPORT == "mlb" else "game_id"
     if sampled and (identity_col not in frame or frame[identity_col].isna().any()):
@@ -2046,8 +2053,54 @@ def _fit_lattice_maps(outcomes, parameters, evidence):
     return {"totals": totals, "margin": margin}
 
 
-def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None):
+def _loc_bias_teams(frame):
+    """Per-row (home, away) team keys for the location-bias shift, or None.
+
+    Trial-only helper: missing columns are a passthrough, never an error.
+    """
+    if "home_team" not in frame.columns or "away_team" not in frame.columns:
+        return None
+    try:
+        return (frame["home_team"].astype(str).to_numpy(),
+                frame["away_team"].astype(str).to_numpy())
+    except Exception:  # noqa: BLE001 - passthrough on any frame oddity
+        return None
+
+
+def _apply_loc_bias(h, a, teams, block):
+    """Shift the total location by the fitted team-bias correction.
+
+    h and a move by half the delta each, so margin (h - a) is byte-identical
+    and only the total location moves. No block (flag off, thin history,
+    non-NBA, teams absent) returns the inputs untouched.
+    """
+    if block is None or teams is None:
+        return h, a
+    delta = family.loc_bias_shift(teams[0], teams[1], block, DISTRIBUTION_SPORT)
+    if len(delta) != len(h) or not np.any(delta != 0.):
+        return h, a
+    return np.asarray(h, float) + delta / 2., np.asarray(a, float) + delta / 2.
+
+
+def _distribution_fit_maps(h, a, outcomes, lattice_evidence=None, loc_teams=None):
     parameters = family.fit_variance(h, a, outcomes, DISTRIBUTION_SPORT)
+    if DISTRIBUTION_SPORT == "nba" and bool(getattr(config, "DISTRIBUTION_LOCATION_BIAS_CORRECT", False)):
+        # Trailing own-error location correction (trial, default off): fit
+        # the per-team bias block on the UNCORRECTED base-model errors, shift
+        # the location, and fit variance/tilt/calibration against the
+        # corrected base (the tilt precedent). Rides the variance params so
+        # pricing applies the identical shift from the stored block.
+        loc_block = {}
+        if loc_teams is not None:
+            try:
+                loc_block = family.fit_loc_bias(
+                    h, a, outcomes.get("total"), loc_teams[0], loc_teams[1],
+                    DISTRIBUTION_SPORT)
+            except Exception:  # noqa: BLE001 - trial never breaks the fit
+                loc_block = {}
+        if loc_block:
+            parameters.update(loc_block)
+            h, a = _apply_loc_bias(h, a, loc_teams, loc_block.get("loc_bias"))
     if DISTRIBUTION_SPORT in ("nba", "nfl") and bool(getattr(config, "DISTRIBUTION_TOTAL_TILT_PACE", False)):
         # Adopted 2026-10-18 (V3a verdict: top-quintile over-230 gap
         # +0.0438 -> +0.0081, CRPS neutral). Totals pace-tilt location
@@ -2124,10 +2177,14 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
             return family.lattice_evidence(blocks)
         return {kind: _select(kind) for kind in ("total", "margin")}
 
+    frame_teams_all = _loc_bias_teams(frame)
     for start, end, mask in blocks:
+        hist_teams = None
+        if frame_teams_all is not None:
+            hist_teams = (frame_teams_all[0][history], frame_teams_all[1][history])
         candidate = _distribution_fit_maps(h[history], a[history],
                                            {k: y[history] for k, y in outcomes.items()},
-                                           _lattice_evidence())
+                                           _lattice_evidence(), loc_teams=hist_teams)
         maps = dict(candidate)
         admitted = {}
         for kind in ("total", "margin"):
@@ -2181,7 +2238,8 @@ def causal_distribution_frame(frame, n_draws=MC_DRAWS, seed=MC_SEED,
         history |= mask & pre_holdout
     # Freeze evaluation learning through the sealed tail; serving can learn
     # from all now-settled past games, but cannot rewrite issued OOF prices.
-    maps = _distribution_fit_maps(h, a, outcomes, _lattice_evidence(True))
+    maps = _distribution_fit_maps(h, a, outcomes, _lattice_evidence(True),
+                                    loc_teams=frame_teams_all)
     for kind in ("total", "margin"):
         difference = np.concatenate(evidence[kind])
         if len(difference) < CRPS_MIN_HISTORY or difference.mean() >= 0.:

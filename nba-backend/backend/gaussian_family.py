@@ -205,6 +205,100 @@ def resolve_widths(h, a, p, sport):
     return rh * h, ra * a, rho
 
 
+# Trailing own-error location correction (NBA trial, default off): per-team
+# trailing mean of (mu_total - actual) over strictly-prior games, both sides
+# of a game required, one cap for all teams. Mirrors the tilt contract:
+# fit returns a block riding the variance params (or {} when thin/non-NBA),
+# the shift applies per game from the block, absent block prices identical.
+LOC_BIAS_WINDOW = 20
+LOC_BIAS_MIN_GAMES = 5
+LOC_BIAS_CAP = 6.0
+
+
+def fit_loc_bias(h, a, total, home_teams, away_teams, sport):
+    """Per-team trailing totals bias over strictly-prior history (NBA trial).
+
+    ``total`` is actuals aligned with ``h``/``a`` (the caller passes history
+    only); ``home_teams``/``away_teams`` are per-row team keys in one shared
+    domain. Returns ``{"loc_bias": {"bias": {team: float}, "cap": ...}}``
+    or {} when history is thin, teams are absent, or the sport is not NBA.
+    The bias of a team is the trailing-LOC_BIAS_WINDOW mean of
+    (mu_total - actual) over its games as either side, strictly prior
+    (the last history row is the freshest evidence the block may read).
+    """
+    if sport != "nba":
+        return {}
+    h = np.asarray(h, float)
+    a = np.asarray(a, float)
+    y = np.asarray(total, float)
+    if len(h) < 2 * MIN_HISTORY:
+        return {}
+    if y.shape != h.shape or a.shape != h.shape:
+        return {}
+    try:
+        ht = np.asarray(list(home_teams), dtype=str)
+        at = np.asarray(list(away_teams), dtype=str)
+    except Exception:
+        return {}
+    if ht.shape != h.shape or at.shape != h.shape:
+        return {}
+    err = (h + a) - y
+    ok = np.isfinite(err) & (ht != "") & (at != "") & (ht != "nan") & (at != "nan")
+    if int(ok.sum()) < 2 * MIN_HISTORY:
+        return {}
+    bias: dict[str, float] = {}
+    for team in sorted(set(ht[ok].tolist()) | set(at[ok].tolist())):
+        m = ok & ((ht == team) | (at == team))
+        if int(m.sum()) < LOC_BIAS_MIN_GAMES:
+            continue
+        recent = err[m][-LOC_BIAS_WINDOW:]
+        if len(recent) >= LOC_BIAS_MIN_GAMES:
+            v = float(np.mean(recent))
+            if np.isfinite(v):
+                bias[team] = v
+    if not bias:
+        return {}
+    return {"loc_bias": {"bias": bias, "cap": float(LOC_BIAS_CAP)}}
+
+
+def loc_bias_shift(home_teams, away_teams, block, sport):
+    """Per-game total-location correction from a loc_bias block (zeros out).
+
+    Correction is -(biasH + biasA) / 2 with BOTH sides required (the offline
+    H-arm contract: single-side evidence stays a passthrough). Capped at the
+    block cap so a thin-history team cannot swing a price by tens of points.
+    """
+    try:
+        n = len(np.asarray(home_teams).ravel())
+    except Exception:
+        return np.zeros(0)
+    if not block or sport != "nba":
+        return np.zeros(n)
+    table = (block or {}).get("bias", {}) if isinstance(block, dict) else {}
+    if not table:
+        return np.zeros(n)
+    cap = float((block or {}).get("cap", LOC_BIAS_CAP))
+    try:
+        ht = np.asarray(list(home_teams), dtype=str)
+        at = np.asarray(list(away_teams), dtype=str)
+    except Exception:
+        return np.zeros(n)
+    if ht.shape != (n,) or at.shape != (n,):
+        return np.zeros(n)
+    out = np.zeros(n)
+    for i in range(n):
+        bh = table.get(ht[i], None)
+        ba = table.get(at[i], None)
+        if bh is None or ba is None:
+            continue
+        try:
+            v = -0.5 * (float(bh) + float(ba))
+        except (TypeError, ValueError):
+            continue
+        out[i] = float(np.clip(v, -cap, cap)) if np.isfinite(v) else 0.0
+    return out
+
+
 def fit_tilt(h, a, outcomes, sport):
     """Totals-location tilt on pace deviation (NBA adopted 2026-10-18;
     NFL trial, both default-off unless enabled).
