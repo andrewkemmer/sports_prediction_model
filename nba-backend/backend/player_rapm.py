@@ -112,6 +112,13 @@ def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataF
     observation keep the incumbent RAPM value, so segment membership cannot
     shift. Only ``rapm_shrunk``, ``rapm_raw`` and ``rating_source`` change;
     every row, key and minute is kept.
+
+    Expected minutes (``darko_x_minutes``) use the OPPOSITE join: the row
+    dated exactly the target date (``date == target`` normalized to midnight),
+    which is the pre-game projection entering that game. ``seconds_played``
+    on that row is the post-game actual and is never read. A player with no
+    on-day row (not on the slate, offseason gap, no DARKO node) keeps NaN and
+    downstream blends fall back to trailing ``prior_minutes_per_game``.
     """
     out = ratings.reset_index(drop=True).copy()
     left = pd.DataFrame({
@@ -146,6 +153,55 @@ def apply_darko_rating(ratings: pd.DataFrame, history: pd.DataFrame) -> pd.DataF
     out["rating_source"] = np.where(has, "darko", "incumbent")
     logger.info("DARKO rating: %.1f%% of rows carry a DPM value",
                 100 * float(has.mean()) if len(has) else 0.0)
+    # Offense/defense components ride the SAME asof row as the total, so an
+    # O/D blend prices exactly the members the total blend prices. Attached
+    # raw (no gating): consumers decide the fallback, mirroring rapm_shrunk.
+    for _col in ("o_dpm", "d_dpm"):
+        if _col in merged.columns:
+            _vals = pd.Series(np.nan, index=out.index)
+            _vals.iloc[merged["_pos"].to_numpy()] = pd.to_numeric(
+                merged[_col], errors="coerce").to_numpy()
+            out[_col] = pd.to_numeric(_vals, errors="coerce")
+        elif _col not in out.columns:
+            out[_col] = np.nan
+    # Expected minutes: equality join on the target DATE (normalized), never
+    # the asof-backward join above. The on-day row is the pre-game projection
+    # for that game; reading any earlier row would be stale by construction.
+    try:
+        day = history.copy()
+        day["player_key"] = pd.to_numeric(day["nba_id"], errors="coerce")
+        day["date"] = pd.to_datetime(day["date"], errors="coerce")
+        day = day[day.date.notna() & day.player_key.notna()]
+        day["player_key"] = day["player_key"].astype("int64")
+        day["date"] = day["date"].dt.normalize()
+        lookup = (day.drop_duplicates(["player_key", "date"])
+                     .set_index(["player_key", "date"])["x_minutes"]
+                     if "x_minutes" in day.columns else None)
+        if lookup is not None:
+            keys = list(zip(left["player_key"].to_numpy(),
+                            left["_asof_target"].dt.normalize().to_numpy()))
+            # Normalized datetimes vs date index: compare as midnight stamps.
+            idx_dates = pd.to_datetime(
+                pd.Index([k[1] for k in keys])).normalize()
+            x_vals = []
+            for (pk, _), dd in zip(keys, idx_dates):
+                try:
+                    x_vals.append(float(lookup.loc[(int(pk), pd.Timestamp(dd))]))
+                except (KeyError, TypeError, ValueError):
+                    x_vals.append(np.nan)
+            x = pd.Series(np.nan, index=out.index, dtype=float)
+            x.iloc[merged["_pos"].to_numpy()] = np.array(x_vals, dtype=float)
+            out["darko_x_minutes"] = pd.to_numeric(x, errors="coerce")
+            logger.info("DARKO expected minutes: %.1f%% of rows carry x_minutes",
+                        100 * float(out["darko_x_minutes"].notna().mean())
+                        if len(out) else 0.0)
+        elif "darko_x_minutes" not in out.columns:
+            out["darko_x_minutes"] = np.nan
+    except Exception as exc:  # noqa: BLE001 - minutes must never break ratings
+        logger.warning("DARKO expected minutes attach skipped (%s: %s)",
+                       type(exc).__name__, str(exc)[:120])
+        if "darko_x_minutes" not in out.columns:
+            out["darko_x_minutes"] = np.nan
     return out
 
 #: Columns this module reads out of the player-level season log. The

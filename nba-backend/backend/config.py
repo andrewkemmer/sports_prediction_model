@@ -774,6 +774,30 @@ DISTRIBUTION_CONDVARIANCE_PACE = False
 # tilt_watch panel (slope-sign guard + top-quintile gap) in
 # distribution_score_report.
 DISTRIBUTION_TOTAL_TILT_PACE = True
+# Totals disagreement-shrinkage (ADOPTED 2026-10-30, GPC verdict
+# run_diagnostics/ab_pace_global_oof.csv): the totals model has no ranking
+# power when it disagrees with the market (edge>3% AUC 0.489 vs market 0.755
+# on moneyline; totals AUC 0.489, 10%+ bucket d=+0.064), so served totals
+# legs are shrunk toward 0.5 in the disagreement regime only. Per grid line:
+# invert the implied Normal sigma from the shipped two-way leg at
+# (line - fair_total), multiply by SCALE, recompute, then cap |P-0.5|.
+# Push legs are untouched; the agreement regime (|q-0.5| <= GATE) prices
+# byte-identical (that slice beats the market: d=-0.003, AUC 0.560).
+# Causal evidence: expanding prior-origin scale fit converged past the 1.40
+# grid ceiling to ~2.0; regime-gated S=2.0 keeps 73% of the max edge gain
+# (full +0.0196, edge +0.0248, 95% CI [+0.015,+0.023]) with agreement 0.000.
+# SCALE=1.0 with CAP=None restores the incumbent exactly; set ENABLED=False
+# (or NBA_TOTALS_RESCALE=0) as the kill switch. NBA totals only.
+# Follow-up: engine-level variance refit on the cache host (this layer
+# compensates calibration-map tail compression, it does not refit it).
+DISTRIBUTION_TOTALS_RESCALE_ENABLED = str(
+    os.environ.get("NBA_TOTALS_RESCALE", "1")).lower() in {"1", "true", "yes"}
+DISTRIBUTION_TOTALS_RESCALE_SCALE = float(os.environ.get(
+    "NBA_TOTALS_RESCALE_SCALE", "2.0"))
+DISTRIBUTION_TOTALS_RESCALE_GATE = float(os.environ.get(
+    "NBA_TOTALS_RESCALE_GATE", "0.03"))
+DISTRIBUTION_TOTALS_RESCALE_CAP = float(os.environ.get(
+    "NBA_TOTALS_RESCALE_CAP", "0.12"))
 
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the
@@ -987,6 +1011,19 @@ PLAYER_RAPM_OPENER_CARRY = True
 #: logloss and Brier of the four arms.
 PLAYER_POSITION_WEIGHT_SPLIT = True
 
+#: Blend weights read DARKO's pre-game expected minutes (``x_minutes`` on the
+#: history row dated the game itself) where available, falling back to
+#: trailing ``prior_minutes_per_game`` otherwise. Membership gates, ranking
+#: except the top-k cut, and the rating itself are unchanged - only the
+#: opportunity weight moves from trailing to expected. ``1``/``true``/``yes``
+#: enables; any other value (default) restores trailing-only weights.
+#: ADOPTED DEFAULT 2026-10-29: the expected-minutes A/B failed its gate
+#: (B-A paired t -0.85, ECE doubled 0.009 -> 0.017), so production prices
+#: trailing actual minutes. The flag stays as the opt-in trial switch.
+PLAYER_USE_DARKO_EXPECTED_MINUTES = str(
+    os.environ.get("NBA_USE_DARKO_EXPECTED_MINUTES", "0")).lower() in {
+    "1", "true", "yes"}
+
 PLAYER_RAPM_MIN_MINUTES = 50
 # Recency gate for the projected-lineup pool (availability audit 2026-09-28):
 # a rating row whose season evidence is older than this is a PHANTOM - a
@@ -1007,6 +1044,38 @@ PLAYER_EPM_RECENCY_DAYS = 30
 #: on dates the team played, so ten days spans one skipped game plus a
 #: postponement.
 PLAYER_EPM_POOL_LOOKBACK_DAYS = 10
+#: DARKO-widened pool membership (remediation: align the candidate pool with
+#: Darko's slate projection). When True, a player Darko projects for THIS
+#: game at or above PLAYER_POOL_WIDEN_MIN_X expected minutes is admitted
+#: even when the trailing gates refuse him: debutants with no prior
+#: (Wemby 2023-10-25: on-day x=20.86, zero priors), call-ups under the
+#: 50-min floor, and mid-season returnees past the 30-day recency gate.
+#: Strictly additive - nobody admitted is removed, the rating value is never
+#: touched (the incumbent/shrunk fallback still prices him), and downstream
+#: availability (designations, stint AND) still applies. ``1``/``true``/``yes``
+#: enables; any other value (default) restores trailing-gates-only
+#: membership. ADOPTED DEFAULT 2026-10-29: the widened-pool A/B failed its
+#: gate (D-B paired t +1.41, wrong direction, 23 newly-covered games),
+#: so production runs the trailing-gates pool. The flag stays as the
+#: opt-in trial switch.
+PLAYER_POOL_WIDEN_DARKO = str(
+    os.environ.get("NBA_POOL_WIDEN_DARKO", "0")).lower() in {
+    "1", "true", "yes"}
+#: Floor (expected minutes for THIS game) for DARKO-widened admission.
+#: 5.0 is a real rotation expectation; below that is end-of-bench noise and
+#: Darko projects deep benches at 1-4 minutes, so 0 would bloat every pool.
+PLAYER_POOL_WIDEN_MIN_X = float(os.environ.get("NBA_POOL_WIDEN_MIN_X", "5.0"))
+#: Gate-removal experiments (default off; enable per-arm in A/B harnesses).
+#: PLAYER_POOL_IGNORE_FLOOR drops the prior-minutes membership floor to 0;
+#: PLAYER_POOL_IGNORE_RECENCY skips the 30-day appearance-recency gate.
+#: Both are subtractive-gate removals for the ablation only - the rating
+#: values, availability filter and opportunity weights are untouched.
+PLAYER_POOL_IGNORE_FLOOR = str(
+    os.environ.get("NBA_POOL_IGNORE_FLOOR", "0")).lower() in {
+    "1", "true", "yes"}
+PLAYER_POOL_IGNORE_RECENCY = str(
+    os.environ.get("NBA_POOL_IGNORE_RECENCY", "0")).lower() in {
+    "1", "true", "yes"}
 #: Size of the projected lineup, mirroring MLB's top-9. A depleted roster is
 #: NOT padded: the mean of the best 5-7 healthy players is the correct quantity
 #: for a short-handed team, and padding would fabricate full strength.
@@ -1142,6 +1211,20 @@ STINT_RAPM_FEATURE_COLS: list[str] = (
        for stem in ("off", "def")
        for position in ("c", "f", "g")])
 
+# Offense/defense-split position features (TRIAL ONLY — NOT in
+# MONEYLINE_FEATURE_COLS, so production never serves them until a
+# walk-forward verdict clears the 2.5 gate). The replace-arm for the nine
+# total-DPM segments: same 9-shape per component (sides retained), built by
+# the identical blend with only the rating column swapped (dpm = o_dpm +
+# d_dpm to 1e-4, so the replace nests the incumbent for the linear member).
+SPLIT_OD_RAPM_FEATURE_COLS = (
+    [f"pl_odpm_{position}_{side}"
+     for position in ("c", "f", "g")
+     for side in ("away", "home", "diff")]
+    + [f"pl_ddpm_{position}_{side}"
+       for position in ("c", "f", "g")
+       for side in ("away", "home", "diff")])
+
 # Schedule-density family (TRIAL ONLY, 2026-10-18 density trial — NOT in
 # MONEYLINE_FEATURE_COLS, so production never serves it until a
 # walk-forward verdict clears the 2.5 gate). Column order: the 3-in-4 and
@@ -1156,7 +1239,7 @@ KNOWN_FEATURE_COLS = list(dict.fromkeys(
     MONEYLINE_FEATURE_COLS + RFE_CANDIDATE_COLS
     + PLAYER_RAPM_POSITION_FEATURE_COLS + STINT_RAPM_FEATURE_COLS
     + SCHED_DENSITY_COLS + STAR_OUT_FEATURE_COLS
-    + LINEUP_RAPM_IMPACT_FEATURE_COLS))
+    + LINEUP_RAPM_IMPACT_FEATURE_COLS + SPLIT_OD_RAPM_FEATURE_COLS))
 #: How far the injury-stint table may trail the decided frame before the
 #: staleness tripwire fires, mirroring MLB's IL_STINT_MAX_LAG_DAYS. Offseason
 #: legitimately leaves a long gap with no absences recorded, so the bar is

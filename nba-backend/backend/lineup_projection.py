@@ -585,6 +585,35 @@ def projected_lineup(ratings: pd.DataFrame | None,
 NEXT_MAN_UP_MINUTES_CAP = 40.0
 
 
+def _blend_weights(frame: pd.DataFrame) -> pd.Series:
+    """Opportunity weights for the blends: expected minutes where known.
+
+    DARKO ``darko_x_minutes`` (the pre-game projection for THIS game,
+    attached by ``apply_darko_rating`` via a same-day equality join) is the
+    weight when it is finite and positive; otherwise the trailing
+    ``prior_minutes_per_game``. A NaN rating still contributes no weight
+    (removal, not zeroing), and the flag ``PLAYER_USE_DARKO_EXPECTED_MINUTES``
+    restores trailing-only weights. No ``seconds_played`` is ever read here -
+    that column is the post-game actual and would leak the game being priced.
+    """
+    base = pd.to_numeric(frame.get("prior_minutes_per_game"), errors="coerce")
+    if base is None:
+        base = pd.Series(0.0, index=frame.index, dtype=float)
+    base = base.fillna(0.0).clip(lower=0.0)
+    try:
+        use_expected = bool(getattr(config, "PLAYER_USE_DARKO_EXPECTED_MINUTES",
+                                    True))
+    except Exception:  # noqa: BLE001 - config must never break a build
+        use_expected = True
+    if use_expected and "darko_x_minutes" in frame.columns:
+        exp = pd.to_numeric(frame["darko_x_minutes"], errors="coerce")
+        exp = exp.where(np.isfinite(exp) & (exp > 0))
+        base = exp.fillna(base)
+    if "rapm_shrunk" in frame.columns:
+        base = base.where(frame.rapm_shrunk.notna(), other=0.0)
+    return base.astype(float)
+
+
 def _position_label_sets(frame: pd.DataFrame):
     """Per-row position sets from the feed listing ``_position_segments`` reads."""
     if "positions" in frame.columns:
@@ -632,9 +661,15 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
     if removed.empty:
         return absorbed, stats
     removed_sets = _position_label_sets(removed)
-    order = (healthy.assign(_mpg=pd.to_numeric(healthy["prior_minutes"],
-                                                errors="coerce"))
-             .sort_values(["_mpg", "player_id"], ascending=[False, True]))
+    if "_w" in healthy.columns:
+        _order_w = pd.to_numeric(healthy["_w"], errors="coerce")
+    else:
+        _order_w = _blend_weights(healthy)
+    order = (healthy.assign(_mpg=_order_w.fillna(0.0).to_numpy(),
+                            _tie=pd.to_numeric(healthy.get("prior_minutes"),
+                                               errors="coerce"))
+             .sort_values(["_mpg", "_tie", "player_id"],
+                          ascending=[False, False, True]))
     running = pd.to_numeric(healthy["_w"], errors="coerce").fillna(0.0)
     # Scalar fast path (2026-10-26 run-log review): the per-donor
     # ``pd.to_numeric(pd.Series([scalar]))`` round-trip rebuilt a Series,
@@ -649,11 +684,14 @@ def _next_man_up_absorption(healthy: pd.DataFrame,
                                        errors="coerce")
     else:
         _rating_by_idx = pd.Series(np.nan, index=removed.index)
-    if "prior_minutes_per_game" in removed.columns:
-        _weight_by_idx = pd.to_numeric(removed["prior_minutes_per_game"],
-                                       errors="coerce")
-    else:
-        _weight_by_idx = pd.Series(np.nan, index=removed.index)
+    try:
+        _weight_by_idx = _blend_weights(removed)
+    except Exception:  # noqa: BLE001 - fallback preserves legacy verdicts
+        if "prior_minutes_per_game" in removed.columns:
+            _weight_by_idx = pd.to_numeric(removed["prior_minutes_per_game"],
+                                           errors="coerce")
+        else:
+            _weight_by_idx = pd.Series(np.nan, index=removed.index)
     # One (name, position-set) pair per candidate, in absorption order:
     # the same rows ``order.iterrows()`` visited, without a Series per row.
     _cands = [(name, healthy_sets.loc[name]) for name in order.index]
@@ -730,11 +768,24 @@ def _star_out_aggregates(latest: pd.DataFrame) -> tuple[float, float]:
     if latest is None or not len(latest):
         return np.nan, np.nan
     ref = latest.copy()
+    # Role weight is expected minutes where known (pre-game projection for
+    # THIS game), trailing per-game minutes otherwise - never gated on the
+    # rating, so a rating-less member still counts toward weight share.
     weights = pd.to_numeric(ref.get("prior_minutes_per_game"),
                             errors="coerce")
     if weights is None:
         weights = pd.Series(0.0, index=ref.index)
-    weights = weights.fillna(0.0).clip(lower=0.0).astype(float)
+    weights = weights.fillna(0.0).clip(lower=0.0)
+    try:
+        use_expected = bool(getattr(config, "PLAYER_USE_DARKO_EXPECTED_MINUTES",
+                                    True))
+    except Exception:  # noqa: BLE001
+        use_expected = True
+    if use_expected and "darko_x_minutes" in ref.columns:
+        exp = pd.to_numeric(ref["darko_x_minutes"], errors="coerce")
+        exp = exp.where(np.isfinite(exp) & (exp > 0))
+        weights = exp.fillna(weights)
+    weights = weights.astype(float)
     minutes = pd.to_numeric(ref.get("prior_minutes"), errors="coerce")
     if minutes is None:
         minutes = pd.Series(0.0, index=ref.index)
@@ -777,6 +828,17 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                   reweight: str = "legacy",
                   diagnostics: dict | None = None):
     """Widen, filter, rank - in that order, for one team and one game."""
+    try:
+        _no_floor = bool(getattr(config, "PLAYER_POOL_IGNORE_FLOOR", False))
+    except Exception:  # noqa: BLE001 - config must never break a build
+        _no_floor = False
+    try:
+        _no_recency = bool(getattr(config, "PLAYER_POOL_IGNORE_RECENCY", False))
+    except Exception:  # noqa: BLE001 - config must never break a build
+        _no_recency = False
+    if _no_floor:
+        # Gate-removal experiment: no prior-minutes membership floor.
+        min_minutes = 0.0
     window_start = pd.Timestamp(gameday) - pd.Timedelta(days=lookback_days)
     # STEP 1 - WIDEN. Every team member with a rating row in the window,
     # whether or not they appeared recently. This is the step that gives the
@@ -833,7 +895,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
         minutes = (frame.prior_minutes.to_numpy(dtype=float) if basis is None
                    else np.asarray(basis, dtype=float))
         gated = frame[minutes >= floor]
-        if "days_since_appearance" in gated.columns:
+        if "days_since_appearance" in gated.columns and not _no_recency:
             recency = gated["days_since_appearance"]
             gated = gated[recency.isna()
                           | (recency <= config.PLAYER_EPM_RECENCY_DAYS)]
@@ -872,6 +934,34 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
                 subset=["player_id"], keep="first")
     else:
         latest = _membership(tail, min_minutes)
+
+    # DARKO-WIDENED MEMBERSHIP (pool/Darko remediation). A player Darko
+    # projects for THIS game (finite same-day x_minutes at or above
+    # PLAYER_POOL_WIDEN_MIN_X) is a candidate even when the trailing gates
+    # refuse him - the debutant, call-up and mid-season returnee cases.
+    # Strictly additive: members are only appended, never removed; the
+    # rating is untouched, so a widened member prices at his incumbent or
+    # shrunk fallback. Availability still applies downstream (designations
+    # remove him from THAT game, the stint table ANDs him out), and his
+    # weight follows the opportunity-weight flag (expected x where enabled,
+    # trailing otherwise - which is ~0 for a debutant, honestly).
+    try:
+        _widen = bool(getattr(config, "PLAYER_POOL_WIDEN_DARKO", True))
+    except Exception:  # noqa: BLE001 - config must never break a build
+        _widen = True
+    if _widen and "darko_x_minutes" in tail.columns and len(tail):
+        try:
+            _floor_x = float(config.PLAYER_POOL_WIDEN_MIN_X)
+        except Exception:  # noqa: BLE001
+            _floor_x = 5.0
+        _x = pd.to_numeric(tail["darko_x_minutes"], errors="coerce")
+        _wide = tail[_x.fillna(-1.0) >= _floor_x]
+        if len(_wide):
+            _have = (set(latest.player_id.astype(str))
+                     if len(latest) else set())
+            _add = _wide[~_wide.player_id.astype(str).isin(_have)]
+            if len(_add):
+                latest = pd.concat([latest, _add], ignore_index=True)
 
     # STEP 3 - FILTER. Injury removes the player from the pool entirely so a
     # replacement inherits the slot. Availability is re-evaluated AS OF the
@@ -934,18 +1024,35 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # rating instead would project the eight best-rated regulars and quietly
     # redefine the question from "who plays" to "who produces", which is a
     # different feature wearing this one's name.
-    healthy = healthy.sort_values(["prior_minutes", "gameday"], ascending=False)
-    # MINUTES-PER-GAME weighting (the agreed team-level aggregation): a
-    # member's weight is his OWN minutes per game over the window, so each
-    # aggregate is the lineup's RAPM averaged PER GAME over the minutes
-    # distribution it would actually field - "what does this roster rate per
-    # game when its real rotation prices it". Cumulative minutes would fold
+    # STEP 4 - RANK BY EXPECTED OPPORTUNITY, NOT BY RATING. With DARKO
+    # expected minutes available the cut answers "who plays tonight" from the
+    # pre-game projection for THIS game; without it (tests, missing node)
+    # the legacy trailing-minutes order is preserved exactly.
+    _has_expected = ("darko_x_minutes" in healthy.columns
+                     and pd.to_numeric(healthy["darko_x_minutes"],
+                                       errors="coerce").notna().any()
+                     and bool(getattr(config, "PLAYER_USE_DARKO_EXPECTED_MINUTES",
+                                      True)))
+    if _has_expected:
+        _rank_w = _blend_weights(healthy).fillna(0.0)
+        healthy = healthy.assign(_rank_w=_rank_w.to_numpy()).sort_values(
+            ["_rank_w", "prior_minutes", "gameday"], ascending=False)
+        healthy = healthy.drop(columns=["_rank_w"])
+    else:
+        healthy = healthy.sort_values(["prior_minutes", "gameday"],
+                                      ascending=False)
+    # EXPECTED-MINUTES weighting (2026-10-29 remediation): a member's weight
+    # is DARKO's pre-game x_minutes for THIS game where available, trailing
+    # prior_minutes_per_game otherwise (see _blend_weights) - so each
+    # aggregate is the lineup's DPM averaged over the minutes distribution it
+    # is actually expected to field tonight. Trailing-only was the prior
+    # agreement; expected is strictly more informative and PIT-clean (same-day
+    # equality join, never seconds_played). Cumulative minutes would fold
     # durability into the blend (an ironman outweighing an equal per-game
     # player who missed time) and the result would no longer be a per-game
     # average, which is the unit the ratings themselves live in. The
     # min-minutes floor is what stops a two-game call-up from pricing like a
-    # regular. Weights are the same strictly-prior per-player totals the pool
-    # ranking already reads; nothing new is fetched and nothing leaks. A NaN
+    # regular. A NaN
     # rating contributes no weight and no rating (removal, not zeroing); a
     # family with no finite-weight member keeps NaN, except in the
     # opening-week ramp where the whole pool is unweighted by calendar, not
@@ -953,8 +1060,7 @@ def _project_team(work: pd.DataFrame, team: str, gameday, stints,
     # on the whole ELIGIBLE roster before the top-k slice so the lineup
     # aggregates and the position segments price members identically.
     healthy = healthy.copy()
-    healthy["_w"] = healthy["prior_minutes_per_game"].where(
-        healthy.rapm_shrunk.notna(), other=0.0).astype(float)
+    healthy["_w"] = _blend_weights(healthy)
     if early_season and not float(healthy["_w"].sum()):
         # No measurable per-game opportunity anywhere in the pool: every
         # per-game weight is NaN (no one has played) or zero. Average the
