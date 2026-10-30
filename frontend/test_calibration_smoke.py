@@ -74,18 +74,20 @@ def _calibration_record() -> dict:
     mean_actual/count/gap); the ``calibration`` block carries the deployed
     Platt params + raw→calibrated metrics exactly like ``calibration_*.json``.
     Values are NFL pipeline-shaped (decided OOF pool, favored view ≥ 50%)."""
-    seq = [0.52, 0.60, 0.68, 0.76, 0.84, 0.92]   # favored-only: 50%..100%
-    counts = [130, 210, 260, 230, 170, 107]
+    # Ten 5% buckets (the backend's post-20261030 reliability grid); counts
+    # still sum to 1,107 so the header-population pin below is unchanged.
+    counts = [60, 70, 100, 110, 130, 130, 130, 120, 100, 157]
     buckets, cal_buckets = [], []
-    for i, mp in enumerate(seq):
-        ma = min(0.99, mp + 0.02)
-        cal_mp = min(0.99, mp + 0.035)
-        buckets.append({"bucket": f"{int(mp * 100)}%-{int(mp * 100) + 8}%",
+    for i, lo in enumerate(range(50, 100, 5)):
+        mp = lo / 100
+        ma = min(0.99, round(mp + 0.02, 3))
+        cal_mp = min(0.99, round(mp + 0.035, 3))
+        buckets.append({"bucket": f"{lo}\u2013{lo + 5}%",
                         "mean_predicted": round(mp, 3),
                         "mean_actual": round(ma, 3),
                         "count": counts[i],
                         "gap": round(mp - ma, 3)})
-        cal_buckets.append({"bucket": f"{int(mp * 100)}%-{int(mp * 100) + 8}%",
+        cal_buckets.append({"bucket": f"{lo}\u2013{lo + 5}%",
                             "mean_predicted": round(cal_mp, 3),
                             "mean_actual": round(ma, 3),
                             "count": counts[i],
@@ -122,10 +124,10 @@ def _calibration_record() -> dict:
 
 def _history_frame(n: int = 320) -> pd.DataFrame:
     """A per-game decided prediction history (same column set the backend
-    emits) spanning favored probs 0.51..0.95 so the 1% curve has points, and
+    emits) spanning favored probs 0.51..0.99 so the 1% curve has points, and
     including some upsets (underdog winners) for the summary card."""
     rng = np.random.default_rng(7)
-    ps = rng.uniform(0.51, 0.95, n)
+    ps = rng.uniform(0.51, 0.99, n)
     home = [f"H{i % 32:02d}" for i in range(n)]
     away = [f"A{(i + 9) % 32:02d}" for i in range(n)]
     correct = rng.random(n) < ps            # higher prob -> more correct
@@ -139,8 +141,10 @@ def _history_frame(n: int = 320) -> pd.DataFrame:
             "game_date": f"2026-09-{i % 20 + 1:02d}",
             "home_team": home[i], "away_team": away[i],
             "home_win_prob_model": round(float(ps[i]), 4),
-            "home_win_prob_model_calibrated": round(
-                float(1.0 / (1.0 + np.exp(-(2.5 * np.log(ps[i] / (1 - ps[i])) + 0.1)))), 4),
+            # Identity-style map spanning the full 50-100% grid so every 5%
+            # bucket populates (the TOTAL fallback guard needs full coverage);
+            # the artifact-driven tests never read this column.
+            "home_win_prob_model_calibrated": round(float(ps[i]), 4),
             "away_win_prob_model": round(1.0 - float(ps[i]), 4),
             "correct": bool(correct[i]),
             "model_pick": pick[i],
@@ -453,7 +457,7 @@ def _restage(path: Path, data: bytes) -> None:
 
 def _table_row(text: str, bucket: str) -> list[str]:
     """The reliability-table row for one bucket label, as cell texts.
-    Cells: [MEAN PREDICTED (RAW), CALIBRATED, CALIB. WIN RATE, MEAN ACTUAL,
+    Cells: [MEAN PREDICTED (RAW), MEAN ACTUAL, CALIBRATED, CALIB. WIN RATE,
     COUNT, GAP (RAW)]. Empty list when the row is missing."""
     m = re.search(rf"<tr><td>{re.escape(bucket)}</td>(.*?)</tr>", text, re.S)
     if not m:
@@ -480,10 +484,10 @@ def test_cal_win_rate_column_uses_the_artifact_partition_when_present():
         for cb in cbs:
             cells = _table_row(text, cb["bucket"])
             assert cells, f"bucket row {cb['bucket']} missing"
-            assert cells[2] == f"{float(cb['mean_actual']):.3f}", (
-                f"{cb['bucket']}: CALIB. WIN RATE shows {cells[2]!r}, artifact "
+            assert cells[3] == f"{float(cb['mean_actual']):.3f}", (
+                f"{cb['bucket']}: CALIB. WIN RATE shows {cells[3]!r}, artifact "
                 f"calibrated partition says {cb['mean_actual']}")
-            assert cells[1] == f"{float(cb['mean_predicted']):.3f}", (
+            assert cells[2] == f"{float(cb['mean_predicted']):.3f}", (
                 f"{cb['bucket']}: CALIBRATED cell drifted from the artifact")
         # TOTAL row: count-weighted artifact partition (guard passes because
         # the fixture's calibrated counts equal the raw counts).
@@ -527,25 +531,25 @@ def test_cal_win_rate_column_falls_back_to_the_stored_column():
         won = pd.to_numeric(hist["correct"], errors="coerce")
         cal_fav = pd.Series(np.where(raw >= 0.5, cal, 1.0 - cal))
         # Independent recomputation of the FIRST fixture bucket's fallback
-        # cells (bucket label "52%-60%" -> edges 0.52..0.60).
-        mask = (cal_fav >= 0.52) & (cal_fav < 0.60)
-        assert mask.any(), "fixture must populate the 52-60% bucket"
+        # cells (bucket label "50\u201355%" -> edges 0.50..0.55).
+        mask = (cal_fav >= 0.50) & (cal_fav < 0.55)
+        assert mask.any(), "fixture must populate the 50-55% bucket"
         exp_wr = round(float(won[mask].mean()), 4)
         exp_mp = round(float(cal_fav[mask].mean()), 4)
-        cells = _table_row(text, "52%-60%")
+        cells = _table_row(text, "50\u201355%")
         assert cells, "bucket row missing"
-        assert cells[1] == f"{exp_mp:.3f}", (
-            f"CALIBRATED cell {cells[1]!r} != history-grouped {exp_mp:.3f}")
-        assert cells[2] == f"{exp_wr:.3f}", (
-            f"CALIB. WIN RATE {cells[2]!r} != history-grouped {exp_wr:.3f}")
+        assert cells[2] == f"{exp_mp:.3f}", (
+            f"CALIBRATED cell {cells[2]!r} != history-grouped {exp_mp:.3f}")
+        assert cells[3] == f"{exp_wr:.3f}", (
+            f"CALIB. WIN RATE {cells[3]!r} != history-grouped {exp_wr:.3f}")
         # Every displayed bucket must be covered, so the TOTAL row carries
         # the count-weighted fallback too (coverage guard, own population).
         # Replicate the page's arithmetic exactly: per-bucket round(4),
         # then count-weight the ROUNDED per-bucket values.
         weights, wrs, mps = [], [], []
-        for lo in (52, 60, 68, 76, 84, 92):
-            m = (cal_fav >= lo / 100) & (cal_fav < (lo + 8) / 100)
-            if lo == 92:
+        for lo in range(50, 100, 5):
+            m = (cal_fav >= lo / 100) & (cal_fav < (lo + 5) / 100)
+            if lo == 95:
                 m |= (cal_fav == 1.0)
             assert m.any(), f"fixture must populate bucket {lo}-{lo + 8}%"
             weights.append(int(m.sum()))
@@ -565,6 +569,36 @@ def test_cal_win_rate_column_falls_back_to_the_stored_column():
         _remove_artifacts()
 
 
+def test_stale_helpers_module_degrades_to_artifact_buckets():
+    """2026-10-30 production red-box: the page hard-called
+    ``mlc.is_five_pct_grid`` while the deploy served an older
+    moneyline_calibration without the 5% helpers — the whole section below
+    the gate card crashed. The page must resolve the helpers via getattr
+    and fall back to the artifact's own buckets when they are missing."""
+    import moneyline_calibration as mlc
+    _write_artifacts()
+    hidden = {}
+    try:
+        for name in ("FIVE_PCT_LABELS", "is_five_pct_grid", "raw_bucket_stats"):
+            hidden[name] = getattr(mlc, name)
+            delattr(mlc, name)
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        assert "Reliability Diagram" in text, "reliability section missing"
+        # Artifact's own buckets stand (no regroup without the helpers).
+        for cb in _calibration_record()["calibration_buckets"]:
+            assert _table_row(text, cb["bucket"]), (
+                f"artifact bucket {cb['bucket']} missing in degraded mode")
+    finally:
+        for name, val in hidden.items():
+            setattr(mlc, name, val)
+        _remove_artifacts()
+
+
 def test_bucket_bounds_parser_handles_the_label_zoo():
     """``_bucket_bounds`` must parse every bucket-label shape in the wild:
     the backends' en-dash form, older fixtures' hyphen form, and the
@@ -574,6 +608,8 @@ def test_bucket_bounds_parser_handles_the_label_zoo():
     assert mlc._bucket_bounds("52%-60%") == (0.52, 0.60)
     assert mlc._bucket_bounds("70%+") == (0.70, 1.0)
     assert mlc._bucket_bounds("90–100%") == (0.90, 1.00)
+    assert mlc._bucket_bounds("50\u201355%") == (0.50, 0.55)
+    assert mlc._bucket_bounds("95\u2013100%") == (0.95, 1.00)
     assert mlc._bucket_bounds("garbage") is None
     assert mlc._bucket_bounds("60-50%") is None      # inverted edges
 
@@ -679,7 +715,7 @@ def run() -> int:
         #     backend never emits a sub-50% bucket, and the page must not show one.
         if "42%-50%" in text:
             problems.append("reliability table still shows a sub-50% bucket")
-        if "52%-60%" not in text:
+        if "50\u201355%" not in text:
             problems.append("reliability table missing a >=50% favored bucket")
 
         # (5c) TOTAL row carries the TOTAL CALIBRATED win probability —
@@ -793,13 +829,13 @@ def run() -> int:
             nhl_problems.append(
                 "reliability table carries an em-dash CALIBRATED cell — the "
                 "calibrated win rates are missing")
-        for val in ("0.555", "0.635", "0.715", "0.795", "0.875", "0.955"):
+        for val in ("0.535", "0.635", "0.735", "0.835", "0.935", "0.985"):
             if val not in nhl_text:
                 nhl_problems.append(
                     f"per-bucket calibrated win rate {val} not rendered")
         if "42%-50%" in nhl_text:
             nhl_problems.append("reliability table shows a sub-50% bucket")
-        if "52%-60%" not in nhl_text:
+        if "50\u201355%" not in nhl_text:
             nhl_problems.append("reliability table missing a >=50% favored bucket")
         # TOTAL row: count-weighted calibrated total (shared contract).
         nhl_problems.extend(_total_calibrated_cell_problems(nhl_text))

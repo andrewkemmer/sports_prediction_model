@@ -266,6 +266,11 @@ def test_cached_bundle_cannot_score_corrected_schema_without_refit():
             training.apply_bundle_feature_cols({
                 "feature_cols": training.MONEYLINE_FEATURE_COLS,
                 "feature_schema_version": "mlb-v2-observed-statcast-causal-blend"})
+        # The prior schema also covered the removed custom-model contract.
+        with pytest.raises(ValueError, match="older feature schema"):
+            training.apply_bundle_feature_cols({
+                "feature_cols": training.MONEYLINE_FEATURE_COLS,
+                "feature_schema_version": "mlb-v3-prior-date-elo-records"})
         training.apply_bundle_feature_cols({
             "feature_cols": training.MONEYLINE_FEATURE_COLS,
             "feature_schema_version": config.FEATURE_SCHEMA_VERSION})
