@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,11 +47,54 @@ def _safe(value: Any) -> Any:
     return _clean(value)
 
 
-def dump_json(path: Path, record: dict) -> dict:
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write-then-rename so dashboard readers never see a torn artifact.
+
+    The frontend polls these files on a short cache while the pipeline
+    rewrites them in place; a direct write lets a reader load a truncated
+    CSV/JSON mid-flush (same filename, fewer rows, silently different
+    tables). os.replace is atomic on both POSIX and Windows.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent),
+                                prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_to_csv(frame: pd.DataFrame, path, **kwargs) -> None:
+    """DataFrame.to_csv through a temp file + atomic rename (see above)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent),
+                                prefix=path.name + ".", suffix=".tmp")
+    try:
+        os.close(fd)
+        frame.to_csv(tmp, **kwargs)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def dump_json(path: Path, record: dict) -> dict:
+    path = Path(path)
     safe_record = _safe(record)
-    path.write_text(json.dumps(safe_record, indent=1, allow_nan=False, default=str))
+    _atomic_write_bytes(
+        path, json.dumps(safe_record, indent=1, allow_nan=False,
+                         default=str).encode("utf-8"))
     # Return the same strict, JSON-safe shape that was persisted.  Returning
     # the caller's mutable NaN-bearing object would let downstream reporting
     # accidentally reintroduce non-standard JSON values.
@@ -325,10 +370,11 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
     # ~470 single-column inserts, which pandas reports as "highly fragmented"
     # and charges for on every later column access.
     out = out.reindex(columns=markets_columns())
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # Atomic write (see _atomic_write_bytes): the dashboard reads this file
+    # on a short cache while the pipeline rewrites it.
     # lineterminator: delivery artifacts are LF-pinned; never let a
     # platform/csv default rewrite every line ending.
-    out.to_csv(path, index=False, lineterminator="\n")
+    _atomic_to_csv(out, path, index=False, lineterminator="\n")
     meta = {
         "distribution_method": "causal_split_skew_crps_mc",
         "distribution_objective": "discrete_crps",
@@ -339,7 +385,8 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None,
         "settlement": 'final_score_no_tie',
 
         "record": "nba_run_engine_markets", "written_utc": _now(),
-        "config": config_meta or {}, "columns": len(out.columns), "n_rows": len(out),
+        "config": config_meta or {},
+        "columns": len(out.columns), "n_rows": len(out),
         "n_oof": int((out.kind == "oof").sum()) if len(out) else 0,
         "n_slate": int((out.kind == "slate").sum()) if len(out) else 0,
         "grids": {"spread": [min(config.SPREAD_GRID), max(config.SPREAD_GRID)],

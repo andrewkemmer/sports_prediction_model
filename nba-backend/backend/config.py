@@ -784,52 +784,6 @@ DISTRIBUTION_TOTAL_TILT_PACE = True
 # verdict clears the gate (ab_location_retrain.py). Other sports never read
 # this flag; flag-off prices byte-identical (no block fitted, no shift).
 DISTRIBUTION_LOCATION_BIAS_CORRECT = False
-# Totals disagreement-shrinkage (ADOPTED 2026-10-30, GPC verdict
-# run_diagnostics/ab_pace_global_oof.csv): the totals model has no ranking
-# power when it disagrees with the market (edge>3% AUC 0.489 vs market 0.755
-# on moneyline; totals AUC 0.489, 10%+ bucket d=+0.064), so served totals
-# legs are shrunk toward 0.5 in the disagreement regime only. Per grid line:
-# invert the implied Normal sigma from the shipped two-way leg at
-# (line - fair_total), multiply by SCALE, recompute, then cap |P-0.5|.
-# Push legs are untouched; the agreement regime (|q-0.5| <= GATE) prices
-# byte-identical (that slice beats the market: d=-0.003, AUC 0.560).
-# Causal evidence: expanding prior-origin scale fit converged past the 1.40
-# grid ceiling to ~2.0; regime-gated S=2.0 keeps 73% of the max edge gain
-# (full +0.0196, edge +0.0248, 95% CI [+0.015,+0.023]) with agreement 0.000.
-# SCALE=1.0 with CAP=None restores the incumbent exactly; set ENABLED=False
-# (or NBA_TOTALS_RESCALE=0) as the kill switch. NBA totals only.
-# Follow-up: engine-level variance refit on the cache host (this layer
-# compensates calibration-map tail compression, it does not refit it).
-DISTRIBUTION_TOTALS_RESCALE_ENABLED = str(
-    os.environ.get("NBA_TOTALS_RESCALE", "1")).lower() in {"1", "true", "yes"}
-DISTRIBUTION_TOTALS_RESCALE_SCALE = float(os.environ.get(
-    "NBA_TOTALS_RESCALE_SCALE", "2.0"))
-DISTRIBUTION_TOTALS_RESCALE_GATE = float(os.environ.get(
-    "NBA_TOTALS_RESCALE_GATE", "0.03"))
-DISTRIBUTION_TOTALS_RESCALE_CAP = float(os.environ.get(
-    "NBA_TOTALS_RESCALE_CAP", "0.12"))
-
-# Spreads remediation: causal global scale (GPC playbook, adopted 2026-10-30).
-# Model spread sigma is systemically too thin: the 6%+ disagreement tail is
-# badly uncalibrated (10%+ bucket d=+0.050 at S=6). Same Normal-CDF sigma
-# widening as totals, but the 3-6% slice is SKILLED (shrinkage harms it:
-# d=-0.004 at every scale), so the gate is 0.06, not 0.03. Served legs are
-# shrunk toward 0.5 in the >6% disagreement regime only; |q-0.5| <= 0.06
-# prices byte-identical. Causal evidence: fixed-scale scan S=4/6/8 gains
-# +0.0162/+0.0186/+0.0201, 95% CIs (gameday-blocked) all exclude 0
-# (S=6: [+0.0091,+0.0278]); 10%+ bucket +0.0497; agreement 0.000;
-# AUC 0.4899 -> 0.5040. S=6.0 is the knee (diminishing past it, asymptote
-# +0.0232 at full shrinkage). SCALE=1.0 restores the incumbent; set
-# ENABLED=False (or NBA_SPREAD_RESCALE=0) as the kill switch. NBA only.
-DISTRIBUTION_SPREAD_RESCALE_ENABLED = str(
-    os.environ.get("NBA_SPREAD_RESCALE", "1")).lower() in {"1", "true", "yes"}
-DISTRIBUTION_SPREAD_RESCALE_SCALE = float(os.environ.get(
-    "NBA_SPREAD_RESCALE_SCALE", "6.0"))
-DISTRIBUTION_SPREAD_RESCALE_GATE = float(os.environ.get(
-    "NBA_SPREAD_RESCALE_GATE", "0.06"))
-DISTRIBUTION_SPREAD_RESCALE_CAP = float(os.environ.get(
-    "NBA_SPREAD_RESCALE_CAP", "0.12"))
-
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the
 # dedicated p_push_total_<U> namespace to avoid any spread collision.

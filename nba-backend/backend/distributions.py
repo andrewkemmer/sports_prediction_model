@@ -1533,107 +1533,6 @@ def _distribution_cdfs(frame, maps, sampled=False, n_draws=MC_DRAWS,
     return out
 
 
-def _totals_rescale_params():
-    """Served totals disagreement-shrinkage params, or None when disabled.
-
-    NBA totals only; every other sport prices byte-identical. SCALE=1.0 with
-    CAP=None is also a passthrough. See config.DISTRIBUTION_TOTALS_RESCALE_*.
-    """
-    if DISTRIBUTION_SPORT != "nba":
-        return None
-    if not bool(getattr(config, "DISTRIBUTION_TOTALS_RESCALE_ENABLED", False)):
-        return None
-    try:
-        scale = float(getattr(config, "DISTRIBUTION_TOTALS_RESCALE_SCALE", 1.0))
-        gate = float(getattr(config, "DISTRIBUTION_TOTALS_RESCALE_GATE", 0.03))
-        cap = float(getattr(config, "DISTRIBUTION_TOTALS_RESCALE_CAP", 0.12))
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(scale) or scale < 1.0:
-        return None
-    if scale == 1.0:
-        return None
-    return (scale, gate, cap)
-
-
-def _spread_rescale_params():
-    """Served spreads disagreement-shrinkage params, or None when disabled.
-
-    NBA spreads only; every other sport prices byte-identical. SCALE=1.0 is
-    a passthrough. See config.DISTRIBUTION_SPREAD_RESCALE_*.
-    """
-    if DISTRIBUTION_SPORT != "nba":
-        return None
-    if not bool(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_ENABLED", False)):
-        return None
-    try:
-        scale = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_SCALE", 1.0))
-        gate = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_GATE", 0.06))
-        cap = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_CAP", 0.12))
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(scale) or scale < 1.0:
-        return None
-    if scale == 1.0:
-        return None
-    return (scale, gate, cap)
-
-
-def rescale_spread_legs_toward_half(home, push, away, line, fair, scale, gate, cap):
-    """Spreads GPC served transform (adopted 2026-10-30): shrink confident spread legs.
-
-    Same Normal-CDF sigma-widening core as the totals GPC, applied to the
-    spread two-way leg at (line - fair_spread). Gate defaults wider (0.06)
-    because the 3-6% slice is skilled. Push legs untouched; gated rows keep
-    their EXACT input values.
-    """
-    return rescale_totals_legs_toward_half(
-        home, push, away, line, fair, scale, gate, cap)
-
-
-def rescale_totals_legs_toward_half(over, push, under, line, fair, scale, gate, cap):
-    """GPC served transform (adopted 2026-10-30): shrink confident totals legs.
-
-    Per grid line, the two-way leg q = over/(over+under) is mapped through
-    the Normal CDF centered at fair: sigma_imp = (line-fair)/Phi^{-1}(1-q),
-    q_new = 1-Phi((line-fair)/(sigma_imp*scale)), clipped to [0.5-cap,
-    0.5+cap]. Rows with |q-0.5| <= gate keep their EXACT input values
-    (np.where selection, no float touch). Push legs are never touched; the
-    rescaled 3-way legs are (1-push)*q_new / push / (1-push)*(1-q_new), so
-    every row still sums to 1. Rows with no mass (over+under <= 0) or a line
-    at the median (|d| ~ 0, scale-invariant) also pass through untouched.
-    """
-    from scipy.special import ndtri, ndtr
-    over = np.asarray(over, dtype=float)
-    push = np.asarray(push, dtype=float)
-    under = np.asarray(under, dtype=float)
-    fair = np.asarray(fair, dtype=float)
-    tot = over + under
-    with np.errstate(divide="ignore", invalid="ignore"):
-        q = np.where(tot > 0, over / np.where(tot > 0, tot, 1.0), 0.5)
-    d = float(line) - fair
-    qc = np.clip(q, 1e-9, 1 - 1e-9)
-    z = ndtri(1 - qc)
-    plausible = (np.abs(q - 0.5) > gate) & (tot > 0) & np.isfinite(d) \
-        & (np.abs(d) > 1e-9) & np.isfinite(z) & (np.abs(z) > 1e-9)
-    # Coherence: a centered CDF always has sign(d) == sign(0.5 - q). MC legs
-    # obey this up to sampling noise (which lives inside the closed gate);
-    # an incoherent row passes through untouched rather than pricing off a
-    # negative fallback width.
-    sig_raw = np.full_like(d, np.nan)
-    sig_raw[plausible] = d[plausible] / z[plausible]
-    active = plausible & np.isfinite(sig_raw) & (sig_raw > 0)
-    if not bool(np.any(active)):
-        return over, push, under
-    q_new = q.copy()
-    q_new[active] = 1 - ndtr(d[active] / np.clip(sig_raw[active] * float(scale), 1e-9, None))
-    lo, hi = 0.5 - float(cap), 0.5 + float(cap)
-    q_new = np.clip(q_new, lo, hi)
-    keep = 1 - push
-    return (np.where(active, keep * q_new, over), push,
-            np.where(active, keep * (1 - q_new), under))
-
-
 def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=None,
                         cdfs_out: dict | None = None):
     """All prices and settlement legs from the same sampled challenger CDFs."""
@@ -1675,21 +1574,9 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
         half = support[:-1] + .5
         j = np.argmin(np.abs(1. - cdf[:, :-1] - .5), axis=1)
         lines = sorted(set([*lines, *half[j].tolist()]))
-        # GPC served totals transform (adopted 2026-10-30): precompute the
-        # per-row fair half-line once; gated rows price byte-identical.
-        if kind == "total":
-            rescale, rescale_fn = _totals_rescale_params(), rescale_totals_legs_toward_half
-        elif kind == "margin":
-            rescale, rescale_fn = _spread_rescale_params(), rescale_spread_legs_toward_half
-        else:
-            rescale, rescale_fn = None, None
-        rescale_fair = half[j] if rescale is not None else None
         for line in lines:
             upper, lower = at(line), at(np.ceil(line) - 1.)
             over, push, under = 1. - upper, np.maximum(upper - lower, 0.), lower
-            if rescale is not None:
-                over, push, under = rescale_fn(
-                    over, push, under, line, rescale_fair, *rescale)
             if DISTRIBUTION_SPORT == "mlb":
                 if kind == "total":
                     suffix = str(float(line)).replace('.', '_')
