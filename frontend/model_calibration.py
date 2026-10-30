@@ -352,7 +352,7 @@ else:
     rows = []
     for _, r in curve_df.iterrows():
         gap = r["gap"]
-        gap_color = utils.PRIMARY if gap > 0 else utils.RED
+        gap_color = utils.RED if gap > 0 else utils.PRIMARY
         gap_txt = f"{gap:+.3f}"
         _cb = _cal_buckets.get(r["bucket"])
         _fb = _cal_wr.get(r["bucket"])
@@ -427,7 +427,7 @@ else:
             else "<td style='color:#64748B;'>—</td>"
         )
         gap_tot = mp_tot - ma_tot
-        tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
+        tot_color = utils.RED if gap_tot > 0 else utils.PRIMARY
         rows.append(
             f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
             f"<td>{mp_tot:.3f}</td><td>{ma_tot:.3f}</td>{cal_tot_cell}{cw_tot_cell}"
@@ -445,7 +445,7 @@ else:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Favored-team view in 5% buckets: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative). Buckets regroup the stored per-game history while artifacts still carry the 10% grid, so counts follow the wider decided-history population (n ≈ 7,046) rather than the graded pool (n = 6,879) the KPI cards use.
+          Favored-team view in 5% buckets: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Red: overconfident (positive). Green: underconfident (negative). Buckets regroup the stored per-game history while artifacts still carry the 10% grid, so counts follow the wider decided-history population (n ≈ 7,046) rather than the graded pool (n = 6,879) the KPI cards use.
           CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment. TOTAL CALIBRATED = count-weighted mean across those calibrated buckets (each game counted once in the bucket its calibrated probability falls in).
           CALIB. WIN RATE = the realized win rate inside each CALIBRATED bucket — the artifact's calibrated partition when it publishes one, otherwise computed from the stored per-game prequential column (the green line's source; its bucket counts then follow that wider decided-history population, not the graded pool the raw columns use).
         </div>
