@@ -65,6 +65,13 @@ def _paired(y, p_base, p_treat, gamedays, label, seed=42):
 
 def _grade_at_line(priced, market, tag):
     j = priced.merge(market, on="game_id", how="inner")
+    # priced may already carry gameday (passed through the causal frame),
+    # colliding with market's -> gameday_x/gameday_y. Coalesce to one.
+    if "gameday" not in j.columns:
+        for _gx, _gy in (("gameday_x", "gameday_y"),):
+            if _gx in j.columns:
+                j["gameday"] = j[_gx].where(j[_gx].notna(), j.get(_gy))
+                break
     print(f"{tag}: priced={len(priced)} market-join={len(j)}", flush=True)
     j["total"] = j["home_score"] + j["away_score"]
     j["U"] = pd.to_numeric(j["total_line"], errors="coerce")
@@ -139,20 +146,27 @@ def main() -> None:
         config.DISTRIBUTION_LOCATION_BIAS_CORRECT = flag
         s1 = time.time()
         priced, bundle = dist_mod.calibrate_market_frame(frame)
+        # priced carries only model outputs; reattach keys positionally-
+        # free via the frame index (concat().reindex(original_index)
+        # preserves frame.index, which canonical_sort leaves non-reset).
+        for _kc in ("game_id", "gameday"):
+            if _kc not in priced.columns and _kc in frame.columns:
+                priced[_kc] = frame.loc[priced.index, _kc].to_numpy()
         maps = (bundle or {}).get("maps", {})
         has_block = "loc_bias" in (maps.get("variance") or {})
         logger.info("%s: flag=%s block_in_maps=%s rows=%d (%.0fs)",
                     name, flag, has_block, len(priced), time.time() - s1)
         fp = Path(config.RUN_DIAGNOSTICS_DIR) / f"ab_location_retrain_{name}_priced.parquet"
         fp.parent.mkdir(parents=True, exist_ok=True)
-        keep = [c for c in priced.columns if c.startswith("p_over_") or c in (
+        keep = [c for c in priced.columns if c.startswith("p_over_")
+                or c.startswith("p_push_total_") or c in (
             "game_id", "gameday", "home_score", "away_score", "fair_total",
             "distribution_sd_total", "mu_h", "mu_a")]
         priced[keep].to_parquet(fp, index=False)
         results[name] = priced
         config.DISTRIBUTION_LOCATION_BIAS_CORRECT = False
 
-    market = pd.read_csv("nba-backend/run_diagnostics/oof_with_market.csv",
+    market = pd.read_csv(Path(config.RUN_DIAGNOSTICS_DIR) / "oof_with_market.csv",
                          usecols=["game_id", "gameday", "total_line"])
     market["game_id"] = market["game_id"].astype(str)
     ev0 = _grade_at_line(results["K0_control"], market, "K0")
