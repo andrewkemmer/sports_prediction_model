@@ -569,6 +569,36 @@ def test_cal_win_rate_column_falls_back_to_the_stored_column():
         _remove_artifacts()
 
 
+def test_stale_helpers_module_degrades_to_artifact_buckets():
+    """2026-10-30 production red-box: the page hard-called
+    ``mlc.is_five_pct_grid`` while the deploy served an older
+    moneyline_calibration without the 5% helpers — the whole section below
+    the gate card crashed. The page must resolve the helpers via getattr
+    and fall back to the artifact's own buckets when they are missing."""
+    import moneyline_calibration as mlc
+    _write_artifacts()
+    hidden = {}
+    try:
+        for name in ("FIVE_PCT_LABELS", "is_five_pct_grid", "raw_bucket_stats"):
+            hidden[name] = getattr(mlc, name)
+            delattr(mlc, name)
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        text = _all_text(at)
+        assert "Reliability Diagram" in text, "reliability section missing"
+        # Artifact's own buckets stand (no regroup without the helpers).
+        for cb in _calibration_record()["calibration_buckets"]:
+            assert _table_row(text, cb["bucket"]), (
+                f"artifact bucket {cb['bucket']} missing in degraded mode")
+    finally:
+        for name, val in hidden.items():
+            setattr(mlc, name, val)
+        _remove_artifacts()
+
+
 def test_bucket_bounds_parser_handles_the_label_zoo():
     """``_bucket_bounds`` must parse every bucket-label shape in the wild:
     the backends' en-dash form, older fixtures' hyphen form, and the

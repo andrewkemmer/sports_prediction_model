@@ -245,8 +245,16 @@ curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
 # the ten 5% buckets for display — the same display-only grouping the green
 # reference line uses, never a refit. When the artifact already carries the
 # 5% grid (or no history exists), its own buckets stand as before.
-if not curve_df.empty and not mlc.is_five_pct_grid(list(curve_df["bucket"])):
-    _raw5 = mlc.raw_bucket_stats(hist_curve, mlc.FIVE_PCT_LABELS)
+# Resolved via getattr (never a hard attribute): a mixed-version deploy can
+# serve this page against an older moneyline_calibration without the 5%
+# helpers (production 2026-10-30 red-boxed here on mlc.is_five_pct_grid).
+# Degrade to the artifact's own buckets instead of crashing the page.
+_five_labels = getattr(mlc, "FIVE_PCT_LABELS", None)
+_is_five = getattr(mlc, "is_five_pct_grid", None)
+_raw5_fn = getattr(mlc, "raw_bucket_stats", None)
+if (not curve_df.empty and callable(_is_five) and callable(_raw5_fn)
+        and _five_labels and not _is_five(list(curve_df["bucket"]))):
+    _raw5 = _raw5_fn(hist_curve, _five_labels)
     if _raw5:
         curve_df = pd.DataFrame([
             {"bucket": lab,
@@ -254,7 +262,7 @@ if not curve_df.empty and not mlc.is_five_pct_grid(list(curve_df["bucket"])):
              "mean_actual": _raw5[lab]["mean_actual"],
              "count": _raw5[lab]["count"],
              "gap": _raw5[lab]["gap"]}
-            for lab in mlc.FIVE_PCT_LABELS if lab in _raw5
+            for lab in _five_labels if lab in _raw5
         ])
 
 if pts.empty:
