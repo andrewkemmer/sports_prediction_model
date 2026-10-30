@@ -809,6 +809,27 @@ DISTRIBUTION_TOTALS_RESCALE_GATE = float(os.environ.get(
 DISTRIBUTION_TOTALS_RESCALE_CAP = float(os.environ.get(
     "NBA_TOTALS_RESCALE_CAP", "0.12"))
 
+# Spreads remediation: causal global scale (GPC playbook, adopted 2026-10-30).
+# Model spread sigma is systemically too thin: the 6%+ disagreement tail is
+# badly uncalibrated (10%+ bucket d=+0.050 at S=6). Same Normal-CDF sigma
+# widening as totals, but the 3-6% slice is SKILLED (shrinkage harms it:
+# d=-0.004 at every scale), so the gate is 0.06, not 0.03. Served legs are
+# shrunk toward 0.5 in the >6% disagreement regime only; |q-0.5| <= 0.06
+# prices byte-identical. Causal evidence: fixed-scale scan S=4/6/8 gains
+# +0.0162/+0.0186/+0.0201, 95% CIs (gameday-blocked) all exclude 0
+# (S=6: [+0.0091,+0.0278]); 10%+ bucket +0.0497; agreement 0.000;
+# AUC 0.4899 -> 0.5040. S=6.0 is the knee (diminishing past it, asymptote
+# +0.0232 at full shrinkage). SCALE=1.0 restores the incumbent; set
+# ENABLED=False (or NBA_SPREAD_RESCALE=0) as the kill switch. NBA only.
+DISTRIBUTION_SPREAD_RESCALE_ENABLED = str(
+    os.environ.get("NBA_SPREAD_RESCALE", "1")).lower() in {"1", "true", "yes"}
+DISTRIBUTION_SPREAD_RESCALE_SCALE = float(os.environ.get(
+    "NBA_SPREAD_RESCALE_SCALE", "6.0"))
+DISTRIBUTION_SPREAD_RESCALE_GATE = float(os.environ.get(
+    "NBA_SPREAD_RESCALE_GATE", "0.06"))
+DISTRIBUTION_SPREAD_RESCALE_CAP = float(os.environ.get(
+    "NBA_SPREAD_RESCALE_CAP", "0.12"))
+
 # NBA line grids.  Lines are integer thresholds; half-point spread stops are
 # represented by the explicit HALF_STOP_LINES namespace.  Totals use the
 # dedicated p_push_total_<U> namespace to avoid any spread collision.

@@ -1556,6 +1556,41 @@ def _totals_rescale_params():
     return (scale, gate, cap)
 
 
+def _spread_rescale_params():
+    """Served spreads disagreement-shrinkage params, or None when disabled.
+
+    NBA spreads only; every other sport prices byte-identical. SCALE=1.0 is
+    a passthrough. See config.DISTRIBUTION_SPREAD_RESCALE_*.
+    """
+    if DISTRIBUTION_SPORT != "nba":
+        return None
+    if not bool(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_ENABLED", False)):
+        return None
+    try:
+        scale = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_SCALE", 1.0))
+        gate = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_GATE", 0.06))
+        cap = float(getattr(config, "DISTRIBUTION_SPREAD_RESCALE_CAP", 0.12))
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(scale) or scale < 1.0:
+        return None
+    if scale == 1.0:
+        return None
+    return (scale, gate, cap)
+
+
+def rescale_spread_legs_toward_half(home, push, away, line, fair, scale, gate, cap):
+    """Spreads GPC served transform (adopted 2026-10-30): shrink confident spread legs.
+
+    Same Normal-CDF sigma-widening core as the totals GPC, applied to the
+    spread two-way leg at (line - fair_spread). Gate defaults wider (0.06)
+    because the 3-6% slice is skilled. Push legs untouched; gated rows keep
+    their EXACT input values.
+    """
+    return rescale_totals_legs_toward_half(
+        home, push, away, line, fair, scale, gate, cap)
+
+
 def rescale_totals_legs_toward_half(over, push, under, line, fair, scale, gate, cap):
     """GPC served transform (adopted 2026-10-30): shrink confident totals legs.
 
@@ -1642,13 +1677,18 @@ def _distribution_price(frame, maps, n_draws=MC_DRAWS, seed=MC_SEED, meta_out=No
         lines = sorted(set([*lines, *half[j].tolist()]))
         # GPC served totals transform (adopted 2026-10-30): precompute the
         # per-row fair half-line once; gated rows price byte-identical.
-        rescale = _totals_rescale_params() if kind == "total" else None
+        if kind == "total":
+            rescale, rescale_fn = _totals_rescale_params(), rescale_totals_legs_toward_half
+        elif kind == "margin":
+            rescale, rescale_fn = _spread_rescale_params(), rescale_spread_legs_toward_half
+        else:
+            rescale, rescale_fn = None, None
         rescale_fair = half[j] if rescale is not None else None
         for line in lines:
             upper, lower = at(line), at(np.ceil(line) - 1.)
             over, push, under = 1. - upper, np.maximum(upper - lower, 0.), lower
             if rescale is not None:
-                over, push, under = rescale_totals_legs_toward_half(
+                over, push, under = rescale_fn(
                     over, push, under, line, rescale_fair, *rescale)
             if DISTRIBUTION_SPORT == "mlb":
                 if kind == "total":
