@@ -239,8 +239,26 @@ pts = mlc.favored_calibration_pts(hist_curve)
 # Bucketed curve from the artifact (also feeds the reliability table below).
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
 
+# 5% reliability grid: artifacts through 2026-10-28 publish 10%-wide buckets
+# while the backend now emits 5% (training.calibration_buckets n_bins=20).
+# Until a new pipeline run lands, regroup the stored per-game history into
+# the ten 5% buckets for display — the same display-only grouping the green
+# reference line uses, never a refit. When the artifact already carries the
+# 5% grid (or no history exists), its own buckets stand as before.
+if not curve_df.empty and not mlc.is_five_pct_grid(list(curve_df["bucket"])):
+    _raw5 = mlc.raw_bucket_stats(hist_curve, mlc.FIVE_PCT_LABELS)
+    if _raw5:
+        curve_df = pd.DataFrame([
+            {"bucket": lab,
+             "mean_predicted": _raw5[lab]["mean_predicted"],
+             "mean_actual": _raw5[lab]["mean_actual"],
+             "count": _raw5[lab]["count"],
+             "gap": _raw5[lab]["gap"]}
+            for lab in mlc.FIVE_PCT_LABELS if lab in _raw5
+        ])
+
 if pts.empty:
-    # Fallback: 10-point bucket curve from the calibration artifact
+    # Fallback: bucket curve from the calibration artifact (5% grid)
     if curve_df.empty:
         st.info("No calibration curve data available.")
     else:
@@ -349,8 +367,8 @@ else:
         )
         rows.append(
             f"<tr><td>{r['bucket']}</td><td>{r['mean_predicted']:.3f}</td>"
-            f"{cal_cell}{cw_cell}"
-            f"<td>{r['mean_actual']:.3f}</td><td>{int(r['count'])}</td>"
+            f"<td>{r['mean_actual']:.3f}</td>{cal_cell}{cw_cell}"
+            f"<td>{int(r['count'])}</td>"
             f"<td style='color:{gap_color};font-weight:700;'>{gap_txt}</td></tr>"
         )
     # TOTAL row: overall win rate across ALL predictions, count-weighted
@@ -404,22 +422,22 @@ else:
         tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
         rows.append(
             f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
-            f"<td>{mp_tot:.3f}</td>{cal_tot_cell}{cw_tot_cell}"
-            f"<td>{ma_tot:.3f}</td><td>{n_tot}</td>"
+            f"<td>{mp_tot:.3f}</td><td>{ma_tot:.3f}</td>{cal_tot_cell}{cw_tot_cell}"
+            f"<td>{n_tot}</td>"
             f"<td style='color:{tot_color};font-weight:700;'>{gap_tot:+.3f}</td></tr>"
         )
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
-            <thead><tr><th>BUCKET</th><th>MEAN PREDICTED (RAW)</th><th>CALIBRATED</th>
+            <thead><tr><th>BUCKET</th><th>MEAN PREDICTED (RAW)</th><th>MEAN ACTUAL</th><th>CALIBRATED</th>
             <th>CALIB. WIN RATE</th>
-            <th>MEAN ACTUAL</th><th>COUNT</th><th>GAP (RAW)</th></tr></thead>
+            <th>COUNT</th><th>GAP (RAW)</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
+          Favored-team view in 5% buckets: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative). Buckets regroup the stored per-game history while artifacts still carry the 10% grid, so counts follow the wider decided-history population (n ≈ 7,046) rather than the graded pool (n = 6,879) the KPI cards use.
           CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment. TOTAL CALIBRATED = count-weighted mean across those calibrated buckets (each game counted once in the bucket its calibrated probability falls in).
           CALIB. WIN RATE = the realized win rate inside each CALIBRATED bucket — the artifact's calibrated partition when it publishes one, otherwise computed from the stored per-game prequential column (the green line's source; its bucket counts then follow that wider decided-history population, not the graded pool the raw columns use).
         </div>

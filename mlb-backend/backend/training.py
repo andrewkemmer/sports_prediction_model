@@ -754,7 +754,7 @@ def _expected_calibration_error(
 
 
 def calibration_buckets(
-    y_true: np.ndarray, y_pred_prob: np.ndarray, n_bins: int = 10
+    y_true: np.ndarray, y_pred_prob: np.ndarray, n_bins: int = 20
 ) -> list[dict[str, Any]]:
     """Compute calibration bucket data for the dashboard.
 

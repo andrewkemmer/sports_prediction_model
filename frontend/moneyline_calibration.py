@@ -185,6 +185,73 @@ def calibrated_bucket_stats(hist: Optional[pd.DataFrame],
     return out
 
 
+# Ten 5% favored-side buckets covering 50-100% for the reliability table.
+FIVE_PCT_WIDTH = 0.05
+
+
+def is_five_pct_grid(labels: list) -> bool:
+    """True when every label parses to a ~5%-wide interval (the backend's
+    post-20261030 reliability grid). Used by the page to decide whether the
+    artifact already carries the 5% view or the history must be regrouped."""
+    labels = list(labels or [])
+    if not labels:
+        return False
+    for lab in labels:
+        bounds = _bucket_bounds(lab)
+        if bounds is None:
+            return False
+        if abs((bounds[1] - bounds[0]) - FIVE_PCT_WIDTH) > 0.001:
+            return False
+    return True
+
+FIVE_PCT_LABELS = [f"{lo}\u2013{lo + 5}%" for lo in range(50, 100, 5)]
+
+
+def raw_bucket_stats(hist: Optional[pd.DataFrame],
+                     labels: list) -> dict:
+    """Per-bucket RAW view grouped by the favored-side model probability.
+
+    Display-only grouping of the stored per-game predictions — never a
+    refit. Each game counts once at max(p, 1-p); ``win_rate`` is the mean
+    of the stored ``correct`` column in that bucket (the model's pick is
+    the favored side, so ``correct`` is the favorite's win indicator — the
+    same convention ``favored_calibration_pts`` uses for the 1% curve).
+    Returns ``{label: {mean_predicted, mean_actual, count, gap}}`` for the
+    requested labels; empty buckets are omitted. Empty dict (never an
+    error) when the history lacks the two columns."""
+    cols = {"home_win_prob_model", "correct"}
+    if hist is None or getattr(hist, "empty", True) or not cols <= set(hist.columns):
+        return {}
+    raw = pd.to_numeric(hist["home_win_prob_model"], errors="coerce")
+    won = pd.to_numeric(hist["correct"], errors="coerce")
+    ok = raw.notna() & won.notna()
+    if not ok.any():
+        return {}
+    fav = pd.Series(np.maximum(raw[ok], 1.0 - raw[ok]),
+                    index=raw[ok].index)
+    won = won[ok]
+    out: dict = {}
+    for label in labels:
+        bounds = _bucket_bounds(label)
+        if bounds is None:
+            continue
+        lo, hi = bounds
+        mask = (fav >= lo) & (fav < hi)
+        if hi >= 1.0:                     # top bucket is closed at 1.0
+            mask |= (fav == hi)
+        if not mask.any():
+            continue
+        mp = round(float(fav[mask].mean()), 4)
+        ma = round(float(won[mask].mean()), 4)
+        out[str(label)] = {
+            "mean_predicted": mp,
+            "mean_actual": ma,
+            "count": int(mask.sum()),
+            "gap": round(mp - ma, 4),
+        }
+    return out
+
+
 def chart_calibration_curve(
     pts: pd.DataFrame,
     series: list,
