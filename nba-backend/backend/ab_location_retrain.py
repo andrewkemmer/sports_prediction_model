@@ -110,21 +110,29 @@ def main() -> None:
     game_df = folds_mod.canonical_sort(game_df, "gameday")
     logger.info("feature frame: %d rows", len(game_df))
 
-    logger.info("score-ensemble walk-forward (shared by both arms)")
-    ens = dist_mod.walk_forward_oof_ensemble(game_df, progress_every=10)
-    oof = ens["oof"]
-    logger.info("score OOF: %d rows, weights %s (%.0fs)",
-                len(oof), ens.get("member_weights"), time.time() - t0)
-    # team keys for the trial block (score OOF keeps game_id only)
-    teams = game_df[["game_id", "gameday", "home_team", "away_team"]].copy()
-    teams["game_id"] = teams["game_id"].astype(str)
-    oof["game_id"] = oof["game_id"].astype(str)
-    frame = oof.merge(teams.drop_duplicates("game_id"), on="game_id",
-                      how="left", suffixes=("", "_t"))
-    if "gameday_t" in frame.columns:
-        frame = frame.drop(columns=[c for c in frame.columns if c.endswith("_t")])
-    logger.info("team coverage: %.3f", frame["home_team"].notna().mean())
-    frame = frame.sort_values(["gameday", "game_id"], kind="stable").reset_index(drop=True)
+    ckpt = Path(config.RUN_DIAGNOSTICS_DIR) / "ab_location_retrain_score_oof.parquet"
+    if ckpt.exists():
+        logger.info("score-OOF checkpoint found (%s) -- resuming", ckpt)
+        frame = pd.read_parquet(ckpt)
+    else:
+        logger.info("score-ensemble walk-forward (shared by both arms)")
+        ens = dist_mod.walk_forward_oof_ensemble(game_df, progress_every=10)
+        oof = ens["oof"]
+        logger.info("score OOF: %d rows, weights %s (%.0fs)",
+                    len(oof), ens.get("member_weights"), time.time() - t0)
+        # team keys for the trial block (score OOF keeps game_id only)
+        teams = game_df[["game_id", "gameday", "home_team", "away_team"]].copy()
+        teams["game_id"] = teams["game_id"].astype(str)
+        oof["game_id"] = oof["game_id"].astype(str)
+        frame = oof.merge(teams.drop_duplicates("game_id"), on="game_id",
+                          how="left", suffixes=("", "_t"))
+        if "gameday_t" in frame.columns:
+            frame = frame.drop(columns=[c for c in frame.columns if c.endswith("_t")])
+        logger.info("team coverage: %.3f", frame["home_team"].notna().mean())
+        frame = frame.sort_values(["gameday", "game_id"], kind="stable").reset_index(drop=True)
+        ckpt.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(ckpt, index=False)
+        logger.info("score-OOF checkpoint written (%s)", ckpt)
 
     results = {}
     for name, flag in (("K0_control", False), ("K1_locbias", True)):
