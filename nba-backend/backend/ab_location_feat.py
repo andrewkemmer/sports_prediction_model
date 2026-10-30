@@ -17,6 +17,14 @@ Market U is used ONLY to build the diagnostic prior bias in H0... no:
 even H1's bias uses (fair - actual), no market input at all. The arm is
 market-free: trailing own-error correction. Market U appears only in the
 evaluation join (edge slicing, disagreement), never in any feature.
+
+Paired verdict (2026-10-30, on saved OOF, gameday-blocked bootstrap B=2000):
+H2 vs GPC +0.0033 CI [+0.0006,+0.0060] significant BUT agreement -0.0023
+  and scale binds at ceiling 3.0 -- width, not location. REJECTED.
+H3 (H1 location + GPC gate/S=2.0/cap) vs GPC +0.0017 CI [-0.0009,+0.0042]
+  crosses zero -- FAILS the adoption gate. GPC STANDS. The trailing
+  own-error correction (bias +1.04->+0.28, MAE 15.30->15.20, corr -0.121)
+  is banked as a location-model feature for the walk-forward retrain.
 """
 import numpy as np
 import pandas as pd
